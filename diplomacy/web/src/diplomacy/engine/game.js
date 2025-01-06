@@ -14,71 +14,75 @@
 //  You should have received a copy of the GNU Affero General Public License along
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-import {UTILS} from "../utils/utils";
-import {STRINGS} from "../utils/strings";
-import {SortedDict} from "../utils/sorted_dict";
-import {Power} from "./power";
-import {Message} from "./message";
-import {Order} from "../../gui/utils/order";
+import { UTILS } from "../utils/utils";
+import { STRINGS } from "../utils/strings";
+import { SortedDict } from "../utils/sorted_dict";
+import { Power } from "./power";
+import { Message } from "./message";
+import { Order } from "../../gui/utils/order";
 
 export function comparablePhase(shortPhaseName) {
-    /** Return a unique integer corresponding to given short phase name, so that
-     * phases can be compared using such integers.
-     * **/
-    // Phase 'FORMING' is assumed to be the smallest phase.
-    if (shortPhaseName === 'FORMING')
-        return 0;
-    // Phase 'COMPLETED' is assumed to be the greatest phase.
-    if (shortPhaseName === 'COMPLETED')
-        return Number.MAX_SAFE_INTEGER;
-    if (shortPhaseName.length !== 6)
-        throw new Error(`Invalid short phase name: ${shortPhaseName}`);
-    const seasonOrder = {S: 0, F: 1, W: 2};
-    const stepOrder = {M: 0, R: 1, A: 2};
+    if (shortPhaseName === 'FORMING') return 0;
+    if (shortPhaseName === 'COMPLETED') return Number.MAX_SAFE_INTEGER;
+    if (shortPhaseName.length !== 6) throw new Error(`Invalid short phase name: ${shortPhaseName}`);
+    const seasonOrder = { S: 0, F: 1, W: 2 };
+    const stepOrder = { M: 0, R: 1, A: 2 };
     const phaseSeason = shortPhaseName[0];
     const phaseYear = parseInt(shortPhaseName.substring(1, 5), 10);
     const phaseStep = shortPhaseName[5];
-    if (isNaN(phaseYear))
-        throw new Error(`Unable to parse phase year from ${shortPhaseName}`);
-    if (!seasonOrder.hasOwnProperty(phaseSeason))
+    if (isNaN(phaseYear)) throw new Error(`Unable to parse phase year from ${shortPhaseName}`);
+    if (!Object.prototype.hasOwnProperty.call(seasonOrder, phaseSeason))
         throw new Error(`Unable to parse phase season from ${shortPhaseName}`);
-    if (!stepOrder.hasOwnProperty(phaseStep))
+    if (!Object.prototype.hasOwnProperty.call(stepOrder, phaseStep))
         throw new Error(`Unable to parse phase step from ${shortPhaseName}`);
-    return (phaseYear * 100) + (seasonOrder[phaseSeason] * 10) + stepOrder[phaseStep];
+    return phaseYear * 100 + seasonOrder[phaseSeason] * 10 + stepOrder[phaseStep];
 }
 
 export class Game {
     constructor(gameData) {
-        ////// Instead of using: `Object.assign(this, gameState)`,
-        ////// we set each field separately to let IDE know all attributes expected for Game class.
-        //// We first check gameState.
-        // These fields must not be null.
-
         const nonNullFields = [
-            'game_id', 'map_name', 'messages', 'role', 'rules', 'status', 'timestamp_created', 'deadline',
-            'message_history', 'order_history', 'state_history'
+            "game_id",
+            "map_name",
+            "messages",
+            "role",
+            "rules",
+            "status",
+            "timestamp_created",
+            "deadline",
+            "message_history",
+            "order_history",
+            "state_history",
         ];
-        // These fields may be null.
-        const nullFields = ['n_controls', 'registration_password'];
-        // All fields are required.
-        for (let field of nonNullFields)
-            if (!gameData.hasOwnProperty(field) || gameData[field] == null)
-                throw new Error('Game: given state must have field `' + field + '` with non-null value.');
-        for (let field of nullFields)
-            if (!gameData.hasOwnProperty(field))
-                throw new Error('Game: given state must have field `' + field + '`.');
+        const nullFields = ["n_controls", "registration_password"];
 
+        for (let field of nonNullFields) {
+            if (!Object.prototype.hasOwnProperty.call(gameData, field) || gameData[field] == null) {
+                throw new Error(
+                    `Game: given state must have field \`${field}\` with non-null value.`
+                );
+            }
+        }
+        for (let field of nullFields) {
+            if (!Object.prototype.hasOwnProperty.call(gameData, field)) {
+                throw new Error(`Game: given state must have field \`${field}\`.`);
+            }
+        }
         this.game_id = gameData.game_id;
         this.map_name = gameData.map_name;
         this.messages = new SortedDict(gameData instanceof Game ? null : gameData.messages, parseInt);
 
-        // {short phase name => state}
-        this.state_history = new SortedDict(gameData instanceof Game ? gameData.state_history.toDict() : gameData.state_history, comparablePhase);
-        // {short phase name => {power name => [orders]}}
-        this.order_history = new SortedDict(gameData instanceof Game ? gameData.order_history.toDict() : gameData.order_history, comparablePhase);
-        // {short phase name => {unit => [results]}}
-        this.result_history = new SortedDict(gameData instanceof Game ? gameData.result_history.toDict() : gameData.result_history, comparablePhase);
-        // {short phase name => {message.time_sent => message}}
+        this.state_history = new SortedDict(
+            gameData instanceof Game ? gameData.state_history.toDict() : gameData.state_history,
+            comparablePhase
+        );
+        this.order_history = new SortedDict(
+            gameData instanceof Game ? gameData.order_history.toDict() : gameData.order_history,
+            comparablePhase
+        );
+        this.result_history = new SortedDict(
+            gameData instanceof Game ? gameData.result_history.toDict() : gameData.result_history,
+            comparablePhase
+        );
         if (gameData instanceof Game) {
             this.message_history = new SortedDict(gameData.message_history.toDict(), comparablePhase);
         } else {
@@ -102,6 +106,7 @@ export class Game {
         this.controlled_powers = gameData.controlled_powers;
         this.daide_port = gameData.daide_port;
         this.result = gameData.result || null;
+        this.phase = gameData.phase_abbr || null;
 
         this.phase = gameData.phase_abbr || null; // phase abbreviation
 
@@ -113,7 +118,11 @@ export class Game {
                 if (powerState instanceof Power) {
                     this.powers[power_name] = powerState.copy();
                 } else {
-                    this.powers[power_name] = new Power(power_name, (this.isPlayerGame() ? power_name : this.role), this);
+                    this.powers[power_name] = new Power(
+                        power_name,
+                        this.isPlayerGame() ? power_name : this.role,
+                        this
+                    );
                     this.powers[power_name].setState(powerState);
                 }
             }
@@ -121,7 +130,11 @@ export class Game {
             const lastState = this.state_history.lastValue();
             if (lastState.units) {
                 for (let powerName of Object.keys(lastState.units)) {
-                    this.powers[powerName] = new Power(powerName, (this.isPlayerGame() ? powerName : this.role), this);
+                    this.powers[powerName] = new Power(
+                        powerName,
+                        this.isPlayerGame() ? powerName : this.role,
+                        this
+                    );
                 }
             }
         }
@@ -209,12 +222,24 @@ export class Game {
 
     addMessage(message) {
         message = new Message(message);
-        if (!message.time_sent)
-            throw new Error('No time sent for given message.');
-        if (this.messages.hasOwnProperty(message.time_sent))
-            throw new Error('There is already a message with time sent ' + message.time_sent + ' in message history.');
-        if (this.isPlayerGame() && !message.isGlobal() && this.role !== message.sender && this.role !== message.recipient)
-            throw new Error('Given message is not related to current player ' + this.role);
+        if (!message.time_sent) {
+            throw new Error("No time sent for given message.");
+        }
+        if (Object.prototype.hasOwnProperty.call(this.messages, message.time_sent)) {
+            throw new Error(
+                "There is already a message with time sent " +
+                    message.time_sent +
+                    " in message history."
+            );
+        }
+        if (
+            this.isPlayerGame() &&
+            !message.isGlobal() &&
+            this.role !== message.sender &&
+            this.role !== message.recipient
+        ) {
+            throw new Error("Given message is not related to current player " + this.role);
+        }
         this.messages.put(message.time_sent, message);
     }
 
@@ -280,7 +305,9 @@ export class Game {
     }
 
     getPower(name) {
-        return this.powers.hasOwnProperty(name) ? this.powers[name] : null;
+        return Object.prototype.hasOwnProperty.call(this.powers, name)
+            ? this.powers[name]
+            : null;
     }
 
     getRelatedPower() {
@@ -288,7 +315,7 @@ export class Game {
     }
 
     hasPower(powerName) {
-        return this.powers.hasOwnProperty(powerName);
+        return Object.prototype.hasOwnProperty.call(this.powers, powerName);
     }
 
     isPlayerGame(powerName) {
@@ -327,8 +354,7 @@ export class Game {
         this.phase = state.name;
         if (state.units) {
             for (let power_name of Object.keys(state.units)) {
-                if (this.powers.hasOwnProperty(power_name)) {
-                    const units = state.units[power_name];
+                if (Object.prototype.hasOwnProperty.call(this.powers, power_name)) {                    const units = state.units[power_name];
                     const power = this.powers[power_name];
                     power.retreats = {};
                     power.units = [];
@@ -341,22 +367,34 @@ export class Game {
                 }
             }
         }
-        if (state.centers)
-            for (let power_name of Object.keys(state.centers))
-                if (this.powers.hasOwnProperty(power_name))
+        if (state.centers) {
+            for (let power_name of Object.keys(state.centers)) {
+                if (Object.prototype.hasOwnProperty.call(this.powers, power_name)) {
                     this.powers[power_name].centers = state.centers[power_name];
-        if (state.homes)
-            for (let power_name of Object.keys(state.homes))
-                if (this.powers.hasOwnProperty(power_name))
+                }
+            }
+        }
+        if (state.homes) {
+            for (let power_name of Object.keys(state.homes)) {
+                if (Object.prototype.hasOwnProperty.call(this.powers, power_name)) {
                     this.powers[power_name].homes = state.homes[power_name];
-        if (state.influence)
-            for (let power_name of Object.keys(state.influence))
-                if (this.powers.hasOwnProperty(power_name))
+                }
+            }
+        }
+        if (state.influence) {
+            for (let power_name of Object.keys(state.influence)) {
+                if (Object.prototype.hasOwnProperty.call(this.powers, power_name)) {
                     this.powers[power_name].influence = state.influence[power_name];
-        if (state.civil_disorder)
-            for (let power_name of Object.keys(state.civil_disorder))
-                if (this.powers.hasOwnProperty(power_name))
+                }
+            }
+        }
+        if (state.civil_disorder) {
+            for (let power_name of Object.keys(state.civil_disorder)) {
+                if (Object.prototype.hasOwnProperty.call(this.powers, power_name)) {
                     this.powers[power_name].civil_disorder = state.civil_disorder[power_name];
+                }
+            }
+        }
         if (state.builds)
             this.builds = state.builds;
     }
@@ -366,21 +404,28 @@ export class Game {
     }
 
     setOrders(powerName, orders) {
-        if (this.powers.hasOwnProperty(powerName) && (!this.isPlayerGame() || this.isPlayerGame(powerName)))
+        if (
+            Object.prototype.hasOwnProperty.call(this.powers, powerName) &&
+            (!this.isPlayerGame() || this.isPlayerGame(powerName))
+        ) {
             this.powers[powerName].setOrders(orders);
+        }
     }
-
+    
+    
     setWait(powerName, wait) {
-        if (this.powers.hasOwnProperty(powerName)) {
+        if (Object.prototype.hasOwnProperty.call(this.powers, powerName)) {
             this.powers[powerName].wait = wait;
         }
     }
 
     updateDummyPowers(dummyPowers) {
-        for (let dummyPowerName of dummyPowers) if (this.powers.hasOwnProperty(dummyPowerName))
-            this.powers[dummyPowerName].setDummy();
+        for (let dummyPowerName of dummyPowers) {
+            if (Object.prototype.hasOwnProperty.call(this.powers, dummyPowerName)) {
+                this.powers[dummyPowerName].setDummy();
+            }
+        }
     }
-
     updatePowersControllers(controllers, timestamps) {
         for (let entry of Object.entries(controllers)) {
             this.getPower(entry[0]).updateController(entry[1], timestamps[entry[0]]);
@@ -451,23 +496,27 @@ export class Game {
         let messagesToShow = null;
         if (all) {
             messagesToShow = this.message_history.values();
-            if (this.messages.size() && !this.message_history.contains(this.phase))
+            if (this.messages.size() && !this.message_history.contains(this.phase)) {
                 messagesToShow.push(this.messages);
+            }
         } else {
-            if (this.messages.size())
+            if (this.messages.size()) {
                 messagesToShow = [this.messages];
-            else if (this.message_history.contains(this.phase))
+            } else if (this.message_history.contains(this.phase)) {
                 messagesToShow = this.message_history.get(this.phase);
+            }
         }
         for (let messages of messagesToShow) {
             for (let message of messages.values()) {
                 let protagonist = null;
-                if (message.sender === role || message.recipient === 'GLOBAL')
+                if (message.sender === role || message.recipient === 'GLOBAL') {
                     protagonist = message.recipient;
-                else if (message.recipient === role)
+                } else if (message.recipient === role) {
                     protagonist = message.sender;
-                if (!messageChannels.hasOwnProperty(protagonist))
+                }
+                if (!Object.prototype.hasOwnProperty.call(messageChannels, protagonist)) {
                     messageChannels[protagonist] = [];
+                }
                 messageChannels[protagonist].push(message);
             }
         }
@@ -492,20 +541,22 @@ export class Game {
     getOrderTypeToLocs(powerName) {
         const typeToLocs = {};
         for (let loc of this.orderableLocations[powerName]) {
-            // loc may be a coastal province. In such case, we must check province coasts too.
             const associatedLocs = [];
             for (let possibleLoc of Object.keys(this.orderableLocToTypes)) {
-                if (possibleLoc.substring(0, 3).toUpperCase() === loc.toUpperCase()) {
+                if (
+                    possibleLoc.substring(0, 3).toUpperCase() === loc.toUpperCase()
+                ) {
                     associatedLocs.push(possibleLoc);
                 }
             }
             for (let associatedLoc of associatedLocs) {
                 const orderTypes = this.orderableLocToTypes[associatedLoc];
                 for (let orderType of orderTypes) {
-                    if (!typeToLocs.hasOwnProperty(orderType))
+                    if (!Object.prototype.hasOwnProperty.call(typeToLocs, orderType)) {
                         typeToLocs[orderType] = [associatedLoc];
-                    else
+                    } else {
                         typeToLocs[orderType].push(associatedLoc);
+                    }
                 }
             }
         }

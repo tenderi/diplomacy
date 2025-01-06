@@ -14,87 +14,95 @@
 //  You should have received a copy of the GNU Affero General Public License along
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-import {Province} from "./province";
+import { Province } from "./province";
 
 export class MapData {
     constructor(mapInfo, game) {
-        // mapInfo: {powers: [], supply_centers: [], aliases: {alias: name}, loc_type: {loc => type}, loc_abut: {loc => [abuts]}}
-        // game: a NetworkGame object.
         this.game = game;
         this.powers = new Set(mapInfo.powers);
         this.supplyCenters = new Set(mapInfo.supply_centers);
-        this.aliases = Object.assign({}, mapInfo.aliases);
+        this.aliases = new Map(Object.entries(mapInfo.aliases));
         this.provinces = {};
-        for (let entry of Object.entries(mapInfo.loc_type)) {
-            const provinceName = entry[0];
-            const provinceType = entry[1];
-            this.provinces[provinceName] = new Province(provinceName, provinceType, this.supplyCenters.has(provinceName));
+
+        for (const [provinceName, provinceType] of Object.entries(mapInfo.loc_type)) {
+            this.provinces[provinceName] = new Province(
+                provinceName,
+                provinceType,
+                this.supplyCenters.has(provinceName)
+            );
         }
-        for (let entry of Object.entries(mapInfo.loc_abut)) {
-            this.getProvince(entry[0]).setNeighbors(entry[1].map(name => this.getProvince(name)));
+
+        for (const [provinceName, neighbors] of Object.entries(mapInfo.loc_abut)) {
+            const province = this.getProvince(provinceName);
+            if (province) {
+                province.setNeighbors(neighbors.map(name => this.getProvince(name)));
+            }
         }
-        for (let province of Object.values(this.provinces)) {
+
+        for (const province of Object.values(this.provinces)) {
             province.setCoasts(this.provinces);
         }
-        for (let power of Object.values(this.game.powers)) {
-            for (let center of power.centers) {
-                this.getProvince(center).setController(power.name, 'C');
-            }
-            for (let loc of power.influence) {
-                this.getProvince(loc).setController(power.name, 'I');
-            }
-            for (let unit of power.units) {
+
+        for (const power of Object.values(this.game.powers)) {
+            power.centers?.forEach(center => {
+                const province = this.getProvince(center);
+                province?.setController(power.name, 'C');
+            });
+
+            power.influence?.forEach(loc => {
+                const province = this.getProvince(loc);
+                province?.setController(power.name, 'I');
+            });
+
+            power.units?.forEach(unit => {
                 this.__add_unit(unit, power.name);
-            }
-            for (let unit of Object.keys(power.retreats)) {
+            });
+
+            Object.keys(power.retreats ?? {}).forEach(unit => {
                 this.__add_retreat(unit, power.name);
-            }
+            });
         }
-        for (let entry of Object.entries(this.aliases)) {
-            const alias = entry[0];
-            const provinceName = entry[1];
+
+        for (const [alias, provinceName] of this.aliases.entries()) {
             const province = this.getProvince(provinceName);
-            if (province)
-                province.aliases.push(alias);
+            if (province) province.aliases.push(alias);
         }
     }
 
-    __add_unit(unit, power_name) {
-        const splitUnit = unit.split(/ +/);
-        const unitType = splitUnit[0];
-        const location = splitUnit[1];
+    __add_unit(unit, powerName) {
+        const [unitType, location] = unit.split(/ +/);
         const province = this.getProvince(location);
-        province.setController(power_name, 'U');
-        province.unit = unitType;
+        if (province) {
+            province.setController(powerName, 'U');
+            province.unit = unitType;
+        }
     }
 
-    __add_retreat(unit, power_name) {
-        const splitUnit = unit.split(/ +/);
-        const location = splitUnit[1];
+    __add_retreat(unit, powerName) {
+        const [, location] = unit.split(/ +/);
         const province = this.getProvince(location);
-        province.retreatController = power_name;
-        province.retreatUnit = unit;
+        if (province) {
+            province.retreatController = powerName;
+            province.retreatUnit = unit;
+        }
     }
 
     getProvince(abbr) {
-        if (abbr === '')
-            return null;
-        if (abbr[0] === '_')
-            abbr = abbr.substr(1, 3);
-        if (!abbr)
-            return null;
-        if (this.provinces.hasOwnProperty(abbr))
-            return this.provinces[abbr];
-        if (this.provinces.hasOwnProperty(abbr.toUpperCase()))
-            return this.provinces[abbr.toUpperCase()];
-        if (this.provinces.hasOwnProperty(abbr.toLowerCase()))
-            return this.provinces[abbr.toLowerCase()];
-        if (this.aliases.hasOwnProperty(abbr))
-            return this.provinces[this.aliases[abbr]];
-        if (this.aliases.hasOwnProperty(abbr.toUpperCase()))
-            return this.provinces[this.aliases[abbr.toUpperCase()]];
-        if (this.aliases.hasOwnProperty(abbr.toLowerCase()))
-            return this.provinces[this.aliases[abbr.toLowerCase()]];
-        return null;
+        if (!abbr) return null;
+
+        const normalizedAbbr = abbr.startsWith('_') ? abbr.substr(1, 3) : abbr;
+        if (!normalizedAbbr) return null;
+
+        const { provinces, aliases } = this;
+
+        return (
+            provinces[normalizedAbbr] ??
+            provinces[normalizedAbbr.toUpperCase()] ??
+            provinces[normalizedAbbr.toLowerCase()] ??
+            provinces[aliases.get(normalizedAbbr)] ??
+            provinces[aliases.get(normalizedAbbr.toUpperCase())] ??
+            provinces[aliases.get(normalizedAbbr.toLowerCase())] ??
+            null
+        );
     }
 }

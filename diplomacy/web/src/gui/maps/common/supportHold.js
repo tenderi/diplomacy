@@ -15,52 +15,44 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 import React from "react";
-import {centerSymbolAroundUnit, getUnitCenter} from "./common";
 import PropTypes from "prop-types";
+import { centerSymbolAroundUnit, getUnitCenter } from "./common";
 
-export class SupportHold extends React.Component {
-    render() {
-        const Coordinates = this.props.coordinates;
-        const SymbolSizes = this.props.symbolSizes;
-        const Colors = this.props.colors;
-        const loc = this.props.loc;
-        const dest_loc = this.props.dstLoc;
-        const symbol = 'SupportHoldUnit';
-        const [symbol_loc_x, symbol_loc_y] = centerSymbolAroundUnit(Coordinates, SymbolSizes, dest_loc, false, symbol);
-        const [loc_x, loc_y] = getUnitCenter(Coordinates, SymbolSizes, loc, false);
-        let [dest_loc_x, dest_loc_y] = getUnitCenter(Coordinates, SymbolSizes, dest_loc, false);
+export const SupportHold = ({ loc, dstLoc, powerName, coordinates, symbolSizes, colors }) => {
+    const symbol = "SupportHoldUnit";
 
-        const delta_x = dest_loc_x - loc_x;
-        const delta_y = dest_loc_y - loc_y;
-        const vector_length = Math.sqrt(delta_x * delta_x + delta_y * delta_y);
-        const delta_dec = parseFloat(SymbolSizes[symbol].height) / 2;
-        dest_loc_x = '' + Math.round((parseFloat(loc_x) + (vector_length - delta_dec) / vector_length * delta_x) * 100.) / 100.;
-        dest_loc_y = '' + Math.round((parseFloat(loc_y) + (vector_length - delta_dec) / vector_length * delta_y) * 100.) / 100.;
+    // Center the symbol around the destination unit
+    const [symbolLocX, symbolLocY] = centerSymbolAroundUnit(coordinates, symbolSizes, dstLoc, false, symbol);
+    const [locX, locY] = getUnitCenter(coordinates, symbolSizes, loc, false);
+    let [destLocX, destLocY] = getUnitCenter(coordinates, symbolSizes, dstLoc, false);
 
-        return (
-            <g stroke={Colors[this.props.powerName]}>
-                <line x1={loc_x}
-                      y1={loc_y}
-                      x2={dest_loc_x}
-                      y2={dest_loc_y}
-                      className={'shadowdash'}/>
-                <line x1={loc_x}
-                      y1={loc_y}
-                      x2={dest_loc_x}
-                      y2={dest_loc_y}
-                      className={'supportorder'}
-                      stroke={Colors[this.props.powerName]}/>
-                <use
-                    x={symbol_loc_x}
-                    y={symbol_loc_y}
-                    width={SymbolSizes[symbol].width}
-                    height={SymbolSizes[symbol].height}
-                    href={`#${symbol}`}
-                />
-            </g>
-        );
-    }
-}
+    // Adjust destination location
+    const deltaX = destLocX - locX;
+    const deltaY = destLocY - locY;
+    const vectorLength = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+    const deltaDec = parseFloat(symbolSizes[symbol].height) / 2;
+
+    destLocX = (
+        Math.round((parseFloat(locX) + (vectorLength - deltaDec) / vectorLength * deltaX) * 100) / 100
+    ).toString();
+    destLocY = (
+        Math.round((parseFloat(locY) + (vectorLength - deltaDec) / vectorLength * deltaY) * 100) / 100
+    ).toString();
+
+    return (
+        <g stroke={colors[powerName]}>
+            <line x1={locX} y1={locY} x2={destLocX} y2={destLocY} className="shadowdash" />
+            <line x1={locX} y1={locY} x2={destLocX} y2={destLocY} className="supportorder" stroke={colors[powerName]} />
+            <use
+                x={symbolLocX}
+                y={symbolLocY}
+                width={symbolSizes[symbol].width}
+                height={symbolSizes[symbol].height}
+                href={`#${symbol}`}
+            />
+        </g>
+    );
+};
 
 SupportHold.propTypes = {
     loc: PropTypes.string.isRequired,
@@ -68,5 +60,5 @@ SupportHold.propTypes = {
     powerName: PropTypes.string.isRequired,
     coordinates: PropTypes.object.isRequired,
     symbolSizes: PropTypes.object.isRequired,
-    colors: PropTypes.object.isRequired
+    colors: PropTypes.object.isRequired,
 };

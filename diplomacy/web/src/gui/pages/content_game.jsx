@@ -15,42 +15,42 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 import React from "react";
-import Scrollchor from 'react-scrollchor';
-import {SelectLocationForm} from "../forms/select_location_form";
-import {SelectViaForm} from "../forms/select_via_form";
-import {Order} from "../utils/order";
-import {Row} from "../components/layouts";
-import {Tabs} from "../components/tabs";
-import {extendOrderBuilding, ORDER_BUILDER, POSSIBLE_ORDERS} from "../utils/order_building";
-import {PowerOrderCreationForm} from "../forms/power_order_creation_form";
-import {MessageForm} from "../forms/message_form";
-import {UTILS} from "../../diplomacy/utils/utils";
-import {Message} from "../../diplomacy/engine/message";
-import {PowerOrders} from "../components/power_orders";
-import {MessageView} from "../components/message_view";
-import {STRINGS} from "../../diplomacy/utils/strings";
-import {Diplog} from "../../diplomacy/utils/diplog";
-import {Table} from "../components/table";
-import {PowerView} from "../utils/power_view";
-import {DipStorage} from "../utils/dipStorage";
-import Helmet from 'react-helmet';
-import {Navigation} from "../components/navigation";
-import {PageContext} from "../components/page_context";
-import PropTypes from 'prop-types';
-import {Help} from "../components/help";
-import {Tab} from "../components/tab";
-import {Button} from "../components/button";
-import {saveGameToDisk} from "../utils/saveGameToDisk";
-import {Game} from '../../diplomacy/engine/game';
-import {PowerOrdersActionBar} from "../components/power_orders_actions_bar";
-import {SvgStandard} from "../maps/standard/SvgStandard";
-import {SvgAncMed} from "../maps/ancmed/SvgAncMed";
-import {SvgModern} from "../maps/modern/SvgModern";
-import {SvgPure} from "../maps/pure/SvgPure";
-import {MapData} from "../utils/map_data";
-import {Queue} from "../../diplomacy/utils/queue";
+import Scrollchor from "react-scrollchor";
+import { SelectLocationForm } from "../forms/select_location_form";
+import { SelectViaForm } from "../forms/select_via_form";
+import { Order } from "../utils/order";
+import { Row } from "../components/layouts";
+import { Tabs } from "../components/tabs";
+import { extendOrderBuilding, ORDER_BUILDER, POSSIBLE_ORDERS } from "../utils/order_building";
+import { PowerOrderCreationForm } from "../forms/power_order_creation_form";
+import { MessageForm } from "../forms/message_form";
+import { UTILS } from "../../diplomacy/utils/utils";
+import { Message } from "../../diplomacy/engine/message";
+import { PowerOrders } from "../components/power_orders";
+import { MessageView } from "../components/message_view";
+import { STRINGS } from "../../diplomacy/utils/strings";
+import { Diplog } from "../../diplomacy/utils/diplog";
+import { Table } from "../components/table";
+import { PowerView } from "../utils/power_view";
+import { DipStorage } from "../utils/dipStorage";
+import { Helmet } from "react-helmet-async"; // Updated import
+import { Navigation } from "../components/navigation";
+import { PageContext } from "../components/page_context";
+import PropTypes from "prop-types";
+import { Help } from "../components/help";
+import { Tab } from "../components/tab";
+import { Button } from "../components/button";
+import { saveGameToDisk } from "../utils/saveGameToDisk";
+import { Game } from "../../diplomacy/engine/game";
+import { PowerOrdersActionBar } from "../components/power_orders_actions_bar";
+import { SvgStandard } from "../maps/standard/SvgStandard";
+import { SvgAncMed } from "../maps/ancmed/SvgAncMed";
+import { SvgModern } from "../maps/modern/SvgModern";
+import { SvgPure } from "../maps/pure/SvgPure";
+import { MapData } from "../utils/map_data";
+import { Queue } from "../../diplomacy/utils/queue";
 
-const HotKey = require('react-shortcut');
+const HotKey = require("react-shortcut");
 
 /* Order management in game page.
  * When editing orders locally, we have to compare it to server orders
@@ -66,38 +66,37 @@ const HotKey = require('react-shortcut');
  * {orders}  null       1 (different, user wants to delete all server orders, will result to "no-orders")
  * {orders}  {}         1 (different, user wants to delete all server orders, will result to "no-orders")
  * {orders}  {orders}   same if we have exactly same orders on both server and local
-  * */
+ */
 
 const TABLE_POWER_VIEW = {
-    name: ['Power', 0],
-    controller: ['Controller', 1],
-    order_is_set: ['With orders', 2],
-    wait: ['Waiting', 3]
+  name: ["Power", 0],
+  controller: ["Controller", 1],
+  order_is_set: ["With orders", 2],
+  wait: ["Waiting", 3],
 };
 
 const PRETTY_ROLES = {
-    [STRINGS.OMNISCIENT_TYPE]: 'Omnicient',
-    [STRINGS.OBSERVER_TYPE]: 'Observer'
+  [STRINGS.OMNISCIENT_TYPE]: "Omnicient",
+  [STRINGS.OBSERVER_TYPE]: "Observer",
 };
 
 const MAP_COMPONENTS = {
-    ancmed: SvgAncMed,
-    standard: SvgStandard,
-    modern: SvgModern,
-    pure: SvgPure
+  ancmed: SvgAncMed,
+  standard: SvgStandard,
+  modern: SvgModern,
+  pure: SvgPure,
 };
 
-function getMapComponent(mapName) {
-    for (let rootMap of Object.keys(MAP_COMPONENTS)) {
-        if (mapName.indexOf(rootMap) === 0)
-            return MAP_COMPONENTS[rootMap];
+const getMapComponent = (mapName) => {
+    const rootMap = Object.keys(MAP_COMPONENTS).find((root) => mapName.startsWith(root));
+    if (rootMap) {
+        return MAP_COMPONENTS[rootMap];
     }
     throw new Error(`Un-implemented map: ${mapName}`);
-}
+};
 
-function noPromise() {
-    return new Promise(resolve => resolve());
-}
+const noPromise = () => Promise.resolve();
+
 
 export class ContentGame extends React.Component {
 
@@ -185,7 +184,7 @@ export class ContentGame extends React.Component {
     }
 
     static prettyRole(role) {
-        if (PRETTY_ROLES.hasOwnProperty(role))
+        if (Object.prototype.hasOwnProperty.call(PRETTY_ROLES, role))
             return PRETTY_ROLES[role];
         return role;
     }
@@ -317,25 +316,28 @@ export class ContentGame extends React.Component {
             this.forceUpdate();
     }
 
-    reloadDeadlineTimer(networkGame) {
-        networkGame.querySchedule()
-            .then(dataSchedule => {
-                const schedule = dataSchedule.schedule;
-                const server_current = schedule.current_time;
-                const server_end = schedule.time_added + schedule.delay;
-                const server_remaining = server_end - server_current;
-                this.props.data.deadline_timer = server_remaining * schedule.time_unit;
-                if (!this.schedule_timeout_id)
-                    this.schedule_timeout_id = setInterval(this.updateDeadlineTimer, schedule.time_unit * 1000);
-            })
-            .catch(() => {
-                if (this.props.data.hasOwnProperty('deadline_timer'))
-                    delete this.props.data.deadline_timer;
-                this.clearScheduleTimeout();
-            });
-    }
-
-    // [ Network game notifications.
+    reloadDeadlineTimer = async (networkGame) => {
+        try {
+            const dataSchedule = await networkGame.querySchedule();
+            const { current_time, time_added, delay, time_unit } = dataSchedule.schedule;
+    
+            const serverRemaining = (time_added + delay - current_time) * time_unit;
+            this.props.data.deadline_timer = serverRemaining;
+    
+            if (!this.schedule_timeout_id) {
+                this.schedule_timeout_id = setInterval(
+                    this.updateDeadlineTimer,
+                    time_unit * 1000
+                );
+            }
+        } catch (error) {
+            if (Object.prototype.hasOwnProperty.call(this.props.data, "deadline_timer")) {
+                delete this.props.data.deadline_timer;
+            }
+            this.clearScheduleTimeout();
+        }
+    };
+        // [ Network game notifications.
 
     /**
      * Return True if given network game is the game currently displayed on the interface.
@@ -355,24 +357,30 @@ export class ContentGame extends React.Component {
         return noPromise();
     }
 
-    notifiedPowersControllers(networkGame, notification) {
-        if (networkGame.local.isPlayerGame() && (
-            !networkGame.channel.game_id_to_instances.hasOwnProperty(networkGame.local.game_id)
-            || !networkGame.channel.game_id_to_instances[networkGame.local.game_id].has(networkGame.local.role)
-        )) {
+    notifiedPowersControllers = async (networkGame, notification) => {
+        const { local, channel } = networkGame;
+    
+        if (
+            local.isPlayerGame() &&
+            (
+                !Object.prototype.hasOwnProperty.call(channel.game_id_to_instances, local.game_id) ||
+                !channel.game_id_to_instances[local.game_id]?.has(local.role)
+            )
+        ) {
             // This power game is now invalid.
-            return this.getPage().disconnectGame(networkGame.local.game_id)
-                .then(() => {
-                    if (this.networkGameIsDisplayed(networkGame)) {
-                        return this.getPage().loadGames(
-                            {error: `${networkGame.local.game_id}/${networkGame.local.role} was kicked. Deadline over?`});
-                    }
+            await this.getPage().disconnectGame(local.game_id);
+    
+            if (this.networkGameIsDisplayed(networkGame)) {
+                return this.getPage().loadGames({
+                    error: `${local.game_id}/${local.role} was kicked. Deadline over?`,
                 });
-        } else {
-            return this.notifiedNetworkGame(networkGame, notification);
+            }
+            return;
         }
-    }
-
+    
+        return this.notifiedNetworkGame(networkGame, notification);
+    };
+    
     notifiedGamePhaseUpdated(networkGame, notification) {
         return networkGame.getAllPossibleOrders()
             .then(allPossibleOrders => {
@@ -406,19 +414,25 @@ export class ContentGame extends React.Component {
             .catch(error => this.getPage().error('Error when updating possible orders: ' + error.toString()));
     }
 
-    notifiedNewGameMessage(networkGame, notification) {
-        let protagonist = notification.message.sender;
-        if (notification.message.recipient === 'GLOBAL')
-            protagonist = notification.message.recipient;
-        const messageHighlights = Object.assign({}, this.state.messageHighlights);
-        if (!messageHighlights.hasOwnProperty(protagonist))
-            messageHighlights[protagonist] = 1;
-        else
-            ++messageHighlights[protagonist];
-        return this.setState({messageHighlights: messageHighlights})
-            .then(() => this.notifiedNetworkGame(networkGame, notification));
-    }
-
+    notifiedNewGameMessage = async (networkGame, notification) => {
+        const { sender, recipient } = notification.message;
+        const protagonist = recipient === "GLOBAL" ? recipient : sender;
+    
+        this.setState((prevState) => {
+            const messageHighlights = { ...prevState.messageHighlights };
+    
+            if (!Object.prototype.hasOwnProperty.call(messageHighlights, protagonist)) {
+                messageHighlights[protagonist] = 1;
+            } else {
+                messageHighlights[protagonist]++;
+            }
+    
+            return { messageHighlights };
+        });
+    
+        return this.notifiedNetworkGame(networkGame, notification);
+    };
+    
     bindCallbacks(networkGame) {
         const collector = (game, notification) => {
             game.queue.append(notification);
@@ -540,27 +554,29 @@ export class ContentGame extends React.Component {
      * @returns {{}}
      * @private
      */
-    __get_orders(engine) {
+    __get_orders = (engine) => {
         const orders = engine.getServerOrders();
+    
         if (this.state.orders) {
-            for (let powerName of Object.keys(orders)) {
-                const serverPowerOrders = orders[powerName];
+            for (const [powerName, serverPowerOrders] of Object.entries(orders)) {
                 const localPowerOrders = this.state.orders[powerName];
+    
                 if (localPowerOrders) {
-                    for (let localOrder of Object.values(localPowerOrders)) {
-                        localOrder.local = (
-                            !serverPowerOrders
-                            || !serverPowerOrders.hasOwnProperty(localOrder.loc)
-                            || serverPowerOrders[localOrder.loc].order !== localOrder.order
-                        );
+                    for (const localOrder of Object.values(localPowerOrders)) {
+                        localOrder.local =
+                            !serverPowerOrders ||
+                            !Object.prototype.hasOwnProperty.call(serverPowerOrders, localOrder.loc) ||
+                            serverPowerOrders[localOrder.loc].order !== localOrder.order;
                     }
                 }
+    
                 orders[powerName] = localPowerOrders;
             }
         }
+    
         return orders;
-    }
-
+    };
+    
     /**
      * Save given orders into local storage.
      * @param orders - orders to save
@@ -586,19 +602,22 @@ export class ContentGame extends React.Component {
      * Reset local orders and replace them with current server orders for given power.
      * @param {string} powerName - name of power to update
      */
-    reloadPowerServerOrders(powerName) {
-        const serverOrders = this.props.data.getServerOrders();
-        const engine = this.props.data;
-        const allOrders = this.__get_orders(engine);
-        if (!allOrders.hasOwnProperty(powerName)) {
-            return this.getPage().error(`Unknown power ${powerName}.`);
+    reloadPowerServerOrders = async (powerName) => {
+        const { data } = this.props;
+        const serverOrders = data.getServerOrders();
+        const allOrders = this.__get_orders(data);
+    
+        if (!Object.prototype.hasOwnProperty.call(allOrders, powerName)) {
+            this.getPage().error(`Unknown power ${powerName}.`);
+            return;
         }
+    
         allOrders[powerName] = serverOrders[powerName];
         this.__store_orders(allOrders);
-        return this.setState({orders: allOrders});
-    }
-
-    /**
+    
+        await this.setState({ orders: allOrders });
+    };
+        /**
      * Reset local orders and replace them with current server orders for current selected power.
      */
     reloadServerOrders() {
@@ -615,39 +634,45 @@ export class ContentGame extends React.Component {
      * @param {string} powerName - power name
      * @param {Order} order - order to remove
      */
-    onRemoveOrder(powerName, order) {
+    onRemoveOrder = (powerName, order) => {
         const orders = this.__get_orders(this.props.data);
-        if (orders.hasOwnProperty(powerName)
-            && orders[powerName].hasOwnProperty(order.loc)
-            && orders[powerName][order.loc].order === order.order) {
+    
+        if (
+            Object.prototype.hasOwnProperty.call(orders, powerName) &&
+            Object.prototype.hasOwnProperty.call(orders[powerName], order.loc) &&
+            orders[powerName][order.loc].order === order.order
+        ) {
             delete orders[powerName][order.loc];
-            if (!UTILS.javascript.count(orders[powerName]))
+    
+            // If no orders remain, set power orders to null.
+            if (!UTILS.javascript.count(orders[powerName])) {
                 orders[powerName] = null;
-            this.__store_orders(orders);
-            this.setState({orders: orders});
-        }
-    }
-
-    /**
-     * Remove all local orders for current selected power, including empty orders set.
-     * Equivalent request is clearOrders().
-     */
-    onRemoveAllCurrentPowerOrders() {
-        const currentPowerName = this.getCurrentPowerName();
-        if (currentPowerName) {
-            const engine = this.props.data;
-            const allOrders = this.__get_orders(engine);
-            if (!allOrders.hasOwnProperty(currentPowerName)) {
-                this.getPage().error(`Unknown power ${currentPowerName}.`);
-                return;
             }
-            allOrders[currentPowerName] = null;
-            this.__store_orders(allOrders);
-            this.setState({orders: allOrders});
+    
+            this.__store_orders(orders);
+            this.setState({ orders });
         }
-    }
-
-    /**
+    };
+    
+    onRemoveAllCurrentPowerOrders = () => {
+        const currentPowerName = this.getCurrentPowerName();
+    
+        if (!currentPowerName) return;
+    
+        const engine = this.props.data;
+        const allOrders = this.__get_orders(engine);
+    
+        if (!Object.prototype.hasOwnProperty.call(allOrders, currentPowerName)) {
+            this.getPage().error(`Unknown power ${currentPowerName}.`);
+            return;
+        }
+    
+        allOrders[currentPowerName] = null;
+    
+        this.__store_orders(allOrders);
+        this.setState({ orders: allOrders });
+    };
+        /**
      * Set an empty local orders set for given power name.
      * @param {string} powerName - power name
      */
@@ -728,30 +753,36 @@ export class ContentGame extends React.Component {
             .then(() => this.getPage().success(`Building order ${pathToSave.join(' ')} ...`));
     }
 
-    onOrderBuilt(powerName, orderString) {
-        const state = Object.assign({}, this.state);
-        state.orderBuildingPath = [];
-        if (!orderString) {
-            Diplog.warn('No order built.');
-            return this.setState(state);
-        }
-        const engine = this.props.data;
-        const localOrder = new Order(orderString, true);
-        const allOrders = this.__get_orders(engine);
-        if (!allOrders.hasOwnProperty(powerName)) {
-            Diplog.warn(`Unknown power ${powerName}.`);
-            return this.setState(state);
-        }
-
-        if (!allOrders[powerName])
-            allOrders[powerName] = {};
-        allOrders[powerName][localOrder.loc] = localOrder;
-        state.orders = allOrders;
-        this.getPage().success(`Built order: ${orderString}`);
-        this.__store_orders(allOrders);
-        return this.setState(state);
-    }
-
+    onOrderBuilt = (powerName, orderString) => {
+        this.setState((prevState) => {
+            const updatedState = { ...prevState, orderBuildingPath: [] };
+    
+            if (!orderString) {
+                Diplog.warn("No order built.");
+                return updatedState;
+            }
+    
+            const engine = this.props.data;
+            const localOrder = new Order(orderString, true);
+            const allOrders = this.__get_orders(engine);
+    
+            if (!Object.prototype.hasOwnProperty.call(allOrders, powerName)) {
+                Diplog.warn(`Unknown power ${powerName}.`);
+                return updatedState;
+            }
+    
+            if (!allOrders[powerName]) {
+                allOrders[powerName] = {};
+            }
+    
+            allOrders[powerName][localOrder.loc] = localOrder;
+            this.getPage().success(`Built order: ${orderString}`);
+            this.__store_orders(allOrders);
+    
+            return { ...updatedState, orders: allOrders };
+        });
+    };
+    
     onChangeOrderType(form) {
         return this.setState({
             orderBuildingType: form.order_type,
@@ -844,21 +875,26 @@ export class ContentGame extends React.Component {
         return this.setState({showAbbreviations: event.target.checked});
     }
 
-    onClickMessage(message) {
+    onClickMessage = (message) => {
         if (!message.read) {
-            message.read = true;
-            let protagonist = message.sender;
-            if (message.recipient === 'GLOBAL')
-                protagonist = message.recipient;
-            this.getPage().load(`game: ${this.props.data.game_id}`, <ContentGame data={this.props.data}/>);
-            if (this.state.messageHighlights.hasOwnProperty(protagonist) && this.state.messageHighlights[protagonist] > 0) {
-                const messageHighlights = Object.assign({}, this.state.messageHighlights);
-                --messageHighlights[protagonist];
-                this.setState({messageHighlights: messageHighlights});
+    
+            const protagonist = message.recipient === "GLOBAL" ? message.recipient : message.sender;
+    
+            this.getPage().load(`game: ${this.props.data.game_id}`, <ContentGame data={this.props.data} />);
+    
+            if (
+                Object.prototype.hasOwnProperty.call(this.state.messageHighlights, protagonist) &&
+                this.state.messageHighlights[protagonist] > 0
+            ) {
+                this.setState((prevState) => {
+                    const messageHighlights = { ...prevState.messageHighlights };
+                    messageHighlights[protagonist]--;
+                    return { messageHighlights };
+                });
             }
         }
-    }
-
+    };
+    
     displayLocationOrders(loc, orders) {
         return this.setState({
             historyCurrentLoc: loc || null,
@@ -881,61 +917,91 @@ export class ContentGame extends React.Component {
         return render;
     }
 
-    renderPastMessages(engine, role) {
+    renderPastMessages = (engine, role) => {
         const messageChannels = engine.getMessageChannels(role, true);
-        const tabNames = [];
-        for (let powerName of Object.keys(engine.powers)) if (powerName !== role)
-            tabNames.push(powerName);
-        tabNames.sort();
-        tabNames.push('GLOBAL');
-        const titles = tabNames.map(tabName => (tabName === 'GLOBAL' ? tabName : tabName.substr(0, 3)));
-        const currentTabId = this.state.tabPastMessages || tabNames[0];
-
+    
+        const tabNames = Object.keys(engine.powers)
+            .filter((powerName) => powerName !== role)
+            .sort();
+        tabNames.push("GLOBAL");
+    
+        const titles = tabNames.map((tabName) => (tabName === "GLOBAL" ? tabName : tabName.substr(0, 3)));
+        const { tabPastMessages } = this.state;
+        const currentTabId = tabPastMessages || tabNames[0];
+    
         return (
-            <div className={'panel-messages'} key={'panel-messages'}>
-                {/* Messages. */}
+            <div className="panel-messages" key="panel-messages">
                 <Tabs menu={tabNames} titles={titles} onChange={this.onChangeTabPastMessages} active={currentTabId}>
-                    {tabNames.map(protagonist => (
-                        <Tab key={protagonist} className={'game-messages'} display={currentTabId === protagonist}>
-                            {(!messageChannels.hasOwnProperty(protagonist) || !messageChannels[protagonist].length ?
-                                    (<div className={'no-game-message'}>No
-                                        messages{engine.isPlayerGame() ? ` with ${protagonist}` : ''}.</div>) :
+                    {tabNames.map((protagonist) => {
+                        const hasMessages =
+                            Object.prototype.hasOwnProperty.call(messageChannels, protagonist) &&
+                            messageChannels[protagonist].length > 0;
+    
+                        return (
+                            <Tab key={protagonist} className="game-messages" display={currentTabId === protagonist}>
+                                {!hasMessages ? (
+                                    <div className="no-game-message">
+                                        No messages{engine.isPlayerGame() ? ` with ${protagonist}` : ""}.
+                                    </div>
+                                ) : (
                                     messageChannels[protagonist].map((message, index) => (
-                                        <MessageView key={index} phase={engine.phase} owner={role} message={message}
-                                                     read={true}/>
+                                        <MessageView
+                                            key={index}
+                                            phase={engine.phase}
+                                            owner={role}
+                                            message={message}
+                                            read={true}
+                                        />
                                     ))
-                            )}
-                        </Tab>
-                    ))}
+                                )}
+                            </Tab>
+                        );
+                    })}
                 </Tabs>
             </div>
         );
-    }
-
-    renderCurrentMessages(engine, role) {
+    };
+    
+    renderCurrentMessages = (engine, role) => {
         const messageChannels = engine.getMessageChannels(role, true);
-        const tabNames = [];
-        for (let powerName of Object.keys(engine.powers)) if (powerName !== role)
-            tabNames.push(powerName);
-        tabNames.sort();
-        tabNames.push('GLOBAL');
-        const titles = tabNames.map(tabName => (tabName === 'GLOBAL' ? tabName : tabName.substr(0, 3)));
-        const currentTabId = this.state.tabCurrentMessages || tabNames[0];
-        const highlights = this.state.messageHighlights;
+    
+        const tabNames = Object.keys(engine.powers)
+            .filter((powerName) => powerName !== role)
+            .sort();
+        tabNames.push("GLOBAL");
+    
+        const titles = tabNames.map((tabName) => (tabName === "GLOBAL" ? tabName : tabName.substr(0, 3)));
+        const { tabCurrentMessages, messageHighlights } = this.state;
+        const currentTabId = tabCurrentMessages || tabNames[0];
         const unreadMarked = new Set();
-
+    
         return (
-            <div className={'panel-messages'} key={'panel-messages'}>
-                {/* Messages. */}
-                <Tabs menu={tabNames} titles={titles} onChange={this.onChangeTabCurrentMessages} active={currentTabId}
-                      highlights={highlights}>
-                    {tabNames.map(protagonist => (
-                        <Tab key={protagonist} className={'game-messages'} display={currentTabId === protagonist}
-                             id={`panel-current-messages-${protagonist}`}>
-                            {(!messageChannels.hasOwnProperty(protagonist) || !messageChannels[protagonist].length ?
-                                    (<div className={'no-game-message'}>No
-                                        messages{engine.isPlayerGame() ? ` with ${protagonist}` : ''}.</div>) :
-                                    (messageChannels[protagonist].map((message, index) => {
+            <div className="panel-messages" key="panel-messages">
+                <Tabs
+                    menu={tabNames}
+                    titles={titles}
+                    onChange={this.onChangeTabCurrentMessages}
+                    active={currentTabId}
+                    highlights={messageHighlights}
+                >
+                    {tabNames.map((protagonist) => {
+                        const hasMessages =
+                            Object.prototype.hasOwnProperty.call(messageChannels, protagonist) &&
+                            messageChannels[protagonist]?.length > 0;
+    
+                        return (
+                            <Tab
+                                key={protagonist}
+                                className="game-messages"
+                                display={currentTabId === protagonist}
+                                id={`panel-current-messages-${protagonist}`}
+                            >
+                                {!hasMessages ? (
+                                    <div className="no-game-message">
+                                        No messages{engine.isPlayerGame() ? ` with ${protagonist}` : ""}.
+                                    </div>
+                                ) : (
+                                    messageChannels[protagonist].map((message, index) => {
                                         let id = null;
                                         if (!message.read && !unreadMarked.has(protagonist)) {
                                             if (engine.isOmniscientGame() || message.sender !== role) {
@@ -943,30 +1009,45 @@ export class ContentGame extends React.Component {
                                                 id = `${protagonist}-unread`;
                                             }
                                         }
-                                        return <MessageView key={index} phase={engine.phase} owner={role}
-                                                            message={message}
-                                                            read={message.phase !== engine.phase}
-                                                            id={id} onClick={this.onClickMessage}/>;
-                                    }))
-                            )}
-                        </Tab>
-                    ))}
+                                        return (
+                                            <MessageView
+                                                key={index}
+                                                phase={engine.phase}
+                                                owner={role}
+                                                message={message}
+                                                read={message.phase !== engine.phase}
+                                                id={id}
+                                                onClick={this.onClickMessage}
+                                            />
+                                        );
+                                    })
+                                )}
+                            </Tab>
+                        );
+                    })}
                 </Tabs>
-                {/* Link to go to first unread received message. */}
+                {/* Link to the first unread message */}
                 {unreadMarked.has(currentTabId) && (
-                    <Scrollchor className={'link-unread-message'}
-                                to={`${currentTabId}-unread`}
-                                target={`panel-current-messages-${currentTabId}`}>
+                    <Scrollchor
+                        className="link-unread-message"
+                        to={`${currentTabId}-unread`}
+                        target={`panel-current-messages-${currentTabId}`}
+                    >
                         Go to 1st unread message
                     </Scrollchor>
                 )}
-                {/* Send form. */}
+                {/* Message form */}
                 {engine.isPlayerGame() && (
-                    <MessageForm sender={role} recipient={currentTabId} onSubmit={form =>
-                        this.sendMessage(engine.client, currentTabId, form.message)}/>)}
+                    <MessageForm
+                        sender={role}
+                        recipient={currentTabId}
+                        onSubmit={(form) => this.sendMessage(engine.client, currentTabId, form.message)}
+                    />
+                )}
             </div>
         );
-    }
+    };
+    
 
     renderMapForResults(gameEngine, showOrders) {
         const Map = getMapComponent(gameEngine.map_name);
@@ -1090,25 +1171,27 @@ export class ContentGame extends React.Component {
         powerNames.sort();
 
         const getOrderResult = (order) => {
-            if (orderResult) {
-                const pieces = order.split(/ +/);
-                const unit = `${pieces[0]} ${pieces[1]}`;
-                if (orderResult.hasOwnProperty(unit)) {
-                    const resultsToParse = orderResult[unit];
-                    if (!resultsToParse.length)
-                        resultsToParse.push('');
-                    const results = [];
-                    for (let r of resultsToParse) {
-                        if (results.length)
-                            results.push(', ');
-                        results.push(<span key={results.length} className={r || 'success'}>{r || 'OK'}</span>);
-                    }
-                    return <span className={'order-result'}> ({results})</span>;
-                }
+            if (!orderResult) {
+                return '';
             }
+        
+            const [type, location] = order.split(/ +/);
+            const unit = `${type} ${location}`;
+        
+            if (Object.prototype.hasOwnProperty.call(orderResult, unit)) {
+                const resultsToParse = orderResult[unit]?.length ? orderResult[unit] : [''];
+                const results = resultsToParse.map((r, index) => (
+                    <span key={index} className={r || 'success'}>
+                        {r || 'OK'}
+                    </span>
+                ));
+        
+                return <span className="order-result"> ({results})</span>;
+            }
+        
             return '';
         };
-
+        
         const orderView = [
             this.__form_phases(pastPhases, phaseIndex),
             (((countOrders && (
@@ -1217,187 +1300,229 @@ export class ContentGame extends React.Component {
     // [ React.Component overridden methods.
 
     render() {
-        this.props.data.displayed = true;
+        const { data } = this.props;
+        const { tabMain, power, orderBuildingType, orderBuildingPath, showAbbreviations } = this.state;
+    
+        data.displayed = true;
         const page = this.context;
-        const engine = this.props.data;
+        const engine = data;
         const title = ContentGame.gameTitle(engine);
+    
         const navigation = [
-            ['Help', () => page.dialog(onClose => <Help onClose={onClose}/>)],
+            ['Help', () => page.dialog((onClose) => <Help onClose={onClose} />)],
             ['Load a game from disk', page.loadGameFromDisk],
             ['Save game to disk', () => saveGameToDisk(engine, page.error)],
             [`${UTILS.html.UNICODE_SMALL_LEFT_ARROW} Games`, () => page.loadGames()],
             [`${UTILS.html.UNICODE_SMALL_LEFT_ARROW} Leave game`, () => page.leaveGame(engine.game_id)],
-            [`${UTILS.html.UNICODE_SMALL_LEFT_ARROW} Logout`, page.logout]
+            [`${UTILS.html.UNICODE_SMALL_LEFT_ARROW} Logout`, page.logout],
         ];
+    
         const phaseType = engine.getPhaseType();
         const controllablePowers = engine.getControllablePowers();
-        if (this.props.data.client)
-            this.bindCallbacks(this.props.data.client);
-
-        if (engine.phase === 'FORMING')
-            return <main>
-                <div className={'forming'}>Game not yet started!</div>
-            </main>;
-
+    
+        if (data.client) {
+            this.bindCallbacks(data.client);
+        }
+    
+        if (engine.phase === 'FORMING') {
+            return (
+                <main>
+                    <div className="forming">Game not yet started!</div>
+                </main>
+            );
+        }
+    
         const tabNames = [];
         const tabTitles = [];
         let hasTabPhaseHistory = false;
         let hasTabCurrentPhase = false;
+    
         if (engine.state_history.size()) {
             hasTabPhaseHistory = true;
             tabNames.push('phase_history');
             tabTitles.push('Results');
         }
+    
         tabNames.push('messages');
         tabTitles.push('Messages');
+    
         if (controllablePowers.length && phaseType && !engine.isObserverGame()) {
             hasTabCurrentPhase = true;
             tabNames.push('current_phase');
             tabTitles.push('Current');
         }
+    
         if (!tabNames.length) {
-            // This should never happen, but let's display this message.
-            return <main>
-                <div className={'no-data'}>No data in this game!</div>
-            </main>;
+            return (
+                <main>
+                    <div className="no-data">No data in this game!</div>
+                </main>
+            );
         }
-        const mainTab = this.state.tabMain && tabNames.includes(this.state.tabMain) ? this.state.tabMain : tabNames[tabNames.length - 1];
-
-        const currentPowerName = this.state.power || (controllablePowers.length && controllablePowers[0]);
+    
+        const mainTab = tabMain && tabNames.includes(tabMain) ? tabMain : tabNames[tabNames.length - 1];
+        const currentPowerName = power || (controllablePowers.length && controllablePowers[0]);
+    
         let currentPower = null;
         let orderTypeToLocs = null;
         let allowedPowerOrderTypes = null;
-        let orderBuildingType = null;
+        let currentOrderBuildingType = null;
         let buildCount = null;
+    
         if (hasTabCurrentPhase) {
             currentPower = engine.getPower(currentPowerName);
             orderTypeToLocs = engine.getOrderTypeToLocs(currentPowerName);
             allowedPowerOrderTypes = Object.keys(orderTypeToLocs);
-            // canOrder = allowedPowerOrderTypes.length
+    
             if (allowedPowerOrderTypes.length) {
                 POSSIBLE_ORDERS.sortOrderTypes(allowedPowerOrderTypes, phaseType);
-                if (this.state.orderBuildingType && allowedPowerOrderTypes.includes(this.state.orderBuildingType))
-                    orderBuildingType = this.state.orderBuildingType;
-                else
-                    orderBuildingType = allowedPowerOrderTypes[0];
+                currentOrderBuildingType =
+                    orderBuildingType && allowedPowerOrderTypes.includes(orderBuildingType)
+                        ? orderBuildingType
+                        : allowedPowerOrderTypes[0];
             }
+    
             buildCount = engine.getBuildsCount(currentPowerName);
         }
-
+    
         const navAfterTitle = (
             <form className="form-inline form-current-power">
-                {(controllablePowers.length === 1 &&
-                    <span className="power-name">{controllablePowers[0]}</span>) || (
+                {controllablePowers.length === 1 ? (
+                    <span className="power-name">{controllablePowers[0]}</span>
+                ) : (
                     <div className="custom-control custom-control-inline">
-                        <label className="sr-only" htmlFor="current-power">power</label>
-                        <select className="form-control custom-select custom-control-inline" id="current-power"
-                                value={currentPowerName} onChange={this.onChangeCurrentPower}>
-                            {controllablePowers.map(
-                                powerName => <option key={powerName} value={powerName}>{powerName}</option>)}
+                        <label className="sr-only" htmlFor="current-power">
+                            power
+                        </label>
+                        <select
+                            className="form-control custom-select custom-control-inline"
+                            id="current-power"
+                            value={currentPowerName}
+                            onChange={this.onChangeCurrentPower}
+                        >
+                            {controllablePowers.map((powerName) => (
+                                <option key={powerName} value={powerName}>
+                                    {powerName}
+                                </option>
+                            ))}
                         </select>
                     </div>
                 )}
                 <div className="custom-control custom-control-inline custom-checkbox">
-                    <input className="custom-control-input" id="show-abbreviations" type="checkbox"
-                           checked={this.state.showAbbreviations} onChange={this.onChangeShowAbbreviations}/>
-                    <label className="custom-control-label" htmlFor="show-abbreviations">Show abbreviations</label>
+                    <input
+                        className="custom-control-input"
+                        id="show-abbreviations"
+                        type="checkbox"
+                        checked={showAbbreviations}
+                        onChange={this.onChangeShowAbbreviations}
+                    />
+                    <label className="custom-control-label" htmlFor="show-abbreviations">
+                        Show abbreviations
+                    </label>
                 </div>
             </form>
         );
-
-        const currentTabOrderCreation = hasTabCurrentPhase && (
-            <div>
-                <PowerOrderCreationForm orderType={orderBuildingType}
-                                        orderTypes={allowedPowerOrderTypes}
-                                        onChange={this.onChangeOrderType}
-                                        onPass={() => this.onSetEmptyOrdersSet(currentPowerName)}
-                                        onSetWaitFlag={() => this.setWaitFlag(!currentPower.wait)}
-                                        onVote={this.vote}
-                                        role={engine.role}
-                                        power={currentPower}/>
-                {(allowedPowerOrderTypes.length && (
-                    <span>
-                                <strong>Orderable locations</strong>: {orderTypeToLocs[orderBuildingType].join(', ')}
-                            </span>
-                ))
-                || (<strong>&nbsp;No orderable location.</strong>)}
-                {phaseType === 'A' && (
-                    (buildCount === null && (
-                        <strong>&nbsp;(unknown build count)</strong>
-                    ))
-                    || (buildCount === 0 ? (
-                        <strong>&nbsp;(nothing to build or disband)</strong>
-                    ) : (buildCount > 0 ? (
-                        <strong>&nbsp;({buildCount} unit{buildCount > 1 && 's'} may be built)</strong>
+    
+        const currentTabOrderCreation =
+            hasTabCurrentPhase && allowedPowerOrderTypes?.length && (
+                <div>
+                    <PowerOrderCreationForm
+                        orderType={currentOrderBuildingType}
+                        orderTypes={allowedPowerOrderTypes}
+                        onChange={this.onChangeOrderType}
+                        onPass={() => this.onSetEmptyOrdersSet(currentPowerName)}
+                        onSetWaitFlag={() => this.setWaitFlag(!currentPower.wait)}
+                        onVote={this.vote}
+                        role={engine.role}
+                        power={currentPower}
+                    />
+                    {orderTypeToLocs[currentOrderBuildingType]?.length ? (
+                        <span>
+                            <strong>Orderable locations</strong>: {orderTypeToLocs[currentOrderBuildingType].join(', ')}
+                        </span>
                     ) : (
-                        <strong>&nbsp;({-buildCount} unit{buildCount < -1 && 's'} to disband)</strong>
-                    )))
-                )}
-            </div>
-        );
-
-        return (
-            <main>
-                <Helmet>
-                    <title>{title} | Diplomacy</title>
-                </Helmet>
-                <Navigation title={title}
-                            afterTitle={navAfterTitle}
-                            username={page.channel.username}
-                            navigation={navigation}/>
-                <Tabs menu={tabNames} titles={tabTitles} onChange={this.onChangeMainTab} active={mainTab}>
-                    {/* Tab Phase history. */}
-                    {(hasTabPhaseHistory && mainTab === 'phase_history' && this.renderTabResults(mainTab === 'phase_history', engine)) || ''}
+                        <strong>&nbsp;No orderable location.</strong>
+                    )}
+                    {phaseType === 'A' && (
+                        <strong>
+                            &nbsp;(
+                            {buildCount === null
+                                ? 'unknown build count'
+                                : buildCount === 0
+                                ? 'nothing to build or disband'
+                                : buildCount > 0
+                                ? `${buildCount} unit${buildCount > 1 ? 's' : ''} may be built`
+                                : `${-buildCount} unit${buildCount < -1 ? 's' : ''} to disband`}
+                            )
+                        </strong>
+                    )}
+                </div>
+            );
+    
+            return (
+                <main>
+                    <Helmet>
+                        <title>{title} | Diplomacy</title>
+                    </Helmet>
+                    <Navigation title={title} afterTitle={navAfterTitle} username={page.channel.username} navigation={navigation} />
+                    <Tabs menu={tabNames} titles={tabTitles} onChange={this.onChangeMainTab} active={mainTab}>                    {hasTabPhaseHistory && mainTab === 'phase_history' && this.renderTabResults(mainTab === 'phase_history', engine)}
                     {mainTab === 'messages' && this.renderTabMessages(mainTab === 'messages', engine, currentPowerName)}
-                    {/* Tab Current phase. */}
-                    {(mainTab === 'current_phase' && hasTabCurrentPhase && this.renderTabCurrentPhase(
-                        mainTab === 'current_phase',
-                        engine,
-                        currentPowerName,
-                        orderBuildingType,
-                        this.state.orderBuildingPath,
-                        currentPowerName,
-                        currentTabOrderCreation
-                    )) || ''}
+                    {hasTabCurrentPhase &&
+                        mainTab === 'current_phase' &&
+                        this.renderTabCurrentPhase(
+                            mainTab === 'current_phase',
+                            engine,
+                            currentPowerName,
+                            currentOrderBuildingType,
+                            orderBuildingPath,
+                            currentPowerName,
+                            currentTabOrderCreation
+                        )}
                 </Tabs>
             </main>
         );
     }
-
+    
     componentDidMount() {
         window.scrollTo(0, 0);
-        if (this.props.data.client)
-            this.reloadDeadlineTimer(this.props.data.client);
+    
+        const { client } = this.props.data;
+    
+        if (client) {
+            this.reloadDeadlineTimer(client);
+        }
+    
         this.props.data.displayed = true;
-        // Try to prevent scrolling when pressing keys Home and End.
-        document.onkeydown = (event) => {
-            if (['home', 'end'].includes(event.key.toLowerCase())) {
-                // Try to prevent scrolling.
-                if (event.hasOwnProperty('cancelBubble'))
-                    event.cancelBubble = true;
-                if (event.stopPropagation)
-                    event.stopPropagation();
-                if (event.preventDefault)
-                    event.preventDefault();
-            }
-        };
+    
+        // Attach keydown event listener to prevent scrolling.
+        this.preventScrollingHandler = this.preventScrolling.bind(this);
+        document.addEventListener("keydown", this.preventScrollingHandler);
     }
-
+    
     componentDidUpdate() {
         this.props.data.displayed = true;
     }
-
+    
     componentWillUnmount() {
         this.clearScheduleTimeout();
         this.props.data.displayed = false;
-        document.onkeydown = null;
+    
+        // Detach keydown event listener.
+        document.removeEventListener("keydown", this.preventScrollingHandler);
     }
-
+    
+    preventScrolling(event) {
+        if (["home", "end"].includes(event.key.toLowerCase())) {
+            event.stopPropagation?.();
+            event.preventDefault?.();
+        }
+    }
+    
     // ]
 
 }
 
 ContentGame.contextType = PageContext;
 ContentGame.propTypes = {
-    data: PropTypes.instanceOf(Game).isRequired
+    data: PropTypes.instanceOf(Game).isRequired,
 };

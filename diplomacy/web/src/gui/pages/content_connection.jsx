@@ -1,99 +1,99 @@
 // ==============================================================================
 // Copyright (C) 2019 - Philip Paquette, Steven Bocco
 //
-//  This program is free software: you can redistribute it and/or modify it under
-//  the terms of the GNU Affero General Public License as published by the Free
-//  Software Foundation, either version 3 of the License, or (at your option) any
-//  later version.
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
 //
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-//  FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
-//  details.
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
+// details.
 //
-//  You should have received a copy of the GNU Affero General Public License along
-//  with this program.  If not, see <https://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU Affero General Public License along
+// with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-import React from 'react';
-import {Connection} from "../../diplomacy/client/connection";
-import {ConnectionForm} from "../forms/connection_form";
-import {DipStorage} from "../utils/dipStorage";
-import {Helmet} from "react-helmet";
-import {Navigation} from "../components/navigation";
-import {PageContext} from "../components/page_context";
+import React, { useContext, useEffect, useState } from "react";
+import { Helmet } from "react-helmet-async"; // Updated import
+import { Connection } from "../../diplomacy/client/connection";
+import { ConnectionForm } from "../forms/connection_form";
+import { DipStorage } from "../utils/dipStorage";
+import { Navigation } from "../components/navigation";
+import { PageContext } from "../components/page_context";
 
-export class ContentConnection extends React.Component {
-    constructor(props) {
-        super(props);
-        this.connection = null;
-        this.onSubmit = this.onSubmit.bind(this);
-    }
+export const ContentConnection = () => {
+    const page = useContext(PageContext);
+    const [connection, setConnection] = useState(null);
 
-    onSubmit(data) {
-        const page = this.context;
-        for (let fieldName of ['hostname', 'port', 'username', 'password', 'showServerFields'])
-            if (!data.hasOwnProperty(fieldName))
-                return page.error(`Missing ${fieldName}, got ${JSON.stringify(data)}`);
-        page.info('Connecting ...');
-        if (this.connection) {
-            this.connection.currentConnectionProcessing.stop();
+    const onSubmit = async (data) => {
+        // Validate required fields
+        const requiredFields = ["hostname", "port", "username", "password", "showServerFields"];
+        const missingFields = requiredFields.filter((field) => !(field in data));
+
+        if (missingFields.length > 0) {
+            page.error(`Missing fields: ${missingFields.join(", ")}.`);
+            return;
         }
-        this.connection = new Connection(data.hostname, data.port, window.location.protocol.toLowerCase() === 'https:');
-        this.connection.onReconnectionError = page.onReconnectionError;
-        // Page is passed as logger object (with methods info(), error(), success()) when connecting.
-        this.connection.connect(page)
-            .then(() => {
-                page.connection = this.connection;
-                this.connection = null;
-                page.success(`Successfully connected to server ${data.username}:${data.port}`);
-                page.connection.authenticate(data.username, data.password)
-                    .then((channel) => {
-                        page.channel = channel;
-                        return channel.getAvailableMaps();
-                    })
-                    .then(availableMaps => {
-                        for (let mapName of Object.keys(availableMaps))
-                            availableMaps[mapName].powers.sort();
-                        page.availableMaps = availableMaps;
-                        const userGameIndices = DipStorage.getUserGames(page.channel.username);
-                        if (userGameIndices && userGameIndices.length) {
-                            return page.channel.getGamesInfo({games: userGameIndices});
-                        } else {
-                            return null;
-                        }
-                    })
-                    .then((gamesInfo) => {
-                        if (gamesInfo) {
-                            page.success('Found ' + gamesInfo.length + ' user games.');
-                            page.updateMyGames(gamesInfo);
-                        }
-                        page.loadGames({success: `Account ${data.username} connected.`});
-                    })
-                    .catch((error) => {
-                        page.error('Error while authenticating: ' + error + ' Please re-try.');
-                    });
-            })
-            .catch((error) => {
-                page.error('Error while connecting: ' + error + ' Please re-try.');
-            });
-    }
 
-    render() {
-        const title = 'Connection';
-        return (
-            <main>
-                <Helmet>
-                    <title>{title} | Diplomacy</title>
-                </Helmet>
-                <Navigation title={title}/>
-                <ConnectionForm onSubmit={this.onSubmit}/>
-            </main>
+        page.info("Connecting...");
+        if (connection) {
+            connection.currentConnectionProcessing.stop();
+        }
+
+        const newConnection = new Connection(
+            data.hostname,
+            data.port,
+            window.location.protocol.toLowerCase() === "https"
         );
-    }
+        newConnection.onReconnectionError = page.onReconnectionError;
+        setConnection(newConnection);
 
-    componentDidMount() {
+        try {
+            // Establish connection
+            await newConnection.connect(page);
+            page.connection = newConnection;
+            setConnection(null);
+
+            page.success(`Successfully connected to server ${data.username}:${data.port}`);
+
+            // Authenticate user
+            const channel = await page.connection.authenticate(data.username, data.password);
+            page.channel = channel;
+
+            // Fetch available maps
+            const availableMaps = await channel.getAvailableMaps();
+            Object.keys(availableMaps).forEach((mapName) => {
+                availableMaps[mapName].powers.sort();
+            });
+            page.availableMaps = availableMaps;
+
+            // Fetch user games
+            const userGameIndices = DipStorage.getUserGames(page.channel.username);
+            if (userGameIndices?.length > 0) {
+                const gamesInfo = await page.channel.getGamesInfo({ games: userGameIndices });
+                page.success(`Found ${gamesInfo.length} user games.`);
+                page.updateMyGames(gamesInfo);
+            }
+
+            // Load games
+            page.loadGames({ success: `Account ${data.username} connected.` });
+        } catch (error) {
+            page.error(`Error while connecting: ${error.message || error}. Please re-try.`);
+        }
+    };
+
+    useEffect(() => {
         window.scrollTo(0, 0);
-    }
-}
+    }, []);
 
-ContentConnection.contextType = PageContext;
+    return (
+        <main>
+            <Helmet>
+                <title>Connection | Diplomacy</title>
+            </Helmet>
+            <Navigation title="Connection" />
+            <ConnectionForm onSubmit={onSubmit} />
+        </main>
+    );
+};

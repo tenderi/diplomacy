@@ -1,211 +1,221 @@
 // ==============================================================================
 // Copyright (C) 2019 - Philip Paquette, Steven Bocco
 //
-//  This program is free software: you can redistribute it and/or modify it under
-//  the terms of the GNU Affero General Public License as published by the Free
-//  Software Foundation, either version 3 of the License, or (at your option) any
-//  later version.
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
 //
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-//  FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
-//  details.
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
+// details.
 //
-//  You should have received a copy of the GNU Affero General Public License along
-//  with this program.  If not, see <https://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU Affero General Public License along
+// with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-/*eslint no-unused-vars: ["error", { "args": "none" }]*/
-import {STRINGS} from "../utils/strings";
-import {UTILS} from "../utils/utils";
-import {REQUESTS} from "../communication/requests";
-import {RESPONSES} from "../communication/responses";
-import {NOTIFICATIONS} from "../communication/notifications";
-import {RESPONSE_MANAGERS} from "./response_managers";
-import {NOTIFICATION_MANAGERS} from "./notification_managers";
-import {Future} from "../utils/future";
-import {FutureEvent} from "../utils/future_event";
-import {RequestFutureContext} from "./request_future_context";
-import {Diplog} from "../utils/diplog";
+
+import { STRINGS } from "../utils/strings";
+import { UTILS } from "../utils/utils";
+import { REQUESTS } from "../communication/requests";
+import { RESPONSES } from "../communication/responses";
+import { NOTIFICATIONS } from "../communication/notifications";
+import { RESPONSE_MANAGERS } from "./response_managers";
+import { NOTIFICATION_MANAGERS } from "./notification_managers";
+import { Future } from "../utils/future";
+import { FutureEvent } from "../utils/future_event";
+import { RequestFutureContext } from "./request_future_context";
+import { Diplog } from "../utils/diplog";
 
 class Reconnection {
     constructor(connection) {
         this.connection = connection;
-        this.games_phases = {};
-        this.n_expected_games = 0;
-        this.n_synchronized_games = 0;
+        this.gamesPhases = {};
+        this.expectedGamesCount = 0;
+        this.synchronizedGamesCount = 0;
     }
 
-    genSyncCallback(game) {
-        const reconnection = this;
-        return ((serverSyncResponse) => {
-            reconnection.games_phases[game.local.game_id][game.local.game_role] = serverSyncResponse;
-            ++reconnection.n_synchronized_games;
-            if (reconnection.n_synchronized_games === reconnection.n_expected_games)
-                reconnection.syncDone();
-        });
+    generateSyncCallback(game) {
+        return (serverSyncResponse) => {
+            const { game_id, game_role } = game.local;
+            this.gamesPhases[game_id][game_role] = serverSyncResponse;
+            this.synchronizedGamesCount += 1;
+
+            if (this.synchronizedGamesCount === this.expectedGamesCount) {
+                this.syncDone();
+            }
+        };
     }
 
     reconnect() {
-        for (let waitingContext of Object.values(this.connection.requestsWaitingResponses))
-            waitingContext.request.re_sent = true;
-        const lenWaiting = Object.keys(this.connection.requestsWaitingResponses).length;
-        const lenBefore = Object.keys(this.connection.requestsToSend).length;
+        Object.values(this.connection.requestsWaitingResponses).forEach((context) => {
+            context.request.re_sent = true;
+        });
+
+        const waitingResponses = Object.keys(this.connection.requestsWaitingResponses).length;
+        const existingRequests = Object.keys(this.connection.requestsToSend).length;
+
         Object.assign(this.connection.requestsToSend, this.connection.requestsWaitingResponses);
-        const lenAfter = Object.keys(this.connection.requestsToSend).length;
-        if (lenAfter !== lenWaiting + lenBefore)
-            throw new Error('Programming error.');
+        const newRequestCount = Object.keys(this.connection.requestsToSend).length;
+
+        if (newRequestCount !== waitingResponses + existingRequests) {
+            throw new Error("Programming error: mismatch in request counts.");
+        }
+
         this.connection.requestsWaitingResponses = {};
 
-        const requestsToSendUpdated = {};
-        for (let context of Object.values(this.connection.requestsToSend)) {
-            if (context.request.name === STRINGS.SYNCHRONIZE)
-                context.future.setException(new Error('Sync request invalidated for game ID ' + context.request.game_id));
-            else
-                requestsToSendUpdated[context.request.request_id] = context;
-        }
-        this.connection.requestsToSend = requestsToSendUpdated;
-
-        for (let channel of Object.values(this.connection.channels)) {
-            for (let gis of Object.values(channel.game_id_to_instances)) {
-                for (let game of gis.getGames()) {
-                    const game_id = game.local.game_id;
-                    const game_role = game.local.role;
-                    if (!this.games_phases.hasOwnProperty(game_id))
-                        this.games_phases[game_id] = {};
-                    this.games_phases[game_id][game_role] = null;
-                    ++this.n_expected_games;
-                }
+        const updatedRequestsToSend = {};
+        Object.values(this.connection.requestsToSend).forEach((context) => {
+            if (context.request.name === STRINGS.SYNCHRONIZE) {
+                context.future.setException(
+                    new Error(`Sync request invalidated for game ID ${context.request.game_id}`)
+                );
+            } else {
+                updatedRequestsToSend[context.request.request_id] = context;
             }
-        }
+        });
+        this.connection.requestsToSend = updatedRequestsToSend;
 
-        if (this.n_expected_games) {
-            for (let channel of Object.values(this.connection.channels))
-                for (let gis of Object.values(channel.game_id_to_instances))
-                    for (let game of gis.getGames())
-                        game.synchronize().then(this.genSyncCallback(game));
+        Object.values(this.connection.channels).forEach((channel) => {
+            Object.values(channel.game_id_to_instances).forEach((gis) => {
+                gis.getGames().forEach((game) => {
+                    const { game_id, role } = game.local;
+                    if (!(game_id in this.gamesPhases)) {
+                        this.gamesPhases[game_id] = {};
+                    }
+                    this.gamesPhases[game_id][role] = null;
+                    this.expectedGamesCount += 1;
+                });
+            });
+        });
+
+        if (this.expectedGamesCount > 0) {
+            Object.values(this.connection.channels).forEach((channel) => {
+                Object.values(channel.game_id_to_instances).forEach((gis) => {
+                    gis.getGames().forEach((game) => {
+                        game.synchronize().then(this.generateSyncCallback(game));
+                    });
+                });
+            });
         } else {
             this.syncDone();
         }
     }
 
     syncDone() {
-        const requestsToSendUpdated = {};
-        for (let context of Object.values(this.connection.requestsToSend)) {
-            let keep = true;
-            if (REQUESTS.isPhaseDependent(context.request.name)) {
-                const request_phase = context.request.phase;
-                const server_phase = this.games_phases[context.request.game_id][context.request.game_role].phase;
-                if (request_phase !== server_phase) {
-                    context.future.setException(new Error(
-                        'Game ' + context.request.game_id + ': request ' + context.request.name +
-                        ': request phase ' + request_phase + ' does not match current server game phase '
-                        + server_phase + '.'));
-                    keep = false;
+        const updatedRequestsToSend = {};
+        Object.values(this.connection.requestsToSend).forEach((context) => {
+            const { request } = context;
+            const { name, phase, game_id, game_role } = request;
+
+            if (REQUESTS.isPhaseDependent(name)) {
+                const serverPhase = this.gamesPhases[game_id][game_role]?.phase;
+                if (phase !== serverPhase) {
+                    context.future.setException(
+                        new Error(
+                            `Game ${game_id}: Request ${name} phase mismatch (request: ${phase}, server: ${serverPhase}).`
+                        )
+                    );
+                    return;
                 }
             }
-            if (keep)
-                requestsToSendUpdated[context.request.request_id] = context;
-        }
-        Diplog.info('Keep ' + Object.keys(requestsToSendUpdated).length + '/' +
-            Object.keys(this.connection.requestsToSend).length + ' old request(s) to send.');
-        this.connection.requestsToSend = requestsToSendUpdated;
+            updatedRequestsToSend[request.request_id] = context;
+        });
 
-        for (let context of Object.values(requestsToSendUpdated)) {
-            this.connection.__write_request(context);
-        }
+        Diplog.info(
+            `Kept ${Object.keys(updatedRequestsToSend).length}/${Object.keys(
+                this.connection.requestsToSend
+            ).length} old requests to send.`
+        );
+        this.connection.requestsToSend = updatedRequestsToSend;
+
+        Object.values(updatedRequestsToSend).forEach((context) => {
+            this.connection.__writeRequest(context);
+        });
 
         this.connection.isReconnecting.set();
-
-        Diplog.info('Done reconnection work.');
+        Diplog.info("Reconnection completed.");
     }
 }
 
 class ConnectionProcessing {
-    constructor(connection, logger) {
+    constructor(connection, logger = Diplog) {
         this.connection = connection;
-        this.logger = logger || Diplog;
+        this.logger = logger;
         this.isConnected = false;
         this.attemptIndex = 1;
         this.timeoutID = null;
-
-        this.onSocketOpen = this.onSocketOpen.bind(this);
-        this.onSocketTimeout = this.onSocketTimeout.bind(this);
-        this.tryConnect = this.tryConnect.bind(this);
     }
 
-    __on_error(error) {
+    handleError(error) {
         this.connection.isConnecting.set(error);
     }
 
-    onSocketOpen(event) {
+    handleSocketOpen() {
         this.isConnected = true;
+
         if (this.timeoutID) {
             clearTimeout(this.timeoutID);
             this.timeoutID = null;
         }
-        // Socket open: set onMessage and onClose callbacks.
+
         this.connection.socket.onmessage = this.connection.onSocketMessage;
         this.connection.socket.onclose = this.connection.onSocketClose;
+
         this.connection.currentConnectionProcessing = null;
         this.connection.isConnecting.set();
-        this.logger.info('Connection succeeds.');
+        this.logger.info("Connection succeeded.");
     }
 
-    onSocketTimeout() {
+    handleSocketTimeout() {
         if (!this.isConnected) {
             this.connection.socket.close();
-            if (this.attemptIndex === UTILS.NB_CONNECTION_ATTEMPTS) {
+            if (this.attemptIndex >= UTILS.NB_CONNECTION_ATTEMPTS) {
                 this.connection.isConnecting.set(
-                    new Error(`${this.connection.isReconnecting.isWaiting() ? 'Reconnection' : 'Connection'} failed after ${UTILS.NB_CONNECTION_ATTEMPTS} attempts.`));
+                    new Error(`Connection failed after ${UTILS.NB_CONNECTION_ATTEMPTS} attempts.`)
+                );
                 return;
             }
-            this.logger.warn('Connection failing (attempt ' + this.attemptIndex + '/' +
-                UTILS.NB_CONNECTION_ATTEMPTS + '), retrying ...');
-            ++this.attemptIndex;
-            setTimeout(this.tryConnect, 0);
+
+            this.logger.warn(`Connection attempt ${this.attemptIndex}/${UTILS.NB_CONNECTION_ATTEMPTS} failed. Retrying...`);
+            this.attemptIndex += 1;
+            setTimeout(() => this.tryConnect(), 0);
         }
     }
 
     tryConnect() {
-        // When opening a socket, we configure only onOpen callback.
-        // We will configure onMessage and onClose callbacks only when the socket will be effectively open.
         try {
             this.connection.socket = new WebSocket(this.connection.getUrl());
-            this.connection.socket.onopen = this.onSocketOpen;
-            this.timeoutID = setTimeout(this.onSocketTimeout, UTILS.ATTEMPT_DELAY_SECONDS * 1000);
+            this.connection.socket.onopen = () => this.handleSocketOpen();
+            this.timeoutID = setTimeout(() => this.handleSocketTimeout(), UTILS.ATTEMPT_DELAY_SECONDS * 1000);
         } catch (error) {
-            this.__on_error(error);
+            this.handleError(error);
         }
     }
 
     process() {
         this.connection.isConnecting.clear();
-        if (this.connection.socket)
+        if (this.connection.socket) {
             this.connection.socket.close();
+        }
         this.tryConnect();
         return this.connection.isConnecting.wait();
     }
 
     stop() {
-        if (!this.isConnected) {
-            if (this.connection.socket)
-                this.connection.socket.onopen = null;
-            if (this.timeoutID) {
-                clearTimeout(this.timeoutID);
-                this.timeoutID = null;
-            }
+        if (!this.isConnected && this.timeoutID) {
+            clearTimeout(this.timeoutID);
+            this.timeoutID = null;
         }
     }
 }
 
-/** Class Connection (like Python class diplomacy.client.connection.Connection). **/
 export class Connection {
     constructor(hostname, port, useSSL) {
-        if (useSSL)
-            Diplog.info(`Using SSL.`);
-        this.protocol = useSSL ? 'wss' : 'ws';
+        this.protocol = useSSL ? "wss" : "ws";
         this.hostname = hostname;
         this.port = port;
+
         this.socket = null;
         this.isConnecting = new FutureEvent();
         this.isReconnecting = new FutureEvent();
@@ -213,83 +223,71 @@ export class Connection {
         this.requestsToSend = {};
         this.requestsWaitingResponses = {};
         this.currentConnectionProcessing = null;
-
-        // Attribute used to make distinction between a connection
-        // explicitly closed by client and a connection closed for
-        // other unexpected reasons (e.g. by server).
         this.closed = false;
 
         this.onSocketMessage = this.onSocketMessage.bind(this);
         this.onSocketClose = this.onSocketClose.bind(this);
-
         this.isReconnecting.set();
 
-        /** Public events. **/
-        this.onReconnection = null;  // onReconnection()
-        this.onReconnectionError = null; // onReconnectionError(error)
+        this.onReconnection = null;
+        this.onReconnectionError = null;
     }
 
     getUrl() {
-        return this.protocol + '://' + this.hostname + ':' + this.port;
+        return `${this.protocol}://${this.hostname}:${this.port}`;
     }
 
     onSocketMessage(messageEvent) {
-        /** Callback used to manage a socket message string.
-         * Try-catch block will capture eventual:
-         * - JSON parsing errors
-         * - response parsing errors
-         * - response handling errors
-         * - notification parsing errors
-         * - notification handling errors
-         * **/
         try {
-            const message = messageEvent.data;
-            const jsonMessage = JSON.parse(message);
-            if (!(jsonMessage instanceof Object)) {
-                Diplog.error('Unable to convert a message to a JSON object.');
-                return;
-            }
-            if (jsonMessage.request_id) {
-                const requestID = jsonMessage.request_id;
-                if (!this.requestsWaitingResponses.hasOwnProperty(requestID)) {
-                    Diplog.error('Unknown request ' + requestID + '.');
+            const message = JSON.parse(messageEvent.data);
+
+            if (message.request_id) {
+                const context = this.requestsWaitingResponses[message.request_id];
+                if (!context) {
+                    Diplog.error(`Unknown request ID: ${message.request_id}`);
                     return;
                 }
-                const context = this.requestsWaitingResponses[requestID];
-                delete this.requestsWaitingResponses[requestID];
+
+                delete this.requestsWaitingResponses[message.request_id];
+
                 try {
-                    context.future.setResult(RESPONSE_MANAGERS.handleResponse(context, RESPONSES.parse(jsonMessage)));
+                    const parsedResponse = RESPONSES.parse(message);
+                    context.future.setResult(RESPONSE_MANAGERS.handleResponse(context, parsedResponse));
                 } catch (error) {
                     context.future.setException(error);
                 }
-            } else if (jsonMessage.hasOwnProperty('notification_id') && jsonMessage.notification_id)
-                NOTIFICATION_MANAGERS.handleNotification(this, NOTIFICATIONS.parse(jsonMessage));
-            else
-                Diplog.error('Unknown socket message received.');
+            } else if (message.notification_id) {
+                NOTIFICATION_MANAGERS.handleNotification(this, NOTIFICATIONS.parse(message));
+            } else {
+                Diplog.error("Unknown socket message received.");
+            }
         } catch (error) {
-            Diplog.error(error);
+            Diplog.error("Error processing socket message:", error);
         }
     }
 
-    onSocketClose(closeEvent) {
-        if (this.closed)
-            Diplog.info('Disconnected.');
-        else {
-            Diplog.error('Disconnected, trying to reconnect.');
-            this.isReconnecting.clear();
-            this.__connect()
-                .then(() => {
-                    new Reconnection(this).reconnect();
-                    if (this.onReconnection)
-                        this.onReconnection();
-                })
-                .catch(error => {
-                    if (this.onReconnectionError)
-                        this.onReconnectionError(error);
-                    else
-                        throw error;
-                });
+    onSocketClose() {
+        if (this.closed) {
+            Diplog.info("Socket disconnected.");
+            return;
         }
+
+        Diplog.error("Socket closed unexpectedly. Attempting to reconnect...");
+        this.isReconnecting.clear();
+        this.__connect()
+            .then(() => {
+                new Reconnection(this).reconnect();
+                if (this.onReconnection) {
+                    this.onReconnection();
+                }
+            })
+            .catch((error) => {
+                if (this.onReconnectionError) {
+                    this.onReconnectionError(error);
+                } else {
+                    throw error;
+                }
+            });
     }
 
     __connect(logger) {
@@ -297,58 +295,53 @@ export class Connection {
             this.currentConnectionProcessing.stop();
             this.currentConnectionProcessing = null;
         }
+
         this.currentConnectionProcessing = new ConnectionProcessing(this, logger);
         return this.currentConnectionProcessing.process();
     }
 
-    __write_request(requestContext) {
-        const writeFuture = new Future();
+    __writeRequest(requestContext) {
         const request = requestContext.request;
-        const requestID = request.request_id;
-        const connection = this;
+        const writeFuture = new Future();
 
         const onConnected = () => {
-            connection.socket.send(JSON.stringify(request));
-            connection.requestsWaitingResponses[requestID] = requestContext;
-            if (connection.requestsToSend.hasOwnProperty(requestID)) {
-                delete connection.requestsToSend[requestID];
-            }
+            this.socket.send(JSON.stringify(request));
+            this.requestsWaitingResponses[request.request_id] = requestContext;
+            delete this.requestsToSend[request.request_id];
             writeFuture.setResult(null);
         };
-        const onAnyError = (error) => {
-            if (!connection.requestsToSend.hasOwnProperty(requestID)) {
-                connection.requestsToSend[requestID] = requestContext;
-            }
-            Diplog.info('Error occurred while sending a request ' + requestID);
+
+        const onError = (error) => {
+            this.requestsToSend[request.request_id] = requestContext;
+            Diplog.error(`Error sending request ${request.request_id}`, error);
             writeFuture.setException(error);
         };
-        if (request.name === STRINGS.SYNCHRONIZE)
-            this.isConnecting.wait().then(onConnected, onAnyError);
-        else
-            this.isReconnecting.wait().then(onConnected, onAnyError);
+
+        const waitEvent = request.name === STRINGS.SYNCHRONIZE ? this.isConnecting : this.isReconnecting;
+        waitEvent.wait().then(onConnected, onError);
+
         return writeFuture.promise();
     }
 
     connect(logger) {
-        Diplog.info('Trying to connect.');
+        Diplog.info("Attempting to connect...");
         return this.__connect(logger);
     }
 
     send(request, game = null) {
         const requestContext = new RequestFutureContext(request, this, game);
-        this.__write_request(requestContext);
+        this.__writeRequest(requestContext);
         return requestContext.future;
     }
 
     authenticate(username, password) {
-        return this.send(REQUESTS.create('sign_in', {
-            username: username,
-            password: password
-        })).promise();
+        return this.send(REQUESTS.create("sign_in", { username, password })).promise();
     }
 
     close() {
         this.closed = true;
-        this.socket.close();
+        if (this.socket) {
+            this.socket.close();
+        }
     }
 }

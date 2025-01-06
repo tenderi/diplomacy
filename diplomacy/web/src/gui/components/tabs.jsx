@@ -34,22 +34,34 @@ export class Tabs extends React.Component {
     }
 
     render() {
-        if (!this.props.menu.length)
-            throw new Error(`No tab menu given.`);
-        if (this.props.menu.length !== this.props.titles.length)
-            throw new Error(`Menu length (${this.props.menu.length}) != titles length (${this.props.titles.length})`);
-        if (this.props.active && !this.props.menu.includes(this.props.active))
-            throw new Error(`Invalid active tab name, got ${this.props.active}, expected one of: ${this.props.menu.join(', ')}`);
-        const active = this.props.active || this.props.menu[0];
+        const { menu, titles, active, onChange, highlights, children } = this.props;
+    
+        if (!menu.length) {
+            throw new Error("No tab menu provided.");
+        }
+        if (menu.length !== titles.length) {
+            throw new Error(`Menu length (${menu.length}) does not match titles length (${titles.length}).`);
+        }
+        if (active && !menu.includes(active)) {
+            throw new Error(`Invalid active tab name: '${active}'. Expected one of: ${menu.join(", ")}`);
+        }
+    
+        const currentActive = active || menu[0];
+    
         return (
-            <div className={'tabs mb-3'}>
-                <nav className={'tabs-bar nav nav-tabs justify-content-center mb-3'}>
-                    {this.props.menu.map((tabName, index) => this.generateTabAction(
-                        this.props.titles[index], tabName, active === tabName, this.props.onChange,
-                        (this.props.highlights.hasOwnProperty(tabName) && this.props.highlights[tabName]) || null
-                    ))}
+            <div className="tabs mb-3">
+                <nav className="tabs-bar nav nav-tabs justify-content-center mb-3">
+                    {menu.map((tabName, index) => 
+                        this.generateTabAction(
+                            titles[index],
+                            tabName,
+                            currentActive === tabName,
+                            onChange,
+                            Object.prototype.hasOwnProperty.call(highlights, tabName) && highlights[tabName]
+                        )
+                    )}
                 </nav>
-                {this.props.children}
+                {children}
             </div>
         );
     }

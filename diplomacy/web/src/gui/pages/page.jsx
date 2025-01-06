@@ -195,29 +195,33 @@ export class Page extends React.Component {
     //// Methods to manage games.
 
     updateMyGames(gamesToAdd) {
-        // Update state myGames with given games. This method does not update local storage.
-        const myGames = Object.assign({}, this.state.myGames);
-        let gamesFound = null;
-        for (let gameToAdd of gamesToAdd) {
-            myGames[gameToAdd.game_id] = gameToAdd;
-            if (this.state.games.hasOwnProperty(gameToAdd.game_id)) {
-                if (!gamesFound)
-                    gamesFound = Object.assign({}, this.state.games);
-                gamesFound[gameToAdd.game_id] = gameToAdd;
+        this.setState((prevState) => {
+            const updatedMyGames = { ...prevState.myGames };
+            let updatedGames = null;
+    
+            for (const gameToAdd of gamesToAdd) {
+                updatedMyGames[gameToAdd.game_id] = gameToAdd;
+    
+                if (Object.prototype.hasOwnProperty.call(prevState.games, gameToAdd.game_id)) {
+                    if (!updatedGames) {
+                        updatedGames = { ...prevState.games };
+                    }
+                    updatedGames[gameToAdd.game_id] = gameToAdd;
+                }
             }
-        }
-        if (!gamesFound)
-            gamesFound = this.state.games;
-        return this.setState({myGames: myGames, games: gamesFound});
+    
+            return {
+                myGames: updatedMyGames,
+                games: updatedGames || prevState.games,
+            };
+        });
     }
-
+    
     getGame(gameID) {
-        if (this.state.myGames.hasOwnProperty(gameID))
-            return this.state.myGames[gameID];
-        return this.state.games[gameID];
+        const { myGames, games } = this.state;
+        return Object.prototype.hasOwnProperty.call(myGames, gameID) ? myGames[gameID] : games[gameID];
     }
-
-    getMyGames() {
+        getMyGames() {
         return Page.__sort_games(Object.values(this.state.myGames));
     }
 
@@ -226,32 +230,38 @@ export class Page extends React.Component {
     }
 
     addGamesFound(gamesToAdd) {
-        const gamesFound = {};
-        for (let game of gamesToAdd) {
-            gamesFound[game.game_id] = (
-                this.state.myGames.hasOwnProperty(game.game_id) ?
-                    this.state.myGames[game.game_id] : game
-            );
-        }
-        return this.setState({games: gamesFound});
+        this.setState((prevState) => {
+            const gamesFound = gamesToAdd.reduce((acc, game) => {
+                acc[game.game_id] = Object.prototype.hasOwnProperty.call(prevState.myGames, game.game_id)
+                    ? prevState.myGames[game.game_id]
+                    : game;
+                return acc;
+            }, {});
+    
+            return { games: gamesFound };
+        });
     }
-
-    leaveGame(gameID) {
-        if (this.state.myGames.hasOwnProperty(gameID)) {
+    
+    async leaveGame(gameID) {
+        if (Object.prototype.hasOwnProperty.call(this.state.myGames, gameID)) {
             const game = this.state.myGames[gameID];
+    
             if (game.client) {
-                return game.client.leave()
-                    .then(() => this.disconnectGame(gameID))
-                    .then(() => this.loadGames({info: `Game ${gameID} left.`}))
-                    .catch(error => this.error(`Error when leaving game ${gameID}: ${error.toString()}`));
+                try {
+                    await game.client.leave();
+                    await this.disconnectGame(gameID);
+                    return this.loadGames({ info: `Game ${gameID} left.` });
+                } catch (error) {
+                    return this.error(`Error when leaving game ${gameID}: ${error.toString()}`);
+                }
             }
         } else {
-            return this.loadGames({info: `No game to left.`});
+            return this.loadGames({ info: `No game to leave.` });
         }
+    
         return null;
     }
-
-    _post_remove(gameID) {
+        _post_remove(gameID) {
         return this.disconnectGame(gameID)
             .then(() => {
                 const myGames = this._remove_from_my_games(gameID);
@@ -294,35 +304,41 @@ export class Page extends React.Component {
     }
 
     _add_to_my_games(game) {
-        const myGames = Object.assign({}, this.state.myGames);
-        const gamesFound = this.state.games.hasOwnProperty(game.game_id) ? Object.assign({}, this.state.games) : this.state.games;
+        const myGames = { ...this.state.myGames };
+        const gamesFound = Object.prototype.hasOwnProperty.call(this.state.games, game.game_id)
+            ? { ...this.state.games }
+            : this.state.games;
+    
         myGames[game.game_id] = game;
-        if (gamesFound.hasOwnProperty(game.game_id))
+    
+        if (Object.prototype.hasOwnProperty.call(gamesFound, game.game_id)) {
             gamesFound[game.game_id] = game;
-        return {myGames: myGames, games: gamesFound};
+        }
+    
+        return { myGames, games: gamesFound };
     }
-
+    
     _remove_from_my_games(gameID) {
-        if (this.state.myGames.hasOwnProperty(gameID)) {
-            const games = Object.assign({}, this.state.myGames);
-            delete games[gameID];
+        if (Object.prototype.hasOwnProperty.call(this.state.myGames, gameID)) {
+            const updatedMyGames = { ...this.state.myGames };
+            delete updatedMyGames[gameID];
             DipStorage.removeUserGame(this.channel.username, gameID);
-            return games;
-        } else {
-            return this.state.myGames;
+            return updatedMyGames;
         }
+    
+        return this.state.myGames;
     }
-
+    
     _remove_from_games(gameID) {
-        if (this.state.games.hasOwnProperty(gameID)) {
-            const games = Object.assign({}, this.state.games);
-            delete games[gameID];
-            return games;
-        } else {
-            return this.state.games;
+        if (Object.prototype.hasOwnProperty.call(this.state.games, gameID)) {
+            const updatedGames = { ...this.state.games };
+            delete updatedGames[gameID];
+            return updatedGames;
         }
+    
+        return this.state.games;
     }
-
+    
     addToMyGames(game) {
         // Update state myGames with given game **and** update local storage.
         DipStorage.addUserGame(this.channel.username, game.game_id);
@@ -335,7 +351,7 @@ export class Page extends React.Component {
     }
 
     hasMyGame(gameID) {
-        return this.state.myGames.hasOwnProperty(gameID);
+        return Object.prototype.hasOwnProperty.call(this.state.myGames, gameID);
     }
 
     //// Render method.

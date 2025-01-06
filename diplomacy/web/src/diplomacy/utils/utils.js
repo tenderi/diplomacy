@@ -116,38 +116,44 @@ export const UTILS = {
         },
 
         extendArrayWithUniqueValues(obj, key, value) {
-            if (!obj.hasOwnProperty(key))
+            if (!Object.prototype.hasOwnProperty.call(obj, key)) {
                 obj[key] = [value];
-            else if (!obj[key].includes(value))
+            } else if (!obj[key].includes(value)) {
                 obj[key].push(value);
-        },
+            }
+            },
 
-        extendTreeValue: function (obj, path, value, allowMultipleValues) {
+        extendTreeValue(obj, path, value, allowMultipleValues) {
             let current = obj;
             const pathLength = path.length;
             const parentPathLength = pathLength - 1;
             for (let i = 0; i < parentPathLength; ++i) {
                 const stepName = path[i];
-                if (!current.hasOwnProperty(stepName))
+                if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
                     current[stepName] = new Dict();
+                }
                 current = current[stepName];
             }
             const stepName = path[pathLength - 1];
-            if (!current.hasOwnProperty(stepName))
+            if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
                 current[stepName] = [];
-            if (allowMultipleValues || !current[stepName].includes(value))
+            }
+            if (allowMultipleValues || !current[stepName].includes(value)) {
                 current[stepName].push(value);
+            }
         },
 
-        getTreeValue: function (obj, path) {
+        getTreeValue(obj, path) {
             let current = obj;
             for (let stepName of path) {
-                if (!current.hasOwnProperty(stepName))
+                if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
                     return null;
+                }
                 current = current[stepName];
             }
-            if (current instanceof Dict)
+            if (current instanceof Dict) {
                 return Object.keys(current);
+            }
             return current;
         }
     },

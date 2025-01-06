@@ -15,40 +15,41 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 import React from "react";
-import {ARMY, coloredStrokeWidth, getUnitCenter} from "./common";
 import PropTypes from "prop-types";
+import { ARMY, coloredStrokeWidth, getUnitCenter } from "./common";
 
-export class SupportMove extends React.Component {
-    render() {
-        const Coordinates = this.props.coordinates;
-        const SymbolSizes = this.props.symbolSizes;
-        const Colors = this.props.colors;
-        const loc = this.props.loc;
-        const src_loc = this.props.srcLoc;
-        const dest_loc = this.props.dstLoc;
-        const [loc_x, loc_y] = getUnitCenter(Coordinates, SymbolSizes, loc, false);
-        const [src_loc_x, src_loc_y] = getUnitCenter(Coordinates, SymbolSizes, src_loc, false);
-        let [dest_loc_x, dest_loc_y] = getUnitCenter(Coordinates, SymbolSizes, dest_loc, false);
+export const SupportMove = ({ loc, srcLoc, dstLoc, powerName, coordinates, symbolSizes, colors }) => {
+    const [locX, locY] = getUnitCenter(coordinates, symbolSizes, loc, false);
+    const [srcLocX, srcLocY] = getUnitCenter(coordinates, symbolSizes, srcLoc, false);
+    let [destLocX, destLocY] = getUnitCenter(coordinates, symbolSizes, dstLoc, false);
 
-        // Adjusting destination
-        const delta_x = dest_loc_x - src_loc_x;
-        const delta_y = dest_loc_y - src_loc_y;
-        const vector_length = Math.sqrt(delta_x * delta_x + delta_y * delta_y);
-        const delta_dec = parseFloat(SymbolSizes[ARMY].width) / 2 + 2 * coloredStrokeWidth(SymbolSizes);
-        dest_loc_x = '' + Math.round((parseFloat(src_loc_x) + (vector_length - delta_dec) / vector_length * delta_x) * 100.) / 100.;
-        dest_loc_y = '' + Math.round((parseFloat(src_loc_y) + (vector_length - delta_dec) / vector_length * delta_y) * 100.) / 100.;
-        return (
-            <g>
-                <path className={'shadowdash'}
-                      d={`M ${loc_x},${loc_y} C ${src_loc_x},${src_loc_y} ${src_loc_x},${src_loc_y} ${dest_loc_x},${dest_loc_y}`}/>
-                <path className={'supportorder'}
-                      markerEnd={'url(#arrow)'}
-                      stroke={Colors[this.props.powerName]}
-                      d={`M ${loc_x},${loc_y} C ${src_loc_x},${src_loc_y} ${src_loc_x},${src_loc_y} ${dest_loc_x},${dest_loc_y}`}/>
-            </g>
-        );
-    }
-}
+    // Adjust destination location
+    const deltaX = destLocX - srcLocX;
+    const deltaY = destLocY - srcLocY;
+    const vectorLength = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+    const deltaDec = parseFloat(symbolSizes[ARMY].width) / 2 + 2 * coloredStrokeWidth(symbolSizes);
+
+    destLocX = (
+        Math.round((parseFloat(srcLocX) + (vectorLength - deltaDec) / vectorLength * deltaX) * 100) / 100
+    ).toString();
+    destLocY = (
+        Math.round((parseFloat(srcLocY) + (vectorLength - deltaDec) / vectorLength * deltaY) * 100) / 100
+    ).toString();
+
+    const pathD = `M ${locX},${locY} C ${srcLocX},${srcLocY} ${srcLocX},${srcLocY} ${destLocX},${destLocY}`;
+
+    return (
+        <g>
+            <path className="shadowdash" d={pathD} />
+            <path
+                className="supportorder"
+                markerEnd="url(#arrow)"
+                stroke={colors[powerName]}
+                d={pathD}
+            />
+        </g>
+    );
+};
 
 SupportMove.propTypes = {
     loc: PropTypes.string.isRequired,
@@ -57,5 +58,5 @@ SupportMove.propTypes = {
     powerName: PropTypes.string.isRequired,
     coordinates: PropTypes.object.isRequired,
     symbolSizes: PropTypes.object.isRequired,
-    colors: PropTypes.object.isRequired
+    colors: PropTypes.object.isRequired,
 };

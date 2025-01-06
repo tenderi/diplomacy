@@ -14,10 +14,10 @@
 //  You should have received a copy of the GNU Affero General Public License along
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-import {Future} from "../utils/future";
-import {Channel} from "./channel";
-import {GameInstanceSet} from "./game_instance_set";
-import {NetworkGame} from "./network_game";
+import { Future } from "../utils/future";
+import { Channel } from "./channel";
+import { GameInstanceSet } from "./game_instance_set";
+import { NetworkGame } from "./network_game";
 
 /** Class RequestFutureContext. **/
 export class RequestFutureContext {
@@ -45,8 +45,9 @@ export class RequestFutureContext {
     newGame(received_game) {
         const channel = this.getChannel();
         const game = new NetworkGame(channel, received_game);
-        if (!channel.game_id_to_instances.hasOwnProperty(game.local.game_id))
+        if (!Object.prototype.hasOwnProperty.call(channel.game_id_to_instances, game.local.game_id)) {
             channel.game_id_to_instances[game.local.game_id] = new GameInstanceSet(game.local.game_id);
+        }
         channel.game_id_to_instances[game.local.game_id].add(game);
         return game;
     }
@@ -57,7 +58,8 @@ export class RequestFutureContext {
 
     deleteGame() {
         const channel = this.getChannel();
-        if (channel.game_id_to_instances.hasOwnProperty(this.request.game_id))
+        if (Object.prototype.hasOwnProperty.call(channel.game_id_to_instances, this.request.game_id)) {
             delete channel.game_id_to_instances[this.request.game_id];
+        }
     }
 }

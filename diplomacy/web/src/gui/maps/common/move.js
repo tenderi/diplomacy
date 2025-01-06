@@ -15,46 +15,50 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 import React from "react";
-import {ARMY, coloredStrokeWidth, getUnitCenter, plainStrokeWidth} from "./common";
 import PropTypes from "prop-types";
+import { ARMY, coloredStrokeWidth, getUnitCenter, plainStrokeWidth } from "./common";
 
-export class Move extends React.Component {
-    render() {
-        const Coordinates = this.props.coordinates;
-        const SymbolSizes = this.props.symbolSizes;
-        const Colors = this.props.colors;
-        const src_loc = this.props.srcLoc;
-        const dest_loc = this.props.dstLoc;
-        const is_dislodged = this.props.phaseType === 'R';
-        const [src_loc_x, src_loc_y] = getUnitCenter(Coordinates, SymbolSizes, src_loc, is_dislodged);
-        let [dest_loc_x, dest_loc_y] = getUnitCenter(Coordinates, SymbolSizes, dest_loc, is_dislodged);
-        // Adjusting destination
-        const delta_x = dest_loc_x - src_loc_x;
-        const delta_y = dest_loc_y - src_loc_y;
-        const vector_length = Math.sqrt(delta_x * delta_x + delta_y * delta_y);
-        const delta_dec = parseFloat(SymbolSizes[ARMY].width) / 2 + 2 * coloredStrokeWidth(SymbolSizes);
-        dest_loc_x = '' + Math.round((parseFloat(src_loc_x) + (vector_length - delta_dec) / vector_length * delta_x) * 100.) / 100.;
-        dest_loc_y = '' + Math.round((parseFloat(src_loc_y) + (vector_length - delta_dec) / vector_length * delta_y) * 100.) / 100.;
-        return (
-            <g>
-                <line x1={src_loc_x}
-                      y1={src_loc_y}
-                      x2={dest_loc_x}
-                      y2={dest_loc_y}
-                      className={'varwidthshadow'}
-                      strokeWidth={'' + plainStrokeWidth(SymbolSizes)}/>
-                <line x1={src_loc_x}
-                      y1={src_loc_y}
-                      x2={dest_loc_x}
-                      y2={dest_loc_y}
-                      className={'varwidthorder'}
-                      markerEnd={'url(#arrow)'}
-                      stroke={Colors[this.props.powerName]}
-                      strokeWidth={'' + coloredStrokeWidth(SymbolSizes)}/>
-            </g>
-        );
-    }
-}
+export const Move = ({ srcLoc, dstLoc, powerName, phaseType, coordinates, symbolSizes, colors }) => {
+    const isDislodged = phaseType === "R";
+    const [srcLocX, srcLocY] = getUnitCenter(coordinates, symbolSizes, srcLoc, isDislodged);
+    let [destLocX, destLocY] = getUnitCenter(coordinates, symbolSizes, dstLoc, isDislodged);
+
+    // Adjusting destination
+    const deltaX = destLocX - srcLocX;
+    const deltaY = destLocY - srcLocY;
+    const vectorLength = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+    const deltaDec = parseFloat(symbolSizes[ARMY].width) / 2 + 2 * coloredStrokeWidth(symbolSizes);
+
+    destLocX = (
+        Math.round((parseFloat(srcLocX) + (vectorLength - deltaDec) / vectorLength * deltaX) * 100) / 100
+    ).toString();
+    destLocY = (
+        Math.round((parseFloat(srcLocY) + (vectorLength - deltaDec) / vectorLength * deltaY) * 100) / 100
+    ).toString();
+
+    return (
+        <g>
+            <line
+                x1={srcLocX}
+                y1={srcLocY}
+                x2={destLocX}
+                y2={destLocY}
+                className="varwidthshadow"
+                strokeWidth={`${plainStrokeWidth(symbolSizes)}`}
+            />
+            <line
+                x1={srcLocX}
+                y1={srcLocY}
+                x2={destLocX}
+                y2={destLocY}
+                className="varwidthorder"
+                markerEnd="url(#arrow)"
+                stroke={colors[powerName]}
+                strokeWidth={`${coloredStrokeWidth(symbolSizes)}`}
+            />
+        </g>
+    );
+};
 
 Move.propTypes = {
     srcLoc: PropTypes.string.isRequired,
@@ -63,5 +67,5 @@ Move.propTypes = {
     phaseType: PropTypes.string.isRequired,
     coordinates: PropTypes.object.isRequired,
     symbolSizes: PropTypes.object.isRequired,
-    colors: PropTypes.object.isRequired
+    colors: PropTypes.object.isRequired,
 };

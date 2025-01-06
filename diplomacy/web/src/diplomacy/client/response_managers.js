@@ -15,14 +15,16 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 /*eslint no-unused-vars: ["error", { "args": "none" }]*/
-import {RESPONSES} from "../communication/responses";
+import { RESPONSES } from "../communication/responses";
 
 /** Default response manager. **/
 function defaultResponseManager(context, response) {
-    if (RESPONSES.isOk(response))
+    if (RESPONSES.isOk(response)) {
         return null;
-    if (RESPONSES.isUniqueData(response))
+    }
+    if (RESPONSES.isUniqueData(response)) {
         return response.data;
+    }
     return response;
 }
 
@@ -82,10 +84,11 @@ export const RESPONSE_MANAGERS = {
     },
     set_orders: function (context, response) {
         const orders = context.request.orders;
-        if (context.game.local.isPlayerGame(context.request.game_role))
+        if (context.game.local.isPlayerGame(context.request.game_role)) {
             context.game.local.setOrders(context.request.game_role, orders);
-        else
+        } else {
             context.game.local.setOrders(context.request.power_name, orders);
+        }
     },
     clear_orders: function (context, response) {
         context.game.local.clearOrders(context.request.power_name);
@@ -98,10 +101,11 @@ export const RESPONSE_MANAGERS = {
     },
     set_wait_flag: function (context, response) {
         const wait = context.request.wait;
-        if (context.game.local.isPlayerGame(context.request.game_role))
+        if (context.game.local.isPlayerGame(context.request.game_role)) {
             context.game.local.setWait(context.request.game_role, wait);
-        else
+        } else {
             context.game.local.setWait(context.request.power_name, wait);
+        }
     },
     vote: function (context, response) {
         context.game.local.getRelatedPower().vote = context.request.vote;
@@ -110,8 +114,11 @@ export const RESPONSE_MANAGERS = {
         return context.newChannel(context.request.username, response.data);
     },
     handleResponse: function (context, response) {
-        if (!RESPONSE_MANAGERS.hasOwnProperty(context.request.name))
-            throw new Error('No response handler available for request ' + context.request.name);
+        if (!Object.prototype.hasOwnProperty.call(RESPONSE_MANAGERS, context.request.name)) {
+            throw new Error(
+                "No response handler available for request " + context.request.name
+            );
+        }
         const handler = RESPONSE_MANAGERS[context.request.name];
         return handler(context, response);
     }
