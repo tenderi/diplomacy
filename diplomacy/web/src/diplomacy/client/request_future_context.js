@@ -41,14 +41,16 @@ export class RequestFutureContext {
         this.connection.channels[token] = channel;
         return channel;
     }
-
+    
     newGame(received_game) {
         const channel = this.getChannel();
         const game = new NetworkGame(channel, received_game);
+
         if (!Object.prototype.hasOwnProperty.call(channel.game_id_to_instances, game.local.game_id)) {
             channel.game_id_to_instances[game.local.game_id] = new GameInstanceSet(game.local.game_id);
         }
         channel.game_id_to_instances[game.local.game_id].add(game);
+
         return game;
     }
 

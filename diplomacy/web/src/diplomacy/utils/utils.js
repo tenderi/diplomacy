@@ -1,198 +1,163 @@
 // ==============================================================================
 // Copyright (C) 2019 - Philip Paquette, Steven Bocco
 //
-//  This program is free software: you can redistribute it and/or modify it under
-//  the terms of the GNU Affero General Public License as published by the Free
-//  Software Foundation, either version 3 of the License, or (at your option) any
-//  later version.
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
 //
-//  This program is distributed in the hope that it will be useful, but WITHOUT
-//  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-//  FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
-//  details.
+// This program is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more
+// details.
 //
-//  You should have received a copy of the GNU Affero General Public License along
-//  with this program.  If not, see <https://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU Affero General Public License along
+// with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
-/** Utils. **/
 
-class Dict {
-}
+class Dict {}
 
+/** Utility functions. **/
 export const UTILS = {
     NB_CONNECTION_ATTEMPTS: 12,
     ATTEMPT_DELAY_SECONDS: 5,
     REQUEST_TIMEOUT_SECONDS: 30,
 
-    /** Return a random integer in interval [from, to). **/
-    randomInteger: function (from, to) {
-        return Math.floor(Math.random() * (to - from) + from);
-    },
+    /** Generate a random integer within the range [from, to). **/
+    randomInteger: (from, to) => Math.floor(Math.random() * (to - from) + from),
 
-    /** Create an ID string using current time + 5 random integers each with 10 digits. **/
-    createID: function () {
-        let id = new Date().getTime().toString(10);
-        for (let i = 0; i < 5; ++i)
-            id += UTILS.randomInteger(1e9, 1e10);
-        return id;
-    },
+    /** Generate a unique ID string based on current time and random integers. **/
+    createID: () =>
+        `${Date.now()}${Array.from({ length: 5 }, () => UTILS.randomInteger(1e9, 1e10)).join("")}`,
 
-    createGameID: function (username) {
-        return `${username}_${new Date().getTime().toString(10)}`;
-    },
+    /** Generate a game-specific ID using username and current time. **/
+    createGameID: (username) => `${username}_${Date.now()}`,
 
-    date: function () {
+    /** Get the current date and time as a locale string with milliseconds. **/
+    date: () => {
         const d = new Date();
-        return d.toLocaleString() + '.' + d.getMilliseconds();
+        return `${d.toLocaleString()}.${d.getMilliseconds()}`;
     },
 
-    microsecondsToDate: function (time) {
-        return new Date(Math.floor(time / 1000));
-    },
+    /** Convert microseconds to a JavaScript Date object. **/
+    microsecondsToDate: (time) => new Date(Math.floor(time / 1000)),
 
+    /** Binary search utilities for sorted arrays. **/
     binarySearch: {
-        find: function (array, element) {
-            let a = 0;
-            let b = array.length - 1;
-            while (a <= b) {
-                const c = Math.floor((a + b) / 2);
-                if (array[c] === element)
-                    return c;
-                if (array[c] < element)
-                    a = c + 1;
-                else
-                    b = c - 1;
+        find: (array, element) => {
+            let low = 0;
+            let high = array.length - 1;
+
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (array[mid] === element) return mid;
+                if (array[mid] < element) low = mid + 1;
+                else high = mid - 1;
             }
             return -1;
         },
-        insert: function (array, element) {
-            let a = 0;
-            let b = array.length - 1;
-            while (a <= b) {
-                const c = Math.floor((a + b) / 2);
-                if (array[c] === element)
-                    return c;
-                if (array[c] < element)
-                    a = c + 1;
-                else
-                    b = c - 1;
+
+        insert: (array, element) => {
+            let low = 0;
+            let high = array.length - 1;
+
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (array[mid] === element) return mid;
+                if (array[mid] < element) low = mid + 1;
+                else high = mid - 1;
             }
-            // If we go out of loop, then array[b] < element, so we must insert element at position b + 1.
-            if (b < array.length - 1)
-                array.splice(b + 1, 0, element);
-            else
-                array.push(element);
-            return b + 1;
-        }
+            array.splice(low, 0, element);
+            return low;
+        },
     },
 
     javascript: {
+        /** Check if an array is empty or undefined. **/
+        arrayIsEmpty: (array) => !array?.length,
 
-        arrayIsEmpty: function (array) {
-            return !(array && array.length);
+        /** Check if an array exists and has elements. **/
+        hasArray: (array) => !!array?.length,
+
+        /** Clear all keys in an object. **/
+        clearObject: (obj) => {
+            Object.keys(obj).forEach((key) => delete obj[key]);
         },
 
-        hasArray: function (array) {
-            return array && array.length;
+        /** Convert an array to a dictionary using a specified field as the key. **/
+        arrayToDict: (array, field) =>
+            array.reduce((dict, entry) => {
+                dict[entry[field]] = entry;
+                return dict;
+            }, {}),
+
+        /** Count the number of keys in an object. **/
+        count: (obj) => Object.keys(obj).length,
+
+        /** Add a unique value to an array within an object under a specified key. **/
+        extendArrayWithUniqueValues: (obj, key, value) => {
+            obj[key] = obj[key] || [];
+            if (!obj[key].includes(value)) obj[key].push(value);
         },
 
-        clearObject: function (obj) {
-            const keys = Object.keys(obj);
-            for (let key of keys)
-                delete obj[key];
-        },
-
-        /** Create a dictionary from given array, using array elements as dictionary values
-         * and array elements's `field` values (element[field]) as dictionary keys. **/
-        arrayToDict: function (array, field) {
-            const dictionary = {};
-            for (let entry of array)
-                dictionary[entry[field]] = entry;
-            return dictionary;
-        },
-
-        count(obj) {
-            return Object.keys(obj).length;
-        },
-
-        extendArrayWithUniqueValues(obj, key, value) {
-            if (!Object.prototype.hasOwnProperty.call(obj, key)) {
-                obj[key] = [value];
-            } else if (!obj[key].includes(value)) {
-                obj[key].push(value);
-            }
-            },
-
-        extendTreeValue(obj, path, value, allowMultipleValues) {
+        /** Add a value to a tree-like object structure based on a path. **/
+        extendTreeValue: (obj, path, value, allowMultipleValues = true) => {
             let current = obj;
-            const pathLength = path.length;
-            const parentPathLength = pathLength - 1;
-            for (let i = 0; i < parentPathLength; ++i) {
-                const stepName = path[i];
-                if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
-                    current[stepName] = new Dict();
-                }
-                current = current[stepName];
-            }
-            const stepName = path[pathLength - 1];
-            if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
-                current[stepName] = [];
-            }
-            if (allowMultipleValues || !current[stepName].includes(value)) {
-                current[stepName].push(value);
+
+            path.slice(0, -1).forEach((step) => {
+                current[step] = current[step] || new Dict();
+                current = current[step];
+            });
+
+            const leaf = path[path.length - 1];
+            current[leaf] = current[leaf] || [];
+
+            if (allowMultipleValues || !current[leaf].includes(value)) {
+                current[leaf].push(value);
             }
         },
 
-        getTreeValue(obj, path) {
+        /** Retrieve a value from a tree-like object structure based on a path. **/
+        getTreeValue: (obj, path) => {
             let current = obj;
-            for (let stepName of path) {
-                if (!Object.prototype.hasOwnProperty.call(current, stepName)) {
-                    return null;
-                }
-                current = current[stepName];
+            for (const step of path) {
+                if (!(step in current)) return null;
+                current = current[step];
             }
-            if (current instanceof Dict) {
-                return Object.keys(current);
-            }
-            return current;
-        }
+            return current instanceof Dict ? Object.keys(current) : current;
+        },
     },
 
     html: {
+        // Unicode symbols for UI elements.
+        UNICODE_LEFT_ARROW: "\u25C0",
+        UNICODE_RIGHT_ARROW: "\u25B6",
+        UNICODE_TOP_ARROW: "\u25BC",
+        UNICODE_BOTTOM_ARROW: "\u25B2",
+        CROSS: "\u00D7",
+        UNICODE_SMALL_RIGHT_ARROW: "\u2192",
+        UNICODE_SMALL_LEFT_ARROW: "\u2190",
 
-        // Source: https://www.w3schools.com/charsets/ref_utf_geometric.asp
-        UNICODE_LEFT_ARROW: '\u25C0',
-        UNICODE_RIGHT_ARROW: '\u25B6',
-        UNICODE_TOP_ARROW: '\u25BC',
-        UNICODE_BOTTOM_ARROW: '\u25B2',
-        CROSS: '\u00D7',
-        UNICODE_SMALL_RIGHT_ARROW: '\u2192',
-        UNICODE_SMALL_LEFT_ARROW: '\u2190',
+        /** Check if an element is a `<select>`. **/
+        isSelect: (element) => element.tagName.toLowerCase() === "select",
 
-        isSelect: function (element) {
-            return element.tagName.toLowerCase() === 'select';
-        },
+        /** Check if an element is an `<input>`. **/
+        isInput: (element) => element.tagName.toLowerCase() === "input",
 
-        isInput: function (element) {
-            return element.tagName.toLowerCase() === 'input';
-        },
+        /** Check if an element is a checkbox input. **/
+        isCheckBox: (element) =>
+            UTILS.html.isInput(element) && element.type === "checkbox",
 
-        isCheckBox: function (element) {
-            return UTILS.html.isInput(element) && element.type === 'checkbox';
-        },
+        /** Check if an element is a radio button input. **/
+        isRadioButton: (element) =>
+            UTILS.html.isInput(element) && element.type === "radio",
 
-        isRadioButton: function (element) {
-            return UTILS.html.isInput(element) && element.type === 'radio';
-        },
+        /** Check if an element is a text input. **/
+        isTextInput: (element) =>
+            UTILS.html.isInput(element) && element.type === "text",
 
-        isTextInput: function (element) {
-            return UTILS.html.isInput(element) && element.type === 'text';
-        },
-
-        isPasswordInput: function (element) {
-            return UTILS.html.isInput(element) && element.type === 'password';
-        }
-
-    }
-
+        /** Check if an element is a password input. **/
+        isPasswordInput: (element) =>
+            UTILS.html.isInput(element) && element.type === "password",
+    },
 };

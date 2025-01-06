@@ -17,39 +17,59 @@
 /** Class Future (like Python's Tornado future). **/
 export class Future {
     constructor() {
-        this.__resolve_fn = null;
-        this.__reject_fn = null;
-        this.__promise = null;
-        this.__done = false;
+        this.__resolveFn = null; // Function to resolve the promise
+        this.__rejectFn = null; // Function to reject the promise
+        this.__done = false; // Track whether the promise is completed
 
-        const future = this;
+        // Create a promise and store its resolve/reject handlers
         this.__promise = new Promise((resolve, reject) => {
-            future.__resolve_fn = resolve;
-            future.__reject_fn = reject;
+            this.__resolveFn = resolve;
+            this.__rejectFn = reject;
         });
     }
 
+    /**
+     * Returns the internal promise.
+     * @returns {Promise}
+     */
     promise() {
         return this.__promise;
     }
 
+    /**
+     * Resolves the promise with the given result.
+     * @param {*} result - The result to resolve the promise with.
+     */
     setResult(result) {
-        if (!this.done()) {
-            this.__done = true;
-            const resolve_fn = this.__resolve_fn;
-            resolve_fn(result);
+        if (this.isDone()) {
+            console.warn("Future.setResult called on a completed promise.");
+            return;
         }
+        this.__done = true;
+        this.__resolveFn(result);
     }
 
+    /**
+     * Rejects the promise with the given exception.
+     * @param {Error} exception - The exception to reject the promise with.
+     */
     setException(exception) {
-        if (!this.done()) {
-            this.__done = true;
-            const reject_fn = this.__reject_fn;
-            reject_fn(exception);
+        if (this.isDone()) {
+            console.warn("Future.setException called on a completed promise.");
+            return;
         }
+        this.__done = true;
+        this.__rejectFn(exception);
     }
 
-    done() {
+    /**
+     * Checks if the promise has been resolved or rejected.
+     * @returns {boolean} True if the promise is completed.
+     */
+    isDone() {
         return this.__done;
+    }
+    done() {
+        return this.__isDone;
     }
 }

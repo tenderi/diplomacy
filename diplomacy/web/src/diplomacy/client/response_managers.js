@@ -16,7 +16,7 @@
 // ==============================================================================
 /*eslint no-unused-vars: ["error", { "args": "none" }]*/
 import { RESPONSES } from "../communication/responses";
-
+//import { RequestFutureContext } from './request_future_context';
 /** Default response manager. **/
 function defaultResponseManager(context, response) {
     if (RESPONSES.isOk(response)) {
@@ -111,7 +111,11 @@ export const RESPONSE_MANAGERS = {
         context.game.local.getRelatedPower().vote = context.request.vote;
     },
     sign_in: function (context, response) {
-        return context.newChannel(context.request.username, response.data);
+        console.log("Context in sign_in:", context);
+        if (!context.newChannel) {
+            throw new Error("Context is missing the 'newChannel' method.");
+        }
+        return context.newChannel(context.request.username, response.data.token);
     },
     handleResponse: function (context, response) {
         if (!Object.prototype.hasOwnProperty.call(RESPONSE_MANAGERS, context.request.name)) {

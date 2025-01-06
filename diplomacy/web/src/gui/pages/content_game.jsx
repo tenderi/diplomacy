@@ -15,42 +15,42 @@
 //  with this program.  If not, see <https://www.gnu.org/licenses/>.
 // ==============================================================================
 import React from "react";
-import Scrollchor from "react-scrollchor";
-import { SelectLocationForm } from "../forms/select_location_form";
-import { SelectViaForm } from "../forms/select_via_form";
-import { Order } from "../utils/order";
-import { Row } from "../components/layouts";
-import { Tabs } from "../components/tabs";
-import { extendOrderBuilding, ORDER_BUILDER, POSSIBLE_ORDERS } from "../utils/order_building";
-import { PowerOrderCreationForm } from "../forms/power_order_creation_form";
-import { MessageForm } from "../forms/message_form";
-import { UTILS } from "../../diplomacy/utils/utils";
-import { Message } from "../../diplomacy/engine/message";
-import { PowerOrders } from "../components/power_orders";
-import { MessageView } from "../components/message_view";
-import { STRINGS } from "../../diplomacy/utils/strings";
-import { Diplog } from "../../diplomacy/utils/diplog";
-import { Table } from "../components/table";
-import { PowerView } from "../utils/power_view";
-import { DipStorage } from "../utils/dipStorage";
-import { Helmet } from "react-helmet-async"; // Updated import
-import { Navigation } from "../components/navigation";
-import { PageContext } from "../components/page_context";
-import PropTypes from "prop-types";
-import { Help } from "../components/help";
-import { Tab } from "../components/tab";
-import { Button } from "../components/button";
-import { saveGameToDisk } from "../utils/saveGameToDisk";
-import { Game } from "../../diplomacy/engine/game";
-import { PowerOrdersActionBar } from "../components/power_orders_actions_bar";
-import { SvgStandard } from "../maps/standard/SvgStandard";
-import { SvgAncMed } from "../maps/ancmed/SvgAncMed";
-import { SvgModern } from "../maps/modern/SvgModern";
-import { SvgPure } from "../maps/pure/SvgPure";
-import { MapData } from "../utils/map_data";
-import { Queue } from "../../diplomacy/utils/queue";
+import Scrollchor from 'react-scrollchor';
+import {SelectLocationForm} from "../forms/select_location_form";
+import {SelectViaForm} from "../forms/select_via_form";
+import {Order} from "../utils/order";
+import {Row} from "../components/layouts";
+import {Tabs} from "../components/tabs";
+import {extendOrderBuilding, ORDER_BUILDER, POSSIBLE_ORDERS} from "../utils/order_building";
+import {PowerOrderCreationForm} from "../forms/power_order_creation_form";
+import {MessageForm} from "../forms/message_form";
+import {UTILS} from "../../diplomacy/utils/utils";
+import {Message} from "../../diplomacy/engine/message";
+import {PowerOrders} from "../components/power_orders";
+import {MessageView} from "../components/message_view";
+import {STRINGS} from "../../diplomacy/utils/strings";
+import {Diplog} from "../../diplomacy/utils/diplog";
+import {Table} from "../components/table";
+import {PowerView} from "../utils/power_view";
+import {DipStorage} from "../utils/dipStorage";
+import Helmet from 'react-helmet';
+import {Navigation} from "../components/navigation";
+import {PageContext} from "../components/page_context";
+import PropTypes from 'prop-types';
+import {Help} from "../components/help";
+import {Tab} from "../components/tab";
+import {Button} from "../components/button";
+import {saveGameToDisk} from "../utils/saveGameToDisk";
+import {Game} from '../../diplomacy/engine/game';
+import {PowerOrdersActionBar} from "../components/power_orders_actions_bar";
+import {SvgStandard} from "../maps/standard/SvgStandard";
+import {SvgAncMed} from "../maps/ancmed/SvgAncMed";
+import {SvgModern} from "../maps/modern/SvgModern";
+import {SvgPure} from "../maps/pure/SvgPure";
+import {MapData} from "../utils/map_data";
+import {Queue} from "../../diplomacy/utils/queue";
 
-const HotKey = require("react-shortcut");
+const HotKey = require('react-shortcut');
 
 /* Order management in game page.
  * When editing orders locally, we have to compare it to server orders
@@ -66,25 +66,25 @@ const HotKey = require("react-shortcut");
  * {orders}  null       1 (different, user wants to delete all server orders, will result to "no-orders")
  * {orders}  {}         1 (different, user wants to delete all server orders, will result to "no-orders")
  * {orders}  {orders}   same if we have exactly same orders on both server and local
- */
+  * */
 
 const TABLE_POWER_VIEW = {
-  name: ["Power", 0],
-  controller: ["Controller", 1],
-  order_is_set: ["With orders", 2],
-  wait: ["Waiting", 3],
+    name: ['Power', 0],
+    controller: ['Controller', 1],
+    order_is_set: ['With orders', 2],
+    wait: ['Waiting', 3]
 };
 
 const PRETTY_ROLES = {
-  [STRINGS.OMNISCIENT_TYPE]: "Omnicient",
-  [STRINGS.OBSERVER_TYPE]: "Observer",
+    [STRINGS.OMNISCIENT_TYPE]: 'Omnicient',
+    [STRINGS.OBSERVER_TYPE]: 'Observer'
 };
 
 const MAP_COMPONENTS = {
-  ancmed: SvgAncMed,
-  standard: SvgStandard,
-  modern: SvgModern,
-  pure: SvgPure,
+    ancmed: SvgAncMed,
+    standard: SvgStandard,
+    modern: SvgModern,
+    pure: SvgPure
 };
 
 const getMapComponent = (mapName) => {
@@ -182,7 +182,7 @@ export class ContentGame extends React.Component {
         this.vote = this.vote.bind(this);
         this.updateDeadlineTimer = this.updateDeadlineTimer.bind(this);
     }
-
+    
     static prettyRole(role) {
         if (Object.prototype.hasOwnProperty.call(PRETTY_ROLES, role))
             return PRETTY_ROLES[role];

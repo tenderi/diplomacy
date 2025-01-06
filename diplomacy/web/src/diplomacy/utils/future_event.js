@@ -19,27 +19,45 @@ import {Future} from "./future";
 /** Class FutureEvent (like Python's Tornado FutureEvent). **/
 export class FutureEvent {
     constructor() {
-        this.__future = new Future();
+        this.__future = new Future(); // Ensure Future is correctly initialized
     }
 
+    /**
+     * Sets the future's result or exception based on the input.
+     * @param {Error|null} error - If null, resolves the future; otherwise, rejects it.
+     */
     set(error) {
-        if (!this.__future.done())
-            if (error)
+        if (!this.__future.isDone()) { // Use isDone() instead of done()
+            if (error) {
                 this.__future.setException(error);
-            else
+            } else {
                 this.__future.setResult(null);
+            }
+        }
     }
 
+    /**
+     * Clears the future, reinitializing it.
+     */
     clear() {
-        if (this.__future.done())
+        if (this.__future.isDone()) {
             this.__future = new Future();
+        }
     }
 
+    /**
+     * Returns a promise that resolves or rejects based on the future's state.
+     * @returns {Promise} - The underlying promise.
+     */
     wait() {
         return this.__future.promise();
     }
 
+    /**
+     * Checks if the future is still waiting to be resolved or rejected.
+     * @returns {boolean} - True if the future is not yet completed.
+     */
     isWaiting() {
-        return !this.__future.done();
+        return !this.__future.isDone();
     }
 }
