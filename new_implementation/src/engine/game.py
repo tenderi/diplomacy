@@ -1,6 +1,7 @@
 from typing import Dict, List, Any
 from engine.map import Map
 from engine.power import Power
+from engine.order import OrderParser, Order
 
 class Game:
     """Main class for managing the game state, phases, and turn processing."""
@@ -21,10 +22,79 @@ class Game:
         self.orders[power_name] = orders
 
     def process_turn(self) -> None:
-        self.turn += 1
-        # For now, just clear orders and continue
+        """Process all orders for the current turn using Diplomacy rules (move/hold/support + supply center control)."""
+        # 1. Parse and validate all orders
+        parsed_orders: Dict[str, List[Order]] = {}
+        for power, order_strs in self.orders.items():
+            parsed_orders[power] = []
+            for order_str in order_strs:
+                try:
+                    order = OrderParser.parse(order_str)
+                    if not OrderParser.validate(order, self.get_state()):
+                        continue  # Skip invalid orders
+                    parsed_orders[power].append(order)
+                except Exception:
+                    continue  # Skip invalid orders
+
+        # 2. Adjudicate orders (basic: move, hold, support)
+        unit_positions: Dict[str, str] = {}
+        for power, p in self.powers.items():
+            for unit in p.units:
+                unit_positions[unit] = unit.split()[-1]
+
+        moves: Dict[str, str] = {}
+        supports: Dict[str, int] = {}
+        for power, orders in parsed_orders.items():
+            for order in orders:
+                if order.action == '-' and order.target is not None:
+                    moves[order.unit] = order.target
+                elif order.action == 'S' and order.target:
+                    supports[order.target] = supports.get(order.target, 0) + 1
+
+        new_positions: Dict[str, str] = {}
+        for unit, from_prov in unit_positions.items():
+            if unit in moves:
+                dest = moves[unit]
+                strength = 1 + supports.get(unit, 0)
+                competitors = [u for u, d in moves.items() if d == dest and u != unit]
+                max_strength = strength
+                for comp in competitors:
+                    comp_strength = 1 + supports.get(comp, 0)
+                    if comp_strength > max_strength:
+                        max_strength = comp_strength
+                if all(1 + supports.get(comp, 0) < strength for comp in competitors):
+                    new_positions[unit] = dest
+                else:
+                    new_positions[unit] = from_prov
+            else:
+                new_positions[unit] = from_prov
+
+        # Update units in powers
+        for power, p in self.powers.items():
+            p.units = set()
+        for unit, prov in new_positions.items():
+            for power, p in self.powers.items():
+                if unit in unit_positions:
+                    p.units.add(prov)
+
+        # 3. Update supply center control
+        supply_centers = self.map.get_supply_centers()
+        province_to_power: Dict[str, str] = {}
+        for power, p in self.powers.items():
+            for prov in p.units:
+                if prov in supply_centers:
+                    province_to_power[prov] = power
+        for power, p in self.powers.items():
+            p.controlled_centers = set()
+        for prov, power in province_to_power.items():
+            self.powers[power].gain_center(prov)
+        for power, p in self.powers.items():
+            if not p.controlled_centers:
+                p.is_alive = False
+
+        # 4. Clear orders and increment turn
         self.orders = {}
-        # Mark done after 10 turns for stub
+        self.turn += 1
         if self.turn >= 10:
             self.done = True
 
