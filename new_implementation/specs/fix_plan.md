@@ -40,3 +40,7 @@
 - Initial tag 0.0.0 created and pushed
 - Expanded server test coverage in test_server.py to cover all major commands, error handling, and state queries as per the server specification.
 - All new and existing server tests pass.
+- Created and pushed git tag 0.0.1 after expanding server test coverage and passing all tests.
+- Implemented minimal Client class in client.py for server interaction.
+- Added client-server integration tests in tests/test_client.py covering command flow and error handling.
+- All client-server tests pass.
