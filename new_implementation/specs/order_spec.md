@@ -35,6 +35,18 @@ valid = parser.validate(parsed_order, game_state)
 - Test order validation
 - Test order execution and state updates
 
+## Validation Details (July 2025)
+- Validation now checks:
+  - Power existence
+  - Unit ownership (unit must belong to power)
+  - Action validity (must be one of '-', 'H', 'S', 'C')
+  - For moves: target must be present, valid, and adjacent (if map is provided)
+  - For supports: target must be present
+  - For convoys: only fleets can convoy, target must be present
+  - For holds: must not have a target
+- Validation returns a tuple (bool, str): pass/fail and error message.
+- Tests cover valid, invalid, and edge-case orders, and check error messages.
+
 ---
 
 Update this spec as the module evolves.
