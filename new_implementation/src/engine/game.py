@@ -36,7 +36,7 @@ class Game:
                 except Exception:
                     continue  # Skip invalid orders
 
-        # 2. Adjudicate orders (basic: move, hold, support)
+        # 2. Adjudicate orders (support cut, standoff, move/hold/support)
         unit_positions: Dict[str, str] = {}
         for power, p in self.powers.items():
             for unit in p.units:
@@ -44,6 +44,8 @@ class Game:
 
         moves: Dict[str, str] = {}
         supports: Dict[str, int] = {}
+        support_cut: Dict[str, bool] = {}
+        # First pass: collect moves and supports
         for power, orders in parsed_orders.items():
             for order in orders:
                 if order.action == '-' and order.target is not None:
@@ -51,10 +53,37 @@ class Game:
                 elif order.action == 'S' and order.target:
                     supports[order.target] = supports.get(order.target, 0) + 1
 
+        # Support cut: if a supporting unit is attacked from a province other than the one it is supporting against, cut the support
+        for power, orders in parsed_orders.items():
+            for order in orders:
+                if order.action == 'S' and order.target:
+                    supporter_unit = order.unit
+                    supporter_prov = supporter_unit.split()[-1]
+                    for atk_power, atk_orders in parsed_orders.items():
+                        for atk_order in atk_orders:
+                            if atk_order.action == '-' and atk_order.target == supporter_prov:
+                                # Only cut if not the unit being supported
+                                if not (atk_order.unit == order.target):
+                                    support_cut[order.target] = True
+        # Remove cut supports
+        for cut_target in support_cut:
+            if cut_target in supports:
+                del supports[cut_target]
+
+        # Moves and standoffs
         new_positions: Dict[str, str] = {}
+        contested: Dict[str, List[str]] = {}
         for unit, from_prov in unit_positions.items():
             if unit in moves:
                 dest = moves[unit]
+                contested.setdefault(dest, []).append(unit)
+        # Standoff: if more than one unit moves to the same province, all fail
+        for dest, units in contested.items():
+            if len(units) > 1:
+                for unit in units:
+                    new_positions[unit] = unit_positions[unit]
+            else:
+                unit = units[0]
                 strength = 1 + supports.get(unit, 0)
                 competitors = [u for u, d in moves.items() if d == dest and u != unit]
                 max_strength = strength
@@ -65,8 +94,10 @@ class Game:
                 if all(1 + supports.get(comp, 0) < strength for comp in competitors):
                     new_positions[unit] = dest
                 else:
-                    new_positions[unit] = from_prov
-            else:
+                    new_positions[unit] = unit_positions[unit]
+        # Units not moving or not in standoff
+        for unit, from_prov in unit_positions.items():
+            if unit not in new_positions:
                 new_positions[unit] = from_prov
 
         # Update units in powers
