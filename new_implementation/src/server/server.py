@@ -1,6 +1,7 @@
-from typing import Dict
+from typing import Dict, Any
 from engine.game import Game
 import logging
+from .errors import ServerError, ErrorCode
 
 class Server:
     """Main class for accepting and processing game commands."""
@@ -19,12 +20,12 @@ class Server:
         # Placeholder for server loop (CLI/API)
         pass
 
-    def process_command(self, command: str) -> Dict[str, object]:
+    def process_command(self, command: str) -> Dict[str, Any]:
         self.logger.info(f"Received command: {command}")
         tokens = command.strip().split()
         if not tokens:
             self.logger.error("Empty command received")
-            return {"status": "error", "message": "Empty command"}
+            return ServerError.create_error_response(ErrorCode.MISSING_ARGUMENTS, "Empty command", {"command": command})
         cmd = tokens[0].upper()
         if cmd == "NEW_GAME" or cmd == "CREATE_GAME":
             game_id = str(self.next_game_id)
@@ -35,60 +36,66 @@ class Server:
         elif cmd == "ADD_PLAYER":
             if len(tokens) < 3:
                 self.logger.error("ADD_PLAYER missing arguments")
-                return {"status": "error", "message": "Usage: ADD_PLAYER <game_id> <power_name>"}
+                return ServerError.missing_arguments("ADD_PLAYER", "ADD_PLAYER <game_id> <power_name>")
             game_id, power_name = tokens[1], tokens[2]
             game = self.games.get(game_id)
             if not game:
                 self.logger.error(f"Game {game_id} not found for ADD_PLAYER")
-                return {"status": "error", "message": f"Game {game_id} not found"}
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
+            if power_name in game.powers:
+                self.logger.error(f"Power {power_name} already exists in game {game_id}")
+                return ServerError.create_error_response(ErrorCode.POWER_ALREADY_EXISTS, f"Power {power_name} already exists in game {game_id}", {"game_id": game_id, "power_name": power_name})
             game.add_player(power_name)
             self.logger.info(f"Added player {power_name} to game {game_id}")
             return {"status": "ok"}
         elif cmd == "SET_ORDERS":
             if len(tokens) < 4:
                 self.logger.error("SET_ORDERS missing arguments")
-                return {"status": "error", "message": "Usage: SET_ORDERS <game_id> <power_name> <order_str>"}
+                return ServerError.missing_arguments("SET_ORDERS", "SET_ORDERS <game_id> <power_name> <order_str>")
             game_id, power_name = tokens[1], tokens[2]
             order_str = " ".join(tokens[3:])
             game = self.games.get(game_id)
             if not game:
                 self.logger.error(f"Game {game_id} not found for SET_ORDERS")
-                return {"status": "error", "message": f"Game {game_id} not found"}
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
+            if power_name not in game.powers:
+                self.logger.error(f"Power {power_name} not found in game {game_id}")
+                return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
             game.set_orders(power_name, [order_str])
             self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
             return {"status": "ok"}
         elif cmd == "PROCESS_TURN":
             if len(tokens) < 2:
                 self.logger.error("PROCESS_TURN missing arguments")
-                return {"status": "error", "message": "Usage: PROCESS_TURN <game_id>"}
+                return ServerError.missing_arguments("PROCESS_TURN", "PROCESS_TURN <game_id>")
             game_id = tokens[1]
             game = self.games.get(game_id)
             if not game:
                 self.logger.error(f"Game {game_id} not found for PROCESS_TURN")
-                return {"status": "error", "message": f"Game {game_id} not found"}
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
             game.process_turn()
             self.logger.info(f"Processed turn for game {game_id}")
             return {"status": "ok"}
         elif cmd == "GET_GAME_STATE":
             if len(tokens) < 2:
                 self.logger.error("GET_GAME_STATE missing arguments")
-                return {"status": "error", "message": "Usage: GET_GAME_STATE <game_id>"}
+                return ServerError.missing_arguments("GET_GAME_STATE", "GET_GAME_STATE <game_id>")
             game_id = tokens[1]
             game = self.games.get(game_id)
             if not game:
                 self.logger.error(f"Game {game_id} not found for GET_GAME_STATE")
-                return {"status": "error", "message": f"Game {game_id} not found"}
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
             self.logger.info(f"Queried game state for game {game_id}")
             return {"status": "ok", "state": game.get_state()}
         elif cmd == "SAVE_GAME":
             if len(tokens) < 3:
                 self.logger.error("SAVE_GAME missing arguments")
-                return {"status": "error", "message": "Usage: SAVE_GAME <game_id> <filename>"}
+                return ServerError.missing_arguments("SAVE_GAME", "SAVE_GAME <game_id> <filename>")
             game_id, filename = tokens[1], tokens[2]
             game = self.games.get(game_id)
             if not game:
                 self.logger.error(f"Game {game_id} not found for SAVE_GAME")
-                return {"status": "error", "message": f"Game {game_id} not found"}
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
             import pickle
             try:
                 with open(filename, 'wb') as f:
@@ -97,11 +104,11 @@ class Server:
                 return {"status": "ok"}
             except Exception as e:
                 self.logger.error(f"Failed to save game {game_id}: {e}")
-                return {"status": "error", "message": str(e)}
+                return ServerError.create_error_response(ErrorCode.FILE_ERROR, f"Failed to save game {game_id}: {e}", {"game_id": game_id, "filename": filename})
         elif cmd == "LOAD_GAME":
             if len(tokens) < 3:
                 self.logger.error("LOAD_GAME missing arguments")
-                return {"status": "error", "message": "Usage: LOAD_GAME <game_id> <filename>"}
+                return ServerError.missing_arguments("LOAD_GAME", "LOAD_GAME <game_id> <filename>")
             game_id, filename = tokens[1], tokens[2]
             import pickle
             try:
@@ -112,12 +119,43 @@ class Server:
                 return {"status": "ok"}
             except Exception as e:
                 self.logger.error(f"Failed to load game {game_id}: {e}")
-                return {"status": "error", "message": str(e)}
+                return ServerError.create_error_response(ErrorCode.FILE_ERROR, f"Failed to load game {game_id}: {e}", {"game_id": game_id, "filename": filename})
+        elif cmd == "REMOVE_PLAYER":
+            if len(tokens) < 3:
+                self.logger.error("REMOVE_PLAYER missing arguments")
+                return ServerError.missing_arguments("REMOVE_PLAYER", "REMOVE_PLAYER <game_id> <power_name>")
+            game_id, power_name = tokens[1], tokens[2]
+            game = self.games.get(game_id)
+            if not game:
+                self.logger.error(f"Game {game_id} not found for REMOVE_PLAYER")
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
+            if power_name not in game.powers:
+                self.logger.error(f"Power {power_name} not found in game {game_id}")
+                return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
+            # Remove the power from the game
+            del game.powers[power_name]
+            if power_name in game.orders:
+                del game.orders[power_name]
+            self.logger.info(f"Removed player {power_name} from game {game_id}")
+            return {"status": "ok"}
+        elif cmd == "ADVANCE_PHASE":
+            if len(tokens) < 2:
+                self.logger.error("ADVANCE_PHASE missing arguments")
+                return ServerError.missing_arguments("ADVANCE_PHASE", "ADVANCE_PHASE <game_id>")
+            game_id = tokens[1]
+            game = self.games.get(game_id)
+            if not game:
+                self.logger.error(f"Game {game_id} not found for ADVANCE_PHASE")
+                return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
+            # Advance the phase by processing the current turn
+            game.process_turn()
+            self.logger.info(f"Advanced phase for game {game_id}")
+            return {"status": "ok"}
         else:
             self.logger.error(f"Unknown command: {cmd}")
-            return {"status": "error", "message": f"Unknown command: {cmd}"}
+            return ServerError.unknown_command(cmd)
 
-    def get_game_state(self, game_id: str) -> object:
+    def get_game_state(self, game_id: str) -> Any:
         game = self.games.get(game_id)
         if not game:
             return None

@@ -14,10 +14,10 @@
 
 - [x] Implement advanced order adjudication and turn processing (edge cases, convoy paradoxes, support cut, standoffs, dislodgement)
 - [x] Expand test coverage for adjudication edge cases (convoy paradoxes, support cut, standoffs, dislodgement)
-- [ ] Implement and test DAIDE protocol support for bot/server communication
-- [ ] Add support for multiple concurrent games and test isolation
-- [ ] Implement SAVE_GAME and LOAD_GAME commands for persistence
-- [ ] Add REMOVE_PLAYER and ADVANCE_PHASE commands as per extensibility section
+- [x] Add support for multiple concurrent games and test isolation
+- [x] Add REMOVE_PLAYER and ADVANCE_PHASE commands as per extensibility section
+- [x] Implement SAVE_GAME and LOAD_GAME commands for persistence
+- [x] Implement and test DAIDE protocol support for bot/server communication
 - [ ] Improve error response structure and consistency (see server_spec.md error handling)
 - [ ] Enhance logging: add startup/shutdown, game state changes, and structured log output
 - [ ] Add configuration options for host/port, persistence backend, debug/production mode, and logging
@@ -85,6 +85,12 @@
 - Fixed support cut by dislodgement logic to properly handle complex scenarios where supporting units are dislodged.
 - All 9 adjudication tests now pass, including edge cases for convoy disruption, support cut, standoffs, and dislodgement.
 - Updated test_support_cut_by_dislodgement to properly test the scenario where a supporting unit is dislodged by a supported attack.
+- Added support for multiple concurrent games with proper isolation testing.
+- Implemented REMOVE_PLAYER command to remove players from games.
+- Implemented ADVANCE_PHASE command to manually advance game phases.
+- Added comprehensive test suite for multiple concurrent games, isolation, and new commands.
+- All 37 tests now pass including 9 new advanced server tests.
+- Server now properly handles concurrent games without state interference.
 
 # Bugs
 - No known bugs at this time. All tests passing.
