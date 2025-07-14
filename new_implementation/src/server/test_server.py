@@ -2,7 +2,7 @@ import pytest
 
 # Import the Server class when implemented
 try:
-    from . import Server
+    from .server import Server
 except ImportError:
     Server = None
 
@@ -19,3 +19,58 @@ def test_server_accepts_commands():
     # This assumes a process_command method will exist
     result = server.process_command("NEW_GAME")
     assert result is not None
+
+@pytest.mark.skipif(Server is None, reason="Server class not implemented yet")
+def test_server_create_and_query_game():
+    server = Server()
+    result = server.process_command("CREATE_GAME standard")
+    assert result["status"] == "ok"
+    game_id = result["game_id"]
+    # Query game state
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert state["status"] == "ok"
+    assert state["state"]["map"] == "standard"
+    assert state["state"]["turn"] == 0
+
+@pytest.mark.skipif(Server is None, reason="Server class not implemented yet")
+def test_server_add_player_and_set_orders():
+    server = Server()
+    result = server.process_command("CREATE_GAME standard")
+    game_id = result["game_id"]
+    add_result = server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    assert add_result["status"] == "ok"
+    set_orders = server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
+    assert set_orders["status"] == "ok"
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert "FRANCE" in state["state"]["orders"]
+
+@pytest.mark.skipif(Server is None, reason="Server class not implemented yet")
+def test_server_process_turn_and_game_done():
+    server = Server()
+    result = server.process_command("CREATE_GAME standard")
+    game_id = result["game_id"]
+    server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    for _ in range(10):
+        server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
+        server.process_command(f"PROCESS_TURN {game_id}")
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert state["state"]["done"]
+
+@pytest.mark.skipif(Server is None, reason="Server class not implemented yet")
+def test_server_invalid_command():
+    server = Server()
+    result = server.process_command("FOO_BAR")
+    assert result["status"] == "error"
+    assert "Unknown command" in result["message"]
+
+@pytest.mark.skipif(Server is None, reason="Server class not implemented yet")
+def test_server_missing_arguments():
+    server = Server()
+    result = server.process_command("ADD_PLAYER")
+    assert result["status"] == "error"
+    result = server.process_command("SET_ORDERS 1 FRANCE")
+    assert result["status"] == "error"
+    result = server.process_command("PROCESS_TURN")
+    assert result["status"] == "error"
+    result = server.process_command("GET_GAME_STATE")
+    assert result["status"] == "error"

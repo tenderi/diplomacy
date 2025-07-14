@@ -34,3 +34,9 @@
 - Implemented minimal but real Game class in engine/game.py to support server operations and tests.
 - Added type annotations to resolve type errors and ensure compatibility with server logic.
 - All server tests now pass.
+- Basic server loop and command processing implemented in server.py
+- Game class implemented to support server operations
+- All server tests pass as of 0.0.0
+- Initial tag 0.0.0 created and pushed
+- Expanded server test coverage in test_server.py to cover all major commands, error handling, and state queries as per the server specification.
+- All new and existing server tests pass.
