@@ -104,3 +104,41 @@ def test_daide_server_negotiation_messages() -> None:
     finally:
         sock.close()
         daide_server.stop()
+
+def test_daide_server_invalid_ord_context() -> None:
+    """Test that DAIDE server returns error for ORD without HLO context."""
+    server = Server()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=9004)
+    daide_server.start()
+    time.sleep(0.1)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(("127.0.0.1", 9004))
+    try:
+        # ORD without HLO
+        sock.sendall(b"ORD (A PAR - BUR)")
+        data = sock.recv(4096)
+        response = data.decode("utf-8")
+        assert response.startswith("ERR ORD No game or power context")
+    finally:
+        sock.close()
+        daide_server.stop()
+
+def test_daide_server_invalid_message() -> None:
+    """Test that DAIDE server returns echo for unknown/invalid DAIDE messages."""
+    server = Server()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=9005)
+    daide_server.start()
+    time.sleep(0.1)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(("127.0.0.1", 9005))
+    try:
+        # Send a random/invalid message
+        sock.sendall(b"FOOBAR")
+        data = sock.recv(4096)
+        response = data.decode("utf-8")
+        assert response.startswith("ECHO: FOOBAR")
+    finally:
+        sock.close()
+        daide_server.stop()
