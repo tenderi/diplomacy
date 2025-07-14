@@ -47,3 +47,6 @@
 - Created and pushed git tag 0.0.2 after implementing the minimal client and passing all integration tests.
 - Added logging to the Server class for all command processing, errors, and key actions to improve debuggability and meet requirements for enhanced error handling and logging.
 - All server and client-server integration tests pass after logging changes.
+- Created and pushed git tag 0.0.3 after adding logging and improved error handling to the server.
+- Expanded Game class to use Map and Power for real state management. add_player now creates a Power object, and get_state exposes powers.
+- All engine-level tests pass after this change.
