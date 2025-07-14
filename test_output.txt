@@ -1,8 +1,16 @@
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0
 rootdir: /home/helge/diplomacy
-collected 2 items
+collected 49 items
 
+new_implementation/src/engine/test_adjudication.py .........             [ 18%]
+new_implementation/src/engine/test_game.py .                             [ 20%]
+new_implementation/src/engine/test_game_module.py .                      [ 22%]
+new_implementation/src/engine/test_map_and_power.py ......               [ 34%]
+new_implementation/src/engine/test_order.py ..                           [ 38%]
+new_implementation/src/server/test_daide_protocol.py ......              [ 51%]
+new_implementation/src/server/test_server.py ........                    [ 67%]
+new_implementation/src/server/test_server_advanced.py ..............     [ 95%]
 new_implementation/src/tests/test_client.py ..                           [100%]
 
-============================== 2 passed in 0.01s ===============================
+============================== 49 passed in 0.70s ==============================

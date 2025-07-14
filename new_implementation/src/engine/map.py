@@ -5,6 +5,8 @@ Map representation for Diplomacy.
 """
 
 from typing import Dict, List, Set, Optional
+import os
+import json
 
 class Province:
     """Represents a province on the Diplomacy map."""
@@ -29,8 +31,25 @@ class Map:
         if map_name == 'standard':
             self._init_classic_map()
         else:
-            # TODO: Load map from file for variants
-            self._init_classic_map()
+            # Load map from file for variants
+            map_dir = os.path.join(os.path.dirname(__file__), '../../maps')
+            map_file = os.path.join(map_dir, f'{map_name}.json')
+            if not os.path.isfile(map_file):
+                raise FileNotFoundError(f"Map file '{map_file}' not found for variant '{map_name}'")
+            with open(map_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # Expecting JSON: {"provinces": {name: {"is_supply_center": bool, "adjacent": [str], "coasts": [str]}}}
+            for name, info in data["provinces"].items():
+                prov = Province(name, is_supply_center=info.get("is_supply_center", False), coasts=info.get("coasts", []))
+                self.provinces[name] = prov
+                if prov.is_supply_center:
+                    self.supply_centers.add(name)
+            # Add adjacencies
+            for name, info in data["provinces"].items():
+                for adj in info.get("adjacent", []):
+                    if adj in self.provinces:
+                        self.provinces[name].add_adjacent(adj)
+                        self.provinces[adj].add_adjacent(name)
 
     def _init_classic_map(self) -> None:
         # Expanded classic map (partial, for demonstration; extend as needed)
