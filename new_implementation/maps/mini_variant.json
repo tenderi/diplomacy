@@ -1,0 +1,14 @@
+{
+  "provinces": {
+    "PAR": {"is_supply_center": true, "adjacent": ["BUR", "PIC", "BRE", "MAR"], "coasts": []},
+    "MAR": {"is_supply_center": true, "adjacent": ["BUR", "PAR", "BRE", "PIC"], "coasts": []},
+    "BRE": {"is_supply_center": true, "adjacent": ["PAR", "MAR", "PIC"], "coasts": []},
+    "BUR": {"is_supply_center": false, "adjacent": ["PAR", "MAR", "PIC"], "coasts": []},
+    "PIC": {"is_supply_center": false, "adjacent": ["PAR", "BRE", "BUR", "MAR"], "coasts": []},
+    "BER": {"is_supply_center": true, "adjacent": ["KIE", "MUN", "PRU"], "coasts": []},
+    "KIE": {"is_supply_center": true, "adjacent": ["BER", "MUN", "DEN"], "coasts": []},
+    "MUN": {"is_supply_center": true, "adjacent": ["BER", "KIE", "BUR"], "coasts": []},
+    "PRU": {"is_supply_center": false, "adjacent": ["BER"], "coasts": []},
+    "DEN": {"is_supply_center": true, "adjacent": ["KIE"], "coasts": []}
+  }
+}

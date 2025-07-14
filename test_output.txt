@@ -1,16 +1,45 @@
 ============================= test session starts ==============================
 platform linux -- Python 3.12.3, pytest-7.4.4, pluggy-1.4.0
 rootdir: /home/helge/diplomacy
-collected 49 items
+collected 10 items
 
-new_implementation/src/engine/test_adjudication.py .........             [ 18%]
-new_implementation/src/engine/test_game.py .                             [ 20%]
-new_implementation/src/engine/test_game_module.py .                      [ 22%]
-new_implementation/src/engine/test_map_and_power.py ......               [ 34%]
-new_implementation/src/engine/test_order.py ..                           [ 38%]
-new_implementation/src/server/test_daide_protocol.py ......              [ 51%]
-new_implementation/src/server/test_server.py ........                    [ 67%]
-new_implementation/src/server/test_server_advanced.py ..............     [ 95%]
-new_implementation/src/tests/test_client.py ..                           [100%]
+new_implementation/src/engine/test_adjudication.py .......F..            [100%]
 
-============================== 49 passed in 0.70s ==============================
+=================================== FAILURES ===================================
+________________________ test_complex_convoy_disruption ________________________
+
+    def test_complex_convoy_disruption():
+        """Test convoy disruption by attacking convoying fleet"""
+        game = Game()
+        game.add_player("FRANCE")
+        game.add_player("ITALY")
+        game.powers["FRANCE"].units = {"A SPA", "F LYO", "F TYR"}
+        game.powers["ITALY"].units = {"F ION", "F TUN"}
+        # France tries to convoy army, but one convoying fleet is attacked
+        game.set_orders("FRANCE", [
+            "FRANCE A SPA - NAP",
+            "FRANCE F LYO C A SPA - NAP",
+            "FRANCE F TYR C A SPA - NAP"
+        ])
+        game.set_orders("ITALY", [
+            "ITALY F ION - TYR",  # Attack convoying fleet
+            "ITALY F TUN S F ION - TYR"
+        ])
+        game.process_turn()
+    
+        # Fleet should be dislodged, convoy should fail
+>       assert "A SPA" in game.powers["FRANCE"].units   # Army stays (convoy failed)
+E       AssertionError: assert 'A SPA' in {'A NAP', 'F LYO'}
+E        +  where {'A NAP', 'F LYO'} = <engine.power.Power object at 0x702bef8836b0>.units
+
+new_implementation/src/engine/test_adjudication.py:172: AssertionError
+----------------------------- Captured stdout call -----------------------------
+DEBUG: successful_moves: {'A SPA': 'NAP', 'F ION': 'TYR'}
+DEBUG: dislodged_units: {'F TYR'}
+DEBUG: FRANCE units before update: {'F LYO', 'A NAP'}
+DEBUG: ITALY units before update: {'F TUN', 'F TYR'}
+DEBUG: FRANCE units after update: {'F LYO', 'A NAP'}
+DEBUG: ITALY units after update: {'F TUN', 'F TYR'}
+=========================== short test summary info ============================
+FAILED new_implementation/src/engine/test_adjudication.py::test_complex_convoy_disruption
+========================= 1 failed, 9 passed in 0.04s ==========================

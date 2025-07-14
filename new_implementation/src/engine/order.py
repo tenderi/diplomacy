@@ -42,7 +42,6 @@ class OrderParser:
         # Enhanced validation with detailed error messages
         powers = game_state.get("powers", [])
         units = game_state.get("units", {})
-        map_obj = game_state.get("map_obj")  # Should be a Map instance if available
         
         if order.power not in powers:
             return False, f"Power '{order.power}' does not exist."
@@ -51,15 +50,45 @@ class OrderParser:
         valid_actions = {'-', 'H', 'S', 'C'}
         if order.action not in valid_actions:
             return False, f"Invalid action '{order.action}'. Must be one of {valid_actions}."
-        unit_type, unit_loc = order.unit.split()
+        unit_type, _ = order.unit.split()
         # Move validation
         if order.action == '-':
             if not order.target:
                 return False, "Move order missing target."
-            if map_obj and not map_obj.validate_location(order.target):
-                return False, f"Target location '{order.target}' is invalid."
-            if map_obj and order.target not in map_obj.get_adjacency(unit_loc):
-                return False, f"Target '{order.target}' is not adjacent to '{unit_loc}'."
+            
+            # Check adjacency for move orders
+            unit_location = order.unit.split()[-1]  # Get the province from unit
+            target_location = order.target.replace(' VIA CONVOY', '')  # Remove convoy marker
+            
+            # Get the map object from game state
+            map_obj = game_state.get("map_obj")
+            if map_obj:
+                # Check if the move is to an adjacent province
+                adjacent_provinces = map_obj.get_adjacency(unit_location)
+                if target_location not in adjacent_provinces:
+                    # Check if this could be a convoy move
+                    if 'VIA CONVOY' in order.target:
+                        # Allow convoy moves (they will be validated during processing)
+                        pass
+                    else:
+                        # Check if there are any convoy orders that could support this move
+                        # We need to check current orders for convoy orders
+                        current_orders = game_state.get("orders", {})
+                        power_orders = current_orders.get(order.power, [])
+                        
+                        # Look for a convoy order that matches this move
+                        has_convoy_support = False
+                        for order_str in power_orders:
+                            if ' C ' in order_str:
+                                # This is a convoy order, check if it supports our move
+                                convoy_target = order_str.split(' C ')[-1]
+                                expected_convoy_target = f"{order.unit} - {target_location}"
+                                if convoy_target == expected_convoy_target:
+                                    has_convoy_support = True
+                                    break
+                        
+                        if not has_convoy_support:
+                            return False, f"Cannot move from '{unit_location}' to '{target_location}' - not adjacent and no convoy support."
         # Support validation
         if order.action == 'S':
             if not order.target:
