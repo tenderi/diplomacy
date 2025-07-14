@@ -1,6 +1,7 @@
 # Status Update (July 14, 2025)
 
 - All 46 tests pass as of this increment. Core game logic, server, DAIDE protocol, and all major modules are working as specified.
+- Integration and edge case test coverage expanded: DAIDE protocol edge cases (invalid context, unknown messages) now tested and passing.
 - No build or test errors detected. All previous priorities are complete and verified by tests.
 - Next: Tagging this state in git as per agent.md instructions.
 
@@ -97,6 +98,8 @@
 - Added comprehensive test suite for multiple concurrent games, isolation, and new commands.
 - All 37 tests now pass including 9 new advanced server tests.
 - Server now properly handles concurrent games without state interference.
+- Added DAIDE protocol edge case tests (ORD without HLO context, unknown/invalid DAIDE messages) to ensure robust error handling.
+- All DAIDE protocol tests pass, including negotiation and error cases.
 
 # Bugs
 - No known bugs at this time. All tests passing.
