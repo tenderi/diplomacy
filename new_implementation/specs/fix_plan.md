@@ -54,3 +54,5 @@
 - Implement full order parsing and validation in OrderParser (no longer a stub; now checks power, unit, action, and target; more advanced checks TODO).
 - Expanded test_order.py to cover valid/invalid parsing and validation cases.
 - All order tests pass.
+- Enforced strict type annotations for all fields and methods in engine, server, and client modules.
+- All core and integration tests pass after typing improvements.

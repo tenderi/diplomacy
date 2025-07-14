@@ -4,9 +4,9 @@ import logging
 
 class Server:
     """Main class for accepting and processing game commands."""
-    def __init__(self):
-        self.games: Dict[str, Game] = {}  # game_id -> Game instance
-        self.next_game_id = 1
+    def __init__(self) -> None:
+        self.games: Dict[str, Game] = {}
+        self.next_game_id: int = 1
         self.logger = logging.getLogger("diplomacy.server")
         if not self.logger.hasHandlers():
             handler = logging.StreamHandler()
@@ -15,11 +15,11 @@ class Server:
             self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
 
-    def start(self):
+    def start(self) -> None:
         # Placeholder for server loop (CLI/API)
         pass
 
-    def process_command(self, command: str):
+    def process_command(self, command: str) -> Dict[str, object]:
         self.logger.info(f"Received command: {command}")
         tokens = command.strip().split()
         if not tokens:
@@ -84,7 +84,7 @@ class Server:
             self.logger.error(f"Unknown command: {cmd}")
             return {"status": "error", "message": f"Unknown command: {cmd}"}
 
-    def get_game_state(self, game_id: str):
+    def get_game_state(self, game_id: str) -> object:
         game = self.games.get(game_id)
         if not game:
             return None

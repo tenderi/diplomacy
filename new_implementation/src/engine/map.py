@@ -8,23 +8,23 @@ from typing import Dict, List, Set, Optional
 
 class Province:
     """Represents a province on the Diplomacy map."""
-    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None):
-        self.name = name
-        self.is_supply_center = is_supply_center
-        self.coasts = coasts or []
+    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None) -> None:
+        self.name: str = name
+        self.is_supply_center: bool = is_supply_center
+        self.coasts: List[str] = coasts or []
         self.adjacent: Set[str] = set()
 
-    def add_adjacent(self, province: str):
+    def add_adjacent(self, province: str) -> None:
         self.adjacent.add(province)
 
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
-    def __init__(self):
+    def __init__(self) -> None:
         self.provinces: Dict[str, Province] = {}
         self.supply_centers: Set[str] = set()
         self._init_classic_map()
 
-    def _init_classic_map(self):
+    def _init_classic_map(self) -> None:
         # Minimal classic map for demonstration; expand as needed
         for name, is_sc in [
             ("PAR", True), ("MAR", True), ("BRE", True), ("BUR", False), ("PIC", False)
