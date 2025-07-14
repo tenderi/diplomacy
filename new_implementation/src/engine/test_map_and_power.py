@@ -9,8 +9,8 @@ def test_map_provinces():
     assert "PAR" in m.provinces
     assert m.provinces["PAR"].is_supply_center
     assert m.is_adjacent("PAR", "BUR")
-    # Updated: PAR and MAR are now adjacent in the expanded map
-    assert m.is_adjacent("PAR", "MAR")
+    # Updated: PAR and BRE are adjacent in the standard map
+    assert m.is_adjacent("PAR", "BRE")
 
 def test_supply_centers():
     m = Map()
@@ -53,3 +53,17 @@ def test_map_edge_cases():
         for adj in m.get_adjacency(prov):
             if m.validate_location(adj):
                 assert prov in m.get_adjacency(adj)
+
+def test_variant_map_integration():
+    """Test integration: create a game with a map variant and process a turn."""
+    from engine.game import Game
+    game = Game(map_name='mini_variant')
+    game.add_player('FRANCE')
+    # Place a unit in PAR (exists in mini_variant)
+    game.powers['FRANCE'].units = {'A PAR'}
+    # Move to MAR (adjacent in mini_variant)
+    game.set_orders('FRANCE', ['A PAR - MAR'])
+    game.process_turn()
+    # Unit should have moved to MAR
+    assert 'A MAR' in game.powers['FRANCE'].units
+    assert 'A PAR' not in game.powers['FRANCE'].units

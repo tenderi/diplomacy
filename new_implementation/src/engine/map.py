@@ -52,25 +52,158 @@ class Map:
                         self.provinces[adj].add_adjacent(name)
 
     def _init_classic_map(self) -> None:
-        # Expanded classic map (partial, for demonstration; extend as needed)
+        # Parse the standard map from the old implementation
+        standard_map_path = os.path.join(os.path.dirname(__file__), 
+                                       '../../../old_implementation/diplomacy/maps/standard.map')
+        
+        if os.path.exists(standard_map_path):
+            self._parse_map_file(standard_map_path)
+        else:
+            # Fallback to hardcoded data if file not found
+            self._init_hardcoded_standard_map()
+
+    def _parse_map_file(self, map_file_path: str) -> None:
+        """Parse a .map file from the old implementation."""
+        with open(map_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse supply centers from the power definitions
+        supply_centers = set()
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('//') and '(' in line and ')' in line:
+                # This is a power definition line like "AUSTRIA     (AUSTRIAN)     BUD TRI VIE"
+                if line.count('(') == 1 and line.count(')') == 1:
+                    parts = line.split(')')
+                    if len(parts) == 2:
+                        centers_part = parts[1].strip()
+                        if centers_part:
+                            centers = centers_part.split()
+                            # Normalize supply center names to uppercase
+                            supply_centers.update([center.upper() for center in centers])
+        
+        # Parse adjacencies
+        adjacencies = {}
+        for line in lines:
+            line = line.strip()
+            if line.startswith('LAND ') or line.startswith('COAST ') or line.startswith('WATER '):
+                # Parse adjacency line like "LAND     SIL        ABUTS    BER BOH GAL MUN PRU WAR"
+                parts = line.split()
+                if len(parts) >= 4 and parts[2] == 'ABUTS':
+                    province = parts[1].upper()  # Normalize to uppercase
+                    adjacent_provinces = [adj.upper() for adj in parts[3:]]  # Normalize to uppercase
+                    adjacencies[province] = adjacent_provinces
+        
+        # Create provinces
+        for province in adjacencies:
+            is_supply_center = province in supply_centers
+            self.provinces[province] = Province(province, is_supply_center=is_supply_center)
+            if is_supply_center:
+                self.supply_centers.add(province)
+        
+        # Set up adjacencies (ensure bidirectional)
+        for province, adjacent_list in adjacencies.items():
+            for adj in adjacent_list:
+                if adj in self.provinces:
+                    self.provinces[province].add_adjacent(adj)
+                    self.provinces[adj].add_adjacent(province)
+
+    def _init_hardcoded_standard_map(self) -> None:
+        """Fallback hardcoded standard map data."""
+        # Standard Diplomacy map provinces with supply centers and adjacencies
         province_data = [
-            ("PAR", True, ["BUR", "PIC", "BRE", "MAR"]),
-            ("MAR", True, ["BUR", "PAR", "BRE", "PIC"]),
-            ("BRE", True, ["PAR", "MAR", "PIC"]),
-            ("BUR", False, ["PAR", "MAR", "PIC"]),
-            ("PIC", False, ["PAR", "BRE", "BUR", "MAR"]),
-            ("BER", True, ["KIE", "MUN", "PRU"]),
-            ("KIE", True, ["BER", "MUN", "DEN"]),
-            ("MUN", True, ["BER", "KIE", "BUR"]),
-            ("PRU", False, ["BER"]),
-            ("DEN", True, ["KIE"]),
-            # ...add all standard provinces and adjacencies...
+            # Power home centers
+            ("BUD", True, ["GAL", "RUM", "SER", "TRI", "VIE"]),
+            ("TRI", True, ["ADR", "ALB", "BUD", "TYR", "VEN", "VIE"]),
+            ("VIE", True, ["BOH", "BUD", "GAL", "TRI", "TYR"]),
+            ("EDI", True, ["CLY", "NTH", "YOR"]),
+            ("LON", True, ["ENG", "NTH", "WAL", "YOR"]),
+            ("LVP", True, ["CLY", "IRI", "NAO", "WAL", "YOR"]),
+            ("BRE", True, ["ENG", "GAS", "MAO", "PAR", "PIC"]),
+            ("MAR", True, ["BUR", "GAS", "GOL", "PIE", "SPA"]),
+            ("PAR", True, ["BRE", "BUR", "GAS", "PIC"]),
+            ("BER", True, ["BAL", "KIE", "MUN", "PRU", "SIL"]),
+            ("KIE", True, ["BAL", "BER", "DEN", "HEL", "HOL", "MUN", "RUH"]),
+            ("MUN", True, ["BER", "BOH", "BUR", "KIE", "RUH", "SIL", "TYR"]),
+            ("NAP", True, ["APU", "ION", "ROM", "TYS"]),
+            ("ROM", True, ["APU", "NAP", "TUS", "TYS", "VEN"]),
+            ("VEN", True, ["ADR", "APU", "PIE", "ROM", "TRI", "TUS", "TYR"]),
+            ("MOS", True, ["LVN", "SEV", "STP", "UKR", "WAR"]),
+            ("SEV", True, ["ARM", "BLA", "MOS", "RUM", "UKR"]),
+            ("STP", True, ["BAR", "BOT", "FIN", "LVN", "MOS", "NWY"]),
+            ("WAR", True, ["GAL", "LVN", "MOS", "PRU", "SIL", "UKR"]),
+            ("ANK", True, ["ARM", "BLA", "CON", "SMY"]),
+            ("CON", True, ["AEG", "ANK", "BLA", "BUL", "SMY"]),
+            ("SMY", True, ["AEG", "ANK", "CON", "EAS", "SYR"]),
+            # Non-supply center provinces
+            ("ADR", False, ["ALB", "APU", "ION", "TRI", "VEN"]),
+            ("AEG", False, ["BUL", "CON", "EAS", "GRE", "ION", "SMY"]),
+            ("ALB", False, ["ADR", "GRE", "ION", "SER", "TRI"]),
+            ("APU", False, ["ADR", "ION", "NAP", "ROM", "VEN"]),
+            ("ARM", False, ["ANK", "BLA", "SEV", "SMY", "SYR"]),
+            ("BAL", False, ["BER", "BOT", "DEN", "KIE", "LVN", "PRU", "SWE"]),
+            ("BAR", False, ["NWY", "STP"]),
+            ("BLA", False, ["ANK", "ARM", "BUL", "CON", "RUM", "SEV"]),
+            ("BOH", False, ["GAL", "MUN", "SIL", "TYR", "VIE"]),
+            ("BOT", False, ["BAL", "FIN", "LVN", "STP", "SWE"]),
+            ("BUL", False, ["AEG", "BLA", "CON", "GRE", "RUM", "SER"]),
+            ("BUR", False, ["BEL", "GAS", "MAR", "MUN", "PAR", "PIC", "RUH"]),
+            ("CLY", False, ["EDI", "IRI", "LVP", "NAO", "NWG"]),
+            ("DEN", False, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
+            ("EAS", False, ["AEG", "ION", "SMY", "SYR"]),
+            ("ENG", False, ["BRE", "IRI", "LON", "MAO", "NTH", "PIC", "WAL"]),
+            ("FIN", False, ["BOT", "NWY", "STP", "SWE"]),
+            ("GAL", False, ["BOH", "BUD", "RUM", "SIL", "UKR", "VIE", "WAR"]),
+            ("GAS", False, ["BRE", "BUR", "MAR", "PAR", "SPA"]),
+            ("GOL", False, ["MAR", "PIE", "SPA", "TUS", "TYS", "WES"]),
+            ("GRE", False, ["AEG", "ALB", "BUL", "ION", "SER"]),
+            ("HEL", False, ["DEN", "HOL", "KIE", "NTH"]),
+            ("ION", False, ["ADR", "AEG", "ALB", "APU", "EAS", "GRE", "NAP", "TUN", "TYS"]),
+            ("IRI", False, ["CLY", "ENG", "LVP", "MAO", "NAO", "WAL"]),
+            ("LVN", False, ["BAL", "BOT", "MOS", "PRU", "STP", "WAR"]),
+            ("MAO", False, ["BRE", "ENG", "IRI", "NAO", "POR", "SPA", "WES"]),
+            ("NAO", False, ["CLY", "IRI", "LVP", "MAO", "NWG"]),
+            ("NTH", False, ["DEN", "EDI", "ENG", "HEL", "HOL", "LON", "NWY", "SKA", "YOR"]),
+            ("NWG", False, ["BAR", "CLY", "NAO", "NWY", "STP"]),
+            ("NWY", False, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
+            ("PIC", False, ["BEL", "BRE", "BUR", "ENG", "PAR"]),
+            ("PIE", False, ["GOL", "MAR", "TUS", "TYR", "VEN"]),
+            ("PRU", False, ["BAL", "BER", "LVN", "SIL", "WAR"]),
+            ("RUH", False, ["BEL", "BUR", "HOL", "KIE", "MUN"]),
+            ("RUM", False, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
+            ("SER", False, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
+            ("SIL", False, ["BER", "BOH", "GAL", "MUN", "PRU", "WAR"]),
+            ("SKA", False, ["DEN", "NTH", "NWY", "SWE"]),
+            ("SYR", False, ["ARM", "EAS", "SMY"]),
+            ("TUS", False, ["GOL", "PIE", "ROM", "TYS", "VEN"]),
+            ("TYR", False, ["BOH", "MUN", "PIE", "TRI", "VEN", "VIE"]),
+            ("TYS", False, ["GOL", "ION", "NAP", "ROM", "TUN", "TUS", "WES"]),
+            ("UKR", False, ["GAL", "MOS", "RUM", "SEV", "WAR"]),
+            ("WAL", False, ["ENG", "IRI", "LON", "LVP", "YOR"]),
+            ("WES", False, ["GOL", "MAO", "NAF", "SPA", "TUN", "TYS"]),
+            ("YOR", False, ["EDI", "LON", "LVP", "NTH", "WAL"]),
+            # Neutral supply centers
+            ("BEL", True, ["BUR", "HOL", "PIC", "RUH"]),
+            ("DEN", True, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
+            ("GRE", True, ["AEG", "ALB", "BUL", "ION", "SER"]),
+            ("HOL", True, ["BEL", "HEL", "KIE", "NTH", "RUH"]),
+            ("NWY", True, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
+            ("POR", True, ["MAO", "SPA"]),
+            ("RUM", True, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
+            ("SER", True, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
+            ("SPA", True, ["GAS", "GOL", "MAO", "MAR", "POR", "WES"]),
+            ("SWE", True, ["BAL", "BOT", "DEN", "FIN", "NWY", "SKA"]),
+            ("TUN", True, ["ION", "NAF", "TYS", "WES"]),
         ]
+        
+        # Create provinces
         for name, is_sc, adjacents in province_data:
             self.provinces[name] = Province(name, is_supply_center=is_sc)
             if is_sc:
                 self.supply_centers.add(name)
-        # Ensure symmetric adjacency
+        
+        # Set up adjacencies (ensure bidirectional)
         for name, _, adjacents in province_data:
             for adj in adjacents:
                 if adj in self.provinces:

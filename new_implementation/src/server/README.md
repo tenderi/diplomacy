@@ -4,6 +4,7 @@ Implements the server loop, command processing, and network interface (CLI or AP
 
 ## API
 - `Server`: Main class for accepting and processing game commands.
+- `DAIDEServer`: TCP server for DAIDE protocol (bot/server communication).
 
 ## Configuration
 - `DIPLOMACY_LOG_LEVEL`: Set the logging level (e.g., DEBUG, INFO, WARNING, ERROR). Default: INFO.
@@ -28,7 +29,7 @@ print(state)
 ```
 
 ## DAIDE Protocol
-- The DAIDEServer class provides a TCP interface for DAIDE protocol bots/clients.
+- The `DAIDEServer` class provides a TCP interface for DAIDE protocol bots/clients.
 - Example: send `HLO (FRANCE)` to create a game and add a player, then `ORD (A PAR - BUR)` to submit an order.
 
 ## Build/Test Loop
@@ -38,3 +39,7 @@ print(state)
 
 ## Why tests and implementation matter
 Tests ensure the server correctly processes commands and manages game state, which is critical for reliability and correctness. Full test coverage and strict validation are required for production use.
+
+## See Also
+- [engine/README.md](../engine/README.md) for core game logic.
+- [../specs/server_spec.md](../../specs/server_spec.md) for detailed server specification.
