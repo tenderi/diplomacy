@@ -79,104 +79,193 @@ class Game:
                     # Convoy order
                     convoy_orders[order.unit] = order.target
 
-        # 4. Calculate support strengths (after support cuts)
-        move_strength: Dict[str, int] = {}
-        for move_unit, destination in moves.items():
-            strength = 1  # Base strength
-            move_string = f"{move_unit} - {destination}"
-            
-            # Add supports
-            if move_string in supports:
-                for supporting_unit in supports[move_string]:
-                    # Check if support is cut
-                    support_cut = False
-                    supporting_location = unit_positions.get(supporting_unit)
-                    if supporting_location:
-                        for other_unit, other_dest in moves.items():
-                            if other_dest == supporting_location and other_unit != move_unit:
-                                support_cut = True
-                                break
-                    
-                    if not support_cut:
-                        strength += 1
-            
-            move_strength[move_unit] = strength
-
-        # 5. Resolve moves (including convoys)
+        # --- ITERATIVE ADJUDICATION FOR SUPPORT CUT BY DISLODGEMENT ---
+        # We need to iteratively resolve orders until no more changes occur
+        # This handles support cut by dislodgement correctly
+        
+        # Initialize with empty state
         successful_moves: Dict[str, str] = {}
         failed_moves: set[str] = set()
+        move_strength: Dict[str, int] = {}
         
-        for move_unit, destination in moves.items():
-            # Check if convoy is required and available
-            if move_unit in convoys:
-                convoy_available = False
-                for convoyed_move in convoy_orders.values():
-                    expected_convoy = f"{move_unit} - {destination}"
-                    if expected_convoy == convoyed_move:
-                        convoy_available = True
+        max_iterations = 10  # Prevent infinite loops
+        for _ in range(max_iterations):
+            # Calculate move strengths based on current state
+            new_move_strength: Dict[str, int] = {}
+            
+            # Calculate which units would be dislodged with current move resolutions
+            would_be_dislodged: set[str] = set()
+            for move_unit, destination in moves.items():
+                # Check if this move would be successful
+                competitors = [u for u, d in moves.items() if d == destination and u != move_unit]
+                unit_strength = move_strength.get(move_unit, 1)
+                
+                # Check against competitors
+                beats_all_competitors = True
+                for competitor in competitors:
+                    competitor_strength = move_strength.get(competitor, 1)
+                    if competitor_strength >= unit_strength:
+                        beats_all_competitors = False
                         break
                 
-                if not convoy_available:
-                    failed_moves.add(move_unit)
-                    continue
+                # Check against defender
+                defending_unit = None
+                for unit, location in unit_positions.items():
+                    if location == destination and unit != move_unit:
+                        defending_unit = unit
+                        break
+                
+                if defending_unit and defending_unit not in moves:
+                    # Calculate defensive strength (will be recalculated below)
+                    defend_strength = 1
+                    if unit_strength <= defend_strength:
+                        beats_all_competitors = False
+                
+                # If this move would succeed, mark defender as dislodged
+                if beats_all_competitors and defending_unit and defending_unit not in moves:
+                    would_be_dislodged.add(defending_unit)
             
-            # Check for competing moves to the same destination
-            competitors = [u for u, d in moves.items() if d == destination and u != move_unit]
-            unit_strength = move_strength.get(move_unit, 1)
-            
-            # Check if this move beats all competitors
-            beats_all = True
-            for competitor in competitors:
-                competitor_strength = move_strength.get(competitor, 1)
-                if competitor_strength >= unit_strength:
-                    beats_all = False
-                    break
-            
-            # Check if there's a defending unit
-            defending_unit = None
-            for unit, location in unit_positions.items():
-                if location == destination and unit != move_unit:
-                    defending_unit = unit
-                    break
-            
-            if defending_unit and defending_unit not in moves:
-                # Stationary defender gets 1 strength plus supports
-                defend_string = f"{defending_unit} H"
-                defend_strength = 1
-                if defend_string in supports:
-                    for supporting_unit in supports[defend_string]:
-                        # Check if support is cut
+            # Now calculate strengths, excluding support from units that would be dislodged
+            for move_unit, destination in moves.items():
+                strength = 1
+                move_string = f"{move_unit} - {destination}"
+                if move_string in supports:
+                    for supporting_unit in supports[move_string]:
+                        # Don't count support from units that would be dislodged
+                        if supporting_unit in would_be_dislodged:
+                            continue
+                        
+                        # Check if support is cut by attack on supporting unit
                         support_cut = False
                         supporting_location = unit_positions.get(supporting_unit)
                         if supporting_location:
                             for other_unit, other_dest in moves.items():
-                                if other_dest == supporting_location and other_unit != defending_unit:
+                                if other_dest == supporting_location and other_unit != move_unit:
                                     support_cut = True
                                     break
                         
                         if not support_cut:
-                            defend_strength += 1
-                
-                # Diplomacy rule: attacker must have GREATER strength than defender to succeed
-                if unit_strength <= defend_strength:
-                    beats_all = False
+                            strength += 1
+                new_move_strength[move_unit] = strength
             
-            if beats_all:
-                successful_moves[move_unit] = destination
-            else:
-                failed_moves.add(move_unit)
+            # Now recalculate defensive strengths with updated move strengths
+            for move_unit, destination in moves.items():
+                defending_unit = None
+                for unit, location in unit_positions.items():
+                    if location == destination and unit != move_unit:
+                        defending_unit = unit
+                        break
+                
+                if defending_unit and defending_unit not in moves:
+                    defend_string = f"{defending_unit} H"
+                    defend_strength = 1
+                    if defend_string in supports:
+                        for supporting_unit in supports[defend_string]:
+                            # Don't count support from units that would be dislodged
+                            if supporting_unit in would_be_dislodged:
+                                continue
+                            
+                            # Check if defensive support is cut
+                            support_cut = False
+                            supporting_location = unit_positions.get(supporting_unit)
+                            if supporting_location:
+                                for other_unit, other_dest in moves.items():
+                                    if other_dest == supporting_location and other_unit != defending_unit:
+                                        support_cut = True
+                                        break
+                            if not support_cut:
+                                defend_strength += 1
+                    
+                    # Update move strength if it can't beat the defender
+                    unit_strength = new_move_strength.get(move_unit, 1)
+                    if unit_strength <= defend_strength:
+                        # This move would fail, so don't count it as successful
+                        if defending_unit in would_be_dislodged:
+                            would_be_dislodged.remove(defending_unit)
+            
+            # Resolve moves based on calculated strengths
+            new_successful_moves: Dict[str, str] = {}
+            new_failed_moves: set[str] = set()
+            
+            for move_unit, destination in moves.items():
+                # Check for convoy disruption
+                if move_unit in convoys:
+                    convoying_fleets = [fleet for fleet, convoyed in convoy_orders.items() if convoyed == f"{move_unit} - {destination}"]
+                    convoy_disrupted = False
+                    for fleet in convoying_fleets:
+                        if fleet in would_be_dislodged:
+                            convoy_disrupted = True
+                            break
+                    if convoy_disrupted:
+                        new_failed_moves.add(move_unit)
+                        continue
+                
+                # Check against other moves to same destination
+                competitors = [u for u, d in moves.items() if d == destination and u != move_unit]
+                unit_strength = new_move_strength.get(move_unit, 1)
+                beats_all = True
+                
+                for competitor in competitors:
+                    competitor_strength = new_move_strength.get(competitor, 1)
+                    if competitor_strength >= unit_strength:
+                        beats_all = False
+                        break
+                
+                # Check against defending unit
+                defending_unit = None
+                for unit, location in unit_positions.items():
+                    if location == destination and unit != move_unit:
+                        defending_unit = unit
+                        break
+                
+                if defending_unit and defending_unit not in moves:
+                    defend_string = f"{defending_unit} H"
+                    defend_strength = 1
+                    if defend_string in supports:
+                        for supporting_unit in supports[defend_string]:
+                            # Don't count support from units that would be dislodged
+                            if supporting_unit in would_be_dislodged:
+                                continue
+                            
+                            # Check if defensive support is cut
+                            support_cut = False
+                            supporting_location = unit_positions.get(supporting_unit)
+                            if supporting_location:
+                                for other_unit, other_dest in moves.items():
+                                    if other_dest == supporting_location and other_unit != defending_unit:
+                                        support_cut = True
+                                        break
+                            if not support_cut:
+                                defend_strength += 1
+                    if unit_strength <= defend_strength:
+                        beats_all = False
+                
+                if beats_all:
+                    new_successful_moves[move_unit] = destination
+                else:
+                    new_failed_moves.add(move_unit)
+            
+            # Check if we've reached a stable state
+            if new_successful_moves == successful_moves and new_failed_moves == failed_moves and new_move_strength == move_strength:
+                break
+            
+            successful_moves = new_successful_moves
+            failed_moves = new_failed_moves
+            move_strength = new_move_strength
+        
+        # Calculate final dislodged units
+        dislodged_units: set[str] = set()
+        for move_unit, destination in successful_moves.items():
+            for unit, location in unit_positions.items():
+                if location == destination and unit != move_unit and unit not in moves:
+                    dislodged_units.add(unit)
 
         # 6. Update unit positions
-        # Clear all unit positions first
         for power in self.powers.values():
             power.units = set()
-        
-        # Place units in their final positions
         for unit, current_location in unit_positions.items():
             power = unit_to_power[unit]
-            
             if unit in successful_moves:
-                # Unit moved successfully
                 new_location = successful_moves[unit]
                 self.powers[power].units.add(new_location)
             elif unit not in failed_moves:
@@ -187,7 +276,6 @@ class Game:
                     if attack_dest == current_location:
                         dislodged = True
                         break
-                
                 if not dislodged:
                     self.powers[power].units.add(current_location)
             else:
@@ -198,7 +286,6 @@ class Game:
                     if attack_dest == current_location:
                         dislodged = True
                         break
-                
                 if not dislodged:
                     self.powers[power].units.add(current_location)
 
