@@ -284,3 +284,81 @@ def test_save_load_with_multiple_games() -> None:
         assert state2["state"]["turn"] == 0
         assert "FRANCE" in state1["state"]["powers"]
         assert "GERMANY" in state2["state"]["powers"]
+
+
+def test_remove_last_player() -> None:
+    """Test removing the last player from a game."""
+    server = Server()
+    game = server.process_command("CREATE_GAME standard")
+    game_id = game["game_id"]
+    server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
+    
+    # Remove the only player
+    result = server.process_command(f"REMOVE_PLAYER {game_id} FRANCE")
+    assert result["status"] == "ok"
+    
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert "FRANCE" not in state["state"]["powers"]
+    # Accept both empty list and empty dict for legacy compatibility
+    assert state["state"]["powers"] == [] or state["state"]["powers"] == {}
+    assert state["state"]["orders"] == {}
+
+
+def test_remove_player_with_pending_state() -> None:
+    """Test removing a player with pending retreats/builds (should clean up all state)."""
+    server = Server()
+    game = server.process_command("CREATE_GAME standard")
+    game_id = game["game_id"]
+    server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    
+    # Simulate pending retreat/build (mock by setting orders, as full retreat/build logic may be in engine)
+    server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
+    result = server.process_command(f"REMOVE_PLAYER {game_id} FRANCE")
+    assert result["status"] == "ok"
+    
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert "FRANCE" not in state["state"]["powers"]
+    assert "FRANCE" not in state["state"]["orders"]
+
+
+def test_remove_player_twice() -> None:
+    """Test removing a player twice returns an error the second time."""
+    server = Server()
+    game = server.process_command("CREATE_GAME standard")
+    game_id = game["game_id"]
+    server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    server.process_command(f"REMOVE_PLAYER {game_id} FRANCE")
+    
+    result = server.process_command(f"REMOVE_PLAYER {game_id} FRANCE")
+    assert result["status"] == "error"
+    assert "Power FRANCE not found" in result["message"]
+
+
+def test_advance_phase_with_no_players() -> None:
+    """Test advancing phase on a game with no players."""
+    server = Server()
+    game = server.process_command("CREATE_GAME standard")
+    game_id = game["game_id"]
+    
+    result = server.process_command(f"ADVANCE_PHASE {game_id}")
+    # Should still succeed, but state should be empty
+    assert result["status"] == "ok"
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert state["state"]["turn"] == 1
+    # Accept both empty list and empty dict for legacy compatibility
+    assert state["state"]["powers"] == [] or state["state"]["powers"] == {}
+
+
+def test_advance_phase_with_no_orders() -> None:
+    """Test advancing phase when no orders are set (should not error)."""
+    server = Server()
+    game = server.process_command("CREATE_GAME standard")
+    game_id = game["game_id"]
+    
+    server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+    # Do not set any orders
+    result = server.process_command(f"ADVANCE_PHASE {game_id}")
+    assert result["status"] == "ok"
+    state = server.process_command(f"GET_GAME_STATE {game_id}")
+    assert state["state"]["turn"] == 1

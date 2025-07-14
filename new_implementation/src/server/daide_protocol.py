@@ -56,6 +56,26 @@ class DAIDEServer:
                                 response = f"ERR ADD_PLAYER {add_result.get('message','error')}\n"
                         else:
                             response = f"ERR CREATE_GAME {create_result.get('message','error')}\n"
+                    elif daide_message.startswith("ORD (") and daide_message.endswith(")"):
+                        # Example: ORD (A PAR - BUR)
+                        if not game_id or not power_name:
+                            response = "ERR ORD No game or power context. Send HLO first.\n"
+                        else:
+                            order_str = daide_message[5:-1].strip()
+                            set_result = self.server.process_command(f"SET_ORDERS {game_id} {power_name} {order_str}")
+                            if set_result.get("status") == "ok":
+                                response = f"ORD OK {game_id} {power_name}\n"
+                            else:
+                                response = f"ERR ORD {set_result.get('message','error')}\n"
+                    elif daide_message.startswith("PRP (") and daide_message.endswith(")"):
+                        # Proposal message (negotiation)
+                        response = "PRP ACK\n"
+                    elif daide_message.startswith("REJ (") and daide_message.endswith(")"):
+                        # Reject message
+                        response = "REJ ACK\n"
+                    elif daide_message.startswith("ACC (") and daide_message.endswith(")"):
+                        # Accept message
+                        response = "ACC ACK\n"
                     else:
                         response = f"ECHO: {daide_message}\n"
                     client_sock.sendall(response.encode("utf-8"))

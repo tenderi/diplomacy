@@ -1,3 +1,19 @@
+# Clarifications and Best Practices (added July 2025)
+
+- **Subagents**: A subagent is a parallel process or logical unit of work that can be used to search, implement, or document specific tasks. Use subagents for searching the codebase, updating documentation, or resolving issues in parallel, as per the instructions. Only one subagent should be used for build/tests at a time.
+
+- **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
+
+- **Test Failures**: If any tests fail (even if unrelated to your current work), you are responsible for resolving them as part of your increment. Do not leave failing tests unresolved.
+
+- **Single Source of Truth**: Avoid migrations or adapters. Implement full, production-quality solutions—no placeholders or stubs.
+
+- **Parallelism**: You may use up to 500 subagents for all operations except build/tests (1 subagent). For standard library work, up to 1000 subagents are allowed.
+
+- **Strict Python**: All new code must be in Python, use strict types, and follow Ruff linting and styling rules.
+
+---
+
 0a. study /new_implementation/specs/* to learn about the compiler specifications
 
 0b. The source code of the compiler is in /new_implementation/src/
@@ -13,6 +29,8 @@
 2. When you discover a parser, lexer, control flow or LLVM issue. Immediately update @fix_plan.md with your findings using a subagent. When the issue is resolved, update @fix_plan.md and remove the item using a subagent.
 
 3. When the tests pass update the @fix_plan.md`, then add changed code and @fix_plan.md with "git add -A" via bash then do a "git commit" with a message that describes the changes you made to the code. After the commit do a "git push" to push the changes to the remote repository.
+
+4. Ask as little confirmations as you can. Just keep working.
 
 999. Important: When authoring documentation (ie. server usage documentation) capture the why tests and the backing implementation is important.
 
