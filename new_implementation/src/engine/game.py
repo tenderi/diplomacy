@@ -36,7 +36,7 @@ class Game:
                 except Exception:
                     continue  # Skip invalid orders
 
-        # 2. Adjudicate orders (support cut, standoff, move/hold/support, dislodgement)
+        # 2. Adjudicate orders (support cut, standoff, move/hold/support, dislodgement, convoy)
         unit_positions: Dict[str, str] = {}
         for power, p in self.powers.items():
             for unit in p.units:
@@ -46,7 +46,8 @@ class Game:
         supports: Dict[str, int] = {}
         support_cut: Dict[str, bool] = {}
         attacks: Dict[str, str] = {}  # province -> attacking unit
-        # First pass: collect moves and supports
+        convoys: Dict[str, str] = {}  # unit -> destination (for convoyed moves)
+        # First pass: collect moves, supports, and convoys
         for power, orders in parsed_orders.items():
             for order in orders:
                 if order.action == '-' and order.target is not None:
@@ -54,6 +55,13 @@ class Game:
                     attacks[order.target] = order.unit
                 elif order.action == 'S' and order.target:
                     supports[order.target] = supports.get(order.target, 0) + 1
+                elif order.action == 'C' and order.target:
+                    # Convoy order: e.g. 'A PAR C A PAR - MAR' or 'F BRE C A PAR - MAR'
+                    tokens = order.unit.split()
+                    if tokens[0] == 'F':
+                        # Only fleets can convoy
+                        convoyed = order.target
+                        convoys[convoyed] = order.target  # Mark as convoyed (simplified)
 
         # Support cut: if a supporting unit is attacked from a province other than the one it is supporting against, cut the support
         for power, orders in parsed_orders.items():
@@ -70,11 +78,15 @@ class Game:
             if cut_target in supports:
                 del supports[cut_target]
 
-        # Moves and standoffs
+        # Moves and standoffs (with basic convoy support)
         new_positions: Dict[str, str] = {}
         contested: Dict[str, List[str]] = {}
         for unit, from_prov in unit_positions.items():
-            if unit in moves:
+            # If this unit is being convoyed, use the convoy destination
+            if unit in convoys:
+                dest = convoys[unit]
+                contested.setdefault(dest, []).append(unit)
+            elif unit in moves:
                 dest = moves[unit]
                 contested.setdefault(dest, []).append(unit)
         # Standoff: if more than one unit moves to the same province, all fail
@@ -103,14 +115,12 @@ class Game:
         # Dislodgement: if a unit is attacked with greater strength than its own defense, it is removed
         dislodged: set[str] = set()
         for unit, from_prov in unit_positions.items():
-            # Check if any unit is moving to this province with greater strength
             attackers = [u for u, d in moves.items() if d == from_prov]
             if attackers:
                 max_attack = max([1 + supports.get(u, 0) for u in attackers])
                 defense = 1 + supports.get(unit, 0)
                 if max_attack > defense:
                     dislodged.add(unit)
-        # Remove dislodged units from new_positions
         for unit in dislodged:
             for power, p in self.powers.items():
                 if unit in unit_positions and unit_positions[unit] in p.units:
