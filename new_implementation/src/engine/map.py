@@ -19,10 +19,18 @@ class Province:
 
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
-    def __init__(self) -> None:
+    def __init__(self, map_name: str = 'standard') -> None:
         self.provinces: Dict[str, Province] = {}
         self.supply_centers: Set[str] = set()
-        self._init_classic_map()
+        self.map_name: str = map_name
+        self._init_map(map_name)
+
+    def _init_map(self, map_name: str) -> None:
+        if map_name == 'standard':
+            self._init_classic_map()
+        else:
+            # TODO: Load map from file for variants
+            self._init_classic_map()
 
     def _init_classic_map(self) -> None:
         # Minimal classic map for demonstration; expand as needed
@@ -49,3 +57,15 @@ class Map:
 
     def get_supply_centers(self) -> Set[str]:
         return self.supply_centers
+
+    def get_locations(self) -> List[str]:
+        return list(self.provinces.keys())
+
+    def get_adjacency(self, location: str) -> List[str]:
+        prov = self.get_province(location)
+        if prov:
+            return list(prov.adjacent)
+        return []
+
+    def validate_location(self, location: str) -> bool:
+        return location in self.provinces

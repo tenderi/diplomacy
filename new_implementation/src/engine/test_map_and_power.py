@@ -30,3 +30,13 @@ def test_power_gain_lose_center():
     assert not p.is_alive
     p.gain_center("PAR")
     assert p.is_alive
+
+def test_get_locations_and_adjacency():
+    m = Map()
+    locs = m.get_locations()
+    assert "PAR" in locs
+    adj = m.get_adjacency("PAR")
+    assert "BUR" in adj
+    assert "PIC" in adj
+    assert m.validate_location("PAR")
+    assert not m.validate_location("XYZ")
