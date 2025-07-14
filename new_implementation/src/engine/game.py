@@ -1,17 +1,21 @@
 from typing import List, Dict
+from engine.map import Map
+from engine.power import Power
 
 class Game:
     """Main class for managing the game state, phases, and turn processing."""
     def __init__(self, map_name: str = 'standard'):
         self.map_name = map_name
-        self.players: List[str] = []
+        self.map = Map()  # Use Map for board representation
+        self.powers: Dict[str, Power] = {}
         self.orders: Dict[str, List[str]] = {}
         self.turn = 0
         self.done = False
 
     def add_player(self, power_name: str):
-        if power_name not in self.players:
-            self.players.append(power_name)
+        if power_name not in self.powers:
+            # For now, assign all supply centers as home centers for demo
+            self.powers[power_name] = Power(power_name, list(self.map.get_supply_centers()))
 
     def set_orders(self, power_name: str, orders: List[str]):
         self.orders[power_name] = orders
@@ -27,7 +31,7 @@ class Game:
     def get_state(self) -> Dict[str, object]:
         return {
             "map": self.map_name,
-            "players": self.players,
+            "powers": list(self.powers.keys()),
             "orders": self.orders,
             "turn": self.turn,
             "done": self.done
