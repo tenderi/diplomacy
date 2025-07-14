@@ -56,3 +56,5 @@
 - All order tests pass.
 - Enforced strict type annotations for all fields and methods in engine, server, and client modules.
 - All core and integration tests pass after typing improvements.
+- Implemented map_name support, get_locations, get_adjacency, and validate_location in Map class.
+- Added and passed tests for new Map API (locations, adjacency, validation).
