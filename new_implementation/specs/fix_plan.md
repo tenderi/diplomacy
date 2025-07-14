@@ -4,6 +4,8 @@
 - No build or test errors detected. All previous priorities are complete and verified by tests.
 - New git tag 0.0.20 created and pushed for this increment.
 
+# INCOMPLETE/PRIORITY ITEMS (July 2025)
+
 # Core Game Functionality Priorities (Initial Plan)
 
 - Implement core game engine logic (game state, turn processing, order resolution)

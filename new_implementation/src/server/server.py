@@ -22,8 +22,23 @@ class Server:
 
     def start(self) -> None:
         self.logger.info("Diplomacy server started.")
-        # Placeholder for server loop (CLI/API)
-        pass
+        print("Diplomacy Server CLI. Type commands or 'QUIT' to exit.")
+        while True:
+            try:
+                command = input('> ').strip()
+                if command.upper() in ("QUIT", "EXIT"):
+                    print("Shutting down server.")
+                    self.shutdown()
+                    break
+                response = self.process_command(command)
+                print(response)
+            except (EOFError, KeyboardInterrupt):
+                print("\nShutting down server.")
+                self.shutdown()
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+                self.logger.exception(f"Exception in server loop: {e}")
 
     def shutdown(self) -> None:
         self.logger.info("Diplomacy server shutting down.")
