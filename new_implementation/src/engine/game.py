@@ -313,17 +313,19 @@ class Game:
     def get_state(self) -> Dict[str, Any]:
         # Compose a richer state dictionary for server_spec compliance
         units = {power: list(p.units) for power, p in self.powers.items()}
+        # Always return dict for orders, even if empty
+        orders: Dict[str, List[str]] = dict(self.orders) if self.orders else {}
         return {
             "game_id": getattr(self, "game_id", None),
             "phase": f"Turn {self.turn}",
             "players": list(self.powers.keys()),
             "units": units,
-            "orders": self.orders,
+            "orders": orders,
             "status": "done" if self.done else "active",
             "turn": self.turn,  # add legacy key for test compatibility
             "turn_number": self.turn,
             "map": self.map_name,
-            "powers": list(self.powers.keys()),  # add legacy key for test compatibility
+            "powers": list(self.powers.keys()),  # always a list, but tests expect dict sometimes
             "done": self.done
         }
 
