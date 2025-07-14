@@ -18,10 +18,10 @@
 - [x] Add REMOVE_PLAYER and ADVANCE_PHASE commands as per extensibility section
 - [x] Implement SAVE_GAME and LOAD_GAME commands for persistence
 - [x] Implement and test DAIDE protocol support for bot/server communication
-- [ ] Improve error response structure and consistency (see server_spec.md error handling)
-- [ ] Enhance logging: add startup/shutdown, game state changes, and structured log output
-- [ ] Add configuration options for host/port, persistence backend, debug/production mode, and logging
-- [ ] Review and update all documentation/specs to match current implementation and new features
+- [x] Improve error response structure and consistency (see server_spec.md error handling)
+- [x] Enhance logging: add startup/shutdown, game state changes, and structured log output
+- [x] Add configuration options for host/port, persistence backend, debug/production mode, and logging
+- [x] Review and update all documentation/specs to match current implementation and new features
 
 # Secondary Priorities (After Core is Working)
 

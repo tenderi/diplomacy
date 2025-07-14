@@ -130,11 +130,11 @@ def test_remove_player_error_cases() -> None:
     # Test missing arguments
     result = server.process_command("REMOVE_PLAYER")
     assert result["status"] == "error"
-    assert "Usage: REMOVE_PLAYER" in result["message"]
+    assert "REMOVE_PLAYER missing arguments" in result["message"]
     
     result = server.process_command("REMOVE_PLAYER 1")
     assert result["status"] == "error"
-    assert "Usage: REMOVE_PLAYER" in result["message"]
+    assert "REMOVE_PLAYER missing arguments" in result["message"]
     
     # Test non-existent game
     result = server.process_command("REMOVE_PLAYER 999 FRANCE")
@@ -181,7 +181,7 @@ def test_advance_phase_error_cases() -> None:
     # Test missing arguments
     result = server.process_command("ADVANCE_PHASE")
     assert result["status"] == "error"
-    assert "Usage: ADVANCE_PHASE" in result["message"]
+    assert "ADVANCE_PHASE missing arguments" in result["message"]
     
     # Test non-existent game
     result = server.process_command("ADVANCE_PHASE 999")

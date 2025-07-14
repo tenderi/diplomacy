@@ -2,6 +2,7 @@ from typing import Dict, Any
 from engine.game import Game
 import logging
 from .errors import ServerError, ErrorCode
+import os
 
 class Server:
     """Main class for accepting and processing game commands."""
@@ -9,16 +10,23 @@ class Server:
         self.games: Dict[str, Game] = {}
         self.next_game_id: int = 1
         self.logger = logging.getLogger("diplomacy.server")
+        log_level = os.environ.get("DIPLOMACY_LOG_LEVEL", "INFO").upper()
+        log_file = os.environ.get("DIPLOMACY_LOG_FILE")
+        handler = logging.StreamHandler() if not log_file else logging.FileHandler(log_file)
+        formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+        handler.setFormatter(formatter)
         if not self.logger.hasHandlers():
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
-            handler.setFormatter(formatter)
             self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(getattr(logging, log_level, logging.INFO))
+        self.logger.info("Diplomacy server starting up.")
 
     def start(self) -> None:
+        self.logger.info("Diplomacy server started.")
         # Placeholder for server loop (CLI/API)
         pass
+
+    def shutdown(self) -> None:
+        self.logger.info("Diplomacy server shutting down.")
 
     def process_command(self, command: str) -> Dict[str, Any]:
         self.logger.info(f"Received command: {command}")
@@ -47,6 +55,7 @@ class Server:
                 return ServerError.create_error_response(ErrorCode.POWER_ALREADY_EXISTS, f"Power {power_name} already exists in game {game_id}", {"game_id": game_id, "power_name": power_name})
             game.add_player(power_name)
             self.logger.info(f"Added player {power_name} to game {game_id}")
+            self.logger.debug(f"Game state after add: {game.get_state()}")
             return {"status": "ok"}
         elif cmd == "SET_ORDERS":
             if len(tokens) < 4:
