@@ -1,8 +1,7 @@
 """
 Tests for map and power modules in the engine.
 """
-import pytest
-from engine.map import Map, Province
+from engine.map import Map
 from engine.power import Power
 
 def test_map_provinces():
@@ -10,7 +9,8 @@ def test_map_provinces():
     assert "PAR" in m.provinces
     assert m.provinces["PAR"].is_supply_center
     assert m.is_adjacent("PAR", "BUR")
-    assert not m.is_adjacent("PAR", "MAR")  # Not adjacent in stub
+    # Updated: PAR and MAR are now adjacent in the expanded map
+    assert m.is_adjacent("PAR", "MAR")
 
 def test_supply_centers():
     m = Map()
@@ -40,3 +40,16 @@ def test_get_locations_and_adjacency():
     assert "PIC" in adj
     assert m.validate_location("PAR")
     assert not m.validate_location("XYZ")
+
+def test_map_edge_cases():
+    m = Map()
+    # Invalid province adjacency
+    assert not m.is_adjacent("PAR", "XYZ")
+    # All supply centers are valid locations
+    for sc in m.get_supply_centers():
+        assert m.validate_location(sc)
+    # Adjacency is symmetric (if A->B, then B->A for land provinces)
+    for prov in m.get_locations():
+        for adj in m.get_adjacency(prov):
+            if m.validate_location(adj):
+                assert prov in m.get_adjacency(adj)
