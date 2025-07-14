@@ -24,11 +24,11 @@
 
 99999999999. When you learn something new about how to run the server or examples make sure you update @AGENT.md using a subagent but keep it brief. For example if you run commands multiple times before learning the correct command then that file should be updated.
 
-999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python. Use strict types.
+999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python. Use strict types. Use Ruff linting rules and styling. 
 
 99999999999999. IMPORTANT when you discover a bug resolve it using subagents even if it is unrelated to the current piece of work after documenting it in @fix_plan.md
 
-9999999999999999. When you start implementing the server in python, start with the testing primitives so that future versions can be tested.
+9999999999999999. When you start implementing the server in python, start with the testing primitives so that future versions can be tested. NEVER MAKE ANY MODIFICATIONS TO THE FOLDER /old_implementation/, ONLY WORK IN THE FOLDER /new_implementation/
 
 99999999999999999. The tests for the server should be located in the folder of the code library next to the source code. Ensure you document the code library with a README.md in the same folder as the source code.
 

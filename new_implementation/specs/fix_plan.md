@@ -8,6 +8,7 @@
 - Implement minimal client interface for testing (CLI or API)
 - **[IN PROGRESS] Implement test suite for core game logic and order resolution (server test suite started)**
 - Document core modules and usage in README
+- **[IN PROGRESS] Implement advanced order adjudication and turn processing (real Diplomacy rules, not just stubs)**
 
 # Secondary Priorities (After Core is Working)
 
