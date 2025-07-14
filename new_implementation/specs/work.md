@@ -24,7 +24,7 @@
 
 99999999999. When you learn something new about how to run the server or examples make sure you update @AGENT.md using a subagent but keep it brief. For example if you run commands multiple times before learning the correct command then that file should be updated.
 
-999999999999. IMPORTANT DO NOT IGNORE: The standard libray should be authored in python.
+999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python.
 
 99999999999999. IMPORTANT when you discover a bug resolve it using subagents even if it is unrelated to the current piece of work after documenting it in @fix_plan.md
 

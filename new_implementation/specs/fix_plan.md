@@ -6,7 +6,7 @@
 - Implement order parsing and validation
 - Implement basic server loop to accept and process game commands
 - Implement minimal client interface for testing (CLI or API)
-- Implement test suite for core game logic and order resolution
+- **[IN PROGRESS] Implement test suite for core game logic and order resolution (server test suite started)**
 - Document core modules and usage in README
 
 # Secondary Priorities (After Core is Working)
@@ -28,3 +28,9 @@
 # Notes
 - Always create or update tests before implementing new features.
 - Update this plan as progress is made or priorities shift.
+
+# Completed Tasks
+- Implemented functional Server class in server.py to support game creation, player addition, order setting, turn processing, and game state queries.
+- Implemented minimal but real Game class in engine/game.py to support server operations and tests.
+- Added type annotations to resolve type errors and ensure compatibility with server logic.
+- All server tests now pass.
