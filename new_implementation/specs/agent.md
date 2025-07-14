@@ -4,6 +4,8 @@
 
 0c. study fix_plan.md.
 
+0d. study diplomacy_rules.md
+
 1. Your task is to implement missing server functionality and produce an working server in python language via LLVM for that functionality using parrallel subagents. Follow the fix_plan.md and choose the most important 10 things. Before making changes search codebase (don't assume not implemented) using subagents. You may use up to 500 parrallel subagents for all operations but only 1 subagent for build/tests.
 
 2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard.

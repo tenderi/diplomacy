@@ -80,6 +80,39 @@ class Server:
                 return {"status": "error", "message": f"Game {game_id} not found"}
             self.logger.info(f"Queried game state for game {game_id}")
             return {"status": "ok", "state": game.get_state()}
+        elif cmd == "SAVE_GAME":
+            if len(tokens) < 3:
+                self.logger.error("SAVE_GAME missing arguments")
+                return {"status": "error", "message": "Usage: SAVE_GAME <game_id> <filename>"}
+            game_id, filename = tokens[1], tokens[2]
+            game = self.games.get(game_id)
+            if not game:
+                self.logger.error(f"Game {game_id} not found for SAVE_GAME")
+                return {"status": "error", "message": f"Game {game_id} not found"}
+            import pickle
+            try:
+                with open(filename, 'wb') as f:
+                    pickle.dump(game, f)
+                self.logger.info(f"Saved game {game_id} to {filename}")
+                return {"status": "ok"}
+            except Exception as e:
+                self.logger.error(f"Failed to save game {game_id}: {e}")
+                return {"status": "error", "message": str(e)}
+        elif cmd == "LOAD_GAME":
+            if len(tokens) < 3:
+                self.logger.error("LOAD_GAME missing arguments")
+                return {"status": "error", "message": "Usage: LOAD_GAME <game_id> <filename>"}
+            game_id, filename = tokens[1], tokens[2]
+            import pickle
+            try:
+                with open(filename, 'rb') as f:
+                    game = pickle.load(f)
+                self.games[game_id] = game
+                self.logger.info(f"Loaded game {game_id} from {filename}")
+                return {"status": "ok"}
+            except Exception as e:
+                self.logger.error(f"Failed to load game {game_id}: {e}")
+                return {"status": "error", "message": str(e)}
         else:
             self.logger.error(f"Unknown command: {cmd}")
             return {"status": "error", "message": f"Unknown command: {cmd}"}

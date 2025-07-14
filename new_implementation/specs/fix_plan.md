@@ -10,6 +10,19 @@
 - Document core modules and usage in README
 - **[IN PROGRESS] Implement advanced order adjudication and turn processing (real Diplomacy rules, not just stubs)**
 
+# Top Priorities (as of July 2025)
+
+- [ ] Implement advanced order adjudication and turn processing (edge cases, convoy paradoxes, support cut, standoffs, dislodgement)
+- [ ] Expand test coverage for adjudication edge cases (convoy paradoxes, support cut, standoffs, dislodgement)
+- [ ] Implement and test DAIDE protocol support for bot/server communication
+- [ ] Add support for multiple concurrent games and test isolation
+- [ ] Implement SAVE_GAME and LOAD_GAME commands for persistence
+- [ ] Add REMOVE_PLAYER and ADVANCE_PHASE commands as per extensibility section
+- [ ] Improve error response structure and consistency (see server_spec.md error handling)
+- [ ] Enhance logging: add startup/shutdown, game state changes, and structured log output
+- [ ] Add configuration options for host/port, persistence backend, debug/production mode, and logging
+- [ ] Review and update all documentation/specs to match current implementation and new features
+
 # Secondary Priorities (After Core is Working)
 
 - Implement DAIDE protocol support for bot/server communication
@@ -59,3 +72,25 @@
 - All core and integration tests pass after typing improvements.
 - Implemented map_name support, get_locations, get_adjacency, and validate_location in Map class.
 - Added and passed tests for new Map API (locations, adjacency, validation).
+
+- Enforced strict type annotations for all fields and methods in engine, server, and client modules.
+- All core and integration tests pass after typing improvements.
+- Implemented map_name support, get_locations, get_adjacency, and validate_location in Map class.
+- Added and passed tests for new Map API (locations, adjacency, validation).
+- Fixed convoyed move adjudication bug by correcting order parsing for multi-word convoy targets and implementing proper convoy availability checking.
+- Fixed dislodgement logic bug by implementing correct Diplomacy rules where attacker must have greater strength than defender to succeed (equal strength = standoff).
+- Updated test_convoyed_move to properly test supported convoyed attack (strength 2) vs defender (strength 1).
+- All adjudication tests now pass with proper Diplomacy rule implementation.
+
+# Bugs
+- No known bugs at this time. All tests passing.
+
+# Previously Fixed Bugs
+- [x] BUG: Convoyed move adjudication is incorrect. Army does not move to destination when convoyed (see test_convoyed_move failure in test_adjudication.py).
+  - FIXED: Corrected OrderParser to handle multi-word convoy targets (e.g., "A LON - BEL" instead of just "A")
+  - FIXED: Implemented proper convoy availability checking in adjudication logic
+  - FIXED: Updated test to use supported attack for proper convoy success demonstration
+- [x] BUG: Dislodgement logic is incorrect. Defending unit is not removed from province when dislodged (see test_dislodgement failure in test_adjudication.py).
+  - FIXED: Implemented correct Diplomacy rules where attacker needs greater strength (not equal) to succeed
+  - FIXED: Equal strength attacks now properly result in standoffs as per official Diplomacy rules
+  - FIXED: Dislodgement now works correctly when supported attacks overcome defending units
