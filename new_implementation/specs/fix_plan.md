@@ -44,3 +44,6 @@
 - Implemented minimal Client class in client.py for server interaction.
 - Added client-server integration tests in tests/test_client.py covering command flow and error handling.
 - All client-server tests pass.
+- Created and pushed git tag 0.0.2 after implementing the minimal client and passing all integration tests.
+- Added logging to the Server class for all command processing, errors, and key actions to improve debuggability and meet requirements for enhanced error handling and logging.
+- All server and client-server integration tests pass after logging changes.
