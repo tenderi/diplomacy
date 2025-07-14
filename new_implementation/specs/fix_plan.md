@@ -51,3 +51,6 @@
 - Expanded Game class to use Map and Power for real state management. add_player now creates a Power object, and get_state exposes powers.
 - All engine-level tests pass after this change.
 - Created and pushed git tag 0.0.4 after expanding the Game class to use Map and Power for real state management.
+- Implement full order parsing and validation in OrderParser (no longer a stub; now checks power, unit, action, and target; more advanced checks TODO).
+- Expanded test_order.py to cover valid/invalid parsing and validation cases.
+- All order tests pass.

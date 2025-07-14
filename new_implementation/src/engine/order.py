@@ -2,7 +2,7 @@
 Order parsing and validation for Diplomacy.
 - Defines order types and basic parsing/validation stubs.
 """
-from typing import List, Optional
+from typing import Optional, Dict, Any
 
 class Order:
     """Represents a Diplomacy order (move, hold, support, convoy, etc.)."""
@@ -16,20 +16,36 @@ class Order:
         return f"Order({self.power}, {self.unit}, {self.action}, {self.target})"
 
 class OrderParser:
-    """Stub for order parsing and validation."""
+    """Order parsing and validation for Diplomacy orders."""
     @staticmethod
     def parse(order_str: str) -> Order:
-        # Very basic parser; expand for full DAIDE/standard syntax
+        # Parse order string: e.g. 'FRANCE A PAR - BUR' or 'FRANCE F BRE H'
         tokens = order_str.strip().split()
-        if len(tokens) < 3:
-            raise ValueError("Invalid order format")
+        if len(tokens) < 4:
+            raise ValueError("Invalid order format. Expected: <POWER> <UNIT_TYPE> <UNIT_LOC> <ACTION> <TARGET?>")
         power = tokens[0]
-        unit = tokens[1]
-        action = tokens[2]
-        target = tokens[3] if len(tokens) > 3 else None
+        unit_type = tokens[1]  # 'A' or 'F'
+        unit_loc = tokens[2]   # e.g. 'PAR'
+        action = tokens[3]     # '-', 'H', 'S', 'C', etc.
+        target = tokens[4] if len(tokens) > 4 else None
+        unit = f"{unit_type} {unit_loc}"
         return Order(power, unit, action, target)
 
     @staticmethod
-    def validate(order: Order) -> bool:
-        # Stub: always returns True for now
+    def validate(order: Order, game_state: Dict[str, Any]) -> bool:
+        # Validate order against the game state
+        # Check power exists
+        if order.power not in game_state.get("powers", []):
+            return False
+        # Check unit format
+        if not order.unit:
+            return False
+        # Check action is valid
+        valid_actions = {'-', 'H', 'S', 'C'}
+        if order.action not in valid_actions:
+            return False
+        # If move, check target is a valid province
+        if order.action == '-' and not order.target:
+            return False
+        # TODO: Add adjacency and ownership checks using map and power
         return True
