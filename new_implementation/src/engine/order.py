@@ -27,7 +27,13 @@ class OrderParser:
         unit_type: str = tokens[1]  # 'A' or 'F'
         unit_loc: str = tokens[2]   # e.g. 'PAR'
         action: str = tokens[3]     # '-', 'H', 'S', 'C', etc.
-        target: Optional[str] = tokens[4] if len(tokens) > 4 else None
+        
+        # Handle multi-word targets (e.g., convoy, support)
+        if len(tokens) > 4:
+            target: Optional[str] = ' '.join(tokens[4:])
+        else:
+            target = None
+            
         unit: str = f"{unit_type} {unit_loc}"
         return Order(power, unit, action, target)
 

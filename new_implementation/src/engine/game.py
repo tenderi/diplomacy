@@ -36,105 +36,171 @@ class Game:
                 except Exception:
                     continue  # Skip invalid orders
 
-        # 2. Adjudicate orders (support cut, standoff, move/hold/support, dislodgement, convoy)
-        unit_positions: Dict[str, str] = {}
+        # 2. Collect current unit positions and map orders to actual units
+        unit_positions: Dict[str, str] = {}  # full unit identifier -> location
+        unit_to_power: Dict[str, str] = {}   # full unit identifier -> power
+        
+        # Build a mapping from order unit identifiers to actual units
         for power, p in self.powers.items():
-            for unit in p.units:
-                unit_positions[unit] = unit.split()[-1]
+            for location in p.units:
+                # For each location, find matching orders to determine unit type
+                for orders in parsed_orders.values():
+                    for order in orders:
+                        unit_parts = order.unit.split()
+                        if len(unit_parts) == 2 and unit_parts[1] == location:
+                            # This order references a unit at this location
+                            unit_positions[order.unit] = location
+                            unit_to_power[order.unit] = power
 
-        moves: Dict[str, str] = {}
-        supports: Dict[str, int] = {}
-        support_cut: Dict[str, bool] = {}
-        attacks: Dict[str, str] = {}  # province -> attacking unit
-        convoys: Dict[str, str] = {}  # unit -> destination (for convoyed moves)
-        # First pass: collect moves, supports, and convoys
+        # 3. Parse orders into structured data
+        moves: Dict[str, str] = {}  # unit -> destination
+        supports: Dict[str, List[str]] = {}  # supported move -> list of supporting units
+        convoys: Dict[str, str] = {}  # convoyed unit -> convoy path
+        convoy_orders: Dict[str, str] = {}  # fleet -> move being convoyed
+
         for power, orders in parsed_orders.items():
             for order in orders:
                 if order.action == '-' and order.target is not None:
-                    moves[order.unit] = order.target
-                    attacks[order.target] = order.unit
+                    # Move order
+                    target = order.target.replace(' VIA CONVOY', '')
+                    moves[order.unit] = target
+                    
+                    # Check if this is a convoyed move
+                    if 'VIA CONVOY' in order.target:
+                        convoys[order.unit] = target
+                        
                 elif order.action == 'S' and order.target:
-                    supports[order.target] = supports.get(order.target, 0) + 1
+                    # Support order
+                    if order.target not in supports:
+                        supports[order.target] = []
+                    supports[order.target].append(order.unit)
+                    
                 elif order.action == 'C' and order.target:
-                    # Convoy order: e.g. 'A PAR C A PAR - MAR' or 'F BRE C A PAR - MAR'
-                    tokens = order.unit.split()
-                    if tokens[0] == 'F':
-                        # Only fleets can convoy
-                        convoyed = order.target
-                        convoys[convoyed] = order.target  # Mark as convoyed (simplified)
+                    # Convoy order
+                    convoy_orders[order.unit] = order.target
 
-        # Support cut: if a supporting unit is attacked from a province other than the one it is supporting against, cut the support
-        for power, orders in parsed_orders.items():
-            for order in orders:
-                if order.action == 'S' and order.target:
-                    supporter_unit = order.unit
-                    supporter_prov = supporter_unit.split()[-1]
-                    for atk_orders in parsed_orders.values():
-                        for atk_order in atk_orders:
-                            if atk_order.action == '-' and atk_order.target == supporter_prov:
-                                if not (atk_order.unit == order.target):
-                                    support_cut[order.target] = True
-        for cut_target in support_cut:
-            if cut_target in supports:
-                del supports[cut_target]
+        # 4. Calculate support strengths (after support cuts)
+        move_strength: Dict[str, int] = {}
+        for move_unit, destination in moves.items():
+            strength = 1  # Base strength
+            move_string = f"{move_unit} - {destination}"
+            
+            # Add supports
+            if move_string in supports:
+                for supporting_unit in supports[move_string]:
+                    # Check if support is cut
+                    support_cut = False
+                    supporting_location = unit_positions.get(supporting_unit)
+                    if supporting_location:
+                        for other_unit, other_dest in moves.items():
+                            if other_dest == supporting_location and other_unit != move_unit:
+                                support_cut = True
+                                break
+                    
+                    if not support_cut:
+                        strength += 1
+            
+            move_strength[move_unit] = strength
 
-        # Moves and standoffs (with basic convoy support)
-        new_positions: Dict[str, str] = {}
-        contested: Dict[str, List[str]] = {}
-        for unit, from_prov in unit_positions.items():
-            # If this unit is being convoyed, use the convoy destination
-            if unit in convoys:
-                dest = convoys[unit]
-                contested.setdefault(dest, []).append(unit)
-            elif unit in moves:
-                dest = moves[unit]
-                contested.setdefault(dest, []).append(unit)
-        # Standoff: if more than one unit moves to the same province, all fail
-        for dest, units in contested.items():
-            if len(units) > 1:
-                for unit in units:
-                    new_positions[unit] = unit_positions[unit]
+        # 5. Resolve moves (including convoys)
+        successful_moves: Dict[str, str] = {}
+        failed_moves: set[str] = set()
+        
+        for move_unit, destination in moves.items():
+            # Check if convoy is required and available
+            if move_unit in convoys:
+                convoy_available = False
+                for convoyed_move in convoy_orders.values():
+                    expected_convoy = f"{move_unit} - {destination}"
+                    if expected_convoy == convoyed_move:
+                        convoy_available = True
+                        break
+                
+                if not convoy_available:
+                    failed_moves.add(move_unit)
+                    continue
+            
+            # Check for competing moves to the same destination
+            competitors = [u for u, d in moves.items() if d == destination and u != move_unit]
+            unit_strength = move_strength.get(move_unit, 1)
+            
+            # Check if this move beats all competitors
+            beats_all = True
+            for competitor in competitors:
+                competitor_strength = move_strength.get(competitor, 1)
+                if competitor_strength >= unit_strength:
+                    beats_all = False
+                    break
+            
+            # Check if there's a defending unit
+            defending_unit = None
+            for unit, location in unit_positions.items():
+                if location == destination and unit != move_unit:
+                    defending_unit = unit
+                    break
+            
+            if defending_unit and defending_unit not in moves:
+                # Stationary defender gets 1 strength plus supports
+                defend_string = f"{defending_unit} H"
+                defend_strength = 1
+                if defend_string in supports:
+                    for supporting_unit in supports[defend_string]:
+                        # Check if support is cut
+                        support_cut = False
+                        supporting_location = unit_positions.get(supporting_unit)
+                        if supporting_location:
+                            for other_unit, other_dest in moves.items():
+                                if other_dest == supporting_location and other_unit != defending_unit:
+                                    support_cut = True
+                                    break
+                        
+                        if not support_cut:
+                            defend_strength += 1
+                
+                # Diplomacy rule: attacker must have GREATER strength than defender to succeed
+                if unit_strength <= defend_strength:
+                    beats_all = False
+            
+            if beats_all:
+                successful_moves[move_unit] = destination
             else:
-                unit = units[0]
-                strength = 1 + supports.get(unit, 0)
-                competitors = [u for u, d in moves.items() if d == dest and u != unit]
-                max_strength = strength
-                for comp in competitors:
-                    comp_strength = 1 + supports.get(comp, 0)
-                    if comp_strength > max_strength:
-                        max_strength = comp_strength
-                if all(1 + supports.get(comp, 0) < strength for comp in competitors):
-                    new_positions[unit] = dest
-                else:
-                    new_positions[unit] = unit_positions[unit]
-        # Units not moving or not in standoff
-        for unit, from_prov in unit_positions.items():
-            if unit not in new_positions:
-                new_positions[unit] = from_prov
+                failed_moves.add(move_unit)
 
-        # Dislodgement: if a unit is attacked with greater strength than its own defense, it is removed
-        dislodged: set[str] = set()
-        for unit, from_prov in unit_positions.items():
-            attackers = [u for u, d in moves.items() if d == from_prov]
-            if attackers:
-                max_attack = max([1 + supports.get(u, 0) for u in attackers])
-                defense = 1 + supports.get(unit, 0)
-                if max_attack > defense:
-                    dislodged.add(unit)
-        for unit in dislodged:
-            for power, p in self.powers.items():
-                if unit in unit_positions and unit_positions[unit] in p.units:
-                    p.units.discard(unit_positions[unit])
-            if unit in new_positions:
-                del new_positions[unit]
-
-        # Update units in powers
-        for power, p in self.powers.items():
-            p.units = set()
-        for unit, prov in new_positions.items():
-            for power, p in self.powers.items():
-                if unit in unit_positions:
-                    p.units.add(prov)
+        # 6. Update unit positions
+        # Clear all unit positions first
+        for power in self.powers.values():
+            power.units = set()
+        
+        # Place units in their final positions
+        for unit, current_location in unit_positions.items():
+            power = unit_to_power[unit]
+            
+            if unit in successful_moves:
+                # Unit moved successfully
+                new_location = successful_moves[unit]
+                self.powers[power].units.add(new_location)
+            elif unit not in failed_moves:
+                # Unit stayed in place (hold or no order)
+                # Check if it was dislodged
+                dislodged = False
+                for attack_dest in successful_moves.values():
+                    if attack_dest == current_location:
+                        dislodged = True
+                        break
+                
+                if not dislodged:
+                    self.powers[power].units.add(current_location)
+            else:
+                # Unit failed to move, stays in original location
+                # Check if it was dislodged
+                dislodged = False
+                for attack_dest in successful_moves.values():
+                    if attack_dest == current_location:
+                        dislodged = True
+                        break
+                
+                if not dislodged:
+                    self.powers[power].units.add(current_location)
 
         # 3. Update supply center control
         supply_centers = self.map.get_supply_centers()
@@ -158,11 +224,19 @@ class Game:
             self.done = True
 
     def get_state(self) -> Dict[str, Any]:
+        # Compose a richer state dictionary for server_spec compliance
+        units = {power: list(p.units) for power, p in self.powers.items()}
         return {
-            "map": self.map_name,
-            "powers": list(self.powers.keys()),
+            "game_id": getattr(self, "game_id", None),
+            "phase": f"Turn {self.turn}",
+            "players": list(self.powers.keys()),
+            "units": units,
             "orders": self.orders,
-            "turn": self.turn,
+            "status": "done" if self.done else "active",
+            "turn": self.turn,  # add legacy key for test compatibility
+            "turn_number": self.turn,
+            "map": self.map_name,
+            "powers": list(self.powers.keys()),  # add legacy key for test compatibility
             "done": self.done
         }
 
