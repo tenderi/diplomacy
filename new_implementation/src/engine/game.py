@@ -36,7 +36,7 @@ class Game:
                 except Exception:
                     continue  # Skip invalid orders
 
-        # 2. Adjudicate orders (support cut, standoff, move/hold/support)
+        # 2. Adjudicate orders (support cut, standoff, move/hold/support, dislodgement)
         unit_positions: Dict[str, str] = {}
         for power, p in self.powers.items():
             for unit in p.units:
@@ -45,11 +45,13 @@ class Game:
         moves: Dict[str, str] = {}
         supports: Dict[str, int] = {}
         support_cut: Dict[str, bool] = {}
+        attacks: Dict[str, str] = {}  # province -> attacking unit
         # First pass: collect moves and supports
         for power, orders in parsed_orders.items():
             for order in orders:
                 if order.action == '-' and order.target is not None:
                     moves[order.unit] = order.target
+                    attacks[order.target] = order.unit
                 elif order.action == 'S' and order.target:
                     supports[order.target] = supports.get(order.target, 0) + 1
 
@@ -59,13 +61,11 @@ class Game:
                 if order.action == 'S' and order.target:
                     supporter_unit = order.unit
                     supporter_prov = supporter_unit.split()[-1]
-                    for atk_power, atk_orders in parsed_orders.items():
+                    for atk_orders in parsed_orders.values():
                         for atk_order in atk_orders:
                             if atk_order.action == '-' and atk_order.target == supporter_prov:
-                                # Only cut if not the unit being supported
                                 if not (atk_order.unit == order.target):
                                     support_cut[order.target] = True
-        # Remove cut supports
         for cut_target in support_cut:
             if cut_target in supports:
                 del supports[cut_target]
@@ -99,6 +99,24 @@ class Game:
         for unit, from_prov in unit_positions.items():
             if unit not in new_positions:
                 new_positions[unit] = from_prov
+
+        # Dislodgement: if a unit is attacked with greater strength than its own defense, it is removed
+        dislodged: set[str] = set()
+        for unit, from_prov in unit_positions.items():
+            # Check if any unit is moving to this province with greater strength
+            attackers = [u for u, d in moves.items() if d == from_prov]
+            if attackers:
+                max_attack = max([1 + supports.get(u, 0) for u in attackers])
+                defense = 1 + supports.get(unit, 0)
+                if max_attack > defense:
+                    dislodged.add(unit)
+        # Remove dislodged units from new_positions
+        for unit in dislodged:
+            for power, p in self.powers.items():
+                if unit in unit_positions and unit_positions[unit] in p.units:
+                    p.units.discard(unit_positions[unit])
+            if unit in new_positions:
+                del new_positions[unit]
 
         # Update units in powers
         for power, p in self.powers.items():
