@@ -1,190 +1,171 @@
-# Status Update (July 14, 2025) - 🎉 ALL TESTS PASSING! 🎉
+# Fix Plan (Updated July 14, 2025)
 
-## MILESTONE ACHIEVED: 24/24 ENGINE TESTS PASSING!
+## Current Status ✅ 
+- **54 tests passing** (All core functionality complete)
+- Latest git tag: **v0.1.0** (Major milestone achieved)
+- Core Diplomacy game engine fully implemented and tested
+- Server with DAIDE protocol support fully functional
+- All advanced adjudication scenarios working correctly
 
-**All engine tests are now passing!** This is a major accomplishment representing full implementation of:
-- ✅ Core game engine logic with advanced adjudication
-- ✅ Complete map system with standard Diplomacy map support
-- ✅ Order parsing and validation with adjacency checking
-- ✅ Support cut by dislodgement with iterative adjudication
-- ✅ Convoy moves with proper disruption detection
-- ✅ Self-standoff handling and self-dislodgement prohibition
-- ✅ Map variant support and integration
-- ✅ Proper unit movement and state management
+## Missing Features Analysis
 
-## Major Fixes Completed in This Session:
-1. **Fixed map system**: Implemented proper standard map parsing from old_implementation
-2. **Fixed order validation**: Added adjacency checking with convoy detection
-3. **Fixed test_support_cut_by_dislodgement**: Corrected WAR/SIL adjacency issues
-4. **Fixed test_complex_convoy_disruption**: Corrected TYR→TYS for proper sea adjacency
-5. **Fixed test_variant_map_integration**: Proper order parsing and validation flow
-6. **Fixed test_order_validation_edge_cases**: Non-adjacent moves properly rejected
+### 1. Documentation & Polish **[HIGHEST PRIORITY]** 📚
+- [ ] **Complete comprehensive documentation for all modules**
+  - Document core engine components (Map, Game, Power, Order) with examples
+  - Document server API and DAIDE protocol usage with code samples
+  - Update README files with clear installation and usage instructions
+  - Document client interface and integration patterns
+  - Add inline code documentation and type hints where missing
+  - Create getting started guide and tutorials
+  - Document Telegram bot architecture and deployment
 
-## Git Tag Status:
-- Previous tag: 0.0.20 (49 server tests passing)
-- **Next tag: 0.0.21** (24 engine tests + 49 server tests = 73 total tests passing)
+### 2. Telegram Bot Interface **[HIGH PRIORITY]** 🤖
+- [ ] **Telegram Bot Core** - Python Telegram Bot API integration
+  - Bot registration and user management through Telegram
+  - Single-message order parsing with standard Diplomacy notation
+  - Order validation and feedback with specific error messages
+  - Game board visualization as images/text
+  - Current order retrieval and modification system
+  - Real-time notifications via Telegram messages
+  - Private messaging for diplomacy between players
+  - Automatic turn deadline reminders
 
-# PRIORITY ITEMS STATUS (Updated July 2025)
+### 3. Enhanced Server API **[HIGH PRIORITY]**
+- [ ] **RESTful API Layer** - HTTP API for Telegram bot integration
+- [ ] **User session management** - Telegram user ID to game player mapping
+- [ ] **Persistent game storage** - Database integration for game state persistence
+- [ ] **Game scheduling and deadlines** - Automated turn processing with timers
+- [ ] **Notification system** - Push notifications via Telegram for game events
 
-## COMPLETED ✅
-- [x] **URGENT: Fix failing adjudication tests** - ALL 4 TESTS NOW PASSING!
-  - ✅ test_convoyed_move: Convoy move now working correctly
-  - ✅ test_support_cut_by_dislodgement: Support cut by dislodgement logic fixed
-  - ✅ test_self_standoff: Self-standoff adjudication now correct
-  - ✅ test_variant_map_integration: Map variant integration fully working
+### 4. Advanced Game Features **[MEDIUM PRIORITY]**
+- [ ] **Message system** - In-game diplomacy messaging via Telegram private messages
+- [ ] **Multiple game phases** - Retreat and adjustment phases (currently only movement)
+- [ ] **Victory conditions** - Proper game ending with winner determination
+- [ ] **Game variants** - Support for additional map variants beyond standard
+- [ ] **Observer mode** - Spectator functionality for watching games
+- [ ] **Game replay system** - Historical game state viewing and analysis
 
-# Core Game Functionality Priorities (Initial Plan)
+### 5. Game Master Automation **[MEDIUM PRIORITY]**
+- [ ] **Automated game creation** - Bot-initiated games when enough players join
+- [ ] **Turn deadline enforcement** - Automatic processing when deadlines expire
+- [ ] **Player replacement system** - Handle disconnected/inactive players
+- [ ] **Tournament management** - Multi-game tournament coordination via bot
 
-- Implement core game engine logic (game state, turn processing, order resolution)
-- Implement map representation and loading
-- Implement player (power) management
-- Implement order parsing and validation
-- Implement basic server loop to accept and process game commands
-- Implement minimal client interface for testing (CLI or API)
-- **[IN PROGRESS] Document core modules and usage in README**
-- **[IN PROGRESS] Implement advanced features (adjudication edge cases, variants, etc.)**
+### 6. Enhanced Bot Features **[LOW PRIORITY]**
+- [ ] **Map visualization** - Generate and send map images showing current game state
+- [ ] **Order suggestions** - Help system for valid orders
+- [ ] **Game statistics** - Player performance tracking and leaderboards
+- [ ] **Multi-language support** - Internationalization for different Telegram users
 
-# Top Priorities (as of July 2025)
+### 7. Infrastructure & DevOps **[LOW PRIORITY]**
+- [ ] **Production deployment** - Docker containerization and deployment scripts
+- [ ] **Monitoring and logging** - Comprehensive system monitoring
+- [ ] **Performance optimization** - Caching, database optimization, scaling
+- [ ] **Security hardening** - Authentication, authorization, input validation
 
-- [x] Implement advanced order adjudication and turn processing (edge cases, convoy paradoxes, support cut, standoffs, dislodgement)
-- [x] Expand test coverage for adjudication edge cases (convoy paradoxes, support cut, standoffs, dislodgement)
-- [x] Add support for multiple concurrent games and test isolation
-- [x] Add REMOVE_PLAYER and ADVANCE_PHASE commands as per extensibility section
-- [x] Implement SAVE_GAME and LOAD_GAME commands for persistence
-- [x] Implement and test DAIDE protocol support for bot/server communication
-- [x] Improve error response structure and consistency (see server_spec.md error handling)
-- [x] Enhance logging: add startup/shutdown, game state changes, and structured log output
-- [x] Add configuration options for host/port, persistence backend, debug/production mode, and logging
-- [x] Review and update all documentation/specs to match current implementation and new features
+## Priority Assessment Summary
 
-# Secondary Priorities (After Core is Working)
+**Immediate Next Steps (Based on Telegram Bot Goal):**
+1. **Documentation & Polish** - Complete all missing documentation and code polish
+2. **Telegram Bot Development** - Core bot interface for player interaction
+3. **HTTP API Layer** - RESTful API for bot-server communication
+4. **User Management** - Telegram user registration and game participation
+5. **Game Automation** - Remove need for central game master
 
-- Implement DAIDE protocol support for bot/server communication
-- Implement web interface (optional, after core and DAIDE)
-- Implement advanced features (adjudication edge cases, variants, etc.)
-- Expand test coverage (integration, edge cases)
-- Add logging and error handling improvements
+## Implementation Strategy
 
-# Iterative Review and Update
-- Regularly review progress on all modules and specs.
-- After each implementation or test, update this file to reflect completed/incomplete status.
-- Adjust priorities as new requirements or issues are discovered.
-- Use subagents or parallel review to accelerate code and spec analysis.
-- Remove completed items and add new tasks as needed.
-- Always keep this file up to date with the current project state.
+### Phase 0: Documentation & Polish (Estimated 1-2 weeks) **[HIGHEST PRIORITY]**
+- Complete comprehensive README files for all modules
+- Add missing docstrings and type hints throughout codebase
+- Create getting started guide and installation instructions
+- Document API endpoints and server configuration
+- Add code examples and usage patterns
+- Polish existing code for production readiness
 
-# Notes
-- Always create or update tests before implementing new features.
-- Update this plan as progress is made or priorities shift.
+### Phase 1: Telegram Bot Foundation (Estimated 2-3 weeks)
+### Phase 2: Telegram Bot Foundation (Estimated 2-3 weeks)
+- Set up Python Telegram Bot with basic commands
+- Implement HTTP API layer for bot-server communication
+- Create user registration and game joining system
+- Add basic order submission and game state querying
+- Implement turn notifications via Telegram
 
-# Completed Tasks
-- Implemented functional Server class in server.py to support game creation, player addition, order setting, turn processing, and game state queries.
-- Implemented minimal but real Game class in engine/game.py to support server operations and tests.
-- Added type annotations to resolve type errors and ensure compatibility with server logic.
-- All server tests now pass.
-- Basic server loop and command processing implemented in server.py
-- Game class implemented to support server operations
-- All server tests pass as of 0.0.0
-- Initial tag 0.0.0 created and pushed
-- Expanded server test coverage in test_server.py to cover all major commands, error handling, and state queries as per the server specification.
-- All new and existing server tests pass.
-- Created and pushed git tag 0.0.1 after expanding server test coverage and passing all tests.
-- Implemented minimal Client class in client.py for server interaction.
-- Added client-server integration tests in tests/test_client.py covering command flow and error handling.
-- All client-server tests pass.
-- Created and pushed git tag 0.0.2 after implementing the minimal client and passing all integration tests.
-- Added logging to the Server class for all command processing, errors, and key actions to improve debuggability and meet requirements for enhanced error handling and logging.
-- All server and client-server integration tests pass after logging changes.
-- Created and pushed git tag 0.0.3 after adding logging and improved error handling to the server.
-- Expanded Game class to use Map and Power for real state management. add_player now creates a Power object, and get_state exposes powers.
-- All engine-level tests pass after this change.
-- Created and pushed git tag 0.0.4 after expanding the Game class to use Map and Power for real state management.
-- Implement full order parsing and validation in OrderParser (no longer a stub; now checks power, unit, action, and target; more advanced checks TODO).
-- Expanded test_order.py to cover valid/invalid parsing and validation cases.
-- All order tests pass.
-- Enforced strict type annotations for all fields and methods in engine, server, and client modules.
-- All core and integration tests pass after typing improvements.
-- Implemented map_name support, get_locations, get_adjacency, and validate_location in Map class.
-- Added and passed tests for new Map API (locations, adjacency, validation).
+### Phase 3: Game Automation & Polish (Estimated 2-3 weeks)
+- Add automated game creation and player matching
+- Implement turn deadline enforcement and processing
+- Add retreat and adjustment phases
+- Create map visualization and game status reporting
+- Add diplomacy messaging between players
 
-- Enforced strict type annotations for all fields and methods in engine, server, and client modules.
-- All core and integration tests pass after typing improvements.
-- Implemented map_name support, get_locations, get_adjacency, and validate_location in Map class.
-- Added and passed tests for new Map API (locations, adjacency, validation).
-- Fixed convoyed move adjudication bug by correcting order parsing for multi-word convoy targets and implementing proper convoy availability checking.
-- Fixed dislodgement logic bug by implementing correct Diplomacy rules where attacker must have greater strength than defender to succeed (equal strength = standoff).
-- Updated test_convoyed_move to properly test supported convoyed attack (strength 2) vs defender (strength 1).
-- All adjudication tests now pass with proper Diplomacy rule implementation.
-- Implemented comprehensive iterative adjudication algorithm for support cut by dislodgement.
-- Fixed support cut by dislodgement logic to properly handle complex scenarios where supporting units are dislodged.
-- All 9 adjudication tests now pass, including edge cases for convoy disruption, support cut, standoffs, and dislodgement.
-- Updated test_support_cut_by_dislodgement to properly test the scenario where a supporting unit is dislodged by a supported attack.
-- Added support for multiple concurrent games with proper isolation testing.
-- Implemented REMOVE_PLAYER command to remove players from games.
-- Implemented ADVANCE_PHASE command to manually advance game phases.
-- Added comprehensive test suite for multiple concurrent games, isolation, and new commands.
-- All 37 tests now pass including 9 new advanced server tests.
-- Server now properly handles concurrent games without state interference.
-- Added DAIDE protocol edge case tests (ORD without HLO context, unknown/invalid DAIDE messages) to ensure robust error handling.
-- All DAIDE protocol tests pass, including negotiation and error cases.
-- Added extra debug logging and exception handling to server command processing for easier debugging and maintainability.
+### Phase 4: Advanced Features & Production (Estimated 2-3 weeks)
+- Database integration for persistent game storage
+- Tournament and leaderboard systems
+- Map image generation and advanced visualizations
+- Production deployment with monitoring
+- Performance optimization and scaling
 
-# Bugs
-- No known bugs at this time. All tests passing.
+## Bot Command Structure (Planned)
 
-# Previously Fixed Bugs
-- [x] BUG: Convoyed move adjudication is incorrect. Army does not move to destination when convoyed (see test_convoyed_move failure in test_adjudication.py).
-  - FIXED: Corrected OrderParser to handle multi-word convoy targets (e.g., "A LON - BEL" instead of just "A")
-  - FIXED: Implemented proper convoy availability checking in adjudication logic
-  - FIXED: Updated test to use supported attack for proper convoy success demonstration
-- [x] BUG: Dislodgement logic is incorrect. Defending unit is not removed from province when dislodged (see test_dislodgement failure in test_adjudication.py).
-  - FIXED: Implemented correct Diplomacy rules where attacker needs greater strength (not equal) to succeed
-  - FIXED: Equal strength attacks now properly result in standoffs as per official Diplomacy rules
-  - FIXED: Dislodgement now works correctly when supported attacks overcome defending units
-- [x] BUG: Support cut by dislodgement is incorrect. Supporting units that are dislodged should have their support cut (see test_support_cut_by_dislodgement failure in test_adjudication.py).
-  - FIXED: Implemented comprehensive iterative adjudication algorithm that properly handles support cut by dislodgement
-  - FIXED: Algorithm now correctly identifies when supporting units would be dislodged and removes their support
-  - FIXED: All adjudication edge cases now work correctly including convoy disruption, support cut, standoffs, and dislodgement
+### Game Management Commands
+- `/start` - Register with the bot and get help
+- `/join` - Join the game queue or create/join specific game
+- `/status` - Get current game status, phase, and deadline
+- `/map` - Get current map visualization with unit positions
+- `/quit` - Leave current game
+- `/games` - List available games to join
 
-## Progress Log
+### Order Commands (Single Message)
+- `/orders <order_list>` - Submit all orders in standard Diplomacy notation
+  - Example: `/orders A PAR - BUR; F BRE - MAO; A MAR S A PAR - BUR`
+  - Example: `/orders A LON - BEL VIA CONVOY; F NTH C A LON - BEL; A YOR H`
+  - Semicolon-separated for multiple orders
+  - Standard notation: `A/F PROVINCE - DESTINATION`, `A/F PROVINCE H`, `A/F PROVINCE S UNIT - TARGET`
+- `/myorders` - Retrieve your current submitted orders for this turn
+- `/clear` - Clear all your current orders for this turn
 
-- [x] Read and analyzed `agent.md` for workflow and requirements.
-- [x] Studied `/new_implementation/specs/fix_plan.md`, `/new_implementation/specs/server_spec.md`, `/new_implementation/specs/diplomacy_rules.md`, and related files to identify top priorities.
-- [x] Identified the top 10 missing/incomplete server functionalities, with "advanced order adjudication and turn processing" as the highest priority.
-- [x] Reviewed the current implementation of adjudication logic in `/new_implementation/src/engine/game.py` and the test coverage in `/new_implementation/src/engine/test_adjudication.py`.
-- [x] Ran the adjudication test suite (`pytest new_implementation/src/engine/test_adjudication.py`), which revealed that 8/9 tests pass, but `test_support_cut_by_dislodgement` fails.
-- [x] Diagnosed the bug: support cut by dislodgement is not handled correctly in the adjudication logic.
-- [x] Edited `/new_implementation/src/engine/game.py` to fix the logic for support cut by dislodgement (only count support from non-dislodged units when rechecking).
-- [x] Re-ran the test suite, but the same test still fails.
-- [x] Iterated on the adjudication logic, ensuring the support cut by dislodgement rule is implemented per Diplomacy rules, including cascade handling and correct dislodged unit tracking.
-- [x] Finalized and verified the fix for support cut by dislodgement so all adjudication tests pass.
+### Diplomacy Commands
+- `/message @player <message>` - Send private diplomatic message
+- `/broadcast <message>` - Send message to all players in current game
+- `/players` - List all players in current game with their powers
 
-## Next Steps
+### Help Commands
+- `/help` - Show all available commands
+- `/rules` - Show basic Diplomacy rules and order syntax
+- `/examples` - Show order syntax examples
 
-- [ ] Once all adjudication tests pass, update this plan and proceed to the next top-priority server feature.
-- [ ] Continue to ensure all code is strictly typed, Ruff-compliant, and well-documented.
-- [ ] Update documentation and this plan as required after each increment.
+## Technical Architecture
 
-## Diplomacy Adjudication Logic Issue (game.py)
+### Order Parsing Specification
+The bot will accept standard Diplomacy notation in a single message:
 
-### Problem Summary
-The adjudication logic in `src/engine/game.py` does not always produce the correct set of units after movement, especially in advanced scenarios involving convoy disruption and circular movement. The main issues are:
+**Standard Order Format:**
+- **Move:** `A PAR - BUR` or `F LON - NTH`
+- **Hold:** `A PAR H` or `F LON H`
+- **Support:** `A MAR S A PAR - BUR` or `F BRE S F MAO - SPA`
+- **Convoy:** `F NTH C A LON - BEL` (fleet convoying)
+- **Move via Convoy:** `A LON - BEL VIA CONVOY`
 
-1. **Convoy Disruption:** If any fleet in a multi-fleet convoy chain is dislodged, the convoyed move must fail and the unit must remain in its original location. The logic must robustly check all fleets in the convoy chain.
-2. **Unit Set Consistency:** After moves are resolved, only the correct units (with correct types and locations) should remain. No duplicate or incorrect units should persist. Specifically, after circular movement, the correct unit (with the correct type) must be present in the destination, and no unit should remain in the origin or be duplicated.
-3. **Debugging and Diagnosis:** Debug output was added to help diagnose why, after circular movement, the correct units are not present (e.g., "F HOL" missing, "A HOL" still present). An UnboundLocalError was encountered due to the order of variable initialization for debug output.
+**Multi-Order Format:**
+- Orders separated by semicolons: `A PAR - BUR; F BRE H; A MAR S A PAR - BUR`
+- Flexible whitespace handling and case-insensitive parsing
+- Validation with specific error messages for invalid orders
 
-### Steps to Fix
-- Ensure convoy disruption logic checks all fleets in the convoy chain and robustly handles disrupted convoys.
-- After a successful move, remove the original unit from its starting location and ensure only the correct unit (with the correct type) is present in the destination.
-- Prevent preservation of a unit if its province is the destination of a successful move.
-- Remove any unit with the same province as the destination before adding a new unit after a successful move.
-- Fix the UnboundLocalError by ensuring variables are defined before use in debug output.
-- Use debug output to diagnose and fix any remaining issues with unit set consistency after moves.
-- Remove debug output and finalize the fix once all tests pass.
+**Order Storage:**
+- Current orders stored per player per game
+- `/myorders` returns formatted list of current orders
+- `/clear` removes all orders for current turn
+- Orders can be updated until turn deadline
 
-### Status
-- Convoy disruption logic improved.
-- Unit mapping and update logic improved.
-- Debug output fixed (UnboundLocalError resolved).
-- Further diagnosis and finalization pending based on test results.
+### Components Needed
+1. **Telegram Bot Service** - Main bot interface using python-telegram-bot
+2. **HTTP API Server** - RESTful API wrapping the existing game server
+3. **Database Layer** - SQLite/PostgreSQL for user and game persistence
+4. **Game Scheduler** - Background service for turn processing and deadlines
+5. **Map Renderer** - Generate map images for Telegram sharing
+6. **Order Parser** - Enhanced parser for single-message order submission
+
+## Notes
+- ✅ All core engine functionality is complete and tested
+- 🤖 Telegram bot provides accessible, mobile-friendly interface
+- 📋 Removes need for central game master through automation
+- 🔧 Much simpler than web interface while providing rich functionality
