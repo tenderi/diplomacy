@@ -30,6 +30,12 @@ adj = map_obj.get_adjacency('PAR')
 - Test location and adjacency queries
 - Test location validation
 
+## Improvements (July 2025)
+- Classic map now includes more provinces and adjacencies, with symmetric adjacency enforcement.
+- Map initialization is structured for easy extension and future variant support.
+- Tests cover invalid adjacency, all supply centers, and symmetric adjacency for land provinces.
+- All map queries are strictly validated.
+
 ---
 
 Update this spec as the module evolves.

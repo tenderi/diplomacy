@@ -33,21 +33,30 @@ class Map:
             self._init_classic_map()
 
     def _init_classic_map(self) -> None:
-        # Minimal classic map for demonstration; expand as needed
-        for name, is_sc in [
-            ("PAR", True), ("MAR", True), ("BRE", True), ("BUR", False), ("PIC", False)
-        ]:
+        # Expanded classic map (partial, for demonstration; extend as needed)
+        province_data = [
+            ("PAR", True, ["BUR", "PIC", "BRE", "MAR"]),
+            ("MAR", True, ["BUR", "PAR", "BRE", "PIC"]),
+            ("BRE", True, ["PAR", "MAR", "PIC"]),
+            ("BUR", False, ["PAR", "MAR", "PIC"]),
+            ("PIC", False, ["PAR", "BRE", "BUR", "MAR"]),
+            ("BER", True, ["KIE", "MUN", "PRU"]),
+            ("KIE", True, ["BER", "MUN", "DEN"]),
+            ("MUN", True, ["BER", "KIE", "BUR"]),
+            ("PRU", False, ["BER"]),
+            ("DEN", True, ["KIE"]),
+            # ...add all standard provinces and adjacencies...
+        ]
+        for name, is_sc, adjacents in province_data:
             self.provinces[name] = Province(name, is_supply_center=is_sc)
             if is_sc:
                 self.supply_centers.add(name)
-        # Example adjacencies
-        self.provinces["PAR"].add_adjacent("BUR")
-        self.provinces["PAR"].add_adjacent("PIC")
-        self.provinces["PAR"].add_adjacent("BRE")
-        self.provinces["MAR"].add_adjacent("BUR")
-        self.provinces["MAR"].add_adjacent("PAR")
-        self.provinces["MAR"].add_adjacent("BRE")
-        # ...add more as needed
+        # Ensure symmetric adjacency
+        for name, _, adjacents in province_data:
+            for adj in adjacents:
+                if adj in self.provinces:
+                    self.provinces[name].add_adjacent(adj)
+                    self.provinces[adj].add_adjacent(name)
 
     def get_province(self, name: str) -> Optional[Province]:
         return self.provinces.get(name)
