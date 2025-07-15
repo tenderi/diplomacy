@@ -63,7 +63,7 @@ def test_variant_map_integration():
     game.powers['FRANCE'].units = {'A PAR'}
     # Move to MAR (adjacent in mini_variant)
     game.set_orders('FRANCE', ['A PAR - MAR'])
-    game.process_turn()
+    game.process_phase()
     # Unit should have moved to MAR
     assert 'A MAR' in game.powers['FRANCE'].units
     assert 'A PAR' not in game.powers['FRANCE'].units

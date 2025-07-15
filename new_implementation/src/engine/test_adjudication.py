@@ -12,7 +12,7 @@ def test_support_cut():
     game.powers["GERMANY"].units = {"BUR"}
     game.set_orders("FRANCE", ["FRANCE A PAR S A PAR - BUR"])
     game.set_orders("GERMANY", ["GERMANY A BUR - PAR"])
-    game.process_turn()
+    game.process_phase()
     assert "A PAR" in game.powers["FRANCE"].units
     assert "A BUR" in game.powers["GERMANY"].units
 
@@ -24,7 +24,7 @@ def test_standoff():
     game.powers["GERMANY"].units = {"MAR"}
     game.set_orders("FRANCE", ["FRANCE A PAR - BUR"])
     game.set_orders("GERMANY", ["GERMANY A MAR - BUR"])
-    game.process_turn()
+    game.process_phase()
     assert "A PAR" in game.powers["FRANCE"].units
     assert "A MAR" in game.powers["GERMANY"].units
 
@@ -43,7 +43,7 @@ def test_convoyed_move():
     game.set_orders("FRANCE", [
         "FRANCE A BEL H"
     ])
-    game.process_turn()
+    game.process_phase()
     # Supported attack (strength 2) should beat defender (strength 1)
     assert "A BEL" in game.powers["ENGLAND"].units   # Army moved to BEL
     assert "A BEL" not in game.powers["FRANCE"].units # French army dislodged
@@ -63,7 +63,7 @@ def test_dislodgement():
         "GERMANY A BUR - PAR",
         "GERMANY A MUN S A BUR - PAR"
     ])
-    game.process_turn()
+    game.process_phase()
     # French unit should be dislodged from PAR
     assert "A PAR" not in game.powers["FRANCE"].units
     assert "A PAR" in game.powers["GERMANY"].units
@@ -91,7 +91,7 @@ def test_beleaguered_garrison():
         "TURKEY A GRE S A BUL - SER"
     ])
     
-    game.process_turn()
+    game.process_phase()
     
     # All units should stay in place - beleaguered garrison
     assert "A SER" in game.powers["AUSTRIA"].units  # Defender stays
@@ -117,7 +117,7 @@ def test_support_cut_by_dislodgement():
         "RUSSIA A WAR - SIL",   # Attacks and dislodges supporting unit
         "RUSSIA A BOH S A WAR - SIL"  # Supports the attack on supporting unit
     ])
-    game.process_turn()
+    game.process_phase()
     # Support should be cut by dislodgement, attack on Prussia should fail
     assert "A BER" in game.powers["GERMANY"].units  # Failed to move
     assert "A SIL" not in game.powers["GERMANY"].units  # Dislodged
@@ -141,7 +141,7 @@ def test_self_standoff():
         "RUSSIA A GAL S A SER - BUD"  # Support one of the attacks
     ])
     
-    game.process_turn()
+    game.process_phase()
     
     # Supported attack should succeed over unsupported
     assert "A BUD" in game.powers["AUSTRIA"].units  # Supported attack wins
@@ -166,7 +166,7 @@ def test_complex_convoy_disruption():
         "ITALY F ION - TYS",  # Attack convoying fleet
         "ITALY F TUN S F ION - TYS"
     ])
-    game.process_turn()
+    game.process_phase()
     
     # Fleet should be dislodged, convoy should fail
     assert "A SPA" in game.powers["FRANCE"].units   # Army stays (convoy failed)
@@ -186,7 +186,7 @@ def test_circular_movement_fleet():
         "ENGLAND F HEL - NTH",
         "ENGLAND F NTH - HOL"
     ])
-    game.process_turn()
+    game.process_phase()
     assert "F HEL" in game.powers["ENGLAND"].units
     assert "F NTH" in game.powers["ENGLAND"].units
     assert "F HOL" in game.powers["ENGLAND"].units
@@ -203,7 +203,7 @@ def test_circular_movement_army():
         "ENGLAND A BEL - RUH",
         "ENGLAND A RUH - HOL"
     ])
-    game.process_turn()
+    game.process_phase()
     assert "A BEL" in game.powers["ENGLAND"].units
     assert "A RUH" in game.powers["ENGLAND"].units
     assert "A HOL" in game.powers["ENGLAND"].units
@@ -220,7 +220,7 @@ def test_army_and_fleet_invalid_moves():
         "ENGLAND A LON - NTH",
         "ENGLAND F NTH - LON"
     ])
-    game.process_turn()
+    game.process_phase()
     # Both units should remain in place
     assert "A LON" in game.powers["ENGLAND"].units
     assert "F NTH" in game.powers["ENGLAND"].units
@@ -235,7 +235,7 @@ def test_self_dislodgement_prohibited():
     game.powers['FRANCE'].units = {'PAR', 'BUR'}
     # Attempt to move A PAR to BUR, which is occupied by own unit
     game.set_orders('FRANCE', ['A PAR - BUR'])
-    game.process_turn()
+    game.process_phase()
     # Both units should remain in place (no self-dislodgement)
     assert "A PAR" in game.powers["FRANCE"].units
     assert "A BUR" in game.powers["FRANCE"].units

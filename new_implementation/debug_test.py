@@ -20,7 +20,7 @@ print("\nOrders set:")
 print(f"RED orders: {game.orders['RED']}")
 print(f"BLUE orders: {game.orders['BLUE']}")
 
-game.process_turn()
+game.process_phase()
 
 print("\nAfter turn:")
 print(f"RED units: {game.powers['RED'].units}")

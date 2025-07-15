@@ -19,7 +19,7 @@ def test_variant_map_loading_and_play():
         "RED A MAR S A PAR - BUR"  # Support the attack
     ])
     game.set_orders("BLUE", ["BLUE A BUR H"])
-    game.process_turn()
+    game.process_phase()
     # RED should succeed in attacking BLUE with support (strength 2 vs 1)
     assert "A BUR" in game.powers["RED"].units  # RED took BUR
     assert "A PAR" not in game.powers["RED"].units  # RED no longer at PAR
@@ -40,7 +40,7 @@ def test_self_dislodgement_multi_power():
         "FRANCE A MAR S A PAR - BUR"
     ])
     game.set_orders("ENGLAND", ["ENGLAND A BUR H"])
-    game.process_turn()
+    game.process_phase()
     # France should succeed (strength 2 vs 1)
     assert "A BUR" in game.powers["FRANCE"].units  # France moved to BUR
     assert "A PAR" not in game.powers["FRANCE"].units  # France left PAR
@@ -51,7 +51,7 @@ def test_self_dislodgement_multi_power():
     game.powers["FRANCE"].units = {"A PAR", "A BUR"}
     game.set_orders("FRANCE", ["FRANCE A PAR - BUR", "FRANCE A BUR H"])
     game.set_orders("ENGLAND", [])
-    game.process_turn()
+    game.process_phase()
     # Self-dislodgement should be prohibited - both units should remain
     assert "A PAR" in game.powers["FRANCE"].units
     assert "A BUR" in game.powers["FRANCE"].units
@@ -63,11 +63,11 @@ def test_order_validation_edge_cases():
     game.powers["GERMANY"].units = {"A MUN"}
     # Invalid order: move to non-adjacent (should be ignored, unit stays in place)
     game.set_orders("GERMANY", ["GERMANY A MUN - PAR"])
-    game.process_turn()
+    game.process_phase()
     assert "A MUN" in game.powers["GERMANY"].units
     # Valid order
     game.set_orders("GERMANY", ["GERMANY A MUN H"])
-    game.process_turn()
+    game.process_phase()
     assert "A MUN" in game.powers["GERMANY"].units
 
 # DAIDE protocol and server/client integration tests would go in test_server.py or test_client.py

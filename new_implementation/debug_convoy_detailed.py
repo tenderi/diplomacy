@@ -50,7 +50,7 @@ def debug_convoy_adjudication():
     print(f"ENGLAND orders: {game.orders.get('ENGLAND', [])}")
     print(f"FRANCE orders: {game.orders.get('FRANCE', [])}")
     
-    game.process_turn()
+    game.process_phase()
     
     print("\n=== Game State After ===")
     for power, p in game.powers.items():

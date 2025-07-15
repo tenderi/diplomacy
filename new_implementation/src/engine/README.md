@@ -29,6 +29,9 @@ print(state)
 ## Why tests and implementation matter
 Tests ensure the game logic is correct and reliable, which is critical for the integrity of the Diplomacy server. All features are covered by unit and integration tests. Strict typing and Ruff compliance are enforced for maintainability.
 
+## Multi-Phase Engine
+The engine now uses `process_phase()` to advance the game through movement, retreat, and adjustment phases. All server, API, and tests are fully compatible with this logic. Starting units for each power are assigned per official Diplomacy rules for the standard map.
+
 ## See Also
 - [server/README.md](../server/README.md) for server usage and integration.
 - [../specs/engine_game_spec.md](../../specs/engine_game_spec.md) for detailed engine specification.

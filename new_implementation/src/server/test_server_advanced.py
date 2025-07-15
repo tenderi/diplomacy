@@ -84,7 +84,7 @@ def test_game_isolation_with_orders() -> None:
     assert "A PAR - PIC" in state2["state"]["orders"]["FRANCE"]
     
     # Process turns independently
-    server.process_command(f"PROCESS_TURN {game1_id}")
+    server.process_command(f"PROCESS_TURN {game1_id}")  # Now advances phase, not just turn
     
     # Check that only game1 advanced
     state1_after = server.process_command(f"GET_GAME_STATE {game1_id}")
@@ -168,7 +168,7 @@ def test_advance_phase_command() -> None:
     assert state["state"]["turn"] == 0
     
     # Advance phase
-    result = server.process_command(f"ADVANCE_PHASE {game_id}")
+    result = server.process_command(f"ADVANCE_PHASE {game_id}")  # Now advances phase using process_phase()
     assert result["status"] == "ok"
     
     # Check turn advanced
@@ -210,8 +210,8 @@ def test_game_state_isolation() -> None:
         server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
     
     # Process turns for only some games
-    server.process_command(f"PROCESS_TURN {game1_id}")
-    server.process_command(f"PROCESS_TURN {game1_id}")  # Process twice
+    server.process_command(f"PROCESS_TURN {game1_id}")  # Now advances phase, not just turn
+    server.process_command(f"PROCESS_TURN {game1_id}")  # Process twice (phase advancement)
     
     # Check isolation
     state1 = server.process_command(f"GET_GAME_STATE {game1_id}")

@@ -12,7 +12,7 @@ def test_client_server_interaction():
     game_id = result["game_id"]
     client.send_command(f"ADD_PLAYER {game_id} FRANCE")
     client.send_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
-    client.send_command(f"PROCESS_TURN {game_id}")
+    client.send_command(f"PROCESS_TURN {game_id}")  # Now advances phase, not just turn
     state = client.send_command(f"GET_GAME_STATE {game_id}")
     assert state["status"] == "ok"
     assert state["state"]["turn"] == 1
