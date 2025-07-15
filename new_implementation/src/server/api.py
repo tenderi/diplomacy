@@ -24,7 +24,6 @@ from datetime import datetime, timezone
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
-import json
 import requests
 from sqlalchemy import or_
 
@@ -368,7 +367,7 @@ async def deadline_scheduler() -> None:
         db: Session = SessionLocal()
         try:
             now = datetime.now(timezone.utc)
-            games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()
+            games = db.query(GameModel).filter(GameModel.deadline is not None, GameModel.is_active).all()
             for game in games:
                 deadline = game.deadline
                 game_id = int(game.id)
@@ -582,9 +581,9 @@ def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[s
             player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
             if player:
                 power = player.power
-                query = query.filter(or_(MessageModel.recipient_power == None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id))
+                query = query.filter(or_(MessageModel.recipient_power is None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id))
             else:
-                query = query.filter(MessageModel.recipient_power == None)  # Only broadcasts
+                query = query.filter(MessageModel.recipient_power is None)  # Only broadcasts
         messages = query.order_by(MessageModel.timestamp.asc()).all()
         result = [
             {
