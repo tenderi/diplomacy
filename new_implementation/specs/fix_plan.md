@@ -28,11 +28,11 @@
   - Deadline tracking and automatic turn processing implemented.
   - Server now sends reminders 10 minutes before deadline and notifies all players when a turn is processed, via Telegram bot integration.
   - All server tests pass after this change.
-- [ ] **User Registration & Game Join/Leave**
-  - Implement /register, /join, /quit with persistent storage and multi-game support.
-  - Ensure users can join/leave games and are mapped to powers.
-- [ ] **Private Messaging & Diplomacy**
-  - Implement /message and /broadcast for player-to-player and global communication.
+- [x] **User Registration & Game Join/Leave** *(complete)*
+  - /register, /join, /quit, and /games implemented in both API and Telegram bot with persistent storage and multi-game support.
+  - Users can join/leave games and are mapped to powers. Comprehensive tests pass.
+- [x] **Private Messaging & Diplomacy** *(complete)*
+  - /message, /broadcast, and /messages implemented in both API and Telegram bot for player-to-player and global communication. Comprehensive tests pass.
 - [ ] **Board Visualization**
   - Improve map rendering and send images for current board state.
 

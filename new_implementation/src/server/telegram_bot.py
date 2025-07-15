@@ -228,6 +228,78 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         await update.message.reply_text(f"Error retrieving order history: {e}")
 
+async def message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Message failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 3:
+        await update.message.reply_text("Usage: /message <game_id> <power> <text>")
+        return
+    game_id, power = args[0], args[1].upper()
+    text = " ".join(args[2:])
+    try:
+        result = api_post(f"/games/{game_id}/message", {"telegram_id": user_id, "recipient_power": power, "text": text})
+        if result.get("status") == "ok":
+            await update.message.reply_text(f"Message sent to {power} in game {game_id}.")
+        else:
+            await update.message.reply_text(f"Message failed: {result}")
+    except Exception as e:
+        await update.message.reply_text(f"Message error: {e}")
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Broadcast failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /broadcast <game_id> <text>")
+        return
+    game_id = args[0]
+    text = " ".join(args[1:])
+    try:
+        result = api_post(f"/games/{game_id}/broadcast", {"telegram_id": user_id, "text": text})
+        if result.get("status") == "ok":
+            await update.message.reply_text(f"Broadcast sent in game {game_id}.")
+        else:
+            await update.message.reply_text(f"Broadcast failed: {result}")
+    except Exception as e:
+        await update.message.reply_text(f"Broadcast error: {e}")
+
+async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Could not retrieve messages: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 1:
+        await update.message.reply_text("Usage: /messages <game_id>")
+        return
+    game_id = args[0]
+    try:
+        result = api_get(f"/games/{game_id}/messages?telegram_id={user_id}")
+        messages = result.get("messages", [])
+        if not messages:
+            await update.message.reply_text("No messages found for this game.")
+            return
+        lines = [f"Messages for game {game_id}:"]
+        for m in messages:
+            ts = m["timestamp"]
+            sender = m["sender_user_id"]
+            recipient = m["recipient_power"] or "ALL"
+            lines.append(f"[{ts}] To {recipient}: {m['text']}")
+        await update.message.reply_text("\n".join(lines))
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving messages: {e}")
+
 # --- FastAPI notification endpoint ---
 fastapi_app = FastAPI()
 
@@ -262,6 +334,9 @@ def main():
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
     app.add_handler(CommandHandler("orderhistory", orderhistory))
+    app.add_handler(CommandHandler("message", message))
+    app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler("messages", messages))
 
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app

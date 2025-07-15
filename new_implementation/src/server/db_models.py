@@ -1,8 +1,9 @@
 """
 SQLAlchemy models for persistent Diplomacy game storage (PostgreSQL).
 """
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateTime, Text
 from sqlalchemy.orm import declarative_base, relationship
+import datetime
 
 Base = declarative_base()
 
@@ -40,3 +41,12 @@ class OrderModel(Base):
     order_text = Column(String, nullable=False)
     turn = Column(Integer, nullable=False, default=0)  # New column for turn number
     player = relationship("PlayerModel", back_populates="orders")
+
+class MessageModel(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    recipient_power = Column(String, nullable=True)  # Null for broadcast
+    text = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
