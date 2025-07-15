@@ -24,9 +24,10 @@
 - [x] **Order History (Turn-by-Turn)** *(complete)*
   - Orders are stored with turn number and can be retrieved grouped by turn and power.
   - /orderhistory command implemented in bot.
-- [ ] **Notifications & Deadlines** *(in progress)*
-  - Implement deadline tracking (per game) and automatic turn processing.
-  - Send reminders and results to users via Telegram.
+- [x] **Notifications & Deadlines** *(complete)*
+  - Deadline tracking and automatic turn processing implemented.
+  - Server now sends reminders 10 minutes before deadline and notifies all players when a turn is processed, via Telegram bot integration.
+  - All server tests pass after this change.
 - [ ] **User Registration & Game Join/Leave**
   - Implement /register, /join, /quit with persistent storage and multi-game support.
   - Ensure users can join/leave games and are mapped to powers.

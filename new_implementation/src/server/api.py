@@ -25,6 +25,7 @@ import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 import json
+import requests
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -223,10 +224,9 @@ def get_user_session(telegram_id: str) -> UserSession:
 
 @app.get("/games/{game_id}/players")
 def get_players(game_id: str) -> List[Dict[str, Any]]:
-    """Get all players for a game."""
     db: Session = SessionLocal()
     try:
-        players = db.query(PlayerModel).filter_by(game_id=int(game_id)).all()
+        players = db.query(PlayerModel).filter(PlayerModel.game_id == int(game_id)).all()
         return [{"id": p.id, "power": p.power, "telegram_id": p.telegram_id} for p in players]
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -235,13 +235,12 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
 
 @app.get("/games/{game_id}/orders")
 def get_orders(game_id: str) -> List[Dict[str, Any]]:
-    """Get all orders for a game."""
     db: Session = SessionLocal()
     try:
-        players = db.query(PlayerModel).filter_by(game_id=int(game_id)).all()
+        players = db.query(PlayerModel).filter(PlayerModel.game_id == int(game_id)).all()
         orders: List[Dict[str, Any]] = []
         for player in players:
-            player_orders = db.query(OrderModel).filter_by(player_id=player.id).all()
+            player_orders = db.query(OrderModel).filter(OrderModel.player_id == player.id).all()
             for order in player_orders:
                 orders.append({"player_id": player.id, "power": player.power, "order": order.order_text})
         return orders
@@ -334,25 +333,63 @@ def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[st
     finally:
         db.close()
 
+# --- In-memory reminder tracking ---
+reminder_sent: dict[int, bool] = {}  # game_id -> bool
+
+# --- Helper to notify all players in a game ---
+def notify_players(game_id: int, message: str):
+    db: Session = SessionLocal()
+    try:
+        players = db.query(PlayerModel).filter_by(game_id=game_id).all()
+        for player in players:
+            if player.telegram_id:
+                try:
+                    requests.post(
+                        "http://localhost:8081/notify",
+                        json={"telegram_id": int(player.telegram_id), "message": message},
+                        timeout=2,
+                    )
+                except Exception as e:
+                    print(f"Failed to notify telegram_id {player.telegram_id}: {e}")
+    finally:
+        db.close()
+
 # --- Background Deadline Scheduler ---
 async def deadline_scheduler() -> None:
     """
     Background task that checks all games with deadlines every 30 seconds.
     If a game's deadline has passed, processes the turn and clears the deadline.
-    Runs for the lifetime of the FastAPI app (via lifespan event).
+    Sends reminders 10 minutes before deadline and notifies players after turn processing.
     """
+    from datetime import timedelta
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
         db: Session = SessionLocal()
         try:
             now = datetime.now(timezone.utc)
-            games = db.query(GameModel).filter(GameModel.deadline.isnot(None), GameModel.is_active).all()
+            games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()
             for game in games:
-                deadline = getattr(game, 'deadline', None)
-                if deadline and deadline <= now:
-                    server.process_command(f"PROCESS_TURN {game.id}")
-                    setattr(game, 'deadline', None)
-                    db.commit()
+                deadline = game.deadline
+                game_id = int(game.id)
+                if deadline is not None:
+                    # Send reminder 10 minutes before deadline
+                    if deadline - now <= timedelta(minutes=10) and deadline > now:
+                        if not reminder_sent.get(game_id):
+                            notify_players(
+                                game_id,
+                                f"Reminder: The deadline for submitting orders in game {game_id} is in 10 minutes."
+                            )
+                            reminder_sent[game_id] = True
+                    # Process turn if deadline passed
+                    if deadline <= now:
+                        server.process_command(f"PROCESS_TURN {game_id}")
+                        game.deadline = None
+                        db.commit()
+                        notify_players(
+                            game_id,
+                            f"The turn has been processed for game {game_id}. View the new board state and submit your next orders."
+                        )
+                        reminder_sent[game_id] = False  # Reset for next turn
         finally:
             db.close()
 
