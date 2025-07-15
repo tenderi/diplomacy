@@ -1,17 +1,15 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0
-rootdir: /home/helgejalonen/diplomacy
+platform linux -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- /usr/bin/python
+cachedir: .pytest_cache
+rootdir: /home/helgejalonen/diplomacy/new_implementation
 plugins: anyio-4.9.0
-collected 31 items
+collecting ... collected 59 items
 
-new_implementation/src/server/test_api_scheduler.py ..   collected 59 items
-
-src/engine/test_adjudication.py::test_support_cut PASSED  ....              [ 25%]
-new_implementation/src/server/test_server.py ........                    [ 51%]
-new_implementation/src/server/test_server_advanced.py ...............    [100%]
-
-============================== 31 passed in 2.09s ==============================
-ngine/test_adjudication.py::test_beleaguered_garrison PASSED        [  8%]
+src/engine/test_adjudication.py::test_support_cut PASSED                 [  1%]
+src/engine/test_adjudication.py::test_standoff PASSED                    [  3%]
+src/engine/test_adjudication.py::test_convoyed_move PASSED               [  5%]
+src/engine/test_adjudication.py::test_dislodgement PASSED                [  6%]
+src/engine/test_adjudication.py::test_beleaguered_garrison PASSED        [  8%]
 src/engine/test_adjudication.py::test_support_cut_by_dislodgement PASSED [ 10%]
 src/engine/test_adjudication.py::test_self_standoff PASSED               [ 11%]
 src/engine/test_adjudication.py::test_complex_convoy_disruption PASSED   [ 13%]
@@ -36,11 +34,11 @@ src/engine/test_order.py::test_order_validate PASSED                     [ 44%]
 src/server/test_api_scheduler.py::test_scheduler_status PASSED           [ 45%]
 src/server/test_api_scheduler.py::test_deadline_endpoints PASSED         [ 47%]
 src/server/test_daide_protocol.py::test_daide_server_echo PASSED         [ 49%]
-src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player FAILED [ 50%]
-src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders FAILED [ 52%]
-src/server/test_daide_protocol.py::test_daide_server_negotiation_messages FAILED [ 54%]
+src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player PASSED [ 50%]
+src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders PASSED [ 52%]
+src/server/test_daide_protocol.py::test_daide_server_negotiation_messages PASSED [ 54%]
 src/server/test_daide_protocol.py::test_daide_server_invalid_ord_context PASSED [ 55%]
-src/server/test_daide_protocol.py::test_daide_server_invalid_message FAILED [ 57%]
+src/server/test_daide_protocol.py::test_daide_server_invalid_message PASSED [ 57%]
 src/server/test_server.py::test_server_initialization PASSED             [ 59%]
 src/server/test_server.py::test_server_accepts_commands PASSED           [ 61%]
 src/server/test_server.py::test_server_create_and_query_game PASSED      [ 62%]
@@ -67,98 +65,4 @@ src/server/test_server_advanced.py::test_order_history_and_clearing PASSED [ 96%
 src/tests/test_client.py::test_client_server_interaction PASSED          [ 98%]
 src/tests/test_client.py::test_client_error_handling PASSED              [100%]
 
-=================================== FAILURES ===================================
-________________ test_daide_server_hlo_creates_game_and_player _________________
-
-    def test_daide_server_hlo_creates_game_and_player() -> None:
-        """Test that DAIDE server handles HLO (POWER) by creating a game and adding the player."""
-        server = Server()
-        daide_server = DAIDEServer(server, host="127.0.0.1", port=9001)
->       daide_server.start()
-
-src/server/test_daide_protocol.py:31: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-self = <server.daide_protocol.DAIDEServer object at 0x7ff1de3c4410>
-
-    def start(self) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
->       self.sock.bind((self.host, self.port))
-E       OSError: [Errno 98] Address already in use
-
-src/server/daide_protocol.py:21: OSError
------------------------------- Captured log call -------------------------------
-INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
-______________________ test_daide_server_ord_sets_orders _______________________
-
-    def test_daide_server_ord_sets_orders() -> None:
-        """Test that DAIDE server handles ORD (order submission) after HLO."""
-        server = Server()
-        daide_server = DAIDEServer(server, host="127.0.0.1", port=9002)
->       daide_server.start()
-
-src/server/test_daide_protocol.py:57: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-self = <server.daide_protocol.DAIDEServer object at 0x7ff1dee0b890>
-
-    def start(self) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
->       self.sock.bind((self.host, self.port))
-E       OSError: [Errno 98] Address already in use
-
-src/server/daide_protocol.py:21: OSError
------------------------------- Captured log call -------------------------------
-INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
-____________________ test_daide_server_negotiation_messages ____________________
-
-    def test_daide_server_negotiation_messages() -> None:
-        """Test that DAIDE server handles PRP, REJ, ACC negotiation messages."""
-        server = Server()
-        daide_server = DAIDEServer(server, host="127.0.0.1", port=9003)
->       daide_server.start()
-
-src/server/test_daide_protocol.py:86: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-self = <server.daide_protocol.DAIDEServer object at 0x7ff1de399f30>
-
-    def start(self) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
->       self.sock.bind((self.host, self.port))
-E       OSError: [Errno 98] Address already in use
-
-src/server/daide_protocol.py:21: OSError
------------------------------- Captured log call -------------------------------
-INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
-______________________ test_daide_server_invalid_message _______________________
-
-    def test_daide_server_invalid_message() -> None:
-        """Test that DAIDE server returns echo for unknown/invalid DAIDE messages."""
-        server = Server()
-        daide_server = DAIDEServer(server, host="127.0.0.1", port=9005)
->       daide_server.start()
-
-src/server/test_daide_protocol.py:131: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-self = <server.daide_protocol.DAIDEServer object at 0x7ff1de352450>
-
-    def start(self) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
->       self.sock.bind((self.host, self.port))
-E       OSError: [Errno 98] Address already in use
-
-src/server/daide_protocol.py:21: OSError
------------------------------- Captured log call -------------------------------
-INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
-=========================== short test summary info ============================
-FAILED src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player
-FAILED src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders
-FAILED src/server/test_daide_protocol.py::test_daide_server_negotiation_messages
-FAILED src/server/test_daide_protocol.py::test_daide_server_invalid_message
-========================= 4 failed, 55 passed in 2.30s =========================
+============================== 59 passed in 2.35s ==============================
