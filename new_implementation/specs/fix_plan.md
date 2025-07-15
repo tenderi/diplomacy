@@ -2,7 +2,7 @@
 
 ## Current Status ✅ 
 - **54 tests passing** (All core functionality complete)
-- Latest git tag: **v0.1.0** (Major milestone achieved)
+- Latest git tag: **v0.1.3** (Major milestone achieved)
 - Core Diplomacy game engine fully implemented and tested
 - Server with DAIDE protocol support fully functional
 - All advanced adjudication scenarios working correctly
