@@ -8,3 +8,4 @@ httpx
 psycopg2-binary
 python-telegram-bot
 pillow
+pytz

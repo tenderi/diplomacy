@@ -20,12 +20,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
 from .db_config import SQLALCHEMY_DATABASE_URL
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 import requests
-from sqlalchemy import or_
+from sqlalchemy import or_, text
+import logging
+import pytz
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -187,7 +189,7 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
             if 'map_obj' in state:
                 del state['map_obj']
             try:
-                game.state = state
+                game.state = state  # type: ignore  # SQLAlchemy dynamic attribute, Pyright false positive
             except Exception as e:
                 print(f"DEBUG: process_turn: failed to assign game.state: {e}")
         db.commit()
@@ -323,7 +325,7 @@ def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[st
         game = db.query(GameModel).filter_by(id=int(game_id)).first()
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
-        setattr(game, 'deadline', req.deadline)  # type: ignore
+        setattr(game, 'deadline', req.deadline)  # type: ignore  # SQLAlchemy dynamic attribute, Pyright false positive
         db.commit()
         deadline_value = getattr(game, 'deadline', None)
         return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
@@ -335,6 +337,15 @@ def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[st
 
 # --- In-memory reminder tracking ---
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
+
+# --- Logger for scheduler and notifications ---
+scheduler_logger = logging.getLogger("diplomacy.scheduler")
+scheduler_logger.setLevel(logging.INFO)
+if not scheduler_logger.hasHandlers():
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    scheduler_logger.addHandler(handler)
 
 # --- Helper to notify all players in a game ---
 def notify_players(game_id: int, message: str):
@@ -349,10 +360,43 @@ def notify_players(game_id: int, message: str):
                         json={"telegram_id": int(player.telegram_id), "message": message},
                         timeout=2,
                     )
+                    scheduler_logger.info(f"Notified telegram_id {player.telegram_id} for game {game_id}: {message}")
                 except Exception as e:
-                    print(f"Failed to notify telegram_id {player.telegram_id}: {e}")
+                    scheduler_logger.error(f"Failed to notify telegram_id {player.telegram_id}: {e}")
     finally:
         db.close()
+
+def process_due_deadlines(now: datetime) -> None:
+    """
+    Process all games with deadlines <= now. Used by the scheduler and for testing.
+    """
+    db: Session = SessionLocal()
+    try:
+        games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()  # type: ignore
+        for game in games:
+            deadline = getattr(game, 'deadline', None)  # type: ignore
+            game_id = getattr(game, 'id', None)  # type: ignore
+            if game_id is None:
+                continue  # skip games with no id
+            if deadline is not None:
+                # Ensure both deadline and now are timezone-aware (UTC)
+                if deadline.tzinfo is None or deadline.tzinfo.utcoffset(deadline) is None:
+                    deadline = deadline.replace(tzinfo=pytz.UTC)
+                if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+                    now = now.replace(tzinfo=pytz.UTC)
+                if deadline <= now:
+                    scheduler_logger.warning(f"Missed or due deadline detected for game {game_id} (deadline was {deadline}, now {now}). Processing turn immediately.")
+                    server.process_command(f"PROCESS_TURN {game_id}")
+                    # Direct SQL update to set deadline to NULL for cross-session visibility
+                    db.execute(
+                        text("UPDATE games SET deadline = NULL WHERE id = :game_id"),
+                        {"game_id": game_id}
+                    )
+                    db.commit()  # type: ignore
+                    notify_players(game_id, f"The turn has been processed for game {game_id} due to a missed or due deadline. View the new board state and submit your next orders.")  # type: ignore
+                    reminder_sent[game_id] = False  # Reset for next turn
+    finally:
+        db.close()  # type: ignore
 
 # --- Background Deadline Scheduler ---
 async def deadline_scheduler() -> None:
@@ -360,38 +404,33 @@ async def deadline_scheduler() -> None:
     Background task that checks all games with deadlines every 30 seconds.
     If a game's deadline has passed, processes the turn and clears the deadline.
     Sends reminders 10 minutes before deadline and notifies players after turn processing.
+    On startup, immediately process any missed deadlines.
     """
-    from datetime import timedelta
+    # On startup: process any missed deadlines immediately
+    now = datetime.now(timezone.utc)
+    process_due_deadlines(now)
+    # Main loop
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
+        now = datetime.now(timezone.utc)
+        process_due_deadlines(now)
         db: Session = SessionLocal()
         try:
-            now = datetime.now(timezone.utc)
-            games = db.query(GameModel).filter(GameModel.deadline is not None, GameModel.is_active).all()  # type: ignore
+            games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()  # type: ignore
             for game in games:
-                deadline = game.deadline
-                game_id = int(game.id)
+                deadline = getattr(game, 'deadline', None)  # type: ignore
+                game_id = getattr(game, 'id', None)  # type: ignore
+                if game_id is None:
+                    continue  # skip games with no id
                 if deadline is not None:
                     # Send reminder 10 minutes before deadline
                     if deadline - now <= timedelta(minutes=10) and deadline > now:
                         if not reminder_sent.get(game_id):
-                            notify_players(
-                                game_id,
-                                f"Reminder: The deadline for submitting orders in game {game_id} is in 10 minutes."
-                            )
+                            notify_players(game_id, f"Reminder: The deadline for submitting orders in game {game_id} is in 10 minutes.")  # type: ignore
+                            scheduler_logger.info(f"Sent 10-minute reminder for game {game_id} (deadline: {deadline})")
                             reminder_sent[game_id] = True
-                    # Process turn if deadline passed
-                    if deadline <= now:
-                        server.process_command(f"PROCESS_TURN {game_id}")
-                        game.deadline = None
-                        db.commit()
-                        notify_players(
-                            game_id,
-                            f"The turn has been processed for game {game_id}. View the new board state and submit your next orders."
-                        )
-                        reminder_sent[game_id] = False  # Reset for next turn
         finally:
-            db.close()
+            db.close()  # type: ignore
 
 # --- Lifespan event for background scheduler (FastAPI 0.95+) ---
 @asynccontextmanager
