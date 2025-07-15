@@ -1,0 +1,67 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: diplomacy
+          POSTGRES_PASSWORD: diplomacy
+          POSTGRES_DB: diplomacy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U diplomacy" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://diplomacy:diplomacy@localhost:5432/diplomacy
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      DIPLOMACY_API_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r new_implementation/requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Run Alembic migrations
+        run: |
+          cd new_implementation
+          alembic upgrade head
+      - name: Run tests
+        run: pytest new_implementation/src/
+
+  docker-build-push:
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./new_implementation
+          file: ./new_implementation/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/diplomacy:latest
+
+# To enable deployment, add a job here for your target (e.g., server, cloud, k8s, etc.)
+# and use secrets for credentials. See README for deployment instructions. 
