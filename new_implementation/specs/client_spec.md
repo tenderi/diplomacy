@@ -29,6 +29,30 @@ update = client.get_update()
 - Test sending commands and receiving updates
 - Test error handling for invalid commands
 
+## User Registration and Multi-Game Participation
+
+- Users must register persistently via `/register` (Telegram bot) or `/users/persistent_register` (API).
+- Users can join any number of games as different powers using `/join <game_id> <power>` (bot) or `/games/{game_id}/join` (API).
+- Users can list their games with `/games` (bot) or `/users/{telegram_id}/games` (API).
+- Users can quit a game with `/quit <game_id>` (bot) or `/games/{game_id}/quit` (API).
+- All order commands must specify the game context if the user is in multiple games.
+
+### Example Bot Interactions
+```
+/register
+# -> Registered as Test User (id: 12345). Use /join <game_id> <power> to join a game.
+/join 1 FRANCE
+# -> You have joined game 1 as FRANCE.
+/games
+# -> Your games:
+#    Game 1 as FRANCE
+/quit 1
+# -> You have quit game 1.
+```
+
+### Example API Interactions
+See server README for endpoint details and usage examples.
+
 ---
 
 Update this spec as the module evolves.

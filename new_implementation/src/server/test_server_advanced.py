@@ -5,6 +5,8 @@ import os
 import tempfile
 from typing import List
 from .server import Server
+from fastapi.testclient import TestClient
+from server.api import app
 
 
 def test_multiple_concurrent_games() -> None:
@@ -366,8 +368,6 @@ def test_advance_phase_with_no_orders() -> None:
 
 def test_order_history_and_clearing():
     """Test order history API, order clearing, and turn-by-turn grouping."""
-    from server.api import app
-    from fastapi.testclient import TestClient
     client = TestClient(app)
 
     # Create game
@@ -421,3 +421,35 @@ def test_order_history_and_clearing():
     assert "FRANCE" not in history["1"] or not history["1"]["FRANCE"]
     # GERMANY's orders for turn 1 should remain
     assert "A RUH - BUR" in history["1"]["GERMANY"]
+
+
+def test_persistent_user_registration_and_multi_game():
+    client = TestClient(app)
+    # Register user
+    resp = client.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
+    assert resp.status_code == 200
+    user_id = resp.json()["user_id"]
+    # Create two games
+    resp1 = client.post("/games/create", json={"map_name": "standard"})
+    resp2 = client.post("/games/create", json={"map_name": "standard"})
+    game_id1 = resp1.json()["game_id"]
+    game_id2 = resp2.json()["game_id"]
+    # Join both games as different powers
+    resp = client.post(f"/games/{game_id1}/join", json={"telegram_id": "12345", "game_id": int(game_id1), "power": "FRANCE"})
+    assert resp.status_code == 200
+    resp = client.post(f"/games/{game_id2}/join", json={"telegram_id": "12345", "game_id": int(game_id2), "power": "GERMANY"})
+    assert resp.status_code == 200
+    # List user games
+    resp = client.get("/users/12345/games")
+    assert resp.status_code == 200
+    games = resp.json()["games"]
+    assert any(str(g["game_id"]) == str(game_id1) and g["power"] == "FRANCE" for g in games)
+    assert any(str(g["game_id"]) == str(game_id2) and g["power"] == "GERMANY" for g in games)
+    # Quit one game
+    resp = client.post(f"/games/{game_id1}/quit", json={"telegram_id": "12345", "game_id": int(game_id1)})
+    assert resp.status_code == 200
+    # List user games again
+    resp = client.get("/users/12345/games")
+    games = resp.json()["games"]
+    assert not any(str(g["game_id"]) == str(game_id1) for g in games)
+    assert any(str(g["game_id"]) == str(game_id2) for g in games)

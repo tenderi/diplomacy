@@ -15,7 +15,7 @@ from server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
-from .db_models import Base, GameModel, PlayerModel, OrderModel
+from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
@@ -416,6 +416,97 @@ def scheduler_status() -> dict[str, str]:
     Simple endpoint to verify that the API is running and the scheduler is active.
     """
     return {"status": "ok", "scheduler": "running (lifespan)"}
+
+# --- New User Endpoints for Persistent Registration and Multi-Game Support ---
+class RegisterPersistentUserRequest(BaseModel):
+    telegram_id: str
+    full_name: Optional[str] = None
+
+@app.post("/users/persistent_register")
+def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if not user:
+            user = UserModel(telegram_id=req.telegram_id, full_name=req.full_name)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return {"status": "ok", "user_id": user.id}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/users/{telegram_id}/games")
+def get_user_games(telegram_id: str) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        games = [
+            {"game_id": p.game_id, "power": p.power}
+            for p in user.players
+        ]
+        return {"telegram_id": telegram_id, "games": games}
+    finally:
+        db.close()
+
+class JoinGameRequest(BaseModel):
+    telegram_id: str
+    game_id: int
+    power: str
+
+@app.post("/games/{game_id}/join")
+def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Check if already joined
+        existing = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if existing:
+            return {"status": "already_joined", "player_id": existing.id}
+        # Check if power is taken
+        taken = db.query(PlayerModel).filter_by(game_id=game_id, power=req.power).first()
+        if taken:
+            raise HTTPException(status_code=400, detail="Power already taken")
+        player = PlayerModel(game_id=game_id, power=req.power, user_id=user.id)
+        db.add(player)
+        db.commit()
+        db.refresh(player)
+        return {"status": "ok", "player_id": player.id}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+class QuitGameRequest(BaseModel):
+    telegram_id: str
+    game_id: int
+
+@app.post("/games/{game_id}/quit")
+def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if not player:
+            return {"status": "not_in_game"}
+        db.delete(player)
+        db.commit()
+        return {"status": "ok"}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)

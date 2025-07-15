@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 import uvicorn
 from pydantic import BaseModel
 from telegram.ext import Application
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 
@@ -46,15 +47,34 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.message:
             await update.message.reply_text("Registration failed: No user context.")
         return
-    await update.message.reply_text(
-        f"Registered as {getattr(user, 'full_name', 'Unknown')} (id: {getattr(user, 'id', 'Unknown')}). Use /join to join a game."
-    )
+    user_id = str(user.id)
+    full_name = getattr(user, 'full_name', None)
+    try:
+        api_post("/users/persistent_register", {"telegram_id": user_id, "full_name": full_name})
+        await update.message.reply_text(
+            f"Registered as {full_name or 'Unknown'} (id: {user_id}). Use /join <game_id> <power> to join a game."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Registration error: {e}")
 
 async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    user = update.effective_user
+    if not user or not update.message:
         return
-    # List all games (not implemented in API, placeholder)
-    await update.message.reply_text("Game listing not yet implemented.")
+    user_id = str(user.id)
+    try:
+        # List all games the user is in
+        user_games = api_get(f"/users/{user_id}/games")
+        games_list = user_games.get("games", [])
+        if not games_list:
+            await update.message.reply_text("You are not in any games. Use /join <game_id> <power> to join.")
+            return
+        lines = ["Your games:"]
+        for g in games_list:
+            lines.append(f"Game {g['game_id']} as {g['power']}")
+        await update.message.reply_text("\n".join(lines))
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving games: {e}")
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -63,18 +83,46 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Game joining failed: No user context.")
         return
     user_id = str(user.id)
-    # For now, always create a new game for demo
+    args = context.args if context.args is not None else []
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /join <game_id> <power>")
+        return
+    game_id, power = args[0], args[1].upper()
     try:
-        result = api_post("/games/create", {"map_name": "standard"})
-        game_id = str(result["game_id"])
-        # Assign first available power (for demo, always FRANCE)
-        power = "FRANCE"
-        api_post("/games/add_player", {"game_id": game_id, "power": power})
-        api_post("/users/register", {"telegram_id": user_id, "game_id": game_id, "power": power})
-        await update.message.reply_text(f"You have joined game {game_id} as {power}.")
+        result = api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": power})
+        if result.get("status") == "ok":
+            await update.message.reply_text(f"You have joined game {game_id} as {power}.")
+        elif result.get("status") == "already_joined":
+            await update.message.reply_text(f"You are already in game {game_id} as {power}.")
+        else:
+            await update.message.reply_text(f"Join failed: {result}")
     except Exception as e:
         await update.message.reply_text(f"Failed to join game: {e}")
 
+async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Quit failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 1:
+        await update.message.reply_text("Usage: /quit <game_id>")
+        return
+    game_id = args[0]
+    try:
+        result = api_post(f"/games/{game_id}/quit", {"telegram_id": user_id, "game_id": int(game_id)})
+        if result.get("status") == "ok":
+            await update.message.reply_text(f"You have quit game {game_id}.")
+        elif result.get("status") == "not_in_game":
+            await update.message.reply_text(f"You are not in game {game_id}.")
+        else:
+            await update.message.reply_text(f"Quit failed: {result}")
+    except Exception as e:
+        await update.message.reply_text(f"Failed to quit game: {e}")
+
+# Update order-related commands to accept game_id as an argument
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
@@ -82,16 +130,23 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Order submission failed: No user context.")
         return
     user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /orders <game_id> <order1>; <order2>; ...")
+        return
+    game_id = args[0]
+    order_text = " ".join(args[1:])
     try:
-        # Get user session
-        session = api_get(f"/users/{user_id}")
-        game_id = session["game_id"]
-        power = session["power"]
-        order_text = update.message.text or ""
-        # Remove "/orders" prefix
-        if order_text.lower().startswith("/orders"):
-            order_text = order_text[7:].strip()
-        # Split by semicolon for multi-order
+        user_games = api_get(f"/users/{user_id}/games")
+        power = None
+        games_list = user_games.get("games", [])
+        for g in games_list:
+            if str(g["game_id"]) == str(game_id):
+                power = g["power"]
+                break
+        if not power:
+            await update.message.reply_text(f"You are not in game {game_id}.")
+            return
         orders = [o.strip() for o in order_text.split(";") if o.strip()]
         if not orders:
             await update.message.reply_text("No orders found in your message.")
@@ -202,6 +257,7 @@ def main():
     app.add_handler(CommandHandler("register", register))
     app.add_handler(CommandHandler("join", join))
     app.add_handler(CommandHandler("games", games))
+    app.add_handler(CommandHandler("quit", quit))
     app.add_handler(CommandHandler("orders", orders))
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
@@ -211,11 +267,12 @@ def main():
     notify.telegram_app = app
 
     async def run_all():
-        # Run both the Telegram bot and FastAPI app concurrently
-        bot_task = asyncio.create_task(app.run_polling())
         uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
-        api_task = asyncio.create_task(asyncio.to_thread(uvicorn_server.run))
-        await asyncio.gather(bot_task, api_task)
+        api_task = asyncio.to_thread(uvicorn_server.run)
+        polling = app.run_polling()
+        awaitables = [a for a in [polling, api_task] if a is not None]
+        if awaitables:
+            await asyncio.gather(*awaitables)
 
     asyncio.run(run_all())
 
