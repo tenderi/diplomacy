@@ -15,7 +15,7 @@ from server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
-from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel
+from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel, MessageModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
@@ -26,6 +26,7 @@ import contextlib
 from contextlib import asynccontextmanager
 import json
 import requests
+from sqlalchemy import or_
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -505,6 +506,97 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+class SendMessageRequest(BaseModel):
+    telegram_id: str
+    recipient_power: Optional[str] = None
+    text: str
+
+@app.post("/games/{game_id}/message")
+def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Sender user not found")
+        # Validate sender is in the game
+        player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if not player:
+            raise HTTPException(status_code=403, detail="Sender not in game")
+        # Validate recipient power exists in game
+        if not req.recipient_power:
+            raise HTTPException(status_code=400, detail="Recipient power required for private message")
+        recipient_player = db.query(PlayerModel).filter_by(game_id=game_id, power=req.recipient_power).first()
+        if not recipient_player:
+            raise HTTPException(status_code=404, detail="Recipient power not found in game")
+        msg = MessageModel(game_id=game_id, sender_user_id=user.id, recipient_power=req.recipient_power, text=req.text)
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        return {"status": "ok", "message_id": msg.id}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+class SendBroadcastRequest(BaseModel):
+    telegram_id: str
+    text: str
+
+@app.post("/games/{game_id}/broadcast")
+def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Sender user not found")
+        # Validate sender is in the game
+        player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if not player:
+            raise HTTPException(status_code=403, detail="Sender not in game")
+        msg = MessageModel(game_id=game_id, sender_user_id=user.id, recipient_power=None, text=req.text)
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        return {"status": "ok", "message_id": msg.id}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/games/{game_id}/messages")
+def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[str, Any]:
+    db: Session = SessionLocal()
+    try:
+        user = None
+        if telegram_id:
+            user = db.query(UserModel).filter_by(telegram_id=telegram_id).first()
+        # Retrieve all messages for the game, filter private messages to only those sent to or from the user
+        query = db.query(MessageModel).filter_by(game_id=game_id)
+        if user:
+            # Show broadcasts and private messages sent to or from this user
+            player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+            if player:
+                power = player.power
+                query = query.filter(or_(MessageModel.recipient_power == None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id))
+            else:
+                query = query.filter(MessageModel.recipient_power == None)  # Only broadcasts
+        messages = query.order_by(MessageModel.timestamp.asc()).all()
+        result = [
+            {
+                "id": m.id,
+                "sender_user_id": m.sender_user_id,
+                "recipient_power": m.recipient_power,
+                "text": m.text,
+                "timestamp": m.timestamp.isoformat()
+            }
+            for m in messages
+        ]
+        return {"messages": result}
     finally:
         db.close()
 
