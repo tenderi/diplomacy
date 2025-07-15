@@ -52,15 +52,12 @@ class Map:
                         self.provinces[adj].add_adjacent(name)
 
     def _init_classic_map(self) -> None:
-        # Parse the standard map from the old implementation
-        standard_map_path = os.path.join(os.path.dirname(__file__), 
-                                       '../../../old_implementation/diplomacy/maps/standard.map')
-        
+        # Parse the standard map from the new implementation maps folder
+        standard_map_path = os.path.join(os.path.dirname(__file__), '../../maps/standard.map')
         if os.path.exists(standard_map_path):
             self._parse_map_file(standard_map_path)
         else:
-            # Fallback to hardcoded data if file not found
-            self._init_hardcoded_standard_map()
+            raise FileNotFoundError(f"Standard map file not found at {standard_map_path}")
 
     def _parse_map_file(self, map_file_path: str) -> None:
         """Parse a .map file from the old implementation."""
@@ -68,7 +65,7 @@ class Map:
             content = f.read()
         
         # Parse supply centers from the power definitions
-        supply_centers = set()
+        supply_centers: set[str] = set()
         lines = content.split('\n')
         for line in lines:
             line = line.strip()
@@ -84,7 +81,7 @@ class Map:
                             supply_centers.update([center.upper() for center in centers])
         
         # Parse adjacencies
-        adjacencies = {}
+        adjacencies: dict[str, list[str]] = {}
         for line in lines:
             line = line.strip()
             if line.startswith('LAND ') or line.startswith('COAST ') or line.startswith('WATER '):
@@ -101,8 +98,6 @@ class Map:
             self.provinces[province] = Province(province, is_supply_center=is_supply_center)
             if is_supply_center:
                 self.supply_centers.add(province)
-        
-        # Set up adjacencies (ensure bidirectional)
         for province, adjacent_list in adjacencies.items():
             for adj in adjacent_list:
                 if adj in self.provinces:
