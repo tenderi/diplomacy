@@ -145,6 +145,23 @@ Error formats are consistent and updated as the server evolves.
 - Changelog and release notes maintained
 - Code comments clarify complex logic
 
+## User Registration and Multi-Game Participation
+
+- Users are registered persistently via `/users/persistent_register` (POST, `{telegram_id, full_name}`)
+- Users can join any number of games as different powers via `/games/{game_id}/join` (POST, `{telegram_id, game_id, power}`)
+- Users can list their games via `/users/{telegram_id}/games` (GET)
+- Users can quit a game via `/games/{game_id}/quit` (POST, `{telegram_id, game_id}`)
+- Player-to-user mapping is persistent in the database (UserModel, PlayerModel)
+- All order and game actions are scoped to the user-game-power relationship
+
+### Example Data Flow
+1. User registers: `{telegram_id: "12345", full_name: "Test User"}`
+2. User joins game 1 as FRANCE: `{telegram_id: "12345", game_id: 1, power: "FRANCE"}`
+3. User joins game 2 as GERMANY: `{telegram_id: "12345", game_id: 2, power: "GERMANY"}`
+4. User lists games: returns `[{'game_id': 1, 'power': 'FRANCE'}, {'game_id': 2, 'power': 'GERMANY'}]`
+5. User quits game 1: `{telegram_id: "12345", game_id: 1}`
+6. User lists games: returns `[{'game_id': 2, 'power': 'GERMANY'}]`
+
 ---
 
 Update this spec as the server evolves and new features are implemented.

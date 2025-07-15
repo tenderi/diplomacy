@@ -15,13 +15,22 @@ class GameModel(Base):
     deadline = Column(DateTime, nullable=True)  # Deadline for current turn
     players = relationship("PlayerModel", back_populates="game")
 
+class UserModel(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_id = Column(String, unique=True, nullable=False)
+    full_name = Column(String, nullable=True)
+    players = relationship("PlayerModel", back_populates="user")
+
 class PlayerModel(Base):
     __tablename__ = "players"
     id = Column(Integer, primary_key=True, autoincrement=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     power = Column(String, nullable=False)
-    telegram_id = Column(String, nullable=True)
+    telegram_id = Column(String, nullable=True)  # Deprecated: use user_id
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     game = relationship("GameModel", back_populates="players")
+    user = relationship("UserModel", back_populates="players")
     orders = relationship("OrderModel", back_populates="player")
 
 class OrderModel(Base):

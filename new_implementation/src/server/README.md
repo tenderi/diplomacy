@@ -32,14 +32,27 @@ print(state)
 - The `DAIDEServer` class provides a TCP interface for DAIDE protocol bots/clients.
 - Example: send `HLO (FRANCE)` to create a game and add a player, then `ORD (A PAR - BUR)` to submit an order.
 
+## User and Multi-Game API
+- `/users/persistent_register`: Register a user persistently (POST, json: `{telegram_id, full_name}`)
+- `/users/{telegram_id}/games`: List all games a user is in (GET)
+- `/games/{game_id}/join`: Join a game as a power (POST, json: `{telegram_id, game_id, power}`)
+- `/games/{game_id}/quit`: Quit a game (POST, json: `{telegram_id, game_id}`)
+
+### Example Usage
+```python
+import requests
+# Register user
+requests.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
+# Join a game
+requests.post(f"/games/1/join", json={"telegram_id": "12345", "game_id": 1, "power": "FRANCE"})
+# List user games
+requests.get("/users/12345/games")
+# Quit a game
+requests.post(f"/games/1/quit", json={"telegram_id": "12345", "game_id": 1})
+```
+
+- Each user can join multiple games as different powers.
+- Player-to-user mapping is persistent in the database.
+
 ## Build/Test Loop
-- Run all tests: `pytest new_implementation/src/ --maxfail=5 --disable-warnings`
-- All code must be strictly typed and Ruff-compliant.
-- Update documentation and specs after each increment.
-
-## Why tests and implementation matter
-Tests ensure the server correctly processes commands and manages game state, which is critical for reliability and correctness. Full test coverage and strict validation are required for production use.
-
-## See Also
-- [engine/README.md](../engine/README.md) for core game logic.
-- [../specs/server_spec.md](../../specs/server_spec.md) for detailed server specification.
+- Run all tests: `
