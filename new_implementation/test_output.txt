@@ -1,22 +1,23 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0 -- /usr/bin/python
-cachedir: .pytest_cache
-rootdir: /home/helgejalonen/diplomacy/new_implementation
+platform linux -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/helgejalonen/diplomacy
 plugins: anyio-4.9.0
-collecting ... collected 60 items
+collected 60 items
 
-src/engine/test_adjudication.py::test_support_cut PASSED                 [  1%]
-src/engine/test_adjudication.py::test_standoff PASSED                    [  3%]
-src/engine/test_adjudication.py::test_convoyed_move PASSED               [  5%]
-src/engine/test_adjudication.py::test_dislodgement PASSED                [  6%]
-src/engine/test_adjudication.py::test_beleaguered_garrison PASSED        [  8%]
-src/engine/test_adjudication.py::test_support_cut_by_dislodgement PASSED [ 10%]
-src/engine/test_adjudication.py::test_self_standoff PASSED               [ 11%]
-src/engine/test_adjudication.py::test_complex_convoy_disruption PASSED   [ 13%]
-src/engine/test_adjudication.py::test_circular_movement_fleet PASSED     [ 15%]
-src/engine/test_adjudication.py::test_circular_movement_army PASSED      [ 16%]
-src/engine/test_adjudication.py::test_army_and_fleet_invalid_moves PASSED [ 18%]
-src/engine/test_adjudication.py::test_self_dislodgement_prohibited PASSED [ 20%]
+new_implementation/src/engine/test_adjudication.py ............          [ 20%]
+new_implementation/src/engine/test_game.py .                             [ 21%]
+new_implementation/src/engine/test_game_module.py .                      [ 23%]
+new_implementation/src/engine/test_integration.py ...                    [ 28%]
+new_implementation/src/engine/test_map_and_power.py .......              [ 40%]
+new_implementation/src/engine/test_order.py ..                           [ 43%]
+new_implementation/src/server/test_api_scheduler.py ..                   [ 46%]
+new_implementation/src/server/test_daide_protocol.py ......              [ 56%]
+new_implementation/src/server/test_server.py ........                    [ 70%]
+new_implementation/src/server/test_server_advanced.py ................   [ 96%]
+new_implementation/src/tests/test_client.py ..                           [100%]
+
+============================== 60 passed in 2.48s ==============================
+engine/test_adjudication.py::test_self_dislodgement_prohibited PASSED [ 20%]
 src/engine/test_game.py::test_game_instantiation PASSED                  [ 21%]
 src/engine/test_game_module.py::test_game_instantiation PASSED           [ 23%]
 src/engine/test_integration.py::test_variant_map_loading_and_play PASSED [ 25%]
@@ -36,4 +37,34 @@ src/server/test_api_scheduler.py::test_deadline_endpoints PASSED         [ 46%]
 src/server/test_daide_protocol.py::test_daide_server_echo PASSED         [ 48%]
 src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player PASSED [ 50%]
 src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders PASSED [ 51%]
-src/server/test_daide_protocol.py::test_daide_server_negotiation_messages 
+src/server/test_daide_protocol.py::test_daide_server_negotiation_messages PASSED [ 53%]
+src/server/test_daide_protocol.py::test_daide_server_invalid_ord_context PASSED [ 55%]
+src/server/test_daide_protocol.py::test_daide_server_invalid_message PASSED [ 56%]
+src/server/test_server.py::test_server_initialization PASSED             [ 58%]
+src/server/test_server.py::test_server_accepts_commands PASSED           [ 60%]
+src/server/test_server.py::test_server_create_and_query_game PASSED      [ 61%]
+src/server/test_server.py::test_server_add_player_and_set_orders PASSED  [ 63%]
+src/server/test_server.py::test_server_process_turn_and_game_done PASSED [ 65%]
+src/server/test_server.py::test_server_invalid_command PASSED            [ 66%]
+src/server/test_server.py::test_server_missing_arguments PASSED          [ 68%]
+src/server/test_server.py::test_server_save_and_load_game PASSED         [ 70%]
+src/server/test_server_advanced.py::test_multiple_concurrent_games PASSED [ 71%]
+src/server/test_server_advanced.py::test_game_isolation_with_orders PASSED [ 73%]
+src/server/test_server_advanced.py::test_remove_player_command PASSED    [ 75%]
+src/server/test_server_advanced.py::test_remove_player_error_cases PASSED [ 76%]
+src/server/test_server_advanced.py::test_advance_phase_command PASSED    [ 78%]
+src/server/test_server_advanced.py::test_advance_phase_error_cases PASSED [ 80%]
+src/server/test_server_advanced.py::test_game_state_isolation PASSED     [ 81%]
+src/server/test_server_advanced.py::test_concurrent_game_limit PASSED    [ 83%]
+src/server/test_server_advanced.py::test_save_load_with_multiple_games PASSED [ 85%]
+src/server/test_server_advanced.py::test_remove_last_player PASSED       [ 86%]
+src/server/test_server_advanced.py::test_remove_player_with_pending_state PASSED [ 88%]
+src/server/test_server_advanced.py::test_remove_player_twice PASSED      [ 90%]
+src/server/test_server_advanced.py::test_advance_phase_with_no_players PASSED [ 91%]
+src/server/test_server_advanced.py::test_advance_phase_with_no_orders PASSED [ 93%]
+src/server/test_server_advanced.py::test_order_history_and_clearing PASSED [ 95%]
+src/server/test_server_advanced.py::test_persistent_user_registration_and_multi_game PASSED [ 96%]
+src/tests/test_client.py::test_client_server_interaction PASSED          [ 98%]
+src/tests/test_client.py::test_client_error_handling PASSED              [100%]
+
+============================== 60 passed in 2.46s ==============================
