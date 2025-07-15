@@ -17,6 +17,7 @@ class Game:
         self.phase: str = "movement"  # movement, retreat, adjustment
         self.pending_retreats: Dict[str, Any] = {}  # power -> list of dislodged units/retreat options
         self.pending_adjustments: Dict[str, Any] = {}  # power -> build/disband info
+        self.winner: List[str] = []  # List of winning powers
 
     def add_player(self, power_name: str) -> None:
         if power_name not in self.powers:
@@ -644,11 +645,23 @@ class Game:
                         handled += 1
             # Log adjustment results
             logger.info(f"Adjustment for {power}: {adj['type']} x{adj['count']}, handled: {handled}")
-        # 4. Clear orders and pending adjustments, transition to movement phase, increment turn
+        # 4. Check for victory conditions (standard map: 18 supply centers)
+        victory_threshold = 18 if self.map_name == 'standard' else None  # TODO: support variants
+        winners = []
+        if victory_threshold is not None:
+            for power, p in self.powers.items():
+                if len(p.controlled_centers) >= victory_threshold:
+                    winners.append(power)
+        if winners:
+            self.done = True
+            self.winner = winners
+            logger.info(f"Victory! Winner(s): {winners}")
+        # 5. Clear orders and pending adjustments, transition to movement phase, increment turn (if not done)
         self.orders = {}
         self.pending_adjustments = {}
-        self.phase = "movement"
-        self.turn += 1
+        if not self.done:
+            self.phase = "movement"
+            self.turn += 1
 
     def get_state(self) -> Dict[str, Any]:
         # Compose a richer state dictionary for server_spec compliance
@@ -667,6 +680,7 @@ class Game:
             "map": self.map_name,
             "powers": list(self.powers.keys()),  # always a list, but tests expect dict sometimes
             "done": self.done,
+            "winner": self.winner,
             "map_obj": self.map,
             "pending_retreats": self.pending_retreats,
             "pending_adjustments": self.pending_adjustments,
