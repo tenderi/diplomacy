@@ -7,6 +7,10 @@ Map representation for Diplomacy.
 from typing import Dict, List, Set, Optional
 import os
 import json
+import xml.etree.ElementTree as ET
+from PIL import Image, ImageDraw, ImageFont
+import cairosvg  # type: ignore
+from io import BytesIO
 
 class Province:
     """Represents a province on the Diplomacy map."""
@@ -214,6 +218,83 @@ class Map:
                 if adj in self.provinces:
                     self.provinces[name].add_adjacent(adj)
                     self.provinces[adj].add_adjacent(name)
+
+    @staticmethod
+    def get_svg_province_coordinates(svg_path: str) -> dict:
+        """
+        Parse the SVG file and extract province coordinates for unit placement.
+        Returns a dict: {province_name: (x, y)}
+        """
+        coords = {}
+        tree = ET.parse(svg_path)
+        root = tree.getroot()
+        ns = {'jdipNS': 'svg.dtd'}
+        for prov in root.findall('.//jdipNS:PROVINCE', ns):
+            name = prov.attrib.get('name')
+            unit = prov.find('jdipNS:UNIT', ns)
+            if name and unit is not None:
+                x = float(unit.attrib.get('x', '0'))
+                y = float(unit.attrib.get('y', '0'))
+                coords[name.upper()] = (x, y)
+        return coords
+
+    @staticmethod
+    def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
+        """
+        Render the board as a PNG image with units overlaid.
+        units: {power: ["A PAR", "F LON", ...]}
+        svg_path: must be a string path to the SVG file.
+        Returns PNG bytes (and optionally writes to output_path).
+        """
+        if not isinstance(svg_path, str) or not svg_path:
+            raise ValueError("svg_path must be a non-empty string path to the SVG file.")
+        # 1. Convert SVG to PNG (background)
+        png_bytes = cairosvg.svg2png(url=str(svg_path))
+        bg = Image.open(BytesIO(png_bytes)).convert("RGBA")
+        draw = ImageDraw.Draw(bg)
+        # 2. Get province coordinates
+        coords = Map.get_svg_province_coordinates(svg_path)
+        # 3. Define power colors (fallbacks)
+        power_colors = {
+            "AUSTRIA": "#c48f85",
+            "ENGLAND": "darkviolet",
+            "FRANCE": "royalblue",
+            "GERMANY": "#a08a75",
+            "ITALY": "forestgreen",
+            "RUSSIA": "#757d91",
+            "TURKEY": "#b9a61c",
+        }
+        # 4. Draw units
+        font = None
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        except Exception:
+            font = ImageFont.load_default()
+        for power, unit_list in units.items():
+            color = power_colors.get(power.upper(), "black")
+            for unit in unit_list:
+                parts = unit.split()
+                if len(parts) != 2:
+                    continue
+                unit_type, prov = parts
+                prov = prov.upper()
+                if prov not in coords:
+                    continue
+                x, y = coords[prov]
+                # Draw a colored circle for the unit
+                r = 18
+                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=2)
+                # Draw unit type letter
+                text = unit_type
+                bbox = draw.textbbox((0, 0), text, font=font)
+                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
+        # 5. Save or return PNG
+        if isinstance(output_path, str) and output_path:
+            bg.save(output_path, format="PNG")
+        output = BytesIO()
+        bg.save(output, format="PNG")
+        return output.getvalue()
 
     def get_province(self, name: str) -> Optional[Province]:
         return self.provinces.get(name)

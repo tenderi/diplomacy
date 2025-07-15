@@ -16,6 +16,7 @@ import uvicorn
 from pydantic import BaseModel
 from telegram.ext import Application
 from typing import Optional
+from engine.map import Map
 
 logging.basicConfig(level=logging.INFO)
 
@@ -300,6 +301,35 @@ async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text(f"Error retrieving messages: {e}")
 
+async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Map command failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 1:
+        await update.message.reply_text("Usage: /map <game_id>")
+        return
+    game_id = args[0]
+    try:
+        # Fetch game state from API or server
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state or "units" not in game_state:
+            await update.message.reply_text(f"Game {game_id} not found or no units present.")
+            return
+        units = game_state["units"]  # {power: ["A PAR", "F LON", ...]}
+        svg_path = "new_implementation/maps/standard.svg"
+        try:
+            img_bytes = Map.render_board_png(svg_path, units)
+        except Exception as e:
+            await update.message.reply_text(f"Error rendering map: {e}")
+            return
+        await update.message.reply_photo(photo=BytesIO(img_bytes), caption=f"Board for game {game_id}")
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+
 # --- FastAPI notification endpoint ---
 fastapi_app = FastAPI()
 
@@ -337,6 +367,7 @@ def main():
     app.add_handler(CommandHandler("message", message))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("messages", messages))
+    app.add_handler(CommandHandler("map", map_command))
 
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app
