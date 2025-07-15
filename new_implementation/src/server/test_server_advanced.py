@@ -428,7 +428,6 @@ def test_persistent_user_registration_and_multi_game():
     # Register user
     resp = client.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
     assert resp.status_code == 200
-    user_id = resp.json()["user_id"]
     # Create two games
     resp1 = client.post("/games/create", json={"map_name": "standard"})
     resp2 = client.post("/games/create", json={"map_name": "standard"})

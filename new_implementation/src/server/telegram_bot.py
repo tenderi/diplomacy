@@ -7,15 +7,13 @@ import logging
 import os
 import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont # type: ignore
 import asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 import uvicorn
 from pydantic import BaseModel
 from telegram.ext import Application
-from typing import Optional
 from engine.map import Map
 
 logging.basicConfig(level=logging.INFO)
@@ -183,7 +181,7 @@ async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not orders:
             await update.message.reply_text("You have not submitted any orders for this turn.")
         else:
-            await update.message.reply_text(f"Your current orders:\n" + "\n".join(orders))
+            await update.message.reply_text("Your current orders:\n" + "\n".join(orders))
     except Exception as e:
         await update.message.reply_text(f"Error retrieving orders: {e}")
 
@@ -294,7 +292,6 @@ async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines = [f"Messages for game {game_id}:"]
         for m in messages:
             ts = m["timestamp"]
-            sender = m["sender_user_id"]
             recipient = m["recipient_power"] or "ALL"
             lines.append(f"[{ts}] To {recipient}: {m['text']}")
         await update.message.reply_text("\n".join(lines))
@@ -307,7 +304,6 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if update.message:
             await update.message.reply_text("Map command failed: No user context.")
         return
-    user_id = str(user.id)
     args = context.args if context.args is not None else []
     if len(args) < 1:
         await update.message.reply_text("Usage: /map <game_id>")
