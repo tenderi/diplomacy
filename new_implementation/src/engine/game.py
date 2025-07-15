@@ -23,32 +23,13 @@ class Game:
 
     def process_turn(self) -> None:
         """Process all orders for the current turn using Diplomacy rules (move/hold/support + supply center control)."""
-        # 1. Parse and validate all orders
-        parsed_orders: Dict[str, List[Order]] = {}
-        for power, order_strs in self.orders.items():
-            parsed_orders[power] = []
-            for order_str in order_strs:
-                try:
-                    # Prepend power name if not already present
-                    if not order_str.startswith(power):
-                        full_order_str = f"{power} {order_str}"
-                    else:
-                        full_order_str = order_str
-                    
-                    order = OrderParser.parse(full_order_str)
-                    # Validate the order properly
-                    valid, _ = OrderParser.validate(order, self.get_state())
-                    if valid:
-                        parsed_orders[power].append(order)
-                    # If invalid, the order is simply ignored (skip)
-                except Exception:
-                    continue  # Skip invalid orders
-
-        # 2. Collect current unit positions and map orders to actual units
+        # DEBUG: Print units before normalization
+        print("DEBUG: UNITS BEFORE NORMALIZATION:")
+        for power, p in self.powers.items():
+            print(f"  {power}: {p.units}")
+        # 1. Normalize all units to full format (e.g., "A PAR", "F LON") BEFORE order validation
         unit_positions: Dict[str, str] = {}
         unit_to_power: Dict[str, str] = {}
-        
-        # Normalize all units to full format (e.g., "A PAR", "F LON")
         for power, p in self.powers.items():
             normalized_units: set[str] = set()
             for unit in p.units:
@@ -61,19 +42,68 @@ class Game:
                 else:
                     # Province only - need to infer type from orders
                     inferred_type = 'A'  # Default to Army
-                    for orders in parsed_orders.values():
-                        for order in orders:
-                            if order.unit.split()[-1] == unit:
-                                inferred_type = order.unit.split()[0]
-                                break
-                        if inferred_type != 'A':
-                            break
                     normalized_units.add(f"{inferred_type} {unit}")
                     unit_positions[f"{inferred_type} {unit}"] = unit
                     unit_to_power[f"{inferred_type} {unit}"] = power
             p.units = normalized_units
+        # DEBUG: Print units after normalization
+        print("DEBUG: UNITS AFTER NORMALIZATION:")
+        for power, p in self.powers.items():
+            print(f"  {power}: {p.units}")
+        # 2. Parse and validate all orders
+        parsed_orders: Dict[str, List[Order]] = {}
+        for power, order_strs in self.orders.items():
+            parsed_orders[power] = []
+            for order_str in order_strs:
+                try:
+                    # Prepend power name if not already present
+                    if not order_str.startswith(power):
+                        full_order_str = f"{power} {order_str}"
+                    else:
+                        full_order_str = order_str
+                    order = OrderParser.parse(full_order_str)
+                    # DEBUG: Print units for this power before validation
+                    print(f"DEBUG: VALIDATING ORDER {order} FOR {power}, UNITS: {self.powers[power].units}")
+                    # Validate the order properly
+                    valid, msg = OrderParser.validate(order, self.get_state())
+                    print(f"DEBUG: VALIDATION RESULT: {valid}, {msg}")
+                    if valid:
+                        parsed_orders[power].append(order)
+                    # If invalid, the order is simply ignored (skip)
+                except Exception as e:
+                    print(f"DEBUG: Exception parsing/validating order '{order_str}': {e}")
+                    continue  # Skip invalid orders
 
-        # 3. Parse orders into structured data
+        # 3. Collect current unit positions and map orders to actual units
+        # unit_positions: Dict[str, str] = {}
+        # unit_to_power: Dict[str, str] = {}
+        
+        # Normalize all units to full format (e.g., "A PAR", "F LON")
+        # for power, p in self.powers.items():
+        #     normalized_units: set[str] = set()
+        #     for unit in p.units:
+        #         if ' ' in unit:
+        #             # Already in full format
+        #             unit_type, province = unit.split(' ', 1)
+        #             normalized_units.add(f"{unit_type} {province}")
+        #             unit_positions[f"{unit_type} {province}"] = province
+        #             unit_to_power[f"{unit_type} {province}"] = power
+        #         else:
+        #             # Province only - need to infer type from orders
+        #             inferred_type = 'A'  # Default to Army
+        #             for orders in parsed_orders.values():
+        #                 for order in orders:
+        #                     if order.unit.split()[-1] == unit:
+        #                         inferred_type = order.unit.split()[0]
+        #                         break
+        #                 if inferred_type != 'A':
+        #                     break
+        #             normalized_units.add(f"{inferred_type} {unit}")
+        #             unit_positions[f"{inferred_type} {unit}"] = unit
+        #             unit_to_power[f"{inferred_type} {unit}"] = power
+        # p.units = normalized_units
+
+        # 4. Parse orders into structured data
         moves: Dict[str, str] = {}  # unit -> destination
         supports: Dict[str, List[str]] = {}  # supported move -> list of supporting units
         convoys: Dict[str, str] = {}  # convoyed unit -> convoy path
@@ -105,7 +135,7 @@ class Game:
                     # Convoy order
                     convoy_orders[order.unit] = order.target
 
-        # 4. Detect convoy moves based on convoy orders
+        # 5. Detect convoy moves based on convoy orders
         # If there's a convoy order for a move, mark it as a convoy move
         for fleet, convoy_target in convoy_orders.items():
             # Parse convoy target to find the unit and destination

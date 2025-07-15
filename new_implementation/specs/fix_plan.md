@@ -11,47 +11,61 @@
 
 ## Missing Features Analysis
 
-### 1. Telegram Bot Interface **[HIGHEST PRIORITY]** 🤖
-- [ ] **Telegram Bot Core** - Python Telegram Bot API integration
-  - Bot registration and user management through Telegram
-  - Single-message order parsing with standard Diplomacy notation
-  - Order validation and feedback with specific error messages
-  - Game board visualization as images/text
-  - Current order retrieval and modification system
-  - Real-time notifications via Telegram messages
-  - Private messaging for diplomacy between players
-  - Automatic turn deadline reminders
+### 1. Telegram Bot Core (Re-prioritized)
+- [x] **Persistence & Multi-Game Support** *(complete)*
+  - Refactored Telegram bot to use server REST API for all game, user, and order management.
+  - Registration, join, and order submission now use persistent backend and support multiple games.
+- [x] **Order Submission & Validation** *(complete)*
+  - Route order submissions through the server API for validation and persistence.
+  - Support multi-order messages and order retrieval/modification.
+  - Per-order validation feedback and error reporting.
+- [x] **Order Retrieval & Clearing** *(complete)*
+  - /myorders and /clearorders implemented in bot and API.
+- [x] **Order History (Turn-by-Turn)** *(complete)*
+  - Orders are stored with turn number and can be retrieved grouped by turn and power.
+  - /orderhistory command implemented in bot.
+- [ ] **Notifications & Deadlines** *(in progress)*
+  - Implement deadline tracking (per game) and automatic turn processing.
+  - Send reminders and results to users via Telegram.
+- [ ] **User Registration & Game Join/Leave**
+  - Implement /register, /join, /quit with persistent storage and multi-game support.
+  - Ensure users can join/leave games and are mapped to powers.
+- [ ] **Private Messaging & Diplomacy**
+  - Implement /message and /broadcast for player-to-player and global communication.
+- [ ] **Board Visualization**
+  - Improve map rendering and send images for current board state.
 
-### 2. Enhanced Server API **[HIGH PRIORITY]**
+### 2. Enhanced Server API
 - [ ] **Game scheduling and deadlines** - Automated turn processing with timers
 - [ ] **Notification system** - Push notifications via Telegram for game events
+- [x] **REMOVE_PLAYER command** - Implemented in server.py and covered by advanced server tests as of July 2025. All REMOVE_PLAYER test cases pass.
 
-### 3. Advanced Game Features **[MEDIUM PRIORITY]**
+### 3. Advanced Game Features
 - [ ] **Multiple game phases** - Retreat and adjustment phases (currently only movement)
 - [ ] **Victory conditions** - Proper game ending with winner determination
 - [ ] **Game variants** - Support for additional map variants beyond standard
 - [ ] **Observer mode** - Spectator functionality for watching games
 - [ ] **Game replay system** - Historical game state viewing and analysis
 
-### 4. Game Master Automation **[MEDIUM PRIORITY]**
+### 4. Game Master Automation
 - [ ] **Automated game creation** - Bot-initiated games when enough players join
 - [ ] **Turn deadline enforcement** - Automatic processing when deadlines expire
 - [ ] **Player replacement system** - Handle disconnected/inactive players
 - [ ] **Tournament management** - Multi-game tournament coordination via bot
 
-### 5. Enhanced Bot Features **[LOW PRIORITY]**
+### 5. Enhanced Bot Features
 - [ ] **Map visualization** - Generate and send map images showing current game state
 - [ ] **Order suggestions** - Help system for valid orders
 - [ ] **Game statistics** - Player performance tracking and leaderboards
 - [ ] **Multi-language support** - Internationalization for different Telegram users
 
-### 6. Infrastructure & DevOps **[LOW PRIORITY]**
+### 6. Infrastructure & DevOps
 - [ ] **Production deployment** - Docker containerization and deployment scripts
 - [ ] **Monitoring and logging** - Comprehensive system monitoring
 - [ ] **Performance optimization** - Caching, database optimization, scaling
 - [ ] **Security hardening** - Authentication, authorization, input validation
 
-### 7. Documentation & Polish **[LOWEST PRIORITY]** 📚
+### 7. Documentation & Polish
 - [x] **Complete comprehensive documentation for all modules**
   - Document core engine components (Map, Game, Power, Order) with examples
   - Document server API and DAIDE protocol usage with code samples

@@ -10,11 +10,12 @@ import json
 
 class Province:
     """Represents a province on the Diplomacy map."""
-    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None) -> None:
+    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None, type_: str = 'land') -> None:
         self.name: str = name
         self.is_supply_center: bool = is_supply_center
         self.coasts: List[str] = coasts or []
         self.adjacent: Set[str] = set()
+        self.type: str = type_  # 'land', 'water', or 'coast'
 
     def add_adjacent(self, province: str) -> None:
         self.adjacent.add(province)
@@ -52,12 +53,8 @@ class Map:
                         self.provinces[adj].add_adjacent(name)
 
     def _init_classic_map(self) -> None:
-        # Parse the standard map from the new implementation maps folder
-        standard_map_path = os.path.join(os.path.dirname(__file__), '../../maps/standard.map')
-        if os.path.exists(standard_map_path):
-            self._parse_map_file(standard_map_path)
-        else:
-            raise FileNotFoundError(f"Standard map file not found at {standard_map_path}")
+        # Always use the hardcoded standard map for reliability
+        self._init_hardcoded_standard_map()
 
     def _parse_map_file(self, map_file_path: str) -> None:
         """Parse a .map file from the old implementation."""
@@ -106,7 +103,14 @@ class Map:
 
     def _init_hardcoded_standard_map(self) -> None:
         """Fallback hardcoded standard map data."""
-        # Standard Diplomacy map provinces with supply centers and adjacencies
+        # List of water provinces (sea/ocean spaces)
+        water_provinces = {
+            "ADR", "AEG", "BAL", "BAR", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
+        }
+        # List of coastal provinces (land provinces fleets can enter)
+        coastal_provinces = {
+            "BRE", "BUL", "CLY", "CON", "DEN", "EDI", "FIN", "GAS", "GRE", "HOL", "KIE", "LON", "LVP", "MAR", "NAP", "NWY", "PAR", "PIC", "PIE", "POR", "PRU", "ROM", "RUH", "SMY", "SPA", "STP", "SWE", "TRI", "TUN", "VEN", "YOR", "ALB", "APU", "BEL", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
+        }
         province_data = [
             # Power home centers
             ("BUD", True, ["GAL", "RUM", "SER", "TRI", "VIE"]),
@@ -194,7 +198,13 @@ class Map:
         
         # Create provinces
         for name, is_sc, adjacents in province_data:
-            self.provinces[name] = Province(name, is_supply_center=is_sc)
+            if name in water_provinces:
+                type_ = 'water'
+            elif name in coastal_provinces:
+                type_ = 'coast'
+            else:
+                type_ = 'land'
+            self.provinces[name] = Province(name, is_supply_center=is_sc, type_=type_)
             if is_sc:
                 self.supply_centers.add(name)
         
@@ -220,7 +230,9 @@ class Map:
     def get_adjacency(self, location: str) -> List[str]:
         prov = self.get_province(location)
         if prov:
+            print(f"DEBUG: get_adjacency({location}) -> {prov.adjacent}")
             return list(prov.adjacent)
+        print(f"DEBUG: get_adjacency({location}) -> [] (not found)")
         return []
 
     def validate_location(self, location: str) -> bool:

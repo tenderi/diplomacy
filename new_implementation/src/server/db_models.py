@@ -29,4 +29,5 @@ class OrderModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
     order_text = Column(String, nullable=False)
+    turn = Column(Integer, nullable=False, default=0)  # New column for turn number
     player = relationship("PlayerModel", back_populates="orders")

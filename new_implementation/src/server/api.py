@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
+import json
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -68,17 +69,22 @@ class SetDeadlineRequest(BaseModel):
 # --- Endpoints ---
 @app.post("/games/create")
 def create_game(req: CreateGameRequest) -> Dict[str, Any]:
-    """Create a new game and persist to the database."""
-    result = server.process_command(f"CREATE_GAME {req.map_name}")
-    if result.get("status") != "ok":
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    """Create a new game and persist to the database, and register it in the in-memory server with the same game_id."""
     db: Session = SessionLocal()
     try:
-        game = GameModel(map_name=req.map_name, state=result, is_active=True)
+        # Create the game in the database first
+        game = GameModel(map_name=req.map_name, state={"status": "ok"}, is_active=True)
         db.add(game)
         db.commit()
         db.refresh(game)
-        return {"game_id": game.id}
+        game_id = str(game.id)
+        # Now create the game in the in-memory server with the same game_id
+        if game_id not in server.games:
+            from engine.game import Game
+            g = Game()
+            setattr(g, "game_id", game_id)
+            server.games[game_id] = g
+        return {"game_id": game_id}
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,11 +94,9 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
 @app.post("/games/add_player")
 def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
     """Add a player to a game."""
-    result = server.process_command(f"ADD_PLAYER {req.game_id} {req.power}")
-    if result.get("status") != "ok":
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
     db: Session = SessionLocal()
     try:
+        # Add player to database
         player = PlayerModel(game_id=int(req.game_id), power=req.power)
         db.add(player)
         db.commit()
@@ -100,6 +104,15 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
         player_id = getattr(player, 'id', None)
         if player_id is None:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
+        # Add player to in-memory server
+        if req.game_id not in server.games:
+            from engine.game import Game
+            g = Game()
+            setattr(g, "game_id", req.game_id)
+            server.games[req.game_id] = g
+        result = server.process_command(f"ADD_PLAYER {req.game_id} {req.power}")
+        if result.get("status") != "ok":
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
         return {"status": "ok", "player_id": player_id}
     except SQLAlchemyError as e:
         db.rollback()
@@ -108,20 +121,49 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
         db.close()
 
 @app.post("/games/set_orders")
-def set_orders(req: SetOrdersRequest) -> Dict[str, str]:
-    """Set orders for a player in a game."""
+def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
+    """Set orders for a player in a game. Replaces any existing orders for the current turn. Returns per-order validation results."""
     db: Session = SessionLocal()
+    results = []
     try:
+        player = db.query(PlayerModel).filter_by(game_id=int(req.game_id), power=req.power).first()
+        print(f"DEBUG: set_orders: player found: {player is not None}, player_id: {getattr(player, 'id', None) if player else None}")
+        game = db.query(GameModel).filter_by(id=int(req.game_id)).first()
+        # Default to turn 0 if not found
+        turn = 0
+        if game and isinstance(game.state, dict):
+            turn = game.state.get("turn", 0)
+        elif game and hasattr(game.state, "get"):
+            turn = game.state.get("turn", 0)
+        if player:
+            db.query(OrderModel).filter_by(player_id=player.id).delete()
         for order in req.orders:
             result = server.process_command(f"SET_ORDERS {req.game_id} {req.power} {order}")
-            if result.get("status") != "ok":
-                raise HTTPException(status_code=400, detail=result.get("error", "Order error"))
-            player = db.query(PlayerModel).filter_by(game_id=int(req.game_id), power=req.power).first()
-            if player:
-                db.add(OrderModel(player_id=player.id, order_text=order))
+            if result.get("status") == "ok":
+                if player:
+                    db.add(OrderModel(player_id=player.id, order_text=order, turn=turn))
+                    print(f"DEBUG: set_orders: added order '{order}' for player_id {player.id} turn {turn}")
+                results.append({"order": order, "success": True, "error": None})
+            else:
+                results.append({"order": order, "success": False, "error": result.get("error", "Order error")})
+        # Update game state in DB to reflect in-memory state
+        if game and req.game_id in server.games:
+            state = server.games[req.game_id].get_state()
+            if not isinstance(state, dict):
+                state = dict(state)
+            # Remove non-serializable objects
+            if 'map_obj' in state:
+                del state['map_obj']
+            try:
+                game.state = state  # This should work since state column is JSON
+            except Exception as e:
+                print(f"DEBUG: set_orders: failed to assign game.state: {e}")
         db.commit()
-        return {"status": "ok"}
+        return {"results": results}
     except SQLAlchemyError as e:
+        import traceback
+        print(f"DEBUG: set_orders: SQLAlchemyError: {e}")
+        traceback.print_exc()
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -129,11 +171,31 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, str]:
 
 @app.post("/games/process_turn")
 def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
-    """Process the current turn for a game."""
+    """Process the current turn for a game and update the database state."""
     result = server.process_command(f"PROCESS_TURN {req.game_id}")
     if result.get("status") != "ok":
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-    return {"status": "ok"}
+    db: Session = SessionLocal()
+    try:
+        game = db.query(GameModel).filter_by(id=int(req.game_id)).first()
+        if game and req.game_id in server.games:
+            state = server.games[req.game_id].get_state()
+            if not isinstance(state, dict):
+                state = dict(state)
+            # Remove non-serializable objects
+            if 'map_obj' in state:
+                del state['map_obj']
+            try:
+                game.state = state
+            except Exception as e:
+                print(f"DEBUG: process_turn: failed to assign game.state: {e}")
+        db.commit()
+        return {"status": "ok"}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 @app.get("/games/{game_id}/state")
 def get_game_state(game_id: str) -> Dict[str, Any]:
@@ -184,6 +246,59 @@ def get_orders(game_id: str) -> List[Dict[str, Any]]:
                 orders.append({"player_id": player.id, "power": player.power, "order": order.order_text})
         return orders
     except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/games/{game_id}/orders/history")
+def get_order_history(game_id: str) -> Dict[str, Any]:
+    """Get the full order history for all players in a game, grouped by turn and power."""
+    db: Session = SessionLocal()
+    try:
+        players = db.query(PlayerModel).filter_by(game_id=int(game_id)).all()
+        # {turn: {power: [orders]}}
+        history = {}
+        for player in players:
+            orders = db.query(OrderModel).filter_by(player_id=player.id).all()
+            for order in orders:
+                turn = order.turn
+                power = player.power
+                history.setdefault(turn, {}).setdefault(power, []).append(order.order_text)
+        return {"game_id": game_id, "order_history": history}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/games/{game_id}/orders/{power}")
+def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
+    """Get current orders for a specific power in a game (current turn only)."""
+    db: Session = SessionLocal()
+    try:
+        player = db.query(PlayerModel).filter_by(game_id=int(game_id), power=power).first()
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found")
+        orders = db.query(OrderModel).filter_by(player_id=player.id).all()
+        order_list = [order.order_text for order in orders]
+        return {"power": power, "orders": order_list}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/games/{game_id}/orders/{power}/clear")
+def clear_orders_for_power(game_id: str, power: str) -> Dict[str, str]:
+    """Delete all orders for a specific power in a game (current turn only)."""
+    db: Session = SessionLocal()
+    try:
+        player = db.query(PlayerModel).filter_by(game_id=int(game_id), power=power).first()
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found")
+        db.query(OrderModel).filter_by(player_id=player.id).delete()
+        db.commit()
+        return {"status": "ok"}
+    except SQLAlchemyError as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

@@ -362,3 +362,62 @@ def test_advance_phase_with_no_orders() -> None:
     assert result["status"] == "ok"
     state = server.process_command(f"GET_GAME_STATE {game_id}")
     assert state["state"]["turn"] == 1
+
+
+def test_order_history_and_clearing():
+    """Test order history API, order clearing, and turn-by-turn grouping."""
+    from server.api import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+
+    # Create game
+    resp = client.post("/games/create", json={"map_name": "standard"})
+    assert resp.status_code == 200
+    game_id = str(resp.json()["game_id"])
+
+    # Add players
+    resp = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+    assert resp.status_code == 200
+    resp = client.post("/games/add_player", json={"game_id": game_id, "power": "GERMANY"})
+    assert resp.status_code == 200
+
+    # Submit orders for turn 0
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"]})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A MUN - RUH"]})
+
+    # Check order history for turn 0
+    resp = client.get(f"/games/{game_id}/orders/history")
+    assert resp.status_code == 200
+    history = resp.json()["order_history"]
+    assert "0" in history
+    assert "FRANCE" in history["0"]
+    assert "GERMANY" in history["0"]
+    assert "A PAR - BUR" in history["0"]["FRANCE"]
+    assert "A MUN - RUH" in history["0"]["GERMANY"]
+
+    # Process turn (advance to turn 1)
+    resp = client.post("/games/process_turn", json={"game_id": game_id})
+    assert resp.status_code == 200
+
+    # Submit new orders for turn 1
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A BUR - MUN"]})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A RUH - BUR"]})
+
+    # Check order history for turn 1
+    resp = client.get(f"/games/{game_id}/orders/history")
+    assert resp.status_code == 200
+    history = resp.json()["order_history"]
+    assert "1" in history
+    assert "A BUR - MUN" in history["1"]["FRANCE"]
+    assert "A RUH - BUR" in history["1"]["GERMANY"]
+
+    # Clear FRANCE's orders for turn 1
+    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={})
+    assert resp.status_code == 200
+    # Check that FRANCE's orders for turn 1 are now empty
+    resp = client.get(f"/games/{game_id}/orders/history")
+    history = resp.json()["order_history"]
+    assert "1" in history
+    assert "FRANCE" not in history["1"] or not history["1"]["FRANCE"]
+    # GERMANY's orders for turn 1 should remain
+    assert "A RUH - BUR" in history["1"]["GERMANY"]
