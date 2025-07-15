@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "svg.dtd">
+<!-- ========================================================================================== -->
+<!-- Detailed Standard Map                                                                      -->
+<!--   background (and quite nice) map bitmap by J. Fatula III                                  -->
+<!--   SVG by Zach DelProposto                                                                  -->
+<!-- Copyright jDip - GPL License                                                               -->
+<!-- ========================================================================================== -->
+<svg color-rendering="optimizeQuality" height="680px" preserveAspectRatio="xMinYMin" version="1.0" viewBox="0 0 1835 1360" width="918px" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:jdipNS="svg.dtd">
+
+    <jdipNS:DISPLAY>
+        <jdipNS:ZOOM min="5" max="2200" factor="1.2"/>
+        <jdipNS:LABELS brief="true" full="true"/>
+    </jdipNS:DISPLAY>
+
+    <jdipNS:ORDERDRAWING>
+        <jdipNS:POWERCOLORS>
+            <jdipNS:POWERCOLOR power="austria" color="#c48f85"/>
+            <jdipNS:POWERCOLOR power="england" color="darkviolet"/>
+            <jdipNS:POWERCOLOR power="france" color="royalblue"/>
+            <jdipNS:POWERCOLOR power="germany" color="#a08a75"/>
+            <jdipNS:POWERCOLOR power="italy" color="forestgreen"/>
+            <jdipNS:POWERCOLOR power="russia" color="#757d91"/>
+            <jdipNS:POWERCOLOR power="turkey" color="#b9a61c"/>
+        </jdipNS:POWERCOLORS>
+
+        <jdipNS:SYMBOLSIZE name="Fleet" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="Army" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="Wing" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="DislodgedFleet" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="DislodgedArmy" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="DislodgedWing" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="FailedOrder" width="30" height="30"/>
+        <jdipNS:SYMBOLSIZE name="SupplyCenter" width="20" height="20"/>
+        <jdipNS:SYMBOLSIZE name="BuildUnit" width="60" height="60"/>
+        <jdipNS:SYMBOLSIZE name="RemoveUnit" width="50" height="50"/>
+        <jdipNS:SYMBOLSIZE name="WaivedBuild" width="40" height="40"/>
+        <jdipNS:SYMBOLSIZE name="HoldUnit" width="66.6" height="66.6"/>
+        <jdipNS:SYMBOLSIZE name="SupportHoldUnit" width="76.6" height="76.6"/>
+        <jdipNS:SYMBOLSIZE name="ConvoyTriangle" width="66.4" height="57.4"/>
+        <!-- Special symbol size to contain stroke width for plain (in "height") and power-colored lines (in "width") -->
+        <jdipNS:SYMBOLSIZE name="Stroke" width="6" height="10"/>
+    </jdipNS:ORDERDRAWING>
+
+    <jdipNS:PROVINCE_DATA>
+        <jdipNS:PROVINCE name="adr">
+            <jdipNS:UNIT x="793.5" y="1048.0"/>
+            <jdipNS:DISLODGED_UNIT x="782.0" y="1038.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="aeg">
+            <jdipNS:UNIT x="1043.5" y="1230.0"/>
+            <jdipNS:DISLODGED_UNIT x="1032.0" y="1220.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="alb">
+            <jdipNS:UNIT x="906.5" y="1113.0"/>
+            <jdipNS:DISLODGED_UNIT x="895.0" y="1103.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="ank">
+            <jdipNS:UNIT x="1301.5" y="1110.0"/>
+            <jdipNS:DISLODGED_UNIT x="1290.0" y="1100.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="apu">
+            <jdipNS:UNIT x="791.5" y="1106.0"/>
+            <jdipNS:DISLODGED_UNIT x="780.0" y="1096.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="arm">
+            <jdipNS:UNIT x="1484.5" y="1090.0"/>
+            <jdipNS:DISLODGED_UNIT x="1473.0" y="1080.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bal">
+            <jdipNS:UNIT x="878.5" y="610.0"/>
+            <jdipNS:DISLODGED_UNIT x="867.0" y="600.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bar">
+            <jdipNS:UNIT x="1162.5" y="73.0"/>
+            <jdipNS:DISLODGED_UNIT x="1151.0" y="63.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bel">
+            <jdipNS:UNIT x="561.5" y="753.0"/>
+            <jdipNS:DISLODGED_UNIT x="550.0" y="743.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="ber">
+            <jdipNS:UNIT x="771.5" y="690.0"/>
+            <jdipNS:DISLODGED_UNIT x="760.0" y="680.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bla">
+            <jdipNS:UNIT x="1233.5" y="1000.0"/>
+            <jdipNS:DISLODGED_UNIT x="1222.0" y="990.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="boh">
+            <jdipNS:UNIT x="806.5" y="814.0"/>
+            <jdipNS:DISLODGED_UNIT x="795.0" y="804.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bot">
+            <jdipNS:UNIT x="941.5" y="485.0"/>
+            <jdipNS:DISLODGED_UNIT x="930.0" y="475.0"/>
+        </jdipNS:PROVINCE>
+        <jdipNS:PROVINCE name="bre">
+            <jdipNS:UNIT x="404.5" y="819.0"/>
+            <jdipNS:DISLODGED_UNIT x="393.0" y="809.0"/>
