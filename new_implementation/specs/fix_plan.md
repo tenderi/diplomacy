@@ -47,7 +47,7 @@
 - [x] Refactor server and API to use process_phase instead of process_turn; update tests for multi-phase logic (COMPLETE, all tests pass, robust to phase/turn logic)
 
 ### 3. Advanced Game Features
-- [ ] **Multiple game phases** - Retreat and adjustment phases (currently only movement)
+- [x] **Multiple game phases** - Retreat and adjustment phases (now fully implemented and tested)
 - [ ] **Victory conditions** - Proper game ending with winner determination
 - [ ] **Game variants** - Support for additional map variants beyond standard
 - [ ] **Observer mode** - Spectator functionality for watching games
@@ -88,6 +88,7 @@
 - Board Visualization: `/map <game_id>` command implemented in the Telegram bot. Generates and sends a board image using the new rendering utility. Fully integrated with engine and bot. All tests pass.
 - Game scheduling and deadlines: Automated turn processing with timers, reminders, and notifications fully implemented in the server. Robust background scheduler, logging, and tests (with some skipped due to test environment limitations; production code is correct).
 - Notification system: Telegram notifications for all major game events (player join, quit, game start, game end, order errors, private messages, broadcast messages) are implemented and tested. All tests pass and the system is robust.
+- Multiple game phases: Retreat and adjustment phases are now fully implemented in the engine and server. All relevant tests pass as of this update.
 
 ## [July 15, 2025] Test Failures (auto-discovered)
 - [x] ImportError: No module named 'engine' in /new_implementation/debug_test.py and /new_implementation/src/engine/game.py. Fixed by using relative imports and correct test invocation.
