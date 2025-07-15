@@ -1,11 +1,13 @@
-# Diplomacy Python requirements (auto-generated July 2025)
+# Use latest versions of all packages
 fastapi
 uvicorn
 sqlalchemy
-pydantic
-pytest
-httpx
 psycopg2-binary
+alembic
+requests
 python-telegram-bot
-pillow
-pytz
+pydantic
+cairosvg
+Pillow
+pytest
+pytest-asyncio
