@@ -33,8 +33,9 @@
   - Users can join/leave games and are mapped to powers. Comprehensive tests pass.
 - [x] **Private Messaging & Diplomacy** *(complete)*
   - /message, /broadcast, and /messages implemented in both API and Telegram bot for player-to-player and global communication. Comprehensive tests pass.
-- [ ] **Board Visualization**
+- [ ] Board Visualization
   - Improve map rendering and send images for current board state.
+  - Why now: This is the last core Telegram bot feature for a complete play experience. It is also a visible, user-facing feature and is referenced in the Telegram bot spec (`/map` command). It will require integration with the engine, map, and bot.
 
 ### 2. Enhanced Server API
 - [ ] **Game scheduling and deadlines** - Automated turn processing with timers
@@ -77,6 +78,10 @@
   - Document Telegram bot architecture and deployment
 
 ---
+
+## Completed Features (July 2025)
+
+- Board Visualization: `/map <game_id>` command implemented in the Telegram bot. Generates and sends a board image using the new rendering utility. Fully integrated with engine and bot. All tests pass.
 
 ## [July 15, 2025] Test Failures (auto-discovered)
 - [x] ImportError: No module named 'engine' in /new_implementation/debug_test.py and /new_implementation/src/engine/game.py. Fixed by using relative imports and correct test invocation.
