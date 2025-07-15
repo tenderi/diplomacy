@@ -1,7 +1,6 @@
 """
 Test the Diplomacy API scheduler and deadline endpoints.
 """
-import pytest
 from fastapi.testclient import TestClient
 from server.api import app
 

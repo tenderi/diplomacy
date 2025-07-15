@@ -2,7 +2,7 @@
 Tests for advanced order adjudication and turn processing in Diplomacy.
 Covers support cut, standoffs, convoyed moves, and dislodgement.
 """
-from engine.game import Game
+from .game import Game
 
 def test_support_cut():
     game = Game()

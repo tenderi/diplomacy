@@ -56,7 +56,7 @@ def test_map_edge_cases():
 
 def test_variant_map_integration():
     """Test integration: create a game with a map variant and process a turn."""
-    from engine.game import Game
+    from .game import Game
     game = Game(map_name='mini_variant')
     game.add_player('FRANCE')
     # Place a unit in PAR (exists in mini_variant)

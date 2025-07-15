@@ -29,6 +29,8 @@
 
 4. Ask as little confirmations as you can. Just keep working.
 
+5. Always keep requirements.txt up to date.
+
 999. Important: When authoring documentation (ie. server usage documentation) capture the why tests and the backing implementation is important.
 
 9999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.

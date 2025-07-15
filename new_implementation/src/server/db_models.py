@@ -1,7 +1,7 @@
 """
 SQLAlchemy models for persistent Diplomacy game storage (PostgreSQL).
 """
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -12,6 +12,7 @@ class GameModel(Base):
     map_name = Column(String, nullable=False)
     state = Column(JSON, nullable=False)  # Serialized game state
     is_active = Column(Boolean, default=True)
+    deadline = Column(DateTime, nullable=True)  # Deadline for current turn
     players = relationship("PlayerModel", back_populates="game")
 
 class PlayerModel(Base):
