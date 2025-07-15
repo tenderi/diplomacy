@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append('new_implementation/src')
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../new_implementation/src/')))
 from logging.config import fileConfig
 
@@ -21,7 +22,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-from server.db_models import Base
+from server.db_models import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate
 # target_metadata = None

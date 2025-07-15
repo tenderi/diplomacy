@@ -240,17 +240,13 @@ class Map:
 
     @staticmethod
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
-        """
-        Render the board as a PNG image with units overlaid.
-        units: {power: ["A PAR", "F LON", ...]}
-        svg_path: must be a string path to the SVG file.
-        Returns PNG bytes (and optionally writes to output_path).
-        """
-        if not isinstance(svg_path, str) or not svg_path:
-            raise ValueError("svg_path must be a non-empty string path to the SVG file.")
+        if svg_path is None:
+            raise ValueError("svg_path must not be None")
         # 1. Convert SVG to PNG (background)
-        png_bytes = cairosvg.svg2png(url=str(svg_path))
-        bg = Image.open(BytesIO(png_bytes)).convert("RGBA")
+        png_bytes = cairosvg.svg2png(url=str(svg_path))  # type: ignore
+        if png_bytes is None:
+            raise ValueError("cairosvg.svg2png returned None")
+        bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
         draw = ImageDraw.Draw(bg)
         # 2. Get province coordinates
         coords = Map.get_svg_province_coordinates(svg_path)

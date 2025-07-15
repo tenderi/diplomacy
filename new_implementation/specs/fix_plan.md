@@ -9,6 +9,7 @@
 - This file is the authoritative, prioritized, and up-to-date list of incomplete items. Update it as progress is made.
 - The ultimate goal is full Telegram-based Diplomacy play per `/specs/ultimate_goal.md`.
 
+
 ## Missing Features Analysis
 
 ### 1. Telegram Bot Core (Re-prioritized)
