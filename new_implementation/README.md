@@ -63,3 +63,29 @@ Tests ensure correctness, reliability, and maintainability. All features are cov
 - [engine/README.md](./src/engine/README.md)
 - [server/README.md](./src/server/README.md)
 - [README_client.md](./src/README_client.md)
+
+## Production Deployment (Docker)
+
+### Prerequisites
+- Docker and docker-compose installed
+- A valid Telegram bot token (set as TELEGRAM_BOT_TOKEN)
+
+### Quick Start
+
+1. Build and start the stack:
+
+```bash
+export TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+cd new_implementation
+cp ../alembic.ini .
+docker-compose up --build
+```
+
+2. The API will be available at http://localhost:8000
+3. The Telegram bot will run in the same container (make sure your token is valid)
+4. PostgreSQL will be available at localhost:5432 (user/pass/db: diplomacy)
+
+### Notes
+- All migrations are run automatically on startup.
+- The API and bot will restart on failure.
+- Data is persisted in a Docker volume (`pgdata`).
