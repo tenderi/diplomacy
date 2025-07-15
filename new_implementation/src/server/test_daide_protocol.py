@@ -6,15 +6,26 @@ import time
 from server.daide_protocol import DAIDEServer
 from server.server import Server
 
+# Helper to find a free port
+
+def get_free_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
 def test_daide_server_echo() -> None:
     """Test that DAIDE server echoes non-HLO messages."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9000)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)  # Allow server to start
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9000))
+    sock.connect(("127.0.0.1", port))
     try:
         test_message = "PING"
         sock.sendall(test_message.encode("utf-8"))
@@ -27,12 +38,13 @@ def test_daide_server_echo() -> None:
 def test_daide_server_hlo_creates_game_and_player() -> None:
     """Test that DAIDE server handles HLO (POWER) by creating a game and adding the player."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9001)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)  # Allow server to start
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9001))
+    sock.connect(("127.0.0.1", port))
     try:
         test_message = "HLO (FRANCE)"
         sock.sendall(test_message.encode("utf-8"))
@@ -53,12 +65,13 @@ def test_daide_server_hlo_creates_game_and_player() -> None:
 def test_daide_server_ord_sets_orders() -> None:
     """Test that DAIDE server handles ORD (order submission) after HLO."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9002)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9002))
+    sock.connect(("127.0.0.1", port))
     try:
         # HLO to create game and player
         sock.sendall(b"HLO (FRANCE)")
@@ -82,12 +95,13 @@ def test_daide_server_ord_sets_orders() -> None:
 def test_daide_server_negotiation_messages() -> None:
     """Test that DAIDE server handles PRP, REJ, ACC negotiation messages."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9003)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9003))
+    sock.connect(("127.0.0.1", port))
     try:
         # PRP
         sock.sendall(b"PRP (DRAW)")
@@ -108,12 +122,13 @@ def test_daide_server_negotiation_messages() -> None:
 def test_daide_server_invalid_ord_context() -> None:
     """Test that DAIDE server returns error for ORD without HLO context."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9004)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9004))
+    sock.connect(("127.0.0.1", port))
     try:
         # ORD without HLO
         sock.sendall(b"ORD (A PAR - BUR)")
@@ -127,12 +142,13 @@ def test_daide_server_invalid_ord_context() -> None:
 def test_daide_server_invalid_message() -> None:
     """Test that DAIDE server returns echo for unknown/invalid DAIDE messages."""
     server = Server()
-    daide_server = DAIDEServer(server, host="127.0.0.1", port=9005)
+    port = get_free_port()
+    daide_server = DAIDEServer(server, host="127.0.0.1", port=port)
     daide_server.start()
     time.sleep(0.1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 9005))
+    sock.connect(("127.0.0.1", port))
     try:
         # Send a random/invalid message
         sock.sendall(b"FOOBAR")
