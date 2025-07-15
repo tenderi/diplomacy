@@ -12,17 +12,45 @@ class Game:
         self.orders: Dict[str, List[str]] = {}
         self.turn: int = 0
         self.done: bool = False
+        self.phase: str = "movement"  # movement, retreat, adjustment
+        self.pending_retreats: Dict[str, Any] = {}  # power -> list of dislodged units/retreat options
+        self.pending_adjustments: Dict[str, Any] = {}  # power -> build/disband info
 
     def add_player(self, power_name: str) -> None:
         if power_name not in self.powers:
-            # For now, assign all supply centers as home centers for demo
+            # Assign all supply centers as home centers for demo (for variants)
             self.powers[power_name] = Power(power_name, list(self.map.get_supply_centers()))
+            # Assign standard starting units if using the standard map
+            if self.map_name == 'standard':
+                starting_units = {
+                    'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
+                    'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
+                    'GERMANY': ['A BER', 'A MUN', 'F KIE'],
+                    'ITALY': ['A ROM', 'A VEN', 'F NAP'],
+                    'AUSTRIA': ['A VIE', 'A BUD', 'F TRI'],
+                    'RUSSIA': ['A MOS', 'A WAR', 'F SEV', 'F STP'],
+                    'TURKEY': ['A CON', 'A SMY', 'F ANK'],
+                }
+                pname = power_name.upper()
+                if pname in starting_units:
+                    self.powers[power_name].units = set(starting_units[pname])
 
     def set_orders(self, power_name: str, orders: List[str]) -> None:
         self.orders[power_name] = orders
 
-    def process_turn(self) -> None:
-        """Process all orders for the current turn using Diplomacy rules (move/hold/support + supply center control)."""
+    def process_phase(self) -> None:
+        """Process the current phase (movement, retreat, adjustment)."""
+        if self.phase == "movement":
+            self._process_movement_phase()
+        elif self.phase == "retreat":
+            self._process_retreat_phase()
+        elif self.phase == "adjustment":
+            self._process_adjustment_phase()
+        else:
+            raise ValueError(f"Unknown phase: {self.phase}")
+
+    def _process_movement_phase(self) -> None:
+        # Existing movement logic (from process_turn)
         # DEBUG: Print units before normalization
         print("DEBUG: UNITS BEFORE NORMALIZATION:")
         for power, p in self.powers.items():
@@ -364,6 +392,36 @@ class Game:
                 # Ensure disrupted unit is not considered dislodged and is preserved in place
                 # (handled by the next block that preserves units not in successful_moves or dislodged_units)
 
+        # Detect dislodged units and valid retreat options
+        pending_retreats: Dict[str, List[Dict[str, Any]]] = {}
+        for unit in dislodged_units:
+            power = unit_to_power.get(unit)
+            if not power:
+                continue
+            # Find valid retreat options for this unit
+            unit_type, current_location = unit.split()
+            # Valid retreats: any adjacent province that is unoccupied and not the origin of an attack
+            adjacents = self.map.get_adjacency(current_location)
+            occupied = {u.split()[-1] for u in unit_positions}
+            attack_origins = {move_unit.split()[-1] for move_unit in moves}
+            valid_retreats = [prov for prov in adjacents if prov not in occupied and prov not in attack_origins]
+            if power not in pending_retreats:
+                pending_retreats[power] = []
+            pending_retreats[power].append({
+                "unit": unit,
+                "from": current_location,
+                "options": valid_retreats,
+            })
+
+        if any(pending_retreats.values()):
+            self.phase = "retreat"
+            self.pending_retreats = pending_retreats
+        else:
+            # No retreats needed, go to adjustment or next movement
+            self.phase = "adjustment"
+            self.pending_retreats = {}
+            self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
+
         # 6. Update unit positions
         preserve_units: set[tuple[str, str]] = set()
         for move_unit, defend_unit in prohibited_moves:
@@ -438,6 +496,61 @@ class Game:
         # for pname, power in self.powers.items():
         #     print(f"DEBUG: {pname} units after update:", power.units)
 
+        # STUB: After movement, transition to retreat phase
+        # self.phase = "retreat" # This line is now handled by the new_successful_moves check
+        # self.pending_retreats = {} # This line is now handled by the new_successful_moves check
+
+    def _process_retreat_phase(self) -> None:
+        # Process retreat/disband orders for each dislodged unit
+        # self.pending_retreats: Dict[power, List[{unit, from, options}]]
+        for power, retreats in self.pending_retreats.items():
+            orders = self.orders.get(power, [])
+            handled_units = set()
+            for retreat_info in retreats:
+                unit = retreat_info["unit"]
+                options = set(retreat_info["options"])
+                # Find the submitted order for this unit
+                order_found = False
+                for order_str in orders:
+                    # Retreat order: e.g., 'A PAR R BUR' or 'A PAR D'
+                    tokens = order_str.split()
+                    if len(tokens) < 3:
+                        continue
+                    if tokens[0] != unit.split()[0] or tokens[1] != unit.split()[1]:
+                        continue
+                    if tokens[2] == "R" and len(tokens) == 4:
+                        # Retreat order
+                        dest = tokens[3]
+                        if dest in options:
+                            # Move unit to retreat destination
+                            self.powers[power].units.discard(unit)
+                            self.powers[power].units.add(f"{unit.split()[0]} {dest}")
+                            order_found = True
+                            handled_units.add(unit)
+                            break
+                    elif tokens[2] == "D":
+                        # Disband order
+                        self.powers[power].units.discard(unit)
+                        order_found = True
+                        handled_units.add(unit)
+                        break
+                if not order_found:
+                    # Forced disband if no valid retreat submitted
+                    self.powers[power].units.discard(unit)
+        # After all retreats, clear pending_retreats and orders, go to adjustment phase
+        self.pending_retreats = {}
+        self.orders = {}
+        self.phase = "adjustment"
+        self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
+
+    def _process_adjustment_phase(self) -> None:
+        # STUB: Process build/disband orders
+        # TODO: Implement adjustment order processing
+        # After adjustments, increment turn and return to movement phase
+        self.turn += 1
+        self.phase = "movement"
+        self.orders = {}
+
     def get_state(self) -> Dict[str, Any]:
         # Compose a richer state dictionary for server_spec compliance
         units = {power: list(p.units) for power, p in self.powers.items()}
@@ -445,7 +558,7 @@ class Game:
         orders: Dict[str, List[str]] = dict(self.orders) if self.orders else {}
         return {
             "game_id": getattr(self, "game_id", None),
-            "phase": f"Turn {self.turn}",
+            "phase": self.phase,
             "players": list(self.powers.keys()),
             "units": units,
             "orders": orders,
@@ -456,6 +569,8 @@ class Game:
             "powers": list(self.powers.keys()),  # always a list, but tests expect dict sometimes
             "done": self.done,
             "map_obj": self.map,
+            "pending_retreats": self.pending_retreats,
+            "pending_adjustments": self.pending_adjustments,
         }
 
     def is_game_done(self) -> bool:

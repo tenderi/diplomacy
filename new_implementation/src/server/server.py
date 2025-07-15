@@ -100,8 +100,8 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for PROCESS_TURN")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                game.process_turn()
-                self.logger.info(f"Processed turn for game {game_id}")
+                game.process_phase()
+                self.logger.info(f"Processed phase for game {game_id}")
                 return {"status": "ok"}
             elif cmd == "GET_GAME_STATE":
                 if len(tokens) < 2:
@@ -174,8 +174,8 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for ADVANCE_PHASE")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                # Advance the phase by processing the current turn
-                game.process_turn()
+                # Advance the phase by processing the current phase
+                game.process_phase()
                 self.logger.info(f"Advanced phase for game {game_id}")
                 return {"status": "ok"}
             else:

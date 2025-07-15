@@ -39,7 +39,7 @@ def debug_convoy():
     game.set_orders("FRANCE", ["FRANCE A BEL H"])
     
     print("\n=== Processing Turn ===")
-    game.process_turn()
+    game.process_phase()
     
     print("\n=== Game State After ===")
     for power, p in game.powers.items():

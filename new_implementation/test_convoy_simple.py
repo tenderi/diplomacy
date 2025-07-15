@@ -23,7 +23,7 @@ try:
     print("Orders set")
     
     print("Processing turn...")
-    game.process_turn()
+    game.process_phase()
     print("Turn processed")
     
     print('ENGLAND units:', game.powers['ENGLAND'].units)

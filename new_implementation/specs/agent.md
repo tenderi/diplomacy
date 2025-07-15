@@ -21,7 +21,7 @@
 
 1. Your task is to implement missing server functionality and produce an working server in python language
 
-2. After implementing functionality or resolving problems, use a subagent to run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard.
+2. After implementing functionality or resolving problems, use a subagent to run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. The tests are defined in /new_implementation/testing_and_validation.md.
 
 2. When you discover a parser, lexer, control flow or LLVM issue. Immediately update @fix_plan.md using a subagent with your findings. When the issue is resolved, update @fix_plan.md using a subagent and remove the item.
 

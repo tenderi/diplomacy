@@ -188,8 +188,8 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
 
 @app.post("/games/process_turn")
 def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
-    """Process the current turn for a game and update the database state."""
-    result = server.process_command(f"PROCESS_TURN {req.game_id}")
+    """Advance the current phase for a game and update the database state (was previously 'process turn')."""
+    result = server.process_command(f"PROCESS_TURN {req.game_id}")  # Now advances the phase, not just the turn
     if result.get("status") != "ok":
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
     db: Session = SessionLocal()

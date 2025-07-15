@@ -44,6 +44,7 @@
 - [x] **Notification system** *(complete)*
   - Telegram notifications are now sent for all major game events: player join, quit, game start, game end, order errors, private messages, and broadcast messages. The system is robust, integrated with the scheduler, and all tests pass.
 - [x] **REMOVE_PLAYER command** - Implemented in server.py and covered by advanced server tests as of July 2025. All REMOVE_PLAYER test cases pass.
+- [x] Refactor server and API to use process_phase instead of process_turn; update tests for multi-phase logic (COMPLETE, all tests pass, robust to phase/turn logic)
 
 ### 3. Advanced Game Features
 - [ ] **Multiple game phases** - Retreat and adjustment phases (currently only movement)
