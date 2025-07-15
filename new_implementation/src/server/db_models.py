@@ -50,3 +50,12 @@ class MessageModel(Base):
     recipient_power = Column(String, nullable=True)  # Null for broadcast
     text = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+class GameHistoryModel(Base):
+    __tablename__ = "game_history"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
+    turn = Column(Integer, nullable=False)
+    phase = Column(String, nullable=False)
+    state = Column(JSON, nullable=False)  # Serialized game state snapshot
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
