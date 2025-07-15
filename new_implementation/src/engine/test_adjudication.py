@@ -175,27 +175,56 @@ def test_complex_convoy_disruption():
     assert "F TYS" in game.powers["ITALY"].units    # Italian fleet moved in
     assert "F ION" not in game.powers["ITALY"].units  # Italian fleet moved out
 
-def test_circular_movement():
-    """Test circular movement between three units"""
+def test_circular_movement_fleet():
+    """Test circular movement between three fleets in adjacent sea/coastal provinces"""
     game = Game()
     game.add_player("ENGLAND")
-    game.powers["ENGLAND"].units = {"A HOL", "F BEL", "F NTH"}  # Set proper unit types
-    
-    # Three units move in a circle
+    # Use three adjacent coastal/sea provinces: HOL, HEL, NTH
+    game.powers["ENGLAND"].units = {"F HOL", "F HEL", "F NTH"}
     game.set_orders("ENGLAND", [
-        "ENGLAND A HOL - BEL",
-        "ENGLAND F BEL - NTH",
+        "ENGLAND F HOL - HEL",
+        "ENGLAND F HEL - NTH",
         "ENGLAND F NTH - HOL"
     ])
-    
     game.process_turn()
-    
-    # All units should move successfully in circle
-    assert "A BEL" in game.powers["ENGLAND"].units  # Army moved
-    assert "F NTH" in game.powers["ENGLAND"].units  # Fleet 1 moved
-    assert "F HOL" in game.powers["ENGLAND"].units  # Fleet 2 moved
-    # Check original positions are vacated
-    assert len(game.powers["ENGLAND"].units) == 3  # All three units
+    assert "F HEL" in game.powers["ENGLAND"].units
+    assert "F NTH" in game.powers["ENGLAND"].units
+    assert "F HOL" in game.powers["ENGLAND"].units
+    assert len(game.powers["ENGLAND"].units) == 3
+
+def test_circular_movement_army():
+    """Test circular movement between three armies in adjacent land provinces"""
+    game = Game()
+    game.add_player("ENGLAND")
+    # Use three adjacent land provinces: HOL, BEL, RUH
+    game.powers["ENGLAND"].units = {"A HOL", "A BEL", "A RUH"}
+    game.set_orders("ENGLAND", [
+        "ENGLAND A HOL - BEL",
+        "ENGLAND A BEL - RUH",
+        "ENGLAND A RUH - HOL"
+    ])
+    game.process_turn()
+    assert "A BEL" in game.powers["ENGLAND"].units
+    assert "A RUH" in game.powers["ENGLAND"].units
+    assert "A HOL" in game.powers["ENGLAND"].units
+    assert len(game.powers["ENGLAND"].units) == 3
+
+def test_army_and_fleet_invalid_moves():
+    """Test that armies cannot move to ocean spaces and fleets cannot move to land-locked provinces"""
+    game = Game()
+    game.add_player("ENGLAND")
+    # Army in LON, Fleet in NTH
+    game.powers["ENGLAND"].units = {"A LON", "F NTH"}
+    # Try to move army to NTH (ocean), and fleet to LON (land)
+    game.set_orders("ENGLAND", [
+        "ENGLAND A LON - NTH",
+        "ENGLAND F NTH - LON"
+    ])
+    game.process_turn()
+    # Both units should remain in place
+    assert "A LON" in game.powers["ENGLAND"].units
+    assert "F NTH" in game.powers["ENGLAND"].units
+    assert len(game.powers["ENGLAND"].units) == 2
 
 def test_self_dislodgement_prohibited():
     """Test that a power cannot dislodge its own unit (self-dislodgement prohibited)."""

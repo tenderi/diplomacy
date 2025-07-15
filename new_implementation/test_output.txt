@@ -1,19 +1,164 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0
-rootdir: /home/helge/diplomacy/new_implementation
+platform linux -- Python 3.13.5, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/helgejalonen/diplomacy
 plugins: anyio-4.9.0
-collected 56 items
+collected 31 items
 
-src/engine/test_adjudication.py ..........                               [ 17%]
-src/engine/test_game.py .                                                [ 19%]
-src/engine/test_game_module.py .                                         [ 21%]
-src/engine/test_integration.py ...                                       [ 26%]
-src/engine/test_map_and_power.py .......                                 [ 39%]
-src/engine/test_order.py ..                                              [ 42%]
-src/server/test_api_scheduler.py ..                                      [ 46%]
-src/server/test_daide_protocol.py ......                                 [ 57%]
-src/server/test_server.py ........                                       [ 71%]
-src/server/test_server_advanced.py ..............                        [ 96%]
-src/tests/test_client.py ..                                              [100%]
+new_implementation/src/server/test_api_scheduler.py ..   collected 59 items
 
-============================== 56 passed in 1.12s ==============================
+src/engine/test_adjudication.py::test_support_cut PASSED  ....              [ 25%]
+new_implementation/src/server/test_server.py ........                    [ 51%]
+new_implementation/src/server/test_server_advanced.py ...............    [100%]
+
+============================== 31 passed in 2.09s ==============================
+ngine/test_adjudication.py::test_beleaguered_garrison PASSED        [  8%]
+src/engine/test_adjudication.py::test_support_cut_by_dislodgement PASSED [ 10%]
+src/engine/test_adjudication.py::test_self_standoff PASSED               [ 11%]
+src/engine/test_adjudication.py::test_complex_convoy_disruption PASSED   [ 13%]
+src/engine/test_adjudication.py::test_circular_movement_fleet PASSED     [ 15%]
+src/engine/test_adjudication.py::test_circular_movement_army PASSED      [ 16%]
+src/engine/test_adjudication.py::test_army_and_fleet_invalid_moves PASSED [ 18%]
+src/engine/test_adjudication.py::test_self_dislodgement_prohibited PASSED [ 20%]
+src/engine/test_game.py::test_game_instantiation PASSED                  [ 22%]
+src/engine/test_game_module.py::test_game_instantiation PASSED           [ 23%]
+src/engine/test_integration.py::test_variant_map_loading_and_play PASSED [ 25%]
+src/engine/test_integration.py::test_self_dislodgement_multi_power PASSED [ 27%]
+src/engine/test_integration.py::test_order_validation_edge_cases PASSED  [ 28%]
+src/engine/test_map_and_power.py::test_map_provinces PASSED              [ 30%]
+src/engine/test_map_and_power.py::test_supply_centers PASSED             [ 32%]
+src/engine/test_map_and_power.py::test_power_init PASSED                 [ 33%]
+src/engine/test_map_and_power.py::test_power_gain_lose_center PASSED     [ 35%]
+src/engine/test_map_and_power.py::test_get_locations_and_adjacency PASSED [ 37%]
+src/engine/test_map_and_power.py::test_map_edge_cases PASSED             [ 38%]
+src/engine/test_map_and_power.py::test_variant_map_integration PASSED    [ 40%]
+src/engine/test_order.py::test_order_parse PASSED                        [ 42%]
+src/engine/test_order.py::test_order_validate PASSED                     [ 44%]
+src/server/test_api_scheduler.py::test_scheduler_status PASSED           [ 45%]
+src/server/test_api_scheduler.py::test_deadline_endpoints PASSED         [ 47%]
+src/server/test_daide_protocol.py::test_daide_server_echo PASSED         [ 49%]
+src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player FAILED [ 50%]
+src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders FAILED [ 52%]
+src/server/test_daide_protocol.py::test_daide_server_negotiation_messages FAILED [ 54%]
+src/server/test_daide_protocol.py::test_daide_server_invalid_ord_context PASSED [ 55%]
+src/server/test_daide_protocol.py::test_daide_server_invalid_message FAILED [ 57%]
+src/server/test_server.py::test_server_initialization PASSED             [ 59%]
+src/server/test_server.py::test_server_accepts_commands PASSED           [ 61%]
+src/server/test_server.py::test_server_create_and_query_game PASSED      [ 62%]
+src/server/test_server.py::test_server_add_player_and_set_orders PASSED  [ 64%]
+src/server/test_server.py::test_server_process_turn_and_game_done PASSED [ 66%]
+src/server/test_server.py::test_server_invalid_command PASSED            [ 67%]
+src/server/test_server.py::test_server_missing_arguments PASSED          [ 69%]
+src/server/test_server.py::test_server_save_and_load_game PASSED         [ 71%]
+src/server/test_server_advanced.py::test_multiple_concurrent_games PASSED [ 72%]
+src/server/test_server_advanced.py::test_game_isolation_with_orders PASSED [ 74%]
+src/server/test_server_advanced.py::test_remove_player_command PASSED    [ 76%]
+src/server/test_server_advanced.py::test_remove_player_error_cases PASSED [ 77%]
+src/server/test_server_advanced.py::test_advance_phase_command PASSED    [ 79%]
+src/server/test_server_advanced.py::test_advance_phase_error_cases PASSED [ 81%]
+src/server/test_server_advanced.py::test_game_state_isolation PASSED     [ 83%]
+src/server/test_server_advanced.py::test_concurrent_game_limit PASSED    [ 84%]
+src/server/test_server_advanced.py::test_save_load_with_multiple_games PASSED [ 86%]
+src/server/test_server_advanced.py::test_remove_last_player PASSED       [ 88%]
+src/server/test_server_advanced.py::test_remove_player_with_pending_state PASSED [ 89%]
+src/server/test_server_advanced.py::test_remove_player_twice PASSED      [ 91%]
+src/server/test_server_advanced.py::test_advance_phase_with_no_players PASSED [ 93%]
+src/server/test_server_advanced.py::test_advance_phase_with_no_orders PASSED [ 94%]
+src/server/test_server_advanced.py::test_order_history_and_clearing PASSED [ 96%]
+src/tests/test_client.py::test_client_server_interaction PASSED          [ 98%]
+src/tests/test_client.py::test_client_error_handling PASSED              [100%]
+
+=================================== FAILURES ===================================
+________________ test_daide_server_hlo_creates_game_and_player _________________
+
+    def test_daide_server_hlo_creates_game_and_player() -> None:
+        """Test that DAIDE server handles HLO (POWER) by creating a game and adding the player."""
+        server = Server()
+        daide_server = DAIDEServer(server, host="127.0.0.1", port=9001)
+>       daide_server.start()
+
+src/server/test_daide_protocol.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <server.daide_protocol.DAIDEServer object at 0x7ff1de3c4410>
+
+    def start(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+>       self.sock.bind((self.host, self.port))
+E       OSError: [Errno 98] Address already in use
+
+src/server/daide_protocol.py:21: OSError
+------------------------------ Captured log call -------------------------------
+INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
+______________________ test_daide_server_ord_sets_orders _______________________
+
+    def test_daide_server_ord_sets_orders() -> None:
+        """Test that DAIDE server handles ORD (order submission) after HLO."""
+        server = Server()
+        daide_server = DAIDEServer(server, host="127.0.0.1", port=9002)
+>       daide_server.start()
+
+src/server/test_daide_protocol.py:57: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <server.daide_protocol.DAIDEServer object at 0x7ff1dee0b890>
+
+    def start(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+>       self.sock.bind((self.host, self.port))
+E       OSError: [Errno 98] Address already in use
+
+src/server/daide_protocol.py:21: OSError
+------------------------------ Captured log call -------------------------------
+INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
+____________________ test_daide_server_negotiation_messages ____________________
+
+    def test_daide_server_negotiation_messages() -> None:
+        """Test that DAIDE server handles PRP, REJ, ACC negotiation messages."""
+        server = Server()
+        daide_server = DAIDEServer(server, host="127.0.0.1", port=9003)
+>       daide_server.start()
+
+src/server/test_daide_protocol.py:86: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <server.daide_protocol.DAIDEServer object at 0x7ff1de399f30>
+
+    def start(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+>       self.sock.bind((self.host, self.port))
+E       OSError: [Errno 98] Address already in use
+
+src/server/daide_protocol.py:21: OSError
+------------------------------ Captured log call -------------------------------
+INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
+______________________ test_daide_server_invalid_message _______________________
+
+    def test_daide_server_invalid_message() -> None:
+        """Test that DAIDE server returns echo for unknown/invalid DAIDE messages."""
+        server = Server()
+        daide_server = DAIDEServer(server, host="127.0.0.1", port=9005)
+>       daide_server.start()
+
+src/server/test_daide_protocol.py:131: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <server.daide_protocol.DAIDEServer object at 0x7ff1de352450>
+
+    def start(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+>       self.sock.bind((self.host, self.port))
+E       OSError: [Errno 98] Address already in use
+
+src/server/daide_protocol.py:21: OSError
+------------------------------ Captured log call -------------------------------
+INFO     diplomacy.server:server.py:21 Diplomacy server starting up.
+=========================== short test summary info ============================
+FAILED src/server/test_daide_protocol.py::test_daide_server_hlo_creates_game_and_player
+FAILED src/server/test_daide_protocol.py::test_daide_server_ord_sets_orders
+FAILED src/server/test_daide_protocol.py::test_daide_server_negotiation_messages
+FAILED src/server/test_daide_protocol.py::test_daide_server_invalid_message
+========================= 4 failed, 55 passed in 2.30s =========================

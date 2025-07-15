@@ -89,6 +89,14 @@ class OrderParser:
                         
                         if not has_convoy_support:
                             return False, f"Cannot move from '{unit_location}' to '{target_location}' - not adjacent and no convoy support."
+                # --- NEW: Check unit type vs province type ---
+                target_prov = map_obj.get_province(target_location)
+                if target_prov:
+                    if unit_type == 'A' and target_prov.type == 'water':
+                        return False, f"Army cannot move to water province '{target_location}'."
+                    if unit_type == 'F' and target_prov.type == 'land':
+                        return False, f"Fleet cannot move to land province '{target_location}'."
+                # Fleets can move to 'water' or 'coast', armies to 'land' or 'coast'.
         # Support validation
         if order.action == 'S':
             if not order.target:
