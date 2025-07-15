@@ -49,7 +49,7 @@
 ### 3. Advanced Game Features
 - [x] **Multiple game phases** - Retreat and adjustment phases (now fully implemented and tested)
 - [x] **Victory conditions** - Proper game ending with winner determination (implemented and tested July 2025)
-- [ ] **Game variants** - Support for additional map variants beyond standard
+- [x] **Game variants** - Support for additional map variants beyond standard (implemented and tested July 2025)
 - [ ] **Observer mode** - Spectator functionality for watching games
 - [ ] **Game replay system** - Historical game state viewing and analysis
 
@@ -88,6 +88,7 @@
 - Board Visualization: `/map <game_id>` command implemented in the Telegram bot. Generates and sends a board image using the new rendering utility. Fully integrated with engine and server.
 - Multiple game phases: Movement, retreat, and adjustment phases fully supported in engine and server. All tests pass.
 - Victory conditions: Game now ends when a power controls 18 supply centers (standard map). Winner is recorded and exposed in game state. Fully tested.
+- Game variants: Map variant support for game creation, play, and visualization is fully implemented and tested. Telegram bot and API both support variants.
 
 ## [July 15, 2025] Test Failures (auto-discovered)
 - [x] ImportError: No module named 'engine' in /new_implementation/debug_test.py and /new_implementation/src/engine/game.py. Fixed by using relative imports and correct test invocation.

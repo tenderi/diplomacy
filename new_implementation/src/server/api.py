@@ -84,7 +84,7 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         # Now create the game in the in-memory server with the same game_id
         if game_id not in server.games:
             from engine.game import Game
-            g = Game()
+            g = Game(map_name=req.map_name)
             setattr(g, "game_id", game_id)
             server.games[game_id] = g
         return {"game_id": game_id}

@@ -316,7 +316,10 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text(f"Game {game_id} not found or no units present.")
             return
         units = game_state["units"]  # {power: ["A PAR", "F LON", ...]}
-        svg_path = "new_implementation/maps/standard.svg"
+        map_name = game_state.get("map", "standard")
+        svg_path = f"new_implementation/maps/{map_name}.svg"
+        if not os.path.isfile(svg_path):
+            svg_path = "new_implementation/maps/standard.svg"
         try:
             img_bytes = Map.render_board_png(svg_path, units)
         except Exception as e:
