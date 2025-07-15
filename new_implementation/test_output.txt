@@ -65,3 +65,5 @@ src/server/test_server_advanced.py::test_order_history_and_clearing PASSED [ 95%
 src/server/test_server_advanced.py::test_persistent_user_registration_and_multi_game PASSED [ 96%]
 src/tests/test_client.py::test_client_server_interaction PASSED          [ 98%]
 src/tests/test_client.py::test_client_error_handling PASSED              [100%]
+
+============================== 60 passed in 3.05s ==============================

@@ -323,7 +323,7 @@ def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[st
         game = db.query(GameModel).filter_by(id=int(game_id)).first()
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
-        setattr(game, 'deadline', req.deadline)
+        setattr(game, 'deadline', req.deadline)  # type: ignore
         db.commit()
         deadline_value = getattr(game, 'deadline', None)
         return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
@@ -367,7 +367,7 @@ async def deadline_scheduler() -> None:
         db: Session = SessionLocal()
         try:
             now = datetime.now(timezone.utc)
-            games = db.query(GameModel).filter(GameModel.deadline is not None, GameModel.is_active).all()
+            games = db.query(GameModel).filter(GameModel.deadline is not None, GameModel.is_active).all()  # type: ignore
             for game in games:
                 deadline = game.deadline
                 game_id = int(game.id)
@@ -581,9 +581,9 @@ def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[s
             player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
             if player:
                 power = player.power
-                query = query.filter(or_(MessageModel.recipient_power is None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id))
+                query = query.filter(or_(MessageModel.recipient_power is None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id))  # type: ignore
             else:
-                query = query.filter(MessageModel.recipient_power is None)  # Only broadcasts
+                query = query.filter(MessageModel.recipient_power is None)  # Only broadcasts  # type: ignore
         messages = query.order_by(MessageModel.timestamp.asc()).all()
         result = [
             {
