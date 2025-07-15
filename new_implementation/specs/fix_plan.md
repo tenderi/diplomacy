@@ -9,7 +9,6 @@
 - [ ] **Automated game creation** - Bot-initiated games when enough players join
 - [ ] **Turn deadline enforcement** - Automatic processing when deadlines expire (ensure reliability and notification)
 - [ ] **Player replacement system** - Handle disconnected/inactive players
-- [ ] **Tournament management** - Multi-game tournament coordination via bot
 
 ### 2. Infrastructure & DevOps
 - [ ] **Production deployment** - Docker containerization and deployment scripts
