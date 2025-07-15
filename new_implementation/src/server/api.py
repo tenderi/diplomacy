@@ -206,6 +206,14 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
                 game.state = state  # type: ignore  # SQLAlchemy dynamic attribute, Pyright false positive
             except Exception as e:
                 print(f"DEBUG: process_turn: failed to assign game.state: {e}")
+            # --- Save game state snapshot to history ---
+            from .db_models import GameHistoryModel
+            db.add(GameHistoryModel(
+                game_id=int(req.game_id),
+                turn=state.get("turn", 0),
+                phase=state.get("phase", "unknown"),
+                state=state
+            ))
         db.commit()
         # --- Game end notification ---
         try:
@@ -717,6 +725,19 @@ def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[s
             for m in messages
         ]
         return {"messages": result}
+    finally:
+        db.close()
+
+@app.get("/games/{game_id}/history/{turn}")
+def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
+    """Get the game state snapshot for a specific turn."""
+    db: Session = SessionLocal()
+    try:
+        from .db_models import GameHistoryModel
+        snapshot = db.query(GameHistoryModel).filter_by(game_id=game_id, turn=turn).order_by(GameHistoryModel.id.desc()).first()
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="No game state found for this turn.")
+        return {"game_id": game_id, "turn": turn, "phase": snapshot.phase, "state": snapshot.state}
     finally:
         db.close()
 

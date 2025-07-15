@@ -329,6 +329,38 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
 
+async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Replay command failed: No user context.")
+        return
+    args = context.args if context.args is not None else []
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /replay <game_id> <turn>")
+        return
+    game_id, turn = args[0], args[1]
+    try:
+        # Fetch game state snapshot for the specified turn
+        result = api_get(f"/games/{game_id}/history/{turn}")
+        state = result.get("state")
+        if not state or "units" not in state:
+            await update.message.reply_text(f"No board state found for game {game_id} turn {turn}.")
+            return
+        units = state["units"]
+        map_name = state.get("map", "standard")
+        svg_path = f"new_implementation/maps/{map_name}.svg"
+        if not os.path.isfile(svg_path):
+            svg_path = "new_implementation/maps/standard.svg"
+        try:
+            img_bytes = Map.render_board_png(svg_path, units)
+        except Exception as e:
+            await update.message.reply_text(f"Error rendering map: {e}")
+            return
+        await update.message.reply_photo(photo=BytesIO(img_bytes), caption=f"Board for game {game_id}, turn {turn}")
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+
 # --- FastAPI notification endpoint ---
 fastapi_app = FastAPI()
 
@@ -367,6 +399,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("messages", messages))
     app.add_handler(CommandHandler("map", map_command))
+    app.add_handler(CommandHandler("replay", replay))
 
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app
