@@ -1,0 +1,30 @@
+{
+  "family": "diplomacy-app-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "diplomacy",
+      "image": "DOCKERHUB_USERNAME/diplomacy:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8000, "hostPort": 8000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "SQLALCHEMY_DATABASE_URL", "value": "postgresql+psycopg2://diplomacy:diplomacy@YOUR_RDS_ENDPOINT:5432/diplomacy" },
+        { "name": "TELEGRAM_BOT_TOKEN", "value": "YOUR_TELEGRAM_BOT_TOKEN" },
+        { "name": "DIPLOMACY_API_URL", "value": "http://localhost:8000" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/diplomacy-app",
+          "awslogs-region": "YOUR_AWS_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+} 
