@@ -104,6 +104,14 @@
 - Production deployment with monitoring
 - Performance optimization and scaling
 
+## [DONE] Deadline-based turn processing (background scheduler)
+- Implemented deadline-based turn processing using FastAPI's modern lifespan API for background tasks.
+- Removed all fallback and threading-based code; only lifespan API is supported.
+- Added `/scheduler/status` endpoint to verify scheduler is running.
+- Documented the scheduler and all related endpoints with clear docstrings.
+- Added `test_api_scheduler.py` to test the scheduler status and deadline endpoints; all tests pass.
+- Code is strict-typed, Ruff-compliant, and follows best practices.
+
 ## Notes
 - ✅ All core engine functionality is complete and tested
 - 🤖 Telegram bot provides accessible, mobile-friendly interface
