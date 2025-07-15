@@ -2,6 +2,8 @@ from typing import Dict, List, Any
 from .map import Map
 from .power import Power
 from .order import OrderParser, Order
+import logging
+from collections import deque
 
 class Game:
     """Main class for managing the game state, phases, and turn processing."""
@@ -544,12 +546,109 @@ class Game:
         self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
 
     def _process_adjustment_phase(self) -> None:
-        # STUB: Process build/disband orders
-        # TODO: Implement adjustment order processing
-        # After adjustments, increment turn and return to movement phase
-        self.turn += 1
-        self.phase = "movement"
+        """
+        Process build/disband orders for each power according to supply center control.
+        - Calculate builds/disbands needed for each power.
+        - Accept and process submitted build/disband orders.
+        - Enforce build/disband rules.
+        - Transition to movement phase and increment turn.
+        """
+        logger = logging.getLogger("diplomacy.engine.adjustment")
+        # 1. Calculate supply center counts and unit counts
+        supply_centers = self.map.get_supply_centers()
+        province_to_power: Dict[str, str] = {}
+        for power, p in self.powers.items():
+            for prov in p.units:
+                if prov.split()[-1] in supply_centers:
+                    province_to_power[prov.split()[-1]] = power
+        for power, p in self.powers.items():
+            p.controlled_centers = set()
+        for prov, power in province_to_power.items():
+            self.powers[power].gain_center(prov)
+        # 2. Determine builds/disbands needed
+        pending_adjustments: Dict[str, Dict[str, Any]] = {}
+        for power, p in self.powers.items():
+            num_centers = len(p.controlled_centers)
+            num_units = len(p.units)
+            home_centers = set(p.home_centers)
+            # Only allow builds in unoccupied, controlled home centers
+            buildable = [prov for prov in home_centers if prov in p.controlled_centers and all(prov != u.split()[-1] for u in p.units)]
+            if num_centers > num_units:
+                pending_adjustments[power] = {"type": "build", "count": num_centers - num_units, "options": buildable}
+            elif num_units > num_centers:
+                # Disband: must remove units
+                pending_adjustments[power] = {"type": "disband", "count": num_units - num_centers, "options": list(p.units)}
+            else:
+                # No adjustment needed
+                continue
+        self.pending_adjustments = pending_adjustments
+        # 3. Process submitted build/disband orders
+        for power, adj in pending_adjustments.items():
+            orders = self.orders.get(power, [])
+            handled = 0
+            if adj["type"] == "build":
+                for order_str in orders:
+                    # Format: 'BUILD A PAR' or 'BUILD F LON'
+                    tokens = order_str.strip().split()
+                    if len(tokens) == 3 and tokens[0] == "BUILD" and tokens[2] in adj["options"]:
+                        unit_type = tokens[1]
+                        province = tokens[2]
+                        if unit_type in {"A", "F"} and province in adj["options"]:
+                            self.powers[power].units.add(f"{unit_type} {province}")
+                            handled += 1
+                            adj["options"].remove(province)
+                            if handled >= adj["count"]:
+                                break
+                # If not enough builds submitted, skip remaining
+            elif adj["type"] == "disband":
+                # Format: 'DISBAND A PAR' or 'DISBAND F LON'
+                disbanded = set()
+                for order_str in orders:
+                    tokens = order_str.strip().split()
+                    if len(tokens) == 3 and tokens[0] == "DISBAND" and tokens[2] in [u.split()[-1] for u in adj["options"]]:
+                        # Remove the specified unit
+                        for u in list(self.powers[power].units):
+                            if u.split()[-1] == tokens[2]:
+                                self.powers[power].units.remove(u)
+                                disbanded.add(u)
+                                handled += 1
+                                break
+                        if handled >= adj["count"]:
+                            break
+                # If not enough disbands submitted, remove by rules: farthest from home, then alpha
+                if handled < adj["count"]:
+                    # Compute distances from home for remaining units
+                    remaining = [u for u in self.powers[power].units if u not in disbanded]
+                    # Farthest from home: use BFS or simple heuristic (not optimal, but sufficient for now)
+                    def dist(prov):
+                        # Minimal distance from prov to any home center
+                        min_dist = float('inf')
+                        for home in p.home_centers:
+                            visited = set()
+                            queue = deque([(prov, 0)])
+                            while queue:
+                                curr, d = queue.popleft()
+                                if curr == home:
+                                    min_dist = min(min_dist, d)
+                                    break
+                                for adj in self.map.get_adjacency(curr):
+                                    if adj not in visited:
+                                        visited.add(adj)
+                                        queue.append((adj, d+1))
+                        return min_dist
+                    remaining.sort(key=lambda u: (-dist(u.split()[-1]), u.split()[-1]))
+                    for u in remaining:
+                        if handled >= adj["count"]:
+                            break
+                        self.powers[power].units.remove(u)
+                        handled += 1
+            # Log adjustment results
+            logger.info(f"Adjustment for {power}: {adj['type']} x{adj['count']}, handled: {handled}")
+        # 4. Clear orders and pending adjustments, transition to movement phase, increment turn
         self.orders = {}
+        self.pending_adjustments = {}
+        self.phase = "movement"
+        self.turn += 1
 
     def get_state(self) -> Dict[str, Any]:
         # Compose a richer state dictionary for server_spec compliance
