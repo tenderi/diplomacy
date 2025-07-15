@@ -1,0 +1,19 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/helge/diplomacy/new_implementation
+plugins: anyio-4.9.0
+collected 56 items
+
+src/engine/test_adjudication.py ..........                               [ 17%]
+src/engine/test_game.py .                                                [ 19%]
+src/engine/test_game_module.py .                                         [ 21%]
+src/engine/test_integration.py ...                                       [ 26%]
+src/engine/test_map_and_power.py .......                                 [ 39%]
+src/engine/test_order.py ..                                              [ 42%]
+src/server/test_api_scheduler.py ..                                      [ 46%]
+src/server/test_daide_protocol.py ......                                 [ 57%]
+src/server/test_server.py ........                                       [ 71%]
+src/server/test_server_advanced.py ..............                        [ 96%]
+src/tests/test_client.py ..                                              [100%]
+
+============================== 56 passed in 1.12s ==============================

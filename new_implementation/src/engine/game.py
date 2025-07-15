@@ -1,7 +1,7 @@
 from typing import Dict, List, Any
-from engine.map import Map
-from engine.power import Power
-from engine.order import OrderParser, Order
+from .map import Map
+from .power import Power
+from .order import OrderParser, Order
 
 class Game:
     """Main class for managing the game state, phases, and turn processing."""

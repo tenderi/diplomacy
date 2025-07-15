@@ -1,0 +1,8 @@
+# Diplomacy Python requirements (auto-generated July 2025)
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+pytest
+httpx
+psycopg2-binary
