@@ -41,7 +41,8 @@
 ### 2. Enhanced Server API
 - [x] **Game scheduling and deadlines** *(complete)*
   - Automated turn processing with timers is implemented via a robust background scheduler in the API. On startup, missed deadlines are processed immediately. Every 30 seconds, the scheduler checks all games with deadlines, processes overdue turns, and clears deadlines. Reminders are sent 10 minutes before deadlines, and notifications are sent to all players after turn processing. Comprehensive logging is in place. Tests exist for all major deadline scenarios, but some are skipped due to session isolation in the test environment; production code is correct.
-- [ ] **Notification system** - Push notifications via Telegram for game events
+- [x] **Notification system** *(complete)*
+  - Telegram notifications are now sent for all major game events: player join, quit, game start, game end, order errors, private messages, and broadcast messages. The system is robust, integrated with the scheduler, and all tests pass.
 - [x] **REMOVE_PLAYER command** - Implemented in server.py and covered by advanced server tests as of July 2025. All REMOVE_PLAYER test cases pass.
 
 ### 3. Advanced Game Features
@@ -85,6 +86,7 @@
 
 - Board Visualization: `/map <game_id>` command implemented in the Telegram bot. Generates and sends a board image using the new rendering utility. Fully integrated with engine and bot. All tests pass.
 - Game scheduling and deadlines: Automated turn processing with timers, reminders, and notifications fully implemented in the server. Robust background scheduler, logging, and tests (with some skipped due to test environment limitations; production code is correct).
+- Notification system: Telegram notifications for all major game events (player join, quit, game start, game end, order errors, private messages, broadcast messages) are implemented and tested. All tests pass and the system is robust.
 
 ## [July 15, 2025] Test Failures (auto-discovered)
 - [x] ImportError: No module named 'engine' in /new_implementation/debug_test.py and /new_implementation/src/engine/game.py. Fixed by using relative imports and correct test invocation.

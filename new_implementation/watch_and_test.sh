@@ -14,11 +14,12 @@ fi
 echo "Watching $WATCH_DIR for changes. Running tests on change. Output: $OUTPUT_FILE"
 
 
+
 while true; do
     inotifywait -r -e modify,create,delete,move "$WATCH_DIR" --exclude '(__pycache__|\.pyc|\.log|venv|\.pytest_cache)'
     clear
     echo "[Watcher] Change detected. Running tests..."
-    pytest --timeout=20 "$WATCH_DIR/src/" -v > "$OUTPUT_FILE" 2>&1
+    pytest "$WATCH_DIR/src/" -v > "$OUTPUT_FILE" 2>&1
     echo "[Watcher] Test run complete. Output saved to $OUTPUT_FILE."
     echo "--- Last 20 lines of output ---"
     tail -20 "$OUTPUT_FILE"

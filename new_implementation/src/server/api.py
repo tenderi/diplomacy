@@ -143,12 +143,26 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
         for order in req.orders:
             result = server.process_command(f"SET_ORDERS {req.game_id} {req.power} {order}")
             if result.get("status") == "ok":
-                if player:
+                if player is not None:
                     db.add(OrderModel(player_id=player.id, order_text=order, turn=turn))
                     print(f"DEBUG: set_orders: added order '{order}' for player_id {player.id} turn {turn}")
                 results.append({"order": order, "success": True, "error": None})
             else:
                 results.append({"order": order, "success": False, "error": result.get("error", "Order error")})
+                # --- Order error notification ---
+                try:
+                    user_id = getattr(player, "user_id", None)
+                    if player is not None and user_id is not None:
+                        user = db.query(UserModel).filter_by(id=user_id).first()
+                        telegram_id = getattr(user, "telegram_id", None) if user is not None else None
+                        if telegram_id is not None:
+                            requests.post(
+                                "http://localhost:8081/notify",
+                                json={"telegram_id": int(telegram_id), "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {result.get('error', 'Order error')}"},
+                                timeout=2,
+                            )
+                except Exception as e:
+                    scheduler_logger.error(f"Failed to notify order error: {e}")
         # Update game state in DB to reflect in-memory state
         if game and req.game_id in server.games:
             state = server.games[req.game_id].get_state()
@@ -181,7 +195,7 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
     db: Session = SessionLocal()
     try:
         game = db.query(GameModel).filter_by(id=int(req.game_id)).first()
-        if game and req.game_id in server.games:
+        if game is not None and req.game_id in server.games:
             state = server.games[req.game_id].get_state()
             if not isinstance(state, dict):
                 state = dict(state)
@@ -193,6 +207,12 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
             except Exception as e:
                 print(f"DEBUG: process_turn: failed to assign game.state: {e}")
         db.commit()
+        # --- Game end notification ---
+        try:
+            if game is not None and hasattr(game, "state") and game.state is not None and isinstance(game.state, dict) and game.state.get("done"):
+                notify_players(int(game.id), f"Game {game.id} has ended! Final state: {game.state}")  # type: ignore
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify game end: {e}")
         return {"status": "ok"}
     except SQLAlchemyError as e:
         db.rollback()
@@ -517,6 +537,33 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         db.add(player)
         db.commit()
         db.refresh(player)
+        # --- Notification logic ---
+        try:
+            requests.post(
+                "http://localhost:8081/notify",
+                json={"telegram_id": int(req.telegram_id), "message": f"You have joined game {game_id} as {req.power}."},
+                timeout=2,
+            )
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify joining player {req.telegram_id}: {e}")
+        try:
+            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify players of join event: {e}")
+        # --- Game start notification ---
+        try:
+            # Check if the game is now full (all required powers joined)
+            game = db.query(GameModel).filter_by(id=game_id).first()
+            # Use explicit comparison to avoid SQLAlchemy boolean column error
+            if game is not None and hasattr(game, "map_name") and (game.map_name == "standard"):
+                required_powers = 7  # Standard Diplomacy
+            else:
+                required_powers = 7  # Default fallback
+            player_count = db.query(PlayerModel).filter_by(game_id=game_id).count()
+            if player_count == required_powers:
+                notify_players(game_id, f"Game {game_id} is now full. The game has started! Good luck to all players.")
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify game start: {e}")
         return {"status": "ok", "player_id": player.id}
     except SQLAlchemyError as e:
         db.rollback()
@@ -540,6 +587,21 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
             return {"status": "not_in_game"}
         db.delete(player)
         db.commit()
+        # --- Notification logic ---
+        # Notify the quitting player
+        try:
+            requests.post(
+                "http://localhost:8081/notify",
+                json={"telegram_id": int(req.telegram_id), "message": f"You have quit game {game_id}."},
+                timeout=2,
+            )
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify quitting player {req.telegram_id}: {e}")
+        # Notify all other players in the game
+        try:
+            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has left game {game_id} (power {player.power}).")
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
     except SQLAlchemyError as e:
         db.rollback()
@@ -561,11 +623,12 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
             raise HTTPException(status_code=404, detail="Sender user not found")
         # Validate sender is in the game
         player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
-        if not player:
+        if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
         # Validate recipient power exists in game
-        if not req.recipient_power:
-            raise HTTPException(status_code=400, detail="Recipient power required for private message")
+        # Pyright/SQLAlchemy false positive: req.recipient_power is always a str or None from Pydantic
+        if req.recipient_power is None or req.recipient_power == "":  # type: ignore
+            raise HTTPException(status_code=400, detail="Recipient power required for private message")  # type: ignore
         recipient_player = db.query(PlayerModel).filter_by(game_id=game_id, power=req.recipient_power).first()
         if not recipient_player:
             raise HTTPException(status_code=404, detail="Recipient power not found in game")
@@ -573,6 +636,20 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
         db.add(msg)
         db.commit()
         db.refresh(msg)
+        # --- Private message notification ---
+        try:
+            recipient_user_id = getattr(recipient_player, "user_id", None)
+            if recipient_player is not None and recipient_user_id is not None:
+                recipient_user = db.query(UserModel).filter_by(id=recipient_user_id).first()
+                recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
+                if recipient_telegram_id is not None:
+                    requests.post(
+                        "http://localhost:8081/notify",
+                        json={"telegram_id": int(recipient_telegram_id), "message": f"New private message in game {game_id} from {user.full_name or user.telegram_id}: {req.text}"},
+                        timeout=2,
+                    )
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify private message: {e}")
         return {"status": "ok", "message_id": msg.id}
     except SQLAlchemyError as e:
         db.rollback()
@@ -599,6 +676,11 @@ def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str,
         db.add(msg)
         db.commit()
         db.refresh(msg)
+        # --- Broadcast message notification ---
+        try:
+            notify_players(game_id, f"Broadcast in game {game_id} from {user.full_name or user.telegram_id}: {req.text}")
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify broadcast message: {e}")
         return {"status": "ok", "message_id": msg.id}
     except SQLAlchemyError as e:
         db.rollback()
