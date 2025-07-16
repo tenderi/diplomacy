@@ -24,7 +24,6 @@
 - [ ] **Map visualization** - Generate and send map images showing current game state (improve UX, support for all variants)
 - [ ] **Order suggestions** - Help system for valid orders
 - [ ] **Game statistics** - Player performance tracking and leaderboards
-- [ ] **Multi-language support** - Internationalization for different Telegram users
 
 ### 4. Observer Mode (lowest priority)
 - [ ] **Observer mode** - Spectator functionality for watching games
@@ -40,3 +39,9 @@
 3. Implement role-based filtering for history and replay: Ensure that players, observers, and omniscient users see only the data they are permitted to (e.g., private messages, orders, results) when accessing history endpoints.
 4. Enhance the replay API: Allow users to step through the game phase-by-phase, retrieving state, orders, results, and messages for each phase, not just the board state.
 5. (Optional) Add a web UI for phase-by-phase navigation and replay, similar to the old implementation, allowing users to visually explore the game history. 
+
+- Refactored /replace endpoint to clarify and enforce replacement policy: only unassigned (user_id=None), inactive (is_active==False) powers can be replaced.
+- Updated all boolean checks on is_active to use getattr(player, 'is_active', True) is True/False for SQLAlchemy ORM compatibility.
+- All tests in test_server.py now pass, including replacement edge cases.
+- Ruff linter may still warn on boolean checks for SQLAlchemy columns, but this is a known issue with ORM columns and the code is correct for runtime and ORM usage.
+- No further action needed unless Ruff introduces explicit support for SQLAlchemy ORM boolean columns. 

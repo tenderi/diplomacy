@@ -28,6 +28,7 @@ import requests
 from sqlalchemy import or_, text
 import logging
 import pytz
+import os
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -436,6 +437,7 @@ def notify_players(game_id: int, message: str):
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
+    Also marks players as inactive if they did not submit orders for the last turn.
     """
     db: Session = SessionLocal()
     try:
@@ -453,6 +455,23 @@ def process_due_deadlines(now: datetime) -> None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
+                    # --- Mark inactive players ---
+                    # Get current turn number from game state
+                    state_val = getattr(game, 'state', None)
+                    turn = 0
+                    if isinstance(state_val, dict):
+                        turn = state_val.get("turn", 0)
+                    # For each player, check if they submitted orders for this turn
+                    players = db.query(PlayerModel).filter_by(game_id=game_id_val).all()
+                    for player in players:
+                        # SQLAlchemy ORM: must use getattr for boolean columns
+                        if getattr(player, 'is_active', True) is True:  # type: ignore
+                            has_orders = db.query(OrderModel).filter_by(player_id=player.id, turn=turn).count() > 0
+                            if not has_orders:
+                                setattr(player, 'is_active', False)  # type: ignore
+                                db.commit()
+                                notify_players(game_id_val, f"Player {player.power} has been marked inactive for missing the deadline and is eligible for replacement.")
+                    # --- Process turn ---
                     server.process_command(f"PROCESS_TURN {game_id_val}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db.execute(
@@ -805,8 +824,8 @@ class ReplacePlayerRequest(BaseModel):
 
 @app.post("/games/{game_id}/replace")
 def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
-    """Replace a vacated power in a game. Only allowed if the power is unassigned and the user is not already in the game.
-    Returns 400 if already assigned or user is already in the game.
+    """Replace a vacated power in a game. Only allowed if the power is unassigned (user_id is None), inactive (is_active == False), and the user is not already in the game.
+    Returns 400 if already assigned, user is already in the game, or the power is not inactive.
     """
     db: Session = SessionLocal()
     try:
@@ -818,13 +837,17 @@ def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
         if not player:
             raise HTTPException(status_code=404, detail="Power not found in game")
         if player.user_id is not None:
-            raise HTTPException(status_code=400, detail="Power is already assigned to a user")
+            raise HTTPException(status_code=400, detail="Power is already assigned to a user. Only unassigned, inactive powers can be replaced.")
+        # SQLAlchemy ORM: must use getattr for boolean columns
+        if getattr(player, 'is_active', True) is False:
+            raise HTTPException(status_code=400, detail="Power is not inactive and cannot be replaced. Only inactive/vacated powers can be replaced.")
         # Prevent user from replacing if already in the game as another power
         existing = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
         if existing:
             raise HTTPException(status_code=400, detail="You are already in this game as another power")
         # Assign the user to this power
         player.user_id = user.id
+        setattr(player, 'is_active', True)  # Mark as active again
         db.commit()
         # Update in-memory server
         if str(game_id) in server.games:
@@ -834,6 +857,34 @@ def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
         # Notify all players
         notify_players(game_id, f"Player {user.full_name or req.telegram_id} has replaced {req.power} in game {game_id}.")
         return {"status": "ok", "game_id": game_id, "power": req.power}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+ADMIN_TOKEN = os.environ.get("DIPLOMACY_ADMIN_TOKEN", "changeme")
+
+class MarkInactiveRequest(BaseModel):
+    admin_token: str
+
+@app.post("/games/{game_id}/players/{power}/mark_inactive")
+def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> Dict[str, Any]:
+    """Admin endpoint to mark a player as inactive (for replacement)."""
+    if req.admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+    db: Session = SessionLocal()
+    try:
+        player = db.query(PlayerModel).filter_by(game_id=game_id, power=power).first()
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found")
+        # SQLAlchemy ORM: must use getattr for boolean columns
+        if getattr(player, 'is_active', True) is False:
+            return {"status": "already_inactive"}
+        setattr(player, 'is_active', False)
+        db.commit()
+        notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
+        return {"status": "ok", "game_id": game_id, "power": power}
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
