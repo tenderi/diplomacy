@@ -29,5 +29,9 @@ resource "aws_iam_role" "github_actions" {
       }
     ]
   })
-  managed_policy_arns = [aws_iam_policy.github_actions_policy.arn]
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_policy" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_policy.arn
 } 
