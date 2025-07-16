@@ -18,6 +18,9 @@ class Game:
         self.pending_retreats: Dict[str, Any] = {}  # power -> list of dislodged units/retreat options
         self.pending_adjustments: Dict[str, Any] = {}  # power -> build/disband info
         self.winner: List[str] = []  # List of winning powers
+        # --- Adjudication result history ---
+        # {turn: {power: {"orders": [...], "results": {order: {"success": bool, "dest": str|None, "dislodged": bool}}}}}
+        self.order_history: Dict[int, Dict[str, Any]] = {}
 
     def add_player(self, power_name: str) -> None:
         if power_name not in self.powers:
@@ -490,6 +493,38 @@ class Game:
             if not p.controlled_centers:
                 p.is_alive = False
 
+        # At the end of adjudication, record results for history
+        turn_results: Dict[str, Any] = {}
+        for power, order_strs in self.orders.items():
+            power_results = {"orders": list(order_strs), "results": {}}
+            for order_str in order_strs:
+                try:
+                    if not order_str.startswith(power):
+                        full_order_str = f"{power} {order_str}"
+                    else:
+                        full_order_str = order_str
+                    order = OrderParser.parse(full_order_str)
+                    # Determine result for this order
+                    result = {"success": False, "dest": None, "dislodged": False}
+                    if order.action == '-' and order.unit in successful_moves and successful_moves[order.unit] == order.target:
+                        result["success"] = True
+                        result["dest"] = order.target
+                    elif order.action == 'H' and order.unit in unit_positions and order.unit not in dislodged_units:
+                        result["success"] = True
+                        result["dest"] = unit_positions[order.unit]
+                    elif order.action == 'S' or order.action == 'C':
+                        # Support/Convoy: success if not dislodged
+                        if order.unit in unit_positions and order.unit not in dislodged_units:
+                            result["success"] = True
+                            result["dest"] = unit_positions[order.unit]
+                    if order.unit in dislodged_units:
+                        result["dislodged"] = True
+                    power_results["results"][order_str] = result
+                except Exception:
+                    power_results["results"][order_str] = {"success": False, "dest": None, "dislodged": False}
+            turn_results[power] = power_results
+        # Store adjudication results for the current turn BEFORE clearing orders
+        self.order_history[self.turn] = turn_results
         # 4. Clear orders and increment turn
         self.orders = {}
         self.turn += 1
@@ -668,6 +703,8 @@ class Game:
         units = {power: list(p.units) for power, p in self.powers.items()}
         # Always return dict for orders, even if empty
         orders: Dict[str, List[str]] = dict(self.orders) if self.orders else {}
+        # Include latest adjudication results for the last completed turn (if present)
+        adjudication_results = self.order_history.get(self.turn - 1, {})
         return {
             "game_id": getattr(self, "game_id", None),
             "phase": self.phase,
@@ -684,6 +721,7 @@ class Game:
             "map_obj": self.map,
             "pending_retreats": self.pending_retreats,
             "pending_adjustments": self.pending_adjustments,
+            "adjudication_results": adjudication_results,
         }
 
     def is_game_done(self) -> bool:

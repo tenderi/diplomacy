@@ -106,3 +106,71 @@ def test_server_save_and_load_game(tmp_path):
     state = server.process_command(f"GET_GAME_STATE {game_id}")
     assert state["status"] == "ok"
     assert "FRANCE" in state["state"]["powers"]
+
+def test_replace_only_inactive_allowed():
+    from server.api import app, ADMIN_TOKEN
+    from server.db_session import SessionLocal
+    from server.db_models import PlayerModel, UserModel
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+    client = TestClient(app)
+    db = SessionLocal()
+    # Clean up orders, players, and users tables
+    db.execute(text('DELETE FROM orders'))
+    db.execute(text('DELETE FROM players'))
+    db.execute(text('DELETE FROM users'))
+    db.commit()
+    # Register two users
+    user1 = UserModel(telegram_id="u1", full_name="User1")
+    user2 = UserModel(telegram_id="u2", full_name="User2")
+    db.add(user1)
+    db.add(user2)
+    db.commit()
+    db.refresh(user1)
+    db.refresh(user2)
+    # Create game and add player (vacated, active)
+    resp = client.post("/games/create", json={"map_name": "standard"})
+    game_id = int(resp.json()["game_id"])
+    player = PlayerModel(game_id=game_id, power="FRANCE", user_id=None, is_active=True)
+    db.add(player)
+    db.commit()
+    # Try to replace active player (should fail)
+    resp = client.post(f"/games/{game_id}/replace", json={"telegram_id": "u2", "power": "FRANCE"})
+    assert resp.status_code == 400
+    assert "inactive" in resp.json()["detail"].lower() or "vacated" in resp.json()["detail"].lower() or "assigned" in resp.json()["detail"].lower()
+    # Mark player inactive (admin endpoint)
+    resp = client.post(f"/games/{game_id}/players/FRANCE/mark_inactive", json={"admin_token": ADMIN_TOKEN})
+    assert resp.status_code == 200
+    # Now replace should succeed
+    resp = client.post(f"/games/{game_id}/replace", json={"telegram_id": "u2", "power": "FRANCE"})
+    assert resp.status_code == 200
+    # Check player is now active and assigned to user2
+    db.refresh(player)
+    assert player.user_id == user2.id
+    assert getattr(player, 'is_active', True) is True
+    db.close()
+
+def test_adjudication_results_in_state():
+    """Test that adjudication results are included in the game state after a turn."""
+    from server.api import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    # Create a game and register a user
+    resp = client.post("/games/create", json={"map_name": "standard"})
+    game_id = int(resp.json()["game_id"])
+    client.post("/users/register", json={"telegram_id": "u1", "full_name": "User1"})
+    # Add player to the game (associate user with power)
+    client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
+    # Submit a valid order and process the turn
+    order = "FRANCE F BRE H"
+    client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1"})
+    client.post(f"/games/{game_id}/process_turn")
+    # Get the game state
+    resp = client.get(f"/games/{game_id}/state")
+    data = resp.json()
+    assert "adjudication_results" in data
+    results = data["adjudication_results"]
+    assert "FRANCE" in results
+    france_results = results["FRANCE"]
+    assert "orders" in france_results
+    assert "results" in france_results
