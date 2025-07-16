@@ -388,6 +388,38 @@ WAITING_LIST = []  # List of (telegram_id, full_name)
 WAITING_LIST_SIZE = 7  # Standard Diplomacy
 POWERS = ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"]
 
+def process_waiting_list(waiting_list, waiting_list_size, powers, notify_callback):
+    """
+    Process the waiting list: if enough players, create a game, assign powers, and notify users.
+    notify_callback(telegram_id, message) is called for each user.
+    Returns (game_id, assignments) if a game was created, else (None, None).
+    """
+    import random
+    if len(waiting_list) >= waiting_list_size:
+        players = waiting_list[:waiting_list_size]
+        random.shuffle(players)
+        assigned_powers = list(zip(players, powers))
+        # Create game
+        try:
+            game_resp = api_post("/games/create", {"map_name": "standard"})
+            game_id = game_resp["game_id"]
+            # Assign powers
+            for (telegram_id, full_name), power in assigned_powers:
+                api_post(f"/games/{game_id}/join", {"telegram_id": telegram_id, "game_id": int(game_id), "power": power})
+            # Notify users
+            for (telegram_id, full_name), power in assigned_powers:
+                try:
+                    notify_callback(telegram_id, f"A new game (ID: {game_id}) has started! You are {power}.")
+                except Exception as e:
+                    logging.warning(f"Failed to notify {telegram_id}: {e}")
+            # Remove assigned users from waiting list
+            del waiting_list[:waiting_list_size]
+            return game_id, assigned_powers
+        except Exception as e:
+            logging.error(f"Failed to create game: {e}")
+            return None, None
+    return None, None
+
 async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
@@ -403,28 +435,16 @@ async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     WAITING_LIST.append((user_id, full_name))
     await update.message.reply_text(f"Added to waiting list ({len(WAITING_LIST)}/{WAITING_LIST_SIZE}). You will be notified when the game starts.")
     # If enough players, create a new game
-    if len(WAITING_LIST) >= WAITING_LIST_SIZE:
-        # Randomize power assignment
-        players = WAITING_LIST[:WAITING_LIST_SIZE]
-        random.shuffle(players)
-        assigned_powers = list(zip(players, POWERS))
-        # Create game
+    async def telegram_notify_callback(telegram_id, message):
         try:
-            game_resp = api_post("/games/create", {"map_name": "standard"})
-            game_id = game_resp["game_id"]
-            # Assign powers
-            for (telegram_id, full_name), power in assigned_powers:
-                api_post(f"/games/{game_id}/join", {"telegram_id": telegram_id, "game_id": int(game_id), "power": power})
-            # Notify users
-            for (telegram_id, full_name), power in assigned_powers:
-                try:
-                    await update.get_bot().send_message(chat_id=telegram_id, text=f"A new game (ID: {game_id}) has started! You are {power}.")
-                except Exception as e:
-                    logging.warning(f"Failed to notify {telegram_id}: {e}")
-            # Remove assigned users from waiting list
-            del WAITING_LIST[:WAITING_LIST_SIZE]
+            await update.get_bot().send_message(chat_id=telegram_id, text=message)
         except Exception as e:
-            await update.message.reply_text(f"Failed to create game: {e}")
+            logging.warning(f"Failed to notify {telegram_id}: {e}")
+    # Use a sync wrapper for process_waiting_list
+    def sync_notify_callback(telegram_id, message):
+        import asyncio
+        asyncio.create_task(telegram_notify_callback(telegram_id, message))
+    process_waiting_list(WAITING_LIST, WAITING_LIST_SIZE, POWERS, sync_notify_callback)
 
 # --- FastAPI notification endpoint ---
 fastapi_app = FastAPI()

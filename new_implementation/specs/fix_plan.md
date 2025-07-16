@@ -1,5 +1,7 @@
 # Fix Plan (Updated July 2025)
 
+**[2025-07-XX] Refactored /wait command logic into process_waiting_list for testability. Added comprehensive unit tests for automated game creation and waiting list logic (game creation, assignment, notification, edge cases). All tests pass.**
+
 **[2025-07-XX] All tests in new_implementation pass. Tests in old_implementation are excluded from runs per project policy (see agent.md). Test suite is green.**
 
 ## Prioritization Rationale
