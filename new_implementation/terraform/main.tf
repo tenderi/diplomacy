@@ -3,7 +3,7 @@ terraform {
   backend "s3" {
         bucket = "diplomacy-bot-test-polarsquad"
         key    = "diplomacy-terraform-state"
-        region = var.aws_region
+        region = "eu-west-1"
   }
 
 
@@ -16,7 +16,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "eu-west-1"
 }
 # Networking (VPC, subnets, security groups)
 module "network" {

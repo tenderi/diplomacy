@@ -1,8 +1,6 @@
 name: Terraform Infrastructure
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -15,11 +13,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-oidc
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Terraform
@@ -34,7 +31,6 @@ jobs:
         run: terraform -chdir=new_implementation/terraform plan
 
       - name: Terraform Apply (manual approval)
-        if: github.event_name == 'workflow_dispatch'
         run: terraform -chdir=new_implementation/terraform apply -auto-approve
         env:
           TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
