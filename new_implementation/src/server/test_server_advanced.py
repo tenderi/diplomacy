@@ -402,7 +402,7 @@ def test_order_history_and_clearing():
     assert "A MUN - RUH" in history["0"]["GERMANY"]
 
     # Process turn (advance to turn 1)
-    resp = client.post("/games/process_turn", json={"game_id": game_id})
+    resp = client.post(f"/games/{game_id}/process_turn")
     assert resp.status_code == 200
 
     # Submit new orders for turn 1

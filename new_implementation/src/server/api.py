@@ -215,17 +215,18 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
     finally:
         db.close()
 
-@app.post("/games/process_turn")
-def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
+@app.post("/games/{game_id}/process_turn")
+def process_turn(game_id: str) -> Dict[str, str]:
     """Advance the current phase for a game and update the database state (was previously 'process turn')."""
-    result = server.process_command(f"PROCESS_TURN {req.game_id}")  # Now advances the phase, not just the turn
+    # Ensure the in-memory engine processes the phase
+    result = server.process_command(f"PROCESS_TURN {game_id}")
     if result.get("status") != "ok":
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
     db: Session = SessionLocal()
     try:
-        game = db.query(GameModel).filter_by(id=int(req.game_id)).first()
-        if game is not None and req.game_id in server.games:
-            state = server.games[req.game_id].get_state()
+        game = db.query(GameModel).filter_by(id=int(game_id)).first()
+        if game is not None and game_id in server.games:
+            state = server.games[game_id].get_state()
             if not isinstance(state, dict):
                 state = dict(state)
             # Remove non-serializable objects
@@ -238,7 +239,7 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
             # --- Save game state snapshot to history ---
             from .db_models import GameHistoryModel
             db.add(GameHistoryModel(
-                game_id=int(req.game_id),
+                game_id=int(game_id),
                 turn=state.get("turn", 0),
                 phase=state.get("phase", "unknown"),
                 state=state
@@ -265,11 +266,30 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
 
 @app.get("/games/{game_id}/state")
 def get_game_state(game_id: str) -> Dict[str, Any]:
-    """Get the current state of a game."""
-    result = server.process_command(f"GET_GAME_STATE {game_id}")
-    if result.get("status") != "ok":
-        raise HTTPException(status_code=404, detail=result.get("error", "Game not found"))
-    return result
+    """
+    Get the current state of the game, including map, units, powers, phase, and adjudication results for the latest turn.
+    Returns:
+        JSON object with game state and adjudication results (if available):
+        {
+            ...,
+            "adjudication_results": { ... }  # Only present if available
+        }
+    """
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    game = server.games[game_id]
+    state = game.get_state()
+    # Remove non-serializable objects
+    if "map_obj" in state:
+        del state["map_obj"]
+    # Always include adjudication_results in the state, even if empty
+    last_turn = game.turn - 1
+    if hasattr(game, "order_history") and last_turn in game.order_history:
+        results = game.order_history[last_turn]
+        state["adjudication_results"] = results if results else {}
+    else:
+        state["adjudication_results"] = {}
+    return state
 
 @app.post("/users/register")
 def register_user(req: RegisterUserRequest) -> Dict[str, str]:
@@ -825,7 +845,7 @@ class ReplacePlayerRequest(BaseModel):
 
 @app.post("/games/{game_id}/replace")
 def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
-    """Replace a vacated power in a game. Only allowed if the power is unassigned (user_id is None), inactive (is_active == False), and the user is not already in the game.
+    """Replace a vacated power in a game. Only allowed if the power is unassigned (user_id is None), inactive (is_active is False), and the user is not already in the game.
     Returns 400 if already assigned, user is already in the game, or the power is not inactive.
     """
     db: Session = SessionLocal()
@@ -833,31 +853,25 @@ def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
-        # Find the player slot for this power (should exist, but user_id may be null)
+        # Find the player slot for this power
         player = db.query(PlayerModel).filter_by(game_id=game_id, power=req.power).first()
-        if not player:
+        if player is None:
             raise HTTPException(status_code=404, detail="Power not found in game")
+        # Only allow replacement if user_id is None and is_active is False
         if player.user_id is not None:
             raise HTTPException(status_code=400, detail="Power is already assigned to a user. Only unassigned, inactive powers can be replaced.")
-        # SQLAlchemy ORM: must use getattr for boolean columns
-        if getattr(player, 'is_active', True) is False:
+        if getattr(player, 'is_active', True) is True:
             raise HTTPException(status_code=400, detail="Power is not inactive and cannot be replaced. Only inactive/vacated powers can be replaced.")
-        # Prevent user from replacing if already in the game as another power
-        existing = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="You are already in this game as another power")
-        # Assign the user to this power
+        # Check if user is already in the game
+        already_in_game = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if already_in_game:
+            raise HTTPException(status_code=400, detail="User is already in the game")
+        # Assign user to the player slot
         player.user_id = user.id
-        setattr(player, 'is_active', True)  # Mark as active again
+        setattr(player, 'is_active', True)
         db.commit()
-        # Update in-memory server
-        if str(game_id) in server.games:
-            game = server.games[str(game_id)]
-            if req.power not in game.powers:
-                game.add_player(req.power)
-        # Notify all players
-        notify_players(game_id, f"Player {user.full_name or req.telegram_id} has replaced {req.power} in game {game_id}.")
-        return {"status": "ok", "game_id": game_id, "power": req.power}
+        db.refresh(player)
+        return {"status": "ok", "message": "Player replaced successfully"}
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -896,14 +910,27 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
 def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
     """
     Get all valid order strings for the given unit and power in the current game state.
-    Returns: {"orders": [order_str, ...]}
+    Parameters:
+        game_id: The game identifier (string)
+        power: The power (player) name (e.g., 'FRANCE')
+        unit: The unit identifier (e.g., 'A PAR', 'F BRE')
+    Returns:
+        JSON object: {"orders": [order_str, ...]}
+    Usage Example:
+        GET /games/1/legal_orders/FRANCE/A%20PAR
+        -> {"orders": ["FRANCE A PAR H", "FRANCE A PAR - BUR", ...]}
+    Notes:
+        - Returns 404 if the game is not found.
+        - Uses the current game state and map to generate all legal orders for the unit.
     """
+    # Check if the game exists in the in-memory server
     if game_id not in server.games:
         raise HTTPException(status_code=404, detail="Game not found")
     game = server.games[game_id]
     game_state = game.get_state()
     # Add map_obj for order generation
     game_state["map_obj"] = game.map
+    # Generate all legal orders for the given unit
     orders = OrderParser.generate_legal_orders(power, unit, game_state)
     return {"orders": orders}
 

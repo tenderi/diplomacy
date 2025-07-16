@@ -5,6 +5,11 @@ from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateT
 from sqlalchemy.orm import declarative_base, relationship
 import datetime
 
+# Ensure UTC is available (Python 3.11+)
+if not hasattr(datetime, "UTC"):
+    from datetime import timezone
+    datetime.UTC = timezone.utc
+
 Base = declarative_base()
 
 class GameModel(Base):
@@ -30,6 +35,7 @@ class PlayerModel(Base):
     power = Column(String, nullable=False, index=True)
     telegram_id = Column(String, nullable=True)  # Deprecated: use user_id
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    is_active = Column(Boolean, default=True)  # New: track if player is active
     game = relationship("GameModel", back_populates="players")
     user = relationship("UserModel", back_populates="players")
     orders = relationship("OrderModel", back_populates="player")
@@ -54,7 +60,7 @@ class MessageModel(Base):
     sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     recipient_power = Column(String, nullable=True)  # Null for broadcast
     text = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC), nullable=False)
 
 class GameHistoryModel(Base):
     __tablename__ = "game_history"
@@ -63,4 +69,4 @@ class GameHistoryModel(Base):
     turn = Column(Integer, nullable=False)
     phase = Column(String, nullable=False)
     state = Column(JSON, nullable=False)  # Serialized game state snapshot
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC))
