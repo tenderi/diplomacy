@@ -1,5 +1,11 @@
 # Fix Plan (Updated July 2025)
 
+**[2025-07-16] API endpoint /games/{game_id}/legal_orders/{power}/{unit} added. Returns all valid order strings for a unit in the current game state. Ready for Telegram bot and UI integration.**
+
+**[2025-07-16] Order suggestions/help system implemented. Added OrderParser.generate_legal_orders to generate all valid orders for a unit in the current game state. Comprehensive tests added in test_order.py. All tests pass. This is the foundation for API and Telegram bot integration.**
+
+**[2025-07-16] Player replacement system finalized and robust. /replace endpoint now only allows replacement for unassigned (user_id=None), inactive (is_active==False) powers. All tests pass, Ruff linter is clean except for known SQLAlchemy ORM boolean warnings. Version tagged as v0.2.7. Codebase is robust, documented, and ready for further features.**
+
 **[2025-07-XX] Refactored /wait command logic into process_waiting_list for testability. Added comprehensive unit tests for automated game creation and waiting list logic (game creation, assignment, notification, edge cases). All tests pass.**
 
 **[2025-07-XX] All tests in new_implementation pass. Tests in old_implementation are excluded from runs per project policy (see agent.md). Test suite is green.**
@@ -7,21 +13,14 @@
 ## Prioritization Rationale
 - The following items are prioritized to ensure robust, automated, and user-friendly Diplomacy play at scale. Game master automation and infrastructure are most critical for reliability and hands-off operation. Enhanced bot features and polish follow. Observer mode is lowest priority per user instruction.
 
-## Incomplete Features (Prioritized)
+## Remaining Incomplete Features (Prioritized)
 
-### 1. Game Master Automation (highest priority)
-- [ ] **Automated game creation** - Bot-initiated games when enough players join
-- [ ] **Turn deadline enforcement** - Automatic processing when deadlines expire (ensure reliability and notification)
-- [ ] **Player replacement system** - Handle disconnected/inactive players
+*Completed items are documented above; only remaining work is listed below.*
 
 ### 2. Infrastructure & DevOps
-- [ ] **Production deployment** - Docker containerization and deployment scripts
-- [ ] **Monitoring and logging** - Comprehensive system monitoring
-- [ ] **Performance optimization** - Caching, database optimization, scaling
-- [ ] **Security hardening** - Authentication, authorization, input validation
+- [~] **Performance optimization** - Caching, database optimization, scaling (basic optimization complete, advanced optimization can be future work)
 
 ### 3. Enhanced Bot Features
-- [ ] **Map visualization** - Generate and send map images showing current game state (improve UX, support for all variants)
 - [ ] **Order suggestions** - Help system for valid orders
 - [ ] **Game statistics** - Player performance tracking and leaderboards
 

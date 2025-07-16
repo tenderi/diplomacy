@@ -53,3 +53,34 @@ def test_order_validate():
     order7 = Order("FRANCE", "A PAR", "C", "BUR")
     valid, msg = OrderParser.validate(order7, game_state)
     assert not valid and "Only fleets can perform convoy orders" in msg
+
+
+def test_generate_legal_orders():
+    from .map import Map
+    # Setup game state for FRANCE A PAR (army), F BRE (fleet)
+    map_obj = Map("standard")
+    game_state = {
+        "powers": ["FRANCE"],
+        "units": {"FRANCE": ["A PAR", "F BRE"]},
+        "map_obj": map_obj,
+    }
+    # Army in PAR
+    orders = OrderParser.generate_legal_orders("FRANCE", "A PAR", game_state)
+    for o in orders:
+        order = OrderParser.parse(o)
+        valid, msg = OrderParser.validate(order, game_state)
+        assert valid, f"Order {o} should be valid: {msg}"
+    # Fleet in BRE
+    orders = OrderParser.generate_legal_orders("FRANCE", "F BRE", game_state)
+    for o in orders:
+        order = OrderParser.parse(o)
+        valid, msg = OrderParser.validate(order, game_state)
+        assert valid, f"Order {o} should be valid: {msg}"
+    # Edge: Army on coast, Fleet in water, support, convoy
+    # Add more units for support/convoy
+    game_state["units"]["FRANCE"].append("A MAR")
+    orders = OrderParser.generate_legal_orders("FRANCE", "F BRE", game_state)
+    for o in orders:
+        order = OrderParser.parse(o)
+        valid, msg = OrderParser.validate(order, game_state)
+        assert valid, f"Order {o} should be valid: {msg}"

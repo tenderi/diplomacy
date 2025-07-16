@@ -112,3 +112,58 @@ class OrderParser:
         if order.action == 'H' and order.target:
             return False, "Hold order should not have a target."
         return True, ""
+
+    @staticmethod
+    def generate_legal_orders(power: str, unit: str, game_state: dict) -> list[str]:
+        """
+        Generate all legal order strings for the given unit and power in the current game state.
+        Returns a list of order strings (e.g., 'FRANCE A PAR - BUR', 'FRANCE A PAR H', ...)
+        """
+        orders = []
+        units = game_state.get("units", {}).get(power, [])
+        map_obj = game_state.get("map_obj")
+        if unit not in units or map_obj is None:
+            return []
+        unit_type, unit_loc = unit.split()
+        # Hold is always legal
+        orders.append(f"{power} {unit} H")
+        # Move orders
+        for adj in map_obj.get_adjacency(unit_loc):
+            target_prov = map_obj.get_province(adj)
+            if not target_prov:
+                continue
+            if unit_type == 'A' and target_prov.type == 'water':
+                continue
+            if unit_type == 'F' and target_prov.type == 'land':
+                continue
+            orders.append(f"{power} {unit} - {adj}")
+        # Support orders (support hold and support move for adjacent units)
+        for other_power, other_units in game_state.get("units", {}).items():
+            for other_unit in other_units:
+                if other_unit == unit:
+                    continue
+                other_type, other_loc = other_unit.split()
+                # Support hold (if adjacent)
+                if map_obj.is_adjacent(unit_loc, other_loc):
+                    orders.append(f"{power} {unit} S {other_unit} H")
+                # Support move (if adjacent to both)
+                for move_target in map_obj.get_adjacency(other_loc):
+                    if map_obj.is_adjacent(unit_loc, other_loc):
+                        # Only support moves to adjacent provinces
+                        orders.append(f"{power} {unit} S {other_unit} - {move_target}")
+        # Convoy orders (only for fleets in water)
+        if unit_type == 'F' and map_obj.get_province(unit_loc).type == 'water':
+            # Find all armies that could be convoyed
+            for other_power, other_units in game_state.get("units", {}).items():
+                for other_unit in other_units:
+                    if other_unit == unit:
+                        continue
+                    o_type, o_loc = other_unit.split()
+                    if o_type != 'A':
+                        continue
+                    # If this fleet is adjacent to the army, allow convoy
+                    if map_obj.is_adjacent(unit_loc, o_loc):
+                        # Try all possible destinations for the army
+                        for dest in map_obj.get_adjacency(unit_loc):
+                            orders.append(f"{power} {unit} C {other_unit} - {dest}")
+        return orders

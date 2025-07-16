@@ -29,6 +29,7 @@ from sqlalchemy import or_, text
 import logging
 import pytz
 import os
+from engine.order import OrderParser
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0")
 
@@ -890,6 +891,21 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+@app.get("/games/{game_id}/legal_orders/{power}/{unit}")
+def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
+    """
+    Get all valid order strings for the given unit and power in the current game state.
+    Returns: {"orders": [order_str, ...]}
+    """
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    game = server.games[game_id]
+    game_state = game.get_state()
+    # Add map_obj for order generation
+    game_state["map_obj"] = game.map
+    orders = OrderParser.generate_legal_orders(power, unit, game_state)
+    return {"orders": orders}
 
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)
