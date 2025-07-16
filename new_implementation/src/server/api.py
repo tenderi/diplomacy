@@ -9,7 +9,7 @@ Key features:
 - Extensible REST API for game and player management
 - Strict typing and modern Python best practices
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
 from server.server import Server
 import uvicorn
@@ -40,16 +40,29 @@ Base.metadata.create_all(bind=engine)
 
 # --- Models ---
 class CreateGameRequest(BaseModel):
+    """Request model for creating a new game.
+    Fields:
+        map_name: Name of the map variant to use (default: 'standard').
+    """
     map_name: str = "standard"
 
 class AddPlayerRequest(BaseModel):
+    """Request model for adding a player to a game (legacy, use /join for persistent users)."""
     game_id: str
     power: str
 
 class SetOrdersRequest(BaseModel):
+    """Request model for submitting orders for a power in a game.
+    Fields:
+        game_id: Game identifier.
+        power: Power name (e.g., 'FRANCE').
+        orders: List of order strings.
+        telegram_id: User's Telegram ID (authorization required).
+    """
     game_id: str
     power: str
     orders: list[str]
+    telegram_id: str
 
 class ProcessTurnRequest(BaseModel):
     game_id: str
@@ -77,6 +90,8 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
     try:
         # Create the game in the database first
         game = GameModel(map_name=req.map_name, state={"status": "ok"}, is_active=True)
+        # Set default deadline 24 hours from now
+        setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
         db.add(game)
         db.commit()
         db.refresh(game)
@@ -125,27 +140,38 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
 
 @app.post("/games/set_orders")
 def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
-    """Set orders for a player in a game. Replaces any existing orders for the current turn. Returns per-order validation results."""
+    """Submit orders for a power in a game. Only the assigned user (by telegram_id) can submit orders for their power.
+    Returns per-order validation results. 403 if unauthorized, 404 if player not found.
+    """
     db: Session = SessionLocal()
     results = []
     try:
         player = db.query(PlayerModel).filter_by(game_id=int(req.game_id), power=req.power).first()
-        print(f"DEBUG: set_orders: player found: {player is not None}, player_id: {getattr(player, 'id', None) if player else None}")
+        if player is None:
+            raise HTTPException(status_code=404, detail="Player not found")
+        # Authorization check: Only assigned user can submit orders
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if user is None or player.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You are not authorized to submit orders for this power.")
         game = db.query(GameModel).filter_by(id=int(req.game_id)).first()
         # Default to turn 0 if not found
         turn = 0
-        if game and isinstance(game.state, dict):
-            turn = game.state.get("turn", 0)
-        elif game and hasattr(game.state, "get"):
-            turn = game.state.get("turn", 0)
-        if player:
+        state_dict = {}
+        if game:
+            state_val = getattr(game, 'state', None)
+            if isinstance(state_val, dict):
+                state_dict = state_val
+            elif hasattr(state_val, 'get'):
+                state_dict = state_val
+            if state_dict:
+                turn = state_dict.get("turn", 0)
+        if player is not None:
             db.query(OrderModel).filter_by(player_id=player.id).delete()
         for order in req.orders:
             result = server.process_command(f"SET_ORDERS {req.game_id} {req.power} {order}")
             if result.get("status") == "ok":
                 if player is not None:
                     db.add(OrderModel(player_id=player.id, order_text=order, turn=turn))
-                    print(f"DEBUG: set_orders: added order '{order}' for player_id {player.id} turn {turn}")
                 results.append({"order": order, "success": True, "error": None})
             else:
                 results.append({"order": order, "success": False, "error": result.get("error", "Order error")})
@@ -172,7 +198,8 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
             if 'map_obj' in state:
                 del state['map_obj']
             try:
-                game.state = state  # This should work since state column is JSON
+                if isinstance(state, dict):
+                    game.state = state  # type: ignore
             except Exception as e:
                 print(f"DEBUG: set_orders: failed to assign game.state: {e}")
         db.commit()
@@ -203,7 +230,7 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
             if 'map_obj' in state:
                 del state['map_obj']
             try:
-                game.state = state  # type: ignore  # SQLAlchemy dynamic attribute, Pyright false positive
+                setattr(game, 'state', state)
             except Exception as e:
                 print(f"DEBUG: process_turn: failed to assign game.state: {e}")
             # --- Save game state snapshot to history ---
@@ -214,10 +241,16 @@ def process_turn(req: ProcessTurnRequest) -> Dict[str, str]:
                 phase=state.get("phase", "unknown"),
                 state=state
             ))
+            # Set new deadline if game is not done
+            if not state.get("done", False):
+                setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
+            else:
+                setattr(game, 'deadline', None)
         db.commit()
         # --- Game end notification ---
         try:
-            if game is not None and hasattr(game, "state") and game.state is not None and isinstance(game.state, dict) and game.state.get("done"):
+            state_val = getattr(game, 'state', None)
+            if game is not None and isinstance(state_val, dict) and state_val is not None and state_val.get("done"):
                 notify_players(int(game.id), f"Game {game.id} has ended! Final state: {game.state}")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game end: {e}")
@@ -267,7 +300,7 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
 def get_orders(game_id: str) -> List[Dict[str, Any]]:
     db: Session = SessionLocal()
     try:
-        players = db.query(PlayerModel).filter(PlayerModel.game_id == int(game_id)).all()
+        players = db.query(PlayerModel).filter_by(game_id=int(game_id)).all()
         orders: List[Dict[str, Any]] = []
         for player in players:
             player_orders = db.query(OrderModel).filter(OrderModel.player_id == player.id).all()
@@ -290,7 +323,7 @@ def get_order_history(game_id: str) -> Dict[str, Any]:
         for player in players:
             orders = db.query(OrderModel).filter_by(player_id=player.id).all()
             for order in orders:
-                turn = order.turn
+                turn = str(order.turn)
                 power = player.power
                 history.setdefault(turn, {}).setdefault(power, []).append(order.order_text)
         return {"game_id": game_id, "order_history": history}
@@ -304,8 +337,8 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     """Get current orders for a specific power in a game (current turn only)."""
     db: Session = SessionLocal()
     try:
-        player = db.query(PlayerModel).filter_by(game_id=int(game_id), power=power).first()
-        if not player:
+        player = db.query(PlayerModel).filter(PlayerModel.game_id == int(game_id), PlayerModel.power == power).first()
+        if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         orders = db.query(OrderModel).filter_by(player_id=player.id).all()
         order_list = [order.order_text for order in orders]
@@ -316,13 +349,18 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
         db.close()
 
 @app.post("/games/{game_id}/orders/{power}/clear")
-def clear_orders_for_power(game_id: str, power: str) -> Dict[str, str]:
-    """Delete all orders for a specific power in a game (current turn only)."""
+def clear_orders_for_power(game_id: int, power: str, telegram_id: str = Body(...)) -> Dict[str, str]:
+    """Clear all orders for a power in a game. Only the assigned user (by telegram_id) can clear orders for their power.
+    Body: telegram_id as a JSON string. 403 if unauthorized, 404 if player not found.
+    """
     db: Session = SessionLocal()
     try:
-        player = db.query(PlayerModel).filter_by(game_id=int(game_id), power=power).first()
-        if not player:
+        player = db.query(PlayerModel).filter(PlayerModel.game_id == int(game_id), PlayerModel.power == power).first()
+        if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
+        user = db.query(UserModel).filter_by(telegram_id=telegram_id).first()
+        if user is None or player.user_id != user.id:
+            raise HTTPException(status_code=403, detail="You are not authorized to clear orders for this power.")
         db.query(OrderModel).filter_by(player_id=player.id).delete()
         db.commit()
         return {"status": "ok"}
@@ -381,16 +419,17 @@ def notify_players(game_id: int, message: str):
     try:
         players = db.query(PlayerModel).filter_by(game_id=game_id).all()
         for player in players:
-            if player.telegram_id:
+            telegram_id_val = getattr(player, 'telegram_id', None)
+            if telegram_id_val is not None and telegram_id_val != '':
                 try:
                     requests.post(
                         "http://localhost:8081/notify",
-                        json={"telegram_id": int(player.telegram_id), "message": message},
+                        json={"telegram_id": int(telegram_id_val), "message": message},
                         timeout=2,
                     )
-                    scheduler_logger.info(f"Notified telegram_id {player.telegram_id} for game {game_id}: {message}")
+                    scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
                 except Exception as e:
-                    scheduler_logger.error(f"Failed to notify telegram_id {player.telegram_id}: {e}")
+                    scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
     finally:
         db.close()
 
@@ -400,11 +439,11 @@ def process_due_deadlines(now: datetime) -> None:
     """
     db: Session = SessionLocal()
     try:
-        games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()  # type: ignore
+        games = db.query(GameModel).filter(GameModel.deadline.isnot(None), GameModel.is_active.is_(True)).all()  # type: ignore
         for game in games:
             deadline = getattr(game, 'deadline', None)  # type: ignore
-            game_id = getattr(game, 'id', None)  # type: ignore
-            if game_id is None:
+            game_id_val = getattr(game, 'id', None)  # type: ignore
+            if game_id_val is None:
                 continue  # skip games with no id
             if deadline is not None:
                 # Ensure both deadline and now are timezone-aware (UTC)
@@ -413,16 +452,16 @@ def process_due_deadlines(now: datetime) -> None:
                 if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
-                    scheduler_logger.warning(f"Missed or due deadline detected for game {game_id} (deadline was {deadline}, now {now}). Processing turn immediately.")
-                    server.process_command(f"PROCESS_TURN {game_id}")
+                    scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
+                    server.process_command(f"PROCESS_TURN {game_id_val}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db.execute(
                         text("UPDATE games SET deadline = NULL WHERE id = :game_id"),
-                        {"game_id": game_id}
+                        {"game_id": game_id_val}
                     )
                     db.commit()  # type: ignore
-                    notify_players(game_id, f"The turn has been processed for game {game_id} due to a missed or due deadline. View the new board state and submit your next orders.")  # type: ignore
-                    reminder_sent[game_id] = False  # Reset for next turn
+                    notify_players(game_id_val, f"The turn has been processed for game {game_id_val} due to a missed or due deadline. View the new board state and submit your next orders.")  # type: ignore
+                    reminder_sent[game_id_val] = False  # Reset for next turn
     finally:
         db.close()  # type: ignore
 
@@ -444,19 +483,19 @@ async def deadline_scheduler() -> None:
         process_due_deadlines(now)
         db: Session = SessionLocal()
         try:
-            games = db.query(GameModel).filter(GameModel.deadline != None, GameModel.is_active == True).all()  # type: ignore
+            games = db.query(GameModel).filter(GameModel.deadline.isnot(None), GameModel.is_active.is_(True)).all()  # type: ignore
             for game in games:
                 deadline = getattr(game, 'deadline', None)  # type: ignore
-                game_id = getattr(game, 'id', None)  # type: ignore
-                if game_id is None:
+                game_id_val = getattr(game, 'id', None)  # type: ignore
+                if game_id_val is None:
                     continue  # skip games with no id
                 if deadline is not None:
                     # Send reminder 10 minutes before deadline
                     if deadline - now <= timedelta(minutes=10) and deadline > now:
-                        if not reminder_sent.get(game_id):
-                            notify_players(game_id, f"Reminder: The deadline for submitting orders in game {game_id} is in 10 minutes.")  # type: ignore
-                            scheduler_logger.info(f"Sent 10-minute reminder for game {game_id} (deadline: {deadline})")
-                            reminder_sent[game_id] = True
+                        if not reminder_sent.get(game_id_val, False):
+                            notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
+                            scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
+                            reminder_sent[game_id_val] = True
         finally:
             db.close()  # type: ignore
 
@@ -484,6 +523,16 @@ def scheduler_status() -> dict[str, str]:
     """
     return {"status": "ok", "scheduler": "running (lifespan)"}
 
+@app.get("/health")
+def health_check() -> Dict[str, str]:
+    try:
+        db: Session = SessionLocal()
+        db.execute(text('SELECT 1'))
+        db.close()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
+
 # --- New User Endpoints for Persistent Registration and Multi-Game Support ---
 class RegisterPersistentUserRequest(BaseModel):
     telegram_id: str
@@ -494,7 +543,7 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
-        if not user:
+        if user is None:
             user = UserModel(telegram_id=req.telegram_id, full_name=req.full_name)
             db.add(user)
             db.commit()
@@ -511,7 +560,7 @@ def get_user_games(telegram_id: str) -> Dict[str, Any]:
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=telegram_id).first()
-        if not user:
+        if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         games = [
             {"game_id": p.game_id, "power": p.power}
@@ -531,7 +580,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
-        if not user:
+        if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         # Check if already joined
         existing = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
@@ -545,6 +594,15 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         db.add(player)
         db.commit()
         db.refresh(player)
+        # Add player to in-memory server (ensure sync)
+        if str(game_id) not in server.games:
+            from engine.game import Game
+            g = Game()
+            setattr(g, "game_id", str(game_id))
+            server.games[str(game_id)] = g
+        result = server.process_command(f"ADD_PLAYER {game_id} {req.power}")
+        if result.get("status") != "ok":
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
         # --- Notification logic ---
         try:
             requests.post(
@@ -588,10 +646,10 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
-        if not user:
+        if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
-        if not player:
+        if player is None:
             return {"status": "not_in_game"}
         db.delete(player)
         db.commit()
@@ -627,7 +685,7 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
-        if not user:
+        if user is None:
             raise HTTPException(status_code=404, detail="Sender user not found")
         # Validate sender is in the game
         player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
@@ -674,11 +732,11 @@ def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str,
     db: Session = SessionLocal()
     try:
         user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
-        if not user:
+        if user is None:
             raise HTTPException(status_code=404, detail="Sender user not found")
         # Validate sender is in the game
         player = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
-        if not player:
+        if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
         msg = MessageModel(game_id=game_id, sender_user_id=user.id, recipient_power=None, text=req.text)
         db.add(msg)
@@ -738,6 +796,47 @@ def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
         if not snapshot:
             raise HTTPException(status_code=404, detail="No game state found for this turn.")
         return {"game_id": game_id, "turn": turn, "phase": snapshot.phase, "state": snapshot.state}
+    finally:
+        db.close()
+
+class ReplacePlayerRequest(BaseModel):
+    telegram_id: str
+    power: str
+
+@app.post("/games/{game_id}/replace")
+def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
+    """Replace a vacated power in a game. Only allowed if the power is unassigned and the user is not already in the game.
+    Returns 400 if already assigned or user is already in the game.
+    """
+    db: Session = SessionLocal()
+    try:
+        user = db.query(UserModel).filter_by(telegram_id=req.telegram_id).first()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Find the player slot for this power (should exist, but user_id may be null)
+        player = db.query(PlayerModel).filter_by(game_id=game_id, power=req.power).first()
+        if not player:
+            raise HTTPException(status_code=404, detail="Power not found in game")
+        if player.user_id is not None:
+            raise HTTPException(status_code=400, detail="Power is already assigned to a user")
+        # Prevent user from replacing if already in the game as another power
+        existing = db.query(PlayerModel).filter_by(game_id=game_id, user_id=user.id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="You are already in this game as another power")
+        # Assign the user to this power
+        player.user_id = user.id
+        db.commit()
+        # Update in-memory server
+        if str(game_id) in server.games:
+            game = server.games[str(game_id)]
+            if req.power not in game.powers:
+                game.add_player(req.power)
+        # Notify all players
+        notify_players(game_id, f"Player {user.full_name or req.telegram_id} has replaced {req.power} in game {game_id}.")
+        return {"status": "ok", "game_id": game_id, "power": req.power}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

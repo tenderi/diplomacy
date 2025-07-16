@@ -32,27 +32,69 @@ print(state)
 - The `DAIDEServer` class provides a TCP interface for DAIDE protocol bots/clients.
 - Example: send `HLO (FRANCE)` to create a game and add a player, then `ORD (A PAR - BUR)` to submit an order.
 
-## User and Multi-Game API
-- `/users/persistent_register`: Register a user persistently (POST, json: `{telegram_id, full_name}`)
-- `/users/{telegram_id}/games`: List all games a user is in (GET)
-- `/games/{game_id}/join`: Join a game as a power (POST, json: `{telegram_id, game_id, power}`)
-- `/games/{game_id}/quit`: Quit a game (POST, json: `{telegram_id, game_id}`)
+## REST API Endpoints
 
-### Example Usage
+### Game Management
+- `POST /games/create` — Create a new game. `{map_name: str}` → `{game_id: str}`
+- `POST /games/{game_id}/join` — Join a game as a power. `{telegram_id: str, game_id: int, power: str}`
+- `POST /games/{game_id}/quit` — Quit a game. `{telegram_id: str, game_id: int}`
+- `POST /games/{game_id}/replace` — Replace a vacated power. `{telegram_id: str, power: str}`
+- `GET /games/{game_id}/players` — List all players in a game.
+- `GET /games/{game_id}/state` — Get the current state of a game.
+- `GET /games/{game_id}/deadline` — Get the current deadline for a game.
+- `POST /games/{game_id}/deadline` — Set the deadline. `{deadline: ISO8601 str or null}`
+
+### Orders
+- `POST /games/set_orders` — Submit orders for a power. `{game_id: str, power: str, orders: [str], telegram_id: str}`
+- `GET /games/{game_id}/orders` — List all orders for a game.
+- `GET /games/{game_id}/orders/{power}` — Get orders for a specific power.
+- `POST /games/{game_id}/orders/{power}/clear` — Clear orders for a power. (body: telegram_id as JSON string)
+- `GET /games/{game_id}/orders/history` — Get order history grouped by turn and power.
+
+### User Management
+- `POST /users/persistent_register` — Register a user. `{telegram_id: str, full_name: str}`
+- `GET /users/{telegram_id}/games` — List all games a user is in.
+- `GET /users/{telegram_id}` — Get user session info (in-memory, for bot integration).
+- `POST /users/register` — Register a user session (in-memory, for bot integration).
+
+### Messaging
+- `POST /games/{game_id}/message` — Send a private message. `{telegram_id: str, recipient_power: str, text: str}`
+- `POST /games/{game_id}/broadcast` — Send a broadcast message. `{telegram_id: str, text: str}`
+- `GET /games/{game_id}/messages` — Get all messages for a game (optionally filtered by user).
+
+### Game History & Replay
+- `GET /games/{game_id}/history/{turn}` — Get the board state for a specific turn.
+
+### Health & Scheduler
+- `GET /health` — Health check endpoint.
+- `GET /scheduler/status` — Scheduler status.
+
+## Error Handling
+- All endpoints return JSON with `status: "ok"` or `status: "error"`.
+- On error, a descriptive `message` and (optionally) an `error_code` are provided.
+- Standard HTTP status codes are used (e.g., 400, 403, 404, 500).
+
+## Security & Authorization
+- Only the assigned user (by `telegram_id`) for a power can submit or clear orders, quit, or send messages as that power.
+- Attempts to act for a power you do not control will return 403 Forbidden.
+- User registration and persistent mapping are required for all player actions.
+
+## Example Usage (Python)
 ```python
 import requests
 # Register user
 requests.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
-# Join a game
-requests.post(f"/games/1/join", json={"telegram_id": "12345", "game_id": 1, "power": "FRANCE"})
-# List user games
-requests.get("/users/12345/games")
-# Quit a game
-requests.post(f"/games/1/quit", json={"telegram_id": "12345", "game_id": 1})
+# Create a game
+resp = requests.post("/games/create", json={"map_name": "standard"})
+game_id = resp.json()["game_id"]
+# Join as FRANCE
+requests.post(f"/games/{game_id}/join", json={"telegram_id": "12345", "game_id": int(game_id), "power": "FRANCE"})
+# Submit orders
+requests.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": "12345"})
+# Get game state
+requests.get(f"/games/{game_id}/state")
 ```
 
 - Each user can join multiple games as different powers.
 - Player-to-user mapping is persistent in the database.
-
-## Build/Test Loop
-- Run all tests: `
+- All player actions are authorized by `telegram_id`.

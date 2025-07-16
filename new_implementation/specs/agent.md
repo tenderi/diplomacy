@@ -6,7 +6,6 @@
 
 - **Single Source of Truth**: Avoid migrations or adapters. Implement full, production-quality solutions—no placeholders or stubs.
 
-
 - **Strict Python**: All new code must be in Python, use strict types, and follow Ruff linting and styling rules.
 
 ---
@@ -30,7 +29,6 @@
 4. Ask as little confirmations as you can. Just keep working.
 
 5. Always keep requirements.txt up to date.
-
 
 6. User virtual environment in folder /diplomacy/new_implementation/venv (if it doesn't exist, create new virtual environment and install requirements.txt from new_implementation/requirements.txt)
 

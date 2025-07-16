@@ -1,7 +1,7 @@
 """
 SQLAlchemy models for persistent Diplomacy game storage (PostgreSQL).
 """
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateTime, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON, Boolean, DateTime, Text, Index
 from sqlalchemy.orm import declarative_base, relationship
 import datetime
 
@@ -26,21 +26,26 @@ class UserModel(Base):
 class PlayerModel(Base):
     __tablename__ = "players"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
-    power = Column(String, nullable=False)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    power = Column(String, nullable=False, index=True)
     telegram_id = Column(String, nullable=True)  # Deprecated: use user_id
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     game = relationship("GameModel", back_populates="players")
     user = relationship("UserModel", back_populates="players")
     orders = relationship("OrderModel", back_populates="player")
 
+Index('ix_players_game_id_power', PlayerModel.game_id, PlayerModel.power)
+Index('ix_players_game_id_user_id', PlayerModel.game_id, PlayerModel.user_id)
+
 class OrderModel(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False, index=True)
     order_text = Column(String, nullable=False)
     turn = Column(Integer, nullable=False, default=0)  # New column for turn number
     player = relationship("PlayerModel", back_populates="orders")
+
+Index('ix_orders_player_id_turn', OrderModel.player_id, OrderModel.turn)
 
 class MessageModel(Base):
     __tablename__ = "messages"

@@ -48,7 +48,7 @@ def test_server_process_turn_and_game_done():
             break
         units = state["state"]["units"]["FRANCE"]
         orders = []
-        from engine.map import Map, Province
+        from engine.map import Map
         map_obj = Map('standard')
         # Issue orders for all armies
         for army in [u for u in units if u.startswith("A ")]:

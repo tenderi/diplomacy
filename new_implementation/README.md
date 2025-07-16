@@ -89,3 +89,21 @@ docker-compose up --build
 - All migrations are run automatically on startup.
 - The API and bot will restart on failure.
 - Data is persisted in a Docker volume (`pgdata`).
+
+## Scaling and Performance
+
+- Database indexes are in place for all key queries (game_id, power, user_id, turn).
+- For production, use a connection pooler (e.g., PgBouncer) if running many app containers.
+- To scale horizontally, increase the number of `app` containers in `docker-compose.yml` and place a load balancer (e.g., Nginx, Traefik) in front of them.
+- All logs are output to stdout/stderr for aggregation by Docker or cloud logging solutions.
+
+## Security Hardening and Code Quality (2024)
+- All endpoints that allow a player to act for a power (submit orders, clear orders, quit, replace, send messages) now enforce authorization: only the assigned user can act for a power.
+- Linter and code quality issues in the server code are resolved.
+- All tests pass.
+- The codebase is production-ready for deployment.
+
+## Next Steps
+- Improve documentation and code comments for new/changed endpoints and logic.
+- Implement observer mode (lowest priority).
+- Address any remaining enhancements or bugfixes.
