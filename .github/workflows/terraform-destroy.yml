@@ -1,14 +1,13 @@
-name: Terraform Infrastructure
+name: Terraform Destroy (Manual)
 
 on:
   workflow_dispatch:
 
 jobs:
-  terraform:
+  destroy:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: ${{ steps.output_url.outputs.url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,17 +26,8 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=new_implementation/terraform init
 
-      - name: Terraform Plan
-        run: terraform -chdir=new_implementation/terraform plan
-
-      - name: Terraform Apply (manual approval)
-        run: terraform -chdir=new_implementation/terraform apply -auto-approve
+      - name: Terraform Destroy
+        run: terraform -chdir=new_implementation/terraform destroy -auto-approve
         env:
           TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-          TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
-      - name: Output ALB URL
-        id: output_url
-        run: |
-          echo "url=https://$(terraform -chdir=new_implementation/terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
-        continue-on-error: true 
+          TF_VAR_telegram_bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }} 

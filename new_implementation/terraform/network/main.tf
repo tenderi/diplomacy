@@ -34,7 +34,7 @@ resource "aws_subnet" "private" {
 data "aws_availability_zones" "available" {}
 
 resource "aws_eip" "nat" {
-  vpc = true
+  # vpc = true  # Removed, not needed in recent AWS provider
 }
 
 resource "aws_nat_gateway" "nat" {
@@ -81,7 +81,7 @@ resource "aws_security_group" "ecs" {
     from_port   = 8000
     to_port     = 8000
     protocol    = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    cidr_blocks = [var.vpc_cidr] # TODO: Restrict to ALB SG if possible
   }
   egress {
     from_port   = 0

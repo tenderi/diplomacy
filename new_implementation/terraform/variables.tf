@@ -33,4 +33,9 @@ variable "telegram_bot_token" {
   description = "Telegram bot token"
   type        = string
   sensitive   = true
+}
+
+variable "github_actions_role_arn" {
+  description = "ARN of the GitHub Actions OIDC role created by the bootstrap stack"
+  type        = string
 } 
