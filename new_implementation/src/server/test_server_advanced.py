@@ -370,20 +370,26 @@ def test_order_history_and_clearing():
     """Test order history API, order clearing, and turn-by-turn grouping."""
     client = TestClient(app)
 
+    # Register users
+    france_telegram_id = "1001"
+    germany_telegram_id = "1002"
+    client.post("/users/persistent_register", json={"telegram_id": france_telegram_id, "full_name": "France Player"})
+    client.post("/users/persistent_register", json={"telegram_id": germany_telegram_id, "full_name": "Germany Player"})
+
     # Create game
     resp = client.post("/games/create", json={"map_name": "standard"})
     assert resp.status_code == 200
     game_id = str(resp.json()["game_id"])
 
-    # Add players
-    resp = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+    # Join players
+    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": france_telegram_id, "game_id": int(game_id), "power": "FRANCE"})
     assert resp.status_code == 200
-    resp = client.post("/games/add_player", json={"game_id": game_id, "power": "GERMANY"})
+    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": germany_telegram_id, "game_id": int(game_id), "power": "GERMANY"})
     assert resp.status_code == 200
 
     # Submit orders for turn 0
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"]})
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A MUN - RUH"]})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": france_telegram_id})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A MUN - RUH"], "telegram_id": germany_telegram_id})
 
     # Check order history for turn 0
     resp = client.get(f"/games/{game_id}/orders/history")
@@ -400,8 +406,8 @@ def test_order_history_and_clearing():
     assert resp.status_code == 200
 
     # Submit new orders for turn 1
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A BUR - MUN"]})
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A RUH - BUR"]})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A BUR - MUN"], "telegram_id": france_telegram_id})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A RUH - BUR"], "telegram_id": germany_telegram_id})
 
     # Check order history for turn 1
     resp = client.get(f"/games/{game_id}/orders/history")
@@ -412,7 +418,7 @@ def test_order_history_and_clearing():
     assert "A RUH - BUR" in history["1"]["GERMANY"]
 
     # Clear FRANCE's orders for turn 1
-    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={})
+    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", content=f'"{france_telegram_id}"', headers={"Content-Type": "application/json"})
     assert resp.status_code == 200
     # Check that FRANCE's orders for turn 1 are now empty
     resp = client.get(f"/games/{game_id}/orders/history")

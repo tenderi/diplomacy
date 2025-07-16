@@ -15,6 +15,7 @@ import uvicorn
 from pydantic import BaseModel
 from telegram.ext import Application
 from engine.map import Map
+import random
 
 logging.basicConfig(level=logging.INFO)
 
@@ -361,6 +362,70 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
 
+async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Replace command failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /replace <game_id> <power>")
+        return
+    game_id, power = args[0], args[1].upper()
+    try:
+        result = api_post(f"/games/{game_id}/replace", {"telegram_id": user_id, "power": power})
+        if result.get("status") == "ok":
+            await update.message.reply_text(f"You have replaced {power} in game {game_id}.")
+        else:
+            await update.message.reply_text(f"Replace failed: {result}")
+    except Exception as e:
+        await update.message.reply_text(f"Failed to replace player: {e}")
+
+# --- In-memory waiting list for automated game creation ---
+WAITING_LIST = []  # List of (telegram_id, full_name)
+WAITING_LIST_SIZE = 7  # Standard Diplomacy
+POWERS = ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"]
+
+async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Wait command failed: No user context.")
+        return
+    user_id = str(user.id)
+    full_name = getattr(user, 'full_name', None) or user_id
+    # Check if already in waiting list
+    if any(u[0] == user_id for u in WAITING_LIST):
+        await update.message.reply_text("You are already in the waiting list for the next game.")
+        return
+    WAITING_LIST.append((user_id, full_name))
+    await update.message.reply_text(f"Added to waiting list ({len(WAITING_LIST)}/{WAITING_LIST_SIZE}). You will be notified when the game starts.")
+    # If enough players, create a new game
+    if len(WAITING_LIST) >= WAITING_LIST_SIZE:
+        # Randomize power assignment
+        players = WAITING_LIST[:WAITING_LIST_SIZE]
+        random.shuffle(players)
+        assigned_powers = list(zip(players, POWERS))
+        # Create game
+        try:
+            game_resp = api_post("/games/create", {"map_name": "standard"})
+            game_id = game_resp["game_id"]
+            # Assign powers
+            for (telegram_id, full_name), power in assigned_powers:
+                api_post(f"/games/{game_id}/join", {"telegram_id": telegram_id, "game_id": int(game_id), "power": power})
+            # Notify users
+            for (telegram_id, full_name), power in assigned_powers:
+                try:
+                    await update.get_bot().send_message(chat_id=telegram_id, text=f"A new game (ID: {game_id}) has started! You are {power}.")
+                except Exception as e:
+                    logging.warning(f"Failed to notify {telegram_id}: {e}")
+            # Remove assigned users from waiting list
+            del WAITING_LIST[:WAITING_LIST_SIZE]
+        except Exception as e:
+            await update.message.reply_text(f"Failed to create game: {e}")
+
 # --- FastAPI notification endpoint ---
 fastapi_app = FastAPI()
 
@@ -400,6 +465,8 @@ def main():
     app.add_handler(CommandHandler("messages", messages))
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("replay", replay))
+    app.add_handler(CommandHandler("replace", replace))
+    app.add_handler(CommandHandler("wait", wait))
 
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app
