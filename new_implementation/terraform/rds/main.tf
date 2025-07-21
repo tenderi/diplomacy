@@ -14,7 +14,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier              = "diplomacy-db"
   engine                  = "postgres"
-  engine_version          = "15.5"
+  engine_version          = "17.4"
   instance_class          = "db.t3.micro"
   allocated_storage       = 20
   db_name                    = var.db_name
