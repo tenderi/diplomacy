@@ -38,7 +38,7 @@
 
 9999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 
-999999. As soon as there are no build or test errors create a git tag. If there are no git tags start at 0.0.0 and increment patch by 1 for example 0.0.1  if 0.0.0 does not exist.
+999999. As soon as there are no build or test errors create a git tag. Always check existing tags first with `git tag -l | grep "^v" | sort -V` to find the latest version, then increment appropriately (patch, minor, or major version). Use the 'v' prefix for version tags (e.g., v1.0.2, not 0.0.2).
 
 999999999. You may add extra logging if required to be able to debug the issues.
 
