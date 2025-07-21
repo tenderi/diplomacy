@@ -494,19 +494,31 @@ def main():
     # Always run the notification API on port 8081 since the main API server depends on it
     # When BOT_ONLY=true, only run telegram bot + notification API (main API runs separately)
     bot_only = os.environ.get("BOT_ONLY", "false").lower() == "true"
+    print(f"BOT_ONLY environment variable: '{os.environ.get('BOT_ONLY', 'NOT SET')}'")
+    print(f"Detected bot_only mode: {bot_only}")
     
     if bot_only:
-        # Run telegram bot + notification API (main API server runs separately)
-        async def run_bot_with_notify():
-            uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
-            api_task = asyncio.to_thread(uvicorn_server.run)
-            polling = app.run_polling()
-            await asyncio.gather(polling, api_task)
+        # BOT_ONLY mode: Run telegram bot + notification API (main API runs separately)
+        print("Starting in BOT_ONLY mode")
         
-        # Simple approach: always use asyncio.run() for bot+notify mode
-        asyncio.run(run_bot_with_notify())
+        # Start notification API server in a separate thread
+        import threading
+        def start_notify_server():
+            import uvicorn
+            uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+        
+        notify_thread = threading.Thread(target=start_notify_server, daemon=True)
+        notify_thread.start()
+        
+        # Wait a bit for the server to start
+        import time
+        time.sleep(2)
+        
+        # Start telegram bot polling - this will block
+        app.run_polling()
     else:
-        # Run both full API and bot (legacy/standalone mode)
+        # Legacy/standalone mode: Run both servers together
+        print("Starting in standalone mode")
         async def run_all():
             uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
             api_task = asyncio.to_thread(uvicorn_server.run)
@@ -515,8 +527,24 @@ def main():
             if awaitables:
                 await asyncio.gather(*awaitables)
 
-        # Simple approach: always use asyncio.run() for legacy mode
-        asyncio.run(run_all())
+        try:
+            asyncio.run(run_all())
+        except RuntimeError as e:
+            if "event loop is already running" in str(e):
+                # Fallback: start notification server in thread and run bot in main thread
+                import threading
+                def start_notify_server():
+                    import uvicorn
+                    uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+                
+                notify_thread = threading.Thread(target=start_notify_server, daemon=True)
+                notify_thread.start()
+                
+                import time
+                time.sleep(2)
+                app.run_polling()
+            else:
+                raise
 
 if __name__ == "__main__":
     main()
