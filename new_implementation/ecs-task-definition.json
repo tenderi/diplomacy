@@ -15,7 +15,8 @@
       ],
       "environment": [
         { "name": "SQLALCHEMY_DATABASE_URL", "value": "postgresql+psycopg2://diplomacy:diplomacy@diplomacy-db.cifmoqveenxm.eu-west-1.rds.amazonaws.com:5432/diplomacy" },
-        { "name": "DIPLOMACY_API_URL", "value": "http://localhost:8000" }
+        { "name": "DIPLOMACY_API_URL", "value": "http://localhost:8000" },
+        { "name": "BOT_ONLY", "value": "true" }
       ],
       "secrets": [
         {
