@@ -1,6 +1,6 @@
 # Fix Plan (Updated July 2025)
 
-**[2025-01-21] COMPLETED: Fixed all ECS deployment issues: Added missing pytz dependency to requirements.txt, fixed database configuration to read from SQLALCHEMY_DATABASE_URL environment variable, made database table creation lazy (during FastAPI startup), and completely resolved asyncio event loop conflicts by using threading approach instead of complex event loop detection. BOT_ONLY mode now works perfectly in container environments. All tests pass (10/10). Ready for production ECS deployment.**
+**[2025-01-21] CRITICAL FIX COMPLETED: Root cause of ECS asyncio failures was start.sh always starting main API server regardless of BOT_ONLY setting. Fixed start.sh to properly implement BOT_ONLY mode separation: BOT_ONLY=true runs only telegram bot (with notification API on 8081), BOT_ONLY=false runs both servers. Added comprehensive environment variable debugging. Combined with previous fixes (pytz dependency, database config from env vars, lazy DB initialization), this completely resolves all ECS deployment issues. All tests pass (10/10). Ready for production ECS deployment.**
 
 **[2025-07-16] API endpoint /games/{game_id}/legal_orders/{power}/{unit} added. Returns all valid order strings for a unit in the current game state. Ready for Telegram bot and UI integration.**
 
