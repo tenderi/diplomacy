@@ -46,6 +46,21 @@
     {
       "Effect": "Allow",
       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:eu-west-1:511302509360:log-group:/ecs/diplomacy-app:*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:eu-west-1:511302509360:secret:diplomacy/telegram-bot-token*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
         "s3:ListBucket"
       ],
       "Resource": "arn:aws:s3:::diplomacy-bot-test-polarsquad"

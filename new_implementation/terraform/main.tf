@@ -50,11 +50,6 @@ module "ecs" {
   aws_region        = var.aws_region
 }
 
-# IAM roles and policies
-module "iam" {
-  source = "./iam"
-}
-
 # CloudWatch log groups
 module "cloudwatch" {
   source = "./cloudwatch"

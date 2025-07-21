@@ -38,4 +38,5 @@ variable "telegram_bot_token" {
 variable "github_actions_role_arn" {
   description = "ARN of the GitHub Actions OIDC role created by the bootstrap stack"
   type        = string
+  default     = "arn:aws:iam::511302509360:role/github-actions-oidc"
 } 
