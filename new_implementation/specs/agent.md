@@ -1,5 +1,7 @@
 # Clarifications and Best Practices (added July 2025)
 
+**ECS Deployment Notes**: When deploying to ECS containers, set `BOT_ONLY=true` environment variable to prevent asyncio event loop conflicts. The telegram bot will run both telegram polling and notification API (port 8081), while the main API runs separately (port 8000). Ensure all dependencies including `pytz` are in requirements.txt.
+
 - **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
 
 - **Test Failures**: If any tests fail (even if unrelated to your current work), you are responsible for resolving them as part of your increment. Do not leave failing tests unresolved.
