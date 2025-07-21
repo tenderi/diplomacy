@@ -1,7 +1,7 @@
 import sys
 import os
-sys.path.append('new_implementation/src')
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../new_implementation/src/')))
+sys.path.append('/src')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '/src/')))
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -13,10 +13,16 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+    
+# Set sqlalchemy.url from environment variable if present
+db_url = os.environ.get("SQLALCHEMY_DATABASE_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

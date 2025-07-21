@@ -32,6 +32,8 @@ module "rds" {
   db_name     = var.db_name
   db_username = var.db_username
   db_password = var.db_password
+  bastion_sg_id = module.bastion.bastion_security_group_id
+
 }
 
 # ECS Cluster and Fargate Service
@@ -65,4 +67,12 @@ module "load_balancer" {
   vpc_id            = module.network.vpc_id
   public_subnet_ids = module.network.public_subnet_ids
   ecs_target_port   = 8000
+} 
+
+module "bastion" {
+  source            = "./bastion"
+  vpc_id            = module.network.vpc_id
+  public_subnet_id  = module.network.public_subnet_ids[0]
+  allowed_ssh_cidr  = "212.226.125.186/32" // Replace with your actual public IP
+  key_name          = var.bastion_key_name
 } 

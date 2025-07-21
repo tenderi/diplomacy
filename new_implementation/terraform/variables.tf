@@ -40,3 +40,8 @@ variable "github_actions_role_arn" {
   type        = string
   default     = "arn:aws:iam::000000000000:role/github-actions-oidc"
 } 
+
+variable "bastion_key_name" {
+  description = "SSH key name for the bastion host EC2 instance"
+  type        = string
+} 

@@ -4,6 +4,7 @@ variable "db_password" { default = "diplomacy" }
 variable "vpc_id" {}
 variable "subnet_ids" { type = list(string) }
 variable "rds_sg_id" { description = "RDS security group ID" }
+variable "bastion_sg_id" { description = "Bastion host security group ID" }
 
 resource "aws_db_subnet_group" "main" {
   name       = "diplomacy-db-subnet-group"
@@ -28,4 +29,22 @@ resource "aws_db_instance" "main" {
   storage_encrypted       = true
   backup_retention_period = 0
   tags = { Name = "diplomacy-db" }
+}
+
+resource "aws_security_group" "rds" {
+  name        = "diplomacy-rds-sg"
+  description = "Allow Postgres from ECS and Bastion"
+  vpc_id      = var.vpc_id
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    security_groups = [var.rds_sg_id, var.bastion_sg_id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 } 
