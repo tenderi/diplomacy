@@ -1,5 +1,5 @@
 variable "vpc_id" {}
-variable "public_subnet_ids" { type = list(string) }
+variable "private_subnet_ids" { type = list(string) }
 variable "ecs_sg_id" {}
 variable "app_image" { description = "Docker image for Diplomacy app" }
 variable "db_endpoint" { description = "RDS endpoint" }
@@ -21,27 +21,7 @@ resource "aws_ecs_task_definition" "app" {
   cpu                      = 512
   memory                   = 1024
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  container_definitions    = jsonencode([
-    {
-      name      = "diplomacy-app"
-      image     = var.app_image
-      essential = true
-      portMappings = [{ containerPort = 8000, hostPort = 8000 }]
-      environment = [
-        { name = "SQLALCHEMY_DATABASE_URL", value = "postgresql+psycopg2://${var.db_username}:${var.db_password}@${var.db_endpoint}:5432/${var.db_name}" },
-        { name = "TELEGRAM_BOT_TOKEN", value = var.telegram_bot_token },
-        { name = "DIPLOMACY_API_URL", value = "http://localhost:8000" }
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = "/ecs/diplomacy-app"
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "ecs"
-        }
-      }
-    }
-  ])
+  container_definitions    = file("${path.module}/container-definitions.json")
 }
 
 resource "aws_ecs_service" "app" {
@@ -51,9 +31,9 @@ resource "aws_ecs_service" "app" {
   launch_type     = "FARGATE"
   desired_count   = 1
   network_configuration {
-    subnets          = var.public_subnet_ids
+    subnets          = var.private_subnet_ids
     security_groups  = [var.ecs_sg_id]
-    assign_public_ip = true
+    assign_public_ip = false
   }
   load_balancer {
     target_group_arn = var.target_group_arn
@@ -85,4 +65,22 @@ data "aws_iam_policy_document" "ecs_task_assume_role_policy" {
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
   role       = aws_iam_role.ecs_task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role_policy" "ecs_secrets_access" {
+  name = "ecs-secrets-access"
+  role = aws_iam_role.ecs_task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ],
+        Resource = "arn:aws:secretsmanager:eu-west-1:511302509360:secret:diplomacy/telegram-bot-token*"
+      }
+    ]
+  })
 } 

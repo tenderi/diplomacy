@@ -491,15 +491,44 @@ def main():
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app
 
-    async def run_all():
-        uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
-        api_task = asyncio.to_thread(uvicorn_server.run)
-        polling = app.run_polling()
-        awaitables = [a for a in [polling, api_task] if a is not None]
-        if awaitables:
-            await asyncio.gather(*awaitables)
+    # Always run the notification API on port 8081 since the main API server depends on it
+    # When BOT_ONLY=true, only run telegram bot + notification API (main API runs separately)
+    bot_only = os.environ.get("BOT_ONLY", "false").lower() == "true"
+    
+    if bot_only:
+        # Run telegram bot + notification API (main API server runs separately)
+        async def run_bot_with_notify():
+            uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
+            api_task = asyncio.to_thread(uvicorn_server.run)
+            polling = app.run_polling()
+            await asyncio.gather(polling, api_task)
+        
+        # Check if event loop is already running (e.g., in ECS or container environments)
+        try:
+            loop = asyncio.get_running_loop()
+            # If we get here, there's already a loop running - create a task instead
+            loop.create_task(run_bot_with_notify())
+        except RuntimeError:
+            # No event loop is running, we can use asyncio.run()
+            asyncio.run(run_bot_with_notify())
+    else:
+        # Run both full API and bot (legacy/standalone mode)
+        async def run_all():
+            uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
+            api_task = asyncio.to_thread(uvicorn_server.run)
+            polling = app.run_polling()
+            awaitables = [a for a in [polling, api_task] if a is not None]
+            if awaitables:
+                await asyncio.gather(*awaitables)
 
-    asyncio.run(run_all())
+        # Check if event loop is already running (e.g., in ECS or container environments)
+        try:
+            loop = asyncio.get_running_loop()
+            # If we get here, there's already a loop running - create a task instead
+            loop.create_task(run_all())
+        except RuntimeError:
+            # No event loop is running, we can use asyncio.run()
+            asyncio.run(run_all())
 
 if __name__ == "__main__":
     main()

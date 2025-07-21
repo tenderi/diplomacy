@@ -30,21 +30,3 @@ resource "aws_db_instance" "main" {
   backup_retention_period = 0
   tags = { Name = "diplomacy-db" }
 }
-
-resource "aws_security_group" "rds" {
-  name        = "diplomacy-rds-sg"
-  description = "Allow Postgres from ECS and Bastion"
-  vpc_id      = var.vpc_id
-  ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    security_groups = [var.rds_sg_id, var.bastion_sg_id]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-} 

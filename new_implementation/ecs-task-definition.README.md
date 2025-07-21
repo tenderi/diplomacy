@@ -3,7 +3,7 @@
 This file (`ecs-task-definition.json`) defines how AWS ECS should run the Diplomacy app (API + Telegram bot) as a containerized service.
 
 ## Key Fields
-- `family`: Name for this task definition family (e.g., `diplomacy-app-task`).
+- `family`: Name for this task definition family (e.g., `diplomacy-app`).
 - `networkMode`: Use `awsvpc` for Fargate (recommended).
 - `requiresCompatibilities`: Use `FARGATE` for serverless containers.
 - `cpu`/`memory`: Adjust as needed for your workload (default: 512 CPU, 1024 MB RAM).

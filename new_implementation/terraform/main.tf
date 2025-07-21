@@ -40,7 +40,7 @@ module "rds" {
 module "ecs" {
   source            = "./ecs"
   vpc_id            = module.network.vpc_id
-  public_subnet_ids = module.network.public_subnet_ids
+  private_subnet_ids = module.network.private_subnet_ids
   ecs_sg_id         = module.network.ecs_sg_id
   app_image         = module.ecr.repository_url
   db_endpoint       = module.rds.endpoint
