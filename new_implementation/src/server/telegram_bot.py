@@ -493,9 +493,27 @@ def main():
 
     # Always run the notification API on port 8081 since the main API server depends on it
     # When BOT_ONLY=true, only run telegram bot + notification API (main API runs separately)
-    bot_only = os.environ.get("BOT_ONLY", "false").lower() == "true"
-    print(f"BOT_ONLY environment variable: '{os.environ.get('BOT_ONLY', 'NOT SET')}'")
-    print(f"Detected bot_only mode: {bot_only}")
+    
+    # Enhanced debugging for container environment
+    import logging
+    logging.basicConfig(level=logging.INFO, force=True)
+    logger = logging.getLogger(__name__)
+    
+    # Log all environment variables for debugging
+    logger.info("=== TELEGRAM BOT STARTUP DEBUG ===")
+    logger.info(f"All environment variables containing 'BOT': {[(k,v) for k,v in os.environ.items() if 'BOT' in k.upper()]}")
+    
+    bot_only_raw = os.environ.get("BOT_ONLY", "NOT_SET")
+    bot_only = bot_only_raw.lower() == "true"
+    
+    logger.info(f"BOT_ONLY raw value: '{bot_only_raw}'")
+    logger.info(f"BOT_ONLY after .lower(): '{bot_only_raw.lower()}'")
+    logger.info(f"Final bot_only boolean: {bot_only}")
+    logger.info("=== END DEBUG ===")
+    
+    # Also print to stdout for container logs
+    print(f"🤖 BOT_ONLY environment variable: '{bot_only_raw}'")
+    print(f"🤖 Detected bot_only mode: {bot_only}")
     
     if bot_only:
         # BOT_ONLY mode: Run telegram bot + notification API (main API runs separately)
