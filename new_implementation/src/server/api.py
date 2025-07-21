@@ -31,14 +31,28 @@ import pytz
 import os
 from engine.order import OrderParser
 
-app = FastAPI(title="Diplomacy Server API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan event to handle startup and shutdown tasks."""
+    # Startup: create database tables if they don't exist
+    try:
+        Base.metadata.create_all(bind=engine)
+        logging.info("Database tables created/verified successfully")
+    except Exception as e:
+        logging.error(f"Failed to create database tables: {e}")
+        # Don't fail startup - let individual requests handle DB errors
+    
+    yield
+    
+    # Shutdown: cleanup tasks can go here if needed
+
+app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
 
 # In-memory server instance (replace with persistent storage for production)
 server = Server()
 
-# On startup, create tables if not exist
+# Create database engine (but don't connect yet)
 engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True, future=True)
-Base.metadata.create_all(bind=engine)
 
 # --- Models ---
 class CreateGameRequest(BaseModel):

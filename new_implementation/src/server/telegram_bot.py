@@ -503,14 +503,8 @@ def main():
             polling = app.run_polling()
             await asyncio.gather(polling, api_task)
         
-        # Check if event loop is already running (e.g., in ECS or container environments)
-        try:
-            loop = asyncio.get_running_loop()
-            # If we get here, there's already a loop running - create a task instead
-            loop.create_task(run_bot_with_notify())
-        except RuntimeError:
-            # No event loop is running, we can use asyncio.run()
-            asyncio.run(run_bot_with_notify())
+        # Simple approach: always use asyncio.run() for bot+notify mode
+        asyncio.run(run_bot_with_notify())
     else:
         # Run both full API and bot (legacy/standalone mode)
         async def run_all():
@@ -521,14 +515,8 @@ def main():
             if awaitables:
                 await asyncio.gather(*awaitables)
 
-        # Check if event loop is already running (e.g., in ECS or container environments)
-        try:
-            loop = asyncio.get_running_loop()
-            # If we get here, there's already a loop running - create a task instead
-            loop.create_task(run_all())
-        except RuntimeError:
-            # No event loop is running, we can use asyncio.run()
-            asyncio.run(run_all())
+        # Simple approach: always use asyncio.run() for legacy mode
+        asyncio.run(run_all())
 
 if __name__ == "__main__":
     main()
