@@ -9,5 +9,6 @@ python-telegram-bot
 pydantic
 cairosvg
 Pillow
+pytz
 pytest
 pytest-asyncio

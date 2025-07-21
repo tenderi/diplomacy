@@ -1,5 +1,7 @@
 # Fix Plan (Updated July 2025)
 
+**[2025-01-21] Fixed ECS deployment issues: Added missing pytz dependency to requirements.txt and fixed asyncio event loop conflict in telegram_bot.py by properly detecting and handling existing event loops in container environments.**
+
 **[2025-07-16] API endpoint /games/{game_id}/legal_orders/{power}/{unit} added. Returns all valid order strings for a unit in the current game state. Ready for Telegram bot and UI integration.**
 
 **[2025-07-16] Order suggestions/help system implemented. Added OrderParser.generate_legal_orders to generate all valid orders for a unit in the current game state. Comprehensive tests added in test_order.py. All tests pass. This is the foundation for API and Telegram bot integration.**
