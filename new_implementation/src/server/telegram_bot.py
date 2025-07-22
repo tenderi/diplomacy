@@ -240,9 +240,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     elif data.startswith("view_map_"):
         game_id = data.split("_")[2]
-        # This would call the existing map_command functionality
-        # For now, just show a message
-        await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...\n\n(Map functionality coming soon!)")
+        await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...\n\n(Live game map functionality coming soon!)")
+    
+    elif data == "view_default_map":
+        await query.edit_message_text("🗺️ Generating standard Diplomacy map...")
+        await send_default_map(update, context)
+    
+    elif data == "back_to_main_menu":
+        # Show the main start message again
+        await show_main_menu(update, context)
     
     elif data.startswith("view_messages_"):
         game_id = data.split("_")[2]
@@ -312,23 +318,39 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
 
 async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show map menu for user's games"""
+    """Show map menu for user's games or default map if not in any games"""
     try:
         user_id = str(update.effective_user.id)
         user_games = api_get(f"/users/{user_id}/games")
         
         if not user_games:
-            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+            # Show default map for users not in any games
+            keyboard = [
+                [InlineKeyboardButton("🗺️ View Standard Diplomacy Map", callback_data="view_default_map")],
+                [InlineKeyboardButton("🎲 Join a Game to See Live Maps", callback_data="back_to_main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "🎮 *You're not in any games yet!*\n\n"
+                "🗺️ Would you like to see the standard Diplomacy map?\n"
+                "🎲 Or join a game to see live game maps with unit positions?",
+                reply_markup=reply_markup, 
+                parse_mode='Markdown'
+            )
             return
         
+        # User has games - show their game maps
         keyboard = []
         for game in user_games[:10]:
             game_id = game.get('game_id', 'Unknown')
             power = game.get('power', 'Unknown')
-            keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map", callback_data=f"view_map_{game_id}")])
+            keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power})", callback_data=f"view_map_{game_id}")])
+        
+        # Also add option to see default map
+        keyboard.append([InlineKeyboardButton("🗺️ Standard Reference Map", callback_data="view_default_map")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("🗺️ *Select game to view map:*", reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text("🗺️ *Select map to view:*", reply_markup=reply_markup, parse_mode='Markdown')
         
     except Exception as e:
         await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
@@ -385,6 +407,87 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 *💡 Tip:* Use the menu buttons for easier navigation!
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the standard Diplomacy map without any units"""
+    try:
+        # Use standard map with no units (empty game state)
+        svg_path = "new_implementation/maps/standard.svg"
+        if not os.path.isfile(svg_path):
+            # Try different path if file not found
+            svg_path = os.path.join(os.path.dirname(__file__), "..", "..", "maps", "standard.svg")
+        
+        # Empty units dictionary for clean map display
+        units = {}
+        
+        # Generate map image
+        img_bytes = Map.render_board_png(svg_path, units)
+        
+        # Send the map with descriptive caption
+        caption = (
+            "🗺️ *Standard Diplomacy Map*\n\n"
+            "This is the classic Diplomacy board showing:\n"
+            "🏰 *7 Great Powers:* Austria, England, France, Germany, Italy, Russia, Turkey\n"
+            "🏙️ *Supply Centers:* Cities that provide military units\n"
+            "🌊 *Seas & Land:* Different movement rules for fleets vs armies\n\n"
+            "🎲 *Ready to play?* Use the menu to join a game!"
+        )
+        
+        if update.callback_query:
+            # If called from inline button, send new photo message
+            await update.callback_query.message.reply_photo(
+                photo=BytesIO(img_bytes), 
+                caption=caption,
+                parse_mode='Markdown'
+            )
+        else:
+            # If called directly, send photo to message
+            await update.message.reply_photo(
+                photo=BytesIO(img_bytes), 
+                caption=caption,
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        error_msg = f"❌ Error generating default map: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the main menu keyboard"""
+    keyboard = [
+        [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
+        [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
+        [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
+        [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+    main_text = (
+        "🏛️ *Welcome to Diplomacy!*\n\n"
+        "I'm your diplomatic assistant. Use the menu below:\n\n"
+        "🎯 *Register* if you're new\n"
+        "🎮 *My Games* to see your current games\n"
+        "🎲 *Join Game* to enter a specific game\n"
+        "⏳ *Join Waiting List* for automatic matching"
+    )
+    
+    if update.callback_query:
+        # If called from callback, send new message with keyboard
+        await update.callback_query.message.reply_text(
+            main_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    else:
+        # If called directly, reply to message
+        await update.message.reply_text(
+            main_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
