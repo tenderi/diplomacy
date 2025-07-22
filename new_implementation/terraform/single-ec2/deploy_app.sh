@@ -100,6 +100,7 @@ fi
 # Copy application code
 echo -e "${YELLOW}Copying application code to instance...${NC}"
 copy_files "../../src" "/tmp/"
+copy_files "../../maps" "/tmp/"
 copy_files "../../requirements.txt" "/tmp/"
 copy_files "../../alembic" "/tmp/"
 copy_files "../../alembic.ini" "/tmp/"
@@ -107,14 +108,20 @@ copy_files "../../alembic.ini" "/tmp/"
 # Deploy the application
 echo -e "${YELLOW}Deploying application on instance...${NC}"
 run_ssh "
-    sudo rm -rf /opt/diplomacy/new_implementation/src
-    sudo mkdir -p /opt/diplomacy/new_implementation
-    sudo cp -r /tmp/src /opt/diplomacy/new_implementation/
+    sudo rm -rf /opt/diplomacy/src
+    sudo rm -rf /opt/diplomacy/maps
+    sudo rm -rf /opt/diplomacy/alembic
+    sudo mkdir -p /opt/diplomacy
+    sudo cp -r /tmp/src /opt/diplomacy/
+    sudo cp -r /tmp/maps /opt/diplomacy/
     sudo cp /tmp/requirements.txt /opt/diplomacy/
-    sudo cp -r /tmp/alembic /opt/diplomacy/new_implementation/ 2>/dev/null || true
-    sudo cp /tmp/alembic.ini /opt/diplomacy/new_implementation/ 2>/dev/null || true
-    sudo chown -R diplomacy:diplomacy /opt/diplomacy/new_implementation
+    sudo cp -r /tmp/alembic /opt/diplomacy/ 2>/dev/null || true
+    sudo cp /tmp/alembic.ini /opt/diplomacy/ 2>/dev/null || true
+    sudo chown -R diplomacy:diplomacy /opt/diplomacy/src
+    sudo chown -R diplomacy:diplomacy /opt/diplomacy/maps
+    sudo chown -R diplomacy:diplomacy /opt/diplomacy/alembic 2>/dev/null || true
     sudo chown diplomacy:diplomacy /opt/diplomacy/requirements.txt
+    sudo chown diplomacy:diplomacy /opt/diplomacy/alembic.ini 2>/dev/null || true
 "
 
 # Install/update Python dependencies
@@ -122,9 +129,9 @@ echo -e "${YELLOW}Installing Python dependencies...${NC}"
 run_ssh "sudo -u diplomacy pip3 install --user -r /opt/diplomacy/requirements.txt"
 
 # Run database migrations if alembic is present
-if run_ssh "test -f /opt/diplomacy/new_implementation/alembic.ini"; then
+if run_ssh "test -f /opt/diplomacy/alembic.ini"; then
     echo -e "${YELLOW}Running database migrations...${NC}"
-    run_ssh "cd /opt/diplomacy/new_implementation && sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head" || echo -e "${YELLOW}Note: Migration failed, but continuing...${NC}"
+    run_ssh "cd /opt/diplomacy && sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head" || echo -e "${YELLOW}Note: Migration failed, but continuing...${NC}"
 fi
 
 # Restart the diplomacy service
