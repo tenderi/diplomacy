@@ -187,18 +187,18 @@ EOF
 
 chown diplomacy:diplomacy /opt/diplomacy/.env
 
-# Create requirements.txt with updated versions
+# Create requirements.txt with Amazon Linux 2 compatible versions
 cat > /opt/diplomacy/requirements.txt << EOF
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
-sqlalchemy==2.0.36
-psycopg2-binary==2.9.10
-alembic==1.14.0
-python-telegram-bot==21.10
-pydantic==2.10.3
-python-multipart==0.0.12
-jinja2==3.1.4
-pytz==2024.2
+fastapi==0.103.2
+uvicorn[standard]==0.24.0
+sqlalchemy==1.4.53
+psycopg2-binary==2.9.7
+alembic==1.12.1
+python-telegram-bot==20.7
+pydantic==1.10.13
+python-multipart==0.0.6
+jinja2==3.1.2
+pytz==2023.3
 EOF
 
 # Install Python dependencies
