@@ -667,10 +667,8 @@ async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Send the standard Diplomacy map without any units"""
     try:
         # Use standard map with no units (empty game state)
-        svg_path = "maps/standard.svg"
-        if not os.path.isfile(svg_path):
-            # Try different path if file not found
-            svg_path = os.path.join(os.path.dirname(__file__), "..", "..", "maps", "standard.svg")
+        # Use absolute path to maps directory
+        svg_path = "/opt/diplomacy/maps/standard.svg"
         
         # Empty units dictionary for clean map display
         units = {}
@@ -986,9 +984,9 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         units = game_state["units"]  # {power: ["A PAR", "F LON", ...]}
         map_name = game_state.get("map", "standard")
-        svg_path = f"maps/{map_name}.svg"
+        svg_path = f"/opt/diplomacy/maps/{map_name}.svg"
         if not os.path.isfile(svg_path):
-            svg_path = "maps/standard.svg"
+            svg_path = "/opt/diplomacy/maps/standard.svg"
         try:
             img_bytes = Map.render_board_png(svg_path, units)
         except Exception as e:
@@ -1018,9 +1016,9 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         units = state["units"]
         map_name = state.get("map", "standard")
-        svg_path = f"maps/{map_name}.svg"
+        svg_path = f"/opt/diplomacy/maps/{map_name}.svg"
         if not os.path.isfile(svg_path):
-            svg_path = "maps/standard.svg"
+            svg_path = "/opt/diplomacy/maps/standard.svg"
         try:
             img_bytes = Map.render_board_png(svg_path, units)
         except Exception as e:
