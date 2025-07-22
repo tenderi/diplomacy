@@ -6,8 +6,8 @@ This bot will handle registration, order submission, and notifications for Diplo
 import logging
 import os
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 from io import BytesIO
 import asyncio
 from fastapi import FastAPI
@@ -60,8 +60,25 @@ def api_get(endpoint: str) -> dict:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
+    
+    # Create main menu keyboard
+    keyboard = [
+        [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
+        [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
+        [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
+        [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
     await update.message.reply_text(
-        "Welcome to Diplomacy! Use /register to register, /join to join a game, /games to list games."
+        "🏛️ *Welcome to Diplomacy!*\n\n"
+        "I'm your diplomatic assistant. Use the menu below or type commands:\n\n"
+        "🎯 Start with *Register* if you're new\n"
+        "🎮 Check *My Games* to see your current games\n"
+        "🎲 *Join Game* to enter a specific game\n"
+        "⏳ *Join Waiting List* for automatic game matching",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -74,8 +91,23 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     full_name = getattr(user, 'full_name', None)
     try:
         api_post("/users/persistent_register", {"telegram_id": user_id, "full_name": full_name})
+        
+        # Show main menu after successful registration
+        keyboard = [
+            [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
+            [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
+            [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
+            [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+        
         await update.message.reply_text(
-            f"Registered as {full_name or 'Unknown'} (id: {user_id}). Use /join <game_id> <power> to join a game."
+            f"🎉 *Registration successful!*\n\n"
+            f"Welcome {full_name or 'Unknown'} (ID: {user_id})\n\n"
+            f"🎲 Use *Join Game* to select from available games\n"
+            f"⏳ Or use *Join Waiting List* for auto-matching",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
     except Exception as e:
         await update.message.reply_text(f"Registration error: {e}")
@@ -98,6 +130,261 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("\n".join(lines))
     except Exception as e:
         await update.message.reply_text(f"Error retrieving games: {e}")
+
+# Interactive game selection with buttons
+async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show available games with inline buttons"""
+    try:
+        games = api_get("/games")
+        if not games:
+            await update.message.reply_text("🎮 No games available. Use /wait to join the waiting list.")
+            return
+        
+        # Create inline keyboard with available games
+        keyboard = []
+        for game in games[:10]:  # Limit to 10 games
+            game_id = game.get('id', 'Unknown')
+            status = game.get('state', 'Unknown')
+            players = game.get('player_count', 0)
+            max_players = game.get('max_players', 7)
+            
+            game_text = f"Game {game_id} | {status} | {players}/{max_players} players"
+            keyboard.append([InlineKeyboardButton(game_text, callback_data=f"select_game_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("🎲 *Select a game to join:*", reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error loading games: {str(e)}")
+
+async def show_power_selection(update, game_id):
+    """Show available powers for a specific game"""
+    try:
+        # Get available powers for the game
+        available_powers = ["Austria", "England", "France", "Germany", "Italy", "Russia", "Turkey"]
+        
+        keyboard = []
+        for i in range(0, len(available_powers), 2):  # 2 buttons per row
+            row = []
+            for j in range(2):
+                if i + j < len(available_powers):
+                    power = available_powers[i + j]
+                    row.append(InlineKeyboardButton(f"🏰 {power}", callback_data=f"join_game_{game_id}_{power}"))
+            keyboard.append(row)
+        
+        # Add back button
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Games", callback_data="back_to_games")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        message = f"🏰 *Select your power for Game {game_id}:*"
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+            
+    except Exception as e:
+        error_msg = f"❌ Error loading powers: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+# Handle callback queries from inline buttons
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle button clicks from inline keyboards"""
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    
+    data = query.data
+    user_id = str(query.from_user.id)
+    
+    if data.startswith("select_game_"):
+        game_id = data.split("_")[2]
+        await show_power_selection(update, game_id)
+        
+    elif data.startswith("join_game_"):
+        parts = data.split("_")
+        game_id = parts[2]
+        power = parts[3]
+        
+        try:
+            result = api_post(f"/games/{game_id}/join", {
+                "telegram_id": user_id, 
+                "game_id": int(game_id), 
+                "power": power
+            })
+            await query.edit_message_text(f"🎉 Successfully joined Game {game_id} as {power}!")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Failed to join: {str(e)}")
+    
+    elif data == "back_to_games":
+        # Show games list again
+        await show_available_games(update, context)
+    
+    elif data.startswith("orders_menu_"):
+        parts = data.split("_")
+        game_id = parts[2]
+        power = parts[3]
+        
+        # Create orders action menu for specific game
+        keyboard = [
+            [InlineKeyboardButton("📝 Submit Orders", callback_data=f"submit_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("👁️ View My Orders", callback_data=f"view_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("🗑️ Clear Orders", callback_data=f"clear_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("📜 Order History", callback_data=f"order_history_{game_id}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_orders_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"📋 *Orders Menu - Game {game_id} ({power})*", reply_markup=reply_markup, parse_mode='Markdown')
+    
+    elif data.startswith("view_map_"):
+        game_id = data.split("_")[2]
+        # This would call the existing map_command functionality
+        # For now, just show a message
+        await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...\n\n(Map functionality coming soon!)")
+    
+    elif data.startswith("view_messages_"):
+        game_id = data.split("_")[2]
+        await query.edit_message_text(f"💬 Loading messages for Game {game_id}...\n\n(Messages functionality coming soon!)")
+    
+    elif data.startswith("submit_orders_"):
+        parts = data.split("_")
+        game_id = parts[2]
+        power = parts[3]
+        await query.edit_message_text(
+            f"📝 *Submit Orders - Game {game_id} ({power})*\n\n"
+            f"Use the command: `/orders {game_id} <your orders>`\n\n"
+            f"*Example:*\n"
+            f"`/orders {game_id} A Vienna - Trieste; F Budapest - Serbia`\n\n"
+            f"*Order Format:*\n"
+            f"• `A Vienna - Trieste` (Move)\n"
+            f"• `A Berlin S A Munich - Kiel` (Support)\n"
+            f"• `F English Channel C A London - Brest` (Convoy)",
+            parse_mode='Markdown'
+        )
+
+# Handle menu button presses
+async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle presses of menu keyboard buttons"""
+    if not update.message or not update.message.text:
+        return
+    
+    text = update.message.text.strip()
+    
+    if text == "🎯 Register":
+        await register(update, context)
+    elif text == "🎮 My Games":
+        await games(update, context)
+    elif text == "🎲 Join Game":
+        await show_available_games(update, context)
+    elif text == "⏳ Join Waiting List":
+        await wait(update, context)
+    elif text == "📋 My Orders":
+        await show_my_orders_menu(update, context)
+    elif text == "🗺️ View Map":
+        await show_map_menu(update, context)
+    elif text == "💬 Messages":
+        await show_messages_menu(update, context)
+    elif text == "ℹ️ Help":
+        await show_help(update, context)
+
+async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show orders menu for user's games"""
+    try:
+        user_id = str(update.effective_user.id)
+        user_games = api_get(f"/users/{user_id}/games")
+        
+        if not user_games:
+            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+            return
+        
+        keyboard = []
+        for game in user_games[:10]:  # Limit to 10 games
+            game_id = game.get('game_id', 'Unknown')
+            power = game.get('power', 'Unknown')
+            keyboard.append([InlineKeyboardButton(f"📋 Game {game_id} ({power})", callback_data=f"orders_menu_{game_id}_{power}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("📋 *Select game to manage orders:*", reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+
+async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show map menu for user's games"""
+    try:
+        user_id = str(update.effective_user.id)
+        user_games = api_get(f"/users/{user_id}/games")
+        
+        if not user_games:
+            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+            return
+        
+        keyboard = []
+        for game in user_games[:10]:
+            game_id = game.get('game_id', 'Unknown')
+            power = game.get('power', 'Unknown')
+            keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map", callback_data=f"view_map_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("🗺️ *Select game to view map:*", reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+
+async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show messages menu for user's games"""
+    try:
+        user_id = str(update.effective_user.id)
+        user_games = api_get(f"/users/{user_id}/games")
+        
+        if not user_games:
+            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+            return
+        
+        keyboard = []
+        for game in user_games[:10]:
+            game_id = game.get('game_id', 'Unknown')
+            power = game.get('power', 'Unknown')
+            keyboard.append([InlineKeyboardButton(f"💬 Game {game_id} Messages", callback_data=f"view_messages_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("💬 *Select game to view messages:*", reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show help with available commands"""
+    help_text = """
+🏛️ *Diplomacy Bot Commands*
+
+*🎯 Getting Started:*
+• Register - Register as a player
+• My Games - View your current games
+• Join Game - Join a specific game
+• Join Waiting List - Auto-match with others
+
+*🎮 During Games:*
+• My Orders - Submit/view your orders  
+• View Map - See current game state
+• Messages - View/send diplomatic messages
+
+*📝 Text Commands:*
+• `/orders <game_id> <orders>` - Submit orders
+• `/message <game_id> <power> <text>` - Send message
+• `/broadcast <game_id> <text>` - Message all players
+
+*🗺️ Order Format Examples:*
+• `A Vienna - Trieste` (Army move)
+• `F London - North Sea` (Fleet move)
+• `A Berlin S A Munich - Kiel` (Support)
+• `F English Channel C A London - Brest` (Convoy)
+
+*💡 Tip:* Use the menu buttons for easier navigation!
+    """
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -510,6 +797,10 @@ def main():
     app.add_handler(CommandHandler("replay", replay))
     app.add_handler(CommandHandler("replace", replace))
     app.add_handler(CommandHandler("wait", wait))
+    
+    # Add handlers for interactive features
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
 
     # Attach the running app to the notify endpoint for access
     notify.telegram_app = app
