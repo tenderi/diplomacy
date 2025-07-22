@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from engine.game import Game
+from src.engine.game import Game
 import logging
 from .errors import ServerError, ErrorCode
 import os
