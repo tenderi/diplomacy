@@ -678,11 +678,11 @@ async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # Send the map with descriptive caption
         caption = (
-            "🗺️ *Standard Diplomacy Map*\\n\\n"
-            "This is the classic Diplomacy board showing:\\n"
-            "🏰 *7 Great Powers:* Austria, England, France, Germany, Italy, Russia, Turkey\\n"
-            "🏙️ *Supply Centers:* Cities that provide military units\\n"
-            "🌊 *Seas & Land:* Different movement rules for fleets vs armies\\n\\n"
+            "🗺️ *Standard Diplomacy Map*\n\n"
+            "This is the classic Diplomacy board showing:\n"
+            "🏰 *7 Great Powers:* Austria, England, France, Germany, Italy, Russia, Turkey\n"
+            "🏙️ *Supply Centers:* Cities that provide military units\n"
+            "🌊 *Seas & Land:* Different movement rules for fleets vs armies\n\n"
             "🎲 *Ready to play?* Use the menu to join a game!"
         )
         

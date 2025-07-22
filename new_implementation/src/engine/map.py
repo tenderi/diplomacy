@@ -242,8 +242,10 @@ class Map:
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
-        # 1. Convert SVG to PNG (background)
-        png_bytes = cairosvg.svg2png(url=str(svg_path))  # type: ignore
+        # 1. Convert SVG to PNG (background) with larger size to match viewBox
+        # The SVG has viewBox="0 0 1835 1360" but default output is 918x680
+        # Scale up to get better resolution and proper map display
+        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=1835, output_height=1360)  # type: ignore
         if png_bytes is None:
             raise ValueError("cairosvg.svg2png returned None")
         bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
