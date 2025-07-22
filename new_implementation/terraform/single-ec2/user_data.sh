@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# User data script to set up Diplomacy app on single EC2 instance
+# User data script to set up Diplomacy app on Ubuntu 22.04 LTS
 # This script installs PostgreSQL, Python, and sets up the application
 
 set -e
@@ -9,122 +9,60 @@ set -e
 exec > >(tee /var/log/user-data.log)
 exec 2>&1
 
-echo "=== Starting Diplomacy Server Setup ==="
+echo "=== Starting Diplomacy Server Setup on Ubuntu 22.04 ==="
 echo "Date: $(date)"
 
 # Update system
-yum update -y
+apt update && apt upgrade -y
 
-# Find and install the latest PostgreSQL version available via Amazon Linux Extras
-echo "Finding latest available PostgreSQL version..."
-AVAILABLE_POSTGRES=$(amazon-linux-extras list | grep -E 'postgresql[0-9]+' | grep -E '\bavailable\b' | tail -1 | awk '{print $2}')
-
-if [ -z "$AVAILABLE_POSTGRES" ]; then
-    # Fallback to known good versions in order of preference
-    for version in postgresql17 postgresql16 postgresql15 postgresql14 postgresql13; do
-        if amazon-linux-extras list | grep -q "$version.*available"; then
-            AVAILABLE_POSTGRES="$version"
-            break
-        fi
-    done
-fi
-
-if [ -z "$AVAILABLE_POSTGRES" ]; then
-    echo "❌ No PostgreSQL version found in amazon-linux-extras!"
-    exit 1
-fi
-
-echo "🎯 Installing PostgreSQL version: $AVAILABLE_POSTGRES"
-amazon-linux-extras install $AVAILABLE_POSTGRES -y
-
-# Extract major version number (e.g., postgresql17 -> 17)
-PG_MAJOR_VERSION=$(echo $AVAILABLE_POSTGRES | sed 's/postgresql//')
-echo "PostgreSQL major version: $PG_MAJOR_VERSION"
-
-# Install additional required packages
-yum install -y \
-    git \
+# Install required packages (much simpler on Ubuntu!)
+echo "Installing required packages..."
+apt install -y \
+    postgresql \
+    postgresql-contrib \
     python3 \
     python3-pip \
-    postgresql-devel \
+    python3-venv \
+    git \
     nginx \
-    htop \
-    tmux \
-    gcc \
-    python3-devel \
-    curl
+    curl \
+    unzip \
+    build-essential \
+    libpq-dev
 
-# Create diplomacy user
-useradd -m -s /bin/bash diplomacy || true
+echo "✓ Packages installed successfully"
 
-# Create postgres user if it doesn't exist (required for PostgreSQL)
-echo "Creating postgres user..."
-if ! id postgres &>/dev/null; then
-    useradd -r -s /bin/false postgres
-    echo "✓ Created postgres user"
-else
-    echo "✓ postgres user already exists"
-fi
+# PostgreSQL setup (dramatically simpler on Ubuntu!)
+echo "Setting up PostgreSQL..."
 
-# Initialize PostgreSQL (correct method for amazon-linux-extras installation)
-echo "Initializing PostgreSQL database..."
-
-# Create the data directory
-mkdir -p /var/lib/pgsql/data
-chown postgres:postgres /var/lib/pgsql/data
-
-# Find the correct path to initdb and initialize the database
-echo "Finding initdb binary..."
-INITDB_PATH=""
-for path in /usr/bin/initdb /usr/pgsql-*/bin/initdb; do
-    if [ -x "$path" ]; then
-        INITDB_PATH="$path"
-        echo "✓ Found initdb at: $INITDB_PATH"
-        break
-    fi
-done
-
-if [ -z "$INITDB_PATH" ]; then
-    echo "❌ Could not find initdb binary. Trying alternative installation..."
-    # Try installing postgresql-server which includes initdb
-    yum install -y postgresql-server
-    INITDB_PATH="/usr/bin/initdb"
-fi
-
-# Initialize the database as the postgres user
-if [ -x "$INITDB_PATH" ]; then
-    sudo -u postgres "$INITDB_PATH" -D /var/lib/pgsql/data
-    echo "✓ PostgreSQL database initialized successfully"
-else
-    echo "❌ Still could not find initdb. Manual intervention required."
-    exit 1
-fi
-
-# Enable and start PostgreSQL service
+# Start and enable PostgreSQL service
 systemctl enable postgresql
 systemctl start postgresql
 
 # Wait for PostgreSQL to be ready
-sleep 10
+sleep 5
 
-# Check PostgreSQL status
-echo "PostgreSQL status: $(systemctl is-active postgresql)"
-
-# Get actual PostgreSQL version that was installed
-PG_VERSION=$(sudo -u postgres psql -t -c "SHOW server_version;" 2>/dev/null | head -1 | awk '{print $1}' | cut -d. -f1 || echo "unknown")
-echo "✅ PostgreSQL $PG_VERSION is now running!"
-
-# Configure PostgreSQL
-echo "Configuring PostgreSQL database and user..."
-sudo -u postgres createdb ${db_name} || true
-sudo -u postgres psql -c "CREATE USER ${db_username} WITH PASSWORD '${db_password}';" || true
+# Create database and user (simple on Ubuntu - postgres user exists by default)
+echo "Creating database and user..."
+sudo -u postgres createdb ${db_name} || echo "Database already exists"
+sudo -u postgres psql -c "CREATE USER ${db_username} WITH PASSWORD '${db_password}';" || echo "User already exists"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO ${db_username};" || true
 sudo -u postgres psql -c "ALTER USER ${db_username} CREATEDB;" || true
 
-# Configure PostgreSQL to accept connections
-echo "Configuring PostgreSQL for local connections..."
-cat >> /var/lib/pgsql/data/postgresql.conf << EOF
-# Optimized settings for single-instance deployment
+echo "✓ Database setup complete"
+
+# Configure PostgreSQL for optimal performance on t3.micro
+echo "Optimizing PostgreSQL configuration..."
+PG_VERSION=$(sudo -u postgres psql -c "SHOW server_version;" -t | awk '{print $1}' | sed 's/\..*//') 
+PG_CONFIG_DIR="/etc/postgresql/$PG_VERSION/main"
+
+# Backup original config
+cp $PG_CONFIG_DIR/postgresql.conf $PG_CONFIG_DIR/postgresql.conf.backup
+
+# Add optimized settings
+cat >> $PG_CONFIG_DIR/postgresql.conf << EOF
+
+# Optimized settings for single-instance t3.micro deployment
 listen_addresses = 'localhost'
 port = 5432
 
@@ -133,43 +71,53 @@ shared_buffers = 128MB
 effective_cache_size = 768MB
 work_mem = 4MB
 maintenance_work_mem = 64MB
-
-# Connection settings
 max_connections = 20
 
 # Logging
 log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
 log_statement = 'all'
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
 EOF
 
-# Update pg_hba.conf for local connections (Amazon Linux 2 specific)
-cp /var/lib/pgsql/data/pg_hba.conf /var/lib/pgsql/data/pg_hba.conf.bak
-sed -i 's/peer/md5/g' /var/lib/pgsql/data/pg_hba.conf
-sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
+# Configure authentication (allow local md5 connections)
+PG_HBA_FILE="$PG_CONFIG_DIR/pg_hba.conf"
+cp $PG_HBA_FILE $PG_HBA_FILE.backup
+
+# Update pg_hba.conf for local connections with password authentication
+sed -i 's/local   all             all                                     peer/local   all             all                                     md5/' $PG_HBA_FILE
 
 # Restart PostgreSQL to apply changes
 systemctl restart postgresql
-
-# Wait for restart
 sleep 5
 
 # Test PostgreSQL connection
-echo "Testing PostgreSQL connection..."
-if sudo -u postgres psql -c "SELECT version();" 2>/dev/null; then
+echo "Testing PostgreSQL setup..."
+if sudo -u postgres psql -c "SELECT version();" > /dev/null 2>&1; then
     echo "✓ PostgreSQL is running and accessible"
+    sudo -u postgres psql -c "SELECT version();"
 else
     echo "✗ PostgreSQL test failed"
+    exit 1
 fi
 
 # Test database connection with the created user
 echo "Testing database connection with diplomacy user..."
-if sudo -u diplomacy PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Connection successful!' as status;" 2>/dev/null; then
+if PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Connection successful!' as status;" > /dev/null 2>&1; then
     echo "✓ Database connection successful!"
+    PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Connection successful!' as status;"
 else
     echo "✗ Database connection failed!"
+    exit 1
 fi
 
+# Create diplomacy user
+echo "Creating diplomacy application user..."
+useradd -m -s /bin/bash diplomacy || echo "User already exists"
+
 # Set up application directory
+echo "Setting up application directories..."
 mkdir -p /opt/diplomacy
 chown diplomacy:diplomacy /opt/diplomacy
 
@@ -177,6 +125,7 @@ chown diplomacy:diplomacy /opt/diplomacy
 sudo -u diplomacy mkdir -p /opt/diplomacy/new_implementation
 
 # Create environment file
+echo "Creating application environment..."
 cat > /opt/diplomacy/.env << EOF
 SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://${db_username}:${db_password}@localhost:5432/${db_name}
 TELEGRAM_BOT_TOKEN=${telegram_bot_token}
@@ -187,25 +136,32 @@ EOF
 
 chown diplomacy:diplomacy /opt/diplomacy/.env
 
-# Create requirements.txt with Amazon Linux 2 compatible versions
+# Create requirements.txt with latest versions (Ubuntu supports them!)
+echo "Creating requirements.txt with latest package versions..."
 cat > /opt/diplomacy/requirements.txt << EOF
-fastapi==0.103.2
-uvicorn[standard]==0.24.0
-sqlalchemy==1.4.53
-psycopg2-binary==2.9.7
-alembic==1.12.1
-python-telegram-bot==20.7
-pydantic==1.10.13
-python-multipart==0.0.6
-jinja2==3.1.2
-pytz==2023.3
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+alembic==1.14.0
+python-telegram-bot==21.10
+pydantic==2.10.3
+python-multipart==0.0.17
+jinja2==3.1.4
+pytz==2024.2
+python-dotenv==1.0.1
+httpx==0.28.1
+aiofiles==24.1.0
 EOF
 
-# Install Python dependencies
+# Install Python dependencies (latest versions work on Ubuntu!)
 echo "Installing Python dependencies..."
 sudo -u diplomacy pip3 install --user -r /opt/diplomacy/requirements.txt
 
+echo "✓ Python dependencies installed successfully"
+
 # Create systemd service for the diplomacy app
+echo "Creating systemd service..."
 cat > /etc/systemd/system/diplomacy.service << EOF
 [Unit]
 Description=Diplomacy Game Server
@@ -220,142 +176,149 @@ EnvironmentFile=/opt/diplomacy/.env
 ExecStart=/home/diplomacy/.local/bin/uvicorn src.server.api:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Create nginx configuration
-cat > /etc/nginx/conf.d/diplomacy.conf << EOF
+# Create systemd service for the telegram bot
+cat > /etc/systemd/system/diplomacy-bot.service << EOF
+[Unit]
+Description=Diplomacy Telegram Bot
+After=network.target postgresql.service diplomacy.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=diplomacy
+WorkingDirectory=/opt/diplomacy/new_implementation
+EnvironmentFile=/opt/diplomacy/.env
+ExecStart=/usr/bin/python3 -m src.server.telegram_bot
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Set up Nginx reverse proxy
+echo "Configuring Nginx reverse proxy..."
+cat > /etc/nginx/sites-available/diplomacy << EOF
 server {
-    listen 80;
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    
     server_name _;
     
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://localhost:8000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout       60s;
+        proxy_send_timeout          60s;
+        proxy_read_timeout          60s;
+    }
+    
+    location /health {
+        proxy_pass http://localhost:8000/health;
+        access_log off;
     }
 }
 EOF
 
-# Remove default nginx config
-rm -f /etc/nginx/conf.d/default.conf
+# Enable the Nginx site
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/diplomacy /etc/nginx/sites-enabled/
 
-# Create deployment script
-cat > /opt/diplomacy/deploy.sh << 'EOF'
-#!/bin/bash
-echo "=== Deploying Diplomacy App ==="
-cd /opt/diplomacy
+# Test Nginx configuration
+nginx -t
 
-echo "Installing/updating Python dependencies..."
-pip3 install --user -r requirements.txt
+# Enable and start services
+echo "Enabling and starting services..."
+systemctl daemon-reload
+systemctl enable nginx
+systemctl enable diplomacy.service
+systemctl enable diplomacy-bot.service
 
-echo "Restarting diplomacy service..."
-sudo systemctl restart diplomacy
+# Start Nginx
+systemctl start nginx
 
-echo "Deployment complete!"
-EOF
+# Services will be started by deploy script after code is uploaded
 
-chmod +x /opt/diplomacy/deploy.sh
-chown diplomacy:diplomacy /opt/diplomacy/deploy.sh
-
-# Create health check script
-cat > /opt/diplomacy/health_check.sh << 'EOF'
-#!/bin/bash
-curl -f http://localhost:8000/health > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "✓ Diplomacy service is healthy"
-    exit 0
-else
-    echo "✗ Diplomacy service is unhealthy"
-    exit 1
-fi
-EOF
-
-chmod +x /opt/diplomacy/health_check.sh
-chown diplomacy:diplomacy /opt/diplomacy/health_check.sh
-
-# Create comprehensive status script
+# Create status script for easy monitoring
 cat > /opt/diplomacy/status.sh << 'EOF'
 #!/bin/bash
 echo "=== Diplomacy Server Status ==="
 echo "Date: $(date)"
 echo ""
-echo "=== Service Status ==="
-echo "PostgreSQL: $(systemctl is-active postgresql)"
-echo "Diplomacy App: $(systemctl is-active diplomacy)"
-echo "Nginx: $(systemctl is-active nginx)"
-echo ""
-echo "=== PostgreSQL Information ==="
-if sudo -u postgres psql -c "SELECT version();" 2>/dev/null; then
-    echo "PostgreSQL is running properly"
-else
-    echo "PostgreSQL version check failed"
-fi
-echo ""
-echo "=== Database Connection Test ==="
-if sudo -u diplomacy PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Database connection OK!' as status;" 2>/dev/null; then
-    echo "✓ Database connection successful"
-else
-    echo "✗ Database connection failed"
-fi
-echo ""
-echo "=== Listening Ports ==="
-ss -tlpn | grep -E ':(5432|8000|80)\s' || echo "No services found on expected ports"
-echo ""
+
 echo "=== System Resources ==="
 echo "Memory usage:"
 free -h
-echo "Disk usage:"
-df -h /
 echo ""
-echo "=== Recent Application Logs ==="
-if systemctl is-active diplomacy >/dev/null 2>&1; then
-    echo "Last 10 lines of diplomacy service logs:"
-    journalctl -u diplomacy -n 10 --no-pager || echo "No logs available"
+echo "Disk usage:"
+df -h / | tail -1
+echo ""
+
+echo "=== Services Status ==="
+systemctl --no-pager status nginx diplomacy.service diplomacy-bot.service postgresql
+echo ""
+
+echo "=== PostgreSQL Status ==="
+if sudo -u postgres psql -c "SELECT version();" > /dev/null 2>&1; then
+    echo "✓ PostgreSQL is running"
+    sudo -u postgres psql -c "SELECT version();"
 else
-    echo "Diplomacy service is not running"
+    echo "✗ PostgreSQL is not responding"
 fi
+echo ""
+
+echo "=== Application Logs (last 10 lines) ==="
+echo "Diplomacy API:"
+journalctl -u diplomacy.service --no-pager -n 10
+echo ""
+echo "Telegram Bot:"
+journalctl -u diplomacy-bot.service --no-pager -n 10
+echo ""
+
+echo "=== Network Status ==="
+echo "Listening ports:"
+ss -tlnp | grep -E ':80|:8000|:5432'
+echo ""
+
+echo "=== Recent Setup Log ==="
+tail -20 /var/log/user-data.log
 EOF
 
 chmod +x /opt/diplomacy/status.sh
 chown diplomacy:diplomacy /opt/diplomacy/status.sh
 
-# Enable and start services
-systemctl enable diplomacy
-systemctl enable nginx
-systemctl start nginx
-
-echo "=== Setup Summary ==="
-echo "PostgreSQL Status: $(systemctl is-active postgresql)"
-echo "Nginx Status: $(systemctl is-active nginx)"
-echo "PostgreSQL Version: $AVAILABLE_POSTGRES"
 echo ""
-echo "=== Final Verification ==="
-if sudo -u postgres psql -c "SELECT version();" 2>/dev/null; then
-    echo "✅ PostgreSQL installation verified"
-else
-    echo "❌ PostgreSQL verification failed"
-fi
-
-if sudo -u diplomacy PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Setup completed successfully!' as message;" 2>/dev/null; then
-    echo "✅ Database setup completed successfully!"
-else
-    echo "❌ Database setup may have issues"
-fi
-
+echo "=== Setup Complete! ==="
+echo "✓ Ubuntu 22.04 LTS system updated"
+echo "✓ PostgreSQL $(sudo -u postgres psql -c "SHOW server_version;" -t | awk '{print $1}') installed and configured"
+echo "✓ Python $(python3 --version) with latest packages installed"
+echo "✓ Nginx reverse proxy configured"
+echo "✓ Systemd services created"
+echo "✓ Application user and directories prepared"
 echo ""
-echo "=== Next Steps ==="
-echo "1. SSH to the instance and deploy your application code"
-echo "2. Copy your code to /opt/diplomacy/new_implementation/"
-echo "3. Start the diplomacy service: sudo systemctl start diplomacy"
-echo "4. Check status: /opt/diplomacy/status.sh"
+echo "Next steps:"
+echo "1. Upload application code to /opt/diplomacy/new_implementation/"
+echo "2. Run database migrations"
+echo "3. Start services: systemctl start diplomacy.service diplomacy-bot.service"
 echo ""
-echo "🎯 Using PostgreSQL $AVAILABLE_POSTGRES for optimal performance!"
-echo "Instance setup completed at: $(date)" 
+echo "Use '/opt/diplomacy/status.sh' to check server status"
+echo "=== Setup Log Complete ===" 

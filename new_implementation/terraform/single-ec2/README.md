@@ -1,11 +1,11 @@
-# Single EC2 Instance Deployment
+# Single EC2 Instance Deployment (Ubuntu 22.04)
 
-This is the **cheapest possible** deployment option for the Diplomacy game server. Everything runs on a single `t3.micro` instance:
+This is the **cheapest possible** deployment option for the Diplomacy game server. Everything runs on a single `t3.micro` instance with **Ubuntu 22.04 LTS**:
 
-- **PostgreSQL database** (local)
-- **FastAPI server** (Python)
+- **PostgreSQL database** (latest version, local)
+- **FastAPI server** (Python with latest packages)
 - **Telegram bot** (Python)
-- **Nginx proxy** (optional)
+- **Nginx reverse proxy**
 
 ## Cost: ~$9/month or FREE (AWS Free Tier)
 
@@ -57,10 +57,10 @@ After Terraform completes, you'll get the instance IP. Deploy your code:
 INSTANCE_IP=$(terraform output -raw public_ip)
 
 # Copy your application code
-scp -i ~/.ssh/YOUR_KEY.pem -r ../../new_implementation ec2-user@$INSTANCE_IP:/tmp/
+scp -i ~/.ssh/YOUR_KEY.pem -r ../../new_implementation ubuntu@$INSTANCE_IP:/tmp/
 
 # SSH to the instance
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP
 
 # On the instance, copy code to the application directory
 sudo cp -r /tmp/new_implementation/* /opt/diplomacy/new_implementation/
@@ -82,27 +82,27 @@ sudo /opt/diplomacy/status.sh
 
 ### Check Status
 ```bash
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo /opt/diplomacy/status.sh"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo /opt/diplomacy/status.sh"
 ```
 
 ### View Logs
 ```bash
 # Application logs
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo journalctl -u diplomacy -f"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo journalctl -u diplomacy -f"
 
 # Setup logs
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo tail -f /var/log/user-data.log"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo tail -f /var/log/user-data.log"
 ```
 
 ### Restart Services
 ```bash
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo systemctl restart diplomacy"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo systemctl restart diplomacy"
 ```
 
 ### Update Application
 ```bash
 # Use the built-in deployment script
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo -u diplomacy /opt/diplomacy/deploy.sh"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo -u diplomacy /opt/diplomacy/deploy.sh"
 ```
 
 ## Architecture
@@ -139,22 +139,22 @@ ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo -u diplomacy /opt/diploma
 ### Instance won't start?
 ```bash
 # Check user-data logs
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo cat /var/log/user-data.log"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo cat /var/log/user-data.log"
 ```
 
 ### Database connection issues?
 ```bash
 # Test database connection
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo -u diplomacy psql -h localhost -U diplomacy -d diplomacy -c 'SELECT version();'"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo -u diplomacy psql -h localhost -U diplomacy -d diplomacy -c 'SELECT version();'"
 ```
 
 ### Application won't start?
 ```bash
 # Check application logs
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo journalctl -u diplomacy -n 50"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo journalctl -u diplomacy -n 50"
 
 # Check if all files are present
-ssh -i ~/.ssh/YOUR_KEY.pem ec2-user@$INSTANCE_IP "sudo ls -la /opt/diplomacy/new_implementation/src/"
+ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo ls -la /opt/diplomacy/new_implementation/src/"
 ```
 
 ## Scaling Up Later

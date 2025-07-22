@@ -62,14 +62,14 @@ fi
 
 echo -e "${YELLOW}Using key file: $KEY_PATH${NC}"
 
-# Function to run SSH command
+# Function to run SSH command (Ubuntu uses 'ubuntu' user)
 run_ssh() {
-    ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ec2-user@$INSTANCE_IP "$1"
+    ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP "$1"
 }
 
 # Function to copy files via SCP
 copy_files() {
-    scp -i "$KEY_PATH" -o StrictHostKeyChecking=no -r "$1" ec2-user@$INSTANCE_IP:"$2"
+    scp -i "$KEY_PATH" -o StrictHostKeyChecking=no -r "$1" ubuntu@$INSTANCE_IP:"$2"
 }
 
 # Wait for instance to be ready
@@ -93,7 +93,7 @@ if ! run_ssh "test -f /opt/diplomacy/.env"; then
     echo -e "${RED}Error: Instance setup is not complete yet${NC}"
     echo "Please wait for the user-data script to finish, then try again"
     echo "You can check the setup progress with:"
-    echo "ssh -i $KEY_PATH ec2-user@$INSTANCE_IP 'sudo tail -f /var/log/user-data.log'"
+    echo "ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo tail -f /var/log/user-data.log'"
     exit 1
 fi
 
@@ -143,7 +143,7 @@ if [ "$SERVICE_STATUS" = "active" ]; then
 else
     echo -e "${RED}✗ Diplomacy service failed to start${NC}"
     echo "Check the logs with:"
-    echo "ssh -i $KEY_PATH ec2-user@$INSTANCE_IP 'sudo journalctl -u diplomacy -n 20'"
+    echo "ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo journalctl -u diplomacy -n 20'"
     exit 1
 fi
 
@@ -167,8 +167,8 @@ echo -e "API Docs: ${GREEN}http://$INSTANCE_IP:8000/docs${NC}"
 echo -e "Via Nginx: ${GREEN}http://$INSTANCE_IP${NC}"
 echo ""
 echo -e "${YELLOW}Useful commands:${NC}"
-echo -e "SSH to instance: ${YELLOW}ssh -i $KEY_PATH ec2-user@$INSTANCE_IP${NC}"
-echo -e "View logs: ${YELLOW}ssh -i $KEY_PATH ec2-user@$INSTANCE_IP 'sudo journalctl -u diplomacy -f'${NC}"
-echo -e "Check status: ${YELLOW}ssh -i $KEY_PATH ec2-user@$INSTANCE_IP 'sudo /opt/diplomacy/status.sh'${NC}"
+echo -e "SSH to instance: ${YELLOW}ssh -i $KEY_PATH ubuntu@$INSTANCE_IP${NC}"
+echo -e "View logs: ${YELLOW}ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo journalctl -u diplomacy -f'${NC}"
+echo -e "Check status: ${YELLOW}ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo /opt/diplomacy/status.sh'${NC}"
 echo ""
 echo -e "${GREEN}Happy gaming!${NC} 🎲" 
