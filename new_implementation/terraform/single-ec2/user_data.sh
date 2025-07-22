@@ -73,8 +73,32 @@ echo "Initializing PostgreSQL database..."
 mkdir -p /var/lib/pgsql/data
 chown postgres:postgres /var/lib/pgsql/data
 
+# Find the correct path to initdb and initialize the database
+echo "Finding initdb binary..."
+INITDB_PATH=""
+for path in /usr/bin/initdb /usr/pgsql-*/bin/initdb; do
+    if [ -x "$path" ]; then
+        INITDB_PATH="$path"
+        echo "✓ Found initdb at: $INITDB_PATH"
+        break
+    fi
+done
+
+if [ -z "$INITDB_PATH" ]; then
+    echo "❌ Could not find initdb binary. Trying alternative installation..."
+    # Try installing postgresql-server which includes initdb
+    yum install -y postgresql-server
+    INITDB_PATH="/usr/bin/initdb"
+fi
+
 # Initialize the database as the postgres user
-sudo -u postgres /usr/bin/initdb -D /var/lib/pgsql/data
+if [ -x "$INITDB_PATH" ]; then
+    sudo -u postgres "$INITDB_PATH" -D /var/lib/pgsql/data
+    echo "✓ PostgreSQL database initialized successfully"
+else
+    echo "❌ Still could not find initdb. Manual intervention required."
+    exit 1
+fi
 
 # Enable and start PostgreSQL service
 systemctl enable postgresql
