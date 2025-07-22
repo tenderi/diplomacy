@@ -28,7 +28,10 @@ apt install -y \
     curl \
     unzip \
     build-essential \
-    libpq-dev
+    libpq-dev \
+    libcairo2-dev \
+    libgirepository1.0-dev \
+    pkg-config
 
 echo "✓ Packages installed successfully"
 
