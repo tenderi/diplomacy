@@ -57,6 +57,15 @@ yum install -y \
 # Create diplomacy user
 useradd -m -s /bin/bash diplomacy || true
 
+# Create postgres user if it doesn't exist (required for PostgreSQL)
+echo "Creating postgres user..."
+if ! id postgres &>/dev/null; then
+    useradd -r -s /bin/false postgres
+    echo "✓ Created postgres user"
+else
+    echo "✓ postgres user already exists"
+fi
+
 # Initialize PostgreSQL (correct method for amazon-linux-extras installation)
 echo "Initializing PostgreSQL database..."
 
