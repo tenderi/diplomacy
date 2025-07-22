@@ -28,7 +28,7 @@ if db_url:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-from server.db_models import Base  # type: ignore
+from src.server.db_models import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate
 # target_metadata = None
