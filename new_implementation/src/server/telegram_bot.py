@@ -558,34 +558,28 @@ def main():
         # Start telegram bot polling - this will block
         app.run_polling()
     else:
-        # Legacy/standalone mode: Run both servers together
-        print("Starting in standalone mode")
-        async def run_all():
-            uvicorn_server = uvicorn.Server(uvicorn.Config(fastapi_app, host="0.0.0.0", port=8081, log_level="info"))
-            api_task = asyncio.to_thread(uvicorn_server.run)
-            polling = app.run_polling()
-            awaitables = [a for a in [polling, api_task] if a is not None]
-            if awaitables:
-                await asyncio.gather(*awaitables)
-
-        try:
-            asyncio.run(run_all())
-        except RuntimeError as e:
-            if "event loop is already running" in str(e):
-                # Fallback: start notification server in thread and run bot in main thread
-                import threading
-                def start_notify_server():
-                    import uvicorn
-                    uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
-                
-                notify_thread = threading.Thread(target=start_notify_server, daemon=True)
-                notify_thread.start()
-                
-                import time
-                time.sleep(2)
-                app.run_polling()
-            else:
-                raise
+        # Legacy/standalone mode: Use thread-based approach to avoid event loop conflicts
+        print("Starting in standalone mode with thread-based approach")
+        
+        # Always use the thread-based approach when running as a service
+        # This avoids asyncio.run() conflicts in systemd environment
+        import threading
+        import time
+        
+        def start_notify_server():
+            import uvicorn
+            uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+        
+        # Start notification server in background thread
+        notify_thread = threading.Thread(target=start_notify_server, daemon=True)
+        notify_thread.start()
+        
+        # Wait a bit for the server to start
+        time.sleep(2)
+        
+        # Start telegram bot polling in main thread - this will block
+        print("Starting Telegram bot polling...")
+        app.run_polling()
 
 if __name__ == "__main__":
     main()
