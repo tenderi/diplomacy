@@ -19,10 +19,28 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
     
-# Set sqlalchemy.url from environment variable if present
+# Load environment variables from .env file if it exists
+env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', '.env')
+if os.path.exists(env_file):
+    with open(env_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ[key] = value
+
+# Set sqlalchemy.url from environment variable
 db_url = os.environ.get("SQLALCHEMY_DATABASE_URL")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+if not db_url:
+    # Fallback: construct URL from individual components
+    db_user = os.environ.get("db_username", "diplomacy")
+    db_pass = os.environ.get("db_password", "diplomacy")
+    db_name = os.environ.get("db_name", "diplomacy")
+    db_host = "localhost"
+    db_port = "5432"
+    db_url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+
+config.set_main_option("sqlalchemy.url", db_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
