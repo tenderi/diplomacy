@@ -120,16 +120,94 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         # List all games the user is in
         user_games = api_get(f"/users/{user_id}/games")
-        games_list = user_games.get("games", [])
-        if not games_list:
-            await update.message.reply_text("You are not in any games. Use /join <game_id> <power> to join.")
+        
+        # Handle different response formats safely
+        if not user_games or not isinstance(user_games, (list, dict)):
+            keyboard = [
+                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
+                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "🎮 *No Active Games*\n\n"
+                "You're not currently in any games!\n\n"
+                "💡 *Get started:*\n"
+                "🎲 Browse available games\n"
+                "⏳ Join the waiting list for auto-matching\n"
+                "🗺️ See what Diplomacy looks like",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             return
-        lines = ["Your games:"]
+        
+        # Handle both list format and dict format with 'games' key
+        if isinstance(user_games, dict):
+            games_list = user_games.get("games", [])
+        else:
+            games_list = user_games
+        
+        if not games_list or len(games_list) == 0:
+            keyboard = [
+                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
+                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "🎮 *No Active Games*\n\n"
+                "You're not currently in any games!\n\n"
+                "💡 *Get started:*\n"
+                "🎲 Browse available games to join\n"
+                "⏳ Join the waiting list for auto-matching\n"
+                "🗺️ See what the Diplomacy board looks like",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Format games with better information
+        lines = [f"🎮 *Your Active Games* ({len(games_list)})\n"]
         for g in games_list:
-            lines.append(f"Game {g['game_id']} as {g['power']}")
-        await update.message.reply_text("\n".join(lines))
+            if isinstance(g, dict):
+                game_id = g.get('game_id', 'Unknown')
+                power = g.get('power', 'Unknown')
+                state = g.get('state', 'Unknown')
+                turn = g.get('turn', 'N/A')
+                lines.append(f"🏰 **Game {game_id}** - Playing as **{power}**")
+                lines.append(f"   📊 Status: {state} | Turn: {turn}")
+        
+        # Add action buttons
+        keyboard = [
+            [InlineKeyboardButton("📋 Manage Orders", callback_data="show_orders_menu")],
+            [InlineKeyboardButton("🗺️ View Game Maps", callback_data="show_map_menu")],
+            [InlineKeyboardButton("💬 View Messages", callback_data="show_messages_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "\n".join(lines),
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
     except Exception as e:
-        await update.message.reply_text(f"Error retrieving games: {e}")
+        keyboard = [
+            [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"⚠️ *Can't Load Your Games*\n\n"
+            f"🔧 Unable to retrieve your game status.\n"
+            f"This is usually temporary.\n\n"
+            f"💡 *Try:*\n"
+            f"• Browse available games directly\n"
+            f"• Return to main menu and try again\n\n"
+            f"*Error:* {str(e)[:100]}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 # Interactive game selection with buttons
 async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -250,6 +328,47 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Show the main start message again
         await show_main_menu(update, context)
     
+    elif data == "show_games_list":
+        await show_available_games(update, context)
+    
+    elif data == "join_waiting_list":
+        # Simulate the wait command
+        await wait(update, context)
+    
+    elif data == "retry_orders_menu":
+        await show_my_orders_menu(update, context)
+    
+    elif data == "about_diplomacy":
+        await query.edit_message_text(
+            "💬 *About Diplomacy Messages*\n\n"
+            "🎭 Diplomacy is all about negotiation and alliances!\n\n"
+            "*📨 Message Types:*\n"
+            "• **Private messages** to specific players\n"
+            "• **Public broadcasts** to all players\n"
+            "• **Alliance proposals** and deals\n"
+            "• **Coordination** for joint moves\n\n"
+            "*🎯 Strategy Tips:*\n"
+            "• Build trust early in the game\n"
+            "• Coordinate attacks and defenses\n"
+            "• Sometimes betrayal is necessary\n"
+            "• Information is power - share wisely\n\n"
+                         "🎲 *Ready to start negotiating?*\n"
+             "Join a game and make your first alliance!",
+             parse_mode='Markdown'
+         )
+    
+    elif data == "show_orders_menu":
+        # Redirect to the orders menu
+        await show_my_orders_menu(update, context)
+    
+    elif data == "show_map_menu":
+        # Redirect to the map menu
+        await show_map_menu(update, context)
+    
+    elif data == "show_messages_menu":
+        # Redirect to the messages menu  
+        await show_messages_menu(update, context)
+    
     elif data.startswith("view_messages_"):
         game_id = data.split("_")[2]
         await query.edit_message_text(f"💬 Loading messages for Game {game_id}...\n\n(Messages functionality coming soon!)")
@@ -258,15 +377,30 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parts = data.split("_")
         game_id = parts[2]
         power = parts[3]
+        # Create order format help with action buttons
+        keyboard = [
+            [InlineKeyboardButton("📋 View Current Orders", callback_data=f"view_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("🗑️ Clear All Orders", callback_data=f"clear_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("📜 View Order History", callback_data=f"order_history_{game_id}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_orders_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
             f"📝 *Submit Orders - Game {game_id} ({power})*\n\n"
-            f"Use the command: `/orders {game_id} <your orders>`\n\n"
-            f"*Example:*\n"
-            f"`/orders {game_id} A Vienna - Trieste; F Budapest - Serbia`\n\n"
-            f"*Order Format:*\n"
-            f"• `A Vienna - Trieste` (Move)\n"
+            f"💡 *How to submit orders:*\n"
+            f"Type: `/orders {game_id} <your orders>`\n\n"
+            f"*📋 Order Examples:*\n"
+            f"• `A Vienna - Trieste` (Army move)\n"
+            f"• `F London - North Sea` (Fleet move)\n"
             f"• `A Berlin S A Munich - Kiel` (Support)\n"
-            f"• `F English Channel C A London - Brest` (Convoy)",
+            f"• `F English Channel C A London - Brest` (Convoy)\n"
+            f"• `A Paris H` (Hold position)\n\n"
+            f"*💡 Tips:*\n"
+            f"• Separate multiple orders with semicolons\n"
+            f"• Orders are processed simultaneously each turn\n"
+            f"• You can update orders until the deadline",
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
 
@@ -301,21 +435,77 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = str(update.effective_user.id)
         user_games = api_get(f"/users/{user_id}/games")
         
-        if not user_games:
-            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+        # Handle different response types safely
+        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
+            # Create helpful keyboard for users not in games
+            keyboard = [
+                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
+                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "📋 *No Active Games*\n\n"
+                "🎮 You're not currently in any games!\n\n"
+                "💡 *Get started:*\n"
+                "🎲 Browse games and pick one to join\n"
+                "⏳ Join the waiting list for auto-matching\n"
+                "🗺️ Check out the game board first",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             return
         
         keyboard = []
-        for game in user_games[:10]:  # Limit to 10 games
-            game_id = game.get('game_id', 'Unknown')
-            power = game.get('power', 'Unknown')
-            keyboard.append([InlineKeyboardButton(f"📋 Game {game_id} ({power})", callback_data=f"orders_menu_{game_id}_{power}")])
+        # Safely handle list slicing
+        games_to_show = user_games[:10] if len(user_games) > 10 else user_games
+        for game in games_to_show:
+            if isinstance(game, dict):
+                game_id = game.get('game_id', 'Unknown')
+                power = game.get('power', 'Unknown')
+                state = game.get('state', 'Unknown')
+                # Add more context to button text
+                button_text = f"📋 Game {game_id} ({power}) - {state}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"orders_menu_{game_id}_{power}")])
+        
+        if not keyboard:
+            # Fallback if games exist but are malformed
+            keyboard = [[InlineKeyboardButton("🎲 Browse Games Instead", callback_data="show_games_list")]]
+            await update.message.reply_text(
+                "📋 *Games Data Issue*\n\n"
+                "🔧 Your games data seems corrupted. Try browsing available games instead.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            return
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("📋 *Select game to manage orders:*", reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
+            reply_markup=reply_markup, 
+            parse_mode='Markdown'
+        )
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+        # More helpful error message with recovery options
+        keyboard = [
+            [InlineKeyboardButton("🔄 Try Again", callback_data="retry_orders_menu")],
+            [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"⚠️ *Temporary Issue*\n\n"
+            f"🔧 Unable to load your games right now.\n"
+            f"This usually means the server is starting up.\n\n"
+            f"💡 *Try:*\n"
+            f"• Wait a moment and try again\n"
+            f"• Browse available games directly\n"
+            f"• Return to main menu\n\n"
+            f"*Technical details:* {str(e)[:100]}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show map menu for user's games or default map if not in any games"""
@@ -323,17 +513,22 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         user_id = str(update.effective_user.id)
         user_games = api_get(f"/users/{user_id}/games")
         
-        if not user_games:
+        # Handle different response types safely
+        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
             # Show default map for users not in any games
             keyboard = [
                 [InlineKeyboardButton("🗺️ View Standard Diplomacy Map", callback_data="view_default_map")],
-                [InlineKeyboardButton("🎲 Join a Game to See Live Maps", callback_data="back_to_main_menu")]
+                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                "🎮 *You're not in any games yet!*\n\n"
-                "🗺️ Would you like to see the standard Diplomacy map?\n"
-                "🎲 Or join a game to see live game maps with unit positions?",
+                "🗺️ *No Game Maps Yet*\n\n"
+                "🎮 You're not in any active games!\n\n"
+                "💡 *Options:*\n"
+                "🗺️ View the standard Diplomacy board\n"
+                "🎲 Browse games and join one for live maps\n"
+                "⏳ Join waiting list for auto-matching",
                 reply_markup=reply_markup, 
                 parse_mode='Markdown'
             )
@@ -341,19 +536,40 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # User has games - show their game maps
         keyboard = []
-        for game in user_games[:10]:
-            game_id = game.get('game_id', 'Unknown')
-            power = game.get('power', 'Unknown')
-            keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power})", callback_data=f"view_map_{game_id}")])
+        games_to_show = user_games[:10] if len(user_games) > 10 else user_games
+        for game in games_to_show:
+            if isinstance(game, dict):
+                game_id = game.get('game_id', 'Unknown')
+                power = game.get('power', 'Unknown')
+                state = game.get('state', 'Unknown')
+                keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power}) - {state}", callback_data=f"view_map_{game_id}")])
         
         # Also add option to see default map
         keyboard.append([InlineKeyboardButton("🗺️ Standard Reference Map", callback_data="view_default_map")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("🗺️ *Select map to view:*", reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            f"🗺️ *Select map to view:* ({len(games_to_show)} games)",
+            reply_markup=reply_markup, 
+            parse_mode='Markdown'
+        )
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+        keyboard = [
+            [InlineKeyboardButton("🗺️ View Standard Map", callback_data="view_default_map")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"⚠️ *Can't Load Game Maps*\n\n"
+            f"🔧 Unable to access your game maps right now.\n\n"
+            f"💡 *You can still:*\n"
+            f"🗺️ View the standard reference map\n"
+            f"🏠 Return to main menu\n\n"
+            f"*Error:* {str(e)[:100]}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show messages menu for user's games"""
@@ -361,21 +577,60 @@ async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_id = str(update.effective_user.id)
         user_games = api_get(f"/users/{user_id}/games")
         
-        if not user_games:
-            await update.message.reply_text("🎮 You're not in any games yet. Use 🎲 Join Game to start playing!")
+        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
+            keyboard = [
+                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
+                [InlineKeyboardButton("ℹ️ About Diplomacy Messages", callback_data="about_diplomacy")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "💬 *No Game Messages*\n\n"
+                "🎮 You need to join a game first to send and receive diplomatic messages!\n\n"
+                "💡 *In Diplomacy:*\n"
+                "• Form alliances with other powers\n"
+                "• Negotiate support and coordination\n"
+                "• Send private messages to specific players\n"
+                "• Broadcast public announcements\n\n"
+                "🎲 Join a game to start your diplomatic career!",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             return
         
         keyboard = []
-        for game in user_games[:10]:
-            game_id = game.get('game_id', 'Unknown')
-            power = game.get('power', 'Unknown')
-            keyboard.append([InlineKeyboardButton(f"💬 Game {game_id} Messages", callback_data=f"view_messages_{game_id}")])
+        games_to_show = user_games[:10] if len(user_games) > 10 else user_games
+        for game in games_to_show:
+            if isinstance(game, dict):
+                game_id = game.get('game_id', 'Unknown')
+                power = game.get('power', 'Unknown')
+                state = game.get('state', 'Unknown')
+                keyboard.append([InlineKeyboardButton(f"💬 Game {game_id} Messages ({power}) - {state}", callback_data=f"view_messages_{game_id}")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("💬 *Select game to view messages:*", reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            f"💬 *Select game to view messages:* ({len(games_to_show)} games)",
+            reply_markup=reply_markup, 
+            parse_mode='Markdown'
+        )
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Error loading your games: {str(e)}")
+        keyboard = [
+            [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"⚠️ *Messages Unavailable*\n\n"
+            f"🔧 Can't access game messages right now.\n"
+            f"This is usually temporary.\n\n"
+            f"💡 *Try:*\n"
+            f"• Browse and join games directly\n"
+            f"• Return to main menu and try again later\n\n"
+            f"*Error:* {str(e)[:100]}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help with available commands"""
