@@ -11,7 +11,7 @@ Key features:
 """
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
-from server.server import Server
+from src.server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
@@ -29,7 +29,7 @@ from sqlalchemy import or_, text
 import logging
 import pytz
 import os
-from engine.order import OrderParser
+from src.engine.order import OrderParser
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

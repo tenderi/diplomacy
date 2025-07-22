@@ -14,7 +14,7 @@ from fastapi import FastAPI
 import uvicorn
 from pydantic import BaseModel
 from telegram.ext import Application
-from engine.map import Map
+from src.engine.map import Map
 import random
 
 logging.basicConfig(level=logging.INFO)
