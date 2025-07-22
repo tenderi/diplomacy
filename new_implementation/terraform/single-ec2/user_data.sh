@@ -125,16 +125,22 @@ mkdir -p /opt/diplomacy
 chown diplomacy:diplomacy /opt/diplomacy
 
 # Create application directory structure
-sudo -u diplomacy mkdir -p /opt/diplomacy/new_implementation
+sudo -u diplomacy mkdir -p /opt/diplomacy/src
+sudo -u diplomacy mkdir -p /opt/diplomacy/maps
 
 # Create environment file
-echo "Creating application environment..."
+echo "Creating environment file..."
 cat > /opt/diplomacy/.env << EOF
+db_username=${db_username}
+db_password=${db_password}
+db_host=localhost
+db_port=5432
+db_name=${db_name}
+telegram_bot_token=${telegram_bot_token}
 SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://${db_username}:${db_password}@localhost:5432/${db_name}
-TELEGRAM_BOT_TOKEN=${telegram_bot_token}
 DIPLOMACY_API_URL=${diplomacy_api_url}
 BOT_ONLY=false
-PYTHONPATH=/opt/diplomacy/new_implementation/src
+PYTHONPATH=/opt/diplomacy/src
 EOF
 
 chown diplomacy:diplomacy /opt/diplomacy/.env
@@ -174,7 +180,7 @@ Requires=postgresql.service
 [Service]
 Type=simple
 User=diplomacy
-WorkingDirectory=/opt/diplomacy/new_implementation
+WorkingDirectory=/opt/diplomacy
 EnvironmentFile=/opt/diplomacy/.env
 ExecStart=/home/diplomacy/.local/bin/uvicorn src.server.api:app --host 0.0.0.0 --port 8000
 Restart=always
@@ -196,7 +202,7 @@ Requires=postgresql.service
 [Service]
 Type=simple
 User=diplomacy
-WorkingDirectory=/opt/diplomacy/new_implementation
+WorkingDirectory=/opt/diplomacy
 EnvironmentFile=/opt/diplomacy/.env
 ExecStart=/usr/bin/python3 -m src.server.telegram_bot
 Restart=always
@@ -261,49 +267,41 @@ systemctl start nginx
 
 # Services will be started by deploy script after code is uploaded
 
-# Create status script for easy monitoring
+echo "Creating status script..."
 cat > /opt/diplomacy/status.sh << 'EOF'
 #!/bin/bash
 echo "=== Diplomacy Server Status ==="
-echo "Date: $(date)"
 echo ""
-
-echo "=== System Resources ==="
-echo "Memory usage:"
+echo "📁 Directory Structure:"
+ls -la /opt/diplomacy/ | head -10
+echo ""
+echo "🐘 PostgreSQL Status:"
+systemctl is-active postgresql
+echo ""
+echo "🎯 Diplomacy API Status:"
+systemctl is-active diplomacy
+echo ""
+echo "🤖 Telegram Bot Status:"
+systemctl is-active diplomacy-bot
+echo ""
+echo "🌐 Network Status:"
+ss -tlnp | grep ":8000\|:80\|:5432"
+echo ""
+echo "💾 Disk Usage:"
+df -h /opt
+echo ""
+echo "🧠 Memory Usage:"
 free -h
 echo ""
-echo "Disk usage:"
-df -h / | tail -1
+echo "📊 API Health Check:"
+curl -s http://localhost:8000/ | head -100
 echo ""
-
-echo "=== Services Status ==="
-systemctl --no-pager status nginx diplomacy.service diplomacy-bot.service postgresql
+echo "📋 Recent Logs:"
+echo "API Logs:"
+journalctl -u diplomacy --no-pager -n 5 | cat
 echo ""
-
-echo "=== PostgreSQL Status ==="
-if sudo -u postgres psql -c "SELECT version();" > /dev/null 2>&1; then
-    echo "✓ PostgreSQL is running"
-    sudo -u postgres psql -c "SELECT version();"
-else
-    echo "✗ PostgreSQL is not responding"
-fi
-echo ""
-
-echo "=== Application Logs (last 10 lines) ==="
-echo "Diplomacy API:"
-journalctl -u diplomacy.service --no-pager -n 10
-echo ""
-echo "Telegram Bot:"
-journalctl -u diplomacy-bot.service --no-pager -n 10
-echo ""
-
-echo "=== Network Status ==="
-echo "Listening ports:"
-ss -tlnp | grep -E ':80|:8000|:5432'
-echo ""
-
-echo "=== Recent Setup Log ==="
-tail -20 /var/log/user-data.log
+echo "Bot Logs:"
+journalctl -u diplomacy-bot --no-pager -n 5 | cat
 EOF
 
 chmod +x /opt/diplomacy/status.sh
@@ -319,7 +317,7 @@ echo "✓ Systemd services created"
 echo "✓ Application user and directories prepared"
 echo ""
 echo "Next steps:"
-echo "1. Upload application code to /opt/diplomacy/new_implementation/"
+echo "1. Upload application code to /opt/diplomacy/"
 echo "2. Run database migrations"
 echo "3. Start services: systemctl start diplomacy.service diplomacy-bot.service"
 echo ""

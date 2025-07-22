@@ -20,7 +20,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
     
 # Load environment variables from .env file if it exists
-env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', '.env')
+env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 if os.path.exists(env_file):
     with open(env_file, 'r') as f:
         for line in f:
