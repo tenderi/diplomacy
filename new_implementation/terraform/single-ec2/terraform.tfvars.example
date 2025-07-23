@@ -4,16 +4,18 @@ aws_region = "eu-west-1"
 # Database configuration
 db_name = "diplomacy"
 db_username = "diplomacy"
-db_password = "your-secure-password-here"
+db_password = "diplomacy"
 
 # Telegram bot token (get from @BotFather)
-telegram_bot_token = "your-telegram-bot-token-here"
+telegram_bot_token = "7844668717:AAGXwDgwEpwmUJWRxYmFcbNgYmVAv8jbFmY"
 
 # AWS EC2 Key Pair name (create this in AWS Console first)
-key_name = "your-ssh-key-name-here"
+key_name = "helgeKeyPair"
 
 # SSH access restriction (replace with your public IP for security)
 allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR.PUBLIC.IP.ADDRESS/32"
 
 # Whether to use an Elastic IP (costs $3.65/month but provides static IP)
 use_elastic_ip = false 
+
+instance_type = t3.medium

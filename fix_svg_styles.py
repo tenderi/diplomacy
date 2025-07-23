@@ -22,7 +22,7 @@ def fix_svg_styles(svg_content):
         'italy': 'fill="forestgreen" stroke="#000000" stroke-width="1"',
         'russia': 'fill="#757d91" stroke="#000000" stroke-width="1"',
         'turkey': 'fill="#b9a61c" stroke="#000000" stroke-width="1"',
-        'impassable': 'fill="black" stroke="#000000" stroke-width="1"',
+        'impassable': 'fill="#353433" stroke="#000000" stroke-width="1"',  # Dark gray for Switzerland
     }
     
     # Replace class attributes with inline styles
@@ -31,6 +31,25 @@ def fix_svg_styles(svg_content):
         pattern = rf'class="{class_name}"'
         replacement = style_attr
         svg_content = re.sub(pattern, replacement, svg_content)
+    
+    # Fix the problematic black background rectangle that covers the entire map
+    # This rectangle should be removed or made transparent as it blocks the map
+    svg_content = re.sub(
+        r'<rect fill="black" height="1360" width="1835" x="195" y="170"/>',
+        '<!-- Removed problematic black background rectangle -->',
+        svg_content
+    )
+    
+    # Remove the entire CSS style section since we're converting everything to inline styles
+    # This prevents cairosvg from having issues with CSS processing
+    svg_content = re.sub(
+        r'<style type="text/css"><!\[CDATA\[.*?\]\]></style>',
+        '<!-- CSS styles removed - converted to inline styles -->',
+        svg_content,
+        flags=re.DOTALL
+    )
+    
+
     
     return svg_content
 

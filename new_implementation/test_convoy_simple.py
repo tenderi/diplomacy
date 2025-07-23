@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, '.')
 
 try:
-    from src.engine.game import Game
+    from src.engine.game import Game  # noqa
     print("Game import successful")
     
     game = Game()

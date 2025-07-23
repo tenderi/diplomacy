@@ -46,6 +46,10 @@ config.set_main_option("sqlalchemy.url", db_url)
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
+# Fix relative import issue by using absolute import
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 from src.server.db_models import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate

@@ -100,7 +100,7 @@ data "aws_ami" "ubuntu" {
 # Single EC2 instance
 resource "aws_instance" "diplomacy" {
   ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.micro"
+  instance_type = var.instance_type
 
   subnet_id                   = data.aws_subnets.default.ids[0]
   vpc_security_group_ids      = [aws_security_group.diplomacy.id]

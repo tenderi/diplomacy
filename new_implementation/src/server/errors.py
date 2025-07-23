@@ -21,7 +21,7 @@ class ErrorCode(Enum):
 
 class ServerError:
     """Utility class for creating consistent error responses."""
-    
+
     @staticmethod
     def create_error_response(
         error_code: ErrorCode,
@@ -34,12 +34,12 @@ class ServerError:
             "error_code": error_code.value,
             "message": message
         }
-        
+
         if details:
             response.update(details)
-            
+
         return response
-    
+
     @staticmethod
     def unknown_command(command: str) -> Dict[str, Any]:
         """Error for unknown commands."""
@@ -48,7 +48,7 @@ class ServerError:
             f"Unknown command: {command}",
             {"command": command}
         )
-    
+
     @staticmethod
     def missing_arguments(command: str, usage: str) -> Dict[str, Any]:
         """Error for missing command arguments."""
@@ -57,7 +57,7 @@ class ServerError:
             f"{command} missing arguments",
             {"command": command, "usage": usage}
         )
-    
+
     @staticmethod
     def game_not_found(game_id: str, command: str) -> Dict[str, Any]:
         """Error for non-existent game."""
@@ -66,7 +66,7 @@ class ServerError:
             f"Game {game_id} not found for {command}",
             {"game_id": game_id, "command": command}
         )
-    
+
     @staticmethod
     def power_not_found(power_name: str, game_id: str) -> Dict[str, Any]:
         """Error for non-existent power."""
@@ -75,7 +75,7 @@ class ServerError:
             f"Power {power_name} not found in game {game_id}",
             {"power_name": power_name, "game_id": game_id}
         )
-    
+
     @staticmethod
     def power_already_exists(power_name: str, game_id: str) -> Dict[str, Any]:
         """Error for duplicate power."""
@@ -84,7 +84,7 @@ class ServerError:
             f"Power {power_name} already exists in game {game_id}",
             {"power_name": power_name, "game_id": game_id}
         )
-    
+
     @staticmethod
     def file_error(operation: str, filename: str, error_details: str) -> Dict[str, Any]:
         """Error for file operations."""
@@ -93,7 +93,7 @@ class ServerError:
             f"Failed to {operation} {filename}: {error_details}",
             {"operation": operation, "filename": filename, "details": error_details}
         )
-    
+
     @staticmethod
     def internal_error(operation: str, error_details: str) -> Dict[str, Any]:
         """Error for internal server errors."""
@@ -106,7 +106,7 @@ class ServerError:
 
 class ServerResponse:
     """Utility class for creating consistent success responses."""
-    
+
     @staticmethod
     def success(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a standardized success response."""
@@ -114,7 +114,7 @@ class ServerResponse:
         if data:
             response.update(data)
         return response
-    
+
     @staticmethod
     def success_with_data(data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a success response with data."""

@@ -144,3 +144,6 @@ crash.log
 terraform.tfvars
 terraform.tfvars.json
 # End Terraform
+
+# test outputs
+test_maps/

@@ -79,20 +79,20 @@ def test_beleaguered_garrison():
     game.powers["AUSTRIA"].units = {"SER"}
     game.powers["RUSSIA"].units = {"RUM", "BUD"}
     game.powers["TURKEY"].units = {"BUL", "GRE"}
-    
+
     # Two supported attacks of equal strength against defending unit
     game.set_orders("AUSTRIA", ["AUSTRIA A SER H"])
     game.set_orders("RUSSIA", [
-        "RUSSIA A RUM - SER", 
+        "RUSSIA A RUM - SER",
         "RUSSIA A BUD S A RUM - SER"
     ])
     game.set_orders("TURKEY", [
         "TURKEY A BUL - SER",
         "TURKEY A GRE S A BUL - SER"
     ])
-    
+
     game.process_phase()
-    
+
     # All units should stay in place - beleaguered garrison
     assert "A SER" in game.powers["AUSTRIA"].units  # Defender stays
     assert "A RUM" in game.powers["RUSSIA"].units   # Attacker 1 fails
@@ -131,7 +131,7 @@ def test_self_standoff():
     game.add_player("RUSSIA")
     game.powers["AUSTRIA"].units = {"A SER", "A VIE"}
     game.powers["RUSSIA"].units = {"A GAL"}
-    
+
     # Austria orders two equally supported attacks on same space
     game.set_orders("AUSTRIA", [
         "AUSTRIA A SER - BUD",
@@ -140,9 +140,9 @@ def test_self_standoff():
     game.set_orders("RUSSIA", [
         "RUSSIA A GAL S A SER - BUD"  # Support one of the attacks
     ])
-    
+
     game.process_phase()
-    
+
     # Supported attack should succeed over unsupported
     assert "A BUD" in game.powers["AUSTRIA"].units  # Supported attack wins
     assert "A VIE" in game.powers["AUSTRIA"].units  # Unsupported attack fails
@@ -167,7 +167,7 @@ def test_complex_convoy_disruption():
         "ITALY F TUN S F ION - TYS"
     ])
     game.process_phase()
-    
+
     # Fleet should be dislodged, convoy should fail
     assert "A SPA" in game.powers["FRANCE"].units   # Army stays (convoy failed)
     assert "F LYO" in game.powers["FRANCE"].units   # Fleet stays
