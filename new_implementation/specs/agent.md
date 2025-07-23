@@ -2,6 +2,8 @@
 
 **ECS Deployment Notes**: CRITICAL - The start.sh script must properly handle BOT_ONLY mode to prevent asyncio conflicts. Set `BOT_ONLY=true` environment variable in ECS containers. When BOT_ONLY=true, start.sh runs ONLY telegram bot (which includes notification API on port 8081 in separate thread), no main API server. When BOT_ONLY=false, start.sh runs main API (8000) + telegram bot. The key insight: never run multiple uvicorn/asyncio servers in same container without proper separation. Enhanced debugging in start.sh shows environment variables. Database config reads from `SQLALCHEMY_DATABASE_URL`. All dependencies (pytz) in requirements.txt. Database tables created during FastAPI startup (lazy initialization).
 
+**Map File Backup Policy**: When modifying map files (standard.svg, svg.dtd), ALWAYS create timestamped backups before making changes: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix the original files directly to avoid breaking references. All map processing should work with the original standard.svg and svg.dtd files as the source of truth.
+
 - **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
 
 - **Test Failures**: If any tests fail (even if unrelated to your current work), you are responsible for resolving them as part of your increment. Do not leave failing tests unresolved.

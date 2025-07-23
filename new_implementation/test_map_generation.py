@@ -45,8 +45,8 @@ class MapTester:
             img_bytes = Map.render_board_png(svg_path, units)
             
             # Save to file
-            timestamp = datetime.now().strftime("%H%M%S")
-            filename = f"{name}_{timestamp}.png"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{name}.png"
             filepath = os.path.join(self.output_dir, filename)
             
             with open(filepath, 'wb') as f:
@@ -232,8 +232,8 @@ class MapTester:
 
 def main():
     parser = argparse.ArgumentParser(description="Test Diplomacy map generation")
-    parser.add_argument("--svg", default="maps/standard_fixed.svg", 
-                       help="SVG file to test (default: maps/standard_fixed.svg)")
+    parser.add_argument("--svg", default="maps/standard.svg", 
+                       help="SVG file to test (default: maps/standard.svg)")
     parser.add_argument("--output", default="test_maps", 
                        help="Output directory for generated maps (default: test_maps)")
     parser.add_argument("--compare", action="store_true", 
