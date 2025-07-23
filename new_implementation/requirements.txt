@@ -12,3 +12,5 @@ Pillow
 pytz
 pytest
 pytest-asyncio
+selenium
+numpy

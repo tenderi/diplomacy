@@ -50,20 +50,26 @@ echo -e "${GREEN}Connection successful!${NC}"
 echo -e "${YELLOW}Copying fixed files...${NC}"
 copy_files "../../src/server/telegram_bot.py" "/tmp/"
 copy_files "../../src/engine/map.py" "/tmp/"
+copy_files "../../src/engine/map_browser.py" "/tmp/"
 copy_files "../../alembic/env.py" "/tmp/"
-copy_files "../../maps/standard_fixed.svg" "/tmp/"
+copy_files "../../maps/standard.svg" "/tmp/"
+copy_files "../../install_browser_deps.sh" "/tmp/"
 
 # Deploy the files
 echo -e "${YELLOW}Deploying files to server...${NC}"
 run_ssh "
     sudo cp /tmp/telegram_bot.py /opt/diplomacy/src/server/telegram_bot.py
     sudo cp /tmp/map.py /opt/diplomacy/src/engine/map.py
+    sudo cp /tmp/map_browser.py /opt/diplomacy/src/engine/map_browser.py
     sudo cp /tmp/env.py /opt/diplomacy/alembic/env.py
-    sudo cp /tmp/standard_fixed.svg /opt/diplomacy/maps/standard_fixed.svg
+    sudo cp /tmp/standard.svg /opt/diplomacy/maps/standard.svg
+    sudo cp /tmp/install_browser_deps.sh /opt/diplomacy/install_browser_deps.sh
     sudo chown diplomacy:diplomacy /opt/diplomacy/src/server/telegram_bot.py
     sudo chown diplomacy:diplomacy /opt/diplomacy/src/engine/map.py
+    sudo chown diplomacy:diplomacy /opt/diplomacy/src/engine/map_browser.py
     sudo chown diplomacy:diplomacy /opt/diplomacy/alembic/env.py
-    sudo chown diplomacy:diplomacy /opt/diplomacy/maps/standard_fixed.svg
+    sudo chown diplomacy:diplomacy /opt/diplomacy/maps/standard.svg
+    sudo chmod +x /opt/diplomacy/install_browser_deps.sh
     echo '✅ Files deployed'
 "
 
