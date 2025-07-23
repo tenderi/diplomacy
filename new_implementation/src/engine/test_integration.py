@@ -46,7 +46,7 @@ def test_self_dislodgement_multi_power():
     assert "A PAR" not in game.powers["FRANCE"].units  # France left PAR
     assert "A BUR" not in game.powers["ENGLAND"].units  # England was dislodged
     assert "A MAR" in game.powers["FRANCE"].units  # Supporting unit stays
-    
+
     # Now, test self-dislodgement: France tries to dislodge its own unit (should fail)
     game.powers["FRANCE"].units = {"A PAR", "A BUR"}
     game.set_orders("FRANCE", ["FRANCE A PAR - BUR", "FRANCE A BUR H"])

@@ -27,13 +27,13 @@ class OrderParser:
         unit_type: str = tokens[1]  # 'A' or 'F'
         unit_loc: str = tokens[2]   # e.g. 'PAR'
         action: str = tokens[3]     # '-', 'H', 'S', 'C', etc.
-        
+
         # Handle multi-word targets (e.g., convoy, support)
         if len(tokens) > 4:
             target: Optional[str] = ' '.join(tokens[4:])
         else:
             target = None
-            
+
         unit: str = f"{unit_type} {unit_loc}"
         return Order(power, unit, action, target)
 
@@ -42,7 +42,7 @@ class OrderParser:
         # Enhanced validation with detailed error messages
         powers = game_state.get("powers", [])
         units = game_state.get("units", {})
-        
+
         if order.power not in powers:
             return False, f"Power '{order.power}' does not exist."
         if order.power not in units or order.unit not in units[order.power]:
@@ -55,11 +55,11 @@ class OrderParser:
         if order.action == '-':
             if not order.target:
                 return False, "Move order missing target."
-            
+
             # Check adjacency for move orders
             unit_location = order.unit.split()[-1]  # Get the province from unit
             target_location = order.target.replace(' VIA CONVOY', '')  # Remove convoy marker
-            
+
             # Get the map object from game state
             map_obj = game_state.get("map_obj")
             if map_obj:
@@ -75,7 +75,7 @@ class OrderParser:
                         # We need to check current orders for convoy orders
                         current_orders = game_state.get("orders", {})
                         power_orders = current_orders.get(order.power, [])
-                        
+
                         # Look for a convoy order that matches this move
                         has_convoy_support = False
                         for order_str in power_orders:
@@ -86,7 +86,7 @@ class OrderParser:
                                 if convoy_target == expected_convoy_target:
                                     has_convoy_support = True
                                     break
-                        
+
                         if not has_convoy_support:
                             return False, f"Cannot move from '{unit_location}' to '{target_location}' - not adjacent and no convoy support."
                 # --- NEW: Check unit type vs province type ---

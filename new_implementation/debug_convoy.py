@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Debug convoy move parsing and adjudication."""
 
-from src.engine.game import Game
-from src.engine.order import OrderParser
+from src.engine.game import Game  # noqa
+from src.engine.order import OrderParser  # noqa
 
 def debug_convoy():
     game = Game()

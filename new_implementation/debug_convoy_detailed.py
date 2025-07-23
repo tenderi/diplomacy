@@ -4,8 +4,8 @@
 import sys
 sys.path.insert(0, '.')
 
-from src.engine.game import Game
-from src.engine.order import OrderParser
+from src.engine.game import Game  # noqa
+from src.engine.order import OrderParser  # noqa
 
 def debug_convoy_adjudication():
     game = Game()

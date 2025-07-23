@@ -64,7 +64,7 @@ class Map:
         """Parse a .map file from the old implementation."""
         with open(map_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         # Parse supply centers from the power definitions
         supply_centers: set[str] = set()
         lines = content.split('\n')
@@ -80,7 +80,7 @@ class Map:
                             centers = centers_part.split()
                             # Normalize supply center names to uppercase
                             supply_centers.update([center.upper() for center in centers])
-        
+
         # Parse adjacencies
         adjacencies: dict[str, list[str]] = {}
         for line in lines:
@@ -92,7 +92,7 @@ class Map:
                     province = parts[1].upper()  # Normalize to uppercase
                     adjacent_provinces = [adj.upper() for adj in parts[3:]]  # Normalize to uppercase
                     adjacencies[province] = adjacent_provinces
-        
+
         # Create provinces
         for province in adjacencies:
             is_supply_center = province in supply_centers
@@ -199,7 +199,7 @@ class Map:
             ("SWE", True, ["BAL", "BOT", "DEN", "FIN", "NWY", "SKA"]),
             ("TUN", True, ["ION", "NAF", "TYS", "WES"]),
         ]
-        
+
         # Create provinces
         for name, is_sc, adjacents in province_data:
             if name in water_provinces:
@@ -211,7 +211,7 @@ class Map:
             self.provinces[name] = Province(name, is_supply_center=is_sc, type_=type_)
             if is_sc:
                 self.supply_centers.add(name)
-        
+
         # Set up adjacencies (ensure bidirectional)
         for name, _, adjacents in province_data:
             for adj in adjacents:
@@ -242,10 +242,10 @@ class Map:
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
-        # 1. Convert SVG to PNG (background) with larger size to match viewBox
-        # The SVG has viewBox="0 0 1835 1360" but default output is 918x680
-        # Scale up to get better resolution and proper map display
-        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=1835, output_height=1360)  # type: ignore
+        # 1. Convert SVG to PNG (background) with larger size for better readability
+        # The SVG has viewBox="0 0 1835 1360" - scale up by 1.2x for better text readability
+        # This gives us 2202x1632 pixels for a clearer map (reduced from 1.5x to save memory)
+        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=2202, output_height=1632)  # type: ignore
         if png_bytes is None:
             raise ValueError("cairosvg.svg2png returned None")
         bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
@@ -265,7 +265,7 @@ class Map:
         # 4. Draw units
         font = None
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)  # Increased font size for larger map
         except Exception:
             font = ImageFont.load_default()
         for power, unit_list in units.items():
@@ -278,10 +278,13 @@ class Map:
                 prov = prov.upper()
                 if prov not in coords:
                     continue
+                # Scale coordinates by 1.2x to match the larger map
                 x, y = coords[prov]
-                # Draw a colored circle for the unit
-                r = 18
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=2)
+                x = x * 1.2
+                y = y * 1.2
+                # Draw a colored circle for the unit (scaled up)
+                r = 22  # Increased from 18 to 22 (1.2x)
+                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)  # Increased stroke width
                 # Draw unit type letter
                 text = unit_type
                 bbox = draw.textbbox((0, 0), text, font=font)

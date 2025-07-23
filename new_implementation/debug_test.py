@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from src.engine.game import Game
+from src.engine.game import Game  # noqa
 
 # Load mini variant by name
 game = Game(map_name="mini_variant")

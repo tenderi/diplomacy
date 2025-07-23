@@ -41,9 +41,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.error(f"Failed to create database tables: {e}")
         # Don't fail startup - let individual requests handle DB errors
-    
+
     yield
-    
+
     # Shutdown: cleanup tasks can go here if needed
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
