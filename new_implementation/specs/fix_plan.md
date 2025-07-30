@@ -13,6 +13,7 @@
 ### 3. ~~Map Generation Issue~~ ✅ COMPLETED
 - [x] **Fix map generation showing black picture** - The map generation feature was showing mostly black pictures with only corners visible due to CSS styles not being processed by cairosvg. 
   - **Solution**: The problematic black rectangle (`<rect fill="black" height="1360" width="1835" x="195" y="170"/>`) has been removed from the standard.svg file. A `standard_fixed.svg` file has been created with CSS styles converted to inline styles. The map generation should now work correctly.
+  - **Additional Fix**: Updated telegram bot to use configurable map paths and default to `standard_fixed.svg` instead of the Docker absolute path `/opt/diplomacy/maps/standard.svg`. This ensures the bot works both locally and in Docker containers.
 
 ### 4. ~~Map Performance Issue~~ ✅ COMPLETED
 - [x] **Fix slow map generation** - The sample map was being generated every time it was requested, causing long delays or timeouts.
@@ -33,7 +34,7 @@
 
 1. **Telegram Bot Waiting List Tests** - All 4 tests now passing
 2. **Code Quality Issues** - Major linting errors resolved
-3. **Map Generation Issue** - Fixed CSS style processing for proper map rendering
+3. **Map Generation Issue** - Fixed CSS style processing for proper map rendering and updated telegram bot to use correct SVG file paths
 4. **Map Performance Issue** - Implemented caching to eliminate generation delays
 5. **Start.sh Script Review** - Confirmed proper BOT_ONLY mode handling
 

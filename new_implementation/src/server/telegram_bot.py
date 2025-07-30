@@ -39,8 +39,8 @@ def set_cached_default_map(img_bytes: bytes) -> None:
 def generate_default_map() -> bytes:
     """Generate the default map image (expensive operation)."""
     # Use standard map with no units (empty game state)
-    # Use absolute path to maps directory - use the original standard.svg (now fixed in-place)
-    svg_path = "/opt/diplomacy/maps/standard.svg"
+    # Use configurable path for maps directory
+    svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg")
     
     # Empty units dictionary for clean map display
     units = {}
@@ -1028,9 +1028,10 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         units = game_state["units"]  # {power: ["A PAR", "F LON", ...]}
         map_name = game_state.get("map", "standard")
-        svg_path = f"/opt/diplomacy/maps/{map_name}.svg"
+        base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg").replace("standard_fixed.svg", "")
+        svg_path = f"{base_map_path}{map_name}.svg"
         if not os.path.isfile(svg_path):
-            svg_path = "/opt/diplomacy/maps/standard.svg"
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg")
         try:
             img_bytes = Map.render_board_png(svg_path, units)
         except Exception as e:
@@ -1060,9 +1061,10 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         units = state["units"]
         map_name = state.get("map", "standard")
-        svg_path = f"/opt/diplomacy/maps/{map_name}.svg"
+        base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg").replace("standard_fixed.svg", "")
+        svg_path = f"{base_map_path}{map_name}.svg"
         if not os.path.isfile(svg_path):
-            svg_path = "/opt/diplomacy/maps/standard.svg"
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg")
         try:
             img_bytes = Map.render_board_png(svg_path, units)
         except Exception as e:
