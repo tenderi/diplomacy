@@ -9,7 +9,7 @@ import sys
 print("Testing map generation fix...")
 
 # Test 1: Check if the fixed SVG file exists
-svg_path = "maps/standard_fixed.svg"
+svg_path = "maps/standard.svg"
 if os.path.exists(svg_path):
     print(f"✅ {svg_path} exists")
 else:
@@ -21,8 +21,8 @@ telegram_bot_path = "src/server/telegram_bot.py"
 if os.path.exists(telegram_bot_path):
     with open(telegram_bot_path, 'r') as f:
         content = f.read()
-        if "standard_fixed.svg" in content:
-            print("✅ Telegram bot updated to use standard_fixed.svg")
+        if "standard.svg" in content:
+    print("✅ Telegram bot updated to use standard.svg")
         else:
             print("❌ Telegram bot not updated")
 else:

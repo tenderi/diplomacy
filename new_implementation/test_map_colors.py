@@ -79,7 +79,7 @@ def test_map_generation():
         from src.engine.map import Map
         
         # Test with the fixed SVG file
-        svg_path = "maps/standard_fixed.svg"
+        svg_path = "maps/standard.svg"
         if not os.path.exists(svg_path):
             print(f"❌ SVG file not found: {svg_path}")
             return False
@@ -159,7 +159,7 @@ def test_old_vs_new_comparison():
     print("=" * 40)
     
     old_svg = "maps/standard.svg"
-    new_svg = "maps/standard_fixed.svg"
+            new_svg = "maps/standard.svg"
     
     if os.path.exists(old_svg) and os.path.exists(new_svg):
         print(f"   Found both SVG files:")
