@@ -35,6 +35,16 @@
   - **Root Cause**: cairosvg imports causing Qt platform plugin initialization failures
   - **Solution**: Use `QT_QPA_PLATFORM=offscreen` environment variable when running tests to enable headless Qt operation
 
+### 7. ~~Map File Reference Cleanup~~ ✅ COMPLETED
+- [x] **Clean up map file references** - Ensure all code uses only `standard.svg` and `svg.dtd` files
+  - **Root Cause**: Multiple references to `standard_fixed.svg` and backup files scattered throughout codebase
+  - **Solution**: 
+    - Updated all references in telegram_bot.py to use `maps/standard.svg`
+    - Updated all test files to use `maps/standard.svg`
+    - Removed backup files (`standard_backup_*.svg`)
+    - Verified that original `standard.svg` works correctly with cairosvg
+    - All 68 tests passing with original SVG file
+
 ## Testing Summary
 
 ### ✅ **All Tests Passing:**
@@ -44,12 +54,12 @@
 4. **Total**: 68 passed, 4 skipped tests
 
 ### ✅ **Map Generation Fix Verification:**
-1. **Fixed SVG File**: `maps/standard_fixed.svg` exists and has CSS styles removed
-2. **Telegram Bot Updates**: All map generation functions updated to use `standard_fixed.svg`
+1. **Original SVG File**: `maps/standard.svg` works correctly with cairosvg
+2. **Telegram Bot Updates**: All map generation functions updated to use `standard.svg`
 3. **Environment Configuration**: Added `DIPLOMACY_MAP_PATH` environment variable support
 4. **Path Configuration**: Updated from Docker absolute paths to configurable relative paths
-5. **Test Files**: Updated `simple_test.py` to use the fixed SVG file
-6. **Existing Test Outputs**: Found 22KB PNG files in `test_maps/` indicating successful generation
+5. **Test Files**: Updated all test files to use `standard.svg`
+6. **Clean Codebase**: Removed all references to `standard_fixed.svg` and backup files
 
 ### ✅ **Color Analysis Testing:**
 1. **Comprehensive Color Analysis**: Created `test_map_colors.py` with 20% black pixel threshold
@@ -95,4 +105,4 @@
 
 ## Status: ✅ **ALL CRITICAL ISSUES RESOLVED - ALL TESTS PASSING**
 
-The map generation issue has been successfully fixed with comprehensive testing verification including color analysis with 20% black pixel threshold. The telegram bot now uses the correct SVG file and all tests are passing. The Qt environment issue has been resolved using the `QT_QPA_PLATFORM=offscreen` environment variable for headless test execution. 
+The map generation issue has been successfully fixed with comprehensive testing verification including color analysis with 20% black pixel threshold. The telegram bot now uses the original `standard.svg` file and all tests are passing. The Qt environment issue has been resolved using the `QT_QPA_PLATFORM=offscreen` environment variable for headless test execution. All map file references have been cleaned up to use only the original `standard.svg` and `svg.dtd` files. 
