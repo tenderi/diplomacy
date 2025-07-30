@@ -4,6 +4,8 @@
 
 **Map File Backup Policy**: When modifying map files (standard.svg, svg.dtd), ALWAYS create timestamped backups before making changes: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix the original files directly to avoid breaking references. All map processing should work with the original standard.svg and svg.dtd files as the source of truth.
 
+**Test Execution Notes**: Use `QT_QPA_PLATFORM=offscreen PYTHONPATH=src /usr/bin/python3.13 -m pytest src/` to run tests in headless environment. Virtual environment creation may fail due to Cursor AppImage interference, but system Python works fine for testing. All 68 tests pass with 4 expected skips.
+
 - **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
 
 - **Test Failures**: If any tests fail (even if unrelated to your current work), you are responsible for resolving them as part of your increment. Do not leave failing tests unresolved.
