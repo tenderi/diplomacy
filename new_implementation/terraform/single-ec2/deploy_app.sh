@@ -240,7 +240,7 @@ run_ssh "
 echo -e "${YELLOW}Checking Python dependencies...${NC}"
 if [ "$SRC_CHANGED" = "true" ] || [ "$REQUIREMENTS_CHANGED" = "true" ]; then
     echo -e "${YELLOW}Installing/updating Python dependencies...${NC}"
-    run_ssh "sudo -u diplomacy pip3 install --user -r /opt/diplomacy/requirements.txt"
+    run_ssh "sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt"
 else
     echo -e "${GREEN}No source changes, skipping dependency update...${NC}"
 fi
