@@ -40,7 +40,7 @@ def generate_default_map() -> bytes:
     """Generate the default map image (expensive operation)."""
     # Use standard map with no units (empty game state)
     # Use configurable path for maps directory
-    svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+    svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard_fixed.svg")
     
     # Empty units dictionary for clean map display
     units = {}
