@@ -141,6 +141,7 @@ SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://${db_username}:${db_password}@loca
 DIPLOMACY_API_URL=${diplomacy_api_url}
 BOT_ONLY=false
 PYTHONPATH=/opt/diplomacy/src
+PATH=/home/diplomacy/.local/bin:\$PATH
 EOF
 
 chown diplomacy:diplomacy /opt/diplomacy/.env
@@ -165,7 +166,7 @@ EOF
 
 # Install Python dependencies (latest versions work on Ubuntu!)
 echo "Installing Python dependencies..."
-sudo -u diplomacy pip3 install --user -r /opt/diplomacy/requirements.txt
+sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt
 
 echo "✓ Python dependencies installed successfully"
 
