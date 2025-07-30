@@ -5,7 +5,7 @@ print("Testing map rendering...")
 try:
     from src.engine.map import Map
     
-    svg_path = 'maps/standard.svg'
+    svg_path = 'maps/standard_fixed.svg'
     print(f"Rendering: {svg_path}")
     
     png_bytes = Map.render_board_png(svg_path, {})
