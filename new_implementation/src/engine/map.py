@@ -376,6 +376,12 @@ class Map:
                     if len(coords) >= 2:
                         current_x, current_y = float(coords[0]), float(coords[1])
                         commands.append(('L', current_x, current_y))
+                elif cmd == 'C':  # Cubic Bezier curve
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 6:  # C x1 y1 x2 y2 x y
+                        # For simplicity, we'll use the end point of the curve
+                        current_x, current_y = float(coords[4]), float(coords[5])
+                        commands.append(('L', current_x, current_y))
                 elif cmd == 'Z':  # Close path
                     commands.append(('Z',))
             
