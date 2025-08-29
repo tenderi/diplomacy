@@ -487,8 +487,7 @@ class Map:
                     commands.append(('Z',))
             
             # Convert SVG coordinates to PIL coordinates
-            # SVG coordinates need to be scaled to match the PNG output
-            # The PNG is 2202x1632, so we need to scale accordingly
+            # NO SCALING - PNG size matches SVG size exactly
             
             # For now, let's use a simple approach: create a polygon from the path
             if len(commands) > 2:
