@@ -289,10 +289,28 @@ class Map:
             namespaces = {'svg': 'http://www.w3.org/2000/svg'}
             
             # Find all path elements with id attributes (these are provinces)
-            province_paths = root.findall('.//svg:path[@id]', namespaces)
-            if not province_paths:
-                # Try without namespace
-                province_paths = root.findall('.//path[@id]')
+            # Prioritize paths without underscores (actual province areas)
+            province_paths = []
+            
+            # First, get all paths
+            all_paths = root.findall('.//svg:path[@id]', namespaces)
+            if not all_paths:
+                all_paths = root.findall('.//path[@id]')
+            
+            # Separate paths with and without underscores
+            paths_with_underscores = []
+            paths_without_underscores = []
+            
+            for path in all_paths:
+                province_id = path.get('id')
+                if province_id:
+                    if province_id.startswith('_'):
+                        paths_with_underscores.append(path)
+                    else:
+                        paths_without_underscores.append(path)
+            
+            # Prioritize paths without underscores (actual provinces)
+            province_paths = paths_without_underscores + paths_with_underscores
             
             # Create a mapping of province names to power colors
             province_power_map = {}
