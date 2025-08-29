@@ -495,9 +495,9 @@ class Map:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Apply correct scaling and offset to align with unit placement
-                        x = cmd[1] * 1.2 - 220.0  # Scale by 1.2 and shift left by 220 (increased from 207)
-                        y = cmd[2] * 1.2 - 199.0  # Scale by 1.2 and shift up by 199
+                        # NO SCALING - use SVG coordinates directly
+                        x = cmd[1]
+                        y = cmd[2]
                         points.append((x, y))
                 
                 if len(points) > 2:
@@ -588,9 +588,8 @@ class Map:
                     x = x * (2202 / 7016)  # ≈ 0.314
                     y = y * (1632 / 4960)  # ≈ 0.329
                 else:
-                    # Original map: scale by 1.2x to match the larger map
-                    x = x * 1.2
-                    y = y * 1.2
+                    # NO SCALING - use SVG coordinates directly
+                    pass  # x and y remain unchanged
                 
                 # Draw unit circle
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
