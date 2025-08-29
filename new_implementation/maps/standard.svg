@@ -9,7 +9,7 @@
 <svg color-rendering="optimizeQuality" height="680px" preserveAspectRatio="xMinYMin" version="1.0" viewBox="0 0 1835 1360" width="918px" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:jdipNS="svg.dtd">
 
     <jdipNS:DISPLAY>
-        <jdipNS:ZOOM min="5" max="2200" factor="1.2"/>
+        <jdipNS:ZOOM min="5" max="2200" factor="1.0"/>
         <jdipNS:LABELS brief="true" full="true"/>
     </jdipNS:DISPLAY>
 
