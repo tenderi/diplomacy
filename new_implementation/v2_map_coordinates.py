@@ -1,81 +1,101 @@
 #!/usr/bin/env python3
 """
-V2 Map Coordinates - Projection Corrected
-Automatically corrected for map projection distortion.
+V2 Map Coordinate System
+Since the V2 map doesn't have the game-specific XML structure with jdipNS:PROVINCE elements,
+we need to manually map province names to their approximate center coordinates.
 """
 
-# V2 Map Province Coordinates (projection-corrected)
+# V2 Map Province Coordinates (approximate centers based on visual layout)
+# The V2 map has viewBox="0 0 7016 4960" - professional cartographic dimensions
 V2_PROVINCE_COORDINATES = {
-    'LON': (638, 835),
-    'EDI': (626, 652),
-    'LVP': (587, 706),
-    'YOR': (625, 789),
-    'WAL': (572, 807),
-    'CLY': (594, 634),
-    'PAR': (647, 1005),
-    'MAR': (670, 1149),
-    'BRE': (562, 979),
-    'PIC': (665, 935),
-    'BUR': (701, 1053),
-    'GAS': (560, 1106),
-    'BER': (991, 850),
-    'MUN': (885, 986),
-    'KIE': (891, 858),
-    'RUH': (821, 930),
-    'BOH': (1008, 986),
-    'SIL': (1021, 911),
-    'PRU': (1125, 830),
-    'ROM': (932, 1274),
-    'VEN': (890, 1148),
-    'NAP': (996, 1315),
-    'TUS': (880, 1214),
-    'PIE': (811, 1133),
-    'APU': (1037, 1323),
-    'VIE': (1028, 1068),
-    'BUD': (1171, 1088),
-    'TRI': (1047, 1163),
-    'TYR': (937, 1074),
-    'GAL': (1231, 993),
-    'MOS': (1630, 759),
-    'WAR': (1210, 900),
-    'SEV': (1776, 1063),
-    'STP': (1460, 566),
-    'UKR': (1405, 946),
-    'LIV': (1268, 735),
-    'FIN': (1268, 459),
-    'CON': (1422, 1348),
-    'SMY': (1553, 1401),
-    'ANK': (1611, 1300),
-    'ARM': (1821, 1300),
-    'SYR': (1738, 1500),
-    'DEN': (896, 723),
-    'HOL': (780, 857),
-    'BEL': (735, 905),
-    'SPA': (405, 1245),
-    'POR': (261, 1217),
-    'SWE': (1043, 560),
-    'NOR': (932, 540),
-    'TUN': (795, 1500),
-    'NAF': (427, 1509),
-    'NTH': (739, 714),
-    'ENG': (513, 899),
-    'IRI': (443, 826),
-    'MAO': (237, 972),
-    'NAO': (310, 576),
-    'NWG': (779, 339),
-    'BAR': (1407, 191),
-    'BOT': (1134, 632),
-    'BAL': (1082, 758),
-    'SKA': (908, 668),
-    'HEL': (796, 781),
-    'BLA': (1568, 1193),
-    'AEG': (1316, 1458),
-    'ION': (1056, 1516),
-    'ADR': (1010, 1252),
-    'TYS': (863, 1361),
-    'WES': (578, 1375),
-    'EAS': (1450, 1551),
-    'LYO': (669, 1252),
+    # England
+    'LON': (2050, 2540),  # London
+    'EDI': (2015, 1990),  # Edinburgh
+    'LVP': (1890, 2150),  # Liverpool
+    'YOR': (2010, 2400),  # Yorkshire
+    'WAL': (1845, 2455),  # Wales
+    'CLY': (1915, 1935),  # Clyde
+    
+    # France
+    'PAR': (2080, 3050),  # Paris
+    'MAR': (2155, 3480),  # Marseilles
+    'BRE': (1815, 2970),  # Brest
+    'PIC': (2135, 2840),  # Picardy
+    'BUR': (2250, 3195),  # Burgundy
+    'GAS': (1810, 3350),  # Gascony
+    
+    # Germany
+    'BER': (3160, 2585),  # Berlin
+    'MUN': (2825, 2995),  # Munich
+    'KIE': (2845, 2610),  # Kiel
+    'RUH': (2625, 2825),  # Ruhr
+    'BOH': (3215, 2995),  # Bohemia
+    'SIL': (3255, 2770),  # Silesia
+    'PRU': (3585, 2525),  # Prussia
+    
+    # Italy
+    'ROM': (2980, 3855),  # Rome
+    'VEN': (2845, 3480),  # Venice
+    'NAP': (3180, 3975),  # Naples
+    'TUS': (2815, 3675),  # Tuscany
+    'PIE': (2595, 3435),  # Piedmont
+    'APU': (3310, 4000),  # Apulia
+    
+    # Austria
+    'VIE': (3280, 3240),  # Vienna
+    'BUD': (3730, 3300),  # Budapest
+    'TRI': (3340, 3525),  # Trieste
+    'TYR': (2990, 3260),  # Tyrolia
+    'GAL': (3920, 3015),  # Galicia
+    'BOH': (3215, 2995),  # Bohemia (shared with Germany)
+    
+    # Russia
+    'MOS': (5175, 2310),  # Moscow
+    'WAR': (3855, 2735),  # Warsaw
+    'SEV': (5625, 3220),  # Sevastopol
+    'STP': (4640, 1730),  # St. Petersburg
+    'UKR': (4470, 2875),  # Ukraine
+    'LIV': (4040, 2235),  # Livonia
+    'FIN': (4035, 1410),  # Finland
+    
+    # Turkey
+    'CON': (4515, 4070),  # Constantinople
+    'SMY': (4920, 4225),  # Smyrna
+    'ANK': (5105, 3925),  # Ankara
+    'ARM': (5755, 3920),  # Armenia
+    'SYR': (5490, 4510),  # Syria
+    
+    # Neutral/Other
+    'DEN': (2860, 2200),  # Denmark
+    'HOL': (2495, 2605),  # Holland
+    'BEL': (2355, 2750),  # Belgium
+    'SPA': (1335, 3760),  # Spain
+    'POR': (890, 3675),   # Portugal
+    'SWE': (3325, 1710),  # Sweden
+    'NOR': (2975, 1650),  # Norway
+    'TUN': (2555, 4515),  # Tunisia
+    'NAF': (1415, 4535),  # North Africa
+    
+    # Sea Areas
+    'NTH': (2365, 2175),  # North Sea
+    'ENG': (1660, 2730),  # English Channel
+    'IRI': (1445, 2510),  # Irish Sea
+    'MAO': (810, 2945),   # Mid Atlantic Ocean
+    'NAO': (1035, 1765),  # North Atlantic Ocean
+    'NWG': (2500, 1055),  # Norwegian Sea
+    'BAR': (4465, 620),   # Barents Sea
+    'BOT': (3615, 1925),  # Gulf of Bothnia
+    'BAL': (3450, 2305),  # Baltic Sea
+    'SKA': (2900, 2035),  # Skagerrak
+    'HEL': (2545, 2375),  # Heligoland Bight
+    'BLA': (4975, 3610),  # Black Sea
+    'AEG': (4180, 4395),  # Aegean Sea
+    'ION': (3370, 4565),  # Ionian Sea
+    'ADR': (3225, 3790),  # Adriatic Sea
+    'TYS': (2765, 4110),  # Tyrrhenian Sea
+    'WES': (1875, 4145),  # West Mediterranean Sea
+    'EAS': (4595, 4665),  # East Mediterranean Sea
+    'LYO': (2155, 3785),  # Gulf of Lyons
 }
 
 def get_v2_province_coordinates(province_name: str) -> tuple:
@@ -127,3 +147,37 @@ def scale_v2_coordinates(x: float, y: float) -> tuple:
     scaled_x = int(x * x_scale)
     scaled_y = int(y * y_scale)
     return (scaled_x, scaled_y)
+
+def list_v2_provinces() -> None:
+    """List all available provinces on the V2 map."""
+    print("🗺️  V2 Map Available Provinces")
+    print("=" * 60)
+    
+    # Group by power for better organization
+    powers = {
+        'England': ['LON', 'EDI', 'LVP', 'YOR', 'WAL', 'CLY'],
+        'France': ['PAR', 'MAR', 'BRE', 'PIC', 'BUR', 'GAS'],
+        'Germany': ['BER', 'MUN', 'KIE', 'RUH', 'BOH', 'SIL', 'PRU'],
+        'Italy': ['ROM', 'VEN', 'NAP', 'TUS', 'PIE', 'APU'],
+        'Austria': ['VIE', 'BUD', 'TRI', 'TYR', 'GAL'],
+        'Russia': ['MOS', 'WAR', 'SEV', 'STP', 'UKR', 'LIV', 'FIN'],
+        'Turkey': ['CON', 'SMY', 'ANK', 'ARM', 'SYR'],
+        'Neutral': ['DEN', 'HOL', 'BEL', 'SPA', 'POR', 'SWE', 'NOR', 'TUN', 'NAF'],
+        'Sea Areas': ['NTH', 'ENG', 'IRI', 'MAO', 'NAO', 'NWG', 'BAR', 'BOT', 'BAL', 'SKA', 'HEL', 'BLA', 'AEG', 'ION', 'ADR', 'TYS', 'WES', 'EAS', 'LYO']
+    }
+    
+    for power, provinces in powers.items():
+        print(f"\n{power}:")
+        for prov in provinces:
+            coords = V2_PROVINCE_COORDINATES[prov]
+            scaled_coords = scale_v2_coordinates(coords[0], coords[1])
+            print(f"  {prov:4}: V2({coords[0]:4}, {coords[1]:4}) -> Output({scaled_coords[0]:4}, {scaled_coords[1]:4})")
+    
+    print(f"\n📊 Total: {len(V2_PROVINCE_COORDINATES)} provinces/areas")
+    print(f"🗺️  V2 Map viewBox: 7016x4960")
+    print(f"🎯 Target output: 2202x1632 pixels")
+    x_scale, y_scale = get_v2_scaling_factors()
+    print(f"📏 Scaling factors: X={x_scale:.3f}, Y={y_scale:.3f}")
+
+if __name__ == "__main__":
+    list_v2_provinces()

@@ -51,9 +51,12 @@
   - **Next Steps**:
     1. ✅ **COMPLETED**: Identify exact map projection used in V2 SVG (Albers Equal-Area)
     2. ✅ **COMPLETED**: Implement projection-aware coordinate transformation
-    3. ✅ **COMPLETED**: Verify corrected coordinates resolve positioning issues
-    4. ✅ **COMPLETED**: Update main V2 coordinates file with corrected values
-    5. ✅ **COMPLETED**: Confirm V2 map is now usable for gameplay
+    3. ❌ **FAILED**: Projection fix made coordinates worse - units bunched in left corner
+    4. ❌ **FAILED**: V2 map now completely unusable for gameplay
+    5. ❌ **FAILED**: Projection distortion issue cannot be resolved with current approach
+  - **Status**: FAILED - Projection fix made the problem worse
+  - **Priority**: LOW - V2 map development suspended indefinitely
+  - **Decision**: Revert to standard.svg map solution for gameplay
 
 ## Remaining Tasks (Lower Priority)
 
@@ -72,7 +75,7 @@
 - [ ] Add map generation metrics
 - [ ] Optimize SVG processing pipeline
 
-## Status: ✅ **CRITICAL ISSUE RESOLVED - V2 MAP PROJECTION DISTORTION COMPLETELY FIXED**
+## Status: ⚠️ **V2 MAP PROJECTION FIX FAILED - REVERTING TO STANDARD MAP SOLUTION**
 
 The map generation issue has been successfully fixed with comprehensive testing verification including color analysis with 20% black pixel threshold. The telegram bot now uses the original `standard.svg` file and all tests are passing. The Qt environment issue has been resolved using the `QT_QPA_PLATFORM=offscreen` environment variable for headless test execution. All map file references have been cleaned up to use only the original `standard.svg` and `svg.dtd` files. 
 
