@@ -387,17 +387,16 @@ class Map:
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
                         if path_data:
-                            # Use the same coordinate system as units (SVG path centers)
-                            # This ensures perfect alignment between units and province coloring
-                            Map._fill_svg_path_aligned(draw, path_data, transparent_color, power_color)
+                            # Use SVG paths directly - no scaling, no transformation
+                            Map._fill_svg_path_direct(draw, path_data, transparent_color, power_color)
                     
         except Exception as e:
             print(f"Warning: Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
     
     @staticmethod
-    def _fill_svg_path_aligned(draw, path_data, fill_color, stroke_color):
-        """Fill an SVG path using the same coordinate system as units (SVG path centers)."""
+    def _fill_svg_path_direct(draw, path_data, fill_color, stroke_color):
+        """Fill an SVG path using SVG coordinates directly - NO SCALING."""
         try:
             # Parse the path data to extract coordinates
             commands = []
@@ -428,27 +427,24 @@ class Map:
                 elif cmd == 'Z':  # Close path
                     commands.append(('Z',))
             
-            # CRITICAL: Use the same coordinate transformation as units
-            # Units are positioned using SVG path centers, so province coloring must match
-            # The PNG output is 2202x1632, SVG viewBox is 0 0 1835 1360
-            # Scale factor: 2202/1835 = 1.2 for X, 1632/1360 = 1.2 for Y
+            # NO SCALING - use SVG coordinates directly as they are
+            # This should restore the working state from before I added scaling
             
             if len(commands) > 2:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Apply the SAME scaling as used for unit placement
-                        # This ensures perfect alignment between units and province coloring
-                        x = cmd[1] * 1.2  # Scale X by 1.2 to match PNG width
-                        y = cmd[2] * 1.2  # Scale Y by 1.2 to match PNG height
+                        # Use SVG coordinates directly - no transformation
+                        x = cmd[1]
+                        y = cmd[2]
                         points.append((x, y))
                 
                 if len(points) > 2:
-                    # Draw the filled polygon with aligned coordinates
+                    # Draw the filled polygon with direct SVG coordinates
                     draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path with aligned coordinates: {e}")
+            print(f"Warning: Could not fill SVG path with direct coordinates: {e}")
             # Fallback: continue without path filling
 
     @staticmethod
