@@ -247,32 +247,71 @@ class Map:
                     'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
                 }
         
-        # Original map parsing (jdipNS structure)
+        # NEW APPROACH: Use SVG path centers instead of wrong jdipNS coordinates
+        # This fixes the coordinate system mismatch
         coords = {}
         tree = ET.parse(svg_path)
         root = tree.getroot()
-        ns = {'jdipNS': 'svg.dtd'}
-        for prov in root.findall('.//jdipNS:PROVINCE', ns):
-            name = prov.attrib.get('name')
-            unit = prov.find('jdipNS:UNIT', ns)
-            if name and unit is not None:
-                x = float(unit.attrib.get('x', '0'))
-                y = float(unit.attrib.get('y', '0'))
-                coords[name.upper()] = (x, y)
-        return coords
         
-        # Original map parsing (jdipNS structure)
-        coords = {}
-        tree = ET.parse(svg_path)
-        root = tree.getroot()
-        ns = {'jdipNS': 'svg.dtd'}
-        for prov in root.findall('.//jdipNS:PROVINCE', ns):
-            name = prov.attrib.get('name')
-            unit = prov.find('jdipNS:UNIT', ns)
-            if name and unit is not None:
-                x = float(unit.attrib.get('x', '0'))
-                y = float(unit.attrib.get('y', '0'))
-                coords[name.upper()] = (x, y)
+        # Find all SVG paths for provinces
+        for path_elem in root.findall('.//*[@id]'):
+            province_id = path_elem.get('id')
+            if province_id and 'd' in path_elem.attrib:
+                # Skip paths with underscores (these are not the main province areas)
+                if not province_id.startswith('_'):
+                    path_data = path_elem.attrib['d']
+                    
+                    # Parse SVG path to find center
+                    import re
+                    path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
+                    
+                    x_coords = []
+                    y_coords = []
+                    current_x, current_y = 0, 0
+                    
+                    for cmd, params in path_commands:
+                        cmd = cmd.upper()
+                        
+                        if cmd == 'M':  # Move to (absolute)
+                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
+                            if len(coords_list) >= 2:
+                                current_x, current_y = float(coords_list[0]), float(coords_list[1])
+                                x_coords.append(current_x)
+                                y_coords.append(current_y)
+                                
+                        elif cmd == 'L':  # Line to (absolute)
+                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
+                            if len(coords_list) >= 2:
+                                current_x, current_y = float(coords_list[0]), float(coords_list[1])
+                                x_coords.append(current_x)
+                                y_coords.append(current_y)
+                                
+                        elif cmd == 'C':  # Cubic Bezier curve (absolute)
+                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
+                            if len(coords_list) >= 6:
+                                # C x1 y1 x2 y2 x y - we care about end point
+                                current_x, current_y = float(coords_list[4]), float(coords_list[5])
+                                x_coords.append(current_x)
+                                y_coords.append(current_y)
+                    
+                    if x_coords and y_coords:
+                        # Calculate center of the province
+                        center_x = sum(x_coords) / len(x_coords)
+                        center_y = sum(y_coords) / len(y_coords)
+                        coords[province_id.upper()] = (center_x, center_y)
+        
+        # FALLBACK: If no SVG paths found, try jdipNS (but they're wrong)
+        if not coords:
+            print("⚠️  Warning: No SVG paths found, falling back to jdipNS coordinates (these are known to be wrong!)")
+            ns = {'jdipNS': 'svg.dtd'}
+            for prov in root.findall('.//jdipNS:PROVINCE', ns):
+                name = prov.attrib.get('name')
+                unit = prov.find('jdipNS:UNIT', ns)
+                if name and unit is not None:
+                    x = float(unit.attrib.get('x', '0'))
+                    y = float(unit.attrib.get('y', '0'))
+                    coords[name.upper()] = (x, y)
+        
         return coords
 
     @staticmethod
