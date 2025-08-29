@@ -394,9 +394,9 @@ class Map:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Scale coordinates to match PNG output
-                        x = cmd[1] * (2202 / 1835)  # Scale from SVG viewBox width
-                        y = cmd[2] * (1632 / 1360)  # Scale from SVG viewBox height
+                        # Use SVG coordinates directly without scaling or offset
+                        x = cmd[1]
+                        y = cmd[2]
                         points.append((x, y))
                 
                 if len(points) > 2:
