@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
+import sys
 
 print("Testing map rendering...")
 
 try:
     from src.engine.map import Map
     
-    svg_path = 'maps/standard.svg'
+    # Use command line argument if provided, otherwise default to standard.svg
+    if len(sys.argv) > 1:
+        svg_path = sys.argv[1]
+    else:
+        svg_path = 'maps/standard.svg'
+    
     print(f"Rendering: {svg_path}")
     
     png_bytes = Map.render_board_png(svg_path, {})

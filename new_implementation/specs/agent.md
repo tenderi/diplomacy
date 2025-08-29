@@ -4,7 +4,7 @@
 
 **Map File Backup Policy**: When modifying map files (standard.svg, svg.dtd), ALWAYS create timestamped backups before making changes: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix the original files directly to avoid breaking references. All map processing should work with the original standard.svg and svg.dtd files as the source of truth. **CRITICAL**: NEVER change the file path references in code - always overwrite the original standard.svg file, never create new file names like standard_fixed.svg or standard_cleaned.svg for production use.
 
-**Terminal Command Execution**: Use `is_background=True` for all terminal commands to prevent hanging. Foreground commands (`is_background=False`) may hang due to interactive prompts or environment issues.
+**Terminal Command Execution**: Use `is_background=True` for all terminal commands to prevent hanging. Foreground commands (`is_background=False`) may hang due to interactive prompts or environment issues. **Note**: Complex commands with quotes and chaining (e.g., `echo "text" && pwd && date`) may cause shell parsing issues and get stuck in quote states. Use simple, single commands for testing terminal functionality.
 
 **Test Execution Notes**: Use `QT_QPA_PLATFORM=offscreen PYTHONPATH=src /usr/bin/python3.13 -m pytest src/` to run tests in headless environment. Virtual environment creation may fail due to Cursor AppImage interference, but system Python works fine for testing. All 68 tests pass with 4 expected skips.
 

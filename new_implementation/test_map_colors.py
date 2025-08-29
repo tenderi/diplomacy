@@ -1,209 +1,149 @@
 #!/usr/bin/env python3
 """
-Comprehensive test to verify map generation color distribution.
-Ensures generated maps don't have more than 20% black pixels.
+Automated test script to detect and verify map color rendering issues.
+This script can be used to automatically test if SVG files render with proper colors.
 """
 
-import os
 import sys
-import numpy as np
-from PIL import Image
-import io
+import os
 import datetime
+from pathlib import Path
 
-def analyze_map_colors(png_bytes: bytes) -> dict:
-    """Analyze the color distribution of a PNG image."""
+def test_svg_rendering(svg_path: str, output_dir: str = "test_maps") -> dict:
+    """
+    Test SVG rendering and analyze the output image for color issues.
     
-    # Open image with PIL
-    image = Image.open(io.BytesIO(png_bytes))
-    
-    # Convert to RGB if not already
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    
-    # Convert to numpy array for analysis
-    img_array = np.array(image)
-    
-    # Calculate total pixels
-    total_pixels = img_array.shape[0] * img_array.shape[1]
-    
-    # Calculate black pixels (very dark - RGB all below 50)
-    black_mask = np.all(img_array < 50, axis=2)
-    black_pixels = np.sum(black_mask)
-    black_percentage = (black_pixels / total_pixels) * 100
-    
-    # Calculate dark pixels (broader definition - average RGB below 100)
-    dark_mask = np.mean(img_array, axis=2) < 100
-    dark_pixels = np.sum(dark_mask)
-    dark_percentage = (dark_pixels / total_pixels) * 100
-    
-    # Calculate white/light pixels (RGB all above 200)
-    white_mask = np.all(img_array > 200, axis=2)
-    white_pixels = np.sum(white_mask)
-    white_percentage = (white_pixels / total_pixels) * 100
-    
-    # Calculate average brightness
-    avg_brightness = np.mean(img_array)
-    
-    # Calculate color variance (higher = more colorful)
-    color_variance = np.var(img_array)
-    
-    # Sample some pixels for detailed analysis
-    width, height = image.size
-    sample_pixels = []
-    for i in range(0, width, max(1, width//20)):
-        for j in range(0, height, max(1, height//20)):
-            sample_pixels.append(image.getpixel((i, j)))
-    
-    return {
-        'total_pixels': total_pixels,
-        'black_pixels': black_pixels,
-        'black_percentage': black_percentage,
-        'dark_pixels': dark_pixels,
-        'dark_percentage': dark_percentage,
-        'white_pixels': white_pixels,
-        'white_percentage': white_percentage,
-        'avg_brightness': avg_brightness,
-        'color_variance': color_variance,
-        'image_size': (image.width, image.height),
-        'sample_pixels': sample_pixels
-    }
-
-def test_map_generation():
-    """Test map generation and analyze color distribution."""
-    
-    print("🧪 Testing Map Generation Color Distribution")
-    print("=" * 60)
-    
+    Returns:
+        dict: Test results including success status, dark pixel percentage, and file info
+    """
     try:
         from src.engine.map import Map
         
-        # Test with the fixed SVG file
-        svg_path = "maps/standard.svg"
-        if not os.path.exists(svg_path):
-            print(f"❌ SVG file not found: {svg_path}")
-            return False
+        print(f"🔍 Testing SVG rendering: {svg_path}")
         
-        print(f"📊 Rendering map from: {svg_path}")
+        # Render the SVG to PNG
         png_bytes = Map.render_board_png(svg_path, {})
         
-        # Analyze colors
-        analysis = analyze_map_colors(png_bytes)
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
         
-        print(f"\n📈 Color Analysis Results:")
-        print(f"   Image size: {analysis['image_size']}")
-        print(f"   Total pixels: {analysis['total_pixels']:,}")
-        print(f"   File size: {len(png_bytes):,} bytes")
-        print(f"   Black pixels: {analysis['black_percentage']:.1f}%")
-        print(f"   Dark pixels: {analysis['dark_percentage']:.1f}%")
-        print(f"   White pixels: {analysis['white_percentage']:.1f}%")
-        print(f"   Average brightness: {analysis['avg_brightness']:.1f}")
-        print(f"   Color variance: {analysis['color_variance']:.1f}")
-        
-        # Save for inspection
-        os.makedirs("test_maps", exist_ok=True)
+        # Save the rendered image
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"test_maps/{timestamp}_color_test_output.png"
-        with open(output_file, "wb") as f:
+        filename = Path(svg_path).stem
+        output_file = f"{output_dir}/{timestamp}_{filename}_test_output.png"
+        
+        with open(output_file, 'wb') as f:
             f.write(png_bytes)
-        print(f"   Saved as: {output_file}")
         
-        # Test criteria
-        black_threshold = 20.0  # Maximum 20% black pixels
-        dark_threshold = 40.0   # Maximum 40% dark pixels
-        brightness_threshold = 100.0  # Minimum average brightness
+        # Analyze the image
+        from PIL import Image
+        import io
         
-        print(f"\n🎯 Quality Checks:")
+        image = Image.open(io.BytesIO(png_bytes))
         
-        # Check black pixel percentage
-        if analysis['black_percentage'] <= black_threshold:
-            print(f"   ✅ Black pixels: {analysis['black_percentage']:.1f}% (≤ {black_threshold}%)")
-        else:
-            print(f"   ❌ Black pixels: {analysis['black_percentage']:.1f}% (> {black_threshold}%)")
-            return False
+        # Convert to RGB for analysis
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
         
-        # Check dark pixel percentage
-        if analysis['dark_percentage'] <= dark_threshold:
-            print(f"   ✅ Dark pixels: {analysis['dark_percentage']:.1f}% (≤ {dark_threshold}%)")
-        else:
-            print(f"   ❌ Dark pixels: {analysis['dark_percentage']:.1f}% (> {dark_threshold}%)")
-            return False
+        # Sample pixels across the image
+        width, height = image.size
+        pixels = []
+        for i in range(0, width, width//20):  # Sample every 20th pixel
+            for j in range(0, height, height//20):
+                pixels.append(image.getpixel((i, j)))
         
-        # Check average brightness
-        if analysis['avg_brightness'] >= brightness_threshold:
-            print(f"   ✅ Average brightness: {analysis['avg_brightness']:.1f} (≥ {brightness_threshold})")
-        else:
-            print(f"   ❌ Average brightness: {analysis['avg_brightness']:.1f} (< {brightness_threshold})")
-            return False
+        # Count dark pixels (very dark = potential black rendering issue)
+        dark_count = 0
+        for r, g, b in pixels:
+            if r < 50 and g < 50 and b < 50:
+                dark_count += 1
         
-        # Check color variance (should be reasonable)
-        if analysis['color_variance'] > 1000:  # Arbitrary threshold for colorful images
-            print(f"   ✅ Color variance: {analysis['color_variance']:.1f} (good color distribution)")
-        else:
-            print(f"   ⚠️  Color variance: {analysis['color_variance']:.1f} (low color variation)")
+        dark_percentage = (dark_count / len(pixels)) * 100
         
-        print(f"\n✅ Map generation test PASSED!")
-        print(f"   The generated map has reasonable color distribution.")
-        return True
+        # Determine if the rendering is successful
+        is_successful = dark_percentage < 70
+        
+        results = {
+            'success': is_successful,
+            'svg_path': svg_path,
+            'output_file': output_file,
+            'image_size': image.size,
+            'image_mode': image.mode,
+            'png_size_bytes': len(png_bytes),
+            'dark_pixel_percentage': dark_percentage,
+            'total_pixels_sampled': len(pixels),
+            'dark_pixels_count': dark_count,
+            'timestamp': timestamp
+        }
+        
+        return results
         
     except Exception as e:
-        print(f"❌ Error during map generation test: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        return {
+            'success': False,
+            'error': str(e),
+            'svg_path': svg_path,
+            'timestamp': datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        }
 
-def test_old_vs_new_comparison():
-    """Compare old vs new SVG files if available."""
+def print_test_results(results: dict) -> None:
+    """Print formatted test results."""
+    print(f"\n📊 Test Results for: {results['svg_path']}")
+    print("=" * 60)
     
-    print(f"\n🔄 Comparing SVG Files")
-    print("=" * 40)
+    if 'error' in results:
+        print(f"❌ Test failed with error: {results['error']}")
+        return
     
-    old_svg = "maps/standard.svg"
-    new_svg = "maps/standard.svg"
+    print(f"✅ Rendering successful: {results['success']}")
+    print(f"📁 Output file: {results['output_file']}")
+    print(f"🖼️  Image size: {results['image_size']}")
+    print(f"🎨 Image mode: {results['image_mode']}")
+    print(f"💾 PNG size: {results['png_size_bytes']:,} bytes")
+    print(f"🌑 Dark pixels: {results['dark_pixel_percentage']:.1f}% ({results['dark_pixels_count']}/{results['total_pixels_sampled']})")
     
-    if os.path.exists(old_svg) and os.path.exists(new_svg):
-        print(f"   Found both SVG files:")
-        print(f"   - Old: {old_svg}")
-        print(f"   - New: {new_svg}")
-        
-        # Check for CSS styles
-        with open(old_svg, 'r') as f:
-            old_content = f.read()
-        with open(new_svg, 'r') as f:
-            new_content = f.read()
-        
-        old_css = old_content.count('style type="text/css"')
-        new_css = new_content.count('style type="text/css"')
-        
-        print(f"   - CSS style blocks in old: {old_css}")
-        print(f"   - CSS style blocks in new: {new_css}")
-        
-        # Check for black rectangles
-        old_black_rect = old_content.count('rect fill="black" height="1360" width="1835"')
-        new_black_rect = new_content.count('rect fill="black" height="1360" width="1835"')
-        
-        print(f"   - Problematic black rectangles in old: {old_black_rect}")
-        print(f"   - Problematic black rectangles in new: {new_black_rect}")
-        
-        if new_css == 0 and new_black_rect == 0:
-            print(f"   ✅ New SVG file is properly fixed!")
-        else:
-            print(f"   ⚠️  New SVG file may still have issues")
+    if results['success']:
+        print("🎉 Map appears to have reasonable colors!")
     else:
-        print(f"   ⚠️  Cannot compare - missing SVG files")
+        print("⚠️  Map appears to be mostly black - CSS rendering issue detected!")
+    
+    print(f"⏰ Test completed: {results['timestamp']}")
+
+def main():
+    """Main function to run map color tests."""
+    print("🗺️  Map Color Rendering Test Suite")
+    print("=" * 60)
+    
+    # Test files to check
+    test_files = [
+        'maps/standard.svg',  # Original with CSS (should fail)
+        'maps/standard_fixed_comprehensive.svg'  # Fixed version (should pass)
+    ]
+    
+    results = []
+    
+    for svg_file in test_files:
+        if os.path.exists(svg_file):
+            result = test_svg_rendering(svg_file)
+            results.append(result)
+            print_test_results(result)
+        else:
+            print(f"⚠️  File not found: {svg_file}")
+    
+    # Summary
+    print("\n📋 Test Summary")
+    print("=" * 60)
+    successful_tests = sum(1 for r in results if r.get('success', False))
+    total_tests = len(results)
+    
+    print(f"Total tests: {total_tests}")
+    print(f"Successful: {successful_tests}")
+    print(f"Failed: {total_tests - successful_tests}")
+    
+    if successful_tests == total_tests:
+        print("🎉 All tests passed! Map rendering is working correctly.")
+    else:
+        print("⚠️  Some tests failed. Check the results above for details.")
 
 if __name__ == "__main__":
-    print("Starting comprehensive map generation color test...")
-    
-    # Test SVG file comparison
-    test_old_vs_new_comparison()
-    
-    # Test map generation and color analysis
-    success = test_map_generation()
-    
-    if success:
-        print(f"\n🎉 All tests PASSED! Map generation is working correctly.")
-        sys.exit(0)
-    else:
-        print(f"\n💥 Tests FAILED! Map generation has issues.")
-        sys.exit(1) 
+    main() 

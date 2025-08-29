@@ -225,6 +225,43 @@ class Map:
         Parse the SVG file and extract province coordinates for unit placement.
         Returns a dict: {province_name: (x, y)}
         """
+        # Check if this is the V2 map (doesn't have jdipNS structure)
+        if 'v2' in svg_path.lower():
+            try:
+                from v2_map_coordinates import get_all_v2_coordinates
+                return get_all_v2_coordinates()
+            except ImportError:
+                print("⚠️  Warning: v2_map_coordinates module not found, using fallback coordinates")
+                # Fallback coordinates for V2 map
+                return {
+                    'LON': (1921, 2378), 'PAR': (1948, 2859), 'BER': (2960, 2423),
+                    'VIE': (3074, 3039), 'MOS': (4849, 2167), 'ROM': (2793, 3613),
+                    'CON': (4233, 3821), 'EDI': (1886, 1866), 'MAR': (2020, 3265),
+                    'MUN': (2645, 2808), 'BUD': (3497, 3099), 'WAR': (3612, 2564),
+                    'VEN': (2662, 3265), 'SMY': (4609, 3974), 'STP': (4347, 1624),
+                    'KIE': (2662, 2448), 'TRI': (3130, 3306), 'SEV': (5268, 3021),
+                    'NAP': (2980, 3732), 'ANK': (4785, 3682), 'LVP': (1767, 2022),
+                    'BRE': (1697, 2782), 'BOH': (3012, 2808), 'GAL': (3673, 2825),
+                    'UKR': (4186, 2698), 'TYR': (2801, 3055), 'ARM': (5392, 3676),
+                    'PIC': (2000, 2665), 'SIL': (3052, 2597), 'PRU': (3360, 2367),
+                    'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
+                }
+        
+        # Original map parsing (jdipNS structure)
+        coords = {}
+        tree = ET.parse(svg_path)
+        root = tree.getroot()
+        ns = {'jdipNS': 'svg.dtd'}
+        for prov in root.findall('.//jdipNS:PROVINCE', ns):
+            name = prov.attrib.get('name')
+            unit = prov.find('jdipNS:UNIT', ns)
+            if name and unit is not None:
+                x = float(unit.attrib.get('x', '0'))
+                y = float(unit.attrib.get('y', '0'))
+                coords[name.upper()] = (x, y)
+        return coords
+        
+        # Original map parsing (jdipNS structure)
         coords = {}
         tree = ET.parse(svg_path)
         root = tree.getroot()
@@ -265,7 +302,7 @@ class Map:
         # 4. Draw units
         font = None
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)  # Increased font size for larger map
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)  # Increased font size by 2 (48 + 2 = 50)
         except Exception:
             font = ImageFont.load_default()
         for power, unit_list in units.items():
@@ -278,12 +315,18 @@ class Map:
                 prov = prov.upper()
                 if prov not in coords:
                     continue
-                # Scale coordinates by 1.2x to match the larger map
+                # Scale coordinates based on map type
                 x, y = coords[prov]
-                x = x * 1.2
-                y = y * 1.2
+                if 'v2' in svg_path.lower():
+                    # V2 map: scale from 7016x4960 to 2202x1632 (correct scaling)
+                    x = x * (2202 / 7016)  # ≈ 0.314
+                    y = y * (1632 / 4960)  # ≈ 0.329
+                else:
+                    # Original map: scale by 1.2x to match the larger map
+                    x = x * 1.2
+                    y = y * 1.2
                 # Draw a colored circle for the unit (scaled up)
-                r = 22  # Increased from 18 to 22 (1.2x)
+                r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
                 draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)  # Increased stroke width
                 # Draw unit type letter
                 text = unit_type
