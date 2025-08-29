@@ -539,10 +539,10 @@ class Map:
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
-        # 1. Convert SVG to PNG (background) with larger size for better readability
-        # The SVG has viewBox="0 0 1835 1360" - scale up by 1.2x for better text readability
-        # This gives us 2202x1632 pixels for a clearer map (reduced from 1.5x to save memory)
-        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=2202, output_height=1632)  # type: ignore
+        # 1. Convert SVG to PNG (background) with EXACT SVG size - NO SCALING
+        # The SVG has viewBox="0 0 1835 1360" - use exact size to avoid coordinate scaling issues
+        # This gives us 1835x1360 pixels - no scaling, coordinates match exactly
+        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=1835, output_height=1360)  # type: ignore
         if png_bytes is None:
             raise ValueError("cairosvg.svg2png returned None")
         bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
@@ -581,15 +581,9 @@ class Map:
                 prov = prov.upper()
                 if prov not in coords:
                     continue
-                # Scale coordinates based on map type
+                # NO SCALING - use SVG coordinates directly
                 x, y = coords[prov]
-                if 'v2' in svg_path.lower():
-                    # V2 map: scale from 7016x4960 to 2202x1632 (correct scaling)
-                    x = x * (2202 / 7016)  # ≈ 0.314
-                    y = y * (1632 / 4960)  # ≈ 0.329
-                else:
-                    # NO SCALING - use SVG coordinates directly
-                    pass  # x and y remain unchanged
+                # All coordinates are now in the same coordinate system (no scaling needed)
                 
                 # Draw unit circle
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
