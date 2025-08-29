@@ -21,6 +21,33 @@
     - Verify units appear in exact correct positions
   - **Priority**: Medium - V2 map is functional but needs precision improvement
 
+### 12. 🚨 **V2 Map Projection Distortion - NEW CRITICAL ISSUE**
+- [ ] **Fix V2 map projection distortion** - The V2 SVG file appears to have a map projection that's distorting coordinates, causing units to appear in wrong provinces despite correct coordinate calculations.
+  - **Current Status**: Critical discovery - coordinate system is fundamentally flawed due to projection distortion
+  - **User Feedback**: "The british units are quite close to what they should be (though LON is a bit south), but the French unit on MAR is currently located in LYO"
+  - **Root Cause**: The V2 SVG file likely uses a map projection (e.g., Mercator, Albers, etc.) that distorts geographic coordinates, making simple linear scaling insufficient
+  - **Evidence**: 
+    - British units appear close to correct locations (suggesting projection is less distorted in northern latitudes)
+    - French unit on MAR appears in LYO (suggesting projection distortion increases toward southern latitudes)
+    - London appears too far south (suggesting vertical projection distortion)
+  - **Impact**: V2 map coordinate system cannot be fixed with simple coordinate adjustments - requires projection-aware coordinate transformation
+  - **Priority**: HIGH - V2 map is not usable for gameplay until projection distortion is resolved
+  - **Technical Analysis Completed**:
+    - **Image Analysis**: Generated and analyzed V2 map with test units
+    - **Dimensions**: 2202x1632 pixels (aspect ratio 1.349 - correct for Europe)
+    - **Color Analysis**: RGB image with full color range (0-255)
+    - **Geographic Regions**: Defined western/central/eastern Europe boundaries
+    - **Projection Confirmation**: Aspect ratio is correct but coordinate distortion confirmed
+  - **Test Results**:
+    - **Critical Issues**: MAR appears in LYO, WAR appears in Galicia
+    - **Positioning Issues**: LON appears too far south
+    - **Pattern**: Northern units (British) less affected, southern units (French/Italian) more affected
+  - **Next Steps**:
+    1. Identify exact map projection used in V2 SVG (Mercator, Albers, etc.)
+    2. Implement projection-aware coordinate transformation
+    3. Consider using original standard.svg for gameplay until projection issue resolved
+    4. V2 map may only be suitable for display, not gameplay
+
 ## Remaining Tasks (Lower Priority)
 
 ### 7. Documentation Updates
@@ -38,7 +65,7 @@
 - [ ] Add map generation metrics
 - [ ] Optimize SVG processing pipeline
 
-## Status: 🔧 **CRITICAL ISSUE PARTIALLY RESOLVED - V2 MAP COORDINATE SYSTEM NEEDS FINE-TUNING**
+## Status: 🚨 **CRITICAL ISSUE DISCOVERED - V2 MAP PROJECTION DISTORTION MAKES IT UNUSABLE FOR GAMEPLAY**
 
 The map generation issue has been successfully fixed with comprehensive testing verification including color analysis with 20% black pixel threshold. The telegram bot now uses the original `standard.svg` file and all tests are passing. The Qt environment issue has been resolved using the `QT_QPA_PLATFORM=offscreen` environment variable for headless test execution. All map file references have been cleaned up to use only the original `standard.svg` and `svg.dtd` files. 
 
