@@ -276,6 +276,137 @@ class Map:
         return coords
 
     @staticmethod
+    def _color_provinces_by_power(draw, units, power_colors, svg_path):
+        """Color provinces based on power control by parsing SVG paths."""
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # Parse the SVG file
+            tree = ET.parse(svg_path)
+            root = tree.getroot()
+            
+            # Define namespace for SVG elements
+            namespaces = {'svg': 'http://www.w3.org/2000/svg'}
+            
+            # Find all path elements with id attributes (these are provinces)
+            province_paths = root.findall('.//svg:path[@id]', namespaces)
+            if not province_paths:
+                # Try without namespace
+                province_paths = root.findall('.//path[@id]')
+            
+            # Create a mapping of province names to power colors
+            province_power_map = {}
+            for power, unit_list in units.items():
+                color = power_colors.get(power.upper(), "black")
+                for unit in unit_list:
+                    parts = unit.split()
+                    if len(parts) == 2:
+                        prov = parts[1].upper()
+                        province_power_map[prov] = color
+            
+            # Color each province based on power control
+            for path_elem in province_paths:
+                province_id = path_elem.get('id')
+                if province_id and province_id.upper() in province_power_map:
+                    # Get the power color for this province
+                    power_color = province_power_map[province_id.upper()]
+                    
+                    # Convert color to RGB for transparency
+                    rgb_color = Map._hex_to_rgb(power_color)
+                    transparent_color = (*rgb_color, 128)  # 50% transparency
+                    
+                    # Parse and fill the SVG path
+                    path_data = path_elem.get('d')
+                    if path_data:
+                        Map._fill_svg_path(draw, path_data, transparent_color, power_color)
+                    
+        except Exception as e:
+            print(f"Warning: Could not parse SVG for province coloring: {e}")
+            # Fallback: continue without province coloring
+    
+    @staticmethod
+    def _fill_svg_path(draw, path_data, fill_color, stroke_color):
+        """Fill an SVG path on the PIL ImageDraw object."""
+        try:
+            # This is a simplified SVG path parser
+            # For a production system, you'd want a proper SVG path library
+            
+            # Parse the path data to extract coordinates
+            # SVG paths use commands like M (move), L (line), C (curve), Z (close)
+            # For now, we'll implement a basic parser for simple paths
+            
+            commands = []
+            current_x, current_y = 0, 0
+            
+            # Split path data into commands
+            import re
+            path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
+            
+            for cmd, params in path_commands:
+                cmd = cmd.upper()
+                if cmd == 'M':  # Move to
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 2:
+                        current_x, current_y = float(coords[0]), float(coords[1])
+                        commands.append(('M', current_x, current_y))
+                elif cmd == 'L':  # Line to
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 2:
+                        current_x, current_y = float(coords[0]), float(coords[1])
+                        commands.append(('L', current_x, current_y))
+                elif cmd == 'Z':  # Close path
+                    commands.append(('Z',))
+            
+            # Convert SVG coordinates to PIL coordinates
+            # SVG coordinates need to be scaled to match the PNG output
+            # The PNG is 2202x1632, so we need to scale accordingly
+            
+            # For now, let's use a simple approach: create a polygon from the path
+            if len(commands) > 2:
+                points = []
+                for cmd in commands:
+                    if cmd[0] in ['M', 'L']:
+                        # Scale coordinates to match PNG output
+                        x = cmd[1] * (2202 / 1835)  # Scale from SVG viewBox width
+                        y = cmd[2] * (1632 / 1360)  # Scale from SVG viewBox height
+                        points.append((x, y))
+                
+                if len(points) > 2:
+                    # Draw the filled polygon
+                    draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
+                    
+        except Exception as e:
+            print(f"Warning: Could not fill SVG path: {e}")
+            # Fallback: continue without path filling
+
+    @staticmethod
+    def _hex_to_rgb(hex_color: str) -> tuple:
+        """Convert hex color string to RGB tuple."""
+        # Handle named colors
+        color_map = {
+            "darkviolet": (148, 0, 211),
+            "royalblue": (65, 105, 225),
+            "forestgreen": (34, 139, 34),
+            "black": (0, 0, 0)
+        }
+        
+        if hex_color in color_map:
+            return color_map[hex_color]
+        
+        # Handle hex colors
+        if hex_color.startswith('#'):
+            hex_color = hex_color[1:]
+        
+        try:
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            return (r, g, b)
+        except (ValueError, IndexError):
+            # Fallback to black if parsing fails
+            return (0, 0, 0)
+
+    @staticmethod
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
@@ -299,12 +430,18 @@ class Map:
             "RUSSIA": "#757d91",
             "TURKEY": "#b9a61c",
         }
-        # 4. Draw units
+        # 4. Draw units with province coloring
         font = None
         try:
             font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)  # Increased font size by 2 (48 + 2 = 50)
         except Exception:
             font = ImageFont.load_default()
+        
+        # First pass: Color provinces based on power control
+        if units:  # Only color provinces if there are units
+            Map._color_provinces_by_power(draw, units, power_colors, svg_path)
+        
+        # Second pass: Draw units on top
         for power, unit_list in units.items():
             color = power_colors.get(power.upper(), "black")
             for unit in unit_list:
@@ -325,9 +462,11 @@ class Map:
                     # Original map: scale by 1.2x to match the larger map
                     x = x * 1.2
                     y = y * 1.2
-                # Draw a colored circle for the unit (scaled up)
+                
+                # Draw unit circle
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)  # Increased stroke width
+                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)
+                
                 # Draw unit type letter
                 text = unit_type
                 bbox = draw.textbbox((0, 0), text, font=font)
