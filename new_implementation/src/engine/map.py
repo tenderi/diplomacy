@@ -307,18 +307,22 @@ class Map:
             # Color each province based on power control
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
-                if province_id and province_id.upper() in province_power_map:
-                    # Get the power color for this province
-                    power_color = province_power_map[province_id.upper()]
+                if province_id:
+                    # Normalize the province ID (remove underscore prefix and convert to uppercase)
+                    normalized_id = province_id.lstrip('_').upper()
                     
-                    # Convert color to RGB for transparency
-                    rgb_color = Map._hex_to_rgb(power_color)
-                    transparent_color = (*rgb_color, 128)  # 50% transparency
-                    
-                    # Parse and fill the SVG path
-                    path_data = path_elem.get('d')
-                    if path_data:
-                        Map._fill_svg_path(draw, path_data, transparent_color, power_color)
+                    if normalized_id in province_power_map:
+                        # Get the power color for this province
+                        power_color = province_power_map[normalized_id]
+                        
+                        # Convert color to RGB for transparency
+                        rgb_color = Map._hex_to_rgb(power_color)
+                        transparent_color = (*rgb_color, 128)  # 50% transparency
+                        
+                        # Parse and fill the SVG path
+                        path_data = path_elem.get('d')
+                        if path_data:
+                            Map._fill_svg_path(draw, path_data, transparent_color, power_color)
                     
         except Exception as e:
             print(f"Warning: Could not parse SVG for province coloring: {e}")
