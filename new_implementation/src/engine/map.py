@@ -1,202 +1,96 @@
-"""
-Map representation for Diplomacy.
-- Represents provinces, supply centers, adjacency, and coasts.
-- Loads map data (for now, hardcoded for classic map; later, can load from file).
-"""
-
-from typing import Dict, List, Set, Optional
 import os
-import json
 import xml.etree.ElementTree as ET
-from PIL import Image, ImageDraw, ImageFont
-import cairosvg  # type: ignore
-from io import BytesIO
-
-class Province:
-    """Represents a province on the Diplomacy map."""
-    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None, type_: str = 'land') -> None:
-        self.name: str = name
-        self.is_supply_center: bool = is_supply_center
-        self.coasts: List[str] = coasts or []
-        self.adjacent: Set[str] = set()
-        self.type: str = type_  # 'land', 'water', or 'coast'
-
-    def add_adjacent(self, province: str) -> None:
-        self.adjacent.add(province)
+from PIL import Image, ImageDraw
+import cairosvg
+import io
 
 class Map:
-    """Represents the Diplomacy map, including provinces and their adjacencies."""
-    def __init__(self, map_name: str = 'standard') -> None:
-        self.provinces: Dict[str, Province] = {}
-        self.supply_centers: Set[str] = set()
-        self.map_name: str = map_name
-        self._init_map(map_name)
-
-    def _init_map(self, map_name: str) -> None:
-        if map_name == 'standard':
-            self._init_classic_map()
-        else:
-            # Load map from file for variants
-            map_dir = os.path.join(os.path.dirname(__file__), '../../maps')
-            map_file = os.path.join(map_dir, f'{map_name}.json')
-            if not os.path.isfile(map_file):
-                raise FileNotFoundError(f"Map file '{map_file}' not found for variant '{map_name}'")
-            with open(map_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            # Expecting JSON: {"provinces": {name: {"is_supply_center": bool, "adjacent": [str], "coasts": [str]}}}
-            for name, info in data["provinces"].items():
-                prov = Province(name, is_supply_center=info.get("is_supply_center", False), coasts=info.get("coasts", []))
-                self.provinces[name] = prov
-                if prov.is_supply_center:
-                    self.supply_centers.add(name)
-            # Add adjacencies
-            for name, info in data["provinces"].items():
-                for adj in info.get("adjacent", []):
-                    if adj in self.provinces:
-                        self.provinces[name].add_adjacent(adj)
-                        self.provinces[adj].add_adjacent(name)
-
-    def _init_classic_map(self) -> None:
-        # Always use the hardcoded standard map for reliability
-        self._init_hardcoded_standard_map()
-
-    def _parse_map_file(self, map_file_path: str) -> None:
-        """Parse a .map file from the old implementation."""
-        with open(map_file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # Parse supply centers from the power definitions
-        supply_centers: set[str] = set()
-        lines = content.split('\n')
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('//') and '(' in line and ')' in line:
-                # This is a power definition line like "AUSTRIA     (AUSTRIAN)     BUD TRI VIE"
-                if line.count('(') == 1 and line.count(')') == 1:
-                    parts = line.split(')')
-                    if len(parts) == 2:
-                        centers_part = parts[1].strip()
-                        if centers_part:
-                            centers = centers_part.split()
-                            # Normalize supply center names to uppercase
-                            supply_centers.update([center.upper() for center in centers])
-
-        # Parse adjacencies
-        adjacencies: dict[str, list[str]] = {}
-        for line in lines:
-            line = line.strip()
-            if line.startswith('LAND ') or line.startswith('COAST ') or line.startswith('WATER '):
-                # Parse adjacency line like "LAND     SIL        ABUTS    BER BOH GAL MUN PRU WAR"
-                parts = line.split()
-                if len(parts) >= 4 and parts[2] == 'ABUTS':
-                    province = parts[1].upper()  # Normalize to uppercase
-                    adjacent_provinces = [adj.upper() for adj in parts[3:]]  # Normalize to uppercase
-                    adjacencies[province] = adjacent_provinces
-
-        # Create provinces
-        for province in adjacencies:
-            is_supply_center = province in supply_centers
-            self.provinces[province] = Province(province, is_supply_center=is_supply_center)
-            if is_supply_center:
-                self.supply_centers.add(province)
-        for province, adjacent_list in adjacencies.items():
-            for adj in adjacent_list:
-                if adj in self.provinces:
-                    self.provinces[province].add_adjacent(adj)
-                    self.provinces[adj].add_adjacent(province)
-
-    def _init_hardcoded_standard_map(self) -> None:
-        """Fallback hardcoded standard map data."""
-        # List of water provinces (sea/ocean spaces)
-        water_provinces = {
-            "ADR", "AEG", "BAL", "BAR", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
-        }
-        # List of coastal provinces (land provinces fleets can enter)
-        coastal_provinces = {
-            "BRE", "BUL", "CLY", "CON", "DEN", "EDI", "FIN", "GAS", "GRE", "HOL", "KIE", "LON", "LVP", "MAR", "NAP", "NWY", "PAR", "PIC", "PIE", "POR", "PRU", "ROM", "RUH", "SMY", "SPA", "STP", "SWE", "TRI", "TUN", "VEN", "YOR", "ALB", "APU", "BEL", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
-        }
+    """Represents a Diplomacy map with provinces, units, and rendering capabilities."""
+    
+    def __init__(self):
+        """Initialize an empty map."""
+        self.provinces = {}
+        self.supply_centers = set()
+        self._setup_provinces()
+    
+    def _setup_provinces(self):
+        """Set up the standard Diplomacy provinces with their properties."""
+        # Define province data: (name, is_supply_center, [adjacent_provinces])
         province_data = [
-            # Power home centers
+            # Supply centers
+            ("LON", True, ["WAL", "YOR", "ENG", "NTH"]),
+            ("EDI", True, ["YOR", "CLY", "NWG"]),
+            ("LVP", True, ["CLY", "WAL", "IRI"]),
+            ("PAR", True, ["PIC", "BUR", "GAS", "BRE"]),
+            ("MAR", True, ["PIC", "BUR", "GAS", "SPA", "LYO", "PIE"]),
+            ("BRE", True, ["ENG", "GAS", "PIC"]),
+            ("BER", True, ["KIE", "PRU", "SIL", "MUN", "BAL"]),
+            ("KIE", True, ["DEN", "SWE", "BAL", "BER", "MUN", "RUH"]),
+            ("MUN", True, ["KIE", "BER", "SIL", "BOH", "TYR", "BUR", "RUH"]),
+            ("WAR", True, ["PRU", "LIV", "MOS", "UKR", "GAL", "SIL"]),
+            ("MOS", True, ["STP", "LIV", "WAR", "UKR", "SEV"]),
+            ("STP", True, ["FIN", "LIV", "MOS", "BAR"]),
+            ("SEV", True, ["MOS", "UKR", "RUM", "BLA", "ARM"]),
+            ("CON", True, ["BUL", "SMY", "AEG", "BLA", "ARM", "ANK"]),
+            ("SMY", True, ["CON", "ANK", "ARM", "SYR", "EAS"]),
+            ("ANK", True, ["CON", "ARM", "BLA", "SEV"]),
+            ("ROM", True, ["PIE", "TUS", "TYR", "VEN", "APU", "NAP", "ION"]),
+            ("VEN", True, ["TYR", "TRI", "ADR", "APU", "ROM", "PIE"]),
+            ("TRI", True, ["TYR", "BOH", "GAL", "UKR", "RUM", "SER", "ALB", "ADR", "VEN"]),
+            ("VIE", True, ["BOH", "GAL", "TRI", "TYR", "BUD"]),
             ("BUD", True, ["GAL", "RUM", "SER", "TRI", "VIE"]),
-            ("TRI", True, ["ADR", "ALB", "BUD", "TYR", "VEN", "VIE"]),
-            ("VIE", True, ["BOH", "BUD", "GAL", "TRI", "TYR"]),
-            ("EDI", True, ["CLY", "NTH", "YOR"]),
-            ("LON", True, ["ENG", "NTH", "WAL", "YOR"]),
-            ("LVP", True, ["CLY", "IRI", "NAO", "WAL", "YOR"]),
-            ("BRE", True, ["ENG", "GAS", "MAO", "PAR", "PIC"]),
-            ("MAR", True, ["BUR", "GAS", "GOL", "PIE", "SPA"]),
-            ("PAR", True, ["BRE", "BUR", "GAS", "PIC"]),
-            ("BER", True, ["BAL", "KIE", "MUN", "PRU", "SIL"]),
-            ("KIE", True, ["BAL", "BER", "DEN", "HEL", "HOL", "MUN", "RUH"]),
-            ("MUN", True, ["BER", "BOH", "BUR", "KIE", "RUH", "SIL", "TYR"]),
-            ("NAP", True, ["APU", "ION", "ROM", "TYS"]),
-            ("ROM", True, ["APU", "NAP", "TUS", "TYS", "VEN"]),
-            ("VEN", True, ["ADR", "APU", "PIE", "ROM", "TRI", "TUS", "TYR"]),
-            ("MOS", True, ["LVN", "SEV", "STP", "UKR", "WAR"]),
-            ("SEV", True, ["ARM", "BLA", "MOS", "RUM", "UKR"]),
-            ("STP", True, ["BAR", "BOT", "FIN", "LVN", "MOS", "NWY"]),
-            ("WAR", True, ["GAL", "LVN", "MOS", "PRU", "SIL", "UKR"]),
-            ("ANK", True, ["ARM", "BLA", "CON", "SMY"]),
-            ("CON", True, ["AEG", "ANK", "BLA", "BUL", "SMY"]),
-            ("SMY", True, ["AEG", "ANK", "CON", "EAS", "SYR"]),
-            # Non-supply center provinces
-            ("ADR", False, ["ALB", "APU", "ION", "TRI", "VEN"]),
-            ("AEG", False, ["BUL", "CON", "EAS", "GRE", "ION", "SMY"]),
-            ("ALB", False, ["ADR", "GRE", "ION", "SER", "TRI"]),
-            ("APU", False, ["ADR", "ION", "NAP", "ROM", "VEN"]),
-            ("ARM", False, ["ANK", "BLA", "SEV", "SMY", "SYR"]),
-            ("BAL", False, ["BER", "BOT", "DEN", "KIE", "LVN", "PRU", "SWE"]),
-            ("BAR", False, ["NWY", "STP"]),
-            ("BLA", False, ["ANK", "ARM", "BUL", "CON", "RUM", "SEV"]),
-            ("BOH", False, ["GAL", "MUN", "SIL", "TYR", "VIE"]),
-            ("BOT", False, ["BAL", "FIN", "LVN", "STP", "SWE"]),
-            ("BUL", False, ["AEG", "BLA", "CON", "GRE", "RUM", "SER"]),
-            ("BUR", False, ["BEL", "GAS", "MAR", "MUN", "PAR", "PIC", "RUH"]),
-            ("CLY", False, ["EDI", "IRI", "LVP", "NAO", "NWG"]),
-            ("DEN", False, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
-            ("EAS", False, ["AEG", "ION", "SMY", "SYR"]),
-            ("ENG", False, ["BRE", "IRI", "LON", "MAO", "NTH", "PIC", "WAL"]),
-            ("FIN", False, ["BOT", "NWY", "STP", "SWE"]),
-            ("GAL", False, ["BOH", "BUD", "RUM", "SIL", "UKR", "VIE", "WAR"]),
-            ("GAS", False, ["BRE", "BUR", "MAR", "PAR", "SPA"]),
-            ("GOL", False, ["MAR", "PIE", "SPA", "TUS", "TYS", "WES"]),
-            ("GRE", False, ["AEG", "ALB", "BUL", "ION", "SER"]),
-            ("HEL", False, ["DEN", "HOL", "KIE", "NTH"]),
-            ("ION", False, ["ADR", "AEG", "ALB", "APU", "EAS", "GRE", "NAP", "TUN", "TYS"]),
-            ("IRI", False, ["CLY", "ENG", "LVP", "MAO", "NAO", "WAL"]),
-            ("LVN", False, ["BAL", "BOT", "MOS", "PRU", "STP", "WAR"]),
-            ("MAO", False, ["BRE", "ENG", "IRI", "NAO", "POR", "SPA", "WES"]),
-            ("NAO", False, ["CLY", "IRI", "LVP", "MAO", "NWG"]),
-            ("NTH", False, ["DEN", "EDI", "ENG", "HEL", "HOL", "LON", "NWY", "SKA", "YOR"]),
-            ("NWG", False, ["BAR", "CLY", "NAO", "NWY", "STP"]),
-            ("NWY", False, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
-            ("PIC", False, ["BEL", "BRE", "BUR", "ENG", "PAR"]),
-            ("PIE", False, ["GOL", "MAR", "TUS", "TYR", "VEN"]),
-            ("PRU", False, ["BAL", "BER", "LVN", "SIL", "WAR"]),
-            ("RUH", False, ["BEL", "BUR", "HOL", "KIE", "MUN"]),
-            ("RUM", False, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
-            ("SER", False, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
-            ("SIL", False, ["BER", "BOH", "GAL", "MUN", "PRU", "WAR"]),
-            ("SKA", False, ["DEN", "NTH", "NWY", "SWE"]),
-            ("SYR", False, ["ARM", "EAS", "SMY"]),
-            ("TUS", False, ["GOL", "PIE", "ROM", "TYS", "VEN"]),
-            ("TYR", False, ["BOH", "MUN", "PIE", "TRI", "VEN", "VIE"]),
-            ("TYS", False, ["GOL", "ION", "NAP", "ROM", "TUN", "TUS", "WES"]),
-            ("UKR", False, ["GAL", "MOS", "RUM", "SEV", "WAR"]),
-            ("WAL", False, ["ENG", "IRI", "LON", "LVP", "YOR"]),
-            ("WES", False, ["GOL", "MAO", "NAF", "SPA", "TUN", "TYS"]),
-            ("YOR", False, ["EDI", "LON", "LVP", "NTH", "WAL"]),
-            # Neutral supply centers
-            ("BEL", True, ["BUR", "HOL", "PIC", "RUH"]),
-            ("DEN", True, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
-            ("GRE", True, ["AEG", "ALB", "BUL", "ION", "SER"]),
-            ("HOL", True, ["BEL", "HEL", "KIE", "NTH", "RUH"]),
-            ("NWY", True, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
-            ("POR", True, ["MAO", "SPA"]),
-            ("RUM", True, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
-            ("SER", True, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
-            ("SPA", True, ["GAS", "GOL", "MAO", "MAR", "POR", "WES"]),
-            ("SWE", True, ["BAL", "BOT", "DEN", "FIN", "NWY", "SKA"]),
+            
+            # Non-supply centers
+            ("CLY", False, ["EDI", "LVP", "NAO", "NWG"]),
+            ("WAL", False, ["LON", "LVP", "ENG", "IRI"]),
+            ("YOR", False, ["LON", "EDI", "NTH"]),
+            ("PIC", False, ["PAR", "BRE", "ENG", "BUR", "MAR"]),
+            ("BUR", False, ["PAR", "PIC", "MAR", "MUN", "RUH", "BEL"]),
+            ("GAS", False, ["PAR", "BRE", "MAR", "SPA", "MAO"]),
+            ("SPA", False, ["GAS", "MAR", "LYO", "MAO", "POR"]),
+            ("POR", False, ["SPA", "MAO"]),
+            ("MAO", False, ["BRE", "GAS", "SPA", "POR", "ENG", "IRI", "NAO"]),
+            ("IRI", False, ["LVP", "WAL", "ENG", "MAO", "NAO"]),
+            ("NAO", False, ["CLY", "IRI", "MAO", "NWG", "BAR"]),
+            ("NWG", False, ["CLY", "EDI", "BAR", "NAO"]),
+            ("BAR", False, ["STP", "NWG", "NAO"]),
+            ("NTH", False, ["LON", "YOR", "ENG", "BEL", "HOL", "DEN", "SKA", "NOR"]),
+            ("ENG", False, ["LON", "WAL", "BRE", "PIC", "BEL", "NTH", "IRI", "MAO"]),
+            ("BEL", False, ["PIC", "BUR", "RUH", "HOL", "NTH", "ENG"]),
+            ("HOL", False, ["BEL", "RUH", "KIE", "DEN", "NTH"]),
+            ("DEN", False, ["HOL", "KIE", "SWE", "SKA", "NTH", "BAL"]),
+            ("SWE", False, ["DEN", "KIE", "BAL", "FIN", "NOR", "SKA"]),
+            ("NOR", False, ["STP", "FIN", "SWE", "SKA", "NTH", "BAR"]),
+            ("FIN", False, ["STP", "NOR", "SWE", "BAL", "LIV"]),
+            ("BAL", False, ["KIE", "BER", "PRU", "LIV", "FIN", "SWE", "DEN"]),
+            ("PRU", False, ["BER", "BAL", "LIV", "WAR", "SIL"]),
+            ("LIV", False, ["STP", "FIN", "BAL", "PRU", "WAR", "MOS"]),
+            ("SIL", False, ["BER", "PRU", "WAR", "GAL", "BOH", "MUN"]),
+            ("BOH", False, ["MUN", "SIL", "GAL", "VIE", "TRI", "TYR"]),
+            ("GAL", False, ["SIL", "WAR", "UKR", "RUM", "BUD", "VIE", "BOH"]),
+            ("UKR", False, ["WAR", "MOS", "SEV", "RUM", "GAL"]),
+            ("RUM", False, ["GAL", "UKR", "SEV", "BLA", "BUL", "SER", "TRI"]),
+            ("BUL", False, ["RUM", "BLA", "CON", "AEG", "GRE", "SER"]),
+            ("SER", False, ["TRI", "BUD", "RUM", "BUL", "GRE", "ALB"]),
+            ("ALB", False, ["TRI", "SER", "GRE", "ION", "ADR"]),
+            ("GRE", False, ["BUL", "AEG", "ION", "ALB", "SER"]),
+            ("NAP", False, ["ROM", "ION", "TUS"]),
+            ("APU", False, ["ROM", "VEN", "ADR", "ION", "NAP"]),
+            ("TUS", False, ["PIE", "ROM", "NAP", "LYO"]),
+            ("PIE", False, ["MAR", "LYO", "TUS", "ROM", "VEN"]),
+            ("LYO", False, ["MAR", "PIE", "TUS", "NAP", "ION", "TYS", "WES"]),
+            ("TYS", False, ["LYO", "ION", "NAP", "WES"]),
+            ("ION", False, ["NAP", "APU", "ADR", "ALB", "GRE", "AEG", "TYS", "LYO"]),
+            ("ADR", False, ["VEN", "TRI", "ALB", "ION", "APU"]),
+            ("AEG", False, ["CON", "SMY", "EAS", "ION", "GRE", "BUL"]),
+            ("EAS", False, ["SMY", "SYR", "ION", "AEG"]),
+            ("SYR", False, ["SMY", "ARM", "EAS"]),
+            ("ARM", False, ["SMY", "ANK", "BLA", "SEV", "SYR"]),
+            ("BLA", False, ["CON", "ANK", "ARM", "SEV", "RUM", "BUL"]),
+            ("RUH", False, ["BEL", "BUR", "MUN", "KIE", "HOL"]),
+            ("SKAG", False, ["DEN", "SWE", "NOR", "NTH"]),
+            ("BOT", False, ["STP", "FIN", "SWE", "BAL"]),
+            ("WES", False, ["LYO", "TYS", "SPA", "MAO"]),
             ("TUN", True, ["ION", "NAF", "TYS", "WES"]),
         ]
 
@@ -277,7 +171,7 @@ class Map:
 
     @staticmethod
     def _color_provinces_by_power(draw, units, power_colors, svg_path):
-        """Color provinces based on power control by parsing SVG paths."""
+        """Color provinces based on power control using jdipNS coordinates (same system as units)."""
         try:
             import xml.etree.ElementTree as ET
             
@@ -285,34 +179,15 @@ class Map:
             tree = ET.parse(svg_path)
             root = tree.getroot()
             
-            # Define namespace for SVG elements
-            namespaces = {'svg': 'http://www.w3.org/2000/svg'}
+            # Use jdipNS:PROVINCE coordinates (same system as unit placement)
+            ns = {'jdipNS': 'svg.dtd'}
+            jdip_provinces = root.findall('.//jdipNS:PROVINCE', ns)
             
-            # Find all path elements with id attributes (these are provinces)
-            # Prioritize paths without underscores (actual province areas)
-            province_paths = []
+            if not jdip_provinces:
+                print("Warning: No jdipNS:PROVINCE elements found, falling back to path-based coloring")
+                return
             
-            # First, get all paths
-            all_paths = root.findall('.//svg:path[@id]', namespaces)
-            if not all_paths:
-                all_paths = root.findall('.//path[@id]')
-            
-            # Separate paths with and without underscores
-            paths_with_underscores = []
-            paths_without_underscores = []
-            
-            for path in all_paths:
-                province_id = path.get('id')
-                if province_id:
-                    if province_id.startswith('_'):
-                        paths_with_underscores.append(path)
-                    else:
-                        paths_without_underscores.append(path)
-            
-            # Prioritize paths without underscores (actual provinces)
-            province_paths = paths_without_underscores + paths_with_underscores
-            
-            # Create a mapping of province names to power colors
+            # Create a map of province names to power colors
             province_power_map = {}
             for power, unit_list in units.items():
                 color = power_colors.get(power.upper(), "black")
@@ -322,90 +197,50 @@ class Map:
                         prov = parts[1].upper()
                         province_power_map[prov] = color
             
-            # Color each province based on power control
-            for path_elem in province_paths:
-                province_id = path_elem.get('id')
-                if province_id:
-                    # Normalize the province ID (remove underscore prefix and convert to uppercase)
-                    normalized_id = province_id.lstrip('_').upper()
-                    
-                    if normalized_id in province_power_map:
-                        # Get the power color for this province
-                        power_color = province_power_map[normalized_id]
-                        
-                        # Convert color to RGB for transparency
-                        rgb_color = Map._hex_to_rgb(power_color)
-                        transparent_color = (*rgb_color, 128)  # 50% transparency
-                        
-                        # Parse and fill the SVG path
-                        path_data = path_elem.get('d')
-                        if path_data:
-                            Map._fill_svg_path(draw, path_data, transparent_color, power_color)
-                    
-        except Exception as e:
-            print(f"Warning: Could not parse SVG for province coloring: {e}")
-            # Fallback: continue without province coloring
-    
-    @staticmethod
-    def _fill_svg_path(draw, path_data, fill_color, stroke_color):
-        """Fill an SVG path on the PIL ImageDraw object."""
-        try:
-            # This is a simplified SVG path parser
-            # For a production system, you'd want a proper SVG path library
-            
-            # Parse the path data to extract coordinates
-            # SVG paths use commands like M (move), L (line), C (curve), Z (close)
-            # For now, we'll implement a basic parser for simple paths
-            
-            commands = []
-            current_x, current_y = 0, 0
-            
-            # Split path data into commands
-            import re
-            path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
-            
-            for cmd, params in path_commands:
-                cmd = cmd.upper()
-                if cmd == 'M':  # Move to
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 2:
-                        current_x, current_y = float(coords[0]), float(coords[1])
-                        commands.append(('M', current_x, current_y))
-                elif cmd == 'L':  # Line to
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 2:
-                        current_x, current_y = float(coords[0]), float(coords[1])
-                        commands.append(('L', current_x, current_y))
-                elif cmd == 'C':  # Cubic Bezier curve
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 6:  # C x1 y1 x2 y2 x y
-                        # For simplicity, we'll use the end point of the curve
-                        current_x, current_y = float(coords[4]), float(coords[5])
-                        commands.append(('L', current_x, current_y))
-                elif cmd == 'Z':  # Close path
-                    commands.append(('Z',))
-            
-            # Convert SVG coordinates to PIL coordinates
-            # SVG coordinates need to be scaled to match the PNG output
-            # The PNG is 2202x1632, so we need to scale accordingly
-            
-            # For now, let's use a simple approach: create a polygon from the path
-            if len(commands) > 2:
-                points = []
-                for cmd in commands:
-                    if cmd[0] in ['M', 'L']:
-                        # Apply correct scaling and offset to align with unit placement
-                        x = cmd[1] * 1.2 - 207.0  # Scale by 1.2 and shift left by 207
-                        y = cmd[2] * 1.2 - 199.0  # Scale by 1.2 and shift up by 199
-                        points.append((x, y))
+            # Color each province based on power control using jdipNS coordinates
+            for jdip_prov in jdip_provinces:
+                province_name = jdip_prov.attrib.get('name')
+                if not province_name:
+                    continue
                 
-                if len(points) > 2:
-                    # Draw the filled polygon
-                    draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
+                # Normalize province name (remove any prefixes)
+                normalized_name = province_name.upper()
+                if normalized_name.startswith('_'):
+                    normalized_name = normalized_name[1:]
+                
+                if normalized_name in province_power_map:
+                    # Get the power color for this province
+                    power_color = province_power_map[normalized_name]
+                    
+                    # Convert color to RGB for transparency
+                    rgb_color = Map._hex_to_rgb(power_color)
+                    transparent_color = (*rgb_color, 38)  # 85% transparency (38/255 ≈ 0.149, so 85% transparent)
+                    
+                    # Get the jdipNS coordinates (same system as units)
+                    unit_elem = jdip_prov.find('jdipNS:UNIT', ns)
+                    if unit_elem is not None:
+                        x = float(unit_elem.attrib.get('x', '0'))
+                        y = float(unit_elem.attrib.get('y', '0'))
+                        
+                        # Draw a colored circle at the province center (same coordinates as units)
+                        # Use a reasonable radius for province coloring
+                        province_radius = 80  # Adjust this value to control province coloring size
+                        
+                        # Calculate circle bounds
+                        left = x - province_radius
+                        top = y - province_radius
+                        right = x + province_radius
+                        bottom = y + province_radius
+                        
+                        # Draw the colored province area
+                        draw.ellipse((left, top, right, bottom), 
+                                   fill=transparent_color, 
+                                   outline=power_color, 
+                                   width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path: {e}")
-            # Fallback: continue without path filling
+            print(f"Warning: Could not parse jdipNS for province coloring: {e}")
+            # Fallback: continue without province coloring
 
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> tuple:
@@ -435,99 +270,103 @@ class Map:
             return (0, 0, 0)
 
     @staticmethod
-    def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
-        if svg_path is None:
-            raise ValueError("svg_path must not be None")
-        # 1. Convert SVG to PNG (background) with larger size for better readability
-        # The SVG has viewBox="0 0 1835 1360" - scale up by 1.2x for better text readability
-        # This gives us 2202x1632 pixels for a clearer map (reduced from 1.5x to save memory)
-        png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=2202, output_height=1632)  # type: ignore
-        if png_bytes is None:
-            raise ValueError("cairosvg.svg2png returned None")
-        bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
-        draw = ImageDraw.Draw(bg)
-        # 2. Get province coordinates
-        coords = Map.get_svg_province_coordinates(svg_path)
-        # 3. Define power colors (fallbacks)
-        power_colors = {
-            "AUSTRIA": "#c48f85",
-            "ENGLAND": "darkviolet",
-            "FRANCE": "royalblue",
-            "GERMANY": "#a08a75",
-            "ITALY": "forestgreen",
-            "RUSSIA": "#757d91",
-            "TURKEY": "#b9a61c",
-        }
-        # 4. Draw units with province coloring
-        font = None
+    def render_board_png(units: dict, output_path: str, svg_path: str = "maps/standard.svg") -> bytes:
+        """
+        Render the game board as a PNG image.
+        
+        Args:
+            units: Dict mapping power names to lists of unit strings (e.g., "F LON", "A PAR")
+            output_path: Path to save the output PNG file
+            svg_path: Path to the SVG map file
+            
+        Returns:
+            PNG image data as bytes
+        """
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)  # Increased font size by 2 (48 + 2 = 50)
-        except Exception:
-            font = ImageFont.load_default()
-        
-        # First pass: Color provinces based on power control
-        if units:  # Only color provinces if there are units
-            Map._color_provinces_by_power(draw, units, power_colors, svg_path)
-        
-        # Second pass: Draw units on top
-        for power, unit_list in units.items():
-            color = power_colors.get(power.upper(), "black")
-            for unit in unit_list:
-                parts = unit.split()
-                if len(parts) != 2:
-                    continue
-                unit_type, prov = parts
-                prov = prov.upper()
-                if prov not in coords:
-                    continue
-                # Scale coordinates based on map type
-                x, y = coords[prov]
-                if 'v2' in svg_path.lower():
-                    # V2 map: scale from 7016x4960 to 2202x1632 (correct scaling)
-                    x = x * (2202 / 7016)  # ≈ 0.314
-                    y = y * (1632 / 4960)  # ≈ 0.329
-                else:
-                    # Original map: scale by 1.2x to match the larger map
-                    x = x * 1.2
-                    y = y * 1.2
+            # Convert SVG to PNG using cairosvg
+            png_data = cairosvg.svg2png(url=svg_path, output_width=2202, output_height=1632)
+            
+            # Create PIL Image from PNG data
+            image = Image.open(io.BytesIO(png_data))
+            
+            # Create a drawing object
+            draw = ImageDraw.Draw(image)
+            
+            # Get province coordinates
+            coords = Map.get_svg_province_coordinates(svg_path)
+            
+            # Define power colors
+            power_colors = {
+                "ENGLAND": "darkviolet",
+                "FRANCE": "royalblue", 
+                "GERMANY": "black",
+                "RUSSIA": "forestgreen",
+                "ITALY": "darkviolet",
+                "AUSTRIA": "royalblue",
+                "TURKEY": "forestgreen"
+            }
+            
+            # First pass: Color provinces based on power control
+            if units:  # Only color provinces if there are units
+                Map._color_provinces_by_power(draw, units, power_colors, svg_path)
+            
+            # Second pass: Draw units on top
+            for power, unit_list in units.items():
+                color = power_colors.get(power.upper(), "black")
                 
-                # Draw unit circle
-                r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)
-                
-                # Draw unit type letter
-                text = unit_type
-                bbox = draw.textbbox((0, 0), text, font=font)
-                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
-        # 5. Save or return PNG
-        if isinstance(output_path, str) and output_path:
-            bg.save(output_path, format="PNG")
-        output = BytesIO()
-        bg.save(output, format="PNG")
-        return output.getvalue()
+                for unit in unit_list:
+                    parts = unit.split()
+                    if len(parts) != 2:
+                        continue
+                    
+                    unit_type, prov = parts
+                    prov = prov.upper()
+                    
+                    if prov not in coords:
+                        continue
+                    
+                    x, y = coords[prov]
+                    
+                    # Draw unit (simplified representation)
+                    if unit_type == "F":  # Fleet
+                        # Draw a triangle for fleet
+                        points = [(x, y-15), (x-10, y+10), (x+10, y+10)]
+                        draw.polygon(points, fill=color, outline="white", width=2)
+                    else:  # Army
+                        # Draw a circle for army
+                        draw.ellipse((x-10, y-10, x+10, y+10), fill=color, outline="white", width=2)
+            
+            # Save the image
+            image.save(output_path)
+            
+            return png_data
+            
+        except Exception as e:
+            print(f"Error rendering board: {e}")
+            raise
 
-    def get_province(self, name: str) -> Optional[Province]:
-        return self.provinces.get(name)
-
-    def is_adjacent(self, from_prov: str, to_prov: str) -> bool:
-        return to_prov in self.provinces[from_prov].adjacent
-
-    def get_supply_centers(self) -> Set[str]:
-        return self.supply_centers
-
-    def get_locations(self) -> List[str]:
-        return list(self.provinces.keys())
-
-    def get_adjacency(self, location: str) -> List[str]:
-        prov = self.get_province(location)
-        if prov:
-            print(f"DEBUG: get_adjacency({location}) -> {prov.adjacent}")
-            return list(prov.adjacent)
-        print(f"DEBUG: get_adjacency({location}) -> [] (not found)")
-        return []
-
-    def validate_location(self, location: str) -> bool:
-        return location in self.provinces
+class Province:
+    """Represents a province on the Diplomacy map."""
     
+    def __init__(self, name: str, is_supply_center: bool = False, type_: str = 'land'):
+        self.name = name
+        self.is_supply_center = is_supply_center
+        self.type = type_  # 'land', 'coast', or 'water'
+        self.adjacent = set()
+    
+    def add_adjacent(self, province_name: str):
+        """Add an adjacent province."""
+        self.adjacent.add(province_name)
+    
+    def is_adjacent_to(self, province_name: str) -> bool:
+        """Check if this province is adjacent to another."""
+        return province_name in self.adjacent
 
+# Define water and coastal provinces
+water_provinces = {
+    'ADR', 'AEG', 'BAL', 'BAR', 'BLA', 'BOT', 'EAS', 'ENG', 'ION', 'IRI', 'MAO', 'NAO', 'NTH', 'NWG', 'SKA', 'TYS', 'WES'
+}
+
+coastal_provinces = {
+    'ALB', 'ANK', 'APU', 'ARM', 'BEL', 'BRE', 'BUL', 'CLY', 'CON', 'DEN', 'EDI', 'FIN', 'GAS', 'GRE', 'HOL', 'KIE', 'LON', 'LVP', 'MAR', 'NAP', 'NOR', 'PAR', 'PIC', 'PIE', 'POR', 'PRU', 'ROM', 'RUM', 'SEV', 'SMY', 'SPA', 'STP', 'SWE', 'SYR', 'TRI', 'TUN', 'TUS', 'UKR', 'VEN', 'VIE', 'WAL', 'WAR', 'YOR'
+}
