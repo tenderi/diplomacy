@@ -387,23 +387,19 @@ class Map:
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
                         if path_data:
-                            Map._fill_svg_path_corrected(draw, path_data, transparent_color, power_color)
+                            # Use the same coordinate system as units (SVG path centers)
+                            # This ensures perfect alignment between units and province coloring
+                            Map._fill_svg_path_aligned(draw, path_data, transparent_color, power_color)
                     
         except Exception as e:
             print(f"Warning: Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
     
     @staticmethod
-    def _fill_svg_path_corrected(draw, path_data, fill_color, stroke_color):
-        """Fill an SVG path on the PIL ImageDraw object with correct coordinate alignment."""
+    def _fill_svg_path_aligned(draw, path_data, fill_color, stroke_color):
+        """Fill an SVG path using the same coordinate system as units (SVG path centers)."""
         try:
-            # This is a simplified SVG path parser
-            # For a production system, you'd want a proper SVG path library
-            
             # Parse the path data to extract coordinates
-            # SVG paths use commands like M (move), L (line), C (curve), Z (close)
-            # For now, we'll implement a basic parser for simple paths
-            
             commands = []
             current_x, current_y = 0, 0
             
@@ -432,27 +428,27 @@ class Map:
                 elif cmd == 'Z':  # Close path
                     commands.append(('Z',))
             
-            # Convert SVG coordinates to PIL coordinates with correct alignment
-            # The key insight: SVG paths and unit coordinates are in different coordinate systems
-            # We need to find the transformation that aligns them
+            # CRITICAL: Use the same coordinate transformation as units
+            # Units are positioned using SVG path centers, so province coloring must match
+            # The PNG output is 2202x1632, SVG viewBox is 0 0 1835 1360
+            # Scale factor: 2202/1835 = 1.2 for X, 1632/1360 = 1.2 for Y
             
-            # For now, let's use a simple approach: create a polygon from the path
             if len(commands) > 2:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Use SVG paths directly - they're already in the correct coordinate system
-                        # No transformation needed - SVG paths are positioned correctly on the map
-                        x = cmd[1]
-                        y = cmd[2]
+                        # Apply the SAME scaling as used for unit placement
+                        # This ensures perfect alignment between units and province coloring
+                        x = cmd[1] * 1.2  # Scale X by 1.2 to match PNG width
+                        y = cmd[2] * 1.2  # Scale Y by 1.2 to match PNG height
                         points.append((x, y))
                 
                 if len(points) > 2:
-                    # Draw the filled polygon
+                    # Draw the filled polygon with aligned coordinates
                     draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path: {e}")
+            print(f"Warning: Could not fill SVG path with aligned coordinates: {e}")
             # Fallback: continue without path filling
 
     @staticmethod
