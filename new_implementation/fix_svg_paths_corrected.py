@@ -1,67 +1,78 @@
 #!/usr/bin/env python3
 """
-Fix SVG paths by adding explicit fill and stroke attributes.
-This script adds explicit styling to SVG paths that rely on CSS classes.
-CORRECTED VERSION - properly closes path tags.
+Fix malformed path elements in the SVG file.
+The issue is that some path elements are missing proper closing tags and have malformed attributes.
 """
 
 import re
 import sys
 import os
+from datetime import datetime
 
-def fix_svg_paths(input_file, output_file):
-    """Add explicit fill and stroke attributes to SVG paths."""
+def fix_svg_paths(input_file: str, output_file: str) -> None:
+    """Fix malformed path elements in SVG file."""
     
-    print(f"Fixing SVG paths: {input_file}")
+    print(f"🔧 Fixing malformed path elements in: {input_file}")
     
     with open(input_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Define color mappings for different classes
-    color_mappings = {
-        'water': 'fill="#87CEEB" stroke="#4682B4" stroke-width="1"',  # Light blue water
-        'nopower': 'fill="#F5DEB3" stroke="#8B4513" stroke-width="1"',  # Light brown land
-        'neutral': 'fill="#D3D3D3" stroke="#696969" stroke-width="1"',  # Gray neutral
-        'impassable': 'fill="#696969" stroke="#2F4F4F" stroke-width="1"',  # Dark gray impassable
-    }
+    original_size = len(content)
+    fixed_content = content
     
-    # Fix each path element by adding explicit styling
-    for class_name, styling in color_mappings.items():
-        # Pattern to match: <path class="class_name" d="..." id="...">
-        pattern = rf'<path class="{class_name}"([^>]*?)>'
-        
-        def replace_path(match):
-            attributes = match.group(1)
-            # Add the styling attributes
-            return f'<path class="{class_name}"{attributes} {styling}>'
-        
-        content = re.sub(pattern, replace_path, content)
+    # Fix paths that end with stroke-width="1"> instead of stroke-width="1"/>
+    # We need to be more specific to avoid double replacements
+    pattern = r'(<path[^>]*stroke-width="1">)(?!\s*/>)'
+    replacement = r'\1/>'
+    
+    # Count matches before replacement
+    matches = len(re.findall(pattern, fixed_content))
+    print(f"Found {matches} malformed path elements to fix")
+    
+    # Apply the fix
+    fixed_content = re.sub(pattern, replacement, fixed_content)
+    
+    # Also fix any remaining paths that end with > instead of />
+    pattern2 = r'(<path[^>]*>)(?!\s*/>)'
+    replacement2 = r'\1/>'
+    
+    matches2 = len(re.findall(pattern2, fixed_content))
+    print(f"Found {matches2} additional path elements to fix")
+    
+    fixed_content = re.sub(pattern2, replacement2, fixed_content)
     
     # Write the fixed content
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(content)
+        f.write(fixed_content)
     
-    print(f"Fixed SVG saved to: {output_file}")
+    final_size = len(fixed_content)
+    print(f"✅ Fixed SVG saved to: {output_file}")
+    print(f"📊 Size: {original_size} → {final_size} bytes")
     
-    # Show what was changed
-    original_size = len(content)
-    print(f"Fixed SVG size: {original_size:,} bytes")
+    # Verify the fix by checking if there are any remaining malformed paths
+    remaining_matches = len(re.findall(pattern, fixed_content))
+    if remaining_matches == 0:
+        print("✅ All malformed path elements have been fixed!")
+    else:
+        print(f"⚠️  Warning: {remaining_matches} malformed path elements remain")
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python fix_svg_paths_corrected.py <input_svg> <output_svg>")
-        print("Example: python fix_svg_paths_corrected.py maps/standard.svg maps/standard_fixed.svg")
+        print("Usage: python3 fix_svg_paths_corrected.py <input_svg> <output_svg>")
         sys.exit(1)
     
     input_file = sys.argv[1]
     output_file = sys.argv[2]
     
     if not os.path.exists(input_file):
-        print(f"Error: Input file '{input_file}' not found")
+        print(f"❌ Error: Input file '{input_file}' does not exist")
         sys.exit(1)
     
-    fix_svg_paths(input_file, output_file)
-    print("✅ SVG path fixing completed!")
+    try:
+        fix_svg_paths(input_file, output_file)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 
