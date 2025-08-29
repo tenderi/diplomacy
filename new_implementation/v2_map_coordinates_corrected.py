@@ -78,13 +78,52 @@ V2_PROVINCE_COORDINATES = {
     'LYO': (669, 1252),
 }
 
-# Utility functions for coordinate scaling
-def scale_v2_coordinates(x: int, y: int) -> Tuple[int, int]:
-    """Scale V2 coordinates to target output dimensions."""
-    scaled_x = int(x * (2202 / 7016))
-    scaled_y = int(y * (1632 / 4960))
-    return scaled_x, scaled_y
+def get_v2_province_coordinates(province_name: str) -> tuple:
+    """
+    Get the coordinates for a province on the V2 map.
+    
+    Args:
+        province_name: Province abbreviation (e.g., 'LON', 'PAR')
+        
+    Returns:
+        Tuple of (x, y) coordinates, or None if not found
+    """
+    return V2_PROVINCE_COORDINATES.get(province_name.upper())
 
-def get_scaled_coordinates() -> Dict[str, Tuple[int, int]]:
-    """Get all coordinates scaled to target dimensions."""
-    return {prov: scale_v2_coordinates(x, y) for prov, (x, y) in V2_PROVINCE_COORDINATES.items()}
+def get_all_v2_coordinates() -> dict:
+    """
+    Get all V2 map coordinates.
+    
+    Returns:
+        Dictionary mapping province names to coordinates
+    """
+    return V2_PROVINCE_COORDINATES.copy()
+
+def get_v2_scaling_factors() -> tuple:
+    """
+    Get the correct scaling factors for V2 map coordinates.
+    
+    Returns:
+        Tuple of (x_scale, y_scale) for converting V2 coordinates to target output
+    """
+    # V2 map viewBox: 7016x4960
+    # Target output: 2202x1632 pixels
+    x_scale = 2202 / 7016  # ≈ 0.314
+    y_scale = 1632 / 4960  # ≈ 0.329
+    return (x_scale, y_scale)
+
+def scale_v2_coordinates(x: float, y: float) -> tuple:
+    """
+    Scale V2 map coordinates to target output dimensions.
+    
+    Args:
+        x: X coordinate in V2 map space (0-7016)
+        y: Y coordinate in V2 map space (0-4960)
+        
+    Returns:
+        Tuple of (scaled_x, scaled_y) for target output (2202x1632)
+    """
+    x_scale, y_scale = get_v2_scaling_factors()
+    scaled_x = int(x * x_scale)
+    scaled_y = int(y * y_scale)
+    return (scaled_x, scaled_y)
