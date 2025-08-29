@@ -394,9 +394,9 @@ class Map:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Use SVG coordinates directly without scaling or offset
-                        x = cmd[1]
-                        y = cmd[2]
+                        # Apply correct scaling and offset to align with unit placement
+                        x = cmd[1] * 1.2 - 207.0  # Scale by 1.2 and shift left by 207
+                        y = cmd[2] * 1.2 - 199.0  # Scale by 1.2 and shift up by 199
                         points.append((x, y))
                 
                 if len(points) > 2:
