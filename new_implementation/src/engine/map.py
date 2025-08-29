@@ -327,12 +327,20 @@ class Map:
                     y = y * 1.2
                 # Draw a colored circle for the unit (scaled up)
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)  # Increased stroke width
+                
+                # Draw power-colored province background (larger circle)
+                province_r = 35  # Larger radius for province coloring
+                draw.ellipse((x - province_r, y - province_r, x + province_r, y + province_r), 
+                           fill=color, outline="black", width=2)
+                
+                # Draw unit circle on top (smaller, with white background for contrast)
+                draw.ellipse((x - r, y - r, x + r, y + r), fill="white", outline="black", width=3)
+                
                 # Draw unit type letter
                 text = unit_type
                 bbox = draw.textbbox((0, 0), text, font=font)
                 w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
+                draw.text((x - w/2, y - h/2), text, fill="black", font=font)
         # 5. Save or return PNG
         if isinstance(output_path, str) and output_path:
             bg.save(output_path, format="PNG")
