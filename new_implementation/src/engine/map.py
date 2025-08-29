@@ -279,11 +279,7 @@ class Map:
     def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
-        
-        # 1. Parse SVG to get province paths for coloring
-        province_paths = Map._parse_province_paths(svg_path)
-        
-        # 2. Convert SVG to PNG (background) with larger size for better readability
+        # 1. Convert SVG to PNG (background) with larger size for better readability
         # The SVG has viewBox="0 0 1835 1360" - scale up by 1.2x for better text readability
         # This gives us 2202x1632 pixels for a clearer map (reduced from 1.5x to save memory)
         png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=2202, output_height=1632)  # type: ignore
@@ -291,11 +287,9 @@ class Map:
             raise ValueError("cairosvg.svg2png returned None")
         bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
         draw = ImageDraw.Draw(bg)
-        
-        # 3. Get province coordinates
+        # 2. Get province coordinates
         coords = Map.get_svg_province_coordinates(svg_path)
-        
-        # 4. Define power colors (fallbacks)
+        # 3. Define power colors (fallbacks)
         power_colors = {
             "AUSTRIA": "#c48f85",
             "ENGLAND": "darkviolet",
@@ -305,17 +299,12 @@ class Map:
             "RUSSIA": "#757d91",
             "TURKEY": "#b9a61c",
         }
-        
-        # 5. Color provinces based on power control
-        Map._color_provinces(draw, province_paths, units, power_colors)
-        
-        # 6. Draw units
+        # 4. Draw units
         font = None
         try:
             font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)  # Increased font size by 2 (48 + 2 = 50)
         except Exception:
             font = ImageFont.load_default()
-        
         for power, unit_list in units.items():
             color = power_colors.get(power.upper(), "black")
             for unit in unit_list:
@@ -336,18 +325,15 @@ class Map:
                     # Original map: scale by 1.2x to match the larger map
                     x = x * 1.2
                     y = y * 1.2
-                
-                # Draw unit circle (smaller, with white background for contrast)
+                # Draw a colored circle for the unit (scaled up)
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                draw.ellipse((x - r, y - r, x + r, y + r), fill="white", outline="black", width=3)
-                
+                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)  # Increased stroke width
                 # Draw unit type letter
                 text = unit_type
                 bbox = draw.textbbox((0, 0), text, font=font)
                 w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                draw.text((x - w/2, y - h/2), text, fill="black", font=font)
-        
-        # 7. Save or return PNG
+                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
+        # 5. Save or return PNG
         if isinstance(output_path, str) and output_path:
             bg.save(output_path, format="PNG")
         output = BytesIO()
@@ -377,53 +363,4 @@ class Map:
     def validate_location(self, location: str) -> bool:
         return location in self.provinces
     
-    @staticmethod
-    def _parse_province_paths(svg_path: str) -> dict:
-        """Parse SVG to extract province path definitions for coloring."""
-        province_paths = {}
-        try:
-            tree = ET.parse(svg_path)
-            root = tree.getroot()
-            
-            # Find all path elements with province IDs
-            for path in root.findall('.//path[@id]'):
-                province_id = path.get('id')
-                if province_id and len(province_id) == 3:  # Standard 3-letter province codes
-                    province_paths[province_id.upper()] = path
-                    
-        except Exception as e:
-            print(f"Warning: Could not parse province paths from SVG: {e}")
-            
-        return province_paths
-    
-    @staticmethod
-    def _color_provinces(draw, province_paths: dict, units: dict, power_colors: dict):
-        """Color provinces based on power control."""
-        # Create a mapping of provinces to powers
-        province_to_power = {}
-        for power, unit_list in units.items():
-            for unit in unit_list:
-                parts = unit.split()
-                if len(parts) == 2:
-                    unit_type, prov = parts
-                    province_to_power[prov.upper()] = power.upper()
-        
-        # For now, we'll use a simplified approach: color circles around unit positions
-        # In a full implementation, you'd parse the SVG paths and fill the actual province shapes
-        coords = Map.get_svg_province_coordinates("maps/standard.svg")  # Get coordinates
-        
-        for prov, power in province_to_power.items():
-            if prov in coords:
-                x, y = coords[prov]
-                # Scale coordinates for the output image
-                x = x * 1.2
-                y = y * 1.2
-                
-                # Get power color
-                color = power_colors.get(power, "black")
-                
-                # Draw a colored circle to represent the province
-                # This is a simplified approach - in reality you'd fill the actual province path
-                province_r = 40  # Larger radius to show province control
-                draw.ellipse((x - province_r, y - province_r, x + province_r, y + province_r), 
-                           fill=color, outline="black", width=2)
+
