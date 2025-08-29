@@ -402,10 +402,10 @@ class Map:
                 points = []
                 for cmd in commands:
                     if cmd[0] in ['M', 'L']:
-                        # Apply the correct transformation to align with unit coordinates
-                        # This is the critical part - we need to find the right scaling and offset
-                        x = cmd[1] * 1.2 - 220.0  # Scale by 1.2 and shift left by 220
-                        y = cmd[2] * 1.2 - 199.0  # Scale by 1.2 and shift up by 199
+                        # Use SVG paths directly - they're already in the correct coordinate system
+                        # No transformation needed - SVG paths are positioned correctly on the map
+                        x = cmd[1]
+                        y = cmd[2]
                         points.append((x, y))
                 
                 if len(points) > 2:
