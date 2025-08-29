@@ -42,11 +42,18 @@
     - **Critical Issues**: MAR appears in LYO, WAR appears in Galicia
     - **Positioning Issues**: LON appears too far south
     - **Pattern**: Northern units (British) less affected, southern units (French/Italian) more affected
+  - **PROJECTION IDENTIFIED**: **Albers Equal-Area Projection** detected through coordinate pattern analysis
+  - **SOLUTION IMPLEMENTED**:
+    - **Projection Fix Tool**: Created `v2_projection_fix.py` with projection-aware coordinate transformation
+    - **Automatic Detection**: Tool automatically detects projection type (Mercator, Albers, Conic, or Generic)
+    - **Coordinate Correction**: Applies projection-specific distortion correction algorithms
+    - **Corrected Coordinates**: Generated `v2_map_coordinates_corrected.py` with projection-corrected coordinates
   - **Next Steps**:
-    1. Identify exact map projection used in V2 SVG (Mercator, Albers, etc.)
-    2. Implement projection-aware coordinate transformation
-    3. Consider using original standard.svg for gameplay until projection issue resolved
-    4. V2 map may only be suitable for display, not gameplay
+    1. ✅ **COMPLETED**: Identify exact map projection used in V2 SVG (Albers Equal-Area)
+    2. ✅ **COMPLETED**: Implement projection-aware coordinate transformation
+    3. **TESTING**: Verify corrected coordinates resolve positioning issues
+    4. **INTEGRATION**: Update main V2 coordinates file with corrected values
+    5. **VALIDATION**: Confirm V2 map is now usable for gameplay
 
 ## Remaining Tasks (Lower Priority)
 
@@ -65,7 +72,7 @@
 - [ ] Add map generation metrics
 - [ ] Optimize SVG processing pipeline
 
-## Status: 🚨 **CRITICAL ISSUE DISCOVERED - V2 MAP PROJECTION DISTORTION MAKES IT UNUSABLE FOR GAMEPLAY**
+## Status: 🔧 **CRITICAL ISSUE BEING RESOLVED - V2 MAP PROJECTION DISTORTION IDENTIFIED AND SOLUTION IMPLEMENTED**
 
 The map generation issue has been successfully fixed with comprehensive testing verification including color analysis with 20% black pixel threshold. The telegram bot now uses the original `standard.svg` file and all tests are passing. The Qt environment issue has been resolved using the `QT_QPA_PLATFORM=offscreen` environment variable for headless test execution. All map file references have been cleaned up to use only the original `standard.svg` and `svg.dtd` files. 
 
