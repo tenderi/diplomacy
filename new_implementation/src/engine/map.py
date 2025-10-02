@@ -336,20 +336,15 @@ class Map:
             if not all_paths:
                 all_paths = root.findall('.//path[@id]')
             
-            # Separate paths with and without underscores
-            paths_with_underscores = []
-            paths_without_underscores = []
+            # Use ONLY paths without underscores for province coloring
+            # The paths with underscores are offset by translate(-195 -170) and cause misalignment
+            province_paths = []
             
             for path in all_paths:
                 province_id = path.get('id')
-                if province_id:
-                    if province_id.startswith('_'):
-                        paths_with_underscores.append(path)
-                    else:
-                        paths_without_underscores.append(path)
-            
-            # Prioritize paths without underscores (actual provinces)
-            province_paths = paths_without_underscores + paths_with_underscores
+                if province_id and not province_id.startswith('_'):
+                    # Only use paths without underscores - these match the unit coordinate system
+                    province_paths.append(path)
             
 
 
@@ -372,8 +367,8 @@ class Map:
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
                 if province_id:
-                    # Normalize the province ID (remove underscore prefix and convert to uppercase)
-                    normalized_id = province_id.lstrip('_').upper()
+                    # Convert to uppercase (no underscore prefix to remove since we only use paths without underscores)
+                    normalized_id = province_id.upper()
                     
                     if normalized_id in province_power_map:
                         # Get the power color for this province
