@@ -1184,6 +1184,119 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text(f"Failed to quit game: {e}")
 
+async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Simplified order command that automatically detects the game and power"""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Order submission failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    
+    if len(args) < 1:
+        await update.message.reply_text(
+            "Usage: /order <order>\n\n"
+            "Examples:\n"
+            "/order A BER - SIL\n"
+            "/order F KIE - DEN\n"
+            "/order A MUN S A BER - SIL\n\n"
+            "This command will automatically detect your game and power."
+        )
+        return
+    
+    order_text = " ".join(args)
+    
+    try:
+        # Get user's games
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        if not user_games:
+            await update.message.reply_text(
+                "❌ You're not in any games!\n\n"
+                "💡 *To submit orders:*\n"
+                "1. Join a game first\n"
+                "2. Use /orders <game_id> <order> for specific games\n"
+                "3. Or use this command when you're in exactly one game"
+            )
+            return
+        
+        if len(user_games) > 1:
+            await update.message.reply_text(
+                f"❌ You're in {len(user_games)} games. Please specify which game:\n\n"
+                "Use: /orders <game_id> <order>\n\n"
+                "Your games:\n" + 
+                "\n".join([f"• Game {g['game_id']} as {g['power']}" for g in user_games])
+            )
+            return
+        
+        # User is in exactly one game
+        game = user_games[0]
+        game_id = str(game["game_id"])
+        power = game["power"]
+        
+        # Normalize province names in the order
+        normalized_order = normalize_order_provinces(order_text, power)
+        
+        # Submit the order
+        result = api_post("/games/set_orders", {
+            "game_id": game_id,
+            "power": power,
+            "orders": [normalized_order]
+        })
+        
+        results = result.get("results", [])
+        if not results:
+            await update.message.reply_text("No orders were processed.")
+            return
+        
+        response_lines = []
+        for r in results:
+            if r["success"]:
+                response_lines.append(f"✅ {r['order']}")
+            else:
+                response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
+        
+        await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
+        
+    except Exception as e:
+        await update.message.reply_text(f"Order error: {e}")
+
+def normalize_order_provinces(order_text: str, power: str) -> str:
+    """Normalize province names in an order string."""
+    from src.engine.province_mapping import normalize_province_name
+    
+    # Split the order into parts
+    parts = order_text.split()
+    
+    # The order format is typically: POWER UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
+    # We need to normalize province names while preserving the structure
+    
+    normalized_parts = []
+    for i, part in enumerate(parts):
+        # Skip the power name (first part)
+        if i == 0:
+            normalized_parts.append(part)
+            continue
+        
+        # Skip unit type (A/F) - second part
+        if i == 1 and part in ['A', 'F']:
+            normalized_parts.append(part)
+            continue
+        
+        # Check if this part looks like a province name
+        # Province names are typically 3-4 characters and uppercase
+        if len(part) >= 2 and part.isalpha():
+            # This might be a province name
+            normalized_province = normalize_province_name(part)
+            normalized_parts.append(normalized_province)
+        else:
+            # This is likely an action word (-, S, H, etc.) or other non-province text
+            normalized_parts.append(part)
+    
+    return " ".join(normalized_parts)
+
 # Update order-related commands to accept game_id as an argument
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -1213,8 +1326,15 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not orders:
             await update.message.reply_text("No orders found in your message.")
             return
+        
+        # Normalize province names in all orders
+        normalized_orders = []
+        for order in orders:
+            normalized_order = normalize_order_provinces(order, power)
+            normalized_orders.append(normalized_order)
+        
         result = api_post("/games/set_orders", 
-                         {"game_id": game_id, "power": power, "orders": orders})
+                         {"game_id": game_id, "power": power, "orders": normalized_orders})
         results = result.get("results", [])
         if not results:
             await update.message.reply_text("No orders were processed.")
@@ -1566,6 +1686,7 @@ def main():
     app.add_handler(CommandHandler("games", games))
     app.add_handler(CommandHandler("quit", quit))
     app.add_handler(CommandHandler("orders", orders))
+    app.add_handler(CommandHandler("order", order))
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
     app.add_handler(CommandHandler("orderhistory", orderhistory))
