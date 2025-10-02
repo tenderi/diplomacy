@@ -689,7 +689,7 @@ class Map:
         # 4. Draw units with province coloring
         font = None
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)  # Increased font size by 2 (48 + 2 = 50)
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)  # Font size for army/fleet markers
         except Exception:
             font = ImageFont.load_default()
         
