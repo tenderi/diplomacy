@@ -114,7 +114,7 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         game_id = str(game.id)
         # Now create the game in the in-memory server with the same game_id
         if game_id not in server.games:
-            from engine.game import Game
+            from src.engine.game import Game
             g = Game(map_name=req.map_name)
             setattr(g, "game_id", game_id)
             server.games[game_id] = g
@@ -1146,16 +1146,19 @@ def admin_delete_all_games() -> Dict[str, Any]:
         # 1. Delete orders first (references players)
         db.query(OrderModel).delete()
         
-        # 2. Delete players (references games and users)
+        # 2. Delete game snapshots (references games)
+        db.query(GameSnapshotModel).delete()
+        
+        # 3. Delete players (references games and users)
         db.query(PlayerModel).delete()
         
-        # 3. Delete messages (references games and users)
+        # 4. Delete messages (references games and users)
         db.query(MessageModel).delete()
         
-        # 4. Delete game history (references games)
+        # 5. Delete game history (references games)
         db.query(GameHistoryModel).delete()
         
-        # 5. Delete games (no dependencies)
+        # 6. Delete games (no dependencies)
         db.query(GameModel).delete()
         
         # Note: We do NOT delete users - they should be preserved for future games
