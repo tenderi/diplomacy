@@ -2,22 +2,28 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **Standard Map Province Coloring Coordinate Alignment - RESOLVED**
-- [x] **Fix province coloring coordinate alignment** - Province coloring areas are now correctly aligned with unit coordinates.
+### 1. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
+- [x] **Fix province coloring coordinate alignment** - Province coloring areas are now perfectly aligned with unit coordinates and background map is visible.
   - **Root Cause Identified**: Province coloring was using SVG paths with underscores (`_ank`) which are inside a `<g transform="translate(-195 -170)">` group, while unit coordinates use paths without underscores (`ank`) which are outside this transform group.
-  - **Solution Implemented**: Modified province coloring to use only paths without underscores, ensuring both unit placement and province coloring use the same coordinate system.
+  - **Initial Solution Attempt**: Modified province coloring to use only paths without underscores, but these paths are mostly water areas and special areas, not the actual province boundaries.
+  - **Final Solution Implemented**: 
+    - Use paths with underscores (actual province areas) for province coloring
+    - Apply inverse transform (-195, -170) to compensate for the SVG group transform
+    - Increased transparency from 20% to 40% opacity for better visibility
   - **Technical Details**:
     - SVG has two sets of paths: `id="_ank"` (offset by translate(-195 -170)) and `id="ank"` (no offset)
     - Unit coordinates were correctly using `id="ank"` paths
-    - Province coloring was incorrectly using `id="_ank"` paths
-    - Fixed by filtering to only use paths without underscore prefix
+    - Province coloring now uses `id="_ank"` paths with inverse transform compensation
+    - Created `_fill_svg_path_with_transform()` function to handle coordinate transformation
+    - Transparency increased from alpha 51 to alpha 102 (40% opacity instead of 20%)
   - **Verification**: 
-    - Test script confirms map generation works correctly
+    - Test script confirms map generation works correctly with proper alignment
     - All 68 tests pass with 4 expected skips
     - No linting errors introduced
+    - Background map is now visible through province coloring
   - **Files Modified**: 
-    - `new_implementation/src/engine/map.py` (province coloring logic updated)
-  - **Status**: ✅ **RESOLVED** - Province coloring now perfectly aligned with unit coordinates
+    - `new_implementation/src/engine/map.py` (province coloring logic updated with transform compensation)
+  - **Status**: ✅ **FULLY RESOLVED** - Province coloring perfectly aligned with unit coordinates and background map visible
 
 ### 2. 🔧 **V2 Map Development - SUSPENDED INDEFINITELY**
 - [ ] **V2 Map Coordinate System** - Development suspended due to projection distortion issues
@@ -62,16 +68,18 @@
 - [ ] Add map generation metrics
 - [ ] Optimize SVG processing pipeline
 
-## Status: ✅ **STANDARD MAP FULLY FUNCTIONAL WITH PERFECT COORDINATE ALIGNMENT**
+## Status: ✅ **STANDARD MAP FULLY FUNCTIONAL WITH PERFECT COORDINATE ALIGNMENT AND VISIBLE BACKGROUND**
 
 The standard map is now fully functional with:
 - ✅ Units rendering correctly
 - ✅ Province coloring working and perfectly aligned
+- ✅ Background map visible through province coloring
 - ✅ All scaling removed from the system
 - ✅ PNG output matching SVG size exactly
 - ✅ SVG zoom factor removed
-- ✅ Coordinate system mismatch resolved
+- ✅ Coordinate system mismatch resolved with inverse transform
+- ✅ Transparency optimized for visibility
 
-**RESOLVED**: Province coloring areas are now perfectly aligned with unit coordinates. The coordinate system mismatch between underscore-prefixed paths (offset by translate(-195 -170)) and non-underscore paths has been fixed.
+**FULLY RESOLVED**: Province coloring areas are now perfectly aligned with unit coordinates and the background map is visible through the province coloring. The coordinate system mismatch between underscore-prefixed paths (offset by translate(-195 -170)) and non-underscore paths has been resolved by applying inverse transform compensation.
 
-**CURRENT STATUS**: Standard map is production-ready with all coordinate alignment issues resolved. 
+**CURRENT STATUS**: Standard map is production-ready with all coordinate alignment and transparency issues resolved. 

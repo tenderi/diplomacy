@@ -336,14 +336,16 @@ class Map:
             if not all_paths:
                 all_paths = root.findall('.//path[@id]')
             
-            # Use ONLY paths without underscores for province coloring
-            # The paths with underscores are offset by translate(-195 -170) and cause misalignment
+            # Use paths with underscores for province coloring but apply inverse transform
+            # The paths with underscores are inside <g transform="translate(-195 -170)">
+            # We need to compensate for this offset to align with unit coordinates
             province_paths = []
             
             for path in all_paths:
                 province_id = path.get('id')
-                if province_id and not province_id.startswith('_'):
-                    # Only use paths without underscores - these match the unit coordinate system
+                if province_id and province_id.startswith('_'):
+                    # Use paths with underscores - these are the actual province areas
+                    # We'll apply inverse transform (-195, -170) to compensate
                     province_paths.append(path)
             
 
@@ -367,8 +369,8 @@ class Map:
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
                 if province_id:
-                    # Convert to uppercase (no underscore prefix to remove since we only use paths without underscores)
-                    normalized_id = province_id.upper()
+                    # Remove underscore prefix and convert to uppercase
+                    normalized_id = province_id.lstrip('_').upper()
                     
                     if normalized_id in province_power_map:
                         # Get the power color for this province
@@ -376,19 +378,70 @@ class Map:
                         
                         # Convert color to RGB for transparency
                         rgb_color = Map._hex_to_rgb(power_color)
-                        # 80% transparency means 20% opacity - use alpha 51 (51/255 ≈ 0.2)
-                        transparent_color = (*rgb_color, 51)
+                        # 60% transparency means 40% opacity - use alpha 102 (102/255 ≈ 0.4)
+                        transparent_color = (*rgb_color, 102)
                         
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
                         if path_data:
-                            # Use SVG paths directly - no scaling, no transformation
-                            Map._fill_svg_path_direct(draw, path_data, transparent_color, power_color)
+                            # Apply inverse transform to compensate for translate(-195 -170)
+                            Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, -195, -170)
                     
         except Exception as e:
             print(f"Warning: Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
     
+    @staticmethod
+    def _fill_svg_path_with_transform(draw, path_data, fill_color, stroke_color, offset_x, offset_y):
+        """Fill an SVG path with coordinate transform to compensate for SVG group transforms."""
+        try:
+            # Parse the path data to extract coordinates
+            commands = []
+            current_x, current_y = 0, 0
+            
+            # Split path data into commands
+            import re
+            path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
+            
+            for cmd, params in path_commands:
+                cmd = cmd.upper()
+                if cmd == 'M':  # Move to
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 2:
+                        current_x, current_y = float(coords[0]), float(coords[1])
+                        commands.append(('M', current_x, current_y))
+                elif cmd == 'L':  # Line to
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 2:
+                        current_x, current_y = float(coords[0]), float(coords[1])
+                        commands.append(('L', current_x, current_y))
+                elif cmd == 'C':  # Cubic Bezier curve
+                    coords = re.findall(r'(-?\d+\.?\d*)', params)
+                    if len(coords) >= 6:  # C x1 y1 x2 y2 x y
+                        # For simplicity, we'll use the end point of the curve
+                        current_x, current_y = float(coords[4]), float(coords[5])
+                        commands.append(('L', current_x, current_y))
+                elif cmd == 'Z':  # Close path
+                    commands.append(('Z',))
+            
+            # Apply inverse transform to compensate for SVG group transform
+            if len(commands) > 2:
+                points = []
+                for cmd in commands:
+                    if cmd[0] in ['M', 'L']:
+                        # Apply inverse transform: subtract the offset to compensate for translate(-195 -170)
+                        x = cmd[1] - offset_x
+                        y = cmd[2] - offset_y
+                        points.append((x, y))
+                
+                if len(points) > 2:
+                    # Draw the filled polygon with transformed coordinates
+                    draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
+                    
+        except Exception as e:
+            print(f"Warning: Could not fill SVG path with transform: {e}")
+            # Fallback: continue without path filling
+
     @staticmethod
     def _fill_svg_path_direct(draw, path_data, fill_color, stroke_color):
         """Fill an SVG path using SVG coordinates directly - NO SCALING."""
