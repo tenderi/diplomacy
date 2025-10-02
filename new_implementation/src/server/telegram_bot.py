@@ -1042,11 +1042,9 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         
         # Create units dictionary from game state
         units = {}
-        if "powers" in game_state:
-            for power_name, power_data in game_state["powers"].items():
-                if "units" in power_data:
-                    for unit in power_data["units"]:
-                        units[unit] = power_name
+        if "units" in game_state:
+            # units is already in the correct format: {power: [unit_list]}
+            units = game_state["units"]
         
         # Render the map with moves
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
