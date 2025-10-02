@@ -240,7 +240,19 @@ run_ssh "
 echo -e "${YELLOW}Checking Python dependencies...${NC}"
 if [ "$SRC_CHANGED" = "true" ] || [ "$REQUIREMENTS_CHANGED" = "true" ]; then
     echo -e "${YELLOW}Installing/updating Python dependencies...${NC}"
-    run_ssh "sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt"
+    run_ssh "
+        # Install dependencies with better error handling
+        echo 'Installing Python dependencies...'
+        sudo -u diplomacy pip3 install --user --no-warn-script-location --break-system-packages -r /opt/diplomacy/requirements.txt
+        
+        # Verify critical dependencies are installed
+        echo 'Verifying critical dependencies...'
+        sudo -u diplomacy python3 -c 'import PIL; print(\"PIL/Pillow: OK\")' || echo 'ERROR: PIL/Pillow not installed'
+        sudo -u diplomacy python3 -c 'import fastapi; print(\"FastAPI: OK\")' || echo 'ERROR: FastAPI not installed'
+        sudo -u diplomacy python3 -c 'import sqlalchemy; print(\"SQLAlchemy: OK\")' || echo 'ERROR: SQLAlchemy not installed'
+        
+        echo 'Dependency installation completed'
+    "
 else
     echo -e "${GREEN}No source changes, skipping dependency update...${NC}"
 fi

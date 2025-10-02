@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Simple deployment script for the bot fixes
-# Uses hardcoded server details since we know them
+# Quick fix script for missing PIL/Pillow dependency
+# This script can be run immediately to fix the current deployment
 
 set -e
 
@@ -12,24 +12,40 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== Quick Fix Deployment Script ===${NC}"
+echo -e "${GREEN}=== Diplomacy Dependency Fix Script ===${NC}"
 
-# Known server details
-INSTANCE_IP="18.201.18.123"
-KEY_PATH="~/.ssh/helgeKeyPair.pem"
+# Check if terraform is available and get instance IP
+if ! command -v terraform &> /dev/null; then
+    echo -e "${RED}Error: Terraform is not installed or not in PATH${NC}"
+    exit 1
+fi
 
-echo -e "${GREEN}Deploying to: $INSTANCE_IP${NC}"
-echo -e "${YELLOW}Using key: $KEY_PATH${NC}"
+# Get instance IP from Terraform output
+echo -e "${YELLOW}Getting instance IP from Terraform...${NC}"
+INSTANCE_IP=$(terraform output -raw public_ip 2>/dev/null)
 
-# Function to run SSH command
-run_ssh() {
-    ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP "$1"
-}
+if [ -z "$INSTANCE_IP" ]; then
+    echo -e "${RED}Error: Could not get instance IP from Terraform output${NC}"
+    echo "Make sure you've run 'terraform apply' successfully"
+    exit 1
+fi
 
-# Function to copy files via SCP
-copy_files() {
-    scp -i "$KEY_PATH" -o StrictHostKeyChecking=no -r "$1" ubuntu@$INSTANCE_IP:"$2"
-}
+echo -e "${GREEN}Found instance IP: $INSTANCE_IP${NC}"
+
+# Get key name from Terraform
+KEY_NAME=$(terraform output -raw key_name 2>/dev/null)
+if [ -z "$KEY_NAME" ]; then
+    KEY_NAME=$(terraform output -json 2>/dev/null | jq -r '.key_name.value // empty' 2>/dev/null)
+fi
+
+if [ -z "$KEY_NAME" ]; then
+    echo -e "${YELLOW}Warning: Could not get key name from Terraform output${NC}"
+    read -p "Please enter your EC2 key pair name: " KEY_NAME
+else
+    echo -e "${GREEN}Retrieved key name from Terraform: $KEY_NAME${NC}"
+fi
+
+KEY_PATH="~/.ssh/${KEY_NAME}.pem"
 
 # Check if key file exists
 if [ ! -f "${KEY_PATH/#\~/$HOME}" ]; then
@@ -37,71 +53,88 @@ if [ ! -f "${KEY_PATH/#\~/$HOME}" ]; then
     exit 1
 fi
 
-# Test connection
-echo -e "${YELLOW}Testing connection...${NC}"
-if ! run_ssh "echo 'Connection successful'" &>/dev/null; then
-    echo -e "${RED}Error: Cannot connect to server${NC}"
-    exit 1
-fi
+echo -e "${YELLOW}Using key file: $KEY_PATH${NC}"
 
-echo -e "${GREEN}Connection successful!${NC}"
+# Function to run SSH command
+run_ssh() {
+    ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP "$1"
+}
 
-# Copy the fixed files
-echo -e "${YELLOW}Copying fixed files...${NC}"
-copy_files "../../src/server/telegram_bot.py" "/tmp/"
-copy_files "../../src/engine/map.py" "/tmp/"
-copy_files "../../src/engine/map_browser.py" "/tmp/"
-copy_files "../../alembic/env.py" "/tmp/"
-copy_files "../../maps/standard.svg" "/tmp/"
-copy_files "../../install_browser_deps.sh" "/tmp/"
+# Wait for instance to be ready
+echo -e "${YELLOW}Waiting for instance to be ready...${NC}"
+for i in {1..10}; do
+    if run_ssh "echo 'Instance ready'" &>/dev/null; then
+        echo -e "${GREEN}Instance is ready!${NC}"
+        break
+    fi
+    if [ $i -eq 10 ]; then
+        echo -e "${RED}Error: Instance is not responding${NC}"
+        exit 1
+    fi
+    echo "Waiting... ($i/10)"
+    sleep 5
+done
 
-# Deploy the files
-echo -e "${YELLOW}Deploying files to server...${NC}"
+echo -e "${BLUE}=== Installing Missing Dependencies ===${NC}"
+
+# Install missing dependencies
 run_ssh "
-    sudo cp /tmp/telegram_bot.py /opt/diplomacy/src/server/telegram_bot.py
-    sudo cp /tmp/map.py /opt/diplomacy/src/engine/map.py
-    sudo cp /tmp/map_browser.py /opt/diplomacy/src/engine/map_browser.py
-    sudo cp /tmp/env.py /opt/diplomacy/alembic/env.py
-    sudo cp /tmp/standard.svg /opt/diplomacy/maps/standard.svg
-    sudo cp /tmp/install_browser_deps.sh /opt/diplomacy/install_browser_deps.sh
-    sudo chown diplomacy:diplomacy /opt/diplomacy/src/server/telegram_bot.py
-    sudo chown diplomacy:diplomacy /opt/diplomacy/src/engine/map.py
-    sudo chown diplomacy:diplomacy /opt/diplomacy/src/engine/map_browser.py
-    sudo chown diplomacy:diplomacy /opt/diplomacy/alembic/env.py
-    sudo chown diplomacy:diplomacy /opt/diplomacy/maps/standard.svg
-    sudo chmod +x /opt/diplomacy/install_browser_deps.sh
-    echo '✅ Files deployed'
+    echo 'Installing missing Python dependencies...'
+    
+    # Update pip first
+    sudo -u diplomacy pip3 install --user --upgrade pip
+    
+    # Install Pillow specifically (this is the missing dependency) with --break-system-packages
+    sudo -u diplomacy pip3 install --user --break-system-packages Pillow
+    
+    # Install other critical dependencies that might be missing
+    sudo -u diplomacy pip3 install --user --break-system-packages fastapi uvicorn sqlalchemy psycopg2-binary
+    
+    # Verify installation
+    echo 'Verifying PIL/Pillow installation...'
+    sudo -u diplomacy python3 -c 'import PIL; print(\"✅ PIL/Pillow: OK\")' || echo '❌ ERROR: PIL/Pillow still not installed'
+    
+    echo 'Dependency installation completed'
 "
 
-# Set environment variable to skip map pre-generation
-echo -e "${YELLOW}Setting environment variable to skip map pre-generation...${NC}"
-run_ssh "sudo systemctl set-environment SKIP_MAP_PREGEN=true"
+echo -e "${BLUE}=== Restarting Services ===${NC}"
 
-# Restart the bot service
-echo -e "${YELLOW}Restarting bot service...${NC}"
-run_ssh "sudo systemctl restart diplomacy-bot"
+# Restart the services
+run_ssh "
+    echo 'Restarting diplomacy services...'
+    sudo systemctl restart diplomacy
+    sudo systemctl restart diplomacy-bot
+    
+    # Wait a moment for services to start
+    sleep 3
+    
+    # Check service status
+    echo 'Checking service status...'
+    sudo systemctl is-active diplomacy && echo '✅ diplomacy service: active' || echo '❌ diplomacy service: failed'
+    sudo systemctl is-active diplomacy-bot && echo '✅ diplomacy-bot service: active' || echo '❌ diplomacy-bot service: failed'
+"
 
-# Wait for bot to start up
-sleep 3
-
-# Refresh the map cache by calling the refresh command via API
-echo -e "${YELLOW}Refreshing map cache...${NC}"
-run_ssh "curl -X POST http://localhost:8081/refresh_map_cache || echo 'Map cache refresh failed (normal if endpoint not available)'"
-
-# Wait a moment for service to start
-sleep 5
-
-# Check service status
-echo -e "${YELLOW}Checking bot service status...${NC}"
+# Check final status
+echo -e "${YELLOW}Checking final service status...${NC}"
+SERVICE_STATUS=$(run_ssh "sudo systemctl is-active diplomacy" || echo "failed")
 BOT_STATUS=$(run_ssh "sudo systemctl is-active diplomacy-bot" || echo "failed")
 
-if [ "$BOT_STATUS" = "active" ]; then
-    echo -e "${GREEN}✓ Bot service is running!${NC}"
+if [ "$SERVICE_STATUS" = "active" ] && [ "$BOT_STATUS" = "active" ]; then
+    echo -e "${GREEN}✅ Both services are running!${NC}"
+elif [ "$SERVICE_STATUS" = "active" ]; then
+    echo -e "${GREEN}✅ API service is running${NC}"
+    echo -e "${YELLOW}⚠ Bot service status: $BOT_STATUS${NC}"
 else
-    echo -e "${RED}✗ Bot service failed to start${NC}"
-    echo -e "${YELLOW}Checking logs...${NC}"
-    run_ssh "sudo journalctl -u diplomacy-bot -n 10 --no-pager"
+    echo -e "${RED}❌ Services failed to start properly${NC}"
+    echo "Check the logs with:"
+    echo "ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo journalctl -u diplomacy-bot -n 20'"
 fi
 
-echo -e "${GREEN}=== Deployment Complete! ===${NC}"
-echo -e "${YELLOW}You can now test the bot with the /start command${NC}" 
+echo -e "${GREEN}=== Fix Complete! ===${NC}"
+echo ""
+echo -e "${GREEN}Your Diplomacy server should now be running at:${NC}"
+echo -e "API: ${GREEN}http://$INSTANCE_IP:8000${NC}"
+echo -e "API Docs: ${GREEN}http://$INSTANCE_IP:8000/docs${NC}"
+echo ""
+echo -e "${YELLOW}If services are still not working, check the logs:${NC}"
+echo -e "ssh -i $KEY_PATH ubuntu@$INSTANCE_IP 'sudo journalctl -u diplomacy-bot -f'"
