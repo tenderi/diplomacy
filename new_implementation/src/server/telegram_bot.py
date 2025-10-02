@@ -778,6 +778,17 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Start a demo game where the user plays as Germany with all units in starting positions"""
     try:
         user_id = str(update.effective_user.id)
+        user_name = update.effective_user.full_name or "Demo Player"
+        
+        # Register the user first (required for joining games)
+        try:
+            api_post("/users/persistent_register", {
+                "telegram_id": user_id,
+                "full_name": user_name
+            })
+        except Exception as e:
+            # User might already be registered, continue
+            logging.info(f"User registration note: {e}")
         
         # Create a demo game
         game_resp = api_post("/games/create", {"map_name": "demo"})
@@ -793,8 +804,20 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Add AI players for other powers (they won't submit orders)
         other_powers = ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"]
         for power in other_powers:
+            ai_telegram_id = f"ai_{power.lower()}"
+            # Register AI player
+            try:
+                api_post("/users/persistent_register", {
+                    "telegram_id": ai_telegram_id,
+                    "full_name": f"AI {power}"
+                })
+            except Exception as e:
+                # AI player might already be registered, continue
+                logging.info(f"AI player registration note: {e}")
+            
+            # Join the game
             api_post(f"/games/{game_id}/join", {
-                "telegram_id": f"ai_{power.lower()}", 
+                "telegram_id": ai_telegram_id, 
                 "game_id": int(game_id), 
                 "power": power
             })
