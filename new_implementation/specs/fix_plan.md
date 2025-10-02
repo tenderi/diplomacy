@@ -2,7 +2,31 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **Bot Map File Path Error - RESOLVED**
+### 1. ✅ **NEW TOP PRIORITY: Demo Mode Feature - COMPLETED**
+- [x] **Create demo mode with standard starting positions** - Alternative to "View Standard Map" for demonstration purposes
+  - **Requirements**:
+    - ✅ Show standard map with all units in their standard starting positions (1901 Spring)
+    - ✅ Allow user to play as Germany only (other countries remain static/AI-controlled)
+    - ✅ Enable move submission for Germany while other powers do nothing
+    - ✅ Add new option in help section: "Start Demo Game (Germany)"
+  - **Technical Implementation**:
+    - ✅ Create new game mode: "demo" alongside existing "standard" map
+    - ✅ Initialize game with standard 1901 Spring starting positions
+    - ✅ Implement single-player mode where only Germany is human-controlled
+    - ✅ Other powers (Austria, England, France, Italy, Russia, Turkey) remain static
+    - ✅ Allow Germany to submit orders and see results
+  - **User Experience**:
+    - ✅ Clear indication this is demo mode
+    - ✅ Show all starting units on map
+    - ✅ Allow Germany to make moves and see turn progression
+    - ✅ Other countries' units remain in starting positions
+  - **Files Modified**:
+    - ✅ `src/server/telegram_bot.py` (added demo mode commands and UI)
+    - ✅ `src/engine/game.py` (implemented demo game logic)
+    - ✅ `src/server/api.py` (supports demo game creation)
+  - **Status**: ✅ **FULLY COMPLETED** - Demo mode fully functional
+
+### 2. ✅ **Bot Map File Path Error - RESOLVED**
 - [x] **Fixed incorrect map file path reference** - Bot was trying to access non-existent `standard_fixed.svg` instead of `standard.svg`
   - **Root Cause**: Hardcoded reference to `standard_fixed.svg` in `telegram_bot.py` line 43
   - **Error**: `<urlopen error [Errno 2] No such file or directory: '/opt/diplomacy/maps/standard_fixed.svg'>`
