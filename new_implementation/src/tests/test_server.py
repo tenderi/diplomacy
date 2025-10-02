@@ -1,4 +1,4 @@
-from .server import Server
+from src.server.server import Server
 
 def test_server_initialization():
     """Test that the Server can be initialized."""
