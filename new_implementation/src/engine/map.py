@@ -265,6 +265,109 @@ class Map:
         return coords
 
     @staticmethod
+    def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path):
+        """Color provinces using proper transparency with separate overlay layer."""
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # Create a separate transparent overlay layer
+            overlay = Image.new('RGBA', bg_image.size, (0, 0, 0, 0))
+            overlay_draw = ImageDraw.Draw(overlay)
+            
+            # Parse the SVG file
+            tree = ET.parse(svg_path)
+            root = tree.getroot()
+            
+            # Define namespace for SVG elements
+            namespaces = {'svg': 'http://www.w3.org/2000/svg'}
+            
+            # Find all path elements with id attributes (these are provinces)
+            all_paths = root.findall('.//svg:path[@id]', namespaces)
+            if not all_paths:
+                all_paths = root.findall('.//path[@id]')
+            
+            # Get jdipNS coordinates for reference, but color actual SVG province paths
+            ns = {'jdipNS': 'svg.dtd'}
+            jdip_coords = {}
+            for prov in root.findall('.//jdipNS:PROVINCE', ns):
+                name = prov.attrib.get('name')
+                unit = prov.find('jdipNS:UNIT', ns)
+                if name and unit is not None:
+                    x = float(unit.attrib.get('x', '0'))
+                    y = float(unit.attrib.get('y', '0'))
+                    jdip_coords[name.upper()] = (x, y)
+            
+            # Find SVG paths for provinces (these are the actual province shapes)
+            province_paths = []
+            for path in all_paths:
+                province_id = path.get('id')
+                if province_id and province_id.startswith('_'):
+                    province_paths.append(path)
+            
+            # Create a map of province names to power colors
+            province_power_map = {}
+            for power, unit_list in units.items():
+                color = power_colors.get(power.upper(), "black")
+                for unit in unit_list:
+                    parts = unit.split()
+                    if len(parts) == 2:
+                        prov = parts[1].upper()
+                        province_power_map[prov] = color
+            
+            # Color each province based on power control using SVG paths
+            for path_elem in province_paths:
+                province_id = path_elem.get('id')
+                if province_id:
+                    # Remove underscore prefix and convert to uppercase
+                    normalized_id = province_id.lstrip('_').upper()
+                    
+                    if normalized_id in province_power_map:
+                        # Get the power color for this province
+                        power_color = province_power_map[normalized_id]
+                        
+                        # Convert color to RGB for proper transparency
+                        rgb_color = Map._hex_to_rgb(power_color)
+                        # Use 25% opacity for better visibility while preserving map details
+                        transparent_color = (*rgb_color, 64)  # 64/255 ≈ 0.25 (25% opacity)
+                        
+                        # Parse and fill the SVG path with correct coordinate alignment
+                        path_data = path_elem.get('d')
+                        if path_data:
+                            # Apply correct transform to align SVG paths with jdipNS coordinates
+                            Map._fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 169)
+                            
+                            # Add province name label to the colored area
+                            if normalized_id in jdip_coords:
+                                x, y = jdip_coords[normalized_id]
+                                # Draw province name in white with black outline for visibility
+                                font = None
+                                try:
+                                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+                                except Exception:
+                                    font = ImageFont.load_default()
+                                
+                                # Draw text with black outline
+                                text = normalized_id
+                                bbox = overlay_draw.textbbox((0, 0), text, font=font)
+                                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                                
+                                # Draw black outline
+                                for dx in [-1, 0, 1]:
+                                    for dy in [-1, 0, 1]:
+                                        if dx != 0 or dy != 0:
+                                            overlay_draw.text((x - w/2 + dx, y - h/2 + dy), text, fill="black", font=font)
+                                
+                                # Draw white text on top
+                                overlay_draw.text((x - w/2, y - h/2), text, fill="white", font=font)
+            
+            # Composite the overlay onto the background image using proper alpha compositing
+            bg_image.paste(overlay, (0, 0), overlay)
+                    
+        except Exception as e:
+            print(f"Warning: Could not parse SVG for province coloring: {e}")
+            # Fallback: continue without province coloring
+
+    @staticmethod
     def _color_provinces_by_power(draw, units, power_colors, svg_path):
         """Color provinces based on power control by parsing SVG paths with correct coordinate alignment."""
         try:
@@ -326,10 +429,11 @@ class Map:
                         # Get the power color for this province
                         power_color = province_power_map[normalized_id]
                         
-                        # Convert color to RGB for transparency
+                        # Convert color to RGB and apply 10% opacity by scaling RGB values
+                        # This avoids alpha transparency issues while keeping map details visible
                         rgb_color = Map._hex_to_rgb(power_color)
-                        # 60% transparency means 40% opacity - use alpha 102 (102/255 ≈ 0.4)
-                        transparent_color = (*rgb_color, 102)
+                        opacity_factor = 0.10  # 10% opacity - much lighter to preserve map details
+                        solid_color = tuple(int(c * opacity_factor) for c in rgb_color)
                         
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
@@ -337,7 +441,7 @@ class Map:
                             # Apply correct transform to align SVG paths with jdipNS coordinates
                             # Based on investigation: average offset is (-251.2, -174.2)
                             # Fine-tuned: X offset 195, Y offset 169 (reduced by 5 as it was too far down)
-                            Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, 195, 169)
+                            Map._fill_svg_path_with_transform(draw, path_data, solid_color, power_color, 195, 169)
                             
                             # Add province name label to the colored area
                             if normalized_id in jdip_coords:
@@ -589,9 +693,9 @@ class Map:
         except Exception:
             font = ImageFont.load_default()
         
-        # First pass: Color provinces based on power control
+        # First pass: Color provinces based on power control using proper transparency
         if units:  # Only color provinces if there are units
-            Map._color_provinces_by_power(draw, units, power_colors, svg_path)
+            Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path)
         
         # Second pass: Draw units on top
         for power, unit_list in units.items():

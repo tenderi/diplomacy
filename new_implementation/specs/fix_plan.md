@@ -17,16 +17,18 @@
     - **Added province labels**: Province names displayed on colored areas for better visibility
   - **Technical Details**:
     - **Coordinate system**: Both units and province coloring now use `jdipNS` coordinates
-    - **Transform applied**: `Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, 195, 169)`
-    - **Transparency**: 40% opacity (alpha 102) for province coloring
+    - **Transform applied**: `Map._fill_svg_path_with_transform(draw, path_data, solid_color, power_color, 195, 169)`
+    - **Transparency**: 25% opacity achieved using separate overlay layer with proper alpha compositing (no checkerboard issues)
     - **Labels**: White text with black outline for province names
     - **Full starting units**: All 22 standard Diplomacy starting units (3-4 per power) display correctly
   - **Verification**: 
     - ✅ Unit placement works correctly with full starting units (3-4 per power)
     - ✅ Province coloring aligns perfectly with unit positions
     - ✅ Province names are visible on colored areas
-    - ✅ Background map is visible through transparent coloring
+    - ✅ Background map is clearly visible (no checkerboard transparency issues)
     - ✅ All powers display correctly with proper colors
+    - ✅ True transparency implemented using separate overlay layer with 25% opacity
+    - ✅ Province names and supply points remain clearly visible through colored areas
   - **Files Modified**: 
     - `new_implementation/src/engine/map.py` (coordinate handling and province coloring logic updated)
   - **Status**: ✅ **FULLY RESOLVED** - Perfect coordinate alignment achieved with fine-tuned transforms
