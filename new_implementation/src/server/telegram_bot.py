@@ -1264,6 +1264,109 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text(f"Order error: {e}")
 
+async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process the current turn/phase for a game"""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Process turn failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    
+    if len(args) < 1:
+        await update.message.reply_text(
+            "Usage: /processturn <game_id>\n\n"
+            "This command advances the current phase and processes all submitted orders.\n"
+            "Use this after all players have submitted their orders for the turn."
+        )
+        return
+    
+    game_id = args[0]
+    
+    try:
+        # Check if user is in this game
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        user_in_game = any(str(g["game_id"]) == str(game_id) for g in user_games)
+        
+        if not user_in_game:
+            await update.message.reply_text(f"You are not in game {game_id}.")
+            return
+        
+        # Process the turn via API
+        result = api_post(f"/games/{game_id}/process_turn", {})
+        
+        if result.get("status") == "ok":
+            # Get updated game state
+            game_state = api_get(f"/games/{game_id}/state")
+            
+            if game_state:
+                turn = game_state.get("turn", "Unknown")
+                phase = game_state.get("phase", "Unknown")
+                done = game_state.get("done", False)
+                
+                if done:
+                    await update.message.reply_text(
+                        f"🎉 *Turn Processed Successfully!*\n\n"
+                        f"📊 Turn: {turn} | Phase: {phase}\n"
+                        f"🏁 *Game Complete!*\n\n"
+                        f"View the final map with /viewmap {game_id}"
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"✅ *Turn Processed Successfully!*\n\n"
+                        f"📊 Turn: {turn} | Phase: {phase}\n\n"
+                        f"🎮 *Next Phase:* Submit your orders for the next turn\n"
+                        f"🗺️ View updated map: /viewmap {game_id}\n"
+                        f"📋 Submit orders: /order <your orders>"
+                    )
+            else:
+                await update.message.reply_text("✅ Turn processed successfully!")
+        else:
+            error_msg = result.get("detail", "Unknown error")
+            await update.message.reply_text(f"❌ Failed to process turn: {error_msg}")
+            
+    except Exception as e:
+        await update.message.reply_text(f"Process turn error: {e}")
+
+async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View the current map for a specific game"""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("View map failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    
+    if len(args) < 1:
+        await update.message.reply_text(
+            "Usage: /viewmap <game_id>\n\n"
+            "This command shows the current map state for the specified game."
+        )
+        return
+    
+    game_id = args[0]
+    
+    try:
+        # Check if user is in this game
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        user_in_game = any(str(g["game_id"]) == str(game_id) for g in user_games)
+        
+        if not user_in_game:
+            await update.message.reply_text(f"You are not in game {game_id}.")
+            return
+        
+        # Send the game map
+        await send_game_map(update, context, game_id)
+            
+    except Exception as e:
+        await update.message.reply_text(f"View map error: {e}")
+
 def normalize_order_provinces(order_text: str, power: str) -> str:
     """Normalize province names in an order string."""
     from src.engine.province_mapping import normalize_province_name
@@ -1684,6 +1787,8 @@ def main():
     app.add_handler(CommandHandler("quit", quit))
     app.add_handler(CommandHandler("orders", orders))
     app.add_handler(CommandHandler("order", order))
+    app.add_handler(CommandHandler("processturn", processturn))
+    app.add_handler(CommandHandler("viewmap", viewmap))
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
     app.add_handler(CommandHandler("orderhistory", orderhistory))
