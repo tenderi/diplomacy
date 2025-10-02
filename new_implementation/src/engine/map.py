@@ -224,6 +224,7 @@ class Map:
         """
         Parse the SVG file and extract province coordinates for unit placement.
         Returns a dict: {province_name: (x, y)}
+        Uses jdipNS coordinates which are the correct coordinate system.
         """
         # Check if this is the V2 map (doesn't have jdipNS structure)
         if 'v2' in svg_path.lower():
@@ -247,70 +248,19 @@ class Map:
                     'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
                 }
         
-        # NEW APPROACH: Use SVG path centers instead of wrong jdipNS coordinates
-        # This fixes the coordinate system mismatch
+        # Use jdipNS coordinates - these are the correct coordinate system
         coords = {}
         tree = ET.parse(svg_path)
         root = tree.getroot()
+        ns = {'jdipNS': 'svg.dtd'}
         
-        # Find all SVG paths for provinces
-        for path_elem in root.findall('.//*[@id]'):
-            province_id = path_elem.get('id')
-            if province_id and 'd' in path_elem.attrib:
-                # Skip paths with underscores (these are not the main province areas)
-                if not province_id.startswith('_'):
-                    path_data = path_elem.attrib['d']
-                    
-                    # Parse SVG path to find center
-                    import re
-                    path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
-                    
-                    x_coords = []
-                    y_coords = []
-                    current_x, current_y = 0, 0
-                    
-                    for cmd, params in path_commands:
-                        cmd = cmd.upper()
-                        
-                        if cmd == 'M':  # Move to (absolute)
-                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
-                            if len(coords_list) >= 2:
-                                current_x, current_y = float(coords_list[0]), float(coords_list[1])
-                                x_coords.append(current_x)
-                                y_coords.append(current_y)
-                                
-                        elif cmd == 'L':  # Line to (absolute)
-                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
-                            if len(coords_list) >= 2:
-                                current_x, current_y = float(coords_list[0]), float(coords_list[1])
-                                x_coords.append(current_x)
-                                y_coords.append(current_y)
-                                
-                        elif cmd == 'C':  # Cubic Bezier curve (absolute)
-                            coords_list = re.findall(r'(-?\d+\.?\d*)', params)
-                            if len(coords_list) >= 6:
-                                # C x1 y1 x2 y2 x y - we care about end point
-                                current_x, current_y = float(coords_list[4]), float(coords_list[5])
-                                x_coords.append(current_x)
-                                y_coords.append(current_y)
-                    
-                    if x_coords and y_coords:
-                        # Calculate center of the province
-                        center_x = sum(x_coords) / len(x_coords)
-                        center_y = sum(y_coords) / len(y_coords)
-                        coords[province_id.upper()] = (center_x, center_y)
-        
-        # FALLBACK: If no SVG paths found, try jdipNS (but they're wrong)
-        if not coords:
-            print("⚠️  Warning: No SVG paths found, falling back to jdipNS coordinates (these are known to be wrong!)")
-            ns = {'jdipNS': 'svg.dtd'}
-            for prov in root.findall('.//jdipNS:PROVINCE', ns):
-                name = prov.attrib.get('name')
-                unit = prov.find('jdipNS:UNIT', ns)
-                if name and unit is not None:
-                    x = float(unit.attrib.get('x', '0'))
-                    y = float(unit.attrib.get('y', '0'))
-                    coords[name.upper()] = (x, y)
+        for prov in root.findall('.//jdipNS:PROVINCE', ns):
+            name = prov.attrib.get('name')
+            unit = prov.find('jdipNS:UNIT', ns)
+            if name and unit is not None:
+                x = float(unit.attrib.get('x', '0'))
+                y = float(unit.attrib.get('y', '0'))
+                coords[name.upper()] = (x, y)
         
         return coords
 
@@ -336,24 +286,24 @@ class Map:
             if not all_paths:
                 all_paths = root.findall('.//path[@id]')
             
-            # Use paths with underscores for province coloring but apply inverse transform
-            # The paths with underscores are inside <g transform="translate(-195 -170)">
-            # We need to compensate for this offset to align with unit coordinates
-            province_paths = []
+            # Get jdipNS coordinates for reference, but color actual SVG province paths
+            ns = {'jdipNS': 'svg.dtd'}
+            jdip_coords = {}
+            for prov in root.findall('.//jdipNS:PROVINCE', ns):
+                name = prov.attrib.get('name')
+                unit = prov.find('jdipNS:UNIT', ns)
+                if name and unit is not None:
+                    x = float(unit.attrib.get('x', '0'))
+                    y = float(unit.attrib.get('y', '0'))
+                    jdip_coords[name.upper()] = (x, y)
             
+            # Find SVG paths for provinces (these are the actual province shapes)
+            province_paths = []
             for path in all_paths:
                 province_id = path.get('id')
                 if province_id and province_id.startswith('_'):
                     # Use paths with underscores - these are the actual province areas
-                    # We'll apply inverse transform (-195, -170) to compensate
                     province_paths.append(path)
-            
-
-
-            
-
-            
-
             
             # Create a map of province names to power colors
             province_power_map = {}
@@ -365,7 +315,7 @@ class Map:
                         prov = parts[1].upper()
                         province_power_map[prov] = color
             
-            # Color each province based on power control
+            # Color each province based on power control using SVG paths
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
                 if province_id:
@@ -384,8 +334,34 @@ class Map:
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
                         if path_data:
-                            # Apply inverse transform to compensate for translate(-195 -170)
-                            Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, -195, -170)
+                            # Apply correct transform to align SVG paths with jdipNS coordinates
+                            # Based on investigation: average offset is (-251.2, -174.2)
+                            # Fine-tuned: X offset 195, Y offset 169 (reduced by 5 as it was too far down)
+                            Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, 195, 169)
+                            
+                            # Add province name label to the colored area
+                            if normalized_id in jdip_coords:
+                                x, y = jdip_coords[normalized_id]
+                                # Draw province name in white with black outline for visibility
+                                font = None
+                                try:
+                                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+                                except Exception:
+                                    font = ImageFont.load_default()
+                                
+                                # Draw text with black outline
+                                text = normalized_id
+                                bbox = draw.textbbox((0, 0), text, font=font)
+                                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                                
+                                # Draw black outline
+                                for dx in [-1, 0, 1]:
+                                    for dy in [-1, 0, 1]:
+                                        if dx != 0 or dy != 0:
+                                            draw.text((x - w/2 + dx, y - h/2 + dy), text, fill="black", font=font)
+                                
+                                # Draw white text on top
+                                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
                     
         except Exception as e:
             print(f"Warning: Could not parse SVG for province coloring: {e}")
