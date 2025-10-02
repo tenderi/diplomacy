@@ -87,7 +87,15 @@ class Server:
                 if power_name not in game.powers:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
-                game.set_orders(power_name, [order_str])
+                
+                # Append the new order to existing orders instead of replacing
+                if power_name not in game.orders:
+                    game.orders[power_name] = []
+                
+                # Check if this order already exists to avoid duplicates
+                if order_str not in game.orders[power_name]:
+                    game.orders[power_name].append(order_str)
+                
                 self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
                 # Extra logging for order parsing/validation
                 self.logger.debug(f"Orders for {power_name} in game {game_id}: {game.orders.get(power_name)}")

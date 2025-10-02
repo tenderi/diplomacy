@@ -181,8 +181,6 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                 state_dict = state_val
             if state_dict:
                 turn = state_dict.get("turn", 0)
-        if player is not None:
-            db.query(OrderModel).filter_by(player_id=player.id).delete()
         for order in req.orders:
             result = server.process_command(f"SET_ORDERS {req.game_id} {req.power} {order}")
             if result.get("status") == "ok":
@@ -205,6 +203,19 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                             )
                 except Exception as e:
                     scheduler_logger.error(f"Failed to notify order error: {e}")
+        
+        # Clean up old orders for this turn after all new orders are added
+        if player is not None:
+            # Get all orders for this power in the game object
+            game_obj = server.games.get(req.game_id)
+            if game_obj and req.power in game_obj.orders:
+                current_orders = game_obj.orders[req.power]
+                # Delete all orders for this turn from database
+                db.query(OrderModel).filter_by(player_id=player.id, turn=turn).delete()
+                # Re-add all current orders to database
+                for order in current_orders:
+                    db.add(OrderModel(player_id=player.id, order_text=order, turn=turn))
+        
         # Update game state in DB to reflect in-memory state
         if game and req.game_id in server.games:
             state = server.games[req.game_id].get_state()
@@ -326,6 +337,12 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                         for power_name, unit_list in state_data["units"].items():
                             if power_name in restored_game.powers:
                                 restored_game.powers[power_name].units = set(unit_list)
+                    
+                    # Restore orders if available
+                    if "orders" in state_data:
+                        for power_name, order_list in state_data["orders"].items():
+                            if power_name in restored_game.powers:
+                                restored_game.orders[power_name] = order_list.copy()
             
             # Add restored game to server
             server.games[game_id] = restored_game
