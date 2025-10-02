@@ -680,11 +680,18 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         # More helpful error message with recovery options
@@ -694,18 +701,32 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"⚠️ *Temporary Issue*\n\n"
-            f"🔧 Unable to load your games right now.\n"
-            f"This usually means the server is starting up.\n\n"
-            f"💡 *Try:*\n"
-            f"• Wait a moment and try again\n"
-            f"• Browse available games directly\n"
-            f"• Return to main menu\n\n"
-            f"*Technical details:* {str(e)[:100]}",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"⚠️ *Temporary Issue*\n\n"
+                f"🔧 Unable to load your games right now.\n"
+                f"This usually means the server is starting up.\n\n"
+                f"💡 *Try:*\n"
+                f"• Wait a moment and try again\n"
+                f"• Browse available games directly\n"
+                f"• Return to main menu\n\n"
+                f"*Technical details:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ *Temporary Issue*\n\n"
+                f"🔧 Unable to load your games right now.\n"
+                f"This usually means the server is starting up.\n\n"
+                f"💡 *Try:*\n"
+                f"• Wait a moment and try again\n"
+                f"• Browse available games directly\n"
+                f"• Return to main menu\n\n"
+                f"*Technical details:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
 async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show map menu for user's games or default map if not in any games"""
@@ -753,11 +774,18 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         keyboard.append([InlineKeyboardButton("🗺️ Standard Reference Map", callback_data="view_default_map")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"🗺️ *Select map to view:* ({len(games_to_show)} games)",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"🗺️ *Select map to view:* ({len(games_to_show)} games)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"🗺️ *Select map to view:* ({len(games_to_show)} games)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         keyboard = [
@@ -766,16 +794,28 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"⚠️ *Can't Load Game Maps*\n\n"
-            f"🔧 Unable to access your game maps right now.\n\n"
-            f"💡 *You can still:*\n"
-            f"🗺️ View the standard reference map\n"
-            f"🏠 Return to main menu\n\n"
-            f"*Error:* {str(e)[:100]}",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"⚠️ *Can't Load Game Maps*\n\n"
+                f"🔧 Unable to access your game maps right now.\n\n"
+                f"💡 *You can still:*\n"
+                f"🗺️ View the standard reference map\n"
+                f"🏠 Return to main menu\n\n"
+                f"*Error:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ *Can't Load Game Maps*\n\n"
+                f"🔧 Unable to access your game maps right now.\n\n"
+                f"💡 *You can still:*\n"
+                f"🗺️ View the standard reference map\n"
+                f"🏠 Return to main menu\n\n"
+                f"*Error:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
 async def show_messages_menu(update: Update, 
                             context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -818,11 +858,18 @@ async def show_messages_menu(update: Update,
                 keyboard.append([InlineKeyboardButton(f"💬 Game {game_id} Messages ({power}) - {state}", callback_data=f"view_messages_{game_id}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"💬 *Select game to view messages:* ({len(games_to_show)} games)",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"💬 *Select game to view messages:* ({len(games_to_show)} games)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"💬 *Select game to view messages:* ({len(games_to_show)} games)",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
         keyboard = [
@@ -830,17 +877,30 @@ async def show_messages_menu(update: Update,
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"⚠️ *Messages Unavailable*\n\n"
-            f"🔧 Can't access game messages right now.\n"
-            f"This is usually temporary.\n\n"
-            f"💡 *Try:*\n"
-            f"• Browse and join games directly\n"
-            f"• Return to main menu and try again later\n\n"
-            f"*Error:* {str(e)[:100]}",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"⚠️ *Messages Unavailable*\n\n"
+                f"🔧 Can't access game messages right now.\n"
+                f"This is usually temporary.\n\n"
+                f"💡 *Try:*\n"
+                f"• Browse and join games directly\n"
+                f"• Return to main menu and try again later\n\n"
+                f"*Error:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ *Messages Unavailable*\n\n"
+                f"🔧 Can't access game messages right now.\n"
+                f"This is usually temporary.\n\n"
+                f"💡 *Try:*\n"
+                f"• Browse and join games directly\n"
+                f"• Return to main menu and try again later\n\n"
+                f"*Error:* {str(e)[:100]}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help with available commands"""
