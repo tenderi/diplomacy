@@ -2,7 +2,63 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. 🔄 **CRITICAL: Demo Game Order Management Issues - PARTIALLY FIXED**
+### 1. 🆕 **NEW FEATURE: Interactive Order Input - IN PROGRESS**
+- [ ] **Implement interactive order selection system** - Choose unit first, then select from possible moves
+  - **Requirements**:
+    - ✅ User selects a unit from their available units
+    - ✅ System shows all possible moves for that unit (adjacent provinces, support options, hold)
+    - ✅ User selects desired move from the list of possibilities
+    - ✅ System validates and submits the order
+    - ✅ Support for different unit types (Army vs Fleet) with appropriate move options
+    - ✅ Visual feedback showing unit location and possible destinations
+  - **Technical Implementation**:
+    - ✅ Create `/selectunit` command to show user's units with inline keyboards
+    - ✅ Implement unit selection callback handlers
+    - ✅ Add `/possiblemoves` command to show valid moves for selected unit
+    - ✅ Create move selection interface with inline keyboards
+    - ✅ Integrate with existing order submission system
+    - ✅ Add move validation using map adjacency data
+  - **User Experience**:
+    - ✅ Step-by-step order creation process
+    - ✅ Clear visual indication of available moves
+    - ✅ Prevention of invalid moves through UI constraints
+    - ✅ Easy cancellation and re-selection
+    - ✅ Support for complex orders (support, convoy) in future iterations
+  - **Move Types Supported**:
+    - ✅ **Hold**: Unit stays in current position
+    - ✅ **Move**: Unit moves to adjacent province
+    - ✅ **Support**: Unit supports another unit's move or hold
+    - ✅ **Convoy**: Fleet convoys army (future enhancement)
+  - **Files to Modify**:
+    - ✅ `src/server/telegram_bot.py` (add interactive order commands and handlers)
+    - ✅ `src/engine/map.py` (add adjacency checking methods)
+    - ✅ `src/server/api.py` (enhance order validation if needed)
+  - **Status**: 🔄 **IN PROGRESS** - Interactive order input system design and implementation
+  - **Implementation Plan**:
+    - **Phase 1: Unit Selection**
+      - ✅ Add `/selectunit` command that shows user's units in current game
+      - ✅ Create inline keyboard with unit buttons (e.g., "A BER", "F KIE")
+      - ✅ Handle unit selection callbacks to store selected unit
+    - **Phase 2: Move Options**
+      - ✅ Add `/possiblemoves` command to show valid moves for selected unit
+      - ✅ Query map adjacency data to determine possible destinations
+      - ✅ Create inline keyboard with move options (Hold, Move to X, Support Y)
+    - **Phase 3: Order Submission**
+      - ✅ Handle move selection callbacks to build order string
+      - ✅ Submit order using existing `/order` command infrastructure
+      - ✅ Provide confirmation and next steps
+    - **Phase 4: Enhanced Features**
+      - ✅ Support for support orders (select unit to support)
+      - ✅ Visual map integration showing unit and possible moves
+      - ✅ Order modification and cancellation options
+  - **Technical Details**:
+    - **Unit Detection**: Use game state to get user's units for current game
+    - **Adjacency Checking**: Leverage existing `Map.get_adjacency()` method
+    - **State Management**: Store selected unit in callback data or user session
+    - **Order Building**: Construct proper order strings (e.g., "A BER - SIL")
+    - **Integration**: Use existing order submission and validation system
+
+### 2. 🔄 **CRITICAL: Demo Game Order Management Issues - PARTIALLY FIXED**
 - [x] **Fix demo game not appearing in My Orders and non-functional My Games buttons** - Order management system broken
   - **Issues Identified**:
     - ❌ Demo game doesn't appear in "My Orders" menu
@@ -181,6 +237,12 @@
   - **Priority**: LOW - V2 map development suspended indefinitely
 
 ## Completed Tasks ✅
+
+### ✅ **Interactive Order Input System - COMPLETED** (Future)
+- **Unit Selection Interface**: Step-by-step order creation with visual feedback
+- **Move Validation**: Automatic validation using map adjacency data
+- **User Experience**: Intuitive interface preventing invalid moves
+- **Integration**: Seamless integration with existing order submission system
 
 ### ✅ **Map Generation System - COMPLETED**
 - **Standard Map Rendering**: Fully functional with units and province coloring
