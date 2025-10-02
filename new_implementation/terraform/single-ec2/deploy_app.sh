@@ -257,8 +257,8 @@ else
     echo -e "${GREEN}No source changes, skipping dependency update...${NC}"
 fi
 
-# Run database migrations if alembic is present and changed
-if [ "$ALEMBIC_CHANGED" = "true" ] && run_ssh "test -f /opt/diplomacy/alembic.ini"; then
+# Run database migrations if alembic is present and changed, or if this is a fresh deployment
+if ([ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANGED" = "true" ]) && run_ssh "test -f /opt/diplomacy/alembic.ini"; then
     echo -e "${YELLOW}Running database migrations...${NC}"
     run_ssh "cd /opt/diplomacy && sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head" || echo -e "${YELLOW}Note: Migration failed, but continuing...${NC}"
 else
