@@ -46,8 +46,16 @@ def generate_default_map() -> bytes:
     # Empty units dictionary for clean map display
     units = {}
     
+    # Default phase info for empty map
+    phase_info = {
+        "year": "1901",
+        "season": "Spring", 
+        "phase": "Movement",
+        "phase_code": "S1901M"
+    }
+    
     # Generate map image
-    return Map.render_board_png(svg_path, units)
+    return Map.render_board_png(svg_path, units, phase_info=phase_info)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -1123,8 +1131,16 @@ async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
                     for unit in power_data["units"]:
                         units[unit] = power_name
         
+        # Get phase information
+        phase_info = {
+            "year": str(game_state.get("year", 1901)),
+            "season": game_state.get("season", "Spring"),
+            "phase": game_state.get("phase", "Movement"),
+            "phase_code": game_state.get("phase_code", "S1901M")
+        }
+        
         # Render the map
-        img_bytes = map_instance.render_board_png(units, f"/tmp/demo_map_{game_id}.png")
+        img_bytes = map_instance.render_board_png(units, f"/tmp/demo_map_{game_id}.png", phase_info=phase_info)
         
         # Send the map
         if update.callback_query:
@@ -1173,9 +1189,17 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
             # units is already in the correct format: {power: [unit_list]}
             units = game_state["units"]
         
+        # Get phase information
+        phase_info = {
+            "year": str(game_state.get("year", 1901)),
+            "season": game_state.get("season", "Spring"),
+            "phase": game_state.get("phase", "Movement"),
+            "phase_code": game_state.get("phase_code", "S1901M")
+        }
+        
         # Render the map with moves
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        img_bytes = Map.render_board_png_with_moves(svg_path, units, orders, f"/tmp/game_map_{game_id}.png")
+        img_bytes = Map.render_board_png_with_moves(svg_path, units, orders, f"/tmp/game_map_{game_id}.png", phase_info=phase_info)
         
         # Get game info for caption
         turn = game_state.get("turn", "Unknown")
@@ -1929,12 +1953,21 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         units = game_state["units"]  # {power: ["A PAR", "F LON", ...]}
         map_name = game_state.get("map", "standard")
+        
+        # Get phase information
+        phase_info = {
+            "year": str(game_state.get("year", 1901)),
+            "season": game_state.get("season", "Spring"),
+            "phase": game_state.get("phase", "Movement"),
+            "phase_code": game_state.get("phase_code", "S1901M")
+        }
+        
         base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
         svg_path = f"{base_map_path}{map_name}.svg"
         if not os.path.isfile(svg_path):
             svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         try:
-            img_bytes = Map.render_board_png(svg_path, units)
+            img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
         except Exception as e:
             await update.message.reply_text(f"Error rendering map: {e}")
             return
@@ -1962,12 +1995,21 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         units = state["units"]
         map_name = state.get("map", "standard")
+        
+        # Get phase information from state
+        phase_info = {
+            "year": str(state.get("year", 1901)),
+            "season": state.get("season", "Spring"),
+            "phase": state.get("phase", "Movement"),
+            "phase_code": state.get("phase_code", "S1901M")
+        }
+        
         base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
         svg_path = f"{base_map_path}{map_name}.svg"
         if not os.path.isfile(svg_path):
             svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         try:
-            img_bytes = Map.render_board_png(svg_path, units)
+            img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
         except Exception as e:
             await update.message.reply_text(f"Error rendering map: {e}")
             return

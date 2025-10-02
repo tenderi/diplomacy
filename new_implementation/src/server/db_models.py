@@ -62,6 +62,26 @@ class MessageModel(Base):
     text = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC), nullable=False)
 
+class GameSnapshotModel(Base):
+    __tablename__ = "game_snapshots"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(Integer, ForeignKey("games.id"), nullable=False, index=True)
+    turn = Column(Integer, nullable=False)
+    year = Column(Integer, nullable=False)  # e.g., 1901, 1902, etc.
+    season = Column(String, nullable=False)  # "Spring" or "Autumn"
+    phase = Column(String, nullable=False)  # "Movement", "Retreat", "Builds"
+    phase_code = Column(String, nullable=False)  # e.g., "S1901M", "S1901R", "A1901M", "A1901B"
+    game_state = Column(JSON, nullable=False)  # Complete serialized game state
+    map_image_path = Column(String, nullable=True)  # Path to generated map image
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.UTC), nullable=False)
+    
+    # Index for efficient queries
+    __table_args__ = (
+        Index('ix_snapshots_game_turn', game_id, turn),
+        Index('ix_snapshots_game_phase', game_id, phase_code),
+        Index('ix_snapshots_created_at', created_at),  # For cleanup
+    )
+
 class GameHistoryModel(Base):
     __tablename__ = "game_history"
     id = Column(Integer, primary_key=True, autoincrement=True)

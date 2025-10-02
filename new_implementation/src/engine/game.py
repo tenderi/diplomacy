@@ -15,8 +15,11 @@ class Game:
         self.powers: Dict[str, Power] = {}
         self.orders: Dict[str, List[str]] = {}
         self.turn: int = 0
+        self.year: int = 1901  # Starting year
+        self.season: str = "Spring"  # "Spring" or "Autumn"
+        self.phase: str = "Movement"  # "Movement", "Retreat", "Builds"
+        self.phase_code: str = "S1901M"  # e.g., "S1901M", "S1901R", "A1901M", "A1901B"
         self.done: bool = False
-        self.phase: str = "movement"  # movement, retreat, adjustment
         self.pending_retreats: Dict[str, Any] = {}  # power -> list of dislodged units/retreat options
         self.pending_adjustments: Dict[str, Any] = {}  # power -> build/disband info
         self.winner: List[str] = []  # List of winning powers
@@ -43,19 +46,59 @@ class Game:
                 if pname in starting_units:
                     self.powers[power_name].units = set(starting_units[pname])
 
-    def set_orders(self, power_name: str, orders: List[str]) -> None:
-        self.orders[power_name] = orders
+    def _update_phase_code(self) -> None:
+        """Update the phase code based on current year, season, and phase."""
+        season_prefix = "S" if self.season == "Spring" else "A"
+        phase_suffix = "M" if self.phase == "Movement" else "R" if self.phase == "Retreat" else "B"
+        self.phase_code = f"{season_prefix}{self.year}{phase_suffix}"
+
+    def _advance_phase(self) -> None:
+        """Advance to the next phase in the Diplomacy sequence."""
+        if self.phase == "Movement":
+            # Check if retreats are needed
+            if any(self.pending_retreats.values()):
+                self.phase = "Retreat"
+            else:
+                # No retreats needed, go to Builds phase
+                self.phase = "Builds"
+        elif self.phase == "Retreat":
+            # After retreats, go to Builds phase
+            self.phase = "Builds"
+        elif self.phase == "Builds":
+            # After builds, advance to next season/year
+            if self.season == "Spring":
+                self.season = "Autumn"
+            else:  # Autumn
+                self.season = "Spring"
+                self.year += 1
+            self.phase = "Movement"
+            self.turn += 1
+        
+        self._update_phase_code()
+
+    def get_phase_info(self) -> Dict[str, str]:
+        """Get current phase information for display."""
+        return {
+            "year": str(self.year),
+            "season": self.season,
+            "phase": self.phase,
+            "phase_code": self.phase_code,
+            "turn": str(self.turn)
+        }
 
     def process_phase(self) -> None:
-        """Process the current phase (movement, retreat, adjustment)."""
-        if self.phase == "movement":
+        """Process the current phase (Movement, Retreat, Builds)."""
+        if self.phase == "Movement":
             self._process_movement_phase()
-        elif self.phase == "retreat":
+        elif self.phase == "Retreat":
             self._process_retreat_phase()
-        elif self.phase == "adjustment":
-            self._process_adjustment_phase()
+        elif self.phase == "Builds":
+            self._process_builds_phase()
         else:
             raise ValueError(f"Unknown phase: {self.phase}")
+        
+        # Advance to next phase after processing
+        self._advance_phase()
 
     def _process_movement_phase(self) -> None:
         # Existing movement logic (from process_turn)
@@ -439,13 +482,13 @@ class Game:
             })
 
         if any(pending_retreats.values()):
-            self.phase = "retreat"
             self.pending_retreats = pending_retreats
+            # Phase will be advanced to Retreat by _advance_phase()
         else:
-            # No retreats needed, go to adjustment or next movement
-            self.phase = "adjustment"
+            # No retreats needed, clear pending retreats
             self.pending_retreats = {}
             self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
+            # Phase will be advanced to Builds by _advance_phase()
 
         # 6. Update unit positions
         preserve_units: set[tuple[str, str]] = set()
@@ -596,13 +639,13 @@ class Game:
                 if not order_found:
                     # Forced disband if no valid retreat submitted
                     self.powers[power].units.discard(unit)
-        # After all retreats, clear pending_retreats and orders, go to adjustment phase
+        # After all retreats, clear pending_retreats and orders
         self.pending_retreats = {}
         self.orders = {}
-        self.phase = "adjustment"
         self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
+        # Phase will be advanced to Builds by _advance_phase()
 
-    def _process_adjustment_phase(self) -> None:
+    def _process_builds_phase(self) -> None:
         """
         Process build/disband orders for each power according to supply center control.
         - Calculate builds/disbands needed for each power.
@@ -712,12 +755,10 @@ class Game:
             self.done = True
             self.winner = winners
             logger.info(f"Victory! Winner(s): {winners}")
-        # 5. Clear orders and pending adjustments, transition to movement phase, increment turn (if not done)
+        # Clear orders and pending adjustments
         self.orders = {}
         self.pending_adjustments = {}
-        if not self.done:
-            self.phase = "movement"
-            self.turn += 1
+        # Phase will be advanced by _advance_phase()
 
     def get_state(self) -> Dict[str, Any]:
         # Compose a richer state dictionary for server_spec compliance
@@ -729,6 +770,9 @@ class Game:
         return {
             "game_id": getattr(self, "game_id", None),
             "phase": self.phase,
+            "year": self.year,
+            "season": self.season,
+            "phase_code": self.phase_code,
             "players": list(self.powers.keys()),
             "units": units,
             "orders": orders,
