@@ -2,31 +2,26 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. 🚨 **CRITICAL: Demo Game Order Management Issues - IN PROGRESS**
-- [ ] **Fix demo game not appearing in My Orders and non-functional My Games buttons** - Order management system broken
+### 1. 🔄 **CRITICAL: Demo Game Order Management Issues - PARTIALLY FIXED**
+- [x] **Fix demo game not appearing in My Orders and non-functional My Games buttons** - Order management system broken
   - **Issues Identified**:
     - ❌ Demo game doesn't appear in "My Orders" menu
     - ❌ "Manage Orders" button in My Games doesn't work
     - ❌ "View Game Maps" button in My Games doesn't work  
     - ❌ "View Messages" button in My Games doesn't work
     - ❌ All My Games action buttons are non-functional
-  - **Preliminary Analysis**:
-    - **Order Management**: Demo game may not be properly registered in user's game list
-    - **Button Handlers**: Callback handlers may not be working for demo games
-    - **User Registration**: Demo game user registration may be incomplete
-    - **Game State**: Demo game may not be persisting properly in database
-    - **API Integration**: My Games buttons may not be fetching correct game data
-  - **Technical Investigation Needed**:
-    - Check if demo game is properly saved to database
-    - Verify user-game association in PlayerModel
-    - Test callback handlers for demo game scenarios
-    - Debug API endpoints for user game retrieval
-    - Check order management system integration
-  - **Files to Investigate**:
-    - `src/server/telegram_bot.py` (demo game creation and button handlers)
-    - `src/server/api.py` (user games endpoint)
-    - `src/server/db_models.py` (PlayerModel, GameModel relationships)
-  - **Status**: 🔄 **IN PROGRESS** - Investigating root causes
+  - **Root Cause Analysis**:
+    - ✅ **API Response Parsing**: Fixed mismatch between API response structure and bot code expectations
+    - ✅ **Data Structure**: API returns `{telegram_id: "...", games: [...]}` but bot expected direct list
+    - ✅ **User Games Retrieval**: Fixed `user_games_response.get("games", [])` extraction in multiple functions
+  - **Solution Implemented**:
+    - ✅ Fixed `show_my_orders_menu()` function to properly parse API response
+    - ✅ Fixed `games()` function to extract games list from response
+    - ✅ Fixed `show_map_menu()` function to handle API response structure
+    - ✅ Updated all user games retrieval to use correct data extraction
+  - **Files Modified**:
+    - ✅ `src/server/telegram_bot.py` (fixed API response parsing in multiple functions)
+  - **Status**: 🔄 **PARTIALLY FIXED** - API parsing issues resolved, testing needed
 
 ### 2. ✅ **NEW FEATURE: Live Game Map Functionality - COMPLETED**
 - [x] **Implement live game map viewing with move visualization** - Show current game state and moves
