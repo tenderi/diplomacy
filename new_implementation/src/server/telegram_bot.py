@@ -358,7 +358,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("view_map_"):
         game_id = data.split("_")[2]
-        await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...\n\n(Live game map functionality coming soon!)")
+        await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...")
+        await send_game_map(update, context, game_id)
 
     elif data == "view_default_map":
         await query.edit_message_text("🗺️ Generating standard Diplomacy map...")
@@ -1012,6 +1013,75 @@ async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
             
     except Exception as e:
         error_msg = f"❌ Error generating demo map: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
+    """Send the live game map with current state and moves"""
+    try:
+        # Get game state
+        game_state = api_get(f"/games/{game_id}/state")
+        
+        if not game_state:
+            error_msg = f"❌ Game {game_id} not found"
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return
+        
+        # Get current orders for move visualization
+        orders_data = api_get(f"/games/{game_id}/orders")
+        orders = orders_data if orders_data else []
+        
+        # Generate map with units
+        from src.engine.map import Map
+        map_instance = Map("standard")
+        
+        # Create units dictionary from game state
+        units = {}
+        if "powers" in game_state:
+            for power_name, power_data in game_state["powers"].items():
+                if "units" in power_data:
+                    for unit in power_data["units"]:
+                        units[unit] = power_name
+        
+        # Render the map with moves
+        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        img_bytes = Map.render_board_png_with_moves(svg_path, units, orders, f"/tmp/game_map_{game_id}.png")
+        
+        # Get game info for caption
+        turn = game_state.get("turn", "Unknown")
+        phase = game_state.get("phase", "Unknown")
+        
+        # Count moves for caption
+        move_count = len([o for o in orders if "order" in o and ("-" in o["order"] or "S" in o["order"])])
+        
+        # Send the map
+        caption = (
+            f"🗺️ *Game {game_id} Map*\n\n"
+            f"📊 Turn: {turn} | Phase: {phase}\n"
+            f"🎮 Current game state with all units\n"
+            f"📋 {len(orders)} orders submitted ({move_count} moves)"
+        )
+        
+        if update.callback_query:
+            await update.callback_query.message.reply_photo(
+                photo=img_bytes,
+                caption=caption,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_photo(
+                photo=img_bytes,
+                caption=caption,
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        error_msg = f"❌ Error generating game map: {str(e)}"
         if update.callback_query:
             await update.callback_query.edit_message_text(error_msg)
         else:

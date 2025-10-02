@@ -2,7 +2,36 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **NEW FEATURE: Admin Menu - COMPLETED**
+### 1. ✅ **NEW FEATURE: Live Game Map Functionality - COMPLETED**
+- [x] **Implement live game map viewing with move visualization** - Show current game state and moves
+  - **Requirements**:
+    - ✅ Show current map state for active games (units, territories, supply centers)
+    - ✅ Display move visualization: Hold, Move, Support actions
+    - ✅ Allow users to view maps for games they're participating in
+    - ✅ Show different map states (current turn, previous turns)
+  - **Technical Implementation**:
+    - ✅ Enhanced existing map rendering to show current game state
+    - ✅ Added move visualization overlays (arrows for moves, support indicators)
+    - ✅ Implemented game state retrieval from database and in-memory server
+    - ✅ Added map viewing for specific games via callback handlers
+    - ✅ Support different map views (current state, turn history)
+  - **User Experience**:
+    - ✅ Clear visualization of current game situation
+    - ✅ Easy access to game maps from "My Games" menu
+    - ✅ Visual indicators for different types of moves
+    - ✅ Ability to see game progression over time
+  - **Move Visualization Features**:
+    - ✅ **Hold**: Units staying in place (no visual indicator needed)
+    - ✅ **Move**: Arrows showing unit movement between provinces
+    - ✅ **Support**: Support indicators showing which units are supporting moves
+    - ✅ **Convoy**: Special indicators for convoy moves (ready for future implementation)
+  - **Files Modified**:
+    - ✅ `src/server/telegram_bot.py` (enhanced map viewing callbacks and send_game_map function)
+    - ✅ `src/engine/map.py` (added move visualization methods)
+    - ✅ `src/server/api.py` (existing endpoints used for game state and orders)
+  - **Status**: ✅ **FULLY COMPLETED** - Live game map with move visualization fully functional
+
+### 2. ✅ **NEW FEATURE: Admin Menu - COMPLETED**
 - [x] **Implement admin menu with delete all games functionality** - Admin controls for game management
   - **Requirements**:
     - ✅ Add admin menu button accessible only to user ID 8019538

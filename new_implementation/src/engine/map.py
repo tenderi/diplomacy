@@ -728,6 +728,158 @@ class Map:
         bg.save(output, format="PNG")
         return output.getvalue()
 
+    @staticmethod
+    def render_board_png_with_moves(svg_path: str, units: dict, orders: list, output_path: str = None) -> bytes:
+        """Render the game board with move visualization overlays"""
+        if svg_path is None:
+            raise ValueError("svg_path must not be None")
+        
+        # First render the base map
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path)
+        bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
+        draw = ImageDraw.Draw(bg)
+        
+        # Get province coordinates for move visualization
+        coords = Map.get_svg_province_coordinates(svg_path)
+        
+        # Define power colors for move arrows
+        power_colors = {
+            "AUSTRIA": "#c48f85",
+            "ENGLAND": "darkviolet", 
+            "FRANCE": "royalblue",
+            "GERMANY": "#a08a75",
+            "ITALY": "forestgreen",
+            "RUSSIA": "#757d91",
+            "TURKEY": "#b9a61c",
+        }
+        
+        # Draw move visualization
+        Map._draw_move_visualization(draw, orders, coords, power_colors)
+        
+        # Save or return PNG
+        if isinstance(output_path, str) and output_path:
+            bg.save(output_path, format="PNG")
+        output = BytesIO()
+        bg.save(output, format="PNG")
+        return output.getvalue()
+
+    @staticmethod
+    def _draw_move_visualization(draw, orders: list, coords: dict, power_colors: dict):
+        """Draw move arrows and support indicators on the map"""
+        for order_data in orders:
+            if "order" not in order_data:
+                continue
+                
+            order_text = order_data["order"]
+            power = order_data.get("power", "UNKNOWN")
+            color = power_colors.get(power.upper(), "black")
+            
+            # Parse different types of orders
+            parts = order_text.split()
+            if len(parts) < 3:
+                continue
+                
+            unit = f"{parts[1]} {parts[2]}"  # e.g., "A PAR"
+            
+            # Move orders (A PAR - BUR)
+            if len(parts) >= 5 and parts[3] == "-":
+                from_prov = parts[2].upper()
+                to_prov = parts[4].upper()
+                if from_prov in coords and to_prov in coords:
+                    Map._draw_move_arrow(draw, coords[from_prov], coords[to_prov], color)
+            
+            # Support orders (A PAR S A BUR - MUN)
+            elif len(parts) >= 7 and parts[3] == "S":
+                # Support move: A PAR S A BUR - MUN
+                if len(parts) >= 7 and parts[5] == "-":
+                    supporter_prov = parts[2].upper()
+                    supported_from = parts[4].upper()
+                    supported_to = parts[6].upper()
+                    
+                    if (supporter_prov in coords and 
+                        supported_from in coords and 
+                        supported_to in coords):
+                        Map._draw_support_arrow(draw, coords[supporter_prov], 
+                                              coords[supported_from], coords[supported_to], color)
+                # Support hold: A PAR S A BUR
+                elif len(parts) >= 5:
+                    supporter_prov = parts[2].upper()
+                    supported_prov = parts[4].upper()
+                    if supporter_prov in coords and supported_prov in coords:
+                        Map._draw_support_hold(draw, coords[supporter_prov], 
+                                             coords[supported_prov], color)
+
+    @staticmethod
+    def _draw_move_arrow(draw, from_coord, to_coord, color):
+        """Draw an arrow for a move order"""
+        from_x, from_y = from_coord
+        to_x, to_y = to_coord
+        
+        # Draw arrow line
+        draw.line([from_x, from_y, to_x, to_y], fill=color, width=3)
+        
+        # Draw arrowhead
+        import math
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        arrow_length = 15
+        arrow_angle = math.pi / 6  # 30 degrees
+        
+        # Calculate arrowhead points
+        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
+        
+        # Draw arrowhead
+        draw.line([to_x, to_y, head_x1, head_y1], fill=color, width=3)
+        draw.line([to_x, to_y, head_x2, head_y2], fill=color, width=3)
+
+    @staticmethod
+    def _draw_support_arrow(draw, supporter_coord, supported_from_coord, supported_to_coord, color):
+        """Draw support for a move"""
+        supp_x, supp_y = supporter_coord
+        from_x, from_y = supported_from_coord
+        to_x, to_y = supported_to_coord
+        
+        # Draw curved support line
+        mid_x = (supp_x + from_x) / 2
+        mid_y = (supp_y + from_y) / 2
+        
+        # Draw curved line using quadratic bezier
+        import math
+        control_x = mid_x + 20
+        control_y = mid_y + 20
+        
+        # Simple curved line approximation
+        steps = 20
+        for i in range(steps):
+            t1 = i / steps
+            t2 = (i + 1) / steps
+            
+            x1 = (1-t1)**2 * supp_x + 2*(1-t1)*t1 * control_x + t1**2 * from_x
+            y1 = (1-t1)**2 * supp_y + 2*(1-t1)*t1 * control_y + t1**2 * from_y
+            x2 = (1-t2)**2 * supp_x + 2*(1-t2)*t2 * control_x + t2**2 * from_x
+            y2 = (1-t2)**2 * supp_y + 2*(1-t2)*t2 * control_y + t2**2 * from_y
+            
+            draw.line([x1, y1, x2, y2], fill=color, width=2)
+        
+        # Draw "S" indicator
+        draw.text((mid_x, mid_y), "S", fill=color, font=ImageFont.load_default())
+
+    @staticmethod
+    def _draw_support_hold(draw, supporter_coord, supported_coord, color):
+        """Draw support for a hold"""
+        supp_x, supp_y = supporter_coord
+        supped_x, supped_y = supported_coord
+        
+        # Draw straight support line
+        draw.line([supp_x, supp_y, supped_x, supped_y], fill=color, width=2)
+        
+        # Draw "S" indicator at midpoint
+        mid_x = (supp_x + supped_x) / 2
+        mid_y = (supp_y + supped_y) / 2
+        draw.text((mid_x, mid_y), "S", fill=color, font=ImageFont.load_default())
+
     def get_province(self, name: str) -> Optional[Province]:
         return self.provinces.get(name)
 
