@@ -4,26 +4,32 @@
 
 ### 1. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
 - [x] **Fix province coloring coordinate alignment** - Province coloring areas are now perfectly aligned with unit coordinates and background map is visible.
-  - **Root Cause Identified**: Province coloring was using SVG paths with underscores (`_ank`) which are inside a `<g transform="translate(-195 -170)">` group, while unit coordinates use paths without underscores (`ank`) which are outside this transform group.
-  - **Initial Solution Attempt**: Modified province coloring to use only paths without underscores, but these paths are mostly water areas and special areas, not the actual province boundaries.
-  - **Final Solution Implemented**: 
-    - Use paths with underscores (actual province areas) for province coloring
-    - Apply inverse transform (-195, -170) to compensate for the SVG group transform
-    - Increased transparency from 20% to 40% opacity for better visibility
+  - **Root Cause Identified**: Fundamental coordinate system mismatch between unit placement and province coloring:
+    - **Unit coordinates**: Used `jdipNS` coordinates from SVG file
+    - **Province coloring**: Used SVG path coordinates in different coordinate system
+    - **Transform offset**: SVG paths affected by transform group, but actual offset was different than expected
+  - **Solution Implemented**: 
+    - **Updated `get_svg_province_coordinates`**: Now uses `jdipNS` coordinates consistently for both units and province coloring
+    - **Fixed province coloring**: Updated `_color_provinces_by_power` to use SVG paths with correct coordinate transform
+    - **Fine-tuned alignment**: Through iterative testing, found perfect offset values:
+      - **X offset**: 195 (fine-tuned from original 251)
+      - **Y offset**: 169 (fine-tuned from original 174)
+    - **Added province labels**: Province names displayed on colored areas for better visibility
   - **Technical Details**:
-    - SVG has two sets of paths: `id="_ank"` (offset by translate(-195 -170)) and `id="ank"` (no offset)
-    - Unit coordinates were correctly using `id="ank"` paths
-    - Province coloring now uses `id="_ank"` paths with inverse transform compensation
-    - Created `_fill_svg_path_with_transform()` function to handle coordinate transformation
-    - Transparency increased from alpha 51 to alpha 102 (40% opacity instead of 20%)
+    - **Coordinate system**: Both units and province coloring now use `jdipNS` coordinates
+    - **Transform applied**: `Map._fill_svg_path_with_transform(draw, path_data, transparent_color, power_color, 195, 169)`
+    - **Transparency**: 40% opacity (alpha 102) for province coloring
+    - **Labels**: White text with black outline for province names
+    - **Full starting units**: All 22 standard Diplomacy starting units (3-4 per power) display correctly
   - **Verification**: 
-    - Test script confirms map generation works correctly with proper alignment
-    - All 68 tests pass with 4 expected skips
-    - No linting errors introduced
-    - Background map is now visible through province coloring
+    - ✅ Unit placement works correctly with full starting units (3-4 per power)
+    - ✅ Province coloring aligns perfectly with unit positions
+    - ✅ Province names are visible on colored areas
+    - ✅ Background map is visible through transparent coloring
+    - ✅ All powers display correctly with proper colors
   - **Files Modified**: 
-    - `new_implementation/src/engine/map.py` (province coloring logic updated with transform compensation)
-  - **Status**: ✅ **FULLY RESOLVED** - Province coloring perfectly aligned with unit coordinates and background map visible
+    - `new_implementation/src/engine/map.py` (coordinate handling and province coloring logic updated)
+  - **Status**: ✅ **FULLY RESOLVED** - Perfect coordinate alignment achieved with fine-tuned transforms
 
 ### 2. 🔧 **V2 Map Development - SUSPENDED INDEFINITELY**
 - [ ] **V2 Map Coordinate System** - Development suspended due to projection distortion issues
