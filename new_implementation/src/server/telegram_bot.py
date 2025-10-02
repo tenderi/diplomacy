@@ -548,7 +548,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Handle unit selection for interactive orders
         parts = data.split("_")
         game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"  # Reconstruct "A BER" format
+        unit = f"{parts[3]} {parts[4]}"  # Reconstruct "A BER" format from "A_BER"
         
         await show_possible_moves(query, game_id, unit)
         
@@ -1465,8 +1465,8 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             emoji = "🛡️" if unit_type == "A" else "🚢"
             button_text = f"{emoji} {unit}"
             
-            # Create callback data
-            callback_data = f"select_unit_{game_id}_{unit}"
+            # Create callback data (replace spaces with underscores)
+            callback_data = f"select_unit_{game_id}_{unit.replace(' ', '_')}"
             
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
         
