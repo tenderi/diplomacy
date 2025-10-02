@@ -1084,8 +1084,7 @@ def admin_delete_all_games() -> Dict[str, Any]:
         # 5. Delete games (no dependencies)
         db.query(GameModel).delete()
         
-        # 6. Delete users (no dependencies)
-        db.query(UserModel).delete()
+        # Note: We do NOT delete users - they should be preserved for future games
         
         db.commit()
         
@@ -1123,6 +1122,41 @@ def admin_get_users_count() -> Dict[str, Any]:
         count = db.query(UserModel).count()
         return {"count": count}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/admin/recreate_admin_user")
+def admin_recreate_admin_user() -> Dict[str, Any]:
+    """Recreate the admin user account (admin only)"""
+    db: Session = SessionLocal()
+    try:
+        # Check if admin user already exists
+        admin_user = db.query(UserModel).filter_by(telegram_id="8019538").first()
+        
+        if admin_user:
+            return {
+                "status": "ok",
+                "message": "Admin user already exists",
+                "user_id": admin_user.id
+            }
+        
+        # Create admin user
+        admin_user = UserModel(
+            telegram_id="8019538",
+            full_name="Helge Jalonen"
+        )
+        db.add(admin_user)
+        db.commit()
+        db.refresh(admin_user)
+        
+        return {
+            "status": "ok",
+            "message": "Admin user created successfully",
+            "user_id": admin_user.id
+        }
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
