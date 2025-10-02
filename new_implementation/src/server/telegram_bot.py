@@ -356,6 +356,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("🗺️ Generating standard Diplomacy map...")
         await send_default_map(update, context)
 
+    elif data == "start_demo_game":
+        await query.edit_message_text("🎮 Starting demo game as Germany...")
+        await start_demo_game(update, context)
+
     elif data == "back_to_main_menu":
         # Show the main start message again
         await show_main_menu(update, context)
@@ -366,6 +370,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "join_waiting_list":
         # Simulate the wait command
         await wait(update, context)
+
+    elif data.startswith("demo_orders_"):
+        game_id = data.split("_")[2]
+        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!")
+        
+    elif data.startswith("demo_help_"):
+        game_id = data.split("_")[2]
+        help_text = (
+            f"ℹ️ *Demo Game Help* (ID: {game_id})\n\n"
+            "🇩🇪 *You are Germany* - You control:\n"
+            "• A Berlin (Army in Berlin)\n"
+            "• A Munich (Army in Munich)\n"
+            "• F Kiel (Fleet in Kiel)\n\n"
+            "*Example Orders:*\n"
+            "• `/orders {game_id} A Berlin - Kiel`\n"
+            "• `/orders {game_id} A Munich - Bohemia`\n"
+            "• `/orders {game_id} F Kiel - Denmark`\n\n"
+            "🤖 *Other powers won't move* - they're AI-controlled\n"
+            "🗺️ Use 'View Map' to see the current state"
+        )
+        await query.edit_message_text(help_text, parse_mode='Markdown')
 
     elif data == "retry_orders_menu":
         await show_my_orders_menu(update, context)
@@ -550,6 +575,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             # Show default map for users not in any games
             keyboard = [
                 [InlineKeyboardButton("🗺️ View Standard Diplomacy Map", callback_data="view_default_map")],
+                [InlineKeyboardButton("🎮 Start Demo Game (Germany)", callback_data="start_demo_game")],
                 [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
                 [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
             ]
@@ -559,6 +585,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 "🎮 You're not in any active games!\n\n"
                 "💡 *Options:*\n"
                 "🗺️ View the standard Diplomacy board\n"
+                "🎮 Start a demo game as Germany\n"
                 "🎲 Browse games and join one for live maps\n"
                 "⏳ Join waiting list for auto-matching",
                 reply_markup=reply_markup,
@@ -742,6 +769,116 @@ async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     except Exception as e:
         error_msg = f"❌ Error generating default map: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start a demo game where the user plays as Germany with all units in starting positions"""
+    try:
+        user_id = str(update.effective_user.id)
+        
+        # Create a demo game
+        game_resp = api_post("/games/create", {"map_name": "demo"})
+        game_id = game_resp["game_id"]
+        
+        # Add the user as Germany
+        api_post(f"/games/{game_id}/join", {
+            "telegram_id": user_id, 
+            "game_id": int(game_id), 
+            "power": "GERMANY"
+        })
+        
+        # Add AI players for other powers (they won't submit orders)
+        other_powers = ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"]
+        for power in other_powers:
+            api_post(f"/games/{game_id}/join", {
+                "telegram_id": f"ai_{power.lower()}", 
+                "game_id": int(game_id), 
+                "power": power
+            })
+        
+        # Generate the map with starting positions
+        await send_demo_map(update, context, game_id)
+        
+        # Show demo game controls
+        keyboard = [
+            [InlineKeyboardButton("📋 Submit Orders", callback_data=f"demo_orders_{game_id}")],
+            [InlineKeyboardButton("🗺️ View Map", callback_data=f"view_map_{game_id}")],
+            [InlineKeyboardButton("ℹ️ Demo Help", callback_data=f"demo_help_{game_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        demo_text = (
+            f"🎮 *Demo Game Started!* (ID: {game_id})\n\n"
+            "🇩🇪 *You are Germany* - Make your moves!\n"
+            "🤖 Other powers are AI-controlled (they won't move)\n\n"
+            "💡 *Available Commands:*\n"
+            "📋 Submit orders for Germany\n"
+            "🗺️ View current map state\n"
+            "ℹ️ Get help with demo mode\n\n"
+            "*Example Orders:*\n"
+            "• `A Berlin - Kiel`\n"
+            "• `A Munich - Bohemia`\n"
+            "• `F Kiel - Denmark`"
+        )
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                demo_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                demo_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        error_msg = f"❌ Error starting demo game: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
+    """Send the demo map with all units in starting positions"""
+    try:
+        # Get game state
+        game_state = api_get(f"/games/{game_id}/state")
+        
+        # Generate map with units
+        from src.engine.map import Map
+        map_instance = Map("standard")
+        
+        # Create units dictionary from game state
+        units = {}
+        if "powers" in game_state:
+            for power_name, power_data in game_state["powers"].items():
+                if "units" in power_data:
+                    for unit in power_data["units"]:
+                        units[unit] = power_name
+        
+        # Render the map
+        img_bytes = map_instance.render_board_png(units, f"/tmp/demo_map_{game_id}.png")
+        
+        # Send the map
+        if update.callback_query:
+            await update.callback_query.message.reply_photo(
+                photo=img_bytes,
+                caption=f"🗺️ *Demo Game Map* (ID: {game_id})\n\nAll units in starting positions!"
+            )
+        else:
+            await update.message.reply_photo(
+                photo=img_bytes,
+                caption=f"🗺️ *Demo Game Map* (ID: {game_id})\n\nAll units in starting positions!"
+            )
+            
+    except Exception as e:
+        error_msg = f"❌ Error generating demo map: {str(e)}"
         if update.callback_query:
             await update.callback_query.edit_message_text(error_msg)
         else:

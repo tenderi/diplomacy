@@ -9,7 +9,9 @@ class Game:
     """Main class for managing the game state, phases, and turn processing."""
     def __init__(self, map_name: str = 'standard') -> None:
         self.map_name: str = map_name
-        self.map: Map = Map(map_name)  # Use Map for board representation, pass map_name
+        # Use standard map for demo mode
+        actual_map_name = 'standard' if map_name == 'demo' else map_name
+        self.map: Map = Map(actual_map_name)  # Use Map for board representation, pass map_name
         self.powers: Dict[str, Power] = {}
         self.orders: Dict[str, List[str]] = {}
         self.turn: int = 0
@@ -26,8 +28,8 @@ class Game:
         if power_name not in self.powers:
             # Assign all supply centers as home centers for demo (for variants)
             self.powers[power_name] = Power(power_name, list(self.map.get_supply_centers()))
-            # Assign standard starting units if using the standard map
-            if self.map_name == 'standard':
+            # Assign standard starting units if using the standard map or demo mode
+            if self.map_name in ['standard', 'demo']:
                 starting_units = {
                     'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
                     'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
@@ -84,9 +86,12 @@ class Game:
         print("DEBUG: UNITS AFTER NORMALIZATION:")
         for power, p in self.powers.items():
             print(f"  {power}: {p.units}")
-        # 2. Parse and validate all orders
+        # 2. Parse and validate all orders (demo mode: only process Germany's orders)
         parsed_orders: Dict[str, List[Order]] = {}
         for power, order_strs in self.orders.items():
+            # In demo mode, only process Germany's orders
+            if self.map_name == 'demo' and power != 'GERMANY':
+                continue
             parsed_orders[power] = []
             for order_str in order_strs:
                 try:
