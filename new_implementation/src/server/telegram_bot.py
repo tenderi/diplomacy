@@ -1296,6 +1296,7 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         
         # Process the turn via API
+        # The API will automatically restore the game from database if needed
         result = api_post(f"/games/{game_id}/process_turn", {})
         
         if result.get("status") == "ok":

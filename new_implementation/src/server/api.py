@@ -289,8 +289,48 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
             "adjudication_results": { ... }  # Only present if available
         }
     """
+    # If game doesn't exist in server.games, try to restore it from database
     if game_id not in server.games:
-        raise HTTPException(status_code=404, detail="Game not found")
+        db: Session = SessionLocal()
+        try:
+            # Check if game exists in database
+            game_model = db.query(GameModel).filter_by(id=int(game_id)).first()
+            if game_model is None:
+                raise HTTPException(status_code=404, detail="Game not found")
+            
+            # Restore the game in server.games
+            from engine.game import Game
+            restored_game = Game(map_name=game_model.map_name)
+            setattr(restored_game, "game_id", game_id)
+            
+            # Restore players from database
+            players = db.query(PlayerModel).filter_by(game_id=int(game_id)).all()
+            for player in players:
+                restored_game.add_player(player.power)
+            
+            # Restore game state from database if available
+            if hasattr(game_model, 'state') and game_model.state:
+                state_data = game_model.state
+                if isinstance(state_data, dict):
+                    # Restore basic game state
+                    restored_game.turn = state_data.get("turn", 0)
+                    restored_game.phase = state_data.get("phase", "movement")
+                    restored_game.done = state_data.get("done", False)
+                    
+                    # Restore units if available
+                    if "units" in state_data:
+                        for power_name, unit_list in state_data["units"].items():
+                            if power_name in restored_game.powers:
+                                restored_game.powers[power_name].units = set(unit_list)
+            
+            # Add restored game to server
+            server.games[game_id] = restored_game
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to restore game: {str(e)}")
+        finally:
+            db.close()
+    
     game = server.games[game_id]
     state = game.get_state()
     # Remove non-serializable objects
