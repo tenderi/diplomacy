@@ -78,6 +78,20 @@ class Game:
                 else:
                     # Province only - need to infer type from orders
                     inferred_type = 'A'  # Default to Army
+                    # Try to infer type from orders for this power
+                    for order_str in self.orders.get(power, []):
+                        try:
+                            if not order_str.startswith(power):
+                                full_order_str = f"{power} {order_str}"
+                            else:
+                                full_order_str = order_str
+                            order = OrderParser.parse(full_order_str)
+                            # Check if this order is for the same province
+                            if order.unit.endswith(f" {unit}"):
+                                inferred_type = order.unit.split()[0]  # Get A or F
+                                break
+                        except Exception:
+                            continue
                     normalized_units.add(f"{inferred_type} {unit}")
                     unit_positions[f"{inferred_type} {unit}"] = unit
                     unit_to_power[f"{inferred_type} {unit}"] = power
@@ -447,11 +461,12 @@ class Game:
             new_unit_id = f"{unit_type} {dest}"
             power = unit_to_power.get(unit)
             if power is None:
-                power = unit_to_power.get(dest)
-            if power is not None:
-                # Remove any unit with the same province as the destination
-                new_units[power] = set(u for u in new_units[power] if u.split()[-1] != dest)
-                new_units[power].add(new_unit_id)
+                # This should not happen if unit normalization worked correctly
+                print(f"ERROR: Could not find power for unit {unit} in successful_moves")
+                continue
+            # Remove any unit with the same province as the destination
+            new_units[power] = set(u for u in new_units[power] if u.split()[-1] != dest)
+            new_units[power].add(new_unit_id)
         # Assign destinations before processing remaining units
         destinations = set(successful_moves.values())
         all_units = set(unit_positions.items())
@@ -474,14 +489,15 @@ class Game:
             self.powers[power].units = set(u for u in self.powers[power].units if len(u.split()) == 2 and u.split()[0] in {'A', 'F'})
 
         # DEBUG: Print adjudication results for troubleshooting
-        # print("DEBUG: moves:", moves)
-        # print("DEBUG: convoys:", convoys)
-        # print("DEBUG: convoy_orders:", convoy_orders)
-        # print("DEBUG: supports:", supports)
-        # print("DEBUG: successful_moves:", successful_moves)
-        # print("DEBUG: dislodged_units:", dislodged_units)
-        # for pname, power in self.powers.items():
-        #     print(f"DEBUG: {pname} units before update:", power.units)
+        print("DEBUG: moves:", moves)
+        print("DEBUG: convoys:", convoys)
+        print("DEBUG: convoy_orders:", convoy_orders)
+        print("DEBUG: supports:", supports)
+        print("DEBUG: successful_moves:", successful_moves)
+        print("DEBUG: dislodged_units:", dislodged_units)
+        print("DEBUG: unit_to_power:", unit_to_power)
+        for pname, power in self.powers.items():
+            print(f"DEBUG: {pname} units before update:", power.units)
 
         # 3. Update supply center control
         supply_centers = self.map.get_supply_centers()
@@ -536,8 +552,8 @@ class Game:
         if self.turn >= 10:
             self.done = True
 
-        # for pname, power in self.powers.items():
-        #     print(f"DEBUG: {pname} units after update:", power.units)
+        for pname, power in self.powers.items():
+            print(f"DEBUG: {pname} units after update:", power.units)
 
         # STUB: After movement, transition to retreat phase
         # self.phase = "retreat" # This line is now handled by the new_successful_moves check

@@ -988,6 +988,77 @@ def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
     orders = OrderParser.generate_legal_orders(power, unit, game_state)
     return {"orders": orders}
 
+# --- Debug Endpoints ---
+@app.get("/games/{game_id}/debug/unit_locations")
+def debug_unit_locations(game_id: str) -> Dict[str, Any]:
+    """Get all unit locations in text format for debugging"""
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game = server.games[game_id]
+    unit_locations = {}
+    
+    for power_name, power in game.powers.items():
+        unit_locations[power_name] = list(power.units)
+    
+    return {
+        "status": "ok",
+        "game_id": game_id,
+        "turn": game.turn,
+        "phase": game.phase,
+        "unit_locations": unit_locations
+    }
+
+@app.get("/games/{game_id}/debug/movement_history")
+def debug_movement_history(game_id: str) -> Dict[str, Any]:
+    """Get all movements from the last turn in text format for debugging"""
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game = server.games[game_id]
+    
+    # Get the last turn's results
+    last_turn = game.turn - 1
+    if last_turn not in game.order_history:
+        return {
+            "status": "ok",
+            "game_id": game_id,
+            "turn": game.turn,
+            "message": "No movement history available yet"
+        }
+    
+    turn_results = game.order_history[last_turn]
+    movement_summary = {}
+    
+    for power_name, power_results in turn_results.items():
+        movements = []
+        for order_str, result in power_results.get("results", {}).items():
+            if result.get("success", False) and result.get("dest"):
+                # This was a successful move
+                movements.append({
+                    "order": order_str,
+                    "destination": result["dest"],
+                    "success": True,
+                    "dislodged": result.get("dislodged", False)
+                })
+            elif not result.get("success", False):
+                # This was a failed move
+                movements.append({
+                    "order": order_str,
+                    "destination": result.get("dest"),
+                    "success": False,
+                    "dislodged": result.get("dislodged", False)
+                })
+        movement_summary[power_name] = movements
+    
+    return {
+        "status": "ok",
+        "game_id": game_id,
+        "turn": game.turn,
+        "last_turn": last_turn,
+        "movement_history": movement_summary
+    }
+
 # --- Admin Endpoints ---
 @app.post("/admin/delete_all_games")
 def admin_delete_all_games() -> Dict[str, Any]:
