@@ -948,5 +948,59 @@ def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
     orders = OrderParser.generate_legal_orders(power, unit, game_state)
     return {"orders": orders}
 
+# --- Admin Endpoints ---
+@app.post("/admin/delete_all_games")
+def admin_delete_all_games() -> Dict[str, Any]:
+    """Delete all games (admin only)"""
+    db: Session = SessionLocal()
+    try:
+        # Count games before deletion
+        games_count = db.query(GameModel).count()
+        
+        # Delete all games and related data
+        db.query(OrderModel).delete()
+        db.query(PlayerModel).delete()
+        db.query(MessageModel).delete()
+        db.query(GameModel).delete()
+        db.commit()
+        
+        # Clear in-memory server games
+        server.games.clear()
+        
+        return {
+            "status": "ok", 
+            "message": "All games deleted successfully",
+            "deleted_count": games_count
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/admin/games_count")
+def admin_get_games_count() -> Dict[str, Any]:
+    """Get count of active games (admin only)"""
+    db: Session = SessionLocal()
+    try:
+        count = db.query(GameModel).count()
+        return {"count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/admin/users_count")
+def admin_get_users_count() -> Dict[str, Any]:
+    """Get count of registered users (admin only)"""
+    db: Session = SessionLocal()
+    try:
+        count = db.query(UserModel).count()
+        return {"count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)

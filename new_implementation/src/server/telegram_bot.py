@@ -6,6 +6,7 @@ This bot will handle registration, order submission, and notifications for Diplo
 import logging
 import os
 import requests
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 from io import BytesIO
@@ -99,6 +100,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
         [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
     ]
+    
+    # Add admin menu for admin user (ID: 8019538)
+    if str(update.effective_user.id) == "8019538":
+        keyboard.append([KeyboardButton("⚙️ Admin")])
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, 
                                        one_time_keyboard=False)
 
@@ -392,6 +397,76 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         await query.edit_message_text(help_text, parse_mode='Markdown')
 
+    elif data == "admin_delete_all_games":
+        # Check admin authorization
+        if str(query.from_user.id) != "8019538":
+            await query.edit_message_text("❌ Access denied. Admin privileges required.")
+            return
+        
+        # Show confirmation dialog
+        keyboard = [
+            [InlineKeyboardButton("✅ Yes, Delete All Games", callback_data="admin_confirm_delete_all")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel_delete")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "⚠️ *CONFIRMATION REQUIRED*\n\n"
+            "🗑️ You are about to delete ALL games!\n\n"
+            "This action will:\n"
+            "• Remove all active games\n"
+            "• Delete all game data\n"
+            "• Affect all players\n\n"
+            "⚠️ *This action cannot be undone!*\n\n"
+            "Are you sure you want to proceed?",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    elif data == "admin_confirm_delete_all":
+        # Check admin authorization again
+        if str(query.from_user.id) != "8019538":
+            await query.edit_message_text("❌ Access denied. Admin privileges required.")
+            return
+        
+        try:
+            # Call API to delete all games
+            result = api_post("/admin/delete_all_games", {})
+            await query.edit_message_text(
+                f"✅ *All games deleted successfully!*\n\n"
+                f"🗑️ Result: {result.get('message', 'Games deleted')}\n"
+                f"📊 Games deleted: {result.get('deleted_count', 'Unknown')}",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error deleting games: {str(e)}")
+
+    elif data == "admin_cancel_delete":
+        await query.edit_message_text("❌ Delete operation cancelled.")
+
+    elif data == "admin_system_status":
+        # Check admin authorization
+        if str(query.from_user.id) != "8019538":
+            await query.edit_message_text("❌ Access denied. Admin privileges required.")
+            return
+        
+        try:
+            # Get system status
+            games_count = len(api_get("/admin/games_count") or [])
+            users_count = len(api_get("/admin/users_count") or [])
+            
+            status_text = (
+                "📊 *System Status*\n\n"
+                f"🎮 Active Games: {games_count}\n"
+                f"👥 Registered Users: {users_count}\n"
+                f"🕒 Server Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"⚙️ Admin User: {query.from_user.id}\n\n"
+                "✅ System operational"
+            )
+            await query.edit_message_text(status_text, parse_mode='Markdown')
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error getting system status: {str(e)}")
+
     elif data == "retry_orders_menu":
         await show_my_orders_menu(update, context)
 
@@ -485,6 +560,8 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_messages_menu(update, context)
     elif text == "ℹ️ Help":
         await show_help(update, context)
+    elif text == "⚙️ Admin":
+        await show_admin_menu(update, context)
 
 async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show orders menu for user's games"""
@@ -727,6 +804,36 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
+async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show admin menu with administrative functions"""
+    # Check if user is admin
+    if str(update.effective_user.id) != "8019538":
+        await update.message.reply_text("❌ Access denied. Admin privileges required.")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("🗑️ Delete All Games", callback_data="admin_delete_all_games")],
+        [InlineKeyboardButton("📊 System Status", callback_data="admin_system_status")],
+        [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_to_main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    admin_text = (
+        "⚙️ *Admin Menu*\n\n"
+        "🔐 *Authorized User*: Admin access granted\n\n"
+        "⚠️ *Warning*: Admin functions can affect all users!\n\n"
+        "💡 *Available Actions:*\n"
+        "🗑️ Delete all games (destructive action)\n"
+        "📊 View system status\n"
+        "⬅️ Return to main menu"
+    )
+    
+    await update.message.reply_text(
+        admin_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
 async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the standard Diplomacy map without any units"""
     try:
@@ -915,6 +1022,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
         [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
     ]
+    
+    # Add admin menu for admin user (ID: 8019538)
+    if str(update.effective_user.id) == "8019538":
+        keyboard.append([KeyboardButton("⚙️ Admin")])
+    
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
     main_text = (
