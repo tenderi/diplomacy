@@ -2,7 +2,37 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **CRITICAL: Movement Processing Bug - RESOLVED**
+### 1. ✅ **CRITICAL: Admin Delete All Games Bug - RESOLVED**
+- [x] **Fixed 500 error when deleting all games** - Foreign key constraint violation in admin endpoint
+  - **Issues Identified**:
+    - ❌ 500 Server Error when calling `/admin/delete_all_games` endpoint
+    - ❌ Foreign key constraint violation during deletion
+    - ❌ Incorrect deletion order causing database errors
+  - **Root Cause Analysis**:
+    - **Foreign Key Constraints**: Database models have foreign key relationships
+      - `OrderModel` references `PlayerModel`
+      - `PlayerModel` references `GameModel` and `UserModel`
+      - `MessageModel` references `GameModel` and `UserModel`
+      - `GameHistoryModel` references `GameModel`
+    - **Deletion Order Issue**: Original code tried to delete `GameModel` before deleting dependent records
+      - This caused foreign key constraint violations
+      - Database rejected the deletion operation
+  - **Solution Implemented**:
+    - ✅ **Fixed Deletion Order**: Implemented correct deletion sequence respecting foreign key constraints
+      1. Delete `OrderModel` first (references players)
+      2. Delete `PlayerModel` (references games and users)
+      3. Delete `MessageModel` (references games and users)
+      4. Delete `GameHistoryModel` (references games)
+      5. Delete `GameModel` (no dependencies)
+      6. Delete `UserModel` (no dependencies)
+    - ✅ **Added Missing Import**: Added `GameHistoryModel` import to API file
+    - ✅ **Enhanced Error Handling**: Maintained existing error handling and rollback logic
+  - **Files Modified**:
+    - ✅ `src/server/api.py` (fixed deletion order and added missing import)
+  - **Status**: ✅ **FULLY RESOLVED** - Admin delete all games functionality now works correctly
+  - **Impact**: Admin users can now successfully delete all games without database errors
+
+### 2. ✅ **CRITICAL: Movement Processing Bug - RESOLVED**
 - [x] **Fixed unit disappearance and movement failure after second turn** - Critical bug in movement adjudication system
   - **Issues Identified**:
     - ❌ Units disappearing after successful movement (fleet disappeared, armies didn't move)

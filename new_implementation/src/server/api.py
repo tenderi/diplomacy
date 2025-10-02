@@ -15,7 +15,7 @@ from src.server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
-from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel, MessageModel
+from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel, MessageModel, GameHistoryModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
@@ -1068,11 +1068,25 @@ def admin_delete_all_games() -> Dict[str, Any]:
         # Count games before deletion
         games_count = db.query(GameModel).count()
         
-        # Delete all games and related data
+        # Delete all games and related data in correct order (respecting foreign key constraints)
+        # 1. Delete orders first (references players)
         db.query(OrderModel).delete()
+        
+        # 2. Delete players (references games and users)
         db.query(PlayerModel).delete()
+        
+        # 3. Delete messages (references games and users)
         db.query(MessageModel).delete()
+        
+        # 4. Delete game history (references games)
+        db.query(GameHistoryModel).delete()
+        
+        # 5. Delete games (no dependencies)
         db.query(GameModel).delete()
+        
+        # 6. Delete users (no dependencies)
+        db.query(UserModel).delete()
+        
         db.commit()
         
         # Clear in-memory server games
