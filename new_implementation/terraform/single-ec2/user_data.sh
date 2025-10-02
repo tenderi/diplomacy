@@ -256,6 +256,12 @@ ln -sf /etc/nginx/sites-available/diplomacy /etc/nginx/sites-enabled/
 # Test Nginx configuration
 nginx -t
 
+# Run database migrations
+echo "Running database migrations..."
+cd /opt/diplomacy
+sudo -u diplomacy alembic upgrade head
+echo "✓ Database migrations completed"
+
 # Enable and start services
 echo "Enabling and starting services..."
 systemctl daemon-reload

@@ -11,7 +11,20 @@
   - **Files Modified**: `new_implementation/src/server/telegram_bot.py`
   - **Status**: ✅ **FULLY RESOLVED** - Bot can now generate default map without errors
 
-### 2. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
+### 2. ✅ **Database Migration Issue - RESOLVED**
+- [x] **Fixed missing database migrations in deployment** - Server was failing with "relation 'users' does not exist" error
+  - **Root Cause**: Database migrations were not being run during deployment, causing missing tables
+  - **Error**: `psycopg2.errors.UndefinedTable: relation "users" does not exist`
+  - **Solution**: 
+    - Added `alembic upgrade head` to `user_data.sh` for initial deployment
+    - Modified `deploy_app.sh` to run migrations when source code changes (not just alembic changes)
+    - Ensures database tables are created before services start
+  - **Files Modified**: 
+    - `new_implementation/terraform/single-ec2/user_data.sh` (added migration step)
+    - `new_implementation/terraform/single-ec2/deploy_app.sh` (enhanced migration logic)
+  - **Status**: ✅ **FULLY RESOLVED** - Database migrations now run during deployment
+
+### 3. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
 - [x] **Fix province coloring coordinate alignment** - Province coloring areas are now perfectly aligned with unit coordinates and background map is visible.
   - **Root Cause Identified**: Fundamental coordinate system mismatch between unit placement and province coloring:
     - **Unit coordinates**: Used `jdipNS` coordinates from SVG file
