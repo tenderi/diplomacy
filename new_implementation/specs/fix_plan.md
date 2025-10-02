@@ -64,6 +64,10 @@
     - ✅ `src/server/api.py` (added debugging endpoints)
   - **Status**: ✅ **FULLY RESOLVED** - Movement processing bugs fixed, debugging capabilities added
   - **Impact**: This resolves the issue where units disappeared or failed to move after the second turn
+  - **Verification**: Tested with debug script - all movement orders now process correctly:
+    - F KIE - BAL ✅ (Fleet Kiel to Baltic Sea)
+    - A BER - SIL ✅ (Army Berlin to Silesia)  
+    - A MUN - TYR ✅ (Army Munich to Tyrolia)
 
 ### 2. ✅ **NEW FEATURE: Interactive Order Input - COMPLETED**
 - [x] **Implement interactive order selection system** - Choose unit first, then select from possible moves
