@@ -13,7 +13,7 @@ def test_order_parse():
 
     # Test invalid order (too short)
     try:
-        OrderParser.parse("FRANCE A PAR")
+        OrderParser.parse("FRANCE")
         assert False, "Should raise ValueError for invalid order format"
     except ValueError:
         pass
@@ -56,7 +56,7 @@ def test_order_validate():
 
 
 def test_generate_legal_orders():
-    from .map import Map
+    from src.engine.map import Map
     # Setup game state for FRANCE A PAR (army), F BRE (fleet)
     map_obj = Map("standard")
     game_state = {

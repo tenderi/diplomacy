@@ -45,6 +45,19 @@ class Game:
                 pname = power_name.upper()
                 if pname in starting_units:
                     self.powers[power_name].units = set(starting_units[pname])
+        
+        # Initialize orders list for this power
+        if power_name not in self.orders:
+            self.orders[power_name] = []
+
+    def set_orders(self, power_name: str, orders: List[str]) -> None:
+        """Set orders for a power. Orders are stored as strings and validated during processing."""
+        if power_name not in self.powers:
+            raise ValueError(f"Power {power_name} not found in game")
+        
+        # Store orders as strings - validation happens during phase processing
+        self.orders[power_name] = orders.copy()
+        print(f"DEBUG: Set orders for {power_name}: {orders}")
 
     def _update_phase_code(self) -> None:
         """Update the phase code based on current year, season, and phase."""
@@ -603,47 +616,73 @@ class Game:
         # self.pending_retreats = {} # This line is now handled by the new_successful_moves check
 
     def _process_retreat_phase(self) -> None:
+        """Process retreat orders for dislodged units."""
+        print(f"DEBUG: Processing retreat phase. Pending retreats: {self.pending_retreats}")
+        
         # Process retreat/disband orders for each dislodged unit
-        # self.pending_retreats: Dict[power, List[{unit, from, options}]]
         for power, retreats in self.pending_retreats.items():
             orders = self.orders.get(power, [])
             handled_units = set()
+            
             for retreat_info in retreats:
                 unit = retreat_info["unit"]
                 options = set(retreat_info["options"])
+                print(f"DEBUG: Processing retreat for {unit}, options: {options}")
+                
                 # Find the submitted order for this unit
                 order_found = False
                 for order_str in orders:
-                    # Retreat order: e.g., 'A PAR R BUR' or 'A PAR D'
-                    tokens = order_str.split()
-                    if len(tokens) < 3:
-                        continue
-                    if tokens[0] != unit.split()[0] or tokens[1] != unit.split()[1]:
-                        continue
-                    if tokens[2] == "R" and len(tokens) == 4:
-                        # Retreat order
-                        dest = tokens[3]
-                        if dest in options:
-                            # Move unit to retreat destination
+                    try:
+                        # Parse order using OrderParser
+                        if not order_str.startswith(power):
+                            full_order_str = f"{power} {order_str}"
+                        else:
+                            full_order_str = order_str
+                        
+                        order = OrderParser.parse(full_order_str)
+                        
+                        # Check if this is a retreat order for this unit
+                        if order.unit == unit and order.action == "-":
+                            # Validate the retreat order
+                            game_state = self.get_state()
+                            game_state["phase"] = "Retreat"
+                            game_state["dislodged_units"] = {power: [unit]}
+                            game_state["attacker_origins"] = {unit: retreat_info.get("attacker_origins", [])}
+                            game_state["standoff_vacated"] = retreat_info.get("standoff_vacated", [])
+                            
+                            valid, msg = OrderParser.validate(order, game_state)
+                            if valid and order.target in options:
+                                # Execute retreat
+                                self.powers[power].units.discard(unit)
+                                self.powers[power].units.add(f"{unit.split()[0]} {order.target}")
+                                print(f"DEBUG: Unit {unit} retreated to {order.target}")
+                                order_found = True
+                                handled_units.add(unit)
+                                break
+                            else:
+                                print(f"DEBUG: Invalid retreat order: {msg}")
+                        
+                        # Check if this is a destroy order (disband)
+                        elif order.unit == unit and order.action == "DESTROY":
                             self.powers[power].units.discard(unit)
-                            self.powers[power].units.add(f"{unit.split()[0]} {dest}")
+                            print(f"DEBUG: Unit {unit} destroyed")
                             order_found = True
                             handled_units.add(unit)
                             break
-                    elif tokens[2] == "D":
-                        # Disband order
-                        self.powers[power].units.discard(unit)
-                        order_found = True
-                        handled_units.add(unit)
-                        break
+                            
+                    except Exception as e:
+                        print(f"DEBUG: Error parsing retreat order '{order_str}': {e}")
+                        continue
+                
                 if not order_found:
                     # Forced disband if no valid retreat submitted
                     self.powers[power].units.discard(unit)
+                    print(f"DEBUG: Unit {unit} forced disband (no valid retreat)")
+        
         # After all retreats, clear pending_retreats and orders
         self.pending_retreats = {}
         self.orders = {}
-        self.pending_adjustments = {}  # TODO: Fill with actual build/disband info
-        # Phase will be advanced to Builds by _advance_phase()
+        print("DEBUG: Retreat phase completed")
 
     def _process_builds_phase(self) -> None:
         """
@@ -682,48 +721,106 @@ class Game:
                 # No adjustment needed
                 continue
         self.pending_adjustments = pending_adjustments
-        # 3. Process submitted build/disband orders
+        # 3. Process submitted build/disband orders using OrderParser
+        print(f"DEBUG: Processing builds phase. Pending adjustments: {pending_adjustments}")
+        
         for power, adj in pending_adjustments.items():
             orders = self.orders.get(power, [])
             handled = 0
+            
             if adj["type"] == "build":
+                print(f"DEBUG: Processing builds for {power}, need {adj['count']} builds")
                 for order_str in orders:
-                    # Format: 'BUILD A PAR' or 'BUILD F LON'
-                    tokens = order_str.strip().split()
-                    if len(tokens) == 3 and tokens[0] == "BUILD" and tokens[2] in adj["options"]:
-                        unit_type = tokens[1]
-                        province = tokens[2]
-                        if unit_type in {"A", "F"} and province in adj["options"]:
-                            self.powers[power].units.add(f"{unit_type} {province}")
-                            handled += 1
-                            adj["options"].remove(province)
-                            if handled >= adj["count"]:
-                                break
-                # If not enough builds submitted, skip remaining
+                    try:
+                        # Parse order using OrderParser
+                        if not order_str.startswith(power):
+                            full_order_str = f"{power} {order_str}"
+                        else:
+                            full_order_str = order_str
+                        
+                        order = OrderParser.parse(full_order_str)
+                        
+                        # Check if this is a build order
+                        if order.action == "BUILD":
+                            # Validate the build order
+                            game_state = self.get_state()
+                            game_state["phase"] = "Builds"
+                            game_state["supply_centers"] = {power: list(self.powers[power].controlled_centers)}
+                            game_state["home_centers"] = {power: list(self.powers[power].home_centers)}
+                            
+                            valid, msg = OrderParser.validate(order, game_state)
+                            if valid:
+                                # Parse build target (e.g., "A PAR" or "F STP NC")
+                                build_parts = order.target.split()
+                                unit_type = build_parts[0]
+                                province = build_parts[1]
+                                
+                                if province in adj["options"]:
+                                    self.powers[power].units.add(f"{unit_type} {province}")
+                                    handled += 1
+                                    adj["options"].remove(province)
+                                    print(f"DEBUG: Built {unit_type} {province} for {power}")
+                                    if handled >= adj["count"]:
+                                        break
+                            else:
+                                print(f"DEBUG: Invalid build order: {msg}")
+                                
+                    except Exception as e:
+                        print(f"DEBUG: Error parsing build order '{order_str}': {e}")
+                        continue
+                        
             elif adj["type"] == "disband":
-                # Format: 'DISBAND A PAR' or 'DISBAND F LON'
+                print(f"DEBUG: Processing disbands for {power}, need {adj['count']} disbands")
                 disbanded = set()
+                
                 for order_str in orders:
-                    tokens = order_str.strip().split()
-                    if len(tokens) == 3 and tokens[0] == "DISBAND" and tokens[2] in [u.split()[-1] for u in adj["options"]]:
-                        # Remove the specified unit
-                        for u in list(self.powers[power].units):
-                            if u.split()[-1] == tokens[2]:
-                                self.powers[power].units.remove(u)
-                                disbanded.add(u)
+                    try:
+                        # Parse order using OrderParser
+                        if not order_str.startswith(power):
+                            full_order_str = f"{power} {order_str}"
+                        else:
+                            full_order_str = order_str
+                        
+                        order = OrderParser.parse(full_order_str)
+                        
+                        # Check if this is a destroy order
+                        if order.action == "DESTROY":
+                            # Parse destroy target (e.g., "A PAR")
+                            destroy_parts = order.target.split()
+                            unit_type = destroy_parts[0]
+                            province = destroy_parts[1]
+                            target_unit = f"{unit_type} {province}"
+                            
+                            # Validate the destroy order
+                            game_state = self.get_state()
+                            game_state["phase"] = "Builds"
+                            game_state["supply_centers"] = {power: list(self.powers[power].controlled_centers)}
+                            
+                            valid, msg = OrderParser.validate(order, game_state)
+                            if valid and target_unit in self.powers[power].units:
+                                self.powers[power].units.remove(target_unit)
+                                disbanded.add(target_unit)
                                 handled += 1
-                                break
-                        if handled >= adj["count"]:
-                            break
+                                print(f"DEBUG: Destroyed {target_unit} for {power}")
+                                if handled >= adj["count"]:
+                                    break
+                            else:
+                                print(f"DEBUG: Invalid destroy order: {msg}")
+                                
+                    except Exception as e:
+                        print(f"DEBUG: Error parsing destroy order '{order_str}': {e}")
+                        continue
+                
                 # If not enough disbands submitted, remove by rules: farthest from home, then alpha
                 if handled < adj["count"]:
+                    print(f"DEBUG: Auto-disbanding remaining units for {power}")
                     # Compute distances from home for remaining units
                     remaining = [u for u in self.powers[power].units if u not in disbanded]
                     # Farthest from home: use BFS or simple heuristic (not optimal, but sufficient for now)
                     def dist(prov):
                         # Minimal distance from prov to any home center
                         min_dist = float('inf')
-                        for home in p.home_centers:
+                        for home in self.powers[power].home_centers:
                             visited = set()
                             queue = deque([(prov, 0)])
                             while queue:
@@ -742,6 +839,7 @@ class Game:
                             break
                         self.powers[power].units.remove(u)
                         handled += 1
+                        print(f"DEBUG: Auto-destroyed {u} for {power}")
             # Log adjustment results
             logger.info(f"Adjustment for {power}: {adj['type']} x{adj['count']}, handled: {handled}")
         # 4. Check for victory conditions (standard map: 18 supply centers)
