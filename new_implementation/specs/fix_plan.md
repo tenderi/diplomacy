@@ -2,7 +2,16 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
+### 1. ✅ **Bot Map File Path Error - RESOLVED**
+- [x] **Fixed incorrect map file path reference** - Bot was trying to access non-existent `standard_fixed.svg` instead of `standard.svg`
+  - **Root Cause**: Hardcoded reference to `standard_fixed.svg` in `telegram_bot.py` line 43
+  - **Error**: `<urlopen error [Errno 2] No such file or directory: '/opt/diplomacy/maps/standard_fixed.svg'>`
+  - **Solution**: Changed default path from `maps/standard_fixed.svg` to `maps/standard.svg` in `generate_default_map()` function
+  - **Verification**: ✅ Bot now successfully generates default map (751KB PNG output)
+  - **Files Modified**: `new_implementation/src/server/telegram_bot.py`
+  - **Status**: ✅ **FULLY RESOLVED** - Bot can now generate default map without errors
+
+### 2. ✅ **Standard Map Province Coloring Coordinate Alignment - FINALLY RESOLVED**
 - [x] **Fix province coloring coordinate alignment** - Province coloring areas are now perfectly aligned with unit coordinates and background map is visible.
   - **Root Cause Identified**: Fundamental coordinate system mismatch between unit placement and province coloring:
     - **Unit coordinates**: Used `jdipNS` coordinates from SVG file
