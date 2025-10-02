@@ -1501,6 +1501,7 @@ def main():
     app.add_handler(CommandHandler("wait", wait))
     app.add_handler(CommandHandler("refresh_map", refresh_map_cache))
     app.add_handler(CommandHandler("debug", debug_command))
+    app.add_handler(CommandHandler("refresh", refresh_keyboard))
 
     # Add handlers for interactive features
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -1613,6 +1614,33 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     
     await update.message.reply_text(debug_text, parse_mode='Markdown')
+
+async def refresh_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Refresh the keyboard to show updated buttons (like admin button)"""
+    if not update.message:
+        return
+    
+    # Create main menu keyboard
+    keyboard = [
+        [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
+        [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
+        [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
+        [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
+    ]
+    
+    # Add admin menu for admin user (ID: 8019538)
+    user_id = str(update.effective_user.id)
+    if user_id == "8019538":
+        keyboard.append([KeyboardButton("⚙️ Admin")])
+    
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+    await update.message.reply_text(
+        "🔄 *Keyboard Refreshed!*\n\n"
+        "Your menu has been updated with the latest buttons.",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 if __name__ == "__main__":
     main()
