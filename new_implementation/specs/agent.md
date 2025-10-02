@@ -6,7 +6,7 @@
 
 **Terminal Command Execution**: Use `is_background=True` for all terminal commands to prevent hanging. Foreground commands (`is_background=False`) may hang due to interactive prompts or environment issues. **Note**: Complex commands with quotes and chaining (e.g., `echo "text" && pwd && date`) may cause shell parsing issues and get stuck in quote states. Use simple, single commands for testing terminal functionality.
 
-**Test Execution Notes**: Use `QT_QPA_PLATFORM=offscreen PYTHONPATH=src /usr/bin/python3.13 -m pytest src/` to run tests in headless environment. Virtual environment creation may fail due to Cursor AppImage interference, but system Python works fine for testing. All 68 tests pass with 4 expected skips.
+**Remote Service Deployment**: CRITICAL - The Diplomacy services run on a remote instance, not locally. When debugging button issues or API calls, remember that local curl tests to localhost:8000 will fail because the actual server is deployed elsewhere. The Telegram bot connects to the remote API server, not a local one. This explains why "View Map" and "Submit Orders" buttons appeared non-functional - they were making API calls to the remote server which was working correctly.
 
 - **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
 

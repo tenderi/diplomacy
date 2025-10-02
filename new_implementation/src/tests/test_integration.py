@@ -2,7 +2,7 @@
 Integration tests for Diplomacy Python implementation.
 Covers map variants, edge cases, and server/client integration.
 """
-from .game import Game
+from src.engine.game import Game
 
 
 def test_variant_map_loading_and_play():

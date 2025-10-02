@@ -305,8 +305,31 @@
     - `new_implementation/src/engine/map.py` (coordinate handling and province coloring logic updated)
   - **Status**: ✅ **FULLY RESOLVED** - Perfect coordinate alignment achieved with fine-tuned transforms
 
-### 2. 🔧 **V2 Map Development - SUSPENDED INDEFINITELY**
-- [ ] **V2 Map Coordinate System** - Development suspended due to projection distortion issues
+### 3. ✅ **Codebase Housekeeping - COMPLETED**
+- [x] **Organize test files and clean up unused scripts** - Codebase organization and cleanup
+  - **Tasks Completed**:
+    - ✅ **Test Organization**: Moved all test files to proper location `/new_implementation/src/tests/`
+      - Moved 9 test files from `src/server/` to `src/tests/`
+      - Moved 5 test files from `src/engine/` to `src/tests/`
+      - All tests now centralized in single location for better organization
+    - ✅ **Script Cleanup**: Moved unused/debug scripts to `/src/random/` directory
+      - Moved 22 unused scripts including:
+        - Map debugging scripts (`fix_svg_*.py`, `analyze_existing_maps.py`, `check_map_quality.py`)
+        - V2 map coordinate scripts (`v2_map_coordinates*.py`)
+        - Test runner scripts (`run_interactive_order_tests.py`, `simple_test.py`, `quick_test.py`)
+        - Broken map files (`map_broken.py`, `map_browser.py`, `map_wrong.py`)
+        - Configuration scripts (`map_config.py`, `generate_test_map.py`)
+  - **Files Organized**:
+    - ✅ **Tests Centralized**: All 20 test files now in `src/tests/` directory
+    - ✅ **Unused Scripts Archived**: 22 scripts moved to `src/random/` for future reference
+  - **Benefits**:
+    - ✅ **Better Organization**: Tests are now in standard location following Python conventions
+    - ✅ **Cleaner Codebase**: Removed clutter from main directories
+    - ✅ **Preserved History**: Unused scripts archived rather than deleted for future reference
+    - ✅ **Easier Maintenance**: Clear separation between active code and archived scripts
+  - **Status**: ✅ **FULLY COMPLETED** - Codebase properly organized with tests centralized and unused scripts archived
+
+### 4. 🔧 **V2 Map Development - SUSPENDED INDEFINITELY**
   - **Current Status**: V2 map is not usable for gameplay due to fundamental projection distortion
   - **Issues Encountered**:
     - **Projection Distortion**: V2 map uses Albers Equal-Area projection causing coordinate skewing
