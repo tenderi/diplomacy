@@ -543,6 +543,43 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode='Markdown'
         )
 
+    # Interactive Order Input Callbacks
+    elif data.startswith("select_unit_"):
+        # Handle unit selection for interactive orders
+        parts = data.split("_")
+        game_id = parts[2]
+        unit = f"{parts[3]} {parts[4]}"  # Reconstruct "A BER" format
+        
+        await show_possible_moves(query, game_id, unit)
+        
+    elif data.startswith("cancel_unit_selection_"):
+        game_id = data.split("_")[3]
+        await query.edit_message_text(f"❌ Unit selection cancelled for game {game_id}")
+        
+    elif data.startswith("move_unit_"):
+        # Handle move selection
+        parts = data.split("_")
+        game_id = parts[2]
+        unit = f"{parts[3]} {parts[4]}"
+        move_type = parts[5]  # "hold", "move", "support"
+        
+        if move_type == "hold":
+            await submit_interactive_order(query, game_id, f"{unit} H")
+        elif move_type == "move":
+            target_province = parts[6]
+            await submit_interactive_order(query, game_id, f"{unit} - {target_province}")
+        elif move_type == "support":
+            # For now, just show a message that support orders need more complex UI
+            await query.edit_message_text(
+                f"🔄 Support orders require selecting the unit to support.\n"
+                f"This feature will be enhanced in a future update.\n\n"
+                f"Use /order {unit} S <unit to support> for now."
+            )
+            
+    elif data.startswith("cancel_move_selection_"):
+        game_id = data.split("_")[3]
+        await query.edit_message_text(f"❌ Move selection cancelled for game {game_id}")
+
 # Handle menu button presses
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle presses of menu keyboard buttons"""
@@ -1368,6 +1405,213 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text(f"View map error: {e}")
 
+async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show user's units for interactive order selection"""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Select unit failed: No user context.")
+        return
+    user_id = str(user.id)
+    
+    try:
+        # Get user's games
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        if not user_games:
+            await update.message.reply_text(
+                "❌ You're not in any games!\n\n"
+                "💡 *To select units:*\n"
+                "1. Join a game first\n"
+                "2. Use /selectunit when you're in exactly one game"
+            )
+            return
+        
+        if len(user_games) > 1:
+            await update.message.reply_text(
+                f"❌ You're in {len(user_games)} games. Please specify which game:\n\n"
+                "Use: /selectunit <game_id>\n\n"
+                "Your games:\n" + 
+                "\n".join([f"• Game {g['game_id']} as {g['power']}" for g in user_games])
+            )
+            return
+        
+        # User is in exactly one game
+        game = user_games[0]
+        game_id = str(game["game_id"])
+        power = game["power"]
+        
+        # Get current game state
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await update.message.reply_text(f"❌ Could not retrieve game state for game {game_id}")
+            return
+        
+        # Get user's units
+        units = game_state.get("units", {}).get(power, [])
+        if not units:
+            await update.message.reply_text(f"❌ No units found for {power} in game {game_id}")
+            return
+        
+        # Create inline keyboard with unit buttons
+        keyboard = []
+        for unit in units:
+            # unit format: "A BER" or "F KIE"
+            unit_type = unit.split()[0]  # A or F
+            unit_location = unit.split()[1]  # BER, KIE, etc.
+            
+            # Create button text with emoji
+            emoji = "🛡️" if unit_type == "A" else "🚢"
+            button_text = f"{emoji} {unit}"
+            
+            # Create callback data
+            callback_data = f"select_unit_{game_id}_{unit}"
+            
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add cancel button
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_unit_selection_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"🎯 *Select a Unit for Orders*\n\n"
+            f"📊 Game: {game_id} | Power: {power}\n"
+            f"🛡️ Army | 🚢 Fleet\n\n"
+            f"Choose a unit to see its possible moves:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"Select unit error: {e}")
+
+async def show_possible_moves(query, game_id: str, unit: str) -> None:
+    """Show possible moves for a selected unit"""
+    try:
+        # Get game state to determine unit location and type
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
+            return
+        
+        # Parse unit info
+        unit_parts = unit.split()
+        unit_type = unit_parts[0]  # A or F
+        unit_location = unit_parts[1]  # BER, KIE, etc.
+        
+        # Get adjacency data from map
+        from src.engine.map import Map
+        map_instance = Map("standard")
+        
+        # Get adjacent provinces
+        adjacent_provinces = map_instance.get_adjacency(unit_location)
+        
+        # Filter adjacent provinces based on unit type
+        valid_moves = []
+        for province in adjacent_provinces:
+            province_info = map_instance.provinces.get(province)
+            if province_info:
+                # Armies can move to land and coast provinces
+                # Fleets can move to water and coast provinces
+                if unit_type == "A" and province_info.type in ["land", "coast"]:
+                    valid_moves.append(province)
+                elif unit_type == "F" and province_info.type in ["water", "coast"]:
+                    valid_moves.append(province)
+        
+        # Create keyboard with move options
+        keyboard = []
+        
+        # Add Hold option
+        keyboard.append([InlineKeyboardButton("🛑 Hold", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_hold")])
+        
+        # Add Move options
+        for province in valid_moves:
+            button_text = f"➡️ Move to {province}"
+            callback_data = f"move_unit_{game_id}_{unit_type}_{unit_location}_move_{province}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add Support option (simplified for now)
+        keyboard.append([InlineKeyboardButton("🤝 Support", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_support")])
+        
+        # Add cancel button
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Create unit emoji
+        emoji = "🛡️" if unit_type == "A" else "🚢"
+        
+        await query.edit_message_text(
+            f"🎯 *Possible Moves for {emoji} {unit}*\n\n"
+            f"📍 Location: {unit_location}\n"
+            f"📊 Game: {game_id}\n\n"
+            f"Choose an action:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error showing possible moves: {e}")
+
+async def submit_interactive_order(query, game_id: str, order_text: str) -> None:
+    """Submit an order created through interactive selection"""
+    try:
+        # Get user info
+        user_id = str(query.from_user.id)
+        
+        # Get user's power in this game
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        power = None
+        for g in user_games:
+            if str(g["game_id"]) == str(game_id):
+                power = g["power"]
+                break
+        
+        if not power:
+            await query.edit_message_text(f"❌ You are not in game {game_id}")
+            return
+        
+        # Normalize province names in the order
+        normalized_order = normalize_order_provinces(order_text, power)
+        
+        # Submit the order
+        result = api_post("/games/set_orders", {
+            "game_id": game_id,
+            "power": power,
+            "orders": [normalized_order],
+            "telegram_id": user_id
+        })
+        
+        results = result.get("results", [])
+        if results and results[0]["success"]:
+            await query.edit_message_text(
+                f"✅ *Order Submitted Successfully!*\n\n"
+                f"📋 Order: `{normalized_order}`\n"
+                f"🎮 Game: {game_id}\n"
+                f"👤 Power: {power}\n\n"
+                f"💡 *Next Steps:*\n"
+                f"• Submit more orders with /selectunit\n"
+                f"• Process turn with /processturn {game_id}\n"
+                f"• View map with /viewmap {game_id}",
+                parse_mode='Markdown'
+            )
+        else:
+            error_msg = results[0]["error"] if results else "Unknown error"
+            await query.edit_message_text(
+                f"❌ *Order Failed*\n\n"
+                f"📋 Order: `{normalized_order}`\n"
+                f"❌ Error: {error_msg}\n\n"
+                f"💡 Try selecting a different move or use /order command",
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error submitting order: {e}")
+
 def normalize_order_provinces(order_text: str, power: str) -> str:
     """Normalize province names in an order string."""
     from src.engine.province_mapping import normalize_province_name
@@ -1790,6 +2034,7 @@ def main():
     app.add_handler(CommandHandler("order", order))
     app.add_handler(CommandHandler("processturn", processturn))
     app.add_handler(CommandHandler("viewmap", viewmap))
+    app.add_handler(CommandHandler("selectunit", selectunit))
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
     app.add_handler(CommandHandler("orderhistory", orderhistory))
