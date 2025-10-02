@@ -451,6 +451,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "admin_cancel_delete":
         await query.edit_message_text("❌ Delete operation cancelled.")
 
+    elif data == "admin_recreate_admin_user":
+        # Check admin authorization again
+        if str(query.from_user.id) != "8019538":
+            await query.edit_message_text("❌ Access denied. Admin privileges required.")
+            return
+        
+        try:
+            # Call API to recreate admin user
+            result = api_post("/admin/recreate_admin_user", {})
+            await query.edit_message_text(
+                f"✅ *Admin User Recreated!*\n\n"
+                f"👤 Result: {result.get('message', 'User created')}\n"
+                f"🆔 User ID: {result.get('user_id', 'Unknown')}\n\n"
+                f"💡 You should now be able to access your games again.",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error recreating admin user: {str(e)}")
+
     elif data == "admin_system_status":
         # Check admin authorization
         if str(query.from_user.id) != "8019538":
@@ -863,6 +882,7 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     keyboard = [
         [InlineKeyboardButton("🗑️ Delete All Games", callback_data="admin_delete_all_games")],
+        [InlineKeyboardButton("👤 Recreate Admin User", callback_data="admin_recreate_admin_user")],
         [InlineKeyboardButton("📊 System Status", callback_data="admin_system_status")],
         [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_to_main_menu")]
     ]
@@ -874,6 +894,7 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "⚠️ *Warning*: Admin functions can affect all users!\n\n"
         "💡 *Available Actions:*\n"
         "🗑️ Delete all games (destructive action)\n"
+        "👤 Recreate admin user account\n"
         "📊 View system status\n"
         "⬅️ Return to main menu"
     )
