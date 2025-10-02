@@ -340,11 +340,11 @@ class TestInteractiveOrderInput:
 
     def test_callback_data_parsing(self):
         """Test parsing of callback data for unit selection"""
-        # Test unit selection callback
+        # Test unit selection callback (fixed format with underscores)
         callback_data = "select_unit_1_A_BER"
         parts = callback_data.split("_")
         game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"
+        unit = f"{parts[3]} {parts[4]}"  # Reconstruct "A BER" from "A_BER"
         
         assert game_id == "1"
         assert unit == "A BER"
@@ -435,3 +435,4 @@ class TestInteractiveOrderIntegration:
 if __name__ == "__main__":
     # Run tests if executed directly
     pytest.main([__file__, "-v"])
+
