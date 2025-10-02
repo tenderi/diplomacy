@@ -13,7 +13,56 @@
 
 ## Remaining Tasks (Lower Priority)
 
-### 2. **Retreat, Build, and Destroy Order Implementation** (NEW - HIGH PRIORITY)
+### 2. **Multiple Order Submission Bug** (CRITICAL - HIGH PRIORITY)
+- **Current Status**: Bug identified and partially investigated, requires further debugging
+- **Issue Description**: When submitting multiple orders one-by-one using `/selectunit`, only the last order is saved
+  - User submitted 3 orders: `A BER - SIL`, `A MUN - TYR`, `F KIE - BAL`
+  - Only `F KIE - BAL` (the last one) was processed and stored
+  - Issue affects both individual order submission and batch order submission
+- **Root Cause Analysis**: 
+  - **Initial Hypothesis**: Server command was replacing orders instead of appending
+  - **Investigation Findings**: 
+    - Server logs show each order is processed individually: `DEBUG: Set orders for GERMANY: ['A BER - SIL']`, then `['A MUN - TYR']`, then `['F KIE - BAL']`
+    - Each order appears to be processed correctly in the server command
+    - Issue persists even when submitting all orders at once via API
+    - Game state retrieval shows only the last order: `{"GERMANY": ["F KIE - BAL"]}`
+- **Attempted Fixes**:
+  - **Fix 1**: Modified `server.py` SET_ORDERS command to append instead of replace
+    - Changed from `game.set_orders(power_name, [order_str])` to `game.orders[power_name].append(order_str)`
+    - Added duplicate checking to prevent duplicate orders
+    - **Result**: Issue persisted
+  - **Fix 2**: Modified API order cleanup logic in `api.py`
+    - Removed premature database order deletion before processing
+    - Added post-processing cleanup to sync database with game object
+    - **Result**: Issue persisted
+  - **Fix 3**: Added orders restoration in game restoration logic
+    - Added orders restoration when game is restored from database
+    - **Result**: Issue persisted
+  - **Fix 4**: Modified database order management
+    - Changed from deleting all orders to only deleting current turn orders
+    - Added logic to sync game object orders with database after processing
+    - **Result**: Issue persisted
+- **Technical Details**:
+  - **Server Command Flow**: `/selectunit` → `submit_interactive_order` → `api_post("/games/set_orders")` → `server.process_command("SET_ORDERS")`
+  - **Database vs Game Object**: Game state is retrieved from `server.games[game_id].get_state()`, not database
+  - **Order Storage**: Orders stored in both `game.orders[power_name]` (in-memory) and `OrderModel` (database)
+  - **Synchronization Issue**: Possible mismatch between in-memory game object and database state
+- **Debugging Evidence**:
+  - Server logs show each order processed individually with correct debug output
+  - Game state retrieval consistently shows only last order
+  - Issue affects both individual and batch order submission
+  - Problem appears to be in order persistence/retrieval, not order processing
+- **Next Investigation Steps**:
+  1. **Game Object State**: Check if game object is being overwritten between order submissions
+  2. **Database Synchronization**: Verify if database state is overwriting game object state
+  3. **Game Restoration**: Check if game is being restored from database between calls
+  4. **Race Conditions**: Investigate potential race conditions in order processing
+  5. **State Persistence**: Verify game state persistence mechanism
+- **Workaround**: Use `/orders <game_id> <order1>; <order2>; <order3>` format (though this may have same issue)
+- **Priority**: CRITICAL - Affects core gameplay functionality
+- **Estimated Effort**: 1-2 days for root cause identification and fix
+
+### 3. **Retreat, Build, and Destroy Order Implementation** (NEW - HIGH PRIORITY)
 - **Current Status**: Order specification updated with comprehensive retreat/build/destroy rules
 - **Test Coverage Analysis**: Current test suite covers ~40% of order specification
   - ✅ **Currently Tested**: Movement (`-`), Support (`S`), Convoy (`C`), Hold (`H`) orders
@@ -84,6 +133,12 @@
 - **Standard Map Coordinate Alignment**: Achieved perfect coordinate alignment
 - **Missing set_orders Method**: Fixed Game class missing set_orders method causing order submission errors
 
+### 🔄 **Issues Under Investigation (October 2025)**
+- **Multiple Order Submission Bug**: Identified critical bug where only last order is saved when submitting multiple orders
+  - **Investigation Status**: Partially investigated, 4 attempted fixes unsuccessful
+  - **Current Status**: Requires deeper debugging to identify root cause
+  - **Version**: v1.10.1 contains WIP fixes for future investigation
+
 ### ✅ **Features Completed**
 - **Game State Snapshots with Phase Tracking**: Complete game history with proper Diplomacy phases
 - **Sample Game Test**: Successfully ran official Diplomacy rules sample game with map generation
@@ -95,9 +150,11 @@
 - **Comprehensive Order System**: Complete BUILD/DESTROY/RETREAT order parsing and validation with 34 comprehensive tests
 - **Game Engine Phase Integration**: Complete retreat and builds phase processing with OrderParser integration
 
-## Current Status: ✅ **FULL DIPLOMACY IMPLEMENTATION COMPLETE** - **API/TELEGRAM INTEGRATION PENDING**
+## Current Status: ⚠️ **CRITICAL BUG IDENTIFIED** - **MULTIPLE ORDER SUBMISSION ISSUE**
 
-The Diplomacy bot now has complete Diplomacy rule implementation with:
+**CRITICAL ISSUE**: Multiple order submission bug prevents proper gameplay - only last order is saved when submitting multiple orders via `/selectunit`.
+
+The Diplomacy bot has complete Diplomacy rule implementation with:
 - ✅ **Standard Map**: Perfect coordinate alignment and visible background
 - ✅ **Movement Processing**: All movement bugs resolved
 - ✅ **Telegram Bot**: All menu buttons working correctly
@@ -113,4 +170,4 @@ The Diplomacy bot now has complete Diplomacy rule implementation with:
 - ✅ **Comprehensive Validation**: Phase-aware validation with 34 comprehensive tests
 - ✅ **Game Engine Integration**: Complete retreat and builds phase processing
 
-**CURRENT STATUS**: Full Diplomacy rule implementation is complete. **REMAINING**: API endpoints and Telegram bot UI updates for new order types.
+**CURRENT STATUS**: Full Diplomacy rule implementation is complete, but **CRITICAL BUG** prevents proper gameplay. **IMMEDIATE PRIORITY**: Fix multiple order submission bug before any other development.
