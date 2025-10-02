@@ -15,12 +15,13 @@ from src.server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
-from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel, MessageModel, GameHistoryModel
+from .db_models import Base, GameModel, PlayerModel, OrderModel, UserModel, MessageModel, GameHistoryModel, GameSnapshotModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
 from .db_config import SQLALCHEMY_DATABASE_URL
 from datetime import datetime, timezone, timedelta
+import os
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
@@ -28,7 +29,6 @@ import requests
 from sqlalchemy import or_, text
 import logging
 import pytz
-import os
 from src.engine.order import OrderParser
 
 @asynccontextmanager
@@ -250,14 +250,18 @@ def process_turn(game_id: str) -> Dict[str, str]:
                 setattr(game, 'state', state)
             except Exception as e:
                 print(f"DEBUG: process_turn: failed to assign game.state: {e}")
-            # --- Save game state snapshot to history ---
-            from .db_models import GameHistoryModel
-            db.add(GameHistoryModel(
+            # --- Save game state snapshot ---
+            game_obj = server.games[game_id]
+            snapshot = GameSnapshotModel(
                 game_id=int(game_id),
-                turn=state.get("turn", 0),
-                phase=state.get("phase", "unknown"),
-                state=state
-            ))
+                turn=game_obj.turn,
+                year=game_obj.year,
+                season=game_obj.season,
+                phase=game_obj.phase,
+                phase_code=game_obj.phase_code,
+                game_state=state
+            )
+            db.add(snapshot)
             # Set new deadline if game is not done
             if not state.get("done", False):
                 setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
@@ -1009,55 +1013,125 @@ def debug_unit_locations(game_id: str) -> Dict[str, Any]:
         "unit_locations": unit_locations
     }
 
-@app.get("/games/{game_id}/debug/movement_history")
-def debug_movement_history(game_id: str) -> Dict[str, Any]:
-    """Get all movements from the last turn in text format for debugging"""
+@app.post("/games/{game_id}/snapshot")
+def save_game_snapshot(game_id: str) -> Dict[str, Any]:
+    """Save a snapshot of the current game state"""
     if game_id not in server.games:
         raise HTTPException(status_code=404, detail="Game not found")
     
     game = server.games[game_id]
-    
-    # Get the last turn's results
-    last_turn = game.turn - 1
-    if last_turn not in game.order_history:
+    db: Session = SessionLocal()
+    try:
+        # Create snapshot
+        snapshot = GameSnapshotModel(
+            game_id=int(game_id),
+            turn=game.turn,
+            year=game.year,
+            season=game.season,
+            phase=game.phase,
+            phase_code=game.phase_code,
+            game_state=game.get_state()
+        )
+        db.add(snapshot)
+        db.commit()
+        db.refresh(snapshot)
+        
+        return {
+            "status": "ok",
+            "snapshot_id": snapshot.id,
+            "phase_code": game.phase_code,
+            "turn": game.turn,
+            "year": game.year,
+            "season": game.season,
+            "phase": game.phase
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/games/{game_id}/snapshots")
+def get_game_snapshots(game_id: str) -> Dict[str, Any]:
+    """Get all snapshots for a game"""
+    db: Session = SessionLocal()
+    try:
+        snapshots = db.query(GameSnapshotModel).filter_by(game_id=int(game_id)).order_by(GameSnapshotModel.turn, GameSnapshotModel.created_at).all()
+        
+        snapshot_list = []
+        for snapshot in snapshots:
+            snapshot_list.append({
+                "id": snapshot.id,
+                "turn": snapshot.turn,
+                "year": snapshot.year,
+                "season": snapshot.season,
+                "phase": snapshot.phase,
+                "phase_code": snapshot.phase_code,
+                "created_at": snapshot.created_at.isoformat(),
+                "map_image_path": snapshot.map_image_path
+            })
+        
         return {
             "status": "ok",
             "game_id": game_id,
-            "turn": game.turn,
-            "message": "No movement history available yet"
+            "snapshots": snapshot_list
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/games/{game_id}/restore/{snapshot_id}")
+def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
+    """Restore a game to a previous snapshot state"""
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
     
-    turn_results = game.order_history[last_turn]
-    movement_summary = {}
-    
-    for power_name, power_results in turn_results.items():
-        movements = []
-        for order_str, result in power_results.get("results", {}).items():
-            if result.get("success", False) and result.get("dest"):
-                # This was a successful move
-                movements.append({
-                    "order": order_str,
-                    "destination": result["dest"],
-                    "success": True,
-                    "dislodged": result.get("dislodged", False)
-                })
-            elif not result.get("success", False):
-                # This was a failed move
-                movements.append({
-                    "order": order_str,
-                    "destination": result.get("dest"),
-                    "success": False,
-                    "dislodged": result.get("dislodged", False)
-                })
-        movement_summary[power_name] = movements
-    
-    return {
-        "status": "ok",
-        "game_id": game_id,
-        "turn": game.turn,
-        "last_turn": last_turn,
-        "movement_history": movement_summary
-    }
+    db: Session = SessionLocal()
+    try:
+        snapshot = db.query(GameSnapshotModel).filter_by(id=snapshot_id, game_id=int(game_id)).first()
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+        
+        game = server.games[game_id]
+        
+        # Restore game state
+        game.turn = snapshot.turn
+        game.year = snapshot.year
+        game.season = snapshot.season
+        game.phase = snapshot.phase
+        game.phase_code = snapshot.phase_code
+        
+        # Restore game state from snapshot
+        state = snapshot.game_state
+        game.done = state.get("done", False)
+        game.winner = state.get("winner", [])
+        game.pending_retreats = state.get("pending_retreats", {})
+        game.pending_adjustments = state.get("pending_adjustments", {})
+        game.order_history = state.get("adjudication_results", {})
+        
+        # Restore powers and units
+        for power_name, power in game.powers.items():
+            if power_name in state.get("units", {}):
+                power.units = set(state["units"][power_name])
+            if power_name in state.get("orders", {}):
+                game.orders[power_name] = state["orders"][power_name]
+        
+        return {
+            "status": "ok",
+            "message": f"Game restored to {snapshot.phase_code}",
+            "snapshot_id": snapshot_id,
+            "phase_code": snapshot.phase_code,
+            "turn": snapshot.turn,
+            "year": snapshot.year,
+            "season": snapshot.season,
+            "phase": snapshot.phase
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 # --- Admin Endpoints ---
 @app.post("/admin/delete_all_games")
@@ -1126,37 +1200,87 @@ def admin_get_users_count() -> Dict[str, Any]:
     finally:
         db.close()
 
-@app.post("/admin/recreate_admin_user")
-def admin_recreate_admin_user() -> Dict[str, Any]:
-    """Recreate the admin user account (admin only)"""
+@app.post("/admin/cleanup_old_maps")
+def cleanup_old_maps() -> Dict[str, Any]:
+    """Clean up map images older than 24 hours (admin only)"""
     db: Session = SessionLocal()
     try:
-        # Check if admin user already exists
-        admin_user = db.query(UserModel).filter_by(telegram_id="8019538").first()
+        # Find snapshots with map images older than 24 hours
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        old_snapshots = db.query(GameSnapshotModel).filter(
+            GameSnapshotModel.map_image_path.isnot(None),
+            GameSnapshotModel.created_at < cutoff_time
+        ).all()
         
-        if admin_user:
-            return {
-                "status": "ok",
-                "message": "Admin user already exists",
-                "user_id": admin_user.id
-            }
-        
-        # Create admin user
-        admin_user = UserModel(
-            telegram_id="8019538",
-            full_name="Helge Jalonen"
-        )
-        db.add(admin_user)
-        db.commit()
-        db.refresh(admin_user)
+        cleaned_count = 0
+        for snapshot in old_snapshots:
+            if snapshot.map_image_path and os.path.exists(snapshot.map_image_path):
+                try:
+                    os.remove(snapshot.map_image_path)
+                    cleaned_count += 1
+                except Exception as e:
+                    print(f"Error removing {snapshot.map_image_path}: {e}")
         
         return {
             "status": "ok",
-            "message": "Admin user created successfully",
-            "user_id": admin_user.id
+            "message": f"Cleaned up {cleaned_count} old map images",
+            "cleaned_count": cleaned_count
         }
     except Exception as e:
-        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/games/{game_id}/generate_map")
+def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
+    """Generate and save a map image for the current game state"""
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game = server.games[game_id]
+    db: Session = SessionLocal()
+    try:
+        # Generate map image
+        from src.engine.map import Map
+        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        
+        # Create units dictionary
+        units = {}
+        for power_name, power in game.powers.items():
+            for unit in power.units:
+                units[unit] = power_name
+        
+        # Get phase information
+        phase_info = game.get_phase_info()
+        
+        # Generate map with phase info
+        img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
+        
+        # Save map image
+        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
+        map_filename = f"game_{game_id}_{game.phase_code}_{int(datetime.now().timestamp())}.png"
+        map_path = f"/tmp/diplomacy_maps/{map_filename}"
+        
+        with open(map_path, 'wb') as f:
+            f.write(img_bytes)
+        
+        # Update the latest snapshot with map path
+        latest_snapshot = db.query(GameSnapshotModel).filter_by(
+            game_id=int(game_id),
+            phase_code=game.phase_code
+        ).order_by(GameSnapshotModel.created_at.desc()).first()
+        
+        if latest_snapshot:
+            latest_snapshot.map_image_path = map_path
+            db.commit()
+        
+        return {
+            "status": "ok",
+            "map_path": map_path,
+            "phase_code": game.phase_code,
+            "message": f"Map generated for {game.phase_code}"
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

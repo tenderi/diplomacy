@@ -663,7 +663,7 @@ class Map:
             return (0, 0, 0)
 
     @staticmethod
-    def render_board_png(svg_path: str, units: dict, output_path: str = None) -> bytes:
+    def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
         # 1. Convert SVG to PNG (background) with EXACT SVG size - NO SCALING
@@ -721,7 +721,12 @@ class Map:
                 bbox = draw.textbbox((0, 0), text, font=font)
                 w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
                 draw.text((x - w/2, y - h/2), text, fill="white", font=font)
-        # 5. Save or return PNG
+        
+        # 5. Add phase information to bottom right corner
+        if phase_info:
+            Map._draw_phase_info(draw, phase_info, bg.size)
+        
+        # 6. Save or return PNG
         if isinstance(output_path, str) and output_path:
             bg.save(output_path, format="PNG")
         output = BytesIO()
@@ -729,13 +734,55 @@ class Map:
         return output.getvalue()
 
     @staticmethod
-    def render_board_png_with_moves(svg_path: str, units: dict, orders: list, output_path: str = None) -> bytes:
-        """Render the game board with move visualization overlays"""
+    def _draw_phase_info(draw: ImageDraw.Draw, phase_info: dict, image_size: tuple) -> None:
+        """Draw phase information in the bottom right corner of the map"""
+        try:
+            # Use a smaller font for phase info
+            phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        except Exception:
+            phase_font = ImageFont.load_default()
+        
+        # Extract phase information
+        year = phase_info.get("year", "1901")
+        season = phase_info.get("season", "Spring")
+        phase = phase_info.get("phase", "Movement")
+        phase_code = phase_info.get("phase_code", "S1901M")
+        
+        # Create phase text
+        phase_text = f"{phase_code} - {season} {year} {phase}"
+        
+        # Calculate position (bottom right corner with padding)
+        width, height = image_size
+        padding = 20
+        
+        # Get text dimensions
+        bbox = draw.textbbox((0, 0), phase_text, font=phase_font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # Position in bottom right
+        x = width - text_width - padding
+        y = height - text_height - padding
+        
+        # Draw background rectangle for better readability
+        bg_padding = 8
+        draw.rectangle([
+            x - bg_padding, 
+            y - bg_padding, 
+            x + text_width + bg_padding, 
+            y + text_height + bg_padding
+        ], fill=(0, 0, 0, 180))  # Semi-transparent black background
+        
+        # Draw phase text
+        draw.text((x, y), phase_text, fill="white", font=phase_font)
+        
+    @staticmethod
+    def render_board_png_with_moves(svg_path: str, units: dict, orders: list, output_path: str = None, phase_info: dict = None) -> bytes:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
         
         # First render the base map
-        base_img_bytes = Map.render_board_png(svg_path, units, output_path)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(bg)
         
