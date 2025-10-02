@@ -102,8 +102,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     
     # Add admin menu for admin user (ID: 8019538)
-    if str(update.effective_user.id) == "8019538":
+    user_id = str(update.effective_user.id)
+    logging.info(f"User ID: {user_id}, Type: {type(user_id)}")
+    if user_id == "8019538":
         keyboard.append([KeyboardButton("⚙️ Admin")])
+        logging.info("Admin button added to keyboard")
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, 
                                        one_time_keyboard=False)
 
@@ -1024,8 +1027,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     
     # Add admin menu for admin user (ID: 8019538)
-    if str(update.effective_user.id) == "8019538":
+    user_id = str(update.effective_user.id)
+    logging.info(f"show_main_menu - User ID: {user_id}, Type: {type(user_id)}")
+    if user_id == "8019538":
         keyboard.append([KeyboardButton("⚙️ Admin")])
+        logging.info("show_main_menu - Admin button added to keyboard")
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -1494,6 +1500,7 @@ def main():
     app.add_handler(CommandHandler("replace", replace))
     app.add_handler(CommandHandler("wait", wait))
     app.add_handler(CommandHandler("refresh_map", refresh_map_cache))
+    app.add_handler(CommandHandler("debug", debug_command))
 
     # Add handlers for interactive features
     app.add_handler(CallbackQueryHandler(button_callback))
@@ -1584,6 +1591,28 @@ def main():
         # Start telegram bot polling in main thread - this will block
         print("Starting Telegram bot polling...")
         app.run_polling()
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug command to show user information"""
+    if not update.message:
+        return
+    
+    user = update.effective_user
+    user_id = str(user.id)
+    user_id_int = user.id
+    
+    debug_text = (
+        f"🔍 *Debug Information*\n\n"
+        f"👤 User ID (str): `{user_id}`\n"
+        f"👤 User ID (int): `{user_id_int}`\n"
+        f"📝 User ID Type: `{type(user_id)}`\n"
+        f"🔢 Is 8019538?: `{user_id == '8019538'}`\n"
+        f"📛 Username: `{user.username or 'None'}`\n"
+        f"📛 Full Name: `{user.full_name or 'None'}`\n\n"
+        f"⚙️ Admin Access: {'✅ YES' if user_id == '8019538' else '❌ NO'}"
+    )
+    
+    await update.message.reply_text(debug_text, parse_mode='Markdown')
 
 if __name__ == "__main__":
     main()
