@@ -2,7 +2,40 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. ✅ **NEW FEATURE: Interactive Order Input - COMPLETED**
+### 1. ✅ **CRITICAL: Movement Processing Bug - RESOLVED**
+- [x] **Fixed unit disappearance and movement failure after second turn** - Critical bug in movement adjudication system
+  - **Issues Identified**:
+    - ❌ Units disappearing after successful movement (fleet disappeared, armies didn't move)
+    - ❌ Critical bug in unit power assignment during movement processing
+    - ❌ Unit type inference always defaulting to Army ('A') instead of Fleet ('F')
+  - **Root Cause Analysis**:
+    - **Unit Power Assignment Bug**: Lines 448-450 in `game.py` had incorrect fallback logic
+      - When `unit_to_power.get(unit)` returned None, code tried `unit_to_power.get(dest)`
+      - Since `dest` is a province name (not unit), this always returned None
+      - This caused successfully moved units to be lost during unit assignment
+    - **Unit Type Inference Bug**: Lines 80-83 always defaulted to Army type
+      - Units stored as province names only (e.g., "BER" instead of "A BER") were always inferred as armies
+      - This caused fleets to be incorrectly identified as armies, potentially causing validation failures
+  - **Solution Implemented**:
+    - ✅ **Fixed Unit Power Assignment**: Removed incorrect fallback to `unit_to_power.get(dest)`
+      - Added error logging when unit's power cannot be found
+      - Added `continue` to skip processing units with missing power information
+    - ✅ **Improved Unit Type Inference**: Enhanced logic to look at submitted orders
+      - Now determines if unit should be fleet ('F') or army ('A') based on orders
+      - Ensures fleets are correctly identified based on submitted orders
+    - ✅ **Added Debugging Commands**: 
+      - `GET /games/{game_id}/debug/unit_locations` - Shows all unit locations in text format
+      - `GET /games/{game_id}/debug/movement_history` - Shows all movements from last turn with success/failure status
+    - ✅ **Enhanced Debugging Output**: Added comprehensive debug logging
+      - Tracks unit positions, successful moves, and power assignments
+      - Helps identify any remaining issues
+  - **Files Modified**:
+    - ✅ `src/engine/game.py` (fixed unit power assignment and type inference bugs)
+    - ✅ `src/server/api.py` (added debugging endpoints)
+  - **Status**: ✅ **FULLY RESOLVED** - Movement processing bugs fixed, debugging capabilities added
+  - **Impact**: This resolves the issue where units disappeared or failed to move after the second turn
+
+### 2. ✅ **NEW FEATURE: Interactive Order Input - COMPLETED**
 - [x] **Implement interactive order selection system** - Choose unit first, then select from possible moves
   - **Requirements**:
     - ✅ User selects a unit from their available units
