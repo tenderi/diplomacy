@@ -1243,7 +1243,8 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         result = api_post("/games/set_orders", {
             "game_id": game_id,
             "power": power,
-            "orders": [normalized_order]
+            "orders": [normalized_order],
+            "telegram_id": user_id
         })
         
         results = result.get("results", [])
@@ -1270,18 +1271,14 @@ def normalize_order_provinces(order_text: str, power: str) -> str:
     # Split the order into parts
     parts = order_text.split()
     
-    # The order format is typically: POWER UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
-    # We need to normalize province names while preserving the structure
+    # The order format is: UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
+    # NOT: POWER UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
+    # The power is handled separately in the API call
     
     normalized_parts = []
     for i, part in enumerate(parts):
-        # Skip the power name (first part)
-        if i == 0:
-            normalized_parts.append(part)
-            continue
-        
-        # Skip unit type (A/F) - second part
-        if i == 1 and part in ['A', 'F']:
+        # Skip unit type (A/F) - first part
+        if i == 0 and part in ['A', 'F']:
             normalized_parts.append(part)
             continue
         
@@ -1334,7 +1331,7 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             normalized_orders.append(normalized_order)
         
         result = api_post("/games/set_orders", 
-                         {"game_id": game_id, "power": power, "orders": normalized_orders})
+                         {"game_id": game_id, "power": power, "orders": normalized_orders, "telegram_id": user_id})
         results = result.get("results", [])
         if not results:
             await update.message.reply_text("No orders were processed.")
