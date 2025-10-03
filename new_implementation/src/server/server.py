@@ -20,6 +20,16 @@ class Server:
         self.logger.setLevel(getattr(logging, log_level, logging.INFO))
         self.logger.info("Diplomacy server starting up.")
 
+    def _is_same_unit_order(self, existing_order: str, new_unit: str) -> bool:
+        """Check if an existing order is for the same unit as the new order."""
+        try:
+            from src.engine.order import OrderParser
+            parsed_existing = OrderParser.parse(existing_order)
+            return parsed_existing.unit == new_unit
+        except Exception:
+            # If parsing fails, assume different units to be safe
+            return False
+
     def start(self) -> None:
         self.logger.info("Diplomacy server started.")
         print("Diplomacy Server CLI. Type commands or 'QUIT' to exit.")
@@ -88,13 +98,30 @@ class Server:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 
-                # Append the new order to existing orders instead of replacing
+                # Handle order submission with unit conflict resolution
                 if power_name not in game.orders:
                     game.orders[power_name] = []
                 
-                # Check if this order already exists to avoid duplicates
-                if order_str not in game.orders[power_name]:
+                # Parse the new order to extract the unit
+                from src.engine.order import OrderParser
+                try:
+                    parsed_order = OrderParser.parse(order_str)
+                    new_unit = parsed_order.unit  # e.g., 'A BER'
+                    
+                    # Remove any existing orders for the same unit
+                    game.orders[power_name] = [
+                        existing_order for existing_order in game.orders[power_name]
+                        if not self._is_same_unit_order(existing_order, new_unit)
+                    ]
+                    
+                    # Add the new order
                     game.orders[power_name].append(order_str)
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to parse order for conflict resolution: {order_str}, error: {e}")
+                    # Fallback: just append if parsing fails
+                    if order_str not in game.orders[power_name]:
+                        game.orders[power_name].append(order_str)
                 
                 self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
                 # Extra logging for order parsing/validation
