@@ -2,17 +2,6 @@
 
 ## Current Issues Found (Prioritized)
 
-### 1. 🔧 **V2 Map Development - SUSPENDED INDEFINITELY**
-- **Current Status**: V2 map is not usable for gameplay due to fundamental projection distortion
-- **Issues Encountered**:
-  - **Projection Distortion**: V2 map uses Albers Equal-Area projection causing coordinate skewing
-  - **Failed Fix Attempts**: Projection-aware coordinate transformation made coordinates worse
-  - **Coordinate System**: Units appearing in wrong provinces despite correct calculations
-- **Decision**: Focus on standard map solution instead
-- **Priority**: LOW - V2 map development suspended indefinitely
-
-## Remaining Tasks (Lower Priority)
-
 ### 2. **Multiple Order Submission Bug** ✅ **RESOLVED**
 - **Current Status**: Bug identified, root cause found, and successfully fixed
 - **Issue Description**: When submitting multiple orders one-by-one using `/selectunit`, only the last order is saved
@@ -42,6 +31,24 @@
 - **Priority**: ✅ **RESOLVED** - Core gameplay functionality restored
 - **Resolution Date**: October 2, 2025
 - **Files Modified**: `src/server/api.py` (removed premature cleanup logic)
+
+### 3. **Same-Unit Order Conflict Resolution** ✅ **RESOLVED**
+- **Current Status**: Bug identified and successfully fixed
+- **Issue Description**: When submitting multiple orders for the same unit before processing the turn, both orders were stored instead of keeping only the latest one
+  - User submitted: `A BER - SIL` then `A BER - PRU`
+  - System incorrectly stored both orders: `["A BER - SIL", "A BER - PRU"]`
+  - Expected behavior: Only `A BER - PRU` should be stored
+- **Root Cause**: Server logic only checked for exact duplicate orders, not orders from the same unit
+- **Solution**: 
+  - Modified `src/server/server.py` to parse orders and extract unit information
+  - Added `_is_same_unit_order()` helper method to detect conflicting orders
+  - Implemented logic to remove existing orders for the same unit before adding new order
+- **Verification**: 
+  - Same unit conflict: ✅ Only latest order kept (`A BER - PRU`)
+  - Different units: ✅ Both orders preserved (`A BER - PRU`, `A MUN - TYR`)
+- **Priority**: ✅ **RESOLVED** - Proper Diplomacy rule implementation
+- **Resolution Date**: October 2, 2025
+- **Files Modified**: `src/server/server.py` (added unit conflict resolution logic)
 - **Technical Details**:
   - **Server Command Flow**: `/selectunit` → `submit_interactive_order` → `api_post("/games/set_orders")` → `server.process_command("SET_ORDERS")`
   - **Database vs Game Object**: Game state is retrieved from `server.games[game_id].get_state()`, not database
@@ -123,6 +130,7 @@
 ## Recently Completed Tasks ✅
 
 ### ✅ **Major Issues Resolved (October 2025)**
+- **Same-Unit Order Conflict Resolution**: Implemented proper handling when multiple orders are submitted for the same unit - only the latest order is kept
 - **Multiple Order Submission Bug**: Fixed critical bug where only last order was saved when submitting multiple orders via `/selectunit`
 - **Telegram Bot AttributeError**: Fixed callback query handling in menu functions
 - **Codebase Housekeeping**: Organized tests and archived unused scripts
