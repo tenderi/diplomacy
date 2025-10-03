@@ -107,6 +107,44 @@
 - **Priority**: ✅ **RESOLVED** - Complete orders menu functionality
 - **Resolution Date**: October 3, 2025
 - **Files Modified**: `src/server/telegram_bot.py` (added callback handlers), `src/server/api.py` (fixed imports)
+
+### 6. **Convoy Adjacency and Validation Rules** ✅ **RESOLVED**
+- **Current Status**: Convoy adjacency and validation rules implemented correctly
+- **Issue Description**: The convoy feature allowed convoying way too many units and destinations
+  - Telegram bot showed ALL armies in the game as convoy options, regardless of adjacency
+  - Telegram bot showed ALL coastal provinces as convoy destinations, regardless of adjacency
+  - OrderParser convoy validation was too basic, missing proper adjacency checks
+  - Users could submit invalid convoy orders that violated Diplomacy rules
+- **Root Cause**: 
+  - **Telegram Bot**: `show_convoy_options` and `show_convoy_destinations` functions lacked adjacency filtering
+  - **OrderParser**: Convoy validation only checked fleet type and target presence, not adjacency rules
+  - **Missing Rules**: No validation for convoyed army adjacency or convoy destination adjacency
+- **Solution Implementation**:
+  - **Telegram Bot Fixes**:
+    - **show_convoy_options**: Added adjacency check - only show armies adjacent to convoying fleet's sea area
+    - **show_convoy_destinations**: Added adjacency check - only show coastal provinces adjacent to fleet's sea area
+    - **Enhanced UI**: Added display of adjacent provinces for better user understanding
+  - **OrderParser Enhancement**:
+    - **Convoy Target Parsing**: Fixed parsing of convoy target format "A PROVINCE - DESTINATION"
+    - **Fleet Location Validation**: Check if fleet location is a valid province
+    - **Army Adjacency Check**: Validate convoyed army is adjacent to fleet's location
+    - **Destination Adjacency Check**: Validate convoy destination is adjacent to fleet's location
+    - **Coastal Province Check**: Ensure convoy destination is coastal (armies can only be convoyed to coastal provinces)
+    - **Fleet Type Support**: Handle both fleets in coastal provinces and fleets in sea areas
+- **Technical Implementation**:
+  - **Files Modified**: `src/server/telegram_bot.py`, `src/engine/order.py`, `specs/order_spec.md`
+  - **Adjacency Logic**: Use Map.get_adjacency() to determine valid convoy options
+  - **Province Type Checking**: Use Map.get_province() to check province types (coast, water, land)
+  - **Convoy Rules**: Implement proper Diplomacy convoy rules for adjacency and destination validation
+  - **Error Messages**: Provide detailed error messages for invalid convoy orders
+- **Verification**: 
+  - Convoy Options: ✅ Only shows armies adjacent to convoying fleet
+  - Convoy Destinations: ✅ Only shows valid coastal destinations adjacent to fleet
+  - Order Validation: ✅ Correctly rejects invalid convoy orders with proper error messages
+  - Adjacency Rules: ✅ Properly validates convoy adjacency according to Diplomacy rules
+- **Priority**: ✅ **RESOLVED** - Convoy adjacency and validation rules implemented correctly
+- **Resolution Date**: October 3, 2025
+- **Files Modified**: `src/server/telegram_bot.py` (adjacency filtering), `src/engine/order.py` (enhanced validation), `specs/order_spec.md` (updated rules)
 - **Technical Details**:
   - **Server Command Flow**: `/selectunit` → `submit_interactive_order` → `api_post("/games/set_orders")` → `server.process_command("SET_ORDERS")`
   - **Database vs Game Object**: Game state is retrieved from `server.games[game_id].get_state()`, not database
@@ -188,6 +226,7 @@
 ## Recently Completed Tasks ✅
 
 ### ✅ **Major Issues Resolved (October 2025)**
+- **Convoy Adjacency and Validation Rules**: Fixed convoy feature to only allow convoying adjacent units with proper validation
 - **View Orders and Order History Buttons**: Fixed non-functional buttons in telegram bot orders menu
 - **Convoy Movement Support in /selectunit**: Implemented full convoy functionality in the interactive order selection feature
 - **Same-Unit Order Conflict Resolution**: Implemented proper handling when multiple orders are submitted for the same unit - only the latest order is kept
