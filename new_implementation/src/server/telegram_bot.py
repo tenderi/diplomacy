@@ -268,10 +268,17 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # Interactive game selection with buttons
 async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show available games with inline buttons"""
+    async def reply_or_edit(text: str, reply_markup=None, parse_mode='Markdown'):
+        """Helper function to handle both message and callback query contexts"""
+        if update.message:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        elif update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    
     try:
         games = api_get("/games")
         if not games:
-            await update.message.reply_text("🎮 No games available. Use /wait to join the waiting list.")
+            await reply_or_edit("🎮 No games available. Use /wait to join the waiting list.")
             return
 
         # Create inline keyboard with available games
@@ -286,10 +293,10 @@ async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYP
             keyboard.append([InlineKeyboardButton(game_text, callback_data=f"select_game_{game_id}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("🎲 *Select a game to join:*", reply_markup=reply_markup, parse_mode='Markdown')
+        await reply_or_edit("🎲 *Select a game to join:*", reply_markup=reply_markup, parse_mode='Markdown')
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Error loading games: {str(e)}")
+        await reply_or_edit(f"❌ Error loading games: {str(e)}")
 
 async def show_power_selection(update, game_id):
     """Show available powers for a specific game"""
@@ -363,7 +370,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Create orders action menu for specific game
         keyboard = [
-            [InlineKeyboardButton("📝 Submit Orders", callback_data=f"submit_orders_{game_id}_{power}")],
+            [InlineKeyboardButton("🎯 Submit Interactive Orders", callback_data=f"submit_orders_{game_id}_{power}")],
             [InlineKeyboardButton("👁️ View My Orders", callback_data=f"view_orders_{game_id}_{power}")],
             [InlineKeyboardButton("🗑️ Clear Orders", callback_data=f"clear_orders_{game_id}_{power}")],
             [InlineKeyboardButton("📜 Order History", callback_data=f"order_history_{game_id}")],
@@ -384,6 +391,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "start_demo_game":
         await query.edit_message_text("🎮 Starting demo game as Germany...")
         await start_demo_game(update, context)
+
+    elif data == "run_automated_demo":
+        await query.edit_message_text("🎬 Starting automated demo game...")
+        await run_automated_demo(update, context)
 
     elif data == "back_to_main_menu":
         # Show the main start message again
@@ -415,6 +426,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "• `/orders {game_id} A Berlin H` (Hold)\n"
             "• `/orders {game_id} A Berlin S A Munich - Kiel` (Support)\n"
             "• `/orders {game_id} F Kiel C A Berlin - Denmark` (Convoy)\n\n"
+            "*📝 Order Format:*\n"
+            "• Use abbreviations: `A`, `F`, `H`, `S`, `C`\n"
+            "• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`\n"
+            "• **Don't mix:** `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅\n\n"
             "*Interactive Commands:*\n"
             "• `/selectunit` - Choose units and orders interactively\n"
             "• `/processturn {game_id}` - Process the current turn\n"
@@ -555,34 +570,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parts = data.split("_")
         game_id = parts[2]
         power = parts[3]
-        # Create order format help with action buttons
-        keyboard = [
-            [InlineKeyboardButton("📋 View Current Orders", callback_data=f"view_orders_{game_id}_{power}")],
-            [InlineKeyboardButton("🗑️ Clear All Orders", callback_data=f"clear_orders_{game_id}_{power}")],
-            [InlineKeyboardButton("📜 View Order History", callback_data=f"order_history_{game_id}")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_orders_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            f"📝 *Submit Orders - Game {game_id} ({power})*\n\n"
-            f"💡 *How to submit orders:*\n"
-            f"Type: `/orders {game_id} <your orders>`\n\n"
-            f"*📋 Order Examples:*\n"
-            f"• `A Vienna - Trieste` (Army move)\n"
-            f"• `F London - North Sea` (Fleet move)\n"
-            f"• `A Berlin S A Munich - Kiel` (Support)\n"
-            f"• `F English Channel C A London - Brest` (Convoy)\n"
-            f"• `A Paris H` (Hold position)\n\n"
-            f"*💡 Tips:*\n"
-            f"• Separate multiple orders with semicolons\n"
-            f"• Orders are processed simultaneously each turn\n"
-            f"• You can update orders until the deadline\n"
-            f"• Use `/selectunit` for interactive order selection\n"
-            f"• Convoy chains are automatically validated",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        
+        # Start interactive order selection for this specific game
+        await query.edit_message_text(f"🎯 Starting interactive order selection for Game {game_id} ({power})...")
+        await selectunit(update, context)
 
     # Interactive Order Input Callbacks
     elif data.startswith("select_unit_"):
@@ -1079,6 +1070,12 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 • `BUILD A Paris` (Build unit - Builds phase only)
 • `DESTROY A Munich` (Destroy unit - Builds phase only)
 
+*📝 Order Format Notes:*
+• Use abbreviations: `A`, `F`, `H`, `S`, `C`, `BUILD`, `DESTROY`
+• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`, `BUILD`, `DESTROY`
+• **Important:** Mix abbreviations and full names in the same order
+• Examples: `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅ or `A Berlin HOLD` ❌
+
 *🎯 Game Phases:*
 • **Movement** (Spring/Autumn) - Submit movement orders
 • **Retreat** - Retreat dislodged units
@@ -1090,7 +1087,14 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 • Orders are validated in real-time
 • Convoy chains are automatically validated
     """
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    # Add inline keyboard with demo button
+    keyboard = [
+        [InlineKeyboardButton("🎬 Run Automated Demo Game", callback_data="run_automated_demo")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show admin menu with administrative functions"""
@@ -1245,6 +1249,10 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "• `A Berlin H` (Hold)\n"
             "• `A Berlin S A Munich - Kiel` (Support)\n"
             "• `F Kiel C A Berlin - Denmark` (Convoy)\n\n"
+            "*📝 Order Format:*\n"
+            "• Use abbreviations: `A`, `F`, `H`, `S`, `C`\n"
+            "• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`\n"
+            "• **Don't mix:** `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅\n\n"
             "*Interactive Features:*\n"
             "• Use `/selectunit` for guided order selection\n"
             "• Use `/processturn {game_id}` to advance the game\n"
@@ -1266,6 +1274,77 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
     except Exception as e:
         error_msg = f"❌ Error starting demo game: {str(e)}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Run the automated demo game script and show results"""
+    try:
+        import subprocess
+        import os
+        
+        # Get the path to the demo script
+        script_path = "/home/helgejalonen/diplomacy/new_implementation/demo_automated_game.py"
+        
+        # Check if the script exists
+        if not os.path.exists(script_path):
+            error_msg = f"❌ Demo script not found at {script_path}"
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return
+        
+        # Run the demo script with proper environment
+        result = subprocess.run(
+            ["python3", "demo_automated_game.py"],
+            capture_output=True,
+            text=True,
+            cwd="/home/helgejalonen/diplomacy/new_implementation",
+            env={**os.environ, "PYTHONPATH": "/home/helgejalonen/diplomacy/new_implementation"}
+        )
+        
+        if result.returncode == 0:
+            # Success - show summary
+            success_msg = (
+                "🎬 *Automated Demo Game Complete!*\n\n"
+                "✅ The demo game ran successfully through multiple phases:\n"
+                "• Spring 1901 Movement\n"
+                "• Spring 1901 Builds\n"
+                "• Autumn 1901 Movement\n"
+                "• Autumn 1901 Builds\n"
+                "• Spring 1902 Movement\n"
+                "• Spring 1902 Builds\n\n"
+                "🗺️ Maps have been generated and saved to:\n"
+                "`/home/helgejalonen/diplomacy/new_implementation/test_maps/`\n\n"
+                "💡 *To run the demo yourself:*\n"
+                "```bash\n"
+                "cd /home/helgejalonen/diplomacy/new_implementation\n"
+                "python3 demo_automated_game.py\n"
+                "```"
+            )
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(success_msg, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(success_msg, parse_mode='Markdown')
+        else:
+            # Error occurred
+            error_msg = (
+                f"❌ *Demo script failed*\n\n"
+                f"**Error:** {result.stderr[:500]}\n\n"
+                f"**Output:** {result.stdout[:500]}"
+            )
+            
+            if update.callback_query:
+                await update.callback_query.edit_message_text(error_msg, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(error_msg, parse_mode='Markdown')
+                
+    except Exception as e:
+        error_msg = f"❌ Error running automated demo: {str(e)}"
         if update.callback_query:
             await update.callback_query.edit_message_text(error_msg)
         else:
@@ -1676,11 +1755,20 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show user's units for interactive order selection"""
     user = update.effective_user
-    if not user or not update.message:
+    if not user:
         if update.message:
             await update.message.reply_text("Select unit failed: No user context.")
+        elif update.callback_query:
+            await update.callback_query.edit_message_text("Select unit failed: No user context.")
         return
     user_id = str(user.id)
+    
+    async def reply_or_edit(text: str, reply_markup=None, parse_mode='Markdown'):
+        """Helper function to handle both message and callback query contexts"""
+        if update.message:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        elif update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     
     try:
         # Get user's games
@@ -1688,7 +1776,7 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         user_games = user_games_response.get("games", []) if user_games_response else []
         
         if not user_games:
-            await update.message.reply_text(
+            await reply_or_edit(
                 "❌ You're not in any games!\n\n"
                 "💡 *To select units:*\n"
                 "1. Join a game first\n"
@@ -1697,7 +1785,7 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             return
         
         if len(user_games) > 1:
-            await update.message.reply_text(
+            await reply_or_edit(
                 f"❌ You're in {len(user_games)} games. Please specify which game:\n\n"
                 "Use: /selectunit <game_id>\n\n"
                 "Your games:\n" + 
@@ -1713,13 +1801,13 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         # Get current game state
         game_state = api_get(f"/games/{game_id}/state")
         if not game_state:
-            await update.message.reply_text(f"❌ Could not retrieve game state for game {game_id}")
+            await reply_or_edit(f"❌ Could not retrieve game state for game {game_id}")
             return
         
         # Get user's units
         units = game_state.get("units", {}).get(power, [])
         if not units:
-            await update.message.reply_text(f"❌ No units found for {power} in game {game_id}")
+            await reply_or_edit(f"❌ No units found for {power} in game {game_id}")
             return
         
         # Create inline keyboard with unit buttons
@@ -1743,7 +1831,7 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        await reply_or_edit(
             f"🎯 *Select a Unit for Orders*\n\n"
             f"📊 Game: {game_id} | Power: {power}\n"
             f"🛡️ Army | 🚢 Fleet\n\n"
@@ -1753,7 +1841,7 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         
     except Exception as e:
-        await update.message.reply_text(f"Select unit error: {e}")
+        await reply_or_edit(f"Select unit error: {e}")
 
 async def show_possible_moves(query, game_id: str, unit: str) -> None:
     """Show possible moves for a selected unit"""
@@ -2402,18 +2490,28 @@ def process_waiting_list(waiting_list, waiting_list_size, powers, notify_callbac
 
 async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    if not user or not update.message:
+    if not user:
         if update.message:
             await update.message.reply_text("Wait command failed: No user context.")
+        elif update.callback_query:
+            await update.callback_query.edit_message_text("Wait command failed: No user context.")
         return
+    
+    async def reply_or_edit(text: str, parse_mode='Markdown'):
+        """Helper function to handle both message and callback query contexts"""
+        if update.message:
+            await update.message.reply_text(text, parse_mode=parse_mode)
+        elif update.callback_query:
+            await update.callback_query.edit_message_text(text, parse_mode=parse_mode)
+    
     user_id = str(user.id)
     full_name = getattr(user, 'full_name', None) or user_id
     # Check if already in waiting list
     if any(u[0] == user_id for u in WAITING_LIST):
-        await update.message.reply_text("You are already in the waiting list for the next game.")
+        await reply_or_edit("You are already in the waiting list for the next game.")
         return
     WAITING_LIST.append((user_id, full_name))
-    await update.message.reply_text(
+    await reply_or_edit(
         f"Added to waiting list ({len(WAITING_LIST)}/{WAITING_LIST_SIZE}). "
         f"You will be notified when the game starts.")
     # If enough players, create a new game

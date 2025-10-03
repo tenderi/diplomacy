@@ -327,38 +327,14 @@ class Map:
                         
                         # Convert color to RGB for proper transparency
                         rgb_color = Map._hex_to_rgb(power_color)
-                        # Use 25% opacity for better visibility while preserving map details
-                        transparent_color = (*rgb_color, 64)  # 64/255 ≈ 0.25 (25% opacity)
+                        # Use 35% opacity for better visibility while preserving map details
+                        transparent_color = (*rgb_color, 90)  # 90/255 ≈ 0.35 (35% opacity)
                         
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
                         if path_data:
                             # Apply correct transform to align SVG paths with jdipNS coordinates
                             Map._fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 169)
-                            
-                            # Add province name label to the colored area
-                            if normalized_id in jdip_coords:
-                                x, y = jdip_coords[normalized_id]
-                                # Draw province name in white with black outline for visibility
-                                font = None
-                                try:
-                                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
-                                except Exception:
-                                    font = ImageFont.load_default()
-                                
-                                # Draw text with black outline
-                                text = normalized_id
-                                bbox = overlay_draw.textbbox((0, 0), text, font=font)
-                                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                                
-                                # Draw black outline
-                                for dx in [-1, 0, 1]:
-                                    for dy in [-1, 0, 1]:
-                                        if dx != 0 or dy != 0:
-                                            overlay_draw.text((x - w/2 + dx, y - h/2 + dy), text, fill="black", font=font)
-                                
-                                # Draw white text on top
-                                overlay_draw.text((x - w/2, y - h/2), text, fill="white", font=font)
             
             # Composite the overlay onto the background image using proper alpha compositing
             bg_image.paste(overlay, (0, 0), overlay)
@@ -689,7 +665,7 @@ class Map:
         # 4. Draw units with province coloring
         font = None
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)  # Font size for army/fleet markers
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)  # Font size for army/fleet markers
         except Exception:
             font = ImageFont.load_default()
         
