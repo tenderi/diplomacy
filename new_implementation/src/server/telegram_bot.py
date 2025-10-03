@@ -602,10 +602,37 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"This feature will be enhanced in a future update.\n\n"
                 f"Use /order {unit} S <unit to support> for now."
             )
+        elif move_type == "convoy":
+            # Show convoy options for fleets
+            await show_convoy_options(query, game_id, unit)
             
     elif data.startswith("cancel_move_selection_"):
         game_id = data.split("_")[3]
         await query.edit_message_text(f"❌ Move selection cancelled for game {game_id}")
+        
+    elif data.startswith("convoy_select_"):
+        # Handle convoy selection
+        parts = data.split("_")
+        game_id = parts[2]
+        fleet_unit = f"{parts[3]} {parts[4]}"  # e.g., "F NTH"
+        army_power = parts[5]  # e.g., "ENGLAND"
+        army_unit = f"{parts[6]} {parts[7]}"  # e.g., "A LON"
+        
+        # Show convoy destination selection
+        await show_convoy_destinations(query, game_id, fleet_unit, army_power, army_unit)
+        
+    elif data.startswith("convoy_dest_"):
+        # Handle convoy destination selection
+        parts = data.split("_")
+        game_id = parts[2]
+        fleet_unit = f"{parts[3]} {parts[4]}"  # e.g., "F NTH"
+        army_power = parts[5]  # e.g., "ENGLAND"
+        army_unit = f"{parts[6]} {parts[7]}"  # e.g., "A LON"
+        destination = parts[8]  # e.g., "BEL"
+        
+        # Create convoy order: Fleet convoys army to destination
+        convoy_order = f"{fleet_unit} C {army_power} {army_unit} - {destination}"
+        await submit_interactive_order(query, game_id, convoy_order)
 
 # Handle menu button presses
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1640,6 +1667,10 @@ async def show_possible_moves(query, game_id: str, unit: str) -> None:
         # Add Support option (simplified for now)
         keyboard.append([InlineKeyboardButton("🤝 Support", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_support")])
         
+        # Add Convoy option for fleets
+        if unit_type == "F":
+            keyboard.append([InlineKeyboardButton("🚢 Convoy", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_convoy")])
+        
         # Add cancel button
         keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
         
@@ -1659,6 +1690,118 @@ async def show_possible_moves(query, game_id: str, unit: str) -> None:
         
     except Exception as e:
         await query.edit_message_text(f"❌ Error showing possible moves: {e}")
+
+async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
+    """Show convoy options for a fleet"""
+    try:
+        # Get game state to find armies that can be convoyed
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
+            return
+        
+        # Parse fleet info
+        fleet_parts = fleet_unit.split()
+        fleet_type = fleet_parts[0]  # Should be 'F'
+        fleet_location = fleet_parts[1]  # e.g., 'NTH', 'ENG'
+        
+        if fleet_type != "F":
+            await query.edit_message_text(f"❌ Only fleets can convoy. {fleet_unit} is not a fleet.")
+            return
+        
+        # Get all armies in the game that could potentially be convoyed
+        all_units = game_state.get("units", {})
+        convoyable_armies = []
+        
+        for power, units in all_units.items():
+            for unit in units:
+                if unit.startswith("A "):  # Army
+                    convoyable_armies.append((power, unit))
+        
+        if not convoyable_armies:
+            await query.edit_message_text(f"❌ No armies found that can be convoyed by {fleet_unit}")
+            return
+        
+        # Create keyboard with convoy options
+        keyboard = []
+        
+        for power, army_unit in convoyable_armies:
+            army_location = army_unit.split()[1]  # e.g., 'LON', 'PAR'
+            button_text = f"🚢 Convoy {power} {army_unit}"
+            callback_data = f"convoy_select_{game_id}_{fleet_unit.replace(' ', '_')}_{power}_{army_unit.replace(' ', '_')}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add cancel button
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"🚢 *Convoy Options for {fleet_unit}*\n\n"
+            f"📍 Fleet Location: {fleet_location}\n"
+            f"📊 Game: {game_id}\n\n"
+            f"Select an army to convoy:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error showing convoy options: {e}")
+
+async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_power: str, army_unit: str) -> None:
+    """Show convoy destination options for an army"""
+    try:
+        # Get game state and map data
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
+            return
+        
+        # Parse fleet and army info
+        fleet_location = fleet_unit.split()[1]  # e.g., 'NTH', 'ENG'
+        army_location = army_unit.split()[1]    # e.g., 'LON', 'PAR'
+        
+        # Get map instance for adjacency data
+        from src.engine.map import Map
+        map_instance = Map("standard")
+        
+        # Get all coastal provinces that could be convoy destinations
+        # For simplicity, we'll show all coastal provinces as potential destinations
+        # In a full implementation, we'd check if they share the same body of water
+        coastal_provinces = []
+        for province_name, province_info in map_instance.provinces.items():
+            if province_info.type == "coast":
+                coastal_provinces.append(province_name)
+        
+        if not coastal_provinces:
+            await query.edit_message_text(f"❌ No coastal provinces found for convoy destination")
+            return
+        
+        # Create keyboard with convoy destination options
+        keyboard = []
+        
+        for province in coastal_provinces:
+            button_text = f"🚢 Convoy to {province}"
+            callback_data = f"convoy_dest_{game_id}_{fleet_unit.replace(' ', '_')}_{army_power}_{army_unit.replace(' ', '_')}_{province}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add cancel button
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"🚢 *Convoy Destination for {army_unit}*\n\n"
+            f"📍 Army Location: {army_location}\n"
+            f"🚢 Convoying Fleet: {fleet_unit}\n"
+            f"📊 Game: {game_id}\n\n"
+            f"Select convoy destination:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error showing convoy destinations: {e}")
 
 async def submit_interactive_order(query, game_id: str, order_text: str) -> None:
     """Submit an order created through interactive selection"""
