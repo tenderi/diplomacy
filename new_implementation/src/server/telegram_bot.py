@@ -1800,17 +1800,30 @@ async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
             await query.edit_message_text(f"❌ Only fleets can convoy. {fleet_unit} is not a fleet.")
             return
         
-        # Get all armies in the game that could potentially be convoyed
+        # Get map instance for adjacency data
+        from src.engine.map import Map
+        map_instance = Map("standard")
+        
+        # Get provinces adjacent to the fleet's sea area
+        adjacent_provinces = map_instance.get_adjacency(fleet_location)
+        
+        # Get all armies in the game that are adjacent to this fleet's sea area
         all_units = game_state.get("units", {})
         convoyable_armies = []
         
         for power, units in all_units.items():
             for unit in units:
                 if unit.startswith("A "):  # Army
-                    convoyable_armies.append((power, unit))
+                    army_location = unit.split()[1]  # e.g., 'LON', 'PAR'
+                    # Only include armies that are adjacent to the fleet's sea area
+                    if army_location in adjacent_provinces:
+                        convoyable_armies.append((power, unit))
         
         if not convoyable_armies:
-            await query.edit_message_text(f"❌ No armies found that can be convoyed by {fleet_unit}")
+            await query.edit_message_text(
+                f"❌ No armies found adjacent to {fleet_location} that can be convoyed by {fleet_unit}\n\n"
+                f"📍 Adjacent provinces: {', '.join(adjacent_provinces)}"
+            )
             return
         
         # Create keyboard with convoy options
@@ -1830,6 +1843,7 @@ async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
         await query.edit_message_text(
             f"🚢 *Convoy Options for {fleet_unit}*\n\n"
             f"📍 Fleet Location: {fleet_location}\n"
+            f"📍 Adjacent Provinces: {', '.join(adjacent_provinces)}\n"
             f"📊 Game: {game_id}\n\n"
             f"Select an army to convoy:",
             reply_markup=reply_markup,
@@ -1856,22 +1870,30 @@ async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_po
         from src.engine.map import Map
         map_instance = Map("standard")
         
-        # Get all coastal provinces that could be convoy destinations
-        # For simplicity, we'll show all coastal provinces as potential destinations
-        # In a full implementation, we'd check if they share the same body of water
-        coastal_provinces = []
-        for province_name, province_info in map_instance.provinces.items():
-            if province_info.type == "coast":
-                coastal_provinces.append(province_name)
+        # Get provinces adjacent to the fleet's sea area that can be convoy destinations
+        # A convoy can only reach provinces adjacent to the convoying fleet's sea area
+        adjacent_provinces = map_instance.get_adjacency(fleet_location)
         
-        if not coastal_provinces:
-            await query.edit_message_text(f"❌ No coastal provinces found for convoy destination")
+        # Filter to only coastal provinces (armies can only be convoyed to coastal provinces)
+        convoy_destinations = []
+        for province_name in adjacent_provinces:
+            province_info = map_instance.get_province(province_name)
+            if province_info and province_info.type == "coast":
+                convoy_destinations.append(province_name)
+        
+        if not convoy_destinations:
+            await query.edit_message_text(
+                f"❌ No valid convoy destinations found for {fleet_unit}\n\n"
+                f"📍 Fleet Location: {fleet_location}\n"
+                f"📍 Adjacent Provinces: {', '.join(adjacent_provinces)}\n"
+                f"💡 Convoy destinations must be coastal provinces adjacent to the fleet's sea area."
+            )
             return
         
         # Create keyboard with convoy destination options
         keyboard = []
         
-        for province in coastal_provinces:
+        for province in convoy_destinations:
             button_text = f"🚢 Convoy to {province}"
             callback_data = f"convoy_dest_{game_id}_{fleet_unit.replace(' ', '_')}_{army_power}_{army_unit.replace(' ', '_')}_{province}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
@@ -1885,6 +1907,7 @@ async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_po
             f"🚢 *Convoy Destination for {army_unit}*\n\n"
             f"📍 Army Location: {army_location}\n"
             f"🚢 Convoying Fleet: {fleet_unit}\n"
+            f"📍 Valid Destinations: {', '.join(convoy_destinations)}\n"
             f"📊 Game: {game_id}\n\n"
             f"Select convoy destination:",
             reply_markup=reply_markup,

@@ -143,6 +143,56 @@ class OrderParser:
                 return False, "Only fleets can perform convoy orders."
             if not order.target:
                 return False, "Convoy order missing target."
+            
+            # Parse convoy target: "A LON - BEL" -> army "A LON", destination "BEL"
+            target_parts = order.target.split()
+            if len(target_parts) < 4 or target_parts[2] != '-':
+                return False, "Invalid convoy target format. Expected: A PROVINCE - DESTINATION"
+            
+            convoyed_army = f"{target_parts[0]} {target_parts[1]}"  # "A LON"
+            convoy_destination = target_parts[3]  # "BEL"
+            
+            # Get fleet location
+            fleet_location = order.unit.split()[-1]  # e.g., 'LON', 'NTH', 'ENG'
+            
+            # Get map object for adjacency checks
+            map_obj = game_state.get("map_obj")
+            if map_obj:
+                fleet_province = map_obj.get_province(fleet_location)
+                if not fleet_province:
+                    return False, f"Fleet location {fleet_location} is not a valid province"
+                
+                army_location = convoyed_army.split()[-1]  # e.g., 'LON'
+                
+                # Check if convoyed army is adjacent to fleet's location
+                # For fleets in coastal provinces, army must be in the same province
+                # For fleets in sea areas, army must be in an adjacent coastal province
+                if fleet_province.type == "coast":
+                    # Fleet in coastal province - army must be in the same province
+                    if army_location != fleet_location:
+                        return False, f"Army {convoyed_army} must be in the same province as fleet {fleet_location}"
+                else:
+                    # Fleet in sea area - army must be in an adjacent coastal province
+                    adjacent_provinces = map_obj.get_adjacency(fleet_location)
+                    if army_location not in adjacent_provinces:
+                        return False, f"Army {convoyed_army} is not adjacent to fleet's sea area {fleet_location}"
+                
+                # Check if convoy destination is valid
+                if fleet_province.type == "coast":
+                    # Fleet in coastal province - destination must be adjacent to the province
+                    adjacent_provinces = map_obj.get_adjacency(fleet_location)
+                    if convoy_destination not in adjacent_provinces:
+                        return False, f"Convoy destination {convoy_destination} is not adjacent to fleet's province {fleet_location}"
+                else:
+                    # Fleet in sea area - destination must be adjacent to the sea area
+                    adjacent_provinces = map_obj.get_adjacency(fleet_location)
+                    if convoy_destination not in adjacent_provinces:
+                        return False, f"Convoy destination {convoy_destination} is not adjacent to fleet's sea area {fleet_location}"
+                
+                # Check if convoy destination is coastal (armies can only be convoyed to coastal provinces)
+                dest_province = map_obj.get_province(convoy_destination)
+                if dest_province and dest_province.type != "coast":
+                    return False, f"Convoy destination {convoy_destination} is not a coastal province"
         # Hold validation
         if order.action == 'H' and order.target:
             return False, "Hold order should not have a target."

@@ -1,4 +1,4 @@
-# Order Module Specification
+?????# Order Module Specification
 
 ## Purpose
 Handles order representation, parsing, validation, and execution for all Diplomacy order types including movement, support, convoy, retreat, build, and destroy orders.
@@ -55,20 +55,28 @@ Handles order representation, parsing, validation, and execution for all Diploma
 ### 3. Convoy Orders
 - **Format**: `F SEA_AREA C ARMY_UNIT - DESTINATION`
 - **Examples**: `F NTH C A LON - BEL`
-- **Rules**: Fleet convoys army across sea areas
+- **Rules**: 
+  - Fleet convoys army across sea areas
+  - Fleet can only convoy armies from provinces adjacent to that sea area
+  - Army must be ordered to move to the same destination as convoy order
+  - Multiple fleets can convoy through adjacent sea areas (convoy chains)
+  - If any fleet in convoy chain is dislodged, entire convoy fails
+  - Fleet cannot convoy more than one army per turn
 
 **Legal Examples**:
-- `F NTH C A LON - BEL` (North Sea convoys London to Belgium)
-- `F ENG C A LON - BEL` (English Channel convoys London to Belgium)
+- `F NTH C A LON - BEL` (North Sea convoys London to Belgium - both adjacent to NTH)
+- `F ENG C A LON - BEL` (English Channel convoys London to Belgium - both adjacent to ENG)
 - `F NTH C ENGLISH A LON - BEL` (Convoy foreign army)
-- `F MED C A ROM - TUN` (Mediterranean convoys Rome to Tunisia)
+- `F MED C A ROM - TUN` (Mediterranean convoys Rome to Tunisia - both adjacent to MED)
+- Multi-fleet convoy: `F ENG C A LON - TUN`, `F MED C A LON - TUN` (convoy chain through ENG and MED)
 
 **Illegal Examples**:
 - `A PAR C A LON - BEL` (Only fleets can convoy)
 - `F NTH C F LON - BEL` (Cannot convoy fleets)
 - `F NTH C A LON - MOS` (Cannot convoy to inland province)
-- `F NTH C A LON - BEL` when North Sea is occupied
 - `F NTH C A LON - BEL` when London is not adjacent to North Sea
+- `F NTH C A PAR - BEL` when Paris is not adjacent to North Sea
+- `F NTH C A LON - BEL` when army order is `A LON - HOL` (destination mismatch)
 
 ### 4. Hold Orders
 - **Format**: `UNIT PROVINCE H` or `UNIT PROVINCE`
