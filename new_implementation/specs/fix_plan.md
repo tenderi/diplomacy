@@ -79,6 +79,34 @@
 - **Priority**: ✅ **RESOLVED** - Complete convoy functionality in interactive interface
 - **Resolution Date**: October 3, 2025
 - **Files Modified**: `src/server/telegram_bot.py` (added convoy UI and handlers)
+
+### 5. **View Orders and Order History Buttons** ✅ **RESOLVED**
+- **Current Status**: Buttons successfully implemented and tested
+- **Issue Description**: The "View My Orders" and "Order History" buttons in the telegram bot orders menu were non-functional
+  - Buttons were created with callback data but handlers were missing
+  - Users couldn't view their current orders or order history through the interface
+  - Required manual command usage: `/myorders` or `/orderhistory`
+- **Root Cause**: Missing callback handlers for `view_orders_` and `order_history_` in `button_callback` function
+- **Solution Implementation**:
+  - **View Orders Handler**: Added `view_orders_` callback handler to display current orders for a power
+  - **Order History Handler**: Added `order_history_` callback handler to display turn-by-turn order history
+  - **Clear Orders Handler**: Added `clear_orders_` callback handler to clear all orders for a power
+  - **API Integration**: Integrated with existing `/games/{game_id}/state` and `/games/{game_id}/orders/history` endpoints
+  - **User Experience**: Added proper formatting with emojis and markdown for better readability
+- **Technical Implementation**:
+  - **Files Modified**: `src/server/telegram_bot.py`, `src/server/api.py`
+  - **Import Fix**: Fixed `from engine.game import Game` to `from src.engine.game import Game` in api.py
+  - **Callback Handlers**: Added handlers for `view_orders_`, `order_history_`, and `clear_orders_`
+  - **Error Handling**: Added proper error handling and user feedback
+  - **Message Formatting**: Added markdown formatting and emoji support
+- **Verification**: 
+  - View Orders: ✅ Displays current orders correctly with formatting
+  - Order History: ✅ Shows turn-by-turn history with proper structure
+  - Clear Orders: ✅ Clears orders and provides confirmation
+  - Error Handling: ✅ Graceful error messages for API failures
+- **Priority**: ✅ **RESOLVED** - Complete orders menu functionality
+- **Resolution Date**: October 3, 2025
+- **Files Modified**: `src/server/telegram_bot.py` (added callback handlers), `src/server/api.py` (fixed imports)
 - **Technical Details**:
   - **Server Command Flow**: `/selectunit` → `submit_interactive_order` → `api_post("/games/set_orders")` → `server.process_command("SET_ORDERS")`
   - **Database vs Game Object**: Game state is retrieved from `server.games[game_id].get_state()`, not database
@@ -160,6 +188,7 @@
 ## Recently Completed Tasks ✅
 
 ### ✅ **Major Issues Resolved (October 2025)**
+- **View Orders and Order History Buttons**: Fixed non-functional buttons in telegram bot orders menu
 - **Convoy Movement Support in /selectunit**: Implemented full convoy functionality in the interactive order selection feature
 - **Same-Unit Order Conflict Resolution**: Implemented proper handling when multiple orders are submitted for the same unit - only the latest order is kept
 - **Multiple Order Submission Bug**: Fixed critical bug where only last order was saved when submitting multiple orders via `/selectunit`

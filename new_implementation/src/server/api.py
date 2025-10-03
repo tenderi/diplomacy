@@ -140,7 +140,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
         # Add player to in-memory server
         if req.game_id not in server.games:
-            from engine.game import Game
+            from src.engine.game import Game
             g = Game()
             setattr(g, "game_id", req.game_id)
             server.games[req.game_id] = g
@@ -305,7 +305,7 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                 raise HTTPException(status_code=404, detail="Game not found")
             
             # Restore the game in server.games
-            from engine.game import Game
+            from src.engine.game import Game
             restored_game = Game(map_name=game_model.map_name)
             setattr(restored_game, "game_id", game_id)
             
@@ -702,7 +702,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         db.refresh(player)
         # Add player to in-memory server (ensure sync)
         if str(game_id) not in server.games:
-            from engine.game import Game
+            from src.engine.game import Game
             g = Game()
             setattr(g, "game_id", str(game_id))
             server.games[str(game_id)] = g

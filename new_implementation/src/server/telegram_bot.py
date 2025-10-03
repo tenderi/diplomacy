@@ -633,6 +633,97 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Create convoy order: Fleet convoys army to destination
         convoy_order = f"{fleet_unit} C {army_power} {army_unit} - {destination}"
         await submit_interactive_order(query, game_id, convoy_order)
+        
+    elif data.startswith("view_orders_"):
+        # Handle view orders button
+        parts = data.split("_")
+        game_id = parts[2]
+        power = parts[3]
+        
+        try:
+            # Get current game state to show orders
+            game_state = api_get(f"/games/{game_id}/state")
+            if not game_state:
+                await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
+                return
+            
+            orders = game_state.get("orders", {}).get(power, [])
+            
+            if not orders:
+                await query.edit_message_text(
+                    f"📋 *Your Orders - Game {game_id} ({power})*\n\n"
+                    f"❌ No orders submitted yet.\n\n"
+                    f"Use the Submit Orders button to add orders for this turn.",
+                    parse_mode='Markdown'
+                )
+            else:
+                orders_text = "\n".join([f"• {order}" for order in orders])
+                await query.edit_message_text(
+                    f"📋 *Your Orders - Game {game_id} ({power})*\n\n"
+                    f"📝 *Current Orders:*\n{orders_text}\n\n"
+                    f"💡 Use Submit Orders to modify or add more orders.",
+                    parse_mode='Markdown'
+                )
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error retrieving orders: {e}")
+            
+    elif data.startswith("order_history_"):
+        # Handle order history button
+        game_id = data.split("_")[2]
+        
+        try:
+            # Get order history from API
+            result = api_get(f"/games/{game_id}/orders/history")
+            history = result.get("order_history", {})
+            
+            if not history:
+                await query.edit_message_text(
+                    f"📜 *Order History - Game {game_id}*\n\n"
+                    f"❌ No order history found for this game.\n\n"
+                    f"Order history will appear after turns are processed.",
+                    parse_mode='Markdown'
+                )
+            else:
+                lines = [f"📜 *Order History - Game {game_id}*\n"]
+                for turn in sorted(history.keys(), key=lambda x: int(x)):
+                    lines.append(f"\n📅 *Turn {turn}:*")
+                    for power, orders in history[turn].items():
+                        lines.append(f"\n🛡️ *{power}:*")
+                        for order in orders:
+                            lines.append(f"  • {order}")
+                
+                # Telegram has a message length limit, so we might need to truncate
+                full_text = "\n".join(lines)
+                if len(full_text) > 4000:  # Telegram limit is ~4096 characters
+                    full_text = full_text[:3900] + "\n\n... (truncated)"
+                
+                await query.edit_message_text(full_text, parse_mode='Markdown')
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error retrieving order history: {e}")
+            
+    elif data.startswith("clear_orders_"):
+        # Handle clear orders button
+        parts = data.split("_")
+        game_id = parts[2]
+        power = parts[3]
+        
+        try:
+            # Clear orders by submitting empty order list
+            result = api_post(f"/games/set_orders", {
+                "game_id": game_id,
+                "power": power,
+                "orders": [],
+                "telegram_id": user_id
+            })
+            
+            await query.edit_message_text(
+                f"🗑️ *Orders Cleared*\n\n"
+                f"✅ All orders for {power} in Game {game_id} have been cleared.\n\n"
+                f"💡 Use Submit Orders to add new orders.",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error clearing orders: {e}")
 
 # Handle menu button presses
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
