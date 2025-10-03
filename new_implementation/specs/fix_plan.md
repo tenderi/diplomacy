@@ -49,6 +49,36 @@
 - **Priority**: ✅ **RESOLVED** - Proper Diplomacy rule implementation
 - **Resolution Date**: October 2, 2025
 - **Files Modified**: `src/server/server.py` (added unit conflict resolution logic)
+
+### 4. **Convoy Movement Support in /selectunit** ✅ **RESOLVED**
+- **Current Status**: Feature successfully implemented and tested
+- **Issue Description**: The `/selectunit` interactive order feature was missing convoy movement support
+  - Users could only select Hold, Move, and Support orders
+  - Convoy orders (essential for fleets) were not available in the interactive interface
+  - Required manual order entry: `/order F LON C ENGLAND A LVP - BEL`
+- **Diplomacy Rules Implementation**:
+  - **Convoy Rule**: A fleet in a body of water may convoy an army from any coastal province to any other coastal province that shares the same body of water
+  - **Format**: `F Nth C A Lon-Bel` (fleet convoys army to destination)
+  - **Multiple Convoys**: Multiple fleets can convoy through adjacent bodies of water
+  - **Foreign Armies**: Can convoy foreign armies with format like `F Nth C ENGLISH A Lon-Bel`
+- **Solution Implementation**:
+  - **Added Convoy Button**: Fleets now show "🚢 Convoy" option in `/selectunit`
+  - **Convoy Selection Flow**: Fleet → Select Army to Convoy → Select Destination → Submit Order
+  - **Interactive UI**: Step-by-step convoy order creation with visual feedback
+  - **Callback Handlers**: Added `convoy_select_` and `convoy_dest_` callback handlers
+  - **Order Generation**: Automatically generates proper convoy order format
+- **Technical Implementation**:
+  - **Files Modified**: `src/server/telegram_bot.py`
+  - **New Functions**: `show_convoy_options()`, `show_convoy_destinations()`
+  - **Callback Handlers**: Added convoy selection and destination selection handlers
+  - **Order Format**: Generates orders like `F LON C ENGLAND A LVP - BEL`
+- **Verification**: 
+  - Convoy order submission: ✅ Order accepted and stored correctly
+  - Interactive flow: ✅ Fleet → Army → Destination selection working
+  - Order format: ✅ Proper Diplomacy convoy format generated
+- **Priority**: ✅ **RESOLVED** - Complete convoy functionality in interactive interface
+- **Resolution Date**: October 3, 2025
+- **Files Modified**: `src/server/telegram_bot.py` (added convoy UI and handlers)
 - **Technical Details**:
   - **Server Command Flow**: `/selectunit` → `submit_interactive_order` → `api_post("/games/set_orders")` → `server.process_command("SET_ORDERS")`
   - **Database vs Game Object**: Game state is retrieved from `server.games[game_id].get_state()`, not database
@@ -130,6 +160,7 @@
 ## Recently Completed Tasks ✅
 
 ### ✅ **Major Issues Resolved (October 2025)**
+- **Convoy Movement Support in /selectunit**: Implemented full convoy functionality in the interactive order selection feature
 - **Same-Unit Order Conflict Resolution**: Implemented proper handling when multiple orders are submitted for the same unit - only the latest order is kept
 - **Multiple Order Submission Bug**: Fixed critical bug where only last order was saved when submitting multiple orders via `/selectunit`
 - **Telegram Bot AttributeError**: Fixed callback query handling in menu functions
