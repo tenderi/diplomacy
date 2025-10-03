@@ -204,17 +204,8 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                 except Exception as e:
                     scheduler_logger.error(f"Failed to notify order error: {e}")
         
-        # Clean up old orders for this turn after all new orders are added
-        if player is not None:
-            # Get all orders for this power in the game object
-            game_obj = server.games.get(req.game_id)
-            if game_obj and req.power in game_obj.orders:
-                current_orders = game_obj.orders[req.power]
-                # Delete all orders for this turn from database
-                db.query(OrderModel).filter_by(player_id=player.id, turn=turn).delete()
-                # Re-add all current orders to database
-                for order in current_orders:
-                    db.add(OrderModel(player_id=player.id, order_text=order, turn=turn))
+        # Note: Database cleanup is handled by the game state update below
+        # Individual orders are added to database above, and game state sync happens below
         
         # Update game state in DB to reflect in-memory state
         if game and req.game_id in server.games:
