@@ -124,7 +124,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🎯 Start with *Register* if you're new\n"
         "🎮 Check *My Games* to see your current games\n"
         "🎲 *Join Game* to enter a specific game\n"
-        "⏳ *Join Waiting List* for automatic game matching",
+        "⏳ *Join Waiting List* for automatic game matching\n\n"
+        "💡 *New Features:*\n"
+        "• Interactive unit selection with `/selectunit`\n"
+        "• Full Diplomacy rules implementation\n"
+        "• Convoy chain validation\n"
+        "• Multi-phase gameplay (Movement/Retreat/Builds)",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -393,7 +398,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("demo_orders_"):
         game_id = data.split("_")[2]
-        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!")
+        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!\n\n💡 Try /selectunit for interactive order selection!")
         
     elif data.startswith("demo_help_"):
         game_id = data.split("_")[2]
@@ -406,7 +411,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "*Example Orders:*\n"
             "• `/orders {game_id} A Berlin - Kiel`\n"
             "• `/orders {game_id} A Munich - Bohemia`\n"
-            "• `/orders {game_id} F Kiel - Denmark`\n\n"
+            "• `/orders {game_id} F Kiel - Denmark`\n"
+            "• `/orders {game_id} A Berlin H` (Hold)\n"
+            "• `/orders {game_id} A Berlin S A Munich - Kiel` (Support)\n"
+            "• `/orders {game_id} F Kiel C A Berlin - Denmark` (Convoy)\n\n"
+            "*Interactive Commands:*\n"
+            "• `/selectunit` - Choose units and orders interactively\n"
+            "• `/processturn {game_id}` - Process the current turn\n"
+            "• `/viewmap {game_id}` - View current game state\n\n"
             "🤖 *Other powers won't move* - they're AI-controlled\n"
             "🗺️ Use 'View Map' to see the current state"
         )
@@ -537,7 +549,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data.startswith("view_messages_"):
         game_id = data.split("_")[2]
-        await query.edit_message_text(f"💬 Loading messages for Game {game_id}...\n\n(Messages functionality coming soon!)")
+        await query.edit_message_text(f"💬 Loading messages for Game {game_id}...\n\nUse `/messages {game_id}` to view messages or `/message {game_id} <power> <text>` to send a message.")
 
     elif data.startswith("submit_orders_"):
         parts = data.split("_")
@@ -565,7 +577,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"*💡 Tips:*\n"
             f"• Separate multiple orders with semicolons\n"
             f"• Orders are processed simultaneously each turn\n"
-            f"• You can update orders until the deadline",
+            f"• You can update orders until the deadline\n"
+            f"• Use `/selectunit` for interactive order selection\n"
+            f"• Convoy chains are automatically validated",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -598,9 +612,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif move_type == "support":
             # For now, just show a message that support orders need more complex UI
             await query.edit_message_text(
-                f"🔄 Support orders require selecting the unit to support.\n"
-                f"This feature will be enhanced in a future update.\n\n"
-                f"Use /order {unit} S <unit to support> for now."
+                f"🔄 Support orders are now fully implemented!\n\n"
+                f"Use `/orders <game_id> {unit} S <unit to support>` for support orders.\n\n"
+                f"💡 Example: `/orders 123 A Berlin S A Munich - Kiel`"
             )
         elif move_type == "convoy":
             # Show convoy options for fleets
@@ -1046,16 +1060,35 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 *📝 Text Commands:*
 • `/orders <game_id> <orders>` - Submit orders
+• `/order <orders>` - Submit orders (auto-detect game)
+• `/selectunit` - Interactive unit selection
+• `/processturn <game_id>` - Process current turn
+• `/viewmap <game_id>` - View game map
 • `/message <game_id> <power> <text>` - Send message
 • `/broadcast <game_id> <text>` - Message all players
+• `/myorders <game_id>` - View your orders
+• `/clearorders <game_id>` - Clear your orders
+• `/orderhistory <game_id>` - View order history
 
-*🗺️ Order Format Examples:*
+*🗺️ Order Types & Examples:*
 • `A Vienna - Trieste` (Army move)
 • `F London - North Sea` (Fleet move)
+• `A Berlin H` (Hold)
 • `A Berlin S A Munich - Kiel` (Support)
 • `F English Channel C A London - Brest` (Convoy)
+• `BUILD A Paris` (Build unit - Builds phase only)
+• `DESTROY A Munich` (Destroy unit - Builds phase only)
 
-*💡 Tip:* Use the menu buttons for easier navigation!
+*🎯 Game Phases:*
+• **Movement** (Spring/Autumn) - Submit movement orders
+• **Retreat** - Retreat dislodged units
+• **Builds** - Build/destroy units based on supply centers
+
+*💡 Tips:*
+• Use `/selectunit` for interactive order selection
+• Use menu buttons for easier navigation
+• Orders are validated in real-time
+• Convoy chains are automatically validated
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -1206,9 +1239,16 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "🗺️ View current map state\n"
             "ℹ️ Get help with demo mode\n\n"
             "*Example Orders:*\n"
-            "• `A Berlin - Kiel`\n"
-            "• `A Munich - Bohemia`\n"
-            "• `F Kiel - Denmark`"
+            "• `A Berlin - Kiel` (Army move)\n"
+            "• `A Munich - Bohemia` (Army move)\n"
+            "• `F Kiel - Denmark` (Fleet move)\n"
+            "• `A Berlin H` (Hold)\n"
+            "• `A Berlin S A Munich - Kiel` (Support)\n"
+            "• `F Kiel C A Berlin - Denmark` (Convoy)\n\n"
+            "*Interactive Features:*\n"
+            "• Use `/selectunit` for guided order selection\n"
+            "• Use `/processturn {game_id}` to advance the game\n"
+            "• Use `/viewmap {game_id}` to see current state"
         )
         
         if update.callback_query:
@@ -1378,7 +1418,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "🎯 *Register* if you're new\n"
         "🎮 *My Games* to see your current games\n"
         "🎲 *Join Game* to enter a specific game\n"
-        "⏳ *Join Waiting List* for automatic matching"
+        "⏳ *Join Waiting List* for automatic matching\n\n"
+        "💡 *New Features:*\n"
+        "• Interactive unit selection with `/selectunit`\n"
+        "• Full Diplomacy rules implementation\n"
+        "• Convoy chain validation\n"
+        "• Multi-phase gameplay (Movement/Retreat/Builds)"
     )
 
     if update.callback_query:
@@ -1958,7 +2003,9 @@ async def submit_interactive_order(query, game_id: str, order_text: str) -> None
                 f"💡 *Next Steps:*\n"
                 f"• Submit more orders with /selectunit\n"
                 f"• Process turn with /processturn {game_id}\n"
-                f"• View map with /viewmap {game_id}",
+                f"• View map with /viewmap {game_id}\n"
+                f"• View orders with /myorders {game_id}\n"
+                f"• Clear orders with /clearorders {game_id}",
                 parse_mode='Markdown'
             )
         else:
@@ -1967,7 +2014,7 @@ async def submit_interactive_order(query, game_id: str, order_text: str) -> None
                 f"❌ *Order Failed*\n\n"
                 f"📋 Order: `{normalized_order}`\n"
                 f"❌ Error: {error_msg}\n\n"
-                f"💡 Try selecting a different move or use /order command",
+                f"💡 Try selecting a different move or use /orders command",
                 parse_mode='Markdown'
             )
             
