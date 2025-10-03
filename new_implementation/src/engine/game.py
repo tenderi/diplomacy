@@ -99,6 +99,184 @@ class Game:
             "turn": str(self.turn)
         }
 
+    def _validate_convoy_chains(self, moves: Dict[str, str], convoy_orders: Dict[str, str], parsed_orders: Dict[str, List[Order]]) -> None:
+        """
+        Validate convoy chains to ensure all fleets in each chain have convoy orders.
+        
+        Args:
+            moves: Dictionary of unit -> destination moves
+            convoy_orders: Dictionary of fleet -> convoy target
+            parsed_orders: Dictionary of power -> list of parsed orders
+        """
+        print("DEBUG: Validating convoy chains...")
+        
+        # Find all convoy moves
+        convoy_moves = {}
+        for unit, destination in moves.items():
+            if unit in convoy_moves:
+                continue  # Already processed
+            
+            # Check if this move has convoy orders
+            convoy_fleets = []
+            for fleet, convoy_target in convoy_orders.items():
+                if convoy_target and ' - ' in convoy_target:
+                    convoyed_unit = convoy_target.split(' - ')[0]
+                    convoy_destination = convoy_target.split(' - ')[1]
+                    if convoyed_unit == unit and convoy_destination == destination:
+                        convoy_fleets.append(fleet)
+            
+            if convoy_fleets:
+                convoy_moves[unit] = {
+                    'destination': destination,
+                    'convoy_fleets': convoy_fleets
+                }
+        
+        print(f"DEBUG: Found convoy moves: {convoy_moves}")
+        
+        # Validate each convoy move
+        for unit, convoy_info in convoy_moves.items():
+            destination = convoy_info['destination']
+            convoy_fleets = convoy_info['convoy_fleets']
+            
+            print(f"DEBUG: Validating convoy for {unit} -> {destination} via {convoy_fleets}")
+            
+            # Find all possible convoy routes from unit location to destination
+            unit_location = unit.split()[-1]  # e.g., 'LON'
+            convoy_routes = self._find_convoy_routes(unit_location, destination)
+            
+            print(f"DEBUG: Found convoy routes: {convoy_routes}")
+            
+            # Check if at least one convoy route is complete (all fleets have convoy orders)
+            valid_routes = []
+            for route in convoy_routes:
+                # Check if we have convoy orders for all fleets in this route
+                route_valid = True
+                missing_fleets = []
+                
+                for sea_area in route:
+                    # Look for a fleet in this sea area or in a coastal province adjacent to it
+                    fleet_found = False
+                    
+                    # Check for fleet in the sea area itself
+                    sea_fleet = f"F {sea_area}"
+                    if sea_fleet in convoy_fleets:
+                        fleet_found = True
+                    else:
+                        # Check for fleets in coastal provinces adjacent to this sea area
+                        sea_adjacent = self.map.get_adjacency(sea_area)
+                        for adj_prov in sea_adjacent:
+                            prov_info = self.map.get_province(adj_prov)
+                            if prov_info and prov_info.type == "coast":
+                                coastal_fleet = f"F {adj_prov}"
+                                if coastal_fleet in convoy_fleets:
+                                    fleet_found = True
+                                    break
+                    
+                    if not fleet_found:
+                        route_valid = False
+                        missing_fleets.append(sea_area)
+                
+                if route_valid:
+                    valid_routes.append(route)
+                    print(f"DEBUG: Valid convoy route: {route}")
+                else:
+                    print(f"DEBUG: Invalid convoy route {route} - missing fleets in sea areas: {missing_fleets}")
+            
+            if not valid_routes:
+                print(f"DEBUG: No valid convoy routes for {unit} -> {destination}")
+                # Remove the convoy move - it will be treated as a regular move attempt
+                if unit in moves:
+                    del moves[unit]
+                # Remove convoy orders for this move
+                for fleet in convoy_fleets:
+                    if fleet in convoy_orders:
+                        del convoy_orders[fleet]
+            else:
+                print(f"DEBUG: Valid convoy routes found for {unit} -> {destination}: {valid_routes}")
+
+    def _find_convoy_routes(self, start_location: str, destination: str) -> List[List[str]]:
+        """
+        Find all possible convoy routes from start_location to destination.
+        
+        Args:
+            start_location: Starting province (e.g., 'LON')
+            destination: Destination province (e.g., 'BEL')
+            
+        Returns:
+            List of convoy routes, where each route is a list of sea areas
+        """
+        routes = []
+        
+        # Get the map object
+        map_obj = self.map
+        
+        # Find all sea areas adjacent to the start location
+        start_adjacent = map_obj.get_adjacency(start_location)
+        start_sea_areas = []
+        for prov in start_adjacent:
+            prov_info = map_obj.get_province(prov)
+            if prov_info and prov_info.type == "water":
+                start_sea_areas.append(prov)
+        
+        # Find all sea areas adjacent to the destination
+        dest_adjacent = map_obj.get_adjacency(destination)
+        dest_sea_areas = []
+        for prov in dest_adjacent:
+            prov_info = map_obj.get_province(prov)
+            if prov_info and prov_info.type == "water":
+                dest_sea_areas.append(prov)
+        
+        print(f"DEBUG: Start sea areas: {start_sea_areas}, Dest sea areas: {dest_sea_areas}")
+        
+        # Find routes using BFS
+        for start_sea in start_sea_areas:
+            for dest_sea in dest_sea_areas:
+                if start_sea == dest_sea:
+                    # Direct route
+                    routes.append([start_sea])
+                else:
+                    # Find path between sea areas
+                    path = self._find_sea_path(start_sea, dest_sea)
+                    if path:
+                        routes.append(path)
+        
+        return routes
+
+    def _find_sea_path(self, start_sea: str, dest_sea: str) -> List[str]:
+        """
+        Find a path between two sea areas using BFS.
+        
+        Args:
+            start_sea: Starting sea area
+            dest_sea: Destination sea area
+            
+        Returns:
+            List of sea areas forming the path, or None if no path exists
+        """
+        if start_sea == dest_sea:
+            return [start_sea]
+        
+        # BFS to find path
+        queue = [(start_sea, [start_sea])]
+        visited = {start_sea}
+        
+        while queue:
+            current_sea, path = queue.pop(0)
+            
+            # Get adjacent sea areas
+            adjacent = self.map.get_adjacency(current_sea)
+            for adj in adjacent:
+                if adj == dest_sea:
+                    return path + [adj]
+                
+                if adj not in visited:
+                    prov_info = self.map.get_province(adj)
+                    if prov_info and prov_info.type == "water":
+                        visited.add(adj)
+                        queue.append((adj, path + [adj]))
+        
+        return None
+
     def process_phase(self) -> None:
         """Process the current phase (Movement, Retreat, Builds)."""
         if self.phase == "Movement":
@@ -244,7 +422,7 @@ class Game:
                     # Convoy order
                     convoy_orders[order.unit] = order.target
 
-        # 5. Detect convoy moves based on convoy orders
+        # 5. Detect convoy moves and validate convoy chains
         # If there's a convoy order for a move, mark it as a convoy move
         for fleet, convoy_target in convoy_orders.items():
             # Parse convoy target to find the unit and destination
@@ -254,6 +432,9 @@ class Game:
                 # Check if there's a matching move order
                 if convoyed_unit in moves and moves[convoyed_unit] == destination:
                     convoys[convoyed_unit] = destination
+        
+        # 6. Validate convoy chains
+        self._validate_convoy_chains(moves, convoy_orders, parsed_orders)
 
         # --- ITERATIVE ADJUDICATION FOR SUPPORT CUT BY DISLODGEMENT ---
         # We need to iteratively resolve orders until no more changes occur

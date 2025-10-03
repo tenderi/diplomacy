@@ -193,6 +193,10 @@ class OrderParser:
                 dest_province = map_obj.get_province(convoy_destination)
                 if dest_province and dest_province.type != "coast":
                     return False, f"Convoy destination {convoy_destination} is not a coastal province"
+                
+                # TODO: Convoy chain validation will be implemented in the game engine
+                # This is because convoy chain validation requires knowledge of all orders
+                # and cannot be done at the individual order level
         # Hold validation
         if order.action == 'H' and order.target:
             return False, "Hold order should not have a target."
