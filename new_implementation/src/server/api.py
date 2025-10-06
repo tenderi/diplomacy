@@ -30,6 +30,7 @@ from sqlalchemy import or_, text
 import logging
 import pytz
 from src.engine.order import OrderParser
+from src.engine.data_models import Unit
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -209,7 +210,7 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
         
         # Update game state in DB to reflect in-memory state
         if game and req.game_id in server.games:
-            state = server.games[req.game_id].get_state()
+            state = server.games[req.game_id].get_game_state()
             if not isinstance(state, dict):
                 state = dict(state)
             # Remove non-serializable objects
@@ -242,7 +243,7 @@ def process_turn(game_id: str) -> Dict[str, str]:
     try:
         game = db.query(GameModel).filter_by(id=int(game_id)).first()
         if game is not None and game_id in server.games:
-            state = server.games[game_id].get_state()
+            state = server.games[game_id].get_game_state()
             if not isinstance(state, dict):
                 state = dict(state)
             # Remove non-serializable objects
@@ -326,14 +327,20 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                     # Restore units if available
                     if "units" in state_data:
                         for power_name, unit_list in state_data["units"].items():
-                            if power_name in restored_game.powers:
-                                restored_game.powers[power_name].units = set(unit_list)
+                            if power_name in restored_game.game_state.powers:
+                                # Convert string units to Unit objects
+                                restored_game.game_state.powers[power_name].units = []
+                                for unit_str in unit_list:
+                                    if ' ' in unit_str:
+                                        unit_type, province = unit_str.split(' ', 1)
+                                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
+                                        restored_game.game_state.powers[power_name].units.append(unit)
                     
                     # Restore orders if available
                     if "orders" in state_data:
                         for power_name, order_list in state_data["orders"].items():
-                            if power_name in restored_game.powers:
-                                restored_game.orders[power_name] = order_list.copy()
+                            if power_name in restored_game.game_state.powers:
+                                restored_game.game_state.orders[power_name] = order_list.copy()
             
             # Add restored game to server
             server.games[game_id] = restored_game
@@ -344,7 +351,7 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
             db.close()
     
     game = server.games[game_id]
-    state = game.get_state()
+    state = game.get_game_state()
     # Remove non-serializable objects
     if "map_obj" in state:
         del state["map_obj"]
@@ -352,10 +359,54 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
     last_turn = game.turn - 1
     if hasattr(game, "order_history") and last_turn in game.order_history:
         results = game.order_history[last_turn]
-        state["adjudication_results"] = results if results else {}
+        # Transform new structure to old format for backward compatibility
+        if isinstance(results, dict) and "moves" in results:
+            # New format - transform to old format
+            transformed_results = {}
+            for power_name in game.game_state.powers.keys():
+                transformed_results[power_name] = []
+            
+            # Add move results
+            for move in results.get("moves", []):
+                # Extract power name from unit string (format: "A PAR" or "F BRE")
+                unit_parts = move["unit"].split()
+                if len(unit_parts) >= 2:
+                    power_name = _get_power_for_unit(unit_parts[1], game)
+                    if power_name and power_name in transformed_results:
+                        transformed_results[power_name].append({
+                            "order": f"{move['unit']} - {move['to']}",
+                            "success": move["success"],
+                            "message": f"Moved {move['unit']} from {move['from']} to {move['to']}" if move["success"] else f"Failed to move {move['unit']} to {move['to']}"
+                        })
+            
+            # Add dislodged units
+            for dislodged in results.get("dislodged_units", []):
+                # Extract power name from unit string
+                unit_parts = dislodged["unit"].split()
+                if len(unit_parts) >= 2:
+                    power_name = _get_power_for_unit(unit_parts[1], game)
+                    if power_name and power_name in transformed_results:
+                        transformed_results[power_name].append({
+                            "order": f"{dislodged['unit']} - {dislodged['to']}",
+                            "success": False,
+                            "message": f"Unit {dislodged['unit']} was dislodged from {dislodged['from']}"
+                        })
+            
+            state["adjudication_results"] = transformed_results
+        else:
+            # Old format - use as is
+            state["adjudication_results"] = results if results else {}
     else:
         state["adjudication_results"] = {}
     return state
+
+def _get_power_for_unit(province: str, game) -> Optional[str]:
+    """Get the power that owns a unit in the given province."""
+    for power_name, power_state in game.game_state.powers.items():
+        for unit in power_state.units:
+            if unit.province == province:
+                return power_name
+    return None
 
 @app.post("/users/register")
 def register_user(req: RegisterUserRequest) -> Dict[str, str]:
@@ -993,7 +1044,7 @@ def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
     if game_id not in server.games:
         raise HTTPException(status_code=404, detail="Game not found")
     game = server.games[game_id]
-    game_state = game.get_state()
+    game_state = game.get_game_state()
     # Add map_obj for order generation
     game_state["map_obj"] = game.map
     # Generate all legal orders for the given unit
@@ -1010,8 +1061,8 @@ def debug_unit_locations(game_id: str) -> Dict[str, Any]:
     game = server.games[game_id]
     unit_locations = {}
     
-    for power_name, power in game.powers.items():
-        unit_locations[power_name] = list(power.units)
+    for power_name, power in game.game_state.powers.items():
+        unit_locations[power_name] = [f"{unit.unit_type} {unit.province}" for unit in power.units]
     
     return {
         "status": "ok",
@@ -1038,7 +1089,7 @@ def save_game_snapshot(game_id: str) -> Dict[str, Any]:
             season=game.season,
             phase=game.phase,
             phase_code=game.phase_code,
-            game_state=game.get_state()
+            game_state=game.get_game_state()
         )
         db.add(snapshot)
         db.commit()
@@ -1119,11 +1170,11 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
         game.order_history = state.get("adjudication_results", {})
         
         # Restore powers and units
-        for power_name, power in game.powers.items():
+        for power_name, power in game.game_state.powers.items():
             if power_name in state.get("units", {}):
-                power.units = set(state["units"][power_name])
+                power.units = [Unit(unit_type=u.split()[0], province=u.split()[1], power=power_name) for u in state["units"][power_name]]
             if power_name in state.get("orders", {}):
-                game.orders[power_name] = state["orders"][power_name]
+                game.game_state.orders[power_name] = state["orders"][power_name]
         
         return {
             "status": "ok",
@@ -1257,9 +1308,9 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         
         # Create units dictionary
         units = {}
-        for power_name, power in game.powers.items():
+        for power_name, power in game.game_state.powers.items():
             for unit in power.units:
-                units[unit] = power_name
+                units[f"{unit.unit_type} {unit.province}"] = power_name
         
         # Get phase information
         phase_info = game.get_phase_info()

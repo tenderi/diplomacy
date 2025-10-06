@@ -152,11 +152,30 @@ class MoveOrder:
             return False, f"Target province {self.target_province} does not exist"
         
         # Check adjacency (skip if no adjacencies defined)
+        # Note: Non-adjacent moves are allowed as they might be convoyed
+        # Adjacency will be validated during order processing when convoy status is determined
         current_province = game_state.map_data.provinces[self.unit.province]
-        if current_province.adjacent_provinces and not current_province.is_adjacent_to(self.target_province):
+        target_province_obj = game_state.map_data.provinces[self.target_province]
+        
+        # Allow non-adjacent moves for armies to sea/coast provinces (likely convoyed)
+        # or if there are no adjacencies defined
+        if (current_province.adjacent_provinces and 
+            not current_province.is_adjacent_to(self.target_province) and
+            not (self.unit.unit_type == 'A' and target_province_obj.province_type in ['water', 'coast'])):
             return False, f"{self.unit.province} is not adjacent to {self.target_province}"
         
         return True, ""
+    
+    def _is_potentially_convoyed(self, game_state: 'GameState') -> bool:
+        """Check if this move might be convoyed by looking for convoy orders."""
+        # Look for convoy orders that could convoy this unit
+        for power_name, orders in game_state.orders.items():
+            for order in orders:
+                if hasattr(order, 'convoyed_unit') and hasattr(order, 'convoyed_target'):
+                    if (order.convoyed_unit == self.unit and 
+                        order.convoyed_target == self.target_province):
+                        return True
+        return False
 
 
 @dataclass

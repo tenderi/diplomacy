@@ -23,9 +23,19 @@ class Server:
     def _is_same_unit_order(self, existing_order: str, new_unit: str) -> bool:
         """Check if an existing order is for the same unit as the new order."""
         try:
-            from src.engine.order import OrderParser
-            parsed_existing = OrderParser.parse(existing_order)
-            return parsed_existing.unit == new_unit
+            # Extract unit from existing order string
+            tokens = existing_order.strip().split()
+            if len(tokens) >= 3:
+                # Format: "POWER UNIT_TYPE PROVINCE ACTION TARGET?"
+                # or "UNIT_TYPE PROVINCE ACTION TARGET?"
+                if tokens[1] in ['A', 'F']:
+                    existing_unit = f"{tokens[1]} {tokens[2]}"
+                elif len(tokens) >= 2 and tokens[0] in ['A', 'F']:
+                    existing_unit = f"{tokens[0]} {tokens[1]}"
+                else:
+                    return False
+                return existing_unit == new_unit
+            return False
         except Exception:
             # If parsing fails, assume different units to be safe
             return False
@@ -77,12 +87,12 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for ADD_PLAYER")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                if power_name in game.powers:
+                if power_name in game.game_state.powers:
                     self.logger.error(f"Power {power_name} already exists in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_ALREADY_EXISTS, f"Power {power_name} already exists in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 game.add_player(power_name)
                 self.logger.info(f"Added player {power_name} to game {game_id}")
-                self.logger.debug(f"Game state after add: {game.get_state()}")
+                self.logger.debug(f"Game state after add: {game.get_game_state()}")
                 return {"status": "ok"}
             elif cmd == "SET_ORDERS":
                 if len(tokens) < 4:
@@ -94,38 +104,51 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for SET_ORDERS")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                if power_name not in game.powers:
+                if power_name not in game.game_state.powers:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 
                 # Handle order submission with unit conflict resolution
-                if power_name not in game.orders:
-                    game.orders[power_name] = []
+                # Get current orders for this power
+                current_orders = []
+                if power_name in game.game_state.orders:
+                    # Convert order objects back to strings for processing
+                    current_orders = [str(order) for order in game.game_state.orders[power_name]]
                 
                 # Parse the new order to extract the unit
                 from src.engine.order import OrderParser
                 try:
-                    parsed_order = OrderParser.parse(order_str)
-                    new_unit = parsed_order.unit  # e.g., 'A BER'
-                    
-                    # Remove any existing orders for the same unit
-                    game.orders[power_name] = [
-                        existing_order for existing_order in game.orders[power_name]
-                        if not self._is_same_unit_order(existing_order, new_unit)
-                    ]
-                    
-                    # Add the new order
-                    game.orders[power_name].append(order_str)
+                    parsed_order = OrderParser.parse_order_string(order_str, power_name, game)
+                    if parsed_order:
+                        new_unit = f"{parsed_order.unit.unit_type} {parsed_order.unit.province}"  # e.g., 'A BER'
+                        
+                        # Remove any existing orders for the same unit
+                        filtered_orders = [
+                            existing_order for existing_order in current_orders
+                            if not self._is_same_unit_order(existing_order, new_unit)
+                        ]
+                        
+                        # Add the new order
+                        filtered_orders.append(order_str)
+                        
+                        # Set the updated orders
+                        game.set_orders(power_name, filtered_orders)
+                    else:
+                        # Fallback: just append if parsing fails
+                        if order_str not in current_orders:
+                            current_orders.append(order_str)
+                            game.set_orders(power_name, current_orders)
                     
                 except Exception as e:
                     self.logger.error(f"Failed to parse order for conflict resolution: {order_str}, error: {e}")
                     # Fallback: just append if parsing fails
-                    if order_str not in game.orders[power_name]:
-                        game.orders[power_name].append(order_str)
+                    if order_str not in current_orders:
+                        current_orders.append(order_str)
+                        game.set_orders(power_name, current_orders)
                 
                 self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
                 # Extra logging for order parsing/validation
-                self.logger.debug(f"Orders for {power_name} in game {game_id}: {game.orders.get(power_name)}")
+                self.logger.debug(f"Orders for {power_name} in game {game_id}: {game.game_state.orders.get(power_name)}")
                 return {"status": "ok"}
             elif cmd == "PROCESS_TURN":
                 if len(tokens) < 2:
@@ -136,7 +159,7 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for PROCESS_TURN")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                game.process_phase()
+                game.process_turn()
                 self.logger.info(f"Processed phase for game {game_id}")
                 return {"status": "ok"}
             elif cmd == "GET_GAME_STATE":
@@ -149,7 +172,7 @@ class Server:
                     self.logger.error(f"Game {game_id} not found for GET_GAME_STATE")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
                 self.logger.info(f"Queried game state for game {game_id}")
-                return {"status": "ok", "state": game.get_state()}
+                return {"status": "ok", "state": game.get_game_state()}
             elif cmd == "SAVE_GAME":
                 if len(tokens) < 3:
                     self.logger.error("SAVE_GAME missing arguments")
@@ -192,13 +215,13 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for REMOVE_PLAYER")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                if power_name not in game.powers:
+                if power_name not in game.game_state.powers:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 # Remove the power from the game
-                del game.powers[power_name]
-                if power_name in game.orders:
-                    del game.orders[power_name]
+                del game.game_state.powers[power_name]
+                if power_name in game.game_state.orders:
+                    del game.game_state.orders[power_name]
                 self.logger.info(f"Removed player {power_name} from game {game_id}")
                 return {"status": "ok"}
             elif cmd == "ADVANCE_PHASE":
@@ -211,7 +234,7 @@ class Server:
                     self.logger.error(f"Game {game_id} not found for ADVANCE_PHASE")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
                 # Advance the phase by processing the current phase
-                game.process_phase()
+                game.process_turn()
                 self.logger.info(f"Advanced phase for game {game_id}")
                 return {"status": "ok"}
             else:
@@ -225,4 +248,4 @@ class Server:
         game = self.games.get(game_id)
         if not game:
             return None
-        return game.get_state()
+        return game.get_game_state()

@@ -21,7 +21,7 @@ def test_server_create_and_query_game():
     state = server.process_command(f"GET_GAME_STATE {game_id}")
     assert state["status"] == "ok"
     state_data = state["state"]
-    assert state_data["map"] == "standard"
+    assert state_data["map_name"] == "standard"
     assert state_data["turn"] == 0
 
 def test_server_add_player_and_set_orders():
@@ -172,5 +172,11 @@ def test_adjudication_results_in_state():
     results = data["adjudication_results"]
     assert "FRANCE" in results
     france_results = results["FRANCE"]
-    assert "orders" in france_results
-    assert "results" in france_results
+    # france_results should be a list of order results
+    assert isinstance(france_results, list)
+    assert len(france_results) > 0
+    # Each result should have order, success, and message
+    first_result = france_results[0]
+    assert "order" in first_result
+    assert "success" in first_result
+    assert "message" in first_result
