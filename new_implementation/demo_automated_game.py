@@ -223,11 +223,14 @@ class AutomatedDemoGame:
             for power_name in powers_data:
                 # Get power data from game state
                 power_units = []
-                for unit_str in game_state.get('units', {}).get(power_name, []):
-                    if ' ' in unit_str:
-                        unit_type, province = unit_str.split(' ', 1)
+                for unit_item in game_state.get('units', {}).get(power_name, []):
+                    if isinstance(unit_item, str) and ' ' in unit_item:
+                        unit_type, province = unit_item.split(' ', 1)
                         unit = Unit(unit_type=unit_type, province=province, power=power_name)
                         power_units.append(unit)
+                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
+                        # Already a Unit object
+                        power_units.append(unit_item)
                 
                 powers_dict[power_name] = {
                     'units': power_units,
@@ -239,17 +242,23 @@ class AutomatedDemoGame:
             # Create units
             power_units = []
             if isinstance(power_data, dict):
-                for unit_str in power_data.get('units', []):
-                    if ' ' in unit_str:
-                        unit_type, province = unit_str.split(' ', 1)
+                for unit_item in power_data.get('units', []):
+                    if isinstance(unit_item, str) and ' ' in unit_item:
+                        unit_type, province = unit_item.split(' ', 1)
                         unit = Unit(unit_type=unit_type, province=province, power=power_name)
                         power_units.append(unit)
+                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
+                        # Already a Unit object
+                        power_units.append(unit_item)
             elif isinstance(power_data, list):
-                for unit_str in power_data:
-                    if ' ' in unit_str:
-                        unit_type, province = unit_str.split(' ', 1)
+                for unit_item in power_data:
+                    if isinstance(unit_item, str) and ' ' in unit_item:
+                        unit_type, province = unit_item.split(' ', 1)
                         unit = Unit(unit_type=unit_type, province=province, power=power_name)
                         power_units.append(unit)
+                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
+                        # Already a Unit object
+                        power_units.append(unit_item)
             
             # Create power state
             power_state = PowerState(
@@ -263,11 +272,14 @@ class AutomatedDemoGame:
             power_orders = []
             for order_text in orders.get(power_name, []):
                 try:
+                    print(f"DEBUG: Parsing order '{order_text}' for power '{power_name}' with {len(power_units)} units")
                     order = self._parse_order_to_new_model(order_text, power_name, power_units)
                     if order:
                         power_orders.append(order)
                 except Exception as e:
                     print(f"Error parsing order '{order_text}': {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
             
             new_orders[power_name] = power_orders
@@ -315,8 +327,13 @@ class AutomatedDemoGame:
             # Find the unit in power_units
             unit = None
             for u in power_units:
-                if f"{u.unit_type} {u.province}" == unit_str:
-                    unit = u
+                if hasattr(u, 'unit_type') and hasattr(u, 'province'):
+                    if f"{u.unit_type} {u.province}" == unit_str:
+                        unit = u
+                        break
+                elif isinstance(u, str) and u == unit_str:
+                    # Handle case where power_units contains strings
+                    unit = Unit(unit_type=parts[0], province=parts[1], power=power_name)
                     break
             
             if not unit:
@@ -350,8 +367,13 @@ class AutomatedDemoGame:
                 supported_unit_str = f"{parts[3]} {parts[4]}"
                 supported_unit = None
                 for u in power_units:
-                    if f"{u.unit_type} {u.province}" == supported_unit_str:
-                        supported_unit = u
+                    if hasattr(u, 'unit_type') and hasattr(u, 'province'):
+                        if f"{u.unit_type} {u.province}" == supported_unit_str:
+                            supported_unit = u
+                            break
+                    elif isinstance(u, str) and u == supported_unit_str:
+                        # Handle case where power_units contains strings
+                        supported_unit = Unit(unit_type=parts[3], province=parts[4], power=power_name)
                         break
                 
                 if supported_unit:
@@ -373,8 +395,13 @@ class AutomatedDemoGame:
                 convoyed_unit_str = f"{parts[3]} {parts[4]}"
                 convoyed_unit = None
                 for u in power_units:
-                    if f"{u.unit_type} {u.province}" == convoyed_unit_str:
-                        convoyed_unit = u
+                    if hasattr(u, 'unit_type') and hasattr(u, 'province'):
+                        if f"{u.unit_type} {u.province}" == convoyed_unit_str:
+                            convoyed_unit = u
+                            break
+                    elif isinstance(u, str) and u == convoyed_unit_str:
+                        # Handle case where power_units contains strings
+                        convoyed_unit = Unit(unit_type=parts[3], province=parts[4], power=power_name)
                         break
                 
                 if convoyed_unit:
