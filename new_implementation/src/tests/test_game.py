@@ -1,4 +1,5 @@
 from src.engine.game import Game
+from src.engine.data_models import Unit
 
 def test_game_instantiation():
     game = Game()
@@ -18,10 +19,19 @@ def test_victory_condition_standard_map():
         'VIE', 'BUD', 'TRI', 'WAR', 'MOS', 'SEV', 'STP', 'TUN', 'MUN'
     ]
     germany_centers = ['BER', 'KIE']
-    game.powers['FRANCE'].units = {f'A {prov}' for prov in france_centers}
-    game.powers['GERMANY'].units = {f'A {prov}' for prov in germany_centers}
-    # Simulate adjustment phase (should trigger victory)
-    game._process_adjustment_phase()
-    state = game.get_state()
+    # Create Unit objects for France
+    france_units = [Unit(unit_type='A', province=prov, power='FRANCE') for prov in france_centers]
+    game.game_state.powers['FRANCE'].units = france_units
+    # Set France to control 18 supply centers (victory condition)
+    game.game_state.powers['FRANCE'].controlled_supply_centers = france_centers
+    
+    # Create Unit objects for Germany  
+    germany_units = [Unit(unit_type='A', province=prov, power='GERMANY') for prov in germany_centers]
+    game.game_state.powers['GERMANY'].units = germany_units
+    # Set Germany to control only 2 supply centers
+    game.game_state.powers['GERMANY'].controlled_supply_centers = germany_centers
+    # Simulate builds phase (should trigger victory)
+    game._process_builds_phase()
+    state = game.get_game_state()
     assert state['done']
     assert 'FRANCE' in state['winner']
