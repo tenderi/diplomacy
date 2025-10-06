@@ -151,9 +151,9 @@ class MoveOrder:
         if self.target_province not in game_state.map_data.provinces:
             return False, f"Target province {self.target_province} does not exist"
         
-        # Check adjacency
+        # Check adjacency (skip if no adjacencies defined)
         current_province = game_state.map_data.provinces[self.unit.province]
-        if not current_province.is_adjacent_to(self.target_province):
+        if current_province.adjacent_provinces and not current_province.is_adjacent_to(self.target_province):
             return False, f"{self.unit.province} is not adjacent to {self.target_province}"
         
         return True, ""
