@@ -26,6 +26,12 @@ class Province:
 
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
+    
+    # List of water provinces (sea/ocean spaces)
+    WATER_PROVINCES = {
+        "ADR", "AEG", "BAL", "BAR", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
+    }
+    
     def __init__(self, map_name: str = 'standard') -> None:
         self.provinces: Dict[str, Province] = {}
         self.supply_centers: Set[str] = set()
@@ -327,8 +333,16 @@ class Map:
                         
                         # Convert color to RGB for proper transparency
                         rgb_color = Map._hex_to_rgb(power_color)
-                        # Use 35% opacity for better visibility while preserving map details
-                        transparent_color = (*rgb_color, 90)  # 90/255 ≈ 0.35 (35% opacity)
+                        
+                        # Determine opacity based on province type
+                        base_opacity = 90  # 90/255 ≈ 0.35 (35% opacity)
+                        if normalized_id in Map.WATER_PROVINCES:
+                            # Decrease opacity by 40% for water provinces (40% of base opacity)
+                            opacity = max(0, int(base_opacity * 0.60))  # 60% of base opacity = 40% reduction
+                        else:
+                            opacity = base_opacity
+                        
+                        transparent_color = (*rgb_color, opacity)
                         
                         # Parse and fill the SVG path with correct coordinate alignment
                         path_data = path_elem.get('d')
@@ -753,7 +767,67 @@ class Map:
         draw.text((x, y), phase_text, fill="white", font=phase_font)
         
     @staticmethod
-    def render_board_png_with_moves(svg_path: str, units: dict, orders: list, output_path: str = None, phase_info: dict = None) -> bytes:
+    def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None) -> bytes:
+        """
+        Render map with comprehensive order visualization.
+        
+        Args:
+            svg_path: Path to SVG map file
+            units: Dictionary of power -> list of units
+            orders: Dictionary of power -> list of order dictionaries
+            phase_info: Dictionary with turn/season/phase information
+            output_path: Optional output file path
+            
+        Returns:
+            PNG image bytes
+        """
+        if svg_path is None:
+            raise ValueError("svg_path must not be None")
+        
+        # First render the base map
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
+        bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
+        draw = ImageDraw.Draw(bg)
+        
+        # Get province coordinates for order visualization
+        coords = Map.get_svg_province_coordinates(svg_path)
+        
+        # Define power colors
+        power_colors = {
+            "AUSTRIA": "#c48f85",
+            "ENGLAND": "darkviolet", 
+            "FRANCE": "royalblue",
+            "GERMANY": "#a08a75",
+            "ITALY": "forestgreen",
+            "RUSSIA": "#757d91",
+            "TURKEY": "#b9a61c",
+        }
+        
+        # Draw order visualizations
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
+        
+        # Save or return PNG
+        if isinstance(output_path, str) and output_path:
+            bg.save(output_path, format="PNG")
+        output = BytesIO()
+        bg.save(output, format="PNG")
+        return output.getvalue()
+
+    @staticmethod
+    def render_board_png_with_moves(svg_path: str, units: dict, moves: dict, phase_info: dict = None, output_path: str = None) -> bytes:
+        """
+        Render map with moves dictionary format visualization.
+        
+        Args:
+            svg_path: Path to SVG map file
+            units: Dictionary of power -> list of units
+            moves: Dictionary of power -> moves dictionary with successful/failed/bounced/etc
+            phase_info: Dictionary with turn/season/phase information
+            output_path: Optional output file path
+            
+        Returns:
+            PNG image bytes
+        """
         if svg_path is None:
             raise ValueError("svg_path must not be None")
         
@@ -765,7 +839,7 @@ class Map:
         # Get province coordinates for move visualization
         coords = Map.get_svg_province_coordinates(svg_path)
         
-        # Define power colors for move arrows
+        # Define power colors
         power_colors = {
             "AUSTRIA": "#c48f85",
             "ENGLAND": "darkviolet", 
@@ -776,8 +850,8 @@ class Map:
             "TURKEY": "#b9a61c",
         }
         
-        # Draw move visualization
-        Map._draw_move_visualization(draw, orders, coords, power_colors)
+        # Draw moves visualization
+        Map._draw_moves_visualization(draw, moves, coords, power_colors)
         
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
@@ -925,5 +999,365 @@ class Map:
 
     def validate_location(self, location: str) -> bool:
         return location in self.provinces
-    
 
+    @staticmethod
+    def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict):
+        """
+        Draw comprehensive order visualization based on orders dictionary format.
+        
+        Args:
+            draw: PIL ImageDraw object
+            orders: Dictionary of power -> list of order dictionaries
+            coords: Dictionary of province -> (x, y) coordinates
+            power_colors: Dictionary of power -> color
+        """
+        for power, power_orders in orders.items():
+            color = power_colors.get(power.upper(), "black")
+            
+            for order in power_orders:
+                order_type = order.get("type", "")
+                unit = order.get("unit", "")
+                target = order.get("target", "")
+                status = order.get("status", "success")
+                reason = order.get("reason", "")
+                
+                # Extract province from unit (e.g., "A PAR" -> "PAR")
+                unit_province = unit.split()[-1] if unit else ""
+                
+                if order_type == "move":
+                    Map._draw_movement_order(draw, unit_province, target, color, status, coords)
+                elif order_type == "hold":
+                    Map._draw_hold_order(draw, unit_province, color, status, coords)
+                elif order_type == "support":
+                    supporting = order.get("supporting", "")
+                    Map._draw_support_order(draw, unit_province, supporting, color, status, coords)
+                elif order_type == "convoy":
+                    via = order.get("via", [])
+                    Map._draw_convoy_order(draw, unit_province, target, via, color, status, coords)
+                elif order_type == "build":
+                    Map._draw_build_order(draw, target, color, status, coords)
+                elif order_type == "destroy":
+                    Map._draw_destroy_order(draw, unit_province, color, coords)
+
+    @staticmethod
+    def _draw_moves_visualization(draw, moves: dict, coords: dict, power_colors: dict):
+        """
+        Draw moves visualization based on moves dictionary format.
+        
+        Args:
+            draw: PIL ImageDraw object
+            moves: Dictionary of power -> moves dictionary
+            coords: Dictionary of province -> (x, y) coordinates
+            power_colors: Dictionary of power -> color
+        """
+        for power, power_moves in moves.items():
+            color = power_colors.get(power.upper(), "black")
+            
+            # Draw successful moves
+            for move in power_moves.get("successful", []):
+                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "success", coords)
+            
+            # Draw failed moves
+            for move in power_moves.get("failed", []):
+                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "failed", coords)
+            
+            # Draw bounced moves
+            for move in power_moves.get("bounced", []):
+                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "bounced", coords)
+            
+            # Draw holds
+            for hold in power_moves.get("holds", []):
+                province = hold.split()[-1]
+                Map._draw_hold_order(draw, province, color, "success", coords)
+            
+            # Draw supports
+            for support in power_moves.get("supports", []):
+                parts = support.split()
+                supporter = parts[1]
+                supported_move = " ".join(parts[3:])
+                Map._draw_support_order(draw, supporter, supported_move, color, "success", coords)
+            
+            # Draw convoys
+            for convoy in power_moves.get("convoys", []):
+                parts = convoy.split()
+                convoyer = parts[1]
+                convoyed_move = " ".join(parts[3:])
+                Map._draw_convoy_order(draw, convoyer, convoyed_move.split()[2], [], color, "success", coords)
+            
+            # Draw builds
+            for build in power_moves.get("builds", []):
+                province = build.split()[-1]
+                Map._draw_build_order(draw, province, color, "success", coords)
+            
+            # Draw destroys
+            for destroy in power_moves.get("destroys", []):
+                province = destroy.split()[-1]
+                Map._draw_destroy_order(draw, province, color, coords)
+
+    @staticmethod
+    def _draw_movement_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
+        """Draw movement order arrow"""
+        if from_province not in coords or to_province not in coords:
+            return
+            
+        from_coord = coords[from_province]
+        to_coord = coords[to_province]
+        
+        # Choose arrow style based on status
+        if status == "success":
+            Map._draw_arrow(draw, from_coord, to_coord, color, width=3, style="solid")
+        elif status == "failed":
+            Map._draw_arrow(draw, from_coord, to_coord, "red", width=2, style="dashed")
+        elif status == "bounced":
+            Map._draw_arrow(draw, from_coord, to_coord, "orange", width=2, style="dashed")
+
+    @staticmethod
+    def _draw_hold_order(draw, province: str, color: str, status: str, coords: dict):
+        """Draw hold order circle"""
+        if province not in coords:
+            return
+            
+        coord = coords[province]
+        
+        # Choose circle style based on status
+        if status == "success":
+            Map._draw_circle(draw, coord, color, width=2, style="solid")
+        else:
+            Map._draw_circle(draw, coord, "red", width=2, style="dashed")
+
+    @staticmethod
+    def _draw_support_order(draw, supporter_province: str, supported_move: str, color: str, status: str, coords: dict):
+        """Draw support order (circle + arrow)"""
+        if supporter_province not in coords:
+            return
+            
+        supporter_coord = coords[supporter_province]
+        
+        # Draw circle around supporting unit
+        if status == "success":
+            Map._draw_circle(draw, supporter_coord, color, width=2, style="solid")
+        else:
+            Map._draw_circle(draw, supporter_coord, "red", width=2, style="dashed")
+        
+        # Parse supported move and draw arrow
+        parts = supported_move.split()
+        if len(parts) >= 3 and parts[1] == "-":
+            supported_to = parts[2]
+            if supported_to in coords:
+                supported_coord = coords[supported_to]
+                if status == "success":
+                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="solid")
+                else:
+                    Map._draw_arrow(draw, supporter_coord, supported_coord, "red", width=2, style="dashed")
+
+    @staticmethod
+    def _draw_convoy_order(draw, convoyer_province: str, convoyed_to: str, via_route: list, color: str, status: str, coords: dict):
+        """Draw convoy order (curved arrow through convoy chain)"""
+        if convoyer_province not in coords or convoyed_to not in coords:
+            return
+            
+        convoyer_coord = coords[convoyer_province]
+        convoyed_coord = coords[convoyed_to]
+        
+        # Draw curved arrow through convoy route
+        if status == "success":
+            Map._draw_curved_arrow(draw, convoyer_coord, convoyed_coord, color, width=2, style="solid")
+        else:
+            Map._draw_curved_arrow(draw, convoyer_coord, convoyed_coord, "red", width=2, style="dashed")
+
+    @staticmethod
+    def _draw_build_order(draw, province: str, color: str, status: str, coords: dict):
+        """Draw build order (glowing circle)"""
+        if province not in coords:
+            return
+            
+        coord = coords[province]
+        
+        if status == "success":
+            # Draw glowing circle with enhanced brightness
+            Map._draw_glowing_circle(draw, coord, color, width=4)
+        else:
+            # Draw red cross for failed build
+            Map._draw_cross(draw, coord, "red", width=4)
+
+    @staticmethod
+    def _draw_destroy_order(draw, province: str, color: str, coords: dict):
+        """Draw destroy order (red cross)"""
+        if province not in coords:
+            return
+            
+        coord = coords[province]
+        Map._draw_cross(draw, coord, "red", width=4)
+
+    @staticmethod
+    def _draw_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 3, style: str = "solid"):
+        """Draw arrow between two coordinates"""
+        from_x, from_y = from_coord
+        to_x, to_y = to_coord
+        
+        # Draw arrow line
+        if style == "dashed":
+            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, color, width)
+        else:
+            draw.line([from_x, from_y, to_x, to_y], fill=color, width=width)
+        
+        # Draw arrowhead
+        import math
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        arrow_length = 15
+        arrow_angle = math.pi / 6  # 30 degrees
+        
+        # Calculate arrowhead points
+        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
+        
+        # Draw arrowhead
+        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+
+    @staticmethod
+    def _draw_circle(draw, coord: tuple, color: str, width: int = 2, style: str = "solid"):
+        """Draw circle around coordinate"""
+        x, y = coord
+        radius = 15
+        
+        if style == "dashed":
+            Map._draw_dashed_circle(draw, x, y, radius, color, width)
+        else:
+            draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline=color, width=width)
+
+    @staticmethod
+    def _draw_glowing_circle(draw, coord: tuple, color: str, width: int = 4):
+        """Draw glowing circle for build orders"""
+        x, y = coord
+        radius = 20
+        
+        # Draw outer glow (lighter color)
+        glow_color = Map._lighten_color(color)
+        draw.ellipse([x - radius - 2, y - radius - 2, x + radius + 2, y + radius + 2], outline=glow_color, width=width)
+        
+        # Draw inner circle
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline=color, width=width)
+
+    @staticmethod
+    def _draw_cross(draw, coord: tuple, color: str, width: int = 4):
+        """Draw red cross for destroy orders"""
+        x, y = coord
+        size = 15
+        
+        # Draw X
+        draw.line([x - size, y - size, x + size, y + size], fill=color, width=width)
+        draw.line([x - size, y + size, x + size, y - size], fill=color, width=width)
+
+    @staticmethod
+    def _draw_curved_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 2, style: str = "solid"):
+        """Draw curved arrow for convoy orders"""
+        from_x, from_y = from_coord
+        to_x, to_y = to_coord
+        
+        # Calculate control point for curve
+        mid_x = (from_x + to_x) / 2
+        mid_y = (from_y + to_y) / 2
+        
+        # Offset control point to create curve
+        import math
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        perp_angle = angle + math.pi / 2
+        offset = 30
+        
+        control_x = mid_x + offset * math.cos(perp_angle)
+        control_y = mid_y + offset * math.sin(perp_angle)
+        
+        # Draw curved line using quadratic bezier
+        steps = 20
+        for i in range(steps):
+            t1 = i / steps
+            t2 = (i + 1) / steps
+            
+            x1 = (1-t1)**2 * from_x + 2*(1-t1)*t1 * control_x + t1**2 * to_x
+            y1 = (1-t1)**2 * from_y + 2*(1-t1)*t1 * control_y + t1**2 * to_y
+            x2 = (1-t2)**2 * from_x + 2*(1-t2)*t2 * control_x + t2**2 * to_x
+            y2 = (1-t2)**2 * from_y + 2*(1-t2)*t2 * control_y + t2**2 * to_y
+            
+            if style == "dashed" and i % 2 == 0:
+                continue
+            draw.line([x1, y1, x2, y2], fill=color, width=width)
+        
+        # Draw arrowhead at destination
+        Map._draw_arrow(draw, (control_x, control_y), to_coord, color, width, style)
+
+    @staticmethod
+    def _draw_dashed_line(draw, x1: int, y1: int, x2: int, y2: int, color: str, width: int):
+        """Draw dashed line"""
+        import math
+        length = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        dash_length = 10
+        gap_length = 5
+        
+        if length == 0:
+            return
+            
+        # Calculate unit vector
+        dx = (x2 - x1) / length
+        dy = (y2 - y1) / length
+        
+        # Draw dashes
+        current_length = 0
+        while current_length < length:
+            start_x = x1 + current_length * dx
+            start_y = y1 + current_length * dy
+            end_length = min(current_length + dash_length, length)
+            end_x = x1 + end_length * dx
+            end_y = y1 + end_length * dy
+            
+            draw.line([start_x, start_y, end_x, end_y], fill=color, width=width)
+            current_length += dash_length + gap_length
+
+    @staticmethod
+    def _draw_dashed_circle(draw, x: int, y: int, radius: int, color: str, width: int):
+        """Draw dashed circle"""
+        import math
+        num_segments = 24
+        dash_length = 2
+        gap_length = 2
+        
+        for i in range(0, num_segments, 2):
+            start_angle = 2 * math.pi * i / num_segments
+            end_angle = 2 * math.pi * (i + dash_length) / num_segments
+            
+            start_x = x + radius * math.cos(start_angle)
+            start_y = y + radius * math.sin(start_angle)
+            end_x = x + radius * math.cos(end_angle)
+            end_y = y + radius * math.sin(end_angle)
+            
+            draw.line([start_x, start_y, end_x, end_y], fill=color, width=width)
+
+    @staticmethod
+    def _lighten_color(color: str) -> str:
+        """Lighten a color for glow effects"""
+        # Simple color lightening - add white component
+        if color.startswith("#"):
+            # Convert hex to RGB
+            r = int(color[1:3], 16)
+            g = int(color[3:5], 16)
+            b = int(color[5:7], 16)
+            
+            # Lighten by adding white
+            r = min(255, int(r + (255 - r) * 0.5))
+            g = min(255, int(g + (255 - g) * 0.5))
+            b = min(255, int(b + (255 - b) * 0.5))
+            
+            return f"#{r:02x}{g:02x}{b:02x}"
+        else:
+            # For named colors, return a lighter version
+            light_colors = {
+                "red": "#ff8080",
+                "blue": "#8080ff",
+                "green": "#80ff80",
+                "yellow": "#ffff80",
+                "purple": "#ff80ff",
+                "orange": "#ffc080",
+                "brown": "#d4a574",
+            }
+            return light_colors.get(color.lower(), color)

@@ -72,18 +72,29 @@ class Game:
             if any(self.pending_retreats.values()):
                 self.phase = "Retreat"
             else:
-                # No retreats needed, go to Builds phase
-                self.phase = "Builds"
+                # No retreats needed
+                if self.season == "Spring":
+                    # After Spring Movement, go to Autumn Movement
+                    self.season = "Autumn"
+                    self.phase = "Movement"
+                    self.turn += 1
+                else:  # Autumn
+                    # After Autumn Movement, go to Builds phase
+                    self.phase = "Builds"
         elif self.phase == "Retreat":
-            # After retreats, go to Builds phase
-            self.phase = "Builds"
-        elif self.phase == "Builds":
-            # After builds, advance to next season/year
+            # After retreats, check if we need builds
             if self.season == "Spring":
+                # After Spring Retreat, go to Autumn Movement
                 self.season = "Autumn"
+                self.phase = "Movement"
+                self.turn += 1
             else:  # Autumn
-                self.season = "Spring"
-                self.year += 1
+                # After Autumn Retreat, go to Builds phase
+                self.phase = "Builds"
+        elif self.phase == "Builds":
+            # After builds, advance to next year Spring Movement
+            self.season = "Spring"
+            self.year += 1
             self.phase = "Movement"
             self.turn += 1
         
@@ -740,9 +751,11 @@ class Game:
         supply_centers = self.map.get_supply_centers()
         province_to_power: Dict[str, str] = {}
         for power, p in self.powers.items():
-            for prov in p.units:
-                if prov in supply_centers:
-                    province_to_power[prov] = power
+            for unit in p.units:
+                # Extract province from unit (e.g., 'A BER' -> 'BER')
+                province = unit.split()[-1]
+                if province in supply_centers:
+                    province_to_power[province] = power
         for power, p in self.powers.items():
             p.controlled_centers = set()
         for prov, power in province_to_power.items():
