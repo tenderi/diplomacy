@@ -106,20 +106,18 @@ class AutomatedDemoGame:
         """Generate map showing submitted orders (before processing)"""
         try:
             from src.engine.map import Map
+            from src.engine.order_visualization import OrderVisualizationService
+            from src.engine.data_models import GameState, PowerState, Unit, OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, MapData, Province
             
             # Get units dictionary
             units = game_state.get('units', {})
             
-            # Convert orders to visualization format
-            orders_vis = {}
-            for power, power_orders in orders.items():
-                if power_orders:
-                    orders_vis[power] = []
-                    for order_text in power_orders:
-                        # Parse order text to extract order details
-                        order_data = self._parse_order_text(order_text)
-                        if order_data:
-                            orders_vis[power].append(order_data)
+            # Convert old game state to new data model
+            new_game_state = self._convert_to_new_data_model(game_state, orders)
+            
+            # Use new order visualization service
+            viz_service = OrderVisualizationService()
+            orders_vis = viz_service.create_visualization_data(new_game_state)
             
             # Create phase info
             phase_info = {
@@ -151,50 +149,17 @@ class AutomatedDemoGame:
         """Generate map showing movement resolution (after processing)"""
         try:
             from src.engine.map import Map
+            from src.engine.order_visualization import OrderVisualizationService
             
             # Get units dictionary
             units = game_state.get('units', {})
             
-            # Convert orders to moves format showing resolution
-            moves_vis = {}
-            for power, power_orders in orders.items():
-                if power_orders:
-                    moves_vis[power] = {
-                        "successful": [],
-                        "failed": [],
-                        "bounced": [],
-                        "holds": [],
-                        "supports": [],
-                        "convoys": [],
-                        "builds": [],
-                        "destroys": []
-                    }
-                    
-                    for order_text in power_orders:
-                        # For demo purposes, assume most orders succeed
-                        # In a real implementation, this would come from the game engine
-                        order_data = self._parse_order_text(order_text)
-                        if order_data:
-                            order_type = order_data.get("type", "move")
-                            
-                            if order_type == "move":
-                                # Simulate some orders failing for demonstration
-                                if "BER" in order_text or "MUN" in order_text:
-                                    moves_vis[power]["failed"].append(order_text)
-                                elif "KIE" in order_text:
-                                    moves_vis[power]["bounced"].append(order_text)
-                                else:
-                                    moves_vis[power]["successful"].append(order_text)
-                            elif order_type == "hold":
-                                moves_vis[power]["holds"].append(order_text)
-                            elif order_type == "support":
-                                moves_vis[power]["supports"].append(order_text)
-                            elif order_type == "convoy":
-                                moves_vis[power]["convoys"].append(order_text)
-                            elif order_type == "build":
-                                moves_vis[power]["builds"].append(order_text)
-                            elif order_type == "destroy":
-                                moves_vis[power]["destroys"].append(order_text)
+            # Convert old game state to new data model
+            new_game_state = self._convert_to_new_data_model(game_state, orders)
+            
+            # Use new order visualization service for moves format
+            viz_service = OrderVisualizationService()
+            moves_vis = viz_service.create_moves_visualization_data(new_game_state)
             
             # Create phase info
             phase_info = {
@@ -222,6 +187,215 @@ class AutomatedDemoGame:
             import traceback
             traceback.print_exc()
     
+    def _convert_to_new_data_model(self, game_state: dict, orders: dict):
+        """Convert old game state format to new data model"""
+        from src.engine.data_models import GameState, PowerState, Unit, OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, MapData, Province
+        from datetime import datetime
+        
+        # Create basic map data (simplified for demo)
+        provinces = {}
+        for province_name in ["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG", "BUR", "BEL", "HOL", "LVN", "BOT", "SWE", "DEN", "HEL", "IRI", "NTF"]:
+            provinces[province_name] = Province(
+                name=province_name,
+                province_type="land" if province_name in ["PAR", "MAR", "BER", "MUN", "LON", "BUR", "BEL", "HOL", "LVN", "BOT", "SWE", "DEN", "IRI"] else "sea",
+                is_supply_center=province_name in ["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
+                is_home_supply_center=False,
+                adjacent_provinces=[]
+            )
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces=provinces,
+            supply_centers=["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
+        # Convert powers and units
+        powers = {}
+        new_orders = {}
+        
+        # Handle both list and dict formats for powers
+        powers_data = game_state.get('powers', {})
+        if isinstance(powers_data, list):
+            # Convert list to dict format
+            powers_dict = {}
+            for power_name in powers_data:
+                # Get power data from game state
+                power_units = []
+                for unit_str in game_state.get('units', {}).get(power_name, []):
+                    if ' ' in unit_str:
+                        unit_type, province = unit_str.split(' ', 1)
+                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
+                        power_units.append(unit)
+                
+                powers_dict[power_name] = {
+                    'units': power_units,
+                    'supply_centers': game_state.get('supply_centers', {}).get(power_name, [])
+                }
+            powers_data = powers_dict
+        
+        for power_name, power_data in powers_data.items():
+            # Create units
+            power_units = []
+            if isinstance(power_data, dict):
+                for unit_str in power_data.get('units', []):
+                    if ' ' in unit_str:
+                        unit_type, province = unit_str.split(' ', 1)
+                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
+                        power_units.append(unit)
+            elif isinstance(power_data, list):
+                for unit_str in power_data:
+                    if ' ' in unit_str:
+                        unit_type, province = unit_str.split(' ', 1)
+                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
+                        power_units.append(unit)
+            
+            # Create power state
+            power_state = PowerState(
+                power_name=power_name,
+                units=power_units,
+                controlled_supply_centers=power_data.get('supply_centers', []) if isinstance(power_data, dict) else []
+            )
+            powers[power_name] = power_state
+            
+            # Convert orders
+            power_orders = []
+            for order_text in orders.get(power_name, []):
+                try:
+                    order = self._parse_order_to_new_model(order_text, power_name, power_units)
+                    if order:
+                        power_orders.append(order)
+                except Exception as e:
+                    print(f"Error parsing order '{order_text}': {e}")
+                    continue
+            
+            new_orders[power_name] = power_orders
+        
+        # Create new game state
+        new_game_state = GameState(
+            game_id=str(game_state.get('game_id', 'demo')),
+            map_name="standard",
+            current_turn=game_state.get('turn', 1),
+            current_year=game_state.get('year', 1901),
+            current_season=game_state.get('season', 'Spring'),
+            current_phase=game_state.get('phase', 'Movement'),
+            phase_code=game_state.get('phase_code', 'S1901M'),
+            status="active",
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            powers=powers,
+            map_data=map_data,
+            orders=new_orders
+        )
+        
+        return new_game_state
+    
+    def _parse_order_to_new_model(self, order_text: str, power_name: str, power_units: list):
+        """Parse order text to new order model"""
+        from src.engine.data_models import OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder
+        
+        try:
+            parts = order_text.split()
+            if len(parts) < 2:
+                return None
+            
+            # Skip the power name if present (e.g., "GERMANY A BER - HOL" -> "A BER - HOL")
+            if len(parts) > 2 and parts[1] in ['A', 'F']:
+                # Power name is first, skip it
+                parts = parts[1:]
+            elif len(parts) > 1 and parts[0] in ['A', 'F']:
+                # No power name, use as is
+                pass
+            else:
+                return None
+            
+            unit_str = f"{parts[0]} {parts[1]}"  # e.g., "A PAR"
+            
+            # Find the unit in power_units
+            unit = None
+            for u in power_units:
+                if f"{u.unit_type} {u.province}" == unit_str:
+                    unit = u
+                    break
+            
+            if not unit:
+                print(f"Warning: Unit {unit_str} not found for power {power_name}")
+                return None
+            
+            # Move order (A PAR - BUR)
+            if len(parts) >= 4 and parts[2] == "-":
+                return MoveOrder(
+                    power=power_name,
+                    unit=unit,
+                    order_type=OrderType.MOVE,
+                    phase="Movement",
+                    target_province=parts[3],
+                    status=OrderStatus.SUCCESS
+                )
+            
+            # Hold order (A PAR H or A PAR)
+            elif len(parts) == 2 or (len(parts) == 3 and parts[2] == "H"):
+                return HoldOrder(
+                    power=power_name,
+                    unit=unit,
+                    order_type=OrderType.HOLD,
+                    phase="Movement",
+                    status=OrderStatus.SUCCESS
+                )
+            
+            # Support order (A PAR S A BUR - MUN)
+            elif len(parts) >= 5 and parts[2] == "S":
+                # Find supported unit
+                supported_unit_str = f"{parts[3]} {parts[4]}"
+                supported_unit = None
+                for u in power_units:
+                    if f"{u.unit_type} {u.province}" == supported_unit_str:
+                        supported_unit = u
+                        break
+                
+                if supported_unit:
+                    supported_target = parts[6] if len(parts) > 6 and parts[5] == "-" else None
+                    return SupportOrder(
+                        power=power_name,
+                        unit=unit,
+                        order_type=OrderType.SUPPORT,
+                        phase="Movement",
+                        supported_unit=supported_unit,
+                        supported_action="move" if supported_target else "hold",
+                        supported_target=supported_target,
+                        status=OrderStatus.SUCCESS
+                    )
+            
+            # Convoy order (F ENG C A PAR - HOL)
+            elif len(parts) >= 6 and parts[2] == "C":
+                # Find convoyed unit
+                convoyed_unit_str = f"{parts[3]} {parts[4]}"
+                convoyed_unit = None
+                for u in power_units:
+                    if f"{u.unit_type} {u.province}" == convoyed_unit_str:
+                        convoyed_unit = u
+                        break
+                
+                if convoyed_unit:
+                    convoyed_target = parts[6] if len(parts) > 6 and parts[5] == "-" else None
+                    return ConvoyOrder(
+                        power=power_name,
+                        unit=unit,
+                        order_type=OrderType.CONVOY,
+                        phase="Movement",
+                        convoyed_unit=convoyed_unit,
+                        convoyed_target=convoyed_target,
+                        convoy_chain=[],
+                        status=OrderStatus.SUCCESS
+                    )
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error parsing order '{order_text}': {e}")
+            return None
+
     def _parse_order_text(self, order_text: str) -> dict:
         """Parse order text into order dictionary format"""
         try:
