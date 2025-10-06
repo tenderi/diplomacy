@@ -484,4 +484,218 @@ class GameState:
                 if unit_count != supply_count and self.current_phase != "Builds":
                     errors.append(f"{power_name} has {unit_count} units but {supply_count} supply centers")
         
+        # Check unit ownership consistency
+        for power_name, power_state in self.powers.items():
+            for unit in power_state.units:
+                if unit.power != power_name:
+                    errors.append(f"Unit {unit} belongs to {unit.power} but is in {power_name}'s units list")
+        
+        # Check supply center ownership consistency
+        supply_centers = self.get_supply_centers()
+        for power_name, power_state in self.powers.items():
+            for province in power_state.controlled_supply_centers:
+                if supply_centers.get(province) != power_name:
+                    errors.append(f"Supply center {province} controlled by {power_name} but ownership shows {supply_centers.get(province)}")
+        
+        # Check phase consistency
+        if self.current_phase not in ["Movement", "Retreat", "Builds"]:
+            errors.append(f"Invalid phase: {self.current_phase}")
+        
+        # Check season consistency
+        if self.current_season not in ["Spring", "Autumn"]:
+            errors.append(f"Invalid season: {self.current_season}")
+        
+        # Check phase code format
+        expected_phase_code = self._generate_phase_code()
+        if self.phase_code != expected_phase_code:
+            errors.append(f"Phase code mismatch: expected {expected_phase_code}, got {self.phase_code}")
+        
+        # Check orders consistency
+        for power_name, orders in self.orders.items():
+            if power_name not in self.powers:
+                errors.append(f"Orders for non-existent power: {power_name}")
+            
+            for order in orders:
+                if order.power != power_name:
+                    errors.append(f"Order {order} belongs to {order.power} but is in {power_name}'s orders")
+                
+                # Check if order is valid for current phase
+                if not self.is_valid_phase_for_order_type(order.order_type):
+                    errors.append(f"Order {order} type {order.order_type.value} not valid for phase {self.current_phase}")
+        
         return len(errors) == 0, errors
+    
+    def _generate_phase_code(self) -> str:
+        """Generate expected phase code based on current state"""
+        season_code = "S" if self.current_season == "Spring" else "A"
+        year_code = str(self.current_year)  # Use full year
+        
+        if self.current_phase == "Movement":
+            phase_code = "M"
+        elif self.current_phase == "Retreat":
+            phase_code = "R"
+        elif self.current_phase == "Builds":
+            phase_code = "B"
+        else:
+            phase_code = "?"
+        
+        return f"{season_code}{year_code}{phase_code}"
+    
+    def validate_orders_for_phase(self) -> Tuple[bool, List[str]]:
+        """Validate all orders for current phase"""
+        errors = []
+        
+        for power_name, orders in self.orders.items():
+            if power_name not in self.powers:
+                errors.append(f"Orders for non-existent power: {power_name}")
+                continue
+            
+            power_state = self.powers[power_name]
+            
+            for order in orders:
+                # Validate order against game state
+                valid, reason = order.validate(self)
+                if not valid:
+                    errors.append(f"{power_name} order {order}: {reason}")
+                
+                # Check if order type is valid for current phase
+                if not self.is_valid_phase_for_order_type(order.order_type):
+                    errors.append(f"{power_name} order {order}: type {order.order_type.value} not valid for phase {self.current_phase}")
+        
+        return len(errors) == 0, errors
+    
+    def validate_unit_positions(self) -> Tuple[bool, List[str]]:
+        """Validate unit positions and adjacencies"""
+        errors = []
+        
+        for unit in self.get_all_units():
+            # Check if unit province exists in map
+            if unit.province not in self.map_data.provinces:
+                errors.append(f"Unit {unit} in non-existent province {unit.province}")
+                continue
+            
+            province = self.map_data.provinces[unit.province]
+            
+            # Check if unit type is valid for province
+            if unit.unit_type == "F" and province.province_type == "land":
+                errors.append(f"Fleet {unit} in land province {unit.province}")
+            elif unit.unit_type == "A" and province.province_type == "sea":
+                errors.append(f"Army {unit} in sea province {unit.province}")
+        
+        return len(errors) == 0, errors
+    
+    def validate_supply_centers(self) -> Tuple[bool, List[str]]:
+        """Validate supply center ownership"""
+        errors = []
+        
+        # Check that all supply centers are owned by someone
+        for province_name, province in self.map_data.provinces.items():
+            if province.is_supply_center:
+                supply_centers = self.get_supply_centers()
+                if province_name not in supply_centers:
+                    errors.append(f"Supply center {province_name} is not owned by any power")
+        
+        # Check that all claimed supply centers are actual supply centers
+        for power_name, power_state in self.powers.items():
+            for province in power_state.controlled_supply_centers:
+                if province not in self.map_data.provinces:
+                    errors.append(f"{power_name} claims non-existent province {province}")
+                elif not self.map_data.provinces[province].is_supply_center:
+                    errors.append(f"{power_name} claims non-supply center {province}")
+        
+        return len(errors) == 0, errors
+    
+    def validate_power_states(self) -> Tuple[bool, List[str]]:
+        """Validate power states"""
+        errors = []
+        
+        for power_name, power_state in self.powers.items():
+            # Check unit count vs supply center count
+            unit_count = power_state.get_unit_count()
+            supply_count = power_state.get_supply_center_count()
+            
+            if self.current_phase == "Builds":
+                # During builds phase, counts can be different
+                if unit_count > supply_count:
+                    errors.append(f"{power_name} has {unit_count} units but only {supply_count} supply centers (needs destroys)")
+                elif unit_count < supply_count:
+                    errors.append(f"{power_name} has {supply_count} supply centers but only {unit_count} units (can build)")
+            else:
+                # During other phases, counts must match
+                if unit_count != supply_count:
+                    errors.append(f"{power_name} has {unit_count} units but {supply_count} supply centers")
+            
+            # Check that all units belong to this power
+            for unit in power_state.units:
+                if unit.power != power_name:
+                    errors.append(f"Unit {unit} in {power_name}'s units but belongs to {unit.power}")
+            
+            # Check that all claimed supply centers are actually controlled
+            supply_centers = self.get_supply_centers()
+            for province in power_state.controlled_supply_centers:
+                if supply_centers.get(province) != power_name:
+                    errors.append(f"{power_name} claims {province} but it's controlled by {supply_centers.get(province)}")
+        
+        return len(errors) == 0, errors
+    
+    def get_validation_report(self) -> str:
+        """Get comprehensive validation report"""
+        report = []
+        report.append(f"Game State Validation Report for {self.game_id}")
+        report.append(f"Turn: {self.current_turn}, Year: {self.current_year}, Season: {self.current_season}, Phase: {self.current_phase}")
+        report.append("=" * 60)
+        
+        # Overall game state validation
+        valid, errors = self.validate_game_state()
+        if valid:
+            report.append("✅ Overall game state: VALID")
+        else:
+            report.append("❌ Overall game state: INVALID")
+            for error in errors:
+                report.append(f"   • {error}")
+        
+        report.append("")
+        
+        # Unit positions validation
+        valid, errors = self.validate_unit_positions()
+        if valid:
+            report.append("✅ Unit positions: VALID")
+        else:
+            report.append("❌ Unit positions: INVALID")
+            for error in errors:
+                report.append(f"   • {error}")
+        
+        report.append("")
+        
+        # Supply centers validation
+        valid, errors = self.validate_supply_centers()
+        if valid:
+            report.append("✅ Supply centers: VALID")
+        else:
+            report.append("❌ Supply centers: INVALID")
+            for error in errors:
+                report.append(f"   • {error}")
+        
+        report.append("")
+        
+        # Power states validation
+        valid, errors = self.validate_power_states()
+        if valid:
+            report.append("✅ Power states: VALID")
+        else:
+            report.append("❌ Power states: INVALID")
+            for error in errors:
+                report.append(f"   • {error}")
+        
+        report.append("")
+        
+        # Orders validation
+        valid, errors = self.validate_orders_for_phase()
+        if valid:
+            report.append("✅ Orders: VALID")
+        else:
+            report.append("❌ Orders: INVALID")
+            for error in errors:
+                report.append(f"   • {error}")
+        
+        return "\n".join(report)
