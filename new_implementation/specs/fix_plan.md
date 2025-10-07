@@ -2,7 +2,7 @@
 
 ## Current Status: ✅ **FULL DIPLOMACY IMPLEMENTATION COMPLETE** - **PRODUCTION READY**
 
-The Diplomacy bot has complete Diplomacy rule implementation with all critical bugs resolved and core gameplay functionality working correctly. All 12 adjudication tests pass, and the automated demo game runs successfully.
+The Diplomacy bot has complete Diplomacy rule implementation with all critical bugs resolved and core gameplay functionality working correctly. All 12 adjudication tests pass, and the automated demo game runs successfully with proper map visualization and unit tracking.
 
 ## Recently Completed Major Achievements ✅
 
@@ -35,19 +35,21 @@ The Diplomacy bot has complete Diplomacy rule implementation with all critical b
 - ✅ **Demo Mode**: Fully functional automated demo game
 - ✅ **Order Visualization**: Complete order visualization system
 
-## Current Issues 🚨 **HIGH PRIORITY**
+## Recently Completed Issues ✅ **RESOLVED**
 
-### **Demo Game Map Visualization Issues** (Priority 1)
-- **Problem**: Map generation has `'dict' object has no attribute 'split'` error
-- **Impact**: Order visualization maps fail to generate properly
+### **Demo Game Map Visualization Issues** (COMPLETED)
+- **Problem**: Map generation had `'dict' object has no attribute 'split'` error
+- **Impact**: Order visualization maps failed to generate properly
 - **Root Cause**: Order visualization data format mismatch in map rendering
-- **Status**: Core game works, but map visualization needs fixing
+- **Solution**: Updated `_draw_moves_visualization` method to handle both dictionary and legacy string formats
+- **Status**: ✅ **FIXED** - All map visualization working correctly
 
-### **Demo Game Unit Tracking Issues** (Priority 2)
-- **Problem**: Demo script tries to move units from wrong locations
-- **Impact**: Demo game generates invalid orders (e.g., trying to move `A SIL` when unit is in `A BUR`)
-- **Root Cause**: Demo script doesn't track unit position changes correctly
-- **Status**: Game engine works correctly, but demo script needs updating
+### **Demo Game Unit Tracking Issues** (COMPLETED)
+- **Problem**: Demo script tried to move units from wrong locations
+- **Impact**: Demo game generated invalid orders (e.g., trying to move `A SIL` when unit is in `A BUR`)
+- **Root Cause**: Demo script didn't track unit position changes correctly
+- **Solution**: Created dynamic order generation based on current unit positions and phase-aware logic
+- **Status**: ✅ **FIXED** - Demo game now generates valid orders based on actual unit positions
 
 ## Remaining Test Suite Issues 🚨 **MEDIUM PRIORITY**
 

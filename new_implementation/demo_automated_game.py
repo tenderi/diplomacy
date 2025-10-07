@@ -625,8 +625,120 @@ class AutomatedDemoGame:
             ]
         }
         
+    def generate_dynamic_orders(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Generate orders based on current unit positions and phase"""
+        orders = {}
+        current_phase = game_state.get('phase', 'Movement')
+        
+        # Only generate movement orders during Movement phase
+        if current_phase != 'Movement':
+            print(f"   {list(game_state.get('units', {}).keys())[0] if game_state.get('units') else 'All'}: No orders needed for {current_phase} phase")
+            return orders
+        
+        for power_name, power_units in game_state.get('units', {}).items():
+            power_orders = []
+            
+            for unit_str in power_units:
+                # Parse unit string (e.g., "A BUR" -> unit_type="A", province="BUR")
+                parts = unit_str.split()
+                if len(parts) >= 2:
+                    unit_type = parts[0]
+                    province = parts[1]
+                    
+                    # Generate a simple move order to an adjacent province
+                    # This is a simplified approach - in a real game, orders would be more strategic
+                    adjacent_province = self._get_adjacent_province(province, unit_type)
+                    if adjacent_province:
+                        order = f"{power_name} {unit_type} {province} - {adjacent_province}"
+                        power_orders.append(order)
+                    else:
+                        # If no adjacent province found, hold
+                        order = f"{power_name} {unit_type} {province} H"
+                        power_orders.append(order)
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _get_adjacent_province(self, province: str, unit_type: str) -> str:
+        """Get an adjacent province for movement (simplified)"""
+        # This is a simplified mapping using actual Diplomacy provinces
+        adjacent_map = {
+            "BUR": "BEL",
+            "HOL": "BEL", 
+            "DEN": "SWE",
+            "BEL": "HOL",
+            "SPA": "POR",
+            "MAO": "POR",
+            "LVP": "YOR",
+            "LON": "WAL",
+            "NTH": "HEL",
+            "MOS": "UKR",
+            "WAR": "GAL",
+            "RUM": "BUL",
+            "STP": "FIN",
+            "TUS": "ROM",
+            "VEN": "TRI",
+            "ION": "ADR",
+            "GAL": "BUD",
+            "SER": "GRE",
+            "ADR": "ION",
+            "BUL": "CON",
+            "SMY": "CON",
+            "BLA": "RUM",
+            "BOT": "SWE",
+            "ENG": "IRI",
+            "HEL": "DEN",
+            "SKA": "DEN",
+            "FIN": "STP",
+            "UKR": "MOS",
+            "GRE": "ALB",
+            "ALB": "SER",
+            "APU": "NAP",
+            "NAP": "ROM",
+            "ROM": "VEN",
+            "TRI": "VEN",
+            "TYR": "MUN",
+            "BOH": "MUN",
+            "SIL": "BER",
+            "PRU": "BER",
+            "LVN": "MOS",
+            "ARM": "ANK",
+            "ANK": "CON",
+            "CON": "SMY",
+            "SYR": "SMY",
+            "EAS": "ION",
+            "AEG": "CON",
+            "BAR": "STP",
+            "NWY": "STP",
+            "CLY": "EDI",
+            "EDI": "YOR",
+            "YOR": "LVP",
+            "WAL": "LON",
+            "IRI": "LVP",
+            "NAO": "LVP",
+            "NWG": "EDI",
+            "GAS": "BRE",
+            "BRE": "PAR",
+            "PAR": "BUR",
+            "PIC": "PAR",
+            "GOL": "MAR",
+            "PIE": "MAR",
+            "MAR": "BUR",
+            "RUH": "KIE",
+            "KIE": "MUN",
+            "BER": "KIE",
+            "MUN": "BER",
+            "BUD": "VIE",
+            "VIE": "BUD",
+            "TUN": "NAP",
+            "TYS": "NAP"
+        }
+        return adjacent_map.get(province)
+
     def get_autumn_1901_orders(self) -> Dict[str, List[str]]:
-        """Get orders for Autumn 1901 Movement phase"""
+        """Get orders for Autumn 1901 Movement phase - DEPRECATED, use generate_dynamic_orders instead"""
         return {
             "GERMANY": [
                 "GERMANY A SIL - BOH",
@@ -791,7 +903,7 @@ class AutomatedDemoGame:
         
         # Phase 2: Autumn 1901 Movement
         self.print_header("PHASE 2: AUTUMN 1901 MOVEMENT")
-        orders = self.get_autumn_1901_orders()
+        orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
         for power, power_orders in orders.items():
@@ -851,7 +963,7 @@ class AutomatedDemoGame:
         
         # Phase 4: Spring 1902 Movement
         self.print_header("PHASE 4: SPRING 1902 MOVEMENT")
-        orders = self.get_spring_1902_orders()
+        orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
         for power, power_orders in orders.items():
