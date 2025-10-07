@@ -1055,44 +1055,136 @@ class Map:
             
             # Draw successful moves
             for move in power_moves.get("successful", []):
-                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "success", coords)
+                if isinstance(move, dict):
+                    unit = move.get("unit", "")
+                    target = move.get("target", "")
+                    if unit and target:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            from_province = unit_parts[1]
+                            Map._draw_movement_order(draw, from_province, target, color, "success", coords)
+                else:
+                    # Handle legacy string format
+                    parts = move.split()
+                    if len(parts) >= 4:
+                        Map._draw_movement_order(draw, parts[1], parts[3], color, "success", coords)
             
             # Draw failed moves
             for move in power_moves.get("failed", []):
-                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "failed", coords)
+                if isinstance(move, dict):
+                    unit = move.get("unit", "")
+                    target = move.get("target", "")
+                    if unit and target:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            from_province = unit_parts[1]
+                            Map._draw_movement_order(draw, from_province, target, color, "failed", coords)
+                else:
+                    # Handle legacy string format
+                    parts = move.split()
+                    if len(parts) >= 4:
+                        Map._draw_movement_order(draw, parts[1], parts[3], color, "failed", coords)
             
             # Draw bounced moves
             for move in power_moves.get("bounced", []):
-                Map._draw_movement_order(draw, move.split()[1], move.split()[3], color, "bounced", coords)
+                if isinstance(move, dict):
+                    unit = move.get("unit", "")
+                    target = move.get("target", "")
+                    if unit and target:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            from_province = unit_parts[1]
+                            Map._draw_movement_order(draw, from_province, target, color, "bounced", coords)
+                else:
+                    # Handle legacy string format
+                    parts = move.split()
+                    if len(parts) >= 4:
+                        Map._draw_movement_order(draw, parts[1], parts[3], color, "bounced", coords)
             
             # Draw holds
             for hold in power_moves.get("holds", []):
-                province = hold.split()[-1]
-                Map._draw_hold_order(draw, province, color, "success", coords)
+                if isinstance(hold, dict):
+                    unit = hold.get("unit", "")
+                    if unit:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            province = unit_parts[1]
+                            Map._draw_hold_order(draw, province, color, "success", coords)
+                else:
+                    # Handle legacy string format
+                    province = hold.split()[-1]
+                    Map._draw_hold_order(draw, province, color, "success", coords)
             
             # Draw supports
             for support in power_moves.get("supports", []):
-                parts = support.split()
-                supporter = parts[1]
-                supported_move = " ".join(parts[3:])
-                Map._draw_support_order(draw, supporter, supported_move, color, "success", coords)
+                if isinstance(support, dict):
+                    unit = support.get("unit", "")
+                    supporting = support.get("supporting", "")
+                    target = support.get("target", "")
+                    if unit and supporting and target:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            supporter = unit_parts[1]
+                            Map._draw_support_order(draw, supporter, f"{supporting} - {target}", color, "success", coords)
+                else:
+                    # Handle legacy string format
+                    parts = support.split()
+                    if len(parts) >= 4:
+                        supporter = parts[1]
+                        supported_move = " ".join(parts[3:])
+                        Map._draw_support_order(draw, supporter, supported_move, color, "success", coords)
             
             # Draw convoys
             for convoy in power_moves.get("convoys", []):
-                parts = convoy.split()
-                convoyer = parts[1]
-                convoyed_move = " ".join(parts[3:])
-                Map._draw_convoy_order(draw, convoyer, convoyed_move.split()[2], [], color, "success", coords)
+                if isinstance(convoy, dict):
+                    unit = convoy.get("unit", "")
+                    convoyed_unit = convoy.get("convoyed_unit", "")
+                    target = convoy.get("target", "")
+                    if unit and convoyed_unit and target:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            convoyer = unit_parts[1]
+                            convoyed_parts = convoyed_unit.split()
+                            if len(convoyed_parts) >= 2:
+                                convoyed_province = convoyed_parts[1]
+                                Map._draw_convoy_order(draw, convoyer, convoyed_province, [], color, "success", coords)
+                else:
+                    # Handle legacy string format
+                    parts = convoy.split()
+                    if len(parts) >= 4:
+                        convoyer = parts[1]
+                        convoyed_move = " ".join(parts[3:])
+                        convoyed_parts = convoyed_move.split()
+                        if len(convoyed_parts) >= 3:
+                            Map._draw_convoy_order(draw, convoyer, convoyed_parts[2], [], color, "success", coords)
             
             # Draw builds
             for build in power_moves.get("builds", []):
-                province = build.split()[-1]
-                Map._draw_build_order(draw, province, color, "success", coords)
+                if isinstance(build, dict):
+                    unit = build.get("unit", "")
+                    if unit:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            province = unit_parts[1]
+                            Map._draw_build_order(draw, province, color, "success", coords)
+                else:
+                    # Handle legacy string format
+                    province = build.split()[-1]
+                    Map._draw_build_order(draw, province, color, "success", coords)
             
             # Draw destroys
             for destroy in power_moves.get("destroys", []):
-                province = destroy.split()[-1]
-                Map._draw_destroy_order(draw, province, color, coords)
+                if isinstance(destroy, dict):
+                    unit = destroy.get("unit", "")
+                    if unit:
+                        unit_parts = unit.split()
+                        if len(unit_parts) >= 2:
+                            province = unit_parts[1]
+                            Map._draw_destroy_order(draw, province, color, coords)
+                else:
+                    # Handle legacy string format
+                    province = destroy.split()[-1]
+                    Map._draw_destroy_order(draw, province, color, coords)
 
     @staticmethod
     def _draw_movement_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
