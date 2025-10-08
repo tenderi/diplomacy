@@ -108,43 +108,8 @@ class Server:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 
-                # Handle order submission with unit conflict resolution
-                # Get current orders for this power
-                current_orders = []
-                if power_name in game.game_state.orders:
-                    # Convert order objects back to strings for processing
-                    current_orders = [str(order) for order in game.game_state.orders[power_name]]
-                
-                # Parse the new order to extract the unit
-                from src.engine.order import OrderParser
-                try:
-                    parsed_order = OrderParser.parse_order_string(order_str, power_name, game)
-                    if parsed_order:
-                        new_unit = f"{parsed_order.unit.unit_type} {parsed_order.unit.province}"  # e.g., 'A BER'
-                        
-                        # Remove any existing orders for the same unit
-                        filtered_orders = [
-                            existing_order for existing_order in current_orders
-                            if not self._is_same_unit_order(existing_order, new_unit)
-                        ]
-                        
-                        # Add the new order
-                        filtered_orders.append(order_str)
-                        
-                        # Set the updated orders
-                        game.set_orders(power_name, filtered_orders)
-                    else:
-                        # Fallback: just append if parsing fails
-                        if order_str not in current_orders:
-                            current_orders.append(order_str)
-                            game.set_orders(power_name, current_orders)
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to parse order for conflict resolution: {order_str}, error: {e}")
-                    # Fallback: just append if parsing fails
-                    if order_str not in current_orders:
-                        current_orders.append(order_str)
-                        game.set_orders(power_name, current_orders)
+                # Set the new order (this will add to existing orders)
+                game.set_orders(power_name, [order_str])
                 
                 self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
                 # Extra logging for order parsing/validation
@@ -160,6 +125,11 @@ class Server:
                     self.logger.error(f"Game {game_id} not found for PROCESS_TURN")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
                 game.process_turn()
+                
+                # Clear all orders after processing to prevent accumulation
+                for power_name in game.game_state.powers.keys():
+                    game.clear_orders(power_name)
+                
                 self.logger.info(f"Processed phase for game {game_id}")
                 return {"status": "ok"}
             elif cmd == "GET_GAME_STATE":

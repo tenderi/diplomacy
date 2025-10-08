@@ -46,15 +46,17 @@ class OrderVisualizationService:
         Create order visualization data from game state.
         
         This method fixes the data corruption issues by:
-        1. Properly mapping orders to units
-        2. Validating power ownership
-        3. Ensuring correct order-to-unit relationships
+       1. Properly mapping orders to units
+       2. Validating power ownership
+       3. Ensuring correct order-to-unit relationships
+        
+        Note: For visualization purposes, we skip strict validation to show all orders
+        even if they might be invalid (e.g., non-adjacent moves, wrong phase, etc.)
         """
         visualization_data = {}
         
         for power_name, orders in game_state.orders.items():
             if power_name not in game_state.powers:
-                print(f"Warning: Orders for non-existent power {power_name}")
                 continue
             
             power_state = game_state.powers[power_name]
@@ -62,11 +64,8 @@ class OrderVisualizationService:
             
             for order in orders:
                 try:
-                    # Validate order before creating visualization data
-                    valid, reason = order.validate(game_state)
-                    if not valid:
-                        print(f"Warning: Invalid order {order}: {reason}")
-                        continue
+                    # Skip validation for visualization - we want to show all orders
+                    # even if they might be invalid (non-adjacent moves, wrong phase, etc.)
                     
                     # Create visualization data for this order
                     viz_data = self._create_order_visualization_data(order, game_state)
@@ -74,7 +73,6 @@ class OrderVisualizationService:
                         power_orders.append(viz_data)
                     
                 except Exception as e:
-                    print(f"Error processing order {order}: {e}")
                     continue
             
             if power_orders:
