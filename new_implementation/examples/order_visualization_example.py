@@ -6,7 +6,8 @@ Demonstrates how to use both orders dictionary and moves dictionary formats.
 
 import os
 import sys
-sys.path.append('/home/helgejalonen/diplomacy/new_implementation')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
 
 from src.engine.map import Map
 
@@ -37,8 +38,8 @@ def example_orders_dictionary():
     }
     
     # Generate map
-    svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-    output_path = "/home/helgejalonen/diplomacy/new_implementation/test_maps/example_orders_dict.png"
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    output_path = os.path.join(BASE_DIR, "test_maps", "example_orders_dict.png")
     
     img_bytes = Map.render_board_png_with_orders(
         svg_path=svg_path,
@@ -86,8 +87,8 @@ def example_moves_dictionary():
     }
     
     # Generate map
-    svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-    output_path = "/home/helgejalonen/diplomacy/new_implementation/test_maps/example_moves_dict.png"
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    output_path = os.path.join(BASE_DIR, "test_maps", "example_moves_dict.png")
     
     img_bytes = Map.render_board_png_with_moves(
         svg_path=svg_path,
@@ -106,7 +107,7 @@ def main():
     print("=" * 50)
     
     # Ensure test_maps directory exists
-    os.makedirs("/home/helgejalonen/diplomacy/new_implementation/test_maps", exist_ok=True)
+    os.makedirs(os.path.join(BASE_DIR, "test_maps"), exist_ok=True)
     
     # Run examples
     example_orders_dictionary()

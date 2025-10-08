@@ -12,7 +12,8 @@ import json
 from typing import Dict, List, Any
 
 # Add the project path
-sys.path.append('/home/helgejalonen/diplomacy/new_implementation')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
 
 from src.engine.game import Game
 from src.engine.map import Map
@@ -94,8 +95,8 @@ class AutomatedDemoGame:
             }
             
             # Generate map using Map.render_board_png
-            svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-            map_path = f"/home/helgejalonen/diplomacy/new_implementation/test_maps/{filename}"
+            svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+            map_path = os.path.join(BASE_DIR, "test_maps", filename)
             
             img_bytes = Map.render_board_png(svg_path, units, output_path=map_path, phase_info=phase_info)
             print(f"🗺️  Map saved: {map_path}")
@@ -134,8 +135,8 @@ class AutomatedDemoGame:
                 units[power_name] = [f"{u.unit_type} {u.province}" for u in power_state.units]
             
             # Generate map with order visualization
-            svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-            map_path = f"/home/helgejalonen/diplomacy/new_implementation/test_maps/{filename}"
+            svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+            map_path = os.path.join(BASE_DIR, "test_maps", filename)
             
             img_bytes = Map.render_board_png_with_orders(
                 svg_path=svg_path,
@@ -180,8 +181,8 @@ class AutomatedDemoGame:
                 units[power_name] = [f"{u.unit_type} {u.province}" for u in power_state.units]
             
             # Generate map with moves visualization
-            svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-            map_path = f"/home/helgejalonen/diplomacy/new_implementation/test_maps/{filename}"
+            svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+            map_path = os.path.join(BASE_DIR, "test_maps", filename)
             
             img_bytes = Map.render_board_png_with_moves(
                 svg_path=svg_path,
@@ -1086,7 +1087,7 @@ class AutomatedDemoGame:
         print(f"📅 Final Season: {game_state.current_season}")
         print(f"🔄 Final Phase: {game_state.current_phase}")
         print(f"🏷️  Final Phase Code: {game_state.phase_code}")
-        print(f"\n🗺️  Maps generated in: /home/helgejalonen/diplomacy/new_implementation/test_maps/")
+        print(f"\n🗺️  Maps generated in: {os.path.join(BASE_DIR, 'test_maps')}/")
         print(f"   📊 Game Sequence (chronological order):")
         print(f"      01 - demo_1901_01_initial.png")
         print(f"      02 - demo_1901_02_spring_orders.png")
@@ -1103,7 +1104,7 @@ class AutomatedDemoGame:
 def main():
     """Main function to run the automated demo game"""
     # Ensure test_maps directory exists
-    os.makedirs("/home/helgejalonen/diplomacy/new_implementation/test_maps", exist_ok=True)
+    os.makedirs(os.path.join(BASE_DIR, "test_maps"), exist_ok=True)
     
     # Create and run demo game
     demo = AutomatedDemoGame()

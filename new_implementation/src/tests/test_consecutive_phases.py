@@ -6,7 +6,8 @@ This test verifies the game engine can handle the full Diplomacy phase cycle.
 
 import sys
 import os
-sys.path.append('/home/helgejalonen/diplomacy/new_implementation')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(BASE_DIR)
 
 from src.engine.game import Game
 

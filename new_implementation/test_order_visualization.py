@@ -6,7 +6,8 @@ Tests both orders dictionary format and moves dictionary format.
 
 import os
 import sys
-sys.path.append('/home/helgejalonen/diplomacy/new_implementation')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
 
 from src.engine.map import Map
 
@@ -50,8 +51,8 @@ def test_orders_dictionary_format():
     }
     
     # Generate map with orders visualization
-    svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-    output_path = "/home/helgejalonen/diplomacy/new_implementation/test_maps/test_orders_visualization.png"
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    output_path = os.path.join(BASE_DIR, "test_maps", "test_orders_visualization.png")
     
     try:
         img_bytes = Map.render_board_png_with_orders(
@@ -115,8 +116,8 @@ def test_moves_dictionary_format():
     }
     
     # Generate map with moves visualization
-    svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-    output_path = "/home/helgejalonen/diplomacy/new_implementation/test_maps/test_moves_visualization.png"
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    output_path = os.path.join(BASE_DIR, "test_maps", "test_moves_visualization.png")
     
     try:
         img_bytes = Map.render_board_png_with_moves(
@@ -185,8 +186,8 @@ def test_comprehensive_order_types():
     }
     
     # Generate comprehensive test map
-    svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
-    output_path = "/home/helgejalonen/diplomacy/new_implementation/test_maps/test_comprehensive_orders.png"
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    output_path = os.path.join(BASE_DIR, "test_maps", "test_comprehensive_orders.png")
     
     try:
         img_bytes = Map.render_board_png_with_orders(
@@ -213,7 +214,7 @@ def main():
     print("=" * 50)
     
     # Ensure test_maps directory exists
-    os.makedirs("/home/helgejalonen/diplomacy/new_implementation/test_maps", exist_ok=True)
+    os.makedirs(os.path.join(BASE_DIR, "test_maps"), exist_ok=True)
     
     # Run tests
     tests = [

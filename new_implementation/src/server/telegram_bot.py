@@ -1286,7 +1286,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         import os
         
         # Get the path to the demo script
-        script_path = "/home/helgejalonen/diplomacy/new_implementation/demo_automated_game.py"
+        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "demo_automated_game.py")
         
         # Check if the script exists
         if not os.path.exists(script_path):
@@ -1302,8 +1302,8 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ["python3", "demo_automated_game.py"],
             capture_output=True,
             text=True,
-            cwd="/home/helgejalonen/diplomacy/new_implementation",
-            env={**os.environ, "PYTHONPATH": "/home/helgejalonen/diplomacy/new_implementation"}
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            env={**os.environ, "PYTHONPATH": os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}
         )
         
         if result.returncode == 0:
@@ -1318,10 +1318,10 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "• Spring 1902 Movement\n"
                 "• Spring 1902 Builds\n\n"
                 "🗺️ Maps have been generated and saved to:\n"
-                "`/home/helgejalonen/diplomacy/new_implementation/test_maps/`\n\n"
+                f"`{os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'test_maps')}/`\n\n"
                 "💡 *To run the demo yourself:*\n"
                 "```bash\n"
-                "cd /home/helgejalonen/diplomacy/new_implementation\n"
+                f"cd {os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}\n"
                 "python3 demo_automated_game.py\n"
                 "```"
             )
