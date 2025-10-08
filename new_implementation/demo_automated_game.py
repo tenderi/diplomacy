@@ -31,63 +31,66 @@ class AutomatedDemoGame:
         print(f"  {title}")
         print("="*60)
         
-    def print_phase_info(self, game_state: Dict[str, Any]):
+    def print_phase_info(self, game_state):
         """Print current phase information"""
-        turn = game_state.get('turn', 0)
-        season = game_state.get('season', 'Spring')
-        phase = game_state.get('phase', 'Movement')
-        phase_code = game_state.get('phase_code', 'S1901M')
-        
+        if not game_state:
+            print(f"\n📊 PHASE INFO: No game state available")
+            return
+            
         print(f"\n📊 PHASE INFO:")
-        print(f"   Turn: {turn}")
-        print(f"   Season: {season}")
-        print(f"   Phase: {phase}")
-        print(f"   Phase Code: {phase_code}")
+        print(f"   Turn: {game_state.current_turn}")
+        print(f"   Season: {game_state.current_season}")
+        print(f"   Phase: {game_state.current_phase}")
+        print(f"   Phase Code: {game_state.phase_code}")
         
-    def print_units(self, game_state: Dict[str, Any]):
+    def print_units(self, game_state):
         """Print current unit positions"""
-        powers = game_state.get('powers', [])
-        units = game_state.get('units', {})
+        if not game_state:
+            print(f"\n🏰 UNIT POSITIONS: No game state available")
+            return
+            
         print(f"\n🏰 UNIT POSITIONS:")
         
-        if isinstance(powers, list):
-            for power_name in powers:
-                power_units = units.get(power_name, [])
-                if power_units:
-                    print(f"   {power_name}: {', '.join(sorted(power_units))}")
-                else:
-                    print(f"   {power_name}: No units")
-        elif isinstance(powers, dict):
-            for power, power_data in powers.items():
-                power_units = power_data.get('units', [])
-                if power_units:
-                    print(f"   {power}: {', '.join(sorted(power_units))}")
-                else:
-                    print(f"   {power}: No units")
-                
-    def print_orders(self, game_state: Dict[str, Any]):
-        """Print current orders"""
-        orders = game_state.get('orders', {})
-        print(f"\n📋 CURRENT ORDERS:")
-        for power, power_orders in orders.items():
-            if power_orders:
-                print(f"   {power}: {', '.join(power_orders)}")
+        for power_name, power_state in game_state.powers.items():
+            unit_strs = [f"{u.unit_type} {u.province}" for u in power_state.units]
+            if unit_strs:
+                print(f"   {power_name}: {', '.join(sorted(unit_strs))}")
             else:
-                print(f"   {power}: No orders")
+                print(f"   {power_name}: No units")
                 
-    def generate_and_save_map(self, game_state: Dict[str, Any], filename: str):
+    def print_orders(self, game_state):
+        """Print current orders"""
+        if not game_state:
+            print(f"\n📋 CURRENT ORDERS: No game state available")
+            return
+            
+        print(f"\n📋 CURRENT ORDERS:")
+        for power_name, orders in game_state.orders.items():
+            if orders:
+                order_strs = [str(order) for order in orders]
+                print(f"   {power_name}: {', '.join(order_strs)}")
+            else:
+                print(f"   {power_name}: No orders")
+                
+    def generate_and_save_map(self, game_state, filename: str):
         """Generate and save a map for the current game state"""
         try:
-            # Get units dictionary directly from game state
-            # The game state already has units in the correct format: {power_name: [unit_list]}
-            units = game_state.get('units', {})
+            # game_state is now a GameState object directly
+            if not game_state:
+                print(f"❌ No game state available for map: {filename}")
+                return
+                
+            # Convert units to dictionary format for map rendering
+            units = {}
+            for power_name, power_state in game_state.powers.items():
+                units[power_name] = [f"{u.unit_type} {u.province}" for u in power_state.units]
             
-            # Create phase info
+            # Create phase info from GameState object
             phase_info = {
-                'turn': game_state.get('turn', 0),
-                'season': game_state.get('season', 'Spring'),
-                'phase': game_state.get('phase', 'Movement'),
-                'phase_code': game_state.get('phase_code', 'S1901M')
+                'turn': game_state.current_turn,
+                'season': game_state.current_season,
+                'phase': game_state.current_phase,
+                'phase_code': game_state.phase_code
             }
             
             # Generate map using Map.render_board_png
@@ -102,30 +105,33 @@ class AutomatedDemoGame:
             import traceback
             traceback.print_exc()
     
-    def generate_orders_map(self, game_state: dict, orders: dict, filename: str):
+    def generate_orders_map(self, game_state, orders: dict, filename: str):
         """Generate map showing submitted orders (before processing)"""
         try:
             from src.engine.map import Map
             from src.engine.order_visualization import OrderVisualizationService
-            from src.engine.data_models import GameState, PowerState, Unit, OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, MapData, Province
             
-            # Get units dictionary
-            units = game_state.get('units', {})
-            
-            # Convert old game state to new data model
-            new_game_state = self._convert_to_new_data_model(game_state, orders)
+            # game_state is now a GameState object directly
+            if not game_state:
+                print(f"❌ No game state available for orders map: {filename}")
+                return
             
             # Use new order visualization service
             viz_service = OrderVisualizationService()
-            orders_vis = viz_service.create_visualization_data(new_game_state)
+            orders_vis = viz_service.create_visualization_data(game_state)
             
-            # Create phase info
+            # Create phase info from GameState object
             phase_info = {
-                'turn': game_state.get('turn', 0),
-                'season': game_state.get('season', 'Spring'),
-                'phase': game_state.get('phase', 'Movement'),
-                'phase_code': game_state.get('phase_code', 'S1901M')
+                'turn': game_state.current_turn,
+                'season': game_state.current_season,
+                'phase': game_state.current_phase,
+                'phase_code': game_state.phase_code
             }
+            
+            # Convert units to dictionary format for map rendering
+            units = {}
+            for power_name, power_state in game_state.powers.items():
+                units[power_name] = [f"{u.unit_type} {u.province}" for u in power_state.units]
             
             # Generate map with order visualization
             svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
@@ -145,29 +151,33 @@ class AutomatedDemoGame:
             import traceback
             traceback.print_exc()
     
-    def generate_resolution_map(self, game_state: dict, orders: dict, filename: str):
+    def generate_resolution_map(self, game_state, orders: dict, filename: str):
         """Generate map showing movement resolution (after processing)"""
         try:
             from src.engine.map import Map
             from src.engine.order_visualization import OrderVisualizationService
             
-            # Get units dictionary
-            units = game_state.get('units', {})
-            
-            # Convert old game state to new data model
-            new_game_state = self._convert_to_new_data_model(game_state, orders)
+            # game_state is now a GameState object directly
+            if not game_state:
+                print(f"❌ No game state available for resolution map: {filename}")
+                return
             
             # Use new order visualization service for moves format
             viz_service = OrderVisualizationService()
-            moves_vis = viz_service.create_moves_visualization_data(new_game_state)
+            moves_vis = viz_service.create_moves_visualization_data(game_state)
             
-            # Create phase info
+            # Create phase info from GameState object
             phase_info = {
-                'turn': game_state.get('turn', 0),
-                'season': game_state.get('season', 'Spring'),
-                'phase': game_state.get('phase', 'Movement'),
-                'phase_code': game_state.get('phase_code', 'S1901M')
+                'turn': game_state.current_turn,
+                'season': game_state.current_season,
+                'phase': game_state.current_phase,
+                'phase_code': game_state.phase_code
             }
+            
+            # Convert units to dictionary format for map rendering
+            units = {}
+            for power_name, power_state in game_state.powers.items():
+                units[power_name] = [f"{u.unit_type} {u.province}" for u in power_state.units]
             
             # Generate map with moves visualization
             svg_path = "/home/helgejalonen/diplomacy/new_implementation/maps/standard.svg"
@@ -187,327 +197,17 @@ class AutomatedDemoGame:
             import traceback
             traceback.print_exc()
     
-    def _convert_to_new_data_model(self, game_state: dict, orders: dict):
-        """Convert old game state format to new data model"""
-        from src.engine.data_models import GameState, PowerState, Unit, OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, MapData, Province
-        from datetime import datetime
-        
-        # Create basic map data (simplified for demo)
-        provinces = {}
-        for province_name in ["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG", "BUR", "BEL", "HOL", "LVN", "BOT", "SWE", "DEN", "HEL", "IRI", "NTF"]:
-            provinces[province_name] = Province(
-                name=province_name,
-                province_type="land" if province_name in ["PAR", "MAR", "BER", "MUN", "LON", "BUR", "BEL", "HOL", "LVN", "BOT", "SWE", "DEN", "IRI"] else "sea",
-                is_supply_center=province_name in ["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
-                is_home_supply_center=False,
-                adjacent_provinces=[]
-            )
-        
-        map_data = MapData(
-            map_name="standard",
-            provinces=provinces,
-            supply_centers=["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
-            home_supply_centers={},
-            starting_positions={}
-        )
-        
-        # Convert powers and units
-        powers = {}
-        new_orders = {}
-        
-        # Handle both list and dict formats for powers
-        powers_data = game_state.get('powers', {})
-        if isinstance(powers_data, list):
-            # Convert list to dict format
-            powers_dict = {}
-            for power_name in powers_data:
-                # Get power data from game state
-                power_units = []
-                for unit_item in game_state.get('units', {}).get(power_name, []):
-                    if isinstance(unit_item, str) and ' ' in unit_item:
-                        unit_type, province = unit_item.split(' ', 1)
-                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
-                        power_units.append(unit)
-                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
-                        # Already a Unit object
-                        power_units.append(unit_item)
-                
-                powers_dict[power_name] = {
-                    'units': power_units,
-                    'supply_centers': game_state.get('supply_centers', {}).get(power_name, [])
-                }
-            powers_data = powers_dict
-        
-        for power_name, power_data in powers_data.items():
-            # Create units
-            power_units = []
-            if isinstance(power_data, dict):
-                for unit_item in power_data.get('units', []):
-                    if isinstance(unit_item, str) and ' ' in unit_item:
-                        unit_type, province = unit_item.split(' ', 1)
-                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
-                        power_units.append(unit)
-                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
-                        # Already a Unit object
-                        power_units.append(unit_item)
-            elif isinstance(power_data, list):
-                for unit_item in power_data:
-                    if isinstance(unit_item, str) and ' ' in unit_item:
-                        unit_type, province = unit_item.split(' ', 1)
-                        unit = Unit(unit_type=unit_type, province=province, power=power_name)
-                        power_units.append(unit)
-                    elif hasattr(unit_item, 'unit_type') and hasattr(unit_item, 'province'):
-                        # Already a Unit object
-                        power_units.append(unit_item)
-            
-            # Create power state
-            power_state = PowerState(
-                power_name=power_name,
-                units=power_units,
-                controlled_supply_centers=power_data.get('supply_centers', []) if isinstance(power_data, dict) else []
-            )
-            powers[power_name] = power_state
-            
-            # Convert orders
-            power_orders = []
-            for order_text in orders.get(power_name, []):
-                try:
-                    print(f"DEBUG: Parsing order '{order_text}' for power '{power_name}' with {len(power_units)} units")
-                    order = self._parse_order_to_new_model(order_text, power_name, power_units)
-                    if order:
-                        power_orders.append(order)
-                except Exception as e:
-                    print(f"Error parsing order '{order_text}': {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
-            
-            new_orders[power_name] = power_orders
-        
-        # Create new game state
-        new_game_state = GameState(
-            game_id=str(game_state.get('game_id', 'demo')),
-            map_name="standard",
-            current_turn=game_state.get('turn', 1),
-            current_year=game_state.get('year', 1901),
-            current_season=game_state.get('season', 'Spring'),
-            current_phase=game_state.get('phase', 'Movement'),
-            phase_code=game_state.get('phase_code', 'S1901M'),
-            status="active",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-            powers=powers,
-            map_data=map_data,
-            orders=new_orders
-        )
-        
-        return new_game_state
-    
-    def _parse_order_to_new_model(self, order_text: str, power_name: str, power_units: list):
-        """Parse order text to new order model"""
-        from src.engine.data_models import OrderType, OrderStatus, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder
-        
-        try:
-            parts = order_text.split()
-            if len(parts) < 2:
-                return None
-            
-            # Skip the power name if present (e.g., "GERMANY A BER - HOL" -> "A BER - HOL")
-            if len(parts) > 2 and parts[1] in ['A', 'F']:
-                # Power name is first, skip it
-                parts = parts[1:]
-            elif len(parts) > 1 and parts[0] in ['A', 'F']:
-                # No power name, use as is
-                pass
+            result = self.server.process_command("CREATE_GAME standard")
+            if result.get("status") == "ok":
+                self.game_id = result.get("game_id")
+                print(f"✅ Created demo game: {self.game_id}")
+                return True
             else:
-                return None
-            
-            unit_str = f"{parts[0]} {parts[1]}"  # e.g., "A PAR"
-            
-            # Find the unit in power_units
-            unit = None
-            for u in power_units:
-                if hasattr(u, 'unit_type') and hasattr(u, 'province'):
-                    if f"{u.unit_type} {u.province}" == unit_str:
-                        unit = u
-                        break
-                elif isinstance(u, str) and u == unit_str:
-                    # Handle case where power_units contains strings
-                    unit = Unit(unit_type=parts[0], province=parts[1], power=power_name)
-                    break
-            
-            if not unit:
-                print(f"Warning: Unit {unit_str} not found for power {power_name}")
-                return None
-            
-            # Move order (A PAR - BUR)
-            if len(parts) >= 4 and parts[2] == "-":
-                return MoveOrder(
-                    power=power_name,
-                    unit=unit,
-                    order_type=OrderType.MOVE,
-                    phase="Movement",
-                    target_province=parts[3],
-                    status=OrderStatus.SUCCESS
-                )
-            
-            # Hold order (A PAR H or A PAR)
-            elif len(parts) == 2 or (len(parts) == 3 and parts[2] == "H"):
-                return HoldOrder(
-                    power=power_name,
-                    unit=unit,
-                    order_type=OrderType.HOLD,
-                    phase="Movement",
-                    status=OrderStatus.SUCCESS
-                )
-            
-            # Support order (A PAR S A BUR - MUN)
-            elif len(parts) >= 5 and parts[2] == "S":
-                # Find supported unit
-                supported_unit_str = f"{parts[3]} {parts[4]}"
-                supported_unit = None
-                for u in power_units:
-                    if hasattr(u, 'unit_type') and hasattr(u, 'province'):
-                        if f"{u.unit_type} {u.province}" == supported_unit_str:
-                            supported_unit = u
-                            break
-                    elif isinstance(u, str) and u == supported_unit_str:
-                        # Handle case where power_units contains strings
-                        supported_unit = Unit(unit_type=parts[3], province=parts[4], power=power_name)
-                        break
-                
-                if supported_unit:
-                    supported_target = parts[6] if len(parts) > 6 and parts[5] == "-" else None
-                    return SupportOrder(
-                        power=power_name,
-                        unit=unit,
-                        order_type=OrderType.SUPPORT,
-                        phase="Movement",
-                        supported_unit=supported_unit,
-                        supported_action="move" if supported_target else "hold",
-                        supported_target=supported_target,
-                        status=OrderStatus.SUCCESS
-                    )
-            
-            # Convoy order (F ENG C A PAR - HOL)
-            elif len(parts) >= 6 and parts[2] == "C":
-                # Find convoyed unit
-                convoyed_unit_str = f"{parts[3]} {parts[4]}"
-                convoyed_unit = None
-                for u in power_units:
-                    if hasattr(u, 'unit_type') and hasattr(u, 'province'):
-                        if f"{u.unit_type} {u.province}" == convoyed_unit_str:
-                            convoyed_unit = u
-                            break
-                    elif isinstance(u, str) and u == convoyed_unit_str:
-                        # Handle case where power_units contains strings
-                        convoyed_unit = Unit(unit_type=parts[3], province=parts[4], power=power_name)
-                        break
-                
-                if convoyed_unit:
-                    convoyed_target = parts[6] if len(parts) > 6 and parts[5] == "-" else None
-                    return ConvoyOrder(
-                        power=power_name,
-                        unit=unit,
-                        order_type=OrderType.CONVOY,
-                        phase="Movement",
-                        convoyed_unit=convoyed_unit,
-                        convoyed_target=convoyed_target,
-                        convoy_chain=[],
-                        status=OrderStatus.SUCCESS
-                    )
-            
-            return None
-            
+                print(f"❌ Failed to create game: {result.get('message', 'Unknown error')}")
+                return False
         except Exception as e:
-            print(f"Error parsing order '{order_text}': {e}")
-            return None
-
-    def _parse_order_text(self, order_text: str) -> dict:
-        """Parse order text into order dictionary format"""
-        try:
-            parts = order_text.split()
-            if len(parts) < 3:
-                return None
-            
-            # Skip the power name if present (e.g., "GERMANY A BER - HOL" -> "A BER - HOL")
-            if len(parts) > 3 and parts[1] in ['A', 'F']:
-                # Power name is first, skip it
-                parts = parts[1:]
-            elif len(parts) > 2 and parts[0] in ['A', 'F']:
-                # No power name, use as is
-                pass
-            else:
-                return None
-                
-            unit = f"{parts[0]} {parts[1]}"  # e.g., "A PAR"
-            
-            # Move order (A PAR - BUR)
-            if len(parts) >= 4 and parts[2] == "-":
-                return {
-                    "type": "move",
-                    "unit": unit,
-                    "target": parts[3],
-                    "status": "success"
-                }
-            
-            # Hold order (A PAR H or A PAR)
-            elif len(parts) == 2 or (len(parts) == 3 and parts[2] == "H"):
-                return {
-                    "type": "hold",
-                    "unit": unit,
-                    "status": "success"
-                }
-            
-            # Support order (A PAR S A BUR - MUN)
-            elif len(parts) >= 5 and parts[2] == "S":
-                if len(parts) >= 6 and parts[4] == "-":
-                    return {
-                        "type": "support",
-                        "unit": unit,
-                        "supporting": f"{parts[3]} {parts[4]} {parts[5]}",
-                        "status": "success"
-                    }
-                else:
-                    return {
-                        "type": "support",
-                        "unit": unit,
-                        "supporting": parts[3],
-                        "status": "success"
-                    }
-            
-            # Convoy order (F ENG C A PAR - HOL)
-            elif len(parts) >= 6 and parts[2] == "C":
-                return {
-                    "type": "convoy",
-                    "unit": unit,
-                    "target": parts[5],
-                    "via": [],
-                    "status": "success"
-                }
-            
-            # Build order (BUILD A PAR)
-            elif parts[0] == "BUILD":
-                return {
-                    "type": "build",
-                    "unit": "",
-                    "target": parts[2],
-                    "status": "success"
-                }
-            
-            # Destroy order (DESTROY A PAR)
-            elif parts[0] == "DESTROY":
-                return {
-                    "type": "destroy",
-                    "unit": f"{parts[1]} {parts[2]}",
-                    "status": "success"
-                }
-            
-            return None
-            
-        except Exception as e:
-            print(f"❌ Error parsing order '{order_text}': {e}")
-            return None
+            print(f"❌ Error creating game: {e}")
+            return False
             
     def create_demo_game(self) -> bool:
         """Create a new demo game"""
@@ -542,18 +242,18 @@ class AutomatedDemoGame:
                 
         return True
         
-    def get_game_state(self) -> Dict[str, Any]:
-        """Get current game state"""
+    def get_game_state(self):
+        """Get current game state using new data model"""
         try:
             result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
             if result.get("status") == "ok":
-                return result.get("state", {})
+                return result.get("state")  # This is now a GameState object
             else:
                 print(f"❌ Failed to get game state: {result.get('message', 'Unknown error')}")
-                return {}
+                return None
         except Exception as e:
             print(f"❌ Error getting game state: {e}")
-            return {}
+            return None
             
     def submit_orders(self, power: str, orders: List[str]) -> bool:
         """Submit orders for a power"""
@@ -584,158 +284,528 @@ class AutomatedDemoGame:
             print(f"❌ Error processing turn: {e}")
             return False
             
-    def get_spring_1901_orders(self) -> Dict[str, List[str]]:
-        """Get orders for Spring 1901 Movement phase"""
-        return {
-            "GERMANY": [
-                "GERMANY A BER - HOL",
-                "GERMANY A MUN - BUR", 
-                "GERMANY F KIE - DEN"
-            ],
-            "FRANCE": [
-                "FRANCE A PAR - BEL",
-                "FRANCE A MAR - SPA",
-                "FRANCE F BRE - MAO"
-            ],
-            "ENGLAND": [
-                "ENGLAND A LVP H",
-                "ENGLAND F LON H",
-                "ENGLAND F EDI - NTH"
-            ],
-            "RUSSIA": [
-                "RUSSIA A WAR H",
-                "RUSSIA A MOS H",
-                "RUSSIA F STP H",
-                "RUSSIA F SEV - RUM"
-            ],
-            "ITALY": [
-                "ITALY A ROM - TUS",
-                "ITALY A VEN H",
-                "ITALY F NAP - ION"
-            ],
-            "AUSTRIA": [
-                "AUSTRIA A VIE - GAL",
-                "AUSTRIA A BUD - SER",
-                "AUSTRIA F TRI - ADR"
-            ],
-            "TURKEY": [
-                "TURKEY A CON - BUL",
-                "TURKEY A SMY H",
-                "TURKEY F ANK - BLA"
-            ]
-        }
+    def get_spring_1901_builds(self, game_state) -> Dict[str, List[str]]:
+        """Get builds for Spring 1901 Builds phase"""
+        builds = {}
         
-    def generate_dynamic_orders(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
-        """Generate orders based on current unit positions and phase"""
+        # game_state is now a GameState object directly
+        if not game_state:
+            return builds
+        
+        for power_name, power_state in game_state.powers.items():
+            power_builds = []
+            
+            # Check if this power needs builds (simplified logic)
+            # In a real game, this would check supply centers vs units
+            unit_count = len(power_state.units)
+            supply_center_count = len(power_state.controlled_supply_centers)
+            
+            if unit_count < supply_center_count:
+                # Need to build units (simplified - just build armies)
+                needed_builds = supply_center_count - unit_count
+                for i in range(needed_builds):
+                    # Find a home supply center to build in
+                    home_centers = power_state.home_supply_centers
+                    if home_centers:
+                        build_province = home_centers[0]  # Use first available home center
+                        power_builds.append(f"{power_name} BUILD A {build_province}")
+            
+            if power_builds:
+                builds[power_name] = power_builds
+            else:
+                builds[power_name] = []  # No builds needed
+        
+        return builds
+
+    def generate_dynamic_orders(self, game_state) -> Dict[str, List[str]]:
+        """Generate comprehensive orders to demonstrate all Diplomacy mechanics"""
         orders = {}
-        current_phase = game_state.get('phase', 'Movement')
         
-        # Only generate movement orders during Movement phase
-        if current_phase != 'Movement':
-            print(f"   {list(game_state.get('units', {}).keys())[0] if game_state.get('units') else 'All'}: No orders needed for {current_phase} phase")
+        if not game_state:
             return orders
+            
+        current_phase = game_state.current_phase
+        current_year = game_state.current_year
+        current_season = game_state.current_season
         
-        for power_name, power_units in game_state.get('units', {}).items():
+        print(f"   Generating orders for {current_season} {current_year} {current_phase} phase")
+        
+        if current_phase == 'Movement':
+            orders = self._generate_movement_orders(game_state)
+        elif current_phase == 'Retreat':
+            orders = self._generate_retreat_orders(game_state)
+        elif current_phase == 'Builds':
+            orders = self._generate_build_orders(game_state)
+        else:
+            print(f"   Unknown phase: {current_phase}")
+        
+        return orders
+    
+    def _generate_movement_orders(self, game_state) -> Dict[str, List[str]]:
+        """Generate movement orders to demonstrate various mechanics"""
+        orders = {}
+        current_year = game_state.current_year
+        current_season = game_state.current_season
+        
+        # Strategic scenarios based on game progression
+        if current_year == 1901 and current_season == 'Spring':
+            orders = self._spring_1901_scenario(game_state)
+        elif current_year == 1901 and current_season == 'Autumn':
+            orders = self._autumn_1901_scenario(game_state)
+        elif current_year == 1902 and current_season == 'Spring':
+            orders = self._spring_1902_scenario(game_state)
+        elif current_year == 1902 and current_season == 'Autumn':
+            orders = self._autumn_1902_scenario(game_state)
+        else:
+            # Default strategic orders for later years
+            orders = self._default_strategic_orders(game_state)
+        
+        return orders
+    
+    def _spring_1901_scenario(self, game_state) -> Dict[str, List[str]]:
+        """Spring 1901: Basic expansion moves"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
             power_orders = []
             
-            for unit_str in power_units:
-                # Parse unit string (e.g., "A BUR" -> unit_type="A", province="BUR")
-                parts = unit_str.split()
-                if len(parts) >= 2:
-                    unit_type = parts[0]
-                    province = parts[1]
-                    
-                    # Generate a simple move order to an adjacent province
-                    # This is a simplified approach - in a real game, orders would be more strategic
-                    adjacent_province = self._get_adjacent_province(province, unit_type)
-                    if adjacent_province:
-                        order = f"{power_name} {unit_type} {province} - {adjacent_province}"
-                        power_orders.append(order)
-                    else:
-                        # If no adjacent province found, hold
-                        order = f"{power_name} {unit_type} {province} H"
-                        power_orders.append(order)
+            for unit in power_state.units:
+                if power_name == 'FRANCE':
+                    if unit.province == 'PAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BUR")
+                    elif unit.province == 'MAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - SPA")
+                    elif unit.province == 'BRE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - MAO")
+                
+                elif power_name == 'GERMANY':
+                    if unit.province == 'BER':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - SIL")
+                    elif unit.province == 'MUN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - TYR")
+                    elif unit.province == 'KIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - DEN")
+                
+                elif power_name == 'ENGLAND':
+                    if unit.province == 'LON':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ENG")
+                    elif unit.province == 'EDI':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - NTH")
+                    elif unit.province == 'LVP':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - WAL")
+                
+                elif power_name == 'RUSSIA':
+                    if unit.province == 'MOS':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - UKR")
+                    elif unit.province == 'WAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - GAL")
+                    elif unit.province == 'STP':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - FIN")
+                    elif unit.province == 'SEV':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - RUM")
+                
+                elif power_name == 'ITALY':
+                    if unit.province == 'ROM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - TUS")
+                    elif unit.province == 'VEN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - TYR")
+                    elif unit.province == 'NAP':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - TYS")
+                
+                elif power_name == 'AUSTRIA':
+                    if unit.province == 'VIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - TYR")
+                    elif unit.province == 'BUD':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - GAL")
+                    elif unit.province == 'TRI':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ADR")
+                
+                elif power_name == 'TURKEY':
+                    if unit.province == 'CON':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BUL")
+                    elif unit.province == 'SMY':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ARM")
+                    elif unit.province == 'ANK':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BLA")
             
             if power_orders:
                 orders[power_name] = power_orders
         
         return orders
     
-    def _get_adjacent_province(self, province: str, unit_type: str) -> str:
-        """Get an adjacent province for movement (simplified)"""
-        # This is a simplified mapping using actual Diplomacy provinces
-        adjacent_map = {
-            "BUR": "BEL",
-            "HOL": "BEL", 
-            "DEN": "SWE",
-            "BEL": "HOL",
-            "SPA": "POR",
-            "MAO": "POR",
-            "LVP": "YOR",
-            "LON": "WAL",
-            "NTH": "HEL",
-            "MOS": "UKR",
-            "WAR": "GAL",
-            "RUM": "BUL",
-            "STP": "FIN",
-            "TUS": "ROM",
-            "VEN": "TRI",
-            "ION": "ADR",
-            "GAL": "BUD",
-            "SER": "GRE",
-            "ADR": "ION",
-            "BUL": "CON",
-            "SMY": "CON",
-            "BLA": "RUM",
-            "BOT": "SWE",
-            "ENG": "IRI",
-            "HEL": "DEN",
-            "SKA": "DEN",
-            "FIN": "STP",
-            "UKR": "MOS",
-            "GRE": "ALB",
-            "ALB": "SER",
-            "APU": "NAP",
-            "NAP": "ROM",
-            "ROM": "VEN",
-            "TRI": "VEN",
-            "TYR": "MUN",
-            "BOH": "MUN",
-            "SIL": "BER",
-            "PRU": "BER",
-            "LVN": "MOS",
-            "ARM": "ANK",
-            "ANK": "CON",
-            "CON": "SMY",
-            "SYR": "SMY",
-            "EAS": "ION",
-            "AEG": "CON",
-            "BAR": "STP",
-            "NWY": "STP",
-            "CLY": "EDI",
-            "EDI": "YOR",
-            "YOR": "LVP",
-            "WAL": "LON",
-            "IRI": "LVP",
-            "NAO": "LVP",
-            "NWG": "EDI",
-            "GAS": "BRE",
-            "BRE": "PAR",
-            "PAR": "BUR",
-            "PIC": "PAR",
-            "GOL": "MAR",
-            "PIE": "MAR",
-            "MAR": "BUR",
-            "RUH": "KIE",
-            "KIE": "MUN",
-            "BER": "KIE",
-            "MUN": "BER",
-            "BUD": "VIE",
-            "VIE": "BUD",
-            "TUN": "NAP",
-            "TYS": "NAP"
+    def _autumn_1901_scenario(self, game_state) -> Dict[str, List[str]]:
+        """Autumn 1901: Demonstrate support orders and conflicts"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            for unit in power_state.units:
+                if power_name == 'FRANCE':
+                    if unit.province == 'BUR':
+                        # Support Paris to attack Belgium
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} S A PAR - BEL")
+                    elif unit.province == 'PAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BEL")
+                    elif unit.province == 'SPA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'MAO':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - POR")
+                
+                elif power_name == 'GERMANY':
+                    if unit.province == 'SIL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BOH")
+                    elif unit.province == 'TYR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - VIE")
+                    elif unit.province == 'DEN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - SWE")
+                
+                elif power_name == 'ENGLAND':
+                    if unit.province == 'ENG':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BEL")
+                    elif unit.province == 'NTH':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} S F ENG - BEL")
+                    elif unit.province == 'WAL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'RUSSIA':
+                    if unit.province == 'UKR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - RUM")
+                    elif unit.province == 'GAL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BUD")
+                    elif unit.province == 'FIN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'RUM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BUL")
+                
+                elif power_name == 'ITALY':
+                    if unit.province == 'TUS':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - PIE")
+                    elif unit.province == 'TYR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - VIE")
+                    elif unit.province == 'TYS':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ION")
+                
+                elif power_name == 'AUSTRIA':
+                    if unit.province == 'TYR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'GAL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - WAR")
+                    elif unit.province == 'ADR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ION")
+                
+                elif power_name == 'TURKEY':
+                    if unit.province == 'BUL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - RUM")
+                    elif unit.province == 'ARM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BLA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - RUM")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _spring_1902_scenario(self, game_state) -> Dict[str, List[str]]:
+        """Spring 1902: Demonstrate convoy orders"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            for unit in power_state.units:
+                if power_name == 'ENGLAND':
+                    if unit.province == 'BEL':
+                        # Convoy army to Denmark
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - DEN VIA CONVOY")
+                    elif unit.province == 'ENG':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} C A BEL - DEN")
+                    elif unit.province == 'NTH':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} C A BEL - DEN")
+                    elif unit.province == 'WAL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'FRANCE':
+                    if unit.province == 'BEL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BUR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - RUE")
+                    elif unit.province == 'SPA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'POR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'GERMANY':
+                    if unit.province == 'BOH':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - MUN")
+                    elif unit.province == 'VIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'SWE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'RUSSIA':
+                    if unit.province == 'RUM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BUD':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'FIN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BUL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'ITALY':
+                    if unit.province == 'PIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - MAR")
+                    elif unit.province == 'VIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ION':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - ADR")
+                
+                elif power_name == 'AUSTRIA':
+                    if unit.province == 'TYR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'WAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ADR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'TURKEY':
+                    if unit.province == 'RUM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ARM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BLA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _autumn_1902_scenario(self, game_state) -> Dict[str, List[str]]:
+        """Autumn 1902: Demonstrate complex conflicts and support cuts"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            for unit in power_state.units:
+                if power_name == 'ENGLAND':
+                    if unit.province == 'DEN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ENG':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - BEL")
+                    elif unit.province == 'NTH':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} S F ENG - BEL")
+                    elif unit.province == 'WAL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'FRANCE':
+                    if unit.province == 'BEL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'RUE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} S A BEL")
+                    elif unit.province == 'SPA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'POR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'GERMANY':
+                    if unit.province == 'MUN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'VIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'SWE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'RUSSIA':
+                    if unit.province == 'RUM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BUD':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'FIN':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BUL':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'ITALY':
+                    if unit.province == 'MAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'VIE':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ADR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'AUSTRIA':
+                    if unit.province == 'TYR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'WAR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ADR':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                
+                elif power_name == 'TURKEY':
+                    if unit.province == 'RUM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'ARM':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    elif unit.province == 'BLA':
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _default_strategic_orders(self, game_state) -> Dict[str, List[str]]:
+        """Default strategic orders for later years"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            for unit in power_state.units:
+                # Generate strategic orders based on current positions
+                adjacent_province = self._get_adjacent_province(unit.province, unit.unit_type)
+                if adjacent_province:
+                    # 30% chance to hold, 70% chance to move
+                    import random
+                    if random.random() < 0.3:
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+                    else:
+                        power_orders.append(f"{power_name} {unit.unit_type} {unit.province} - {adjacent_province}")
+                else:
+                    power_orders.append(f"{power_name} {unit.unit_type} {unit.province} H")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _generate_retreat_orders(self, game_state) -> Dict[str, List[str]]:
+        """Generate retreat orders for dislodged units"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            for unit in power_state.units:
+                if hasattr(unit, 'retreat_options') and unit.retreat_options:
+                    # Choose first available retreat option
+                    retreat_province = unit.retreat_options[0]
+                    power_orders.append(f"{power_name} {unit.unit_type} {unit.province} R {retreat_province}")
+                elif hasattr(unit, 'is_dislodged') and unit.is_dislodged:
+                    # If no retreat options, disband
+                    power_orders.append(f"{power_name} {unit.unit_type} {unit.province} D")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _generate_build_orders(self, game_state) -> Dict[str, List[str]]:
+        """Generate build orders based on supply center control"""
+        orders = {}
+        
+        for power_name, power_state in game_state.powers.items():
+            power_orders = []
+            
+            # Check if power needs to build or destroy units
+            supply_centers = power_state.controlled_supply_centers
+            unit_count = len(power_state.units)
+            
+            if unit_count < len(supply_centers):
+                # Need to build units
+                builds_needed = len(supply_centers) - unit_count
+                home_centers = [sc for sc in supply_centers if sc in self._get_home_supply_centers(power_name)]
+                
+                for i in range(min(builds_needed, len(home_centers))):
+                    home_center = home_centers[i]
+                    # Determine unit type based on province type
+                    if self._is_coastal_province(home_center):
+                        # Randomly choose army or fleet for coastal provinces
+                        import random
+                        unit_type = 'A' if random.random() < 0.5 else 'F'
+                    else:
+                        unit_type = 'A'  # Land provinces get armies
+                    
+                    power_orders.append(f"{power_name} BUILD {unit_type} {home_center}")
+            
+            elif unit_count > len(supply_centers):
+                # Need to destroy units
+                destroys_needed = unit_count - len(supply_centers)
+                for i in range(destroys_needed):
+                    if i < len(power_state.units):
+                        unit = power_state.units[i]
+                        power_orders.append(f"{power_name} DESTROY {unit.unit_type} {unit.province}")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
+    
+    def _get_home_supply_centers(self, power_name: str) -> List[str]:
+        """Get home supply centers for a power"""
+        home_centers = {
+            'FRANCE': ['PAR', 'MAR', 'BRE'],
+            'GERMANY': ['BER', 'MUN', 'KIE'],
+            'ENGLAND': ['LON', 'EDI', 'LVP'],
+            'RUSSIA': ['MOS', 'WAR', 'STP', 'SEV'],
+            'ITALY': ['ROM', 'VEN', 'NAP'],
+            'AUSTRIA': ['VIE', 'BUD', 'TRI'],
+            'TURKEY': ['CON', 'SMY', 'ANK']
         }
-        return adjacent_map.get(province)
+        return home_centers.get(power_name, [])
+    
+    def _is_coastal_province(self, province: str) -> bool:
+        """Check if a province is coastal"""
+        coastal_provinces = {
+            'BRE', 'BUL', 'CLY', 'CON', 'DEN', 'EDI', 'FIN', 'GAS', 'GRE', 'HOL', 
+            'KIE', 'LON', 'LVP', 'LVN', 'MAR', 'NAP', 'NWY', 'PAR', 'PIC', 'PIE', 
+            'POR', 'PRU', 'ROM', 'RUH', 'SMY', 'SPA', 'STP', 'SWE', 'TRI', 'TUN', 'VEN', 'YOR'
+        }
+        return province in coastal_provinces
+    
+    def _get_adjacent_province(self, province: str, unit_type: str) -> str:
+        """Get an adjacent province for movement using the actual game engine's adjacency data"""
+        try:
+            # Get the actual game state to use real adjacency data
+            game_state = self.get_game_state()
+            if not game_state:
+                return None
+                
+            # Get map data from game state
+            map_data = game_state.map_data
+            if not map_data or province not in map_data.provinces:
+                return None
+                
+            # Get the province data
+            province_data = map_data.provinces[province]
+            adjacent_provinces = province_data.adjacent_provinces
+            
+            if not adjacent_provinces:
+                return None
+            
+            # Find a legal move from the actual adjacent provinces
+            for target_province in adjacent_provinces:
+                if target_province in map_data.provinces:
+                    target_province_data = map_data.provinces[target_province]
+                    
+                    # Check if move is legal based on unit type and target province type
+                    if unit_type == 'A' and target_province_data.province_type in ['land', 'coastal']:
+                        # Army can move to land or coastal provinces
+                        return target_province
+                    elif unit_type == 'F' and target_province_data.province_type in ['sea', 'coastal']:
+                        # Fleet can move to sea or coastal provinces
+                        return target_province
+            
+            # If no legal move found, return None
+            return None
+            
+        except Exception as e:
+            print(f"Error getting adjacent province for {province}: {e}")
+            return None
 
     def get_autumn_1901_orders(self) -> Dict[str, List[str]]:
         """Get orders for Autumn 1901 Movement phase - DEPRECATED, use generate_dynamic_orders instead"""
@@ -819,7 +889,7 @@ class AutomatedDemoGame:
             ]
         }
         
-    def get_build_orders(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
+    def get_build_orders(self, game_state) -> Dict[str, List[str]]:
         """Get build orders based on current game state"""
         # Simple build logic - add units in home supply centers
         builds = {
@@ -829,25 +899,17 @@ class AutomatedDemoGame:
             "RUSSIA": ["BUILD A MOS"]
         }
         
-        # Remove builds for powers that don't have supply center advantage
-        powers = game_state.get('powers', [])
-        units = game_state.get('units', {})
+        # game_state is now a GameState object directly
+        if not game_state:
+            return builds
         
-        if isinstance(powers, list):
-            for power_name in powers:
-                power_units = len(units.get(power_name, []))
-                # For demo purposes, assume each power has 3 supply centers initially
-                supply_centers = 3
-                
-                if power_units >= supply_centers:
-                    builds[power_name] = []  # No builds needed
-        elif isinstance(powers, dict):
-            for power, power_data in powers.items():
-                power_units = len(power_data.get('units', []))
-                supply_centers = len(power_data.get('supply_centers', []))
-                
-                if power_units >= supply_centers:
-                    builds[power] = []  # No builds needed
+        # Remove builds for powers that don't have supply center advantage
+        for power_name, power_state in game_state.powers.items():
+            power_units = len(power_state.units)
+            supply_centers = len(power_state.controlled_supply_centers)
+            
+            if power_units >= supply_centers:
+                builds[power_name] = []  # No builds needed
                 
         return builds
         
@@ -873,7 +935,7 @@ class AutomatedDemoGame:
         
         # Phase 1: Spring 1901 Movement
         self.print_header("PHASE 1: SPRING 1901 MOVEMENT")
-        orders = self.get_spring_1901_orders()
+        orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
         for power, power_orders in orders.items():
@@ -901,8 +963,33 @@ class AutomatedDemoGame:
         # Generate map after movement (stable situation)
         self.generate_and_save_map(game_state, "demo_1901_04_spring_movement.png")
         
+        # Spring 1901 Builds Phase
+        self.print_header("SPRING 1901 BUILDS")
+        builds = self.generate_dynamic_orders(game_state)
+        
+        print(f"\n🤖 BOT COMMANDS:")
+        for power, power_builds in builds.items():
+            if power_builds:
+                print(f"   /orders {self.game_id} {power} {' '.join(power_builds)}")
+                self.submit_orders(power, power_builds)
+            else:
+                print(f"   {power}: No builds needed")
+        
+        time.sleep(1)
+        
+        # Process builds
+        print(f"\n🤖 BOT COMMAND:")
+        print(f"   /processturn {self.game_id}")
+        self.process_turn()
+        
+        # Get updated state
+        game_state = self.get_game_state()
+        self.print_phase_info(game_state)
+        self.print_units(game_state)
+        
         # Phase 2: Autumn 1901 Movement
         self.print_header("PHASE 2: AUTUMN 1901 MOVEMENT")
+        game_state = self.get_game_state()  # Get fresh game state
         orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
@@ -936,7 +1023,7 @@ class AutomatedDemoGame:
         
         # Phase 3: Autumn 1901 Builds
         self.print_header("PHASE 3: AUTUMN 1901 BUILDS")
-        build_orders = self.get_build_orders(game_state)
+        build_orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
         for power, power_orders in build_orders.items():
@@ -963,6 +1050,7 @@ class AutomatedDemoGame:
         
         # Phase 4: Spring 1902 Movement
         self.print_header("PHASE 4: SPRING 1902 MOVEMENT")
+        game_state = self.get_game_state()  # Get fresh game state
         orders = self.generate_dynamic_orders(game_state)
         
         print(f"\n🤖 BOT COMMANDS:")
@@ -994,10 +1082,10 @@ class AutomatedDemoGame:
         # Final summary
         self.print_header("DEMO GAME COMPLETE")
         print(f"🎮 Game ID: {self.game_id}")
-        print(f"📊 Final Turn: {game_state.get('turn', 0)}")
-        print(f"📅 Final Season: {game_state.get('season', 'Spring')}")
-        print(f"🔄 Final Phase: {game_state.get('phase', 'Movement')}")
-        print(f"🏷️  Final Phase Code: {game_state.get('phase_code', 'S1902M')}")
+        print(f"📊 Final Turn: {game_state.current_turn}")
+        print(f"📅 Final Season: {game_state.current_season}")
+        print(f"🔄 Final Phase: {game_state.current_phase}")
+        print(f"🏷️  Final Phase Code: {game_state.phase_code}")
         print(f"\n🗺️  Maps generated in: /home/helgejalonen/diplomacy/new_implementation/test_maps/")
         print(f"   📊 Game Sequence (chronological order):")
         print(f"      01 - demo_1901_01_initial.png")

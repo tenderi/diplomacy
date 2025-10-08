@@ -111,6 +111,11 @@ class Game:
         if power_name not in self.game_state.orders:
             self.game_state.orders[power_name] = []
 
+    def clear_orders(self, power_name: str) -> None:
+        """Clear all orders for a power."""
+        if power_name in self.game_state.powers:
+            self.game_state.orders[power_name] = []
+
     def set_orders(self, power_name: str, orders: List[str]) -> None:
         """Set orders for a power. Orders are parsed, validated, and stored."""
         if power_name not in self.game_state.powers:
@@ -139,7 +144,10 @@ class Game:
         if validation_errors:
             raise ValueError(f"Invalid orders for {power_name}: {'; '.join(validation_errors)}")
         
-        self.game_state.orders[power_name] = new_orders
+        # Append new orders to existing orders instead of replacing them
+        if power_name not in self.game_state.orders:
+            self.game_state.orders[power_name] = []
+        self.game_state.orders[power_name].extend(new_orders)
 
     def process_turn(self) -> Dict[str, Any]:
         """Process a complete turn and return results."""
@@ -733,34 +741,9 @@ class Game:
                       for power_name, orders in self.game_state.orders.items()}
         }
     
-    def get_game_state(self) -> Dict[str, Any]:
-        """Get the full game state as a dictionary."""
-        return {
-            "turn": self.turn,
-            "year": self.year,
-            "season": self.season,
-            "phase": self.phase,
-            "phase_code": self.phase_code,
-            "powers": list(self.game_state.powers.keys()),
-            "units": {power_name: [f"{u.unit_type} {u.province}" for u in power.units] 
-                     for power_name, power in self.game_state.powers.items()},
-            "orders": {power_name: [str(order) for order in orders] 
-                      for power_name, orders in self.game_state.orders.items()},
-            "supply_centers": {power_name: power.controlled_supply_centers 
-                             for power_name, power in self.game_state.powers.items()},
-            "home_supply_centers": {power_name: power.home_supply_centers 
-                                  for power_name, power in self.game_state.powers.items()},
-            "dislodged_units": {power_name: [f"{u.unit_type} {u.province}" for u in power.units if u.is_dislodged] 
-                              for power_name, power in self.game_state.powers.items()},
-            "retreat_options": {power_name: {f"{u.unit_type} {u.province}": u.retreat_options 
-                                           for u in power.units if u.is_dislodged} 
-                              for power_name, power in self.game_state.powers.items()},
-            "can_build": {power_name: power.needs_builds() 
-                         for power_name, power in self.game_state.powers.items()},
-            "can_destroy": {power_name: power.needs_destroys() 
-                          for power_name, power in self.game_state.powers.items()},
-            "done": self.done
-        }
+    def get_game_state(self) -> 'GameState':
+        """Get the game state using the new data model directly."""
+        return self.game_state
 
     def is_game_done(self) -> bool:
         """Check if the game is done."""

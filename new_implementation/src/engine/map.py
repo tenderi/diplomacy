@@ -999,7 +999,7 @@ class Map:
 
     def validate_location(self, location: str) -> bool:
         return location in self.provinces
-
+    
     @staticmethod
     def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict):
         """
@@ -1196,7 +1196,7 @@ class Map:
         to_coord = coords[to_province]
         
         # Choose arrow style based on status
-        if status == "success":
+        if status == "success" or status == "pending":
             Map._draw_arrow(draw, from_coord, to_coord, color, width=3, style="solid")
         elif status == "failed":
             Map._draw_arrow(draw, from_coord, to_coord, "red", width=2, style="dashed")
@@ -1282,16 +1282,32 @@ class Map:
         Map._draw_cross(draw, coord, "red", width=4)
 
     @staticmethod
+    def _convert_color_to_rgb(color: str) -> str:
+        """Convert hex color to RGB tuple or return named color as-is"""
+        if color.startswith('#'):
+            # Convert hex to RGB tuple
+            hex_color = color.lstrip('#')
+            if len(hex_color) == 6:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                return (r, g, b)
+        return color  # Return named colors as-is
+
+    @staticmethod
     def _draw_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 3, style: str = "solid"):
         """Draw arrow between two coordinates"""
+        # Convert color to RGB if needed
+        rgb_color = Map._convert_color_to_rgb(color)
+        
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
         # Draw arrow line
         if style == "dashed":
-            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, color, width)
+            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, rgb_color, width)
         else:
-            draw.line([from_x, from_y, to_x, to_y], fill=color, width=width)
+            draw.line([from_x, from_y, to_x, to_y], fill=rgb_color, width=width)
         
         # Draw arrowhead
         import math
@@ -1306,7 +1322,7 @@ class Map:
         head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
         
         # Draw arrowhead
-        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=rgb_color)
 
     @staticmethod
     def _draw_circle(draw, coord: tuple, color: str, width: int = 2, style: str = "solid"):
