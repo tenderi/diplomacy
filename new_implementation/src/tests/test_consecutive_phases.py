@@ -38,18 +38,18 @@ def test_consecutive_phases():
         "FRANCE F BRE - ENG"    # France moves fleet
     ])
     
-    game.process_phase()
+    game.process_turn()
     print(f"After Phase 1: Turn {game.turn}, Season {game.season}, Phase {game.phase}")
     print(f"Phase code: {game.phase_code}")
-    print(f"Germany units: {game.powers['GERMANY'].units}")
-    print(f"France units: {game.powers['FRANCE'].units}")
+    print(f"Germany units: {game.game_state.powers['GERMANY'].units}")
+    print(f"France units: {game.game_state.powers['FRANCE'].units}")
     
     # Phase 2: Retreat (Spring 1901 Retreat) - if any units were dislodged
     print("\n--- Phase 2: Retreat (Spring 1901 Retreat) ---")
     if game.phase == "Retreat":
         print("Retreat phase detected - no retreat orders needed for this test")
         # Process retreat phase (no retreat orders = units disband)
-        game.process_phase()
+        game.process_turn()
     else:
         print("No retreat phase needed - advancing to builds")
         # Skip to builds phase
@@ -70,14 +70,14 @@ def test_consecutive_phases():
             "FRANCE BUILD A PAR"   # Build army in Paris
         ])
         
-        game.process_phase()
+        game.process_turn()
     else:
         print("Not in builds phase - skipping")
     
     print(f"After Phase 3: Turn {game.turn}, Season {game.season}, Phase {game.phase}")
     print(f"Phase code: {game.phase_code}")
-    print(f"Germany units: {game.powers['GERMANY'].units}")
-    print(f"France units: {game.powers['FRANCE'].units}")
+    print(f"Germany units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['GERMANY'].units]}")
+    print(f"France units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]}")
     
     # Phase 4: Movement (Autumn 1901 Movement)
     print("\n--- Phase 4: Movement (Autumn 1901 Movement) ---")
@@ -92,18 +92,18 @@ def test_consecutive_phases():
         "FRANCE F ENG - IRI"     # France moves fleet
     ])
     
-    game.process_phase()
+    game.process_turn()
     print(f"After Phase 4: Turn {game.turn}, Season {game.season}, Phase {game.phase}")
     print(f"Phase code: {game.phase_code}")
-    print(f"Germany units: {game.powers['GERMANY'].units}")
-    print(f"France units: {game.powers['FRANCE'].units}")
+    print(f"Germany units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['GERMANY'].units]}")
+    print(f"France units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]}")
     
     # Phase 5: Retreat (Autumn 1901 Retreat) - if any units were dislodged
     print("\n--- Phase 5: Retreat (Autumn 1901 Retreat) ---")
     if game.phase == "Retreat":
         print("Retreat phase detected - no retreat orders needed for this test")
         # Process retreat phase (no retreat orders = units disband)
-        game.process_phase()
+        game.process_turn()
     else:
         print("No retreat phase needed - advancing to builds")
         # Skip to builds phase
@@ -124,33 +124,33 @@ def test_consecutive_phases():
             "FRANCE DESTROY A PAR"   # Destroy army in Paris
         ])
         
-        game.process_phase()
+        game.process_turn()
     else:
         print("Not in builds phase - skipping")
     
     print(f"After Phase 6: Turn {game.turn}, Season {game.season}, Phase {game.phase}")
     print(f"Phase code: {game.phase_code}")
-    print(f"Germany units: {game.powers['GERMANY'].units}")
-    print(f"France units: {game.powers['FRANCE'].units}")
+    print(f"Germany units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['GERMANY'].units]}")
+    print(f"France units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]}")
     
     # Phase 7: Movement (Spring 1902 Movement)
     print("\n--- Phase 7: Movement (Spring 1902 Movement) ---")
     game.set_orders("GERMANY", [
-        "GERMANY A BOH - GAL",   # Germany moves army
-        "GERMANY A VIE - BUD",   # Germany moves army
-        "GERMANY F BOT - STP"    # Germany moves fleet
+        "GERMANY A SIL - GAL",   # Germany moves army
+        "GERMANY A TYR - VIE",   # Germany moves army
+        "GERMANY F BAL - BOT"    # Germany moves fleet
     ])
     game.set_orders("FRANCE", [
-        "FRANCE A BEL - HOL",    # France moves army
-        "FRANCE A TUS - ROM",    # France moves army
-        "FRANCE F IRI - NAO"     # France moves fleet
+        "FRANCE A BUR - BEL",    # France moves army
+        "FRANCE A PIE - TUS",    # France moves army
+        "FRANCE F ENG - IRI"     # France moves fleet
     ])
     
-    game.process_phase()
+    game.process_turn()
     print(f"After Phase 7: Turn {game.turn}, Season {game.season}, Phase {game.phase}")
     print(f"Phase code: {game.phase_code}")
-    print(f"Germany units: {game.powers['GERMANY'].units}")
-    print(f"France units: {game.powers['FRANCE'].units}")
+    print(f"Germany units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['GERMANY'].units]}")
+    print(f"France units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]}")
     
     # Verify we've gone through the expected phases
     print("\n=== Phase Verification ===")
@@ -179,13 +179,13 @@ def test_phase_transitions():
     
     # Movement phase
     game.set_orders("GERMANY", ["GERMANY A BER H"])
-    game.process_phase()
+    game.process_turn()
     print(f"After Movement: {game.season} {game.year} {game.phase} ({game.phase_code})")
     
     # Should go to Builds (no retreats needed)
     if game.phase == "Builds":
-        game.set_orders("GERMANY", ["GERMANY BUILD A BER"])
-        game.process_phase()
+        # No build orders needed for this test - just process the phase
+        game.process_turn()
         print(f"After Builds: {game.season} {game.year} {game.phase} ({game.phase_code})")
     
     # Should now be in next season's Movement phase

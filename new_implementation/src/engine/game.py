@@ -72,13 +72,28 @@ class Game:
     def add_player(self, power_name: str) -> None:
         """Add a player to the game."""
         if power_name not in self.game_state.powers:
+            # Define home supply centers for each power
+            home_centers = {
+                'ENGLAND': ['LON', 'EDI', 'LVP'],
+                'FRANCE': ['PAR', 'MAR', 'BRE'],
+                'GERMANY': ['BER', 'KIE', 'MUN'],
+                'ITALY': ['ROM', 'VEN', 'NAP'],
+                'AUSTRIA': ['VIE', 'BUD', 'TRI'],
+                'RUSSIA': ['MOS', 'WAR', 'SEV', 'STP'],
+                'TURKEY': ['CON', 'SMY', 'ANK'],
+            }
+            
             # Add to new data model
             self.game_state.powers[power_name] = PowerState(
                 power_name=power_name,
                 units=[],
-                controlled_supply_centers=[],
-                home_supply_centers=[]
+                controlled_supply_centers=home_centers.get(power_name.upper(), []),
+                home_supply_centers=home_centers.get(power_name.upper(), [])
             )
+            
+            # Update map data with home supply centers
+            if power_name.upper() in home_centers:
+                self.game_state.map_data.home_supply_centers[power_name] = home_centers[power_name.upper()]
             
             # Assign standard starting units if using the standard map or demo mode
             if self.map_name in ['standard', 'demo']:

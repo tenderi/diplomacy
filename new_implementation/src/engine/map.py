@@ -2,15 +2,19 @@
 Map representation for Diplomacy.
 - Represents provinces, supply centers, adjacency, and coasts.
 - Loads map data (for now, hardcoded for classic map; later, can load from file).
+- Includes comprehensive map caching for performance optimization.
 """
 
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Tuple, Any
 import os
 import json
 import xml.etree.ElementTree as ET
 from PIL import Image, ImageDraw, ImageFont
 import cairosvg  # type: ignore
 from io import BytesIO
+import hashlib
+import time
+from functools import lru_cache
 
 class Province:
     """Represents a province on the Diplomacy map."""
@@ -23,6 +27,167 @@ class Province:
 
     def add_adjacent(self, province: str) -> None:
         self.adjacent.add(province)
+
+class MapCache:
+    """Comprehensive map caching system for performance optimization."""
+    
+    def __init__(self, max_size: int = 100, cache_dir: str = "/tmp/diplomacy_map_cache"):
+        self.max_size = max_size
+        self.cache_dir = cache_dir
+        self.cache: Dict[str, Tuple[bytes, float]] = {}  # key -> (image_bytes, timestamp)
+        self.access_times: Dict[str, float] = {}  # key -> last_access_time
+        
+        # Create cache directory
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Load existing cache files
+        self._load_cache_from_disk()
+    
+    def _generate_cache_key(self, svg_path: str, units: dict, phase_info: dict = None, 
+                           orders: dict = None, moves: dict = None) -> str:
+        """Generate a unique cache key for map parameters."""
+        # Create a deterministic hash of all parameters
+        key_data = {
+            "svg_path": svg_path,
+            "units": units,
+            "phase_info": phase_info,
+            "orders": orders,
+            "moves": moves
+        }
+        
+        # Convert to JSON string and hash
+        key_str = json.dumps(key_data, sort_keys=True)
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def _load_cache_from_disk(self) -> None:
+        """Load cache metadata from disk on startup."""
+        try:
+            cache_meta_file = os.path.join(self.cache_dir, "cache_meta.json")
+            if os.path.exists(cache_meta_file):
+                with open(cache_meta_file, 'r') as f:
+                    meta_data = json.load(f)
+                    self.access_times = meta_data.get("access_times", {})
+        except Exception as e:
+            print(f"Warning: Could not load cache metadata: {e}")
+    
+    def _save_cache_metadata(self) -> None:
+        """Save cache metadata to disk."""
+        try:
+            cache_meta_file = os.path.join(self.cache_dir, "cache_meta.json")
+            meta_data = {
+                "access_times": self.access_times,
+                "cache_size": len(self.cache)
+            }
+            with open(cache_meta_file, 'w') as f:
+                json.dump(meta_data, f)
+        except Exception as e:
+            print(f"Warning: Could not save cache metadata: {e}")
+    
+    def get(self, cache_key: str) -> Optional[bytes]:
+        """Get cached map image if available."""
+        if cache_key in self.cache:
+            # Update access time
+            self.access_times[cache_key] = time.time()
+            
+            # Try to load from disk if not in memory
+            if cache_key not in self.cache or self.cache[cache_key][0] is None:
+                cache_file = os.path.join(self.cache_dir, f"{cache_key}.png")
+                if os.path.exists(cache_file):
+                    try:
+                        with open(cache_file, 'rb') as f:
+                            img_bytes = f.read()
+                            self.cache[cache_key] = (img_bytes, time.time())
+                            return img_bytes
+                    except Exception as e:
+                        print(f"Warning: Could not load cached image {cache_key}: {e}")
+            
+            return self.cache[cache_key][0]
+        
+        return None
+    
+    def put(self, cache_key: str, img_bytes: bytes) -> None:
+        """Cache map image."""
+        current_time = time.time()
+        
+        # Store in memory
+        self.cache[cache_key] = (img_bytes, current_time)
+        self.access_times[cache_key] = current_time
+        
+        # Save to disk
+        try:
+            cache_file = os.path.join(self.cache_dir, f"{cache_key}.png")
+            with open(cache_file, 'wb') as f:
+                f.write(img_bytes)
+        except Exception as e:
+            print(f"Warning: Could not save cached image {cache_key}: {e}")
+        
+        # Cleanup if cache is too large
+        self._cleanup_cache()
+        
+        # Save metadata
+        self._save_cache_metadata()
+    
+    def _cleanup_cache(self) -> None:
+        """Remove least recently used items if cache is too large."""
+        if len(self.cache) <= self.max_size:
+            return
+        
+        # Sort by access time (oldest first)
+        sorted_items = sorted(self.access_times.items(), key=lambda x: x[1])
+        
+        # Remove oldest items
+        items_to_remove = len(self.cache) - self.max_size
+        for i in range(items_to_remove):
+            key_to_remove = sorted_items[i][0]
+            
+            # Remove from memory
+            if key_to_remove in self.cache:
+                del self.cache[key_to_remove]
+            
+            # Remove from disk
+            cache_file = os.path.join(self.cache_dir, f"{key_to_remove}.png")
+            try:
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+            except Exception as e:
+                print(f"Warning: Could not remove cache file {cache_file}: {e}")
+            
+            # Remove from access times
+            if key_to_remove in self.access_times:
+                del self.access_times[key_to_remove]
+    
+    def clear(self) -> None:
+        """Clear all cached maps."""
+        self.cache.clear()
+        self.access_times.clear()
+        
+        # Remove all cache files
+        try:
+            for filename in os.listdir(self.cache_dir):
+                if filename.endswith('.png') or filename == 'cache_meta.json':
+                    file_path = os.path.join(self.cache_dir, filename)
+                    os.remove(file_path)
+        except Exception as e:
+            print(f"Warning: Could not clear cache directory: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total_size = sum(len(img_bytes) for img_bytes, _ in self.cache.values())
+        return {
+            "cache_size": len(self.cache),
+            "max_size": self.max_size,
+            "total_bytes": total_size,
+            "cache_dir": self.cache_dir,
+            "oldest_access": min(self.access_times.values()) if self.access_times else None,
+            "newest_access": max(self.access_times.values()) if self.access_times else None
+        }
+
+# Global SVG parsing cache
+_svg_cache: Dict[str, Tuple[ET.ElementTree, Dict[str, Tuple[float, float]]]] = {}
+_font_cache: Optional[ImageFont.ImageFont] = None
+
+# Global map cache instance
+_map_cache = MapCache()
 
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
@@ -226,63 +391,98 @@ class Map:
                     self.provinces[adj].add_adjacent(name)
 
     @staticmethod
+    def _get_cached_svg_data(svg_path: str) -> Tuple[ET.ElementTree, Dict[str, Tuple[float, float]]]:
+        """Get cached SVG data or parse and cache it."""
+        global _svg_cache
+        
+        if svg_path not in _svg_cache:
+            # Parse SVG and extract coordinates
+            tree = ET.parse(svg_path)
+            root = tree.getroot()
+            
+            # Check if this is the V2 map (doesn't have jdipNS structure)
+            if 'v2' in svg_path.lower():
+                try:
+                    from v2_map_coordinates import get_all_v2_coordinates
+                    coords = get_all_v2_coordinates()
+                except ImportError:
+                    print("⚠️  Warning: v2_map_coordinates module not found, using fallback coordinates")
+                    # Fallback coordinates for V2 map
+                    coords = {
+                        'LON': (1921, 2378), 'PAR': (1948, 2859), 'BER': (2960, 2423),
+                        'VIE': (3074, 3039), 'MOS': (4849, 2167), 'ROM': (2793, 3613),
+                        'CON': (4233, 3821), 'EDI': (1886, 1866), 'MAR': (2020, 3265),
+                        'MUN': (2645, 2808), 'BUD': (3497, 3099), 'WAR': (3612, 2564),
+                        'VEN': (2662, 3265), 'SMY': (4609, 3974), 'STP': (4347, 1624),
+                        'KIE': (2662, 2448), 'TRI': (3130, 3306), 'SEV': (5268, 3021),
+                        'NAP': (2980, 3732), 'ANK': (4785, 3682), 'LVP': (1767, 2022),
+                        'BRE': (1697, 2782), 'BOH': (3012, 2808), 'GAL': (3673, 2825),
+                        'UKR': (4186, 2698), 'TYR': (2801, 3055), 'ARM': (5392, 3676),
+                        'PIC': (2000, 2665), 'SIL': (3052, 2597), 'PRU': (3360, 2367),
+                        'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
+                    }
+            else:
+                # Use jdipNS coordinates - these are the correct coordinate system
+                coords = {}
+                ns = {'jdipNS': 'svg.dtd'}
+                
+                for prov in root.findall('.//jdipNS:PROVINCE', ns):
+                    name = prov.attrib.get('name')
+                    unit = prov.find('jdipNS:UNIT', ns)
+                    if name and unit is not None:
+                        x = float(unit.attrib.get('x', '0'))
+                        y = float(unit.attrib.get('y', '0'))
+                        coords[name.upper()] = (x, y)
+            
+            # Cache the parsed data
+            _svg_cache[svg_path] = (tree, coords)
+        
+        return _svg_cache[svg_path]
+
+    @staticmethod
     def get_svg_province_coordinates(svg_path: str) -> dict:
         """
         Parse the SVG file and extract province coordinates for unit placement.
         Returns a dict: {province_name: (x, y)}
         Uses jdipNS coordinates which are the correct coordinate system.
+        Optimized with caching to avoid repeated parsing.
         """
-        # Check if this is the V2 map (doesn't have jdipNS structure)
-        if 'v2' in svg_path.lower():
-            try:
-                from v2_map_coordinates import get_all_v2_coordinates
-                return get_all_v2_coordinates()
-            except ImportError:
-                print("⚠️  Warning: v2_map_coordinates module not found, using fallback coordinates")
-                # Fallback coordinates for V2 map
-                return {
-                    'LON': (1921, 2378), 'PAR': (1948, 2859), 'BER': (2960, 2423),
-                    'VIE': (3074, 3039), 'MOS': (4849, 2167), 'ROM': (2793, 3613),
-                    'CON': (4233, 3821), 'EDI': (1886, 1866), 'MAR': (2020, 3265),
-                    'MUN': (2645, 2808), 'BUD': (3497, 3099), 'WAR': (3612, 2564),
-                    'VEN': (2662, 3265), 'SMY': (4609, 3974), 'STP': (4347, 1624),
-                    'KIE': (2662, 2448), 'TRI': (3130, 3306), 'SEV': (5268, 3021),
-                    'NAP': (2980, 3732), 'ANK': (4785, 3682), 'LVP': (1767, 2022),
-                    'BRE': (1697, 2782), 'BOH': (3012, 2808), 'GAL': (3673, 2825),
-                    'UKR': (4186, 2698), 'TYR': (2801, 3055), 'ARM': (5392, 3676),
-                    'PIC': (2000, 2665), 'SIL': (3052, 2597), 'PRU': (3360, 2367),
-                    'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
-                }
-        
-        # Use jdipNS coordinates - these are the correct coordinate system
-        coords = {}
-        tree = ET.parse(svg_path)
-        root = tree.getroot()
-        ns = {'jdipNS': 'svg.dtd'}
-        
-        for prov in root.findall('.//jdipNS:PROVINCE', ns):
-            name = prov.attrib.get('name')
-            unit = prov.find('jdipNS:UNIT', ns)
-            if name and unit is not None:
-                x = float(unit.attrib.get('x', '0'))
-                y = float(unit.attrib.get('y', '0'))
-                coords[name.upper()] = (x, y)
-        
+        _, coords = Map._get_cached_svg_data(svg_path)
         return coords
+
+    @staticmethod
+    def _get_cached_font(size: int) -> ImageFont.ImageFont:
+        """Get cached font or load and cache it."""
+        global _font_cache
+        
+        # For now, we'll cache one font size (30) which is most commonly used
+        # In the future, we could extend this to cache multiple sizes
+        if _font_cache is None:
+            try:
+                _font_cache = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+            except Exception:
+                _font_cache = ImageFont.load_default()
+        
+        # Return cached font if size matches, otherwise load new one
+        if size == 30:
+            return _font_cache
+        else:
+            try:
+                return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+            except Exception:
+                return ImageFont.load_default()
 
     @staticmethod
     def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path):
         """Color provinces using proper transparency with separate overlay layer."""
         try:
-            import xml.etree.ElementTree as ET
+            # Use cached SVG data instead of parsing again
+            tree, jdip_coords = Map._get_cached_svg_data(svg_path)
+            root = tree.getroot()
             
             # Create a separate transparent overlay layer
             overlay = Image.new('RGBA', bg_image.size, (0, 0, 0, 0))
             overlay_draw = ImageDraw.Draw(overlay)
-            
-            # Parse the SVG file
-            tree = ET.parse(svg_path)
-            root = tree.getroot()
             
             # Define namespace for SVG elements
             namespaces = {'svg': 'http://www.w3.org/2000/svg'}
@@ -291,17 +491,6 @@ class Map:
             all_paths = root.findall('.//svg:path[@id]', namespaces)
             if not all_paths:
                 all_paths = root.findall('.//path[@id]')
-            
-            # Get jdipNS coordinates for reference, but color actual SVG province paths
-            ns = {'jdipNS': 'svg.dtd'}
-            jdip_coords = {}
-            for prov in root.findall('.//jdipNS:PROVINCE', ns):
-                name = prov.attrib.get('name')
-                unit = prov.find('jdipNS:UNIT', ns)
-                if name and unit is not None:
-                    x = float(unit.attrib.get('x', '0'))
-                    y = float(unit.attrib.get('y', '0'))
-                    jdip_coords[name.upper()] = (x, y)
             
             # Find SVG paths for provinces (these are the actual province shapes)
             province_paths = []
@@ -654,8 +843,49 @@ class Map:
 
     @staticmethod
     def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None) -> bytes:
+        """Render board PNG with comprehensive caching for performance optimization."""
         if svg_path is None:
             raise ValueError("svg_path must not be None")
+        
+        # Generate cache key for this map configuration
+        cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info)
+        
+        # Try to get from cache first
+        cached_img = _map_cache.get(cache_key)
+        if cached_img is not None:
+            # Cache hit - return cached image
+            if isinstance(output_path, str) and output_path:
+                with open(output_path, 'wb') as f:
+                    f.write(cached_img)
+            return cached_img
+        
+        # Cache miss - generate new map
+        # Optimize for empty maps (no units) - skip expensive operations
+        if not units:
+            # For empty maps, just convert SVG to PNG and add phase info
+            png_bytes = cairosvg.svg2png(url=str(svg_path), output_width=1835, output_height=1360)  # type: ignore
+            if png_bytes is None:
+                raise ValueError("cairosvg.svg2png returned None")
+            bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
+            
+            # Add phase information if provided
+            if phase_info:
+                draw = ImageDraw.Draw(bg)
+                Map._draw_phase_info(draw, phase_info, bg.size)
+            
+            # Save or return PNG
+            if isinstance(output_path, str) and output_path:
+                bg.save(output_path, format="PNG")
+            output = BytesIO()
+            bg.save(output, format="PNG")
+            img_bytes = output.getvalue()
+            
+            # Cache the generated image
+            _map_cache.put(cache_key, img_bytes)
+            
+            return img_bytes
+        
+        # Full map generation for maps with units
         # 1. Convert SVG to PNG (background) with EXACT SVG size - NO SCALING
         # The SVG has viewBox="0 0 1835 1360" - use exact size to avoid coordinate scaling issues
         # This gives us 1835x1360 pixels - no scaling, coordinates match exactly
@@ -664,7 +894,7 @@ class Map:
             raise ValueError("cairosvg.svg2png returned None")
         bg = Image.open(BytesIO(png_bytes)).convert("RGBA")  # type: ignore
         draw = ImageDraw.Draw(bg)
-        # 2. Get province coordinates
+        # 2. Get province coordinates (cached)
         coords = Map.get_svg_province_coordinates(svg_path)
         # 3. Define power colors (fallbacks)
         power_colors = {
@@ -677,15 +907,10 @@ class Map:
             "TURKEY": "#b9a61c",
         }
         # 4. Draw units with province coloring
-        font = None
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)  # Font size for army/fleet markers
-        except Exception:
-            font = ImageFont.load_default()
+        font = Map._get_cached_font(30)  # Font size for army/fleet markers
         
         # First pass: Color provinces based on power control using proper transparency
-        if units:  # Only color provinces if there are units
-            Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path)
+        Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path)
         
         # Second pass: Draw units on top
         for power, unit_list in units.items():
@@ -721,7 +946,12 @@ class Map:
             bg.save(output_path, format="PNG")
         output = BytesIO()
         bg.save(output, format="PNG")
-        return output.getvalue()
+        img_bytes = output.getvalue()
+        
+        # Cache the generated image
+        _map_cache.put(cache_key, img_bytes)
+        
+        return img_bytes
 
     @staticmethod
     def _draw_phase_info(draw: ImageDraw.Draw, phase_info: dict, image_size: tuple) -> None:
@@ -769,7 +999,7 @@ class Map:
     @staticmethod
     def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None) -> bytes:
         """
-        Render map with comprehensive order visualization.
+        Render map with comprehensive order visualization and caching.
         
         Args:
             svg_path: Path to SVG map file
@@ -784,6 +1014,19 @@ class Map:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
         
+        # Generate cache key for this map configuration with orders
+        cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, orders=orders)
+        
+        # Try to get from cache first
+        cached_img = _map_cache.get(cache_key)
+        if cached_img is not None:
+            # Cache hit - return cached image
+            if isinstance(output_path, str) and output_path:
+                with open(output_path, 'wb') as f:
+                    f.write(cached_img)
+            return cached_img
+        
+        # Cache miss - generate new map
         # First render the base map
         base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
@@ -811,12 +1054,17 @@ class Map:
             bg.save(output_path, format="PNG")
         output = BytesIO()
         bg.save(output, format="PNG")
-        return output.getvalue()
+        img_bytes = output.getvalue()
+        
+        # Cache the generated image
+        _map_cache.put(cache_key, img_bytes)
+        
+        return img_bytes
 
     @staticmethod
     def render_board_png_with_moves(svg_path: str, units: dict, moves: dict, phase_info: dict = None, output_path: str = None) -> bytes:
         """
-        Render map with moves dictionary format visualization.
+        Render map with moves dictionary format visualization and caching.
         
         Args:
             svg_path: Path to SVG map file
@@ -831,6 +1079,19 @@ class Map:
         if svg_path is None:
             raise ValueError("svg_path must not be None")
         
+        # Generate cache key for this map configuration with moves
+        cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, moves=moves)
+        
+        # Try to get from cache first
+        cached_img = _map_cache.get(cache_key)
+        if cached_img is not None:
+            # Cache hit - return cached image
+            if isinstance(output_path, str) and output_path:
+                with open(output_path, 'wb') as f:
+                    f.write(cached_img)
+            return cached_img
+        
+        # Cache miss - generate new map
         # First render the base map
         base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
@@ -858,7 +1119,12 @@ class Map:
             bg.save(output_path, format="PNG")
         output = BytesIO()
         bg.save(output, format="PNG")
-        return output.getvalue()
+        img_bytes = output.getvalue()
+        
+        # Cache the generated image
+        _map_cache.put(cache_key, img_bytes)
+        
+        return img_bytes
 
     @staticmethod
     def _draw_move_visualization(draw, orders: list, coords: dict, power_colors: dict):
@@ -999,6 +1265,53 @@ class Map:
 
     def validate_location(self, location: str) -> bool:
         return location in self.provinces
+    
+    @staticmethod
+    def get_cache_stats() -> Dict[str, Any]:
+        """Get map cache statistics."""
+        return _map_cache.get_stats()
+    
+    @staticmethod
+    def clear_map_cache() -> None:
+        """Clear all cached maps."""
+        _map_cache.clear()
+    
+    @staticmethod
+    def preload_common_maps() -> None:
+        """Preload common map configurations for better performance."""
+        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        
+        # Preload empty map (most common)
+        empty_units = {}
+        empty_phase_info = {
+            "year": "1901",
+            "season": "Spring",
+            "phase": "Movement",
+            "phase_code": "S1901M"
+        }
+        
+        try:
+            Map.render_board_png(svg_path, empty_units, phase_info=empty_phase_info)
+            print("✅ Preloaded empty map")
+        except Exception as e:
+            print(f"⚠️  Could not preload empty map: {e}")
+        
+        # Preload starting positions map
+        starting_units = {
+            "AUSTRIA": ["A VIE", "A BUD", "F TRI"],
+            "ENGLAND": ["F LON", "F EDI", "A LVP"],
+            "FRANCE": ["A PAR", "A MAR", "F BRE"],
+            "GERMANY": ["A BER", "A MUN", "F KIE"],
+            "ITALY": ["A ROM", "A VEN", "F NAP"],
+            "RUSSIA": ["A MOS", "A WAR", "F STP", "A SEV"],
+            "TURKEY": ["A CON", "A SMY", "F ANK"]
+        }
+        
+        try:
+            Map.render_board_png(svg_path, starting_units, phase_info=empty_phase_info)
+            print("✅ Preloaded starting positions map")
+        except Exception as e:
+            print(f"⚠️  Could not preload starting positions map: {e}")
     
     @staticmethod
     def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict):

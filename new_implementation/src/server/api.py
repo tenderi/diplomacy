@@ -31,6 +31,7 @@ import logging
 import pytz
 from src.engine.order import OrderParser
 from src.engine.data_models import Unit
+from src.server.response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -239,6 +240,9 @@ def process_turn(game_id: str) -> Dict[str, str]:
     result = server.process_command(f"PROCESS_TURN {game_id}")
     if result.get("status") != "ok":
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    
+    # Invalidate cache for this game after processing turn
+    invalidate_cache(f"games/{game_id}")
     db: Session = SessionLocal()
     try:
         game = db.query(GameModel).filter_by(id=int(game_id)).first()
@@ -286,6 +290,7 @@ def process_turn(game_id: str) -> Dict[str, str]:
         db.close()
 
 @app.get("/games/{game_id}/state")
+@cached_response(ttl=30, key_params=["game_id"])  # Cache for 30 seconds
 def get_game_state(game_id: str) -> Dict[str, Any]:
     """
     Get the current state of the game, including map, units, powers, phase, and adjudication results for the latest turn.
@@ -425,6 +430,7 @@ def get_user_session(telegram_id: str) -> UserSession:
     return session
 
 @app.get("/games/{game_id}/players")
+@cached_response(ttl=60, key_params=["game_id"])  # Cache for 1 minute
 def get_players(game_id: str) -> List[Dict[str, Any]]:
     db: Session = SessionLocal()
     try:
@@ -436,6 +442,7 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
         db.close()
 
 @app.get("/games/{game_id}/orders")
+@cached_response(ttl=30, key_params=["game_id"])  # Cache for 30 seconds
 def get_orders(game_id: str) -> List[Dict[str, Any]]:
     db: Session = SessionLocal()
     try:
@@ -1292,6 +1299,109 @@ def cleanup_old_maps() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+@app.get("/admin/map_cache_stats")
+def get_map_cache_stats() -> Dict[str, Any]:
+    """Get map cache statistics for monitoring."""
+    try:
+        from src.engine.map import Map
+        stats = Map.get_cache_stats()
+        return {
+            "status": "ok",
+            "cache_stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/clear_map_cache")
+def clear_map_cache() -> Dict[str, Any]:
+    """Clear all cached maps."""
+    try:
+        from src.engine.map import Map
+        Map.clear_map_cache()
+        return {
+            "status": "ok",
+            "message": "Map cache cleared successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/preload_maps")
+def preload_common_maps() -> Dict[str, Any]:
+    """Preload common map configurations for better performance."""
+    try:
+        from src.engine.map import Map
+        Map.preload_common_maps()
+        return {
+            "status": "ok",
+            "message": "Common maps preloaded successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/connection_pool_status")
+def get_connection_pool_status() -> Dict[str, Any]:
+    """Get database connection pool status for monitoring."""
+    try:
+        from src.server.db_session import get_pool_status
+        status = get_pool_status()
+        return {
+            "status": "ok",
+            "pool_status": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/connection_pool_reset")
+def reset_connection_pool() -> Dict[str, Any]:
+    """Reset database connection pool (use with caution)."""
+    try:
+        from src.server.db_session import engine
+        engine.dispose()  # Close all connections and recreate pool
+        return {
+            "status": "ok",
+            "message": "Connection pool reset successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/response_cache_stats")
+def get_response_cache_stats() -> Dict[str, Any]:
+    """Get response cache statistics for monitoring."""
+    try:
+        stats = get_cache_stats()
+        return {
+            "status": "ok",
+            "cache_stats": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/clear_response_cache")
+def clear_response_cache_endpoint() -> Dict[str, Any]:
+    """Clear all cached API responses."""
+    try:
+        clear_response_cache()
+        return {
+            "status": "ok",
+            "message": "Response cache cleared successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/invalidate_cache/{game_id}")
+def invalidate_game_cache(game_id: str) -> Dict[str, Any]:
+    """Invalidate all cache entries for a specific game."""
+    try:
+        invalidate_cache(f"games/{game_id}")
+        return {
+            "status": "ok",
+            "message": f"Cache invalidated for game {game_id}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/games/{game_id}/generate_map")
 def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:

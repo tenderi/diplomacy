@@ -325,8 +325,7 @@ class BuildOrder:
     
     def validate(self, game_state: 'GameState') -> Tuple[bool, str]:
         """Validate build order"""
-        if self.unit.power != self.power:
-            return False, f"Unit {self.unit} does not belong to power {self.power}"
+        # Build orders don't have a unit initially, so skip unit validation
         
         # Check if build province is home supply center
         if self.build_province not in game_state.map_data.home_supply_centers.get(self.power, []):

@@ -1,5 +1,6 @@
 {
     "python.defaultInterpreterPath": "${workspaceFolder}/new_implementation/venv/bin/python",
     "python.envFile": "${workspaceFolder}/.env",
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "cursorpyright.analysis.typeCheckingMode": "basic"
 } 
