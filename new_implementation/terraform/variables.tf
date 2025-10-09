@@ -1,7 +1,7 @@
-variable "aws_region" {
-  description = "AWS region to deploy resources in"
+variable "allowed_ssh_cidr" {
+  description = "CIDR block allowed to SSH to the instance"
   type        = string
-  default     = "eu-west-1"
+  default     = "0.0.0.0/0" # Restrict this to your IP for security
 }
 
 variable "db_name" {
@@ -23,25 +23,31 @@ variable "db_password" {
   sensitive   = true
 }
 
-# variable "app_image" {
-#   description = "Docker image for Diplomacy app"
-#   type        = string
-#   default     = "DOCKERHUB_USERNAME/diplomacy:latest"
-# }
-
 variable "telegram_bot_token" {
   description = "Telegram bot token"
   type        = string
   sensitive   = true
 }
 
-variable "github_actions_role_arn" {
-  description = "ARN of the GitHub Actions OIDC role created by the bootstrap stack"
+variable "key_name" {
+  description = "AWS EC2 Key Pair name for SSH access"
   type        = string
-  default     = "arn:aws:iam::511302509360:role/github-actions-oidc"
+}
+
+variable "use_elastic_ip" {
+  description = "Whether to associate an Elastic IP (costs $3.65/month but provides static IP)"
+  type        = bool
+  default     = false
+}
+
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "eu-west-1"
 } 
 
-variable "bastion_key_name" {
-  description = "SSH key name for the bastion host EC2 instance"
+variable "instance_type" {
+  description = "Instance type"
   type        = string
-} 
+  default     = "t3.medium"
+}

@@ -44,7 +44,41 @@ This document outlines the design for supporting multiple game phases in the Dip
 4. Update game state output and API to reflect phase and pending actions.
 5. Add/expand tests for all phase transitions and edge cases.
 
-## 7. Testing
+## 7. Map Visualization Rules
+
+### 7.1 Supply Center Coloring
+- **Persistent Control**: Supply centers maintain their power's color based on control, not unit presence
+- **Unit Override**: When a unit occupies a supply center, the province shows the occupying unit's power color
+- **Empty Supply Centers**: Unoccupied supply centers show the controlling power's color
+- **Implementation**: Uses `GameState.get_supply_centers()` to determine control, passed to map rendering methods
+
+### 7.2 Dislodged Unit Visualization
+- **Visibility**: Dislodged units remain visible during resolution and retreat phases
+- **Positioning**: Dislodged units are drawn offset (+20, +20 pixels) from their original province center
+- **Styling**: 
+  - Red border instead of black to indicate dislodged status
+  - "D" marker in top-right corner of unit circle
+  - Same power color as original unit
+- **Province Coloring**: Original province remains colored by original controller until retreat phase completes
+
+### 7.3 Support Order Visualization
+- **Resolution Maps**: Support orders that contributed to successful attacks are visible
+- **Order Maps**: All support orders are shown with arrows/indicators
+- **Styling**: Support arrows use dashed lines to distinguish from movement arrows
+
+### 7.4 Phase-Aware Coloring
+- **Resolution Phase**: Provinces colored by original controller, dislodged units visible
+- **Retreat Phase**: Same as resolution phase
+- **Post-Retreat**: Province coloring updates to new controller after retreat resolution
+- **Implementation**: Current phase passed to coloring logic for appropriate behavior
+
+### 7.5 Visual Conflict Resolution
+- **Clear Attribution**: Support orders visible so players understand why units were dislodged
+- **Retreat Options**: Dislodged units clearly marked with retreat options available
+- **Province Control**: Clear visual indication of who controls each province
+- **Phase Context**: Map shows appropriate information for current game phase
+
+## 8. Testing
 - Unit and integration tests will cover:
   - Movement → Retreat → Adjustment → Movement cycle
   - Valid/invalid retreat and build/disband orders

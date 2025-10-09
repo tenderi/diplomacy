@@ -14,6 +14,77 @@ Handles order representation, parsing, validation, and execution for all Diploma
     - `parse(self, order_str: str) -> Order`
     - `validate(self, order: Order, game_state: dict) -> bool`
 
+## Order Format Grammar
+
+### Formal Grammar Definition
+
+```
+UNIT_TYPE := "A" | "F"
+PROVINCE := [A-Z]{3}  # Three uppercase letters
+UNIT := UNIT_TYPE PROVINCE
+
+ORDER_TYPES:
+1. HOLD:    UNIT "H"
+2. MOVE:    UNIT "-" PROVINCE
+3. SUPPORT: UNIT "S" UNIT ("-" PROVINCE)? ("H")?
+4. CONVOY:  UNIT "C" UNIT "-" PROVINCE
+5. RETREAT: UNIT "R" PROVINCE
+6. BUILD:   "BUILD" UNIT_TYPE PROVINCE ("/" COAST)?
+7. DESTROY: "DESTROY" UNIT
+
+ORDER_BOUNDARY:
+- Each order starts with either:
+  a) UNIT_TYPE followed by PROVINCE (for standard orders)
+  b) "BUILD" keyword (for build orders)
+  c) "DESTROY" keyword (for destroy orders)
+- Multiple orders separated by identifying next order start
+```
+
+### Order Boundary Detection
+
+**Key Principle**: Order boundaries are determined by identifying the start of each order, not by splitting on unit types.
+
+**Order Start Patterns**:
+1. **Standard Orders**: `(A|F) PROVINCE` - Unit type followed by 3-letter province
+2. **Build Orders**: `BUILD` keyword
+3. **Destroy Orders**: `DESTROY` keyword
+
+**Critical Rule**: Support orders contain multiple units but are **single orders**:
+- `A ROM S A VEN H` is ONE order (support hold)
+- `F NAP S A ROM - TUS` is ONE order (support move)
+- `A ROM S A VEN H A TUS - PIE` is TWO orders (support + move)
+
+**Regex Pattern for Order Boundaries**:
+```regex
+\b([AF])\s+([A-Z]{3})\b|(?:^|\s)(BUILD|DESTROY)\b
+```
+
+This pattern matches:
+- `A ROM`, `F NAP` (unit + province)
+- `BUILD`, `DESTROY` (special keywords)
+
+### Multi-Order String Format
+
+**Concatenation Rules**:
+- Multiple orders separated by spaces
+- No special delimiters between orders
+- Order boundaries detected by parsing logic
+
+**Examples**:
+```
+"A ROM - TUS A VEN H"                    # 2 orders: move + hold
+"A ROM S A VEN H A TUS - PIE"            # 2 orders: support + move  
+"F NAP S A ROM - TUS A VEN H"           # 2 orders: support + hold
+"BUILD A PAR DESTROY A ROM"              # 2 orders: build + destroy
+"A ROM - TUS F NAP - ROM A VEN S A ROM H" # 3 orders: move + move + support
+```
+
+**Parsing Algorithm**:
+1. Find all order start positions using regex
+2. Extract text between start positions
+3. Clean whitespace and validate format
+4. Return list of individual order strings
+
 ## Order Types
 
 ### 1. Movement Orders

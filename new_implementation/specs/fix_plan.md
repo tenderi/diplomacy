@@ -1,250 +1,269 @@
-# Fix Plan (Updated October 2025)
+# Unsolicited Movement Bug Investigation Plan (HIGHEST PRIORITY)
 
-## Current Status: ✅ **FULL DIPLOMACY IMPLEMENTATION COMPLETE** - **PRODUCTION READY**
+## Problem Statement
 
-The Diplomacy bot has complete Diplomacy rule implementation with all critical bugs resolved and core gameplay functionality working correctly. All 12 adjudication tests pass, and the automated demo game runs successfully with comprehensive order generation and proper map visualization.
+Between phases 08 (autumn_movement) and 09 (autumn_retreat), units are moving without proper orders:
 
-## Recently Completed Major Achievements ✅
+1. **A VEN -> TYR**: Italy army moving from Venice to Tyrolia (previously reported and supposedly fixed)
+2. **A LVP -> CLY**: England army moving from Liverpool to Clyde (should not move during retreat phase - not dislodged)
 
-### **Complete Diplomacy Adjudication System** (October 2025)
-- ✅ **Full Adjudication Implementation**: All 12 adjudication tests passing
-- ✅ **Support Cut Logic**: Mutual moves (position swaps) properly handled as standoffs
-- ✅ **Beleaguered Garrison**: Multiple equal attacks result in all units staying in place
-- ✅ **Self-Dislodgement Prevention**: Units cannot dislodge their own units
-- ✅ **Convoy Disruption Logic**: Convoyed moves fail if convoying fleets are dislodged
-- ✅ **Complex Conflict Resolution**: Proper tie-breaking and support strength application
+## Root Cause Hypotheses
 
-### **Complete Game Engine** (October 2025)
-- ✅ **Movement Phase**: Full Diplomacy rules with conflict resolution
-- ✅ **Retreat Phase**: Proper retreat validation and processing
-- ✅ **Build/Destroy Phase**: Supply center validation and unit management
-- ✅ **Order Validation**: Comprehensive validation against game state and phase
-- ✅ **Unit Position Validation**: Units can only be in valid provinces
+### Hypothesis 1: Retreat Order Generation for Non-Dislodged Units
 
-### **Data Model Migration** (October 2025)
-- ✅ **New Data Model**: Complete migration to robust data structures
-- ✅ **Backwards Compatibility Removal**: Clean codebase with no legacy code
-- ✅ **Game State Management**: Proper game state tracking and updates
-- ✅ **Order Processing**: All 7 order types fully implemented
+**Location**: `src/engine/strategic_ai.py` lines 82-103
 
-### **Core System Features** (October 2025)
-- ✅ **Telegram Bot**: All menu buttons working correctly
-- ✅ **Interactive Orders**: Step-by-step order creation with visual feedback
-- ✅ **Live Maps**: Real-time game state visualization
-- ✅ **Admin Functions**: Complete admin controls
-- ✅ **Demo Mode**: Fully functional automated demo game with comprehensive mechanics
-- ✅ **Order Visualization**: Complete order visualization system with movement arrows
+The `_generate_retreat_orders()` method may be generating retreat orders for units that are NOT dislodged:
 
-### **Comprehensive Demo Game** (October 2025)
-- ✅ **Dynamic Order Generation**: No hardcoded orders, uses actual game engine adjacency data
-- ✅ **All Diplomacy Mechanics**: Demonstrates movement, support, convoy, retreat, build/destroy
-- ✅ **Strategic Scenarios**: Different order patterns for different game phases
-- ✅ **Valid Order Generation**: All orders are legal and use correct adjacency rules
-- ✅ **Phase-Aware Logic**: Different order types for different game phases
+```python
+def _generate_retreat_orders(self, game_state: GameState, power_state: PowerState) -> List[Order]:
+    for unit in power_state.units:
+        if unit.is_dislodged and unit.can_retreat:  # Check may be insufficient
+            if unit.retreat_options:
+                retreat_province = unit.retreat_options[0]
+                order = RetreatOrder(...)
+```
 
-## Recently Completed Issues ✅ **RESOLVED**
+**Issue**: The condition `unit.is_dislodged and unit.can_retreat` may not be properly set, or units may have `retreat_options` populated even when not dislodged.
 
-### **Demo Game Map Visualization Issues** (COMPLETED)
-- **Problem**: Map generation had `'dict' object has no attribute 'split'` error
-- **Impact**: Order visualization maps failed to generate properly
-- **Root Cause**: Order visualization data format mismatch in map rendering
-- **Solution**: Updated `_draw_moves_visualization` method to handle both dictionary and legacy string formats
-- **Status**: ✅ **FIXED** - All map visualization working correctly
+### Hypothesis 2: Retreat Processing Executes All Movement Orders
 
-### **Demo Game Unit Tracking Issues** (COMPLETED)
-- **Problem**: Demo script tried to move units from wrong locations
-- **Impact**: Demo game generated invalid orders (e.g., trying to move `A SIL` when unit is in `A BUR`)
-- **Root Cause**: Demo script didn't track unit position changes correctly
-- **Solution**: Created dynamic order generation based on current unit positions and phase-aware logic
-- **Status**: ✅ **FIXED** - Demo game now generates valid orders based on actual unit positions
+**Location**: `src/engine/game.py` lines 614-649
 
-### **Movement Arrow Visualization Issues** (COMPLETED)
-- **Problem**: Movement arrows not visible in order visualization maps
-- **Impact**: Order visualization was incomplete and hard to understand
-- **Root Cause**: Hex color format not supported by PIL, missing @staticmethod decorator, "pending" status not handled
-- **Solution**: Added color conversion, fixed method decorator, handled all order statuses
-- **Status**: ✅ **FIXED** - Movement arrows now visible with proper color rendering
+The `_process_retreat_phase()` method may be processing movement orders instead of only retreat orders:
 
-### **Invalid Adjacency Orders** (COMPLETED)
-- **Problem**: Demo script generated invalid orders like `A PAR - BEL` (non-adjacent)
-- **Impact**: Demo game showed impossible moves that would be rejected by game engine
-- **Root Cause**: Demo script used hardcoded adjacency map instead of actual game engine data
-- **Solution**: Replaced hardcoded adjacency with real game engine adjacency validation
-- **Status**: ✅ **FIXED** - All generated orders now use correct adjacency rules
+```python
+def _process_retreat_phase(self) -> Dict[str, Any]:
+    for power_name, orders in self.game_state.orders.items():
+        for order in orders:
+            if isinstance(order, RetreatOrder):  # May not be filtering correctly
+                # Execute retreat
+                order.unit.province = order.retreat_province
+```
 
-## Remaining Test Suite Issues 🚨 **LOW PRIORITY**
+**Issue**: The type check `isinstance(order, RetreatOrder)` may not be catching all non-retreat orders, OR the orders dictionary still contains movement orders from previous phase.
 
-### **Additional Test Files** (Priority 3)
-- **Problem**: Some test files still use old data structures
-- **Files Affected**: `test_consecutive_phases.py`, `test_integration.py`, `test_interactive_orders.py`
-- **Impact**: These tests fail but don't affect core functionality
-- **Status**: Core tests pass, additional tests need updating
+### Hypothesis 3: Order Clearing Not Working Between Phases
 
-## Critical Data Model Validation Issues 🚨 **HIGH PRIORITY**
+**Location**: `demo_automated_game.py` lines 477-507
 
-### **Army Movement Validation** (Priority 1)
+Orders from the movement phase may not be cleared before generating retreat orders:
 
-#### **1.1 Army Movement to Oceanic Provinces** ✅ **FIXED**
-- **Problem**: Data model permits armies to move to oceanic provinces, which violates Diplomacy rules
-- **Impact**: Invalid moves allowed, breaks core Diplomacy mechanics
-- **Root Cause**: Missing validation in Unit/Order data models for army movement restrictions
-- **Solution**: 
-  - Added validation in MoveOrder.validate() method to check unit type vs province type
-  - Added Unit.can_move_to_province_type() helper method
-  - Armies can only move to land or coastal provinces (not sea provinces)
-  - Fleets can only move to sea or coastal provinces (not land provinces)
-  - Updated StrategicAI to use proper validation
-- **Files Modified**: 
-  - `src/engine/data_models.py` - Added MoveOrder and Unit validation
-  - `src/engine/strategic_ai.py` - Updated to use proper validation
-- **Test Results**: ✅ **VALIDATION WORKING** - Army to sea fails, Fleet to land fails, valid moves pass
-- **Status**: ✅ **RESOLVED**
+```python
+if game_state.current_phase == "Retreat":
+    retreats = self.generate_dynamic_orders(game_state)  # Are old orders still present?
+    for power, power_retreats in retreats.items():
+        self.submit_orders(power, power_retreats)
+```
 
-#### **1.2 Fleet Movement Validation** ✅ **FIXED**
-- **Problem**: Need to ensure fleets follow proper movement rules
-- **Impact**: Ensures complete movement validation system
-- **Solution**: Implemented as part of the same validation system
-- **Status**: ✅ **RESOLVED**
+**Issue**: If `game_state.orders` still contains movement orders when entering retreat phase, those might be processed again.
 
-## Demo Game Data Model Compliance Issues ✅ **COMPLETED** - **ALL ISSUES RESOLVED**
+### Hypothesis 4: Phase Transition Not Updating Unit Positions
 
-### **Data Structure Violations** ✅ **RESOLVED**
+**Location**: `src/engine/game.py` line 629
 
-#### **1.1 Legacy Data Structure Usage** ✅ **FIXED**
-- **Problem**: Demo game uses mixed data structures instead of pure data_spec.md models
-- **Impact**: Inconsistent data handling, potential bugs, maintenance issues
-- **Files Affected**: `demo_automated_game_backup.py`, `demo_automated_game.py`
-- **Solution**: Created `demo_automated_game_compliant.py` using proper data models exclusively
-- **Status**: ✅ **COMPLETED** - New compliant demo game uses only data_spec.md models
+Units may have their province updated during movement phase but the game state isn't properly saved:
 
-#### **1.2 Hardcoded Order Generation** ✅ **FIXED**
-- **Problem**: Demo game has hardcoded order scenarios instead of dynamic AI
-- **Impact**: Limited demonstration value, not showcasing real game mechanics
-- **Files Affected**: `demo_automated_game_backup.py` lines 365-810
-- **Solution**: Implemented `StrategicAI` class with proper Order data models
-- **Status**: ✅ **COMPLETED** - Dynamic AI generates orders using proper data models
+```python
+order.unit.province = order.retreat_province
+```
 
-#### **1.3 Map Visualization Data Format Issues** ✅ **FIXED**
-- **Problem**: Map generation uses legacy string formats instead of Order objects
-- **Impact**: Inconsistent visualization, potential rendering errors
-- **Files Affected**: `demo_automated_game_backup.py` lines 108-198
-- **Solution**: Updated to use `OrderVisualizationService` with proper Order objects
-- **Status**: ✅ **COMPLETED** - Map generation uses proper Order data models
+**Issue**: If units are being moved during retreat processing but their position was already changed during movement, this could create phantom movements.
 
-#### **1.4 Server Integration Data Mismatch** ✅ **FIXED**
-- **Problem**: Demo game doesn't properly use GameState data model
-- **Impact**: Inconsistent data flow, potential state corruption
-- **Files Affected**: `demo_automated_game_backup.py` lines 245-285
-- **Solution**: Verified server already uses proper GameState data models
-- **Status**: ✅ **COMPLETED** - Server integration uses proper data models
+### Hypothesis 5: Map Rendering Showing Wrong Phase Data
 
-### **Order Generation Algorithm Issues** ✅ **RESOLVED**
+**Location**: `demo_automated_game.py` lines 474, 507
 
-#### **1.5 Missing AI Strategy Implementation** ✅ **IMPLEMENTED**
-- **Problem**: No real AI strategy, just hardcoded scenarios
-- **Impact**: Demo doesn't demonstrate actual game intelligence
-- **Solution**: Created `StrategicAI` class using proper data models
-- **Status**: ✅ **COMPLETED** - Full AI strategy implementation with proper data models
+The maps labeled "autumn_movement" (08) and "autumn_retreat" (09) may be generated with incorrect game state:
 
-#### **1.6 Missing Order Validation Integration** ✅ **IMPLEMENTED**
-- **Problem**: Demo game doesn't validate orders against data_spec.md rules
-- **Impact**: May generate invalid orders, poor demonstration quality
-- **Solution**: Integrated with OrderParser validation and Order.validate() methods
-- **Status**: ✅ **COMPLETED** - All orders validated using proper validation methods
+```python
+# Line 474: After movement processing
+self.generate_and_save_map(game_state, "compliant_demo_08_autumn_movement.png")
 
-### **Data Model Compliance Requirements** ✅ **RESOLVED**
+# Line 507: After retreat processing
+self.generate_and_save_map(game_state, "compliant_demo_09_autumn_retreat.png")
+```
 
-#### **1.7 GameState Usage Compliance** ✅ **IMPLEMENTED**
-- **Required Changes**: Use proper GameState methods instead of manual iteration
-- **Solution**: Implemented proper GameState method usage throughout
-- **Status**: ✅ **COMPLETED** - All GameState access uses proper methods
+**Issue**: `game_state` may be stale or showing units in wrong positions due to timing.
 
-#### **1.8 PowerState Usage Compliance** ✅ **IMPLEMENTED**
-- **Required Changes**: Use proper PowerState methods instead of manual access
-- **Solution**: Implemented proper PowerState method usage
-- **Status**: ✅ **COMPLETED** - All PowerState access uses proper methods
+## Investigation Steps
 
-#### **1.9 Unit Data Model Compliance** ✅ **IMPLEMENTED**
-- **Required Changes**: Use proper Unit methods instead of manual conversion
-- **Solution**: Implemented proper Unit method usage
-- **Status**: ✅ **COMPLETED** - All Unit access uses proper methods
+### Step 1: Add Debug Logging to Retreat Order Generation
 
-#### **1.10 Order Data Model Compliance** ✅ **IMPLEMENTED**
-- **Required Changes**: Use proper Order classes instead of strings
-- **Solution**: Implemented proper Order class usage throughout
-- **Status**: ✅ **COMPLETED** - All orders use proper Order data models
+**File**: `src/engine/strategic_ai.py`
 
-### **Map Visualization Compliance** ✅ **RESOLVED**
+**Location**: Lines 82-103
 
-#### **1.11 Order Visualization Data Model Compliance** ✅ **IMPLEMENTED**
-- **Required Changes**: Use OrderVisualizationService with proper Order objects
-- **Solution**: Implemented proper OrderVisualizationService usage
-- **Status**: ✅ **COMPLETED** - Map visualization uses proper data models
+Add logging to track:
 
-#### **1.12 Map Snapshot Integration** ✅ **IMPLEMENTED**
-- **Required Changes**: Use MapSnapshot data model for map history
-- **Solution**: Implemented proper MapSnapshot usage
-- **Status**: ✅ **COMPLETED** - Map snapshots use proper data models
+- Which units are considered for retreat orders
+- Unit dislodged status: `unit.is_dislodged`
+- Unit retreat options: `unit.retreat_options`
+- Whether retreat orders are actually generated
+```python
+def _generate_retreat_orders(self, game_state: GameState, power_state: PowerState) -> List[Order]:
+    logger.info(f"=== Generating retreat orders for {power_state.power_name} ===")
+    orders = []
+    
+    for unit in power_state.units:
+        logger.info(f"  Unit {unit}: is_dislodged={unit.is_dislodged}, can_retreat={unit.can_retreat}, retreat_options={unit.retreat_options}")
+        if unit.is_dislodged and unit.can_retreat:
+            if unit.retreat_options:
+                retreat_province = unit.retreat_options[0]
+                logger.info(f"    -> Generating retreat order to {retreat_province}")
+                order = RetreatOrder(...)
+                orders.append(order)
+```
 
-### **Configuration and Customization** ✅ **RESOLVED**
 
-#### **1.13 Missing Configuration System** ✅ **IMPLEMENTED**
-- **Required Implementation**: StrategicConfig dataclass for AI behavior
-- **Solution**: Implemented StrategicConfig with proper configuration
-- **Status**: ✅ **COMPLETED** - Configuration system implemented
+### Step 2: Add Debug Logging to Retreat Processing
 
-#### **1.14 Missing Error Handling** ✅ **IMPLEMENTED**
-- **Required Implementation**: Proper exception handling for all operations
-- **Solution**: Implemented comprehensive error handling and logging
-- **Status**: ✅ **COMPLETED** - Error handling implemented throughout
+**File**: `src/engine/game.py`
 
-### **Testing and Validation** ✅ **RESOLVED**
+**Location**: Lines 614-649
 
-#### **1.15 Missing Test Coverage** ✅ **IMPLEMENTED**
-- **Required Implementation**: Validation that all functions use proper data models
-- **Solution**: Created comprehensive demo game with proper data model usage
-- **Status**: ✅ **COMPLETED** - Demo game validates proper data model usage
+Add logging to track:
 
-#### **1.16 Missing Data Model Validation** ✅ **IMPLEMENTED**
-- **Required Implementation**: Validation that all functions use proper data models
-- **Solution**: Implemented validation throughout the demo game
-- **Status**: ✅ **COMPLETED** - Data model validation implemented
+- What orders exist at start of retreat phase
+- Order types being processed
+- Which units are actually moving
+```python
+def _process_retreat_phase(self) -> Dict[str, Any]:
+    logger.info(f"=== Processing retreat phase ===")
+    logger.info(f"Orders at start of retreat phase:")
+    for power_name, orders in self.game_state.orders.items():
+        logger.info(f"  {power_name}: {[f'{type(o).__name__}: {o}' for o in orders]}")
+    
+    for power_name, orders in self.game_state.orders.items():
+        for order in orders:
+            logger.info(f"Processing order: {type(order).__name__}: {order}")
+            if isinstance(order, RetreatOrder):
+                logger.info(f"  -> Retreat order detected, executing...")
+            else:
+                logger.warning(f"  -> Non-retreat order in retreat phase: {type(order).__name__}")
+```
 
-## **SUMMARY OF DEMO GAME DATA MODEL COMPLIANCE WORK**
 
-### **Files Created/Modified:**
-- ✅ **Created**: `src/engine/strategic_ai.py` - StrategicAI class using proper data models
-- ✅ **Created**: `demo_automated_game_compliant.py` - Data model compliant demo game
-- ✅ **Verified**: Server integration already uses proper GameState data models
-- ✅ **Verified**: Order validation already uses proper Order.validate() methods
+### Step 3: Add Debug Logging to Demo Game Order Submission
 
-### **Key Achievements:**
-- ✅ **Complete Data Model Compliance**: All operations use data_spec.md models exclusively
-- ✅ **Dynamic AI Implementation**: StrategicAI generates orders using proper Order data models
-- ✅ **Proper Validation**: All orders validated using Order.validate() methods
-- ✅ **Map Visualization**: All map generation uses OrderVisualizationService with proper Order objects
-- ✅ **Game State Access**: All game state access uses proper GameState methods
-- ✅ **Error Handling**: Comprehensive error handling and logging throughout
-- ✅ **Testing**: Demo game successfully runs and generates all maps
+**File**: `demo_automated_game.py`
 
-### **Test Results:**
-- ✅ **Demo Game Execution**: Successfully runs complete automated game
-- ✅ **Map Generation**: All 9 maps generated successfully
-- ✅ **Order Processing**: Orders processed correctly with proper data models
-- ✅ **Phase Transitions**: All phase transitions work correctly
-- ✅ **Data Integrity**: All operations maintain data model integrity
+**Location**: Lines 477-507
 
-### **Minor Issues Identified:**
-- ⚠️ **Support Order Parsing**: Some support orders fail parsing (minor issue, doesn't affect core functionality)
-- ⚠️ **Order Validation Warnings**: Some validation warnings during order generation (expected behavior)
+Add logging before and after retreat order generation:
 
-### **Status**: ✅ **ALL DEMO GAME DATA MODEL COMPLIANCE ISSUES RESOLVED**
+```python
+if game_state.current_phase == "Retreat":
+    logger.info(f"=== Entering retreat phase ===")
+    logger.info(f"Current orders before generating retreats:")
+    for power_name, orders in game_state.orders.items():
+        logger.info(f"  {power_name}: {[str(o) for o in orders]}")
+    
+    retreats = self.generate_dynamic_orders(game_state)
+    logger.info(f"Generated retreat orders: {retreats}")
+```
 
-The demo game now uses proper data_spec.md models exclusively, demonstrates all Diplomacy mechanics with proper data integrity, and provides a comprehensive example of correct data model usage throughout the system.
+### Step 4: Verify Order Clearing Between Phases
+
+**File**: `src/engine/game.py`
+
+**Search for**: Phase transition methods and `clear_orders()` calls
+
+Check if orders are properly cleared when transitioning between phases. Look for:
+
+- Where `game_state.orders` is modified
+- Whether old orders persist across phase boundaries
+- If `set_orders()` replaces or appends
+
+### Step 5: Check Unit Position Updates
+
+**File**: `src/engine/game.py`
+
+**Location**: Movement resolution logic
+
+Verify that:
+
+- Units only move during movement phase, not retreat phase
+- Dislodged units have correct `is_dislodged` flag
+- Unit positions are saved correctly after movement
+- No duplicate movement logic exists
+
+### Step 6: Inspect Actual Game State at Phase Boundaries
+
+**File**: `demo_automated_game.py`
+
+**Location**: Before/after each `process_turn()` call
+
+Add comprehensive state dumps:
+
+```python
+# Before processing
+logger.info(f"=== State before processing turn ===")
+logger.info(f"Phase: {game_state.current_phase}")
+for power_name, power_state in game_state.powers.items():
+    logger.info(f"{power_name} units: {[f'{u.unit_type} {u.province} (dislodged={u.is_dislodged})' for u in power_state.units]}")
+
+self.process_turn()
+
+# After processing
+game_state = self.get_game_state()
+logger.info(f"=== State after processing turn ===")
+logger.info(f"Phase: {game_state.current_phase}")
+for power_name, power_state in game_state.powers.items():
+    logger.info(f"{power_name} units: {[f'{u.unit_type} {u.province} (dislodged={u.is_dislodged})' for u in power_state.units]}")
+```
+
+### Step 7: Check A VEN -> TYR Specifically
+
+**Investigation**: Why was this supposedly fixed but still happening?
+
+Review:
+
+- Previous fix for Italy A VEN movement issue
+- Order splitting logic in `src/server/server.py`
+- Order parsing in `src/engine/order.py`
+- Whether Italy has ANY orders for A VEN in autumn movement
+
+### Step 8: Run Demo with Debug Logging
+
+**Command**: `cd /home/tenderi/diplomacy/new_implementation && python3 demo_automated_game.py > debug_output.txt 2>&1`
+
+Capture all debug output and analyze:
+
+- What orders are generated for each phase
+- Unit positions at each phase boundary
+- Whether non-dislodged units get retreat orders
+- Order type distribution in each phase
+
+## Expected Findings
+
+Based on the symptoms, the most likely issues are:
+
+1. **Retreat options populated for non-dislodged units**: Units that didn't move or weren't attacked still have `retreat_options` populated, causing AI to generate retreat orders for them
+
+2. **Order clearing failure**: Movement orders persist into retreat phase and get processed again
+
+3. **Incorrect dislodged status**: Units are marked as `is_dislodged=True` even when they shouldn't be
+
+## Files to Modify
+
+1. `src/engine/strategic_ai.py` - Add debug logging to retreat order generation
+2. `src/engine/game.py` - Add debug logging to retreat processing and verify order clearing
+3. `demo_automated_game.py` - Add comprehensive state logging at phase boundaries
+4. `src/engine/data_models.py` - Possibly add validation to prevent retreat orders for non-dislodged units
+
+## Success Criteria
+
+- [ ] Debug logging shows exactly which units are moving and why
+- [ ] Root cause identified (retreat options, order clearing, or dislodged status)
+- [ ] Fix prevents non-dislodged units from moving during retreat phase
+- [ ] A VEN stays in VEN (or moves only if ordered during movement phase)
+- [ ] A LVP stays in LVP during retreat phase
+- [ ] All unit movements can be traced to explicit orders
 
 ## Future Enhancement Opportunities 📋
 
-### **Phase 1: Performance and Scalability** (Priority 1)
+### **Phase 1: Performance and Scalability** 
 
 #### **1.1 Optimize Map Generation**
 - [ ] **Implement Map Caching**: Cache generated maps to avoid regeneration
@@ -264,7 +283,7 @@ The demo game now uses proper data_spec.md models exclusively, demonstrates all 
 - [ ] **Add Rate Limiting**: Implement rate limiting to prevent abuse
 - [ ] **Optimize Serialization**: Improve JSON serialization performance
 
-### **Phase 2: User Experience Enhancements** (Priority 2)
+### **Phase 2: User Experience Enhancements**
 
 #### **2.1 Telegram Bot Improvements**
 - [ ] **Add Order Templates**: Provide common order templates for new players
@@ -284,7 +303,7 @@ The demo game now uses proper data_spec.md models exclusively, demonstrates all 
 - [ ] **Add Unit Animations**: Animate unit movements on maps
 - [ ] **Implement Map Layers**: Add toggleable map layers (units, orders, etc.)
 
-### **Phase 3: Advanced Features** (Priority 3)
+### **Phase 3: Advanced Features** 
 
 #### **3.1 Game Variants**
 - [ ] **Implement Map Variants**: Support for different map variants
@@ -304,7 +323,7 @@ The demo game now uses proper data_spec.md models exclusively, demonstrates all 
 - [ ] **Add Performance Metrics**: Track bot performance metrics
 - [ ] **Implement Reporting**: Generate game reports and statistics
 
-### **Phase 4: Infrastructure and DevOps** (Priority 4)
+### **Phase 4: Infrastructure and DevOps** 
 
 #### **4.1 Monitoring and Logging**
 - [ ] **Implement Comprehensive Logging**: Add structured logging throughout the system
