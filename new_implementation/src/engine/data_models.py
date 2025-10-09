@@ -43,12 +43,15 @@ class Unit:
     unit_type: str  # "A" (Army) or "F" (Fleet)
     province: str
     power: str
+    coast: Optional[str] = None  # For multi-coast provinces: "NC", "SC", "EC", etc.
     is_dislodged: bool = False
     dislodged_by: Optional[str] = None  # province of attacking unit
     can_retreat: bool = True
     retreat_options: List[str] = field(default_factory=list)
     
     def __str__(self) -> str:
+        if self.coast:
+            return f"{self.unit_type} {self.province}/{self.coast}"
         return f"{self.unit_type} {self.province}"
     
     def to_dict(self) -> Dict[str, Any]: 
@@ -56,6 +59,7 @@ class Unit:
             "unit_type": self.unit_type,
             "province": self.province,
             "power": self.power,
+            "coast": self.coast,
             "is_dislodged": self.is_dislodged,
             "dislodged_by": self.dislodged_by,
             "can_retreat": self.can_retreat,
@@ -78,6 +82,7 @@ class Unit:
             unit_type=data["unit_type"],
             province=data["province"],
             power=data["power"],
+            coast=data.get("coast"),
             is_dislodged=data.get("is_dislodged", False),
             dislodged_by=data.get("dislodged_by"),
             can_retreat=data.get("can_retreat", True),
@@ -106,6 +111,34 @@ class Province:
             return True
         # Check coastal adjacency for fleets
         return other_province in self.coastal_provinces
+    
+    def is_multi_coast_province(self) -> bool:
+        """Check if this is a multi-coast province (Spain, Bulgaria, St Petersburg)"""
+        return self.name in ["SPA", "BUL", "STP"]
+    
+    def get_coast_specific_adjacencies(self, coast: str) -> List[str]:
+        """Get adjacencies for a specific coast of a multi-coast province"""
+        if not self.is_multi_coast_province():
+            return self.adjacent_provinces
+        
+        # Multi-coast province adjacency rules
+        if self.name == "SPA":
+            if coast == "NC":  # North Coast
+                return ["POR", "GAS", "MAO"]  # Adjacent to Portugal, Gascony, Mid-Atlantic
+            elif coast == "SC":  # South Coast
+                return ["MAR", "WES"]  # Adjacent to Marseilles, Western Mediterranean
+        elif self.name == "BUL":
+            if coast == "EC":  # East Coast
+                return ["RUM", "BLA"]  # Adjacent to Rumania, Black Sea
+            elif coast == "SC":  # South Coast
+                return ["GRE", "AEG"]  # Adjacent to Greece, Aegean Sea
+        elif self.name == "STP":
+            if coast == "NC":  # North Coast
+                return ["BAR", "NWG"]  # Adjacent to Barents Sea, Norwegian Sea
+            elif coast == "SC":  # South Coast
+                return ["FIN", "BOT", "LVN"]  # Adjacent to Finland, Gulf of Bothnia, Livonia
+        
+        return self.adjacent_provinces
 
 
 @dataclass
@@ -171,11 +204,18 @@ class MoveOrder:
         # Check adjacency (skip if no adjacencies defined)
         # Note: Non-adjacent moves are allowed as they might be convoyed
         # Adjacency will be validated during order processing when convoy status is determined
-        if (current_province.adjacent_provinces and 
-            not current_province.is_adjacent_to(self.target_province)):
-            # For non-adjacent moves, we allow them to pass validation here
-            # The actual convoy validation happens during order processing
-            pass
+        if current_province.adjacent_provinces:
+            # For multi-coast provinces, check coast-specific adjacency
+            if current_province.is_multi_coast_province() and self.unit.coast:
+                coast_adjacencies = current_province.get_coast_specific_adjacencies(self.unit.coast)
+                if self.target_province not in coast_adjacencies:
+                    # For non-adjacent moves, we allow them to pass validation here
+                    # The actual convoy validation happens during order processing
+                    pass
+            elif not current_province.is_adjacent_to(self.target_province):
+                # For non-adjacent moves, we allow them to pass validation here
+                # The actual convoy validation happens during order processing
+                pass
         
         return True, ""
     
@@ -228,7 +268,7 @@ class SupportOrder:
         if self.supported_action == "move":
             return f"{self.unit} S {self.supported_unit} - {self.supported_target}"
         else:
-            return f"{self.unit} S {self.supported_unit}"
+            return f"{self.unit} S {self.supported_unit} H"
     
     def validate(self, game_state: 'GameState') -> Tuple[bool, str]:
         """Validate support order"""
@@ -273,7 +313,48 @@ class ConvoyOrder:
                   for u in game_state.get_all_units()):
             return False, f"Convoyed unit {self.convoyed_unit} does not exist"
         
+        # Convoy route validation
+        convoy_validation_error = self._validate_convoy_route(game_state)
+        if convoy_validation_error:
+            return False, convoy_validation_error
+        
         return True, ""
+    
+    def _validate_convoy_route(self, game_state: 'GameState') -> Optional[str]:
+        """Validate convoy route according to Diplomacy rules"""
+        
+        # Get province data
+        fleet_province = game_state.map_data.provinces.get(self.unit.province)
+        convoyed_province = game_state.map_data.provinces.get(self.convoyed_unit.province)
+        target_province = game_state.map_data.provinces.get(self.convoyed_target)
+        
+        if not fleet_province or not convoyed_province or not target_province:
+            return "Invalid province in convoy route"
+        
+        # Rule 1: Fleet must be in a sea province (not coastal)
+        if fleet_province.province_type != "sea":
+            return f"Fleet {self.unit} must be in a sea province to convoy, not {fleet_province.province_type} province {self.unit.province}"
+        
+        # Rule 2: Convoyed army must be in a coastal province (embark point)
+        if convoyed_province.province_type != "coastal":
+            return f"Convoyed army {self.convoyed_unit} must be in a coastal province to embark, not {convoyed_province.province_type} province {self.convoyed_unit.province}"
+        
+        # Rule 3: Convoy target must be a coastal province (landing point)
+        if target_province.province_type != "coastal":
+            return f"Cannot convoy to {target_province.province_type} province {self.convoyed_target}, must be coastal"
+        
+        # Rule 4: Fleet must be adjacent to both embark and landing points
+        if not convoyed_province.is_adjacent_to(self.unit.province):
+            return f"Fleet {self.unit} must be adjacent to embark point {self.convoyed_unit.province}"
+        
+        if not target_province.is_adjacent_to(self.unit.province):
+            return f"Fleet {self.unit} must be adjacent to landing point {self.convoyed_target}"
+        
+        # Rule 5: Convoyed unit must be an army
+        if self.convoyed_unit.unit_type != "A":
+            return f"Cannot convoy {self.convoyed_unit.unit_type} units, only armies"
+        
+        return None
 
 
 @dataclass
@@ -593,7 +674,45 @@ class GameState:
                 if not self.is_valid_phase_for_order_type(order.order_type):
                     errors.append(f"{power_name} order {order}: type {order.order_type.value} not valid for phase {self.current_phase}")
         
+        # Cross-order validation: Check convoy restrictions
+        convoy_validation_errors = self._validate_convoy_restrictions()
+        errors.extend(convoy_validation_errors)
+        
         return len(errors) == 0, errors
+    
+    def _validate_convoy_restrictions(self) -> List[str]:
+        """Validate that convoying fleets cannot perform other orders"""
+        errors = []
+        
+        # Track convoy orders per fleet
+        convoy_orders_per_fleet = {}
+        
+        for power_name, orders in self.orders.items():
+            for order in orders:
+                if isinstance(order, ConvoyOrder):
+                    fleet_key = (power_name, order.unit.province, order.unit.unit_type)
+                    if fleet_key not in convoy_orders_per_fleet:
+                        convoy_orders_per_fleet[fleet_key] = []
+                    convoy_orders_per_fleet[fleet_key].append(order)
+        
+        # Check for multiple convoy orders per fleet
+        for fleet_key, convoy_orders in convoy_orders_per_fleet.items():
+            if len(convoy_orders) > 1:
+                power_name, province, unit_type = fleet_key
+                errors.append(f"{power_name} fleet {unit_type} {province}: Fleet cannot convoy multiple armies")
+        
+        # Check if any convoying fleet has other orders
+        for power_name, orders in self.orders.items():
+            for order in orders:
+                if isinstance(order, ConvoyOrder):
+                    continue  # Skip convoy orders themselves
+                
+                # Check if this order is for a convoying fleet
+                fleet_key = (power_name, order.unit.province, order.unit.unit_type)
+                if fleet_key in convoy_orders_per_fleet:
+                    errors.append(f"{power_name} order {order}: Convoying fleet {order.unit} cannot perform other orders")
+        
+        return errors
     
     def validate_unit_positions(self) -> Tuple[bool, List[str]]:
         """Validate unit positions and adjacencies"""

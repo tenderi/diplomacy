@@ -155,14 +155,16 @@ class Game:
                 if not self.game_state.is_valid_phase_for_order_type(order.order_type):
                     validation_errors.append(f"Order {order}: type {order.order_type.value} not valid for phase {self.game_state.current_phase}")
         
+        # Replace existing orders with new orders temporarily for convoy validation
+        self.game_state.orders[power_name] = new_orders
+        
+        # Cross-order validation: Check convoy restrictions
+        convoy_validation_errors = self.game_state._validate_convoy_restrictions()
+        validation_errors.extend(convoy_validation_errors)
+        
         # If there are validation errors, raise an exception
         if validation_errors:
             raise ValueError(f"Invalid orders for {power_name}: {'; '.join(validation_errors)}")
-        
-        # Append new orders to existing orders instead of replacing them
-        if power_name not in self.game_state.orders:
-            self.game_state.orders[power_name] = []
-        self.game_state.orders[power_name].extend(new_orders)
 
     def process_turn(self) -> Dict[str, Any]:
         """Process a complete turn and return results."""
@@ -437,29 +439,55 @@ class Game:
                     if winner_unit:
                         old_province = winner_unit.province
                         
-                        # Execute winning move
-                        winner_unit.province = target_province
-                        results["moves"].append({
-                            "unit": f"{winner_unit.unit_type} {old_province}",
-                            "from": old_province,
-                            "to": target_province,
-                            "strength": max_strength,
-                            "success": True
-                        })
+                        # Check for self-dislodgement
+                        self_dislodgement = False
+                        for power_name, power in self.game_state.powers.items():
+                            for target_unit in power.units:
+                                if (target_unit.province == target_province and 
+                                    target_unit != winner_unit and 
+                                    target_unit.power == winner_unit.power):
+                                    # Self-dislodgement prohibited
+                                    self_dislodgement = True
+                                    break
+                            if self_dislodgement:
+                                break
                         
-                        # Dislodge other units
-                        for unit, strength, order in remaining_moves:
-                            if unit != winner_unit and unit.province == target_province:
-                                dislodged_from = unit.province
-                                unit.is_dislodged = True
-                                unit.province = f"DISLODGED_{dislodged_from}"
-                                unit.retreat_options = self._calculate_retreat_options(unit)
-                                
-                                results["dislodgements"].append({
-                                    "unit": f"{unit.unit_type} {dislodged_from}",
-                                    "dislodged_by": f"{winner_unit.unit_type} {old_province}",
-                                    "retreat_options": unit.retreat_options
-                                })
+                        if self_dislodgement:
+                            # Self-dislodgement prohibited - move fails
+                            results["moves"].append({
+                                "unit": f"{winner_unit.unit_type} {old_province}",
+                                "from": old_province,
+                                "to": target_province,
+                                "strength": max_strength,
+                                "success": False,
+                                "failure_reason": "self_dislodgement_prohibited"
+                            })
+                        else:
+                            # Execute winning move
+                            winner_unit.province = target_province
+                            results["moves"].append({
+                                "unit": f"{winner_unit.unit_type} {old_province}",
+                                "from": old_province,
+                                "to": target_province,
+                                "strength": max_strength,
+                                "success": True
+                            })
+                            
+                            # Dislodge other units that are currently in the target province
+                            for power_name, power in self.game_state.powers.items():
+                                for target_unit in power.units:
+                                    if target_unit.province == target_province and target_unit != winner_unit:
+                                        # This unit is being dislodged
+                                        dislodged_from = target_unit.province
+                                        target_unit.is_dislodged = True
+                                        target_unit.province = f"DISLODGED_{dislodged_from}"
+                                        target_unit.retreat_options = self._calculate_retreat_options(target_unit)
+                                        
+                                        results["dislodgements"].append({
+                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
+                                            "dislodged_by": f"{winner_unit.unit_type} {old_province}",
+                                            "retreat_options": target_unit.retreat_options
+                                        })
                 else:
                     # Multiple winners - standoff, no move
                     for unit, strength, order in remaining_moves:
@@ -548,25 +576,9 @@ class Game:
 
     def _is_valid_convoy_path(self, convoy_order: ConvoyOrder, move_order: MoveOrder) -> bool:
         """Check if a convoy path is valid."""
-        convoying_fleet = convoy_order.unit
-        convoyed_unit = convoy_order.convoyed_unit
-        target = convoy_order.convoyed_target
-        
-        # Get province data
-        fleet_province = self.game_state.map_data.provinces.get(convoying_fleet.province)
-        convoyed_province = self.game_state.map_data.provinces.get(convoyed_unit.province)
-        target_province = self.game_state.map_data.provinces.get(target)
-        
-        if not fleet_province or not convoyed_province or not target_province:
-            return False
-        
-        # Fleet must be adjacent to both convoyed unit and target
-        if not convoyed_province.is_adjacent_to(convoying_fleet.province):
-            return False
-        if not target_province.is_adjacent_to(convoying_fleet.province):
-            return False
-        
-        return True
+        # Use the comprehensive convoy route validation from ConvoyOrder
+        convoy_validation_error = convoy_order._validate_convoy_route(self.game_state)
+        return convoy_validation_error is None
 
     def _calculate_retreat_options(self, unit: Unit) -> List[str]:
         """Calculate valid retreat options for a dislodged unit."""
@@ -655,8 +667,34 @@ class Game:
         
         return True
 
+    def _update_supply_center_ownership(self) -> None:
+        """Update supply center ownership based on unit occupation at end of Fall."""
+        # Clear all current supply center ownership
+        for power_state in self.game_state.powers.values():
+            power_state.controlled_supply_centers.clear()
+        
+        # Determine ownership based on unit occupation
+        for province_name, province in self.game_state.map_data.provinces.items():
+            if province.is_supply_center:
+                # Find unit occupying this supply center
+                occupying_unit = self.game_state.get_unit_at_province(province_name)
+                
+                if occupying_unit:
+                    # Unit occupies the supply center - power controls it
+                    power_state = self.game_state.powers[occupying_unit.power]
+                    power_state.controlled_supply_centers.append(province_name)
+                else:
+                    # No unit occupying - check if it was previously controlled
+                    # For now, we'll leave it unowned (in a full implementation,
+                    # we'd track the last occupier)
+                    pass
+
     def _process_builds_phase(self) -> Dict[str, Any]:
-        """Process builds phase."""
+        """Process builds phase with unit adjustments."""
+        # First, update supply center ownership based on current unit positions
+        if self.season == "Autumn":
+            self._update_supply_center_ownership()
+        
         results = {
             "builds": [],
             "destroys": []
@@ -713,15 +751,25 @@ class Game:
             if retreats_needed:
                 self.phase = "Retreat"
             else:
-                self.phase = "Builds"
+                # After Spring Movement -> Autumn Movement
+                # After Autumn Movement -> Builds
+                if self.season == "Spring":
+                    self.phase = "Movement"  # Go to Autumn Movement
+                    self.season = "Autumn"
+                else:  # Autumn
+                    self.phase = "Builds"
         elif self.phase == "Retreat":
-            self.phase = "Builds"
+            # After Spring Retreat -> Autumn Movement
+            # After Autumn Retreat -> Builds
+            if self.season == "Spring":
+                self.phase = "Movement"  # Go to Autumn Movement
+                self.season = "Autumn"
+            else:  # Autumn
+                self.phase = "Builds"
         elif self.phase == "Builds":
             self.phase = "Movement"
             self.turn += 1
-            if self.season == "Spring":
-                self.season = "Autumn"
-            else:
+            if self.season == "Autumn":
                 self.season = "Spring"
                 self.year += 1
         

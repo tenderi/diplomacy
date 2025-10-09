@@ -108,12 +108,21 @@ class Server:
                     self.logger.error(f"Power {power_name} not found in game {game_id}")
                     return ServerError.create_error_response(ErrorCode.POWER_NOT_FOUND, f"Power {power_name} not found in game {game_id}", {"game_id": game_id, "power_name": power_name})
                 
-                # Set the new order (this will add to existing orders)
-                game.set_orders(power_name, [order_str])
+                # Set the new orders (split multiple orders)
+                order_str = " ".join(tokens[3:])
+                
+                # Parse the order string into individual orders using the new parser
+                from src.engine.order_parser_utils import split_orders
+                orders = split_orders(order_str)
+                
+                self.logger.info(f"Raw order string: {order_str}")
+                self.logger.info(f"Parsed {len(orders)} orders: {orders}")
+                
+                game.set_orders(power_name, orders)
+                
+                self.logger.debug(f"Stored orders for {power_name}: {game.game_state.orders[power_name]}")
                 
                 self.logger.info(f"Set orders for {power_name} in game {game_id}: {order_str}")
-                # Extra logging for order parsing/validation
-                self.logger.debug(f"Orders for {power_name} in game {game_id}: {game.game_state.orders.get(power_name)}")
                 return {"status": "ok"}
             elif cmd == "PROCESS_TURN":
                 if len(tokens) < 2:

@@ -277,15 +277,13 @@ class Map:
                     self.provinces[adj].add_adjacent(province)
 
     def _init_hardcoded_standard_map(self) -> None:
-        """Fallback hardcoded standard map data."""
-        # List of water provinces (sea/ocean spaces)
-        water_provinces = {
-            "ADR", "AEG", "BAL", "BAR", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
-        }
-        # List of coastal provinces (land provinces fleets can enter)
-        coastal_provinces = {
-            "BRE", "BUL", "CLY", "CON", "DEN", "EDI", "FIN", "GAS", "GRE", "HOL", "KIE", "LON", "LVP", "LVN", "MAR", "NAP", "NWY", "PAR", "PIC", "PIE", "POR", "PRU", "ROM", "RUH", "SMY", "SPA", "STP", "SWE", "TRI", "TUN", "VEN", "YOR", "ALB", "APU", "BEL", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
-        }
+        """Fallback hardcoded standard map data using province mapping."""
+        from .province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
+        
+        # Get province types from the mapping system
+        water_provinces = set(get_sea_provinces())
+        coastal_provinces = set(get_coastal_provinces())
+        land_provinces = set(get_land_provinces())
         province_data = [
             # Power home centers
             ("BUD", True, ["GAL", "RUM", "SER", "TRI", "VIE"]),
@@ -374,10 +372,13 @@ class Map:
         # Create provinces
         for name, is_sc, adjacents in province_data:
             if name in water_provinces:
-                type_ = 'water'
+                type_ = 'sea'  # Sea provinces should be 'sea', not 'water'
             elif name in coastal_provinces:
-                type_ = 'coast'
+                type_ = 'coastal'
+            elif name in land_provinces:
+                type_ = 'land'
             else:
+                # Default to land if not found in mapping
                 type_ = 'land'
             self.provinces[name] = Province(name, is_supply_center=is_sc, type_=type_)
             if is_sc:
@@ -473,7 +474,7 @@ class Map:
                 return ImageFont.load_default()
 
     @staticmethod
-    def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path):
+    def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path, supply_center_control=None, current_phase=None):
         """Color provinces using proper transparency with separate overlay layer."""
         try:
             # Use cached SVG data instead of parsing again
@@ -501,13 +502,23 @@ class Map:
             
             # Create a map of province names to power colors
             province_power_map = {}
+            
+            # First, add supply center control colors (if provided)
+            if supply_center_control:
+                for province, power in supply_center_control.items():
+                    color = power_colors.get(power.upper(), "black")
+                    province_power_map[province.upper()] = color
+            
+            # Then, add unit location colors (overrides supply center colors for occupied provinces)
             for power, unit_list in units.items():
                 color = power_colors.get(power.upper(), "black")
                 for unit in unit_list:
                     parts = unit.split()
                     if len(parts) == 2:
                         prov = parts[1].upper()
-                        province_power_map[prov] = color
+                        # Only override if this is not a dislodged unit
+                        if not prov.startswith("DISLODGED_"):
+                            province_power_map[prov] = color
             
             # Color each province based on power control using SVG paths
             for path_elem in province_paths:
@@ -842,7 +853,7 @@ class Map:
             return (0, 0, 0)
 
     @staticmethod
-    def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None) -> bytes:
+    def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None, supply_center_control: dict = None) -> bytes:
         """Render board PNG with comprehensive caching for performance optimization."""
         if svg_path is None:
             raise ValueError("svg_path must not be None")
@@ -910,7 +921,7 @@ class Map:
         font = Map._get_cached_font(30)  # Font size for army/fleet markers
         
         # First pass: Color provinces based on power control using proper transparency
-        Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path)
+        Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path, supply_center_control, phase_info.get('phase') if phase_info else None)
         
         # Second pass: Draw units on top
         for power, unit_list in units.items():
@@ -921,15 +932,36 @@ class Map:
                     continue
                 unit_type, prov = parts
                 prov = prov.upper()
-                if prov not in coords:
-                    continue
+                
+                # Handle dislodged units
+                is_dislodged = prov.startswith("DISLODGED_")
+                if is_dislodged:
+                    # Extract original province name for coordinates
+                    original_prov = prov.replace("DISLODGED_", "")
+                    if original_prov not in coords:
+                        continue
+                    x, y = coords[original_prov]
+                    # Offset dislodged unit position
+                    x += 20
+                    y += 20
+                else:
+                    if prov not in coords:
+                        continue
+                    x, y = coords[prov]
+                
                 # NO SCALING - use SVG coordinates directly
-                x, y = coords[prov]
                 # All coordinates are now in the same coordinate system (no scaling needed)
                 
-                # Draw unit circle
+                # Draw unit circle with different styling for dislodged units
                 r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)
+                if is_dislodged:
+                    # Semi-transparent circle with dashed border for dislodged units
+                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="red", width=2)
+                    # Add "D" marker for dislodged
+                    dislodged_font = Map._get_cached_font(20)
+                    draw.text((x + r - 5, y - r + 5), "D", fill="red", font=dislodged_font)
+                else:
+                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)
                 
                 # Draw unit type letter
                 text = unit_type
@@ -997,7 +1029,7 @@ class Map:
         draw.text((x, y), phase_text, fill="white", font=phase_font)
         
     @staticmethod
-    def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None) -> bytes:
+    def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
         """
         Render map with comprehensive order visualization and caching.
         
@@ -1028,7 +1060,7 @@ class Map:
         
         # Cache miss - generate new map
         # First render the base map
-        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(bg)
         
@@ -1062,7 +1094,7 @@ class Map:
         return img_bytes
 
     @staticmethod
-    def render_board_png_with_moves(svg_path: str, units: dict, moves: dict, phase_info: dict = None, output_path: str = None) -> bytes:
+    def render_board_png_with_moves(svg_path: str, units: dict, moves: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
         """
         Render map with moves dictionary format visualization and caching.
         
@@ -1093,7 +1125,7 @@ class Map:
         
         # Cache miss - generate new map
         # First render the base map
-        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(bg)
         

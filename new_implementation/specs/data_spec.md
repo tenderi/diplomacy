@@ -232,6 +232,9 @@ class OrderResult:
     order: Order
     success: bool
     failure_reason: Optional[str] = None
+    original_order_string: str  # Store original string for debugging
+    parsed_correctly: bool = True
+    parsing_error: Optional[str] = None
     dislodged_units: List[Unit] = field(default_factory=list)
     retreat_required: bool = False
 
@@ -320,8 +323,25 @@ CREATE TABLE orders (
     destroy_unit_province VARCHAR(20),
     status VARCHAR(20) DEFAULT 'pending',
     failure_reason TEXT,
+    original_order_string TEXT,  -- Store original string for debugging
+    parsed_correctly BOOLEAN DEFAULT true,
+    parsing_error TEXT,
     phase VARCHAR(20) NOT NULL,
     turn_number INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Order history table for complete audit trail
+CREATE TABLE order_history (
+    id SERIAL PRIMARY KEY,
+    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
+    turn_number INTEGER NOT NULL,
+    phase VARCHAR(20) NOT NULL,
+    power_name VARCHAR(20) NOT NULL,
+    submitted_string TEXT NOT NULL,  -- Original multi-order string
+    parsed_orders JSONB NOT NULL,    -- Array of parsed orders
+    parse_success BOOLEAN NOT NULL,
+    parse_errors TEXT[],
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

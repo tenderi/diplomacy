@@ -41,12 +41,20 @@ class OrderParser:
 
         unit_obj = None
         if unit_type and unit_province:
+            # Parse coast specification if present
+            coast = None
+            if '/' in unit_province:
+                unit_province, coast = unit_province.split('/')
+            
             # Find the actual Unit object from the game state
             for unit in game_instance.game_state.powers[power_name].units:
                 # Handle both normal units and dislodged units
-                if (unit.unit_type == unit_type and 
-                    (unit.province == unit_province or 
-                     unit.province == f"DISLODGED_{unit_province}")):
+                # Match province and coast (if specified)
+                province_match = (unit.province == unit_province or 
+                                unit.province == f"DISLODGED_{unit_province}")
+                coast_match = (coast is None or unit.coast == coast)
+                
+                if (unit.unit_type == unit_type and province_match and coast_match):
                     unit_obj = unit
                     break
         
