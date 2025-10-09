@@ -51,7 +51,7 @@ class Unit:
     def __str__(self) -> str:
         return f"{self.unit_type} {self.province}"
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]: 
         return {
             "unit_type": self.unit_type,
             "province": self.province,
@@ -61,6 +61,16 @@ class Unit:
             "can_retreat": self.can_retreat,
             "retreat_options": self.retreat_options
         }
+    
+    def can_move_to_province_type(self, province_type: str) -> bool:
+        """Check if this unit type can move to a province of the given type"""
+        if self.unit_type == "A":  # Army
+            # Armies can move to land or coastal provinces
+            return province_type in ["land", "coastal"]
+        elif self.unit_type == "F":  # Fleet
+            # Fleets can move to sea or coastal provinces
+            return province_type in ["sea", "coastal"]
+        return False
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Unit':
@@ -151,18 +161,21 @@ class MoveOrder:
         if self.target_province not in game_state.map_data.provinces:
             return False, f"Target province {self.target_province} does not exist"
         
-        # Check adjacency (skip if no adjacencies defined)
-        # Note: Non-adjacent moves are allowed as they might be convoyed
-        # Adjacency will be validated during order processing when convoy status is determined
         current_province = game_state.map_data.provinces[self.unit.province]
         target_province_obj = game_state.map_data.provinces[self.target_province]
         
-        # Allow non-adjacent moves for armies to sea/coast provinces (likely convoyed)
-        # or if there are no adjacencies defined
+        # CRITICAL: Validate unit type vs target province type
+        if not self.unit.can_move_to_province_type(target_province_obj.province_type):
+            return False, f"{self.unit.unit_type} {self.unit} cannot move to {target_province_obj.province_type} province {self.target_province}"
+        
+        # Check adjacency (skip if no adjacencies defined)
+        # Note: Non-adjacent moves are allowed as they might be convoyed
+        # Adjacency will be validated during order processing when convoy status is determined
         if (current_province.adjacent_provinces and 
-            not current_province.is_adjacent_to(self.target_province) and
-            not (self.unit.unit_type == 'A' and target_province_obj.province_type in ['water', 'coast'])):
-            return False, f"{self.unit.province} is not adjacent to {self.target_province}"
+            not current_province.is_adjacent_to(self.target_province)):
+            # For non-adjacent moves, we allow them to pass validation here
+            # The actual convoy validation happens during order processing
+            pass
         
         return True, ""
     

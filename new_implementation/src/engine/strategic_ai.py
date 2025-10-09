@@ -256,9 +256,7 @@ class StrategicAI:
                 target_data = game_state.map_data.provinces[target]
                 
                 # Check if move is legal based on unit type and target province type
-                if unit.unit_type == "A" and target_data.province_type in ["land", "coastal"]:
-                    valid_targets.append(target)
-                elif unit.unit_type == "F" and target_data.province_type in ["sea", "coastal"]:
+                if unit.can_move_to_province_type(target_data.province_type):
                     valid_targets.append(target)
         
         # Choose a target (prefer unoccupied provinces)

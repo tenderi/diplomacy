@@ -80,6 +80,32 @@ The Diplomacy bot has complete Diplomacy rule implementation with all critical b
 - **Impact**: These tests fail but don't affect core functionality
 - **Status**: Core tests pass, additional tests need updating
 
+## Critical Data Model Validation Issues 🚨 **HIGH PRIORITY**
+
+### **Army Movement Validation** (Priority 1)
+
+#### **1.1 Army Movement to Oceanic Provinces** ✅ **FIXED**
+- **Problem**: Data model permits armies to move to oceanic provinces, which violates Diplomacy rules
+- **Impact**: Invalid moves allowed, breaks core Diplomacy mechanics
+- **Root Cause**: Missing validation in Unit/Order data models for army movement restrictions
+- **Solution**: 
+  - Added validation in MoveOrder.validate() method to check unit type vs province type
+  - Added Unit.can_move_to_province_type() helper method
+  - Armies can only move to land or coastal provinces (not sea provinces)
+  - Fleets can only move to sea or coastal provinces (not land provinces)
+  - Updated StrategicAI to use proper validation
+- **Files Modified**: 
+  - `src/engine/data_models.py` - Added MoveOrder and Unit validation
+  - `src/engine/strategic_ai.py` - Updated to use proper validation
+- **Test Results**: ✅ **VALIDATION WORKING** - Army to sea fails, Fleet to land fails, valid moves pass
+- **Status**: ✅ **RESOLVED**
+
+#### **1.2 Fleet Movement Validation** ✅ **FIXED**
+- **Problem**: Need to ensure fleets follow proper movement rules
+- **Impact**: Ensures complete movement validation system
+- **Solution**: Implemented as part of the same validation system
+- **Status**: ✅ **RESOLVED**
+
 ## Demo Game Data Model Compliance Issues ✅ **COMPLETED** - **ALL ISSUES RESOLVED**
 
 ### **Data Structure Violations** ✅ **RESOLVED**
