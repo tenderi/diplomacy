@@ -1,10 +1,6 @@
 # Clarifications and Best Practices (added July 2025)
 
-**ECS Deployment Notes**: CRITICAL - The start.sh script must properly handle BOT_ONLY mode to prevent asyncio conflicts. Set `BOT_ONLY=true` environment variable in ECS containers. When BOT_ONLY=true, start.sh runs ONLY telegram bot (which includes notification API on port 8081 in separate thread), no main API server. When BOT_ONLY=false, start.sh runs main API (8000) + telegram bot. The key insight: never run multiple uvicorn/asyncio servers in same container without proper separation. Enhanced debugging in start.sh shows environment variables. Database config reads from `SQLALCHEMY_DATABASE_URL`. All dependencies (pytz) in requirements.txt. Database tables created during FastAPI startup (lazy initialization).
-
 **Map File Backup Policy**: When modifying map files (standard.svg, svg.dtd), ALWAYS create timestamped backups before making changes: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix the original files directly to avoid breaking references. All map processing should work with the original standard.svg and svg.dtd files as the source of truth. **CRITICAL**: NEVER change the file path references in code - always overwrite the original standard.svg file, never create new file names like standard_fixed.svg or standard_cleaned.svg for production use.
-
-**Terminal Command Execution**: Use `is_background=True` for all terminal commands to prevent hanging. Foreground commands (`is_background=False`) may hang due to interactive prompts or environment issues. **Note**: Complex commands with quotes and chaining (e.g., `echo "text" && pwd && date`) may cause shell parsing issues and get stuck in quote states. Use simple, single commands for testing terminal functionality.
 
 **Remote Service Deployment**: CRITICAL - The Diplomacy services run on a remote instance, not locally. When debugging button issues or API calls, remember that local curl tests to localhost:8000 will fail because the actual server is deployed elsewhere. The Telegram bot connects to the remote API server, not a local one. This explains why "View Map" and "Submit Orders" buttons appeared non-functional - they were making API calls to the remote server which was working correctly.
 
@@ -20,7 +16,7 @@
 
 0a. study /new_implementation/specs/* to learn about the compiler specifications
 
-0b. The source code of the compiler is in /new_implementation/src/
+0b. The source code is in /new_implementation/src/
 
 0c. study fix_plan.md.
 
@@ -28,9 +24,7 @@
 
 1. Your task is to implement missing server functionality and produce an working server in python language
 
-2. After implementing functionality or resolving problems, use a subagent to run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. The tests are defined in /new_implementation/testing_and_validation.md.
-
-2. When you discover a parser, lexer, control flow or LLVM issue. Immediately update @fix_plan.md using a subagent with your findings. When the issue is resolved, update @fix_plan.md using a subagent and remove the item.
+2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. The tests are defined in /new_implementation/testing_and_validation.md.
 
 3. When the tests pass update the @fix_plan.md`, then add changed code and @fix_plan.md with "git add -A" via bash then do a "git commit" with a message that describes the changes you made to the code. After the commit do a "git push" to push the changes to the remote repository.
 
@@ -52,7 +46,7 @@
 
 99999999999. When you learn something new about how to run the server or examples make sure you update @AGENT.md but keep it brief. For example if you run commands multiple times before learning the correct command then that file should be updated.
 
-999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python. Use strict types. Use Ruff linting rules and styling. 
+999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python. Use strict types. Use Ruff linting rules and styling.
 
 99999999999999. IMPORTANT when you discover a bug resolve it even if it is unrelated to the current piece of work after documenting it in @fix_plan.md
 
@@ -66,9 +60,6 @@
 
 99999999999999999999999999. When @fix_plan.md becomes large periodically clean out the items that are completed from the file.
 
-99999999999999999999999999. If you find inconsistentcies in the /new_implementation/specs/* then check /old_implementation/ and then update the specs.
-
 9999999999999999999999999999. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
-
 
 9999999999999999999999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @AGENT.md
