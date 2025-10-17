@@ -1,4 +1,4 @@
-from server.server import Server
+from src.server.server import Server
 
 def test_server_initialization():
     """Test that the Server can be initialized."""
@@ -123,9 +123,9 @@ def test_server_save_and_load_game(tmp_path):
     assert "FRANCE" in state["state"]["powers"]
 
 def test_replace_only_inactive_allowed():
-    from server.api import app, ADMIN_TOKEN
-    from server.db_session import SessionLocal
-    from server.db_models import PlayerModel, UserModel
+    from src.server.api import app, ADMIN_TOKEN
+    from src.server.db_session import SessionLocal
+    from src.server.db_models import PlayerModel, UserModel
     from fastapi.testclient import TestClient
     from sqlalchemy import text
     client = TestClient(app)
@@ -167,7 +167,7 @@ def test_replace_only_inactive_allowed():
 
 def test_adjudication_results_in_state():
     """Test that adjudication results are included in the game state after a turn."""
-    from server.api import app
+    from src.server.api import app
     from fastapi.testclient import TestClient
     client = TestClient(app)
     # Create a game and register a user

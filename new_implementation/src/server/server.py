@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from engine.game import Game
+from ..engine.game import Game
 import logging
 from .errors import ServerError, ErrorCode
 import os
@@ -167,7 +167,7 @@ class Server:
                 order_str = " ".join(tokens[3:])
                 
                 # Parse the order string into individual orders using the new parser
-                from engine.order_parser_utils import split_orders
+                from ..engine.order_parser_utils import split_orders
                 orders = split_orders(order_str)
                 
                 self.logger.info(f"Raw order string: {order_str}")
