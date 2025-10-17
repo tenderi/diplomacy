@@ -42,10 +42,12 @@ def test_callback_data_format():
         unit = f"{parts[3]} {parts[4]}"  # Reconstruct space
         print(f"   Parsed: game_id={game_id}, unit={unit}")
         print("   ✅ New format works correctly!")
-        return True
+        assert len(parts) >= 5, "New format should have enough parts after split"
+        assert game_id == "1", f"Expected game_id '1', got '{game_id}'"
+        assert unit == "A BER", f"Expected unit 'A BER', got '{unit}'"
     else:
         print("   ❌ New format fails")
-        return False
+        assert False, "New format should have enough parts after split"
 
 def test_unit_callback_generation():
     """Test how callback data should be generated"""
@@ -72,12 +74,9 @@ def test_unit_callback_generation():
     print(f"   Parsed unit: {parsed_unit}")
     
     # Verify it matches the original
-    if parsed_game_id == game_id and parsed_unit == unit:
-        print("   ✅ Callback generation and parsing work correctly!")
-        return True
-    else:
-        print("   ❌ Callback generation/parsing mismatch")
-        return False
+    assert parsed_game_id == game_id, f"Expected game_id '{game_id}', got '{parsed_game_id}'"
+    assert parsed_unit == unit, f"Expected unit '{unit}', got '{parsed_unit}'"
+    print("   ✅ Callback generation and parsing work correctly!")
 
 def test_multiple_units():
     """Test callback data for multiple units"""
@@ -99,38 +98,29 @@ def test_multiple_units():
         print(f"   Callback: {callback_data}")
         print(f"   Parsed: game_id={parsed_game_id}, unit={parsed_unit}")
         
-        if parsed_game_id == game_id and parsed_unit == unit:
-            print("   ✅ Correct")
-        else:
-            print("   ❌ Incorrect")
-            return False
+        assert parsed_game_id == game_id, f"Expected game_id '{game_id}', got '{parsed_game_id}'"
+        assert parsed_unit == unit, f"Expected unit '{unit}', got '{parsed_unit}'"
+        print("   ✅ Correct")
     
     print("   ✅ All units work correctly!")
-    return True
 
 def run_all_tests():
     """Run all callback format tests"""
     print("🚀 Testing Callback Data Format Fix\n")
     
     try:
-        test1 = test_callback_data_format()
-        test2 = test_unit_callback_generation()
-        test3 = test_multiple_units()
+        test_callback_data_format()
+        test_unit_callback_generation()
+        test_multiple_units()
         
-        if test1 and test2 and test3:
-            print("\n🎉 All callback format tests passed!")
-            print("✅ Unit selection buttons should now work correctly")
-            return True
-        else:
-            print("\n❌ Some tests failed")
-            return False
-            
+        print("\n🎉 All callback format tests passed!")
+        print("✅ Unit selection buttons should now work correctly")
+        
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == "__main__":
-    success = run_all_tests()
-    sys.exit(0 if success else 1)
+    run_all_tests()

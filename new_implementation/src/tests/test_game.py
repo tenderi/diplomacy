@@ -32,6 +32,6 @@ def test_victory_condition_standard_map():
     game.game_state.powers['GERMANY'].controlled_supply_centers = germany_centers
     # Simulate builds phase (should trigger victory)
     game._process_builds_phase()
-    state = game.get_game_state()
+    state = game.get_state()
     assert state['done']
     assert 'FRANCE' in state['winner']

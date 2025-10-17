@@ -33,7 +33,7 @@ engine = create_engine(
     connect_args={
         "connect_timeout": 10,      # Connection timeout
         "application_name": "diplomacy_server",  # Identify connections in PostgreSQL
-        "options": "-c default_transaction_isolation=read_committed"  # Optimize transaction isolation
+        "options": "-c default_transaction_isolation=read\\ committed"  # Optimize transaction isolation
     },
     
     # Query optimization
@@ -45,8 +45,8 @@ engine = create_engine(
 
 # Add connection pool event listeners for monitoring
 @event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    """Set connection-level optimizations."""
+def set_postgresql_optimizations(dbapi_connection, connection_record):
+    """Set connection-level optimizations for PostgreSQL."""
     if "postgresql" in SQLALCHEMY_DATABASE_URL:
         with dbapi_connection.cursor() as cursor:
             # Optimize PostgreSQL connection settings

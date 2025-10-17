@@ -21,12 +21,10 @@ from server.db_session import SessionLocal
 
 @pytest.fixture
 def temp_db():
-    """Create a temporary SQLite database for testing."""
-    # Create temporary database file
-    db_fd, db_path = tempfile.mkstemp()
-    
-    # Create SQLAlchemy engine
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    """Create a PostgreSQL database connection for testing."""
+    # Use the main database for testing with proper cleanup
+    db_url = "postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db"
+    engine = create_engine(db_url, echo=False)
     
     # Create all tables
     Base.metadata.create_all(engine)
@@ -36,9 +34,8 @@ def temp_db():
     
     yield engine
     
-    # Cleanup
-    os.close(db_fd)
-    os.unlink(db_path)
+    # Cleanup: dispose of connections
+    engine.dispose()
 
 
 @pytest.fixture
@@ -67,6 +64,53 @@ def standard_game():
 @pytest.fixture
 def mid_game_state():
     """Create a mid-game state with units and orders."""
+    from datetime import datetime
+    from engine.data_models import MapData, GameStatus, Province
+    
+    map_data = MapData(
+        map_name="standard",
+        provinces={
+            "PAR": Province(name="PAR", province_type="inland", adjacent_provinces=["BUR", "PIC", "BRE"], is_supply_center=True, is_home_supply_center=True),
+            "MAR": Province(name="MAR", province_type="coastal", adjacent_provinces=["BUR", "GAS", "PIE"], is_supply_center=True, is_home_supply_center=True),
+            "BRE": Province(name="BRE", province_type="coastal", adjacent_provinces=["PAR", "PIC", "GAS"], is_supply_center=True, is_home_supply_center=True),
+            "BER": Province(name="BER", province_type="coastal", adjacent_provinces=["MUN", "SIL", "BAL"], is_supply_center=True, is_home_supply_center=True),
+            "MUN": Province(name="MUN", province_type="inland", adjacent_provinces=["BER", "SIL", "BUR"], is_supply_center=True, is_home_supply_center=True),
+            "KIE": Province(name="KIE", province_type="sea", adjacent_provinces=["BER", "BAL", "DEN"], is_supply_center=True, is_home_supply_center=True),
+            "BUR": Province(name="BUR", province_type="inland", adjacent_provinces=["PAR", "MAR", "MUN"], is_supply_center=False, is_home_supply_center=False),
+            "SIL": Province(name="SIL", province_type="inland", adjacent_provinces=["BER", "MUN", "WAR"], is_supply_center=False, is_home_supply_center=False),
+            "BAL": Province(name="BAL", province_type="sea", adjacent_provinces=["BER", "KIE", "DEN"], is_supply_center=False, is_home_supply_center=False),
+            "PIC": Province(name="PIC", province_type="coastal", adjacent_provinces=["PAR", "BUR", "BEL"], is_supply_center=False, is_home_supply_center=False),
+            "GAS": Province(name="GAS", province_type="coastal", adjacent_provinces=["MAR", "BUR", "BRE"], is_supply_center=False, is_home_supply_center=False),
+            "PIE": Province(name="PIE", province_type="coastal", adjacent_provinces=["MAR", "VEN"], is_supply_center=False, is_home_supply_center=False),
+            "DEN": Province(name="DEN", province_type="coastal", adjacent_provinces=["KIE", "BAL", "SWE"], is_supply_center=True, is_home_supply_center=False),
+            "BEL": Province(name="BEL", province_type="coastal", adjacent_provinces=["PIC", "HOL"], is_supply_center=True, is_home_supply_center=False),
+            "HOL": Province(name="HOL", province_type="coastal", adjacent_provinces=["BEL", "RUH"], is_supply_center=True, is_home_supply_center=False),
+            "RUH": Province(name="RUH", province_type="inland", adjacent_provinces=["HOL", "MUN"], is_supply_center=False, is_home_supply_center=False),
+            "VEN": Province(name="VEN", province_type="coastal", adjacent_provinces=["PIE", "TRI"], is_supply_center=True, is_home_supply_center=False),
+            "TRI": Province(name="TRI", province_type="coastal", adjacent_provinces=["VEN", "VIE"], is_supply_center=True, is_home_supply_center=False),
+            "VIE": Province(name="VIE", province_type="inland", adjacent_provinces=["TRI", "BUD"], is_supply_center=True, is_home_supply_center=False),
+            "BUD": Province(name="BUD", province_type="inland", adjacent_provinces=["VIE", "SER"], is_supply_center=True, is_home_supply_center=False),
+            "SER": Province(name="SER", province_type="inland", adjacent_provinces=["BUD", "BUL"], is_supply_center=True, is_home_supply_center=False),
+            "BUL": Province(name="BUL", province_type="coastal", adjacent_provinces=["SER", "CON"], is_supply_center=True, is_home_supply_center=False),
+            "CON": Province(name="CON", province_type="coastal", adjacent_provinces=["BUL", "ANK"], is_supply_center=True, is_home_supply_center=False),
+            "ANK": Province(name="ANK", province_type="coastal", adjacent_provinces=["CON", "SMI"], is_supply_center=True, is_home_supply_center=False),
+            "SMI": Province(name="SMI", province_type="coastal", adjacent_provinces=["ANK", "ARM"], is_supply_center=True, is_home_supply_center=False),
+            "ARM": Province(name="ARM", province_type="coastal", adjacent_provinces=["SMI", "SEV"], is_supply_center=True, is_home_supply_center=False),
+            "SEV": Province(name="SEV", province_type="coastal", adjacent_provinces=["ARM", "MOS"], is_supply_center=True, is_home_supply_center=False),
+            "MOS": Province(name="MOS", province_type="inland", adjacent_provinces=["SEV", "WAR"], is_supply_center=True, is_home_supply_center=False),
+            "WAR": Province(name="WAR", province_type="inland", adjacent_provinces=["MOS", "SIL"], is_supply_center=True, is_home_supply_center=False),
+            "SWE": Province(name="SWE", province_type="coastal", adjacent_provinces=["DEN", "NOR"], is_supply_center=True, is_home_supply_center=False),
+            "NOR": Province(name="NOR", province_type="coastal", adjacent_provinces=["SWE", "STP"], is_supply_center=True, is_home_supply_center=False),
+            "STP": Province(name="STP", province_type="coastal", adjacent_provinces=["NOR", "MOS"], is_supply_center=True, is_home_supply_center=False)
+        },
+        supply_centers=["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "DEN", "BEL", "HOL", "VEN", "TRI", "VIE", "BUD", "SER", "BUL", "CON", "ANK", "SMI", "ARM", "SEV", "MOS", "WAR", "SWE", "NOR", "STP"],
+        home_supply_centers={
+            "FRANCE": ["PAR", "MAR", "BRE"],
+            "GERMANY": ["BER", "MUN", "KIE"]
+        },
+        starting_positions={}
+    )
+    
     game_state = GameState(
         game_id="test_game_001",
         map_name="standard",
@@ -75,7 +119,12 @@ def mid_game_state():
         current_season="Fall",
         current_phase="Movement",
         phase_code="F1901M",
-        status="active"
+        status=GameStatus.ACTIVE,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        powers={},
+        map_data=map_data,
+        orders={}
     )
     
     # Add power states with units
@@ -102,6 +151,12 @@ def mid_game_state():
             units=germany_units,
             controlled_supply_centers=["BER", "MUN", "KIE"]
         )
+    }
+    
+    # Initialize empty orders
+    game_state.orders = {
+        "FRANCE": [],
+        "GERMANY": []
     }
     
     return game_state

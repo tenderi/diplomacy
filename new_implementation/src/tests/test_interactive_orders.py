@@ -53,9 +53,12 @@ class TestInteractiveOrderInput:
         self.mock_update.effective_user = self.mock_user
         self.mock_update.message = self.mock_message
         
+        # Mock message reply
+        self.mock_message.reply_text = AsyncMock()
+        
         # Mock query for callbacks
         self.mock_query.from_user = self.mock_user
-        self.mock_query.edit_message_text = Mock()
+        self.mock_query.edit_message_text = AsyncMock()
         
         # Sample game state
         self.sample_game_state = {
@@ -86,7 +89,7 @@ class TestInteractiveOrderInput:
         ]
         
         # Mock message reply
-        self.mock_message.reply_text = Mock()
+        self.mock_message.reply_text = AsyncMock()
         
         # Call the function
         import asyncio
@@ -111,7 +114,7 @@ class TestInteractiveOrderInput:
         mock_api_get.return_value = {"games": []}
         
         # Mock message reply
-        self.mock_message.reply_text = Mock()
+        self.mock_message.reply_text = AsyncMock()
         
         # Call the function
         import asyncio
@@ -134,7 +137,7 @@ class TestInteractiveOrderInput:
         }
         
         # Mock message reply
-        self.mock_message.reply_text = Mock()
+        self.mock_message.reply_text = AsyncMock()
         
         # Call the function
         import asyncio
@@ -330,7 +333,7 @@ class TestInteractiveOrderInput:
         ]
         
         # Mock message reply
-        self.mock_message.reply_text = Mock()
+        self.mock_message.reply_text = AsyncMock()
         
         # Call the function
         import asyncio

@@ -24,11 +24,24 @@ class TestDatabaseService:
     @pytest.fixture
     def db_service(self, temp_db):
         """Create DatabaseService instance with test database."""
-        return DatabaseService(f"sqlite:///{temp_db.url.split('///')[1]}")
+        # Use PostgreSQL database URL directly
+        db_url = str(temp_db.url)
+        return DatabaseService(db_url)
     
     @pytest.fixture
     def sample_game_state(self):
         """Create sample game state for testing."""
+        from datetime import datetime
+        from engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         return GameState(
             game_id="test_game_001",
             map_name="standard",
@@ -37,7 +50,12 @@ class TestDatabaseService:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active"
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            powers={},
+            map_data=map_data,
+            orders={}
         )
     
     @pytest.fixture
@@ -56,7 +74,7 @@ class TestDatabaseService:
     
     def test_service_initialization(self, temp_db):
         """Test DatabaseService initialization."""
-        db_url = f"sqlite:///{temp_db.url.split('///')[1]}"
+        db_url = str(temp_db.url)
         service = DatabaseService(db_url)
         
         assert service.session_factory is not None
@@ -83,13 +101,13 @@ class TestDatabaseService:
         with pytest.raises(IntegrityError):
             db_service.create_game("duplicate_game", "standard")
     
-    def test_load_game(self, db_service, sample_game_state):
+    def test_get_game_state(self, db_service, sample_game_state):
         """Test loading existing game."""
         # Create game first
         created_game = db_service.create_game("load_test_game", "standard")
         
         # Load the game
-        loaded_game = db_service.load_game("load_test_game")
+        loaded_game = db_service.get_game_state("load_test_game")
         
         assert isinstance(loaded_game, GameState)
         assert loaded_game.game_id == "load_test_game"
@@ -97,7 +115,7 @@ class TestDatabaseService:
     
     def test_load_nonexistent_game(self, db_service):
         """Test loading non-existent game returns None."""
-        loaded_game = db_service.load_game("nonexistent_game")
+        loaded_game = db_service.get_game_state("nonexistent_game")
         
         assert loaded_game is None
     
@@ -112,7 +130,7 @@ class TestDatabaseService:
         assert result is True
         
         # Verify state was saved
-        loaded_game = db_service.load_game("save_test_game")
+        loaded_game = db_service.get_game_state("save_test_game")
         assert loaded_game.current_turn == sample_game_state.current_turn
         assert loaded_game.current_year == sample_game_state.current_year
         assert loaded_game.current_season == sample_game_state.current_season
@@ -128,7 +146,7 @@ class TestDatabaseService:
         assert result is True
         
         # Verify units were updated
-        loaded_game = db_service.load_game("unit_test_game")
+        loaded_game = db_service.get_game_state("unit_test_game")
         france_units = loaded_game.powers["FRANCE"].units
         assert len(france_units) == 2
         assert any(unit.province == "PAR" for unit in france_units)
@@ -164,7 +182,7 @@ class TestDatabaseService:
         assert result is True
         
         # Verify orders were saved
-        loaded_game = db_service.load_game("order_test_game")
+        loaded_game = db_service.get_game_state("order_test_game")
         france_orders = loaded_game.powers["FRANCE"].orders
         assert len(france_orders) == 2
     
@@ -251,7 +269,9 @@ class TestDatabaseServiceErrorHandling:
     @pytest.fixture
     def db_service(self, temp_db):
         """Create DatabaseService instance."""
-        return DatabaseService(f"sqlite:///{temp_db.url.split('///')[1]}")
+        # Use PostgreSQL database URL directly
+        db_url = str(temp_db.url)
+        return DatabaseService(db_url)
     
     @patch('src.engine.database_service.Session')
     def test_database_connection_error(self, mock_session, temp_db):
@@ -317,7 +337,9 @@ class TestDatabaseServiceTransactionManagement:
     @pytest.fixture
     def db_service(self, temp_db):
         """Create DatabaseService instance."""
-        return DatabaseService(f"sqlite:///{temp_db.url.split('///')[1]}")
+        # Use PostgreSQL database URL directly
+        db_url = str(temp_db.url)
+        return DatabaseService(db_url)
     
     def test_transaction_rollback_on_error(self, db_service):
         """Test that transactions are rolled back on error."""
@@ -328,7 +350,7 @@ class TestDatabaseServiceTransactionManagement:
             db_service.create_game("", "standard")
         
         # Verify no partial data was created
-        loaded_game = db_service.load_game("")
+        loaded_game = db_service.get_game_state("")
         assert loaded_game is None
     
     def test_concurrent_access(self, db_service):
@@ -342,7 +364,7 @@ class TestDatabaseServiceTransactionManagement:
         
         # Verify all games were created
         for game_id in game_ids:
-            loaded_game = db_service.load_game(game_id)
+            loaded_game = db_service.get_game_state(game_id)
             assert loaded_game is not None
             assert loaded_game.game_id == game_id
 
@@ -360,7 +382,7 @@ class TestDatabaseServiceMocked:
     @pytest.fixture
     def db_service_mocked(self, mock_session_factory):
         """Create DatabaseService with mocked session factory."""
-        service = DatabaseService("sqlite:///:memory:")
+        service = DatabaseService("postgresql+psycopg2://test:test@localhost:5432/test_db")
         service.session_factory = mock_session_factory
         return service
     
@@ -377,8 +399,8 @@ class TestDatabaseServiceMocked:
         assert isinstance(result, GameState)
         assert result.game_id == "mocked_game"
     
-    def test_load_game_mocked(self, db_service_mocked, mock_session_factory):
-        """Test load_game with mocked session."""
+    def test_get_game_state_mocked(self, db_service_mocked, mock_session_factory):
+        """Test get_game_state with mocked session."""
         mock_session = mock_session_factory.return_value
         
         # Mock query result
@@ -394,7 +416,7 @@ class TestDatabaseServiceMocked:
         
         mock_session.query.return_value.filter.return_value.first.return_value = mock_game_model
         
-        result = db_service_mocked.load_game("mocked_game")
+        result = db_service_mocked.get_game_state("mocked_game")
         
         # Verify session was used
         mock_session.query.assert_called_once()
@@ -427,7 +449,9 @@ class TestDatabaseServiceIntegration:
     @pytest.fixture
     def db_service(self, temp_db):
         """Create DatabaseService with real database."""
-        return DatabaseService(f"sqlite:///{temp_db.url.split('///')[1]}")
+        # Use PostgreSQL database URL directly
+        db_url = str(temp_db.url)
+        return DatabaseService(db_url)
     
     def test_full_game_lifecycle(self, db_service):
         """Test complete game lifecycle with database."""
@@ -452,7 +476,7 @@ class TestDatabaseServiceIntegration:
         assert result is True
         
         # Load game state
-        loaded_game = db_service.load_game("lifecycle_test")
+        loaded_game = db_service.get_game_state("lifecycle_test")
         assert loaded_game is not None
         assert "FRANCE" in loaded_game.powers
         assert len(loaded_game.powers["FRANCE"].units) == 2
@@ -467,7 +491,7 @@ class TestDatabaseServiceIntegration:
         assert result is True
         
         # Verify units were updated
-        updated_game = db_service.load_game("lifecycle_test")
+        updated_game = db_service.get_game_state("lifecycle_test")
         france_units = updated_game.powers["FRANCE"].units
         assert len(france_units) == 2
         assert any(unit.province == "BUR" for unit in france_units)
@@ -484,7 +508,7 @@ class TestDatabaseServiceIntegration:
         
         # Load all games
         for game_id in game_ids:
-            loaded_game = db_service.load_game(game_id)
+            loaded_game = db_service.get_game_state(game_id)
             assert loaded_game is not None
             assert loaded_game.game_id == game_id
         
@@ -498,7 +522,7 @@ class TestDatabaseServiceIntegration:
         
         # Verify all updates
         for i, game_id in enumerate(game_ids):
-            loaded_game = db_service.load_game(game_id)
+            loaded_game = db_service.get_game_state(game_id)
             france_units = loaded_game.powers["FRANCE"].units
             assert len(france_units) == 1
             assert france_units[0].province == f"PROV_{i}"

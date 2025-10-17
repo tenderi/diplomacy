@@ -116,8 +116,8 @@ def test_database_operations():
     """Test database operations"""
     print("🧪 Testing database operations...")
     
-    # Use in-memory SQLite for testing
-    database_url = "sqlite:///:memory:"
+    # Use PostgreSQL for testing
+    database_url = "postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db"
     
     # Create schema first
     from engine.database import create_database_schema
@@ -130,8 +130,10 @@ def test_database_operations():
     db_service.session_factory = session_factory
     
     # Create a game
-    game_state = db_service.create_game("test_game_1", "standard")
-    assert game_state.game_id == "test_game_1"
+    import time
+    unique_game_id = f"test_game_{int(time.time())}"
+    game_state = db_service.create_game(unique_game_id, "standard")
+    assert game_state.game_id == unique_game_id
     assert game_state.map_name == "standard"
     assert game_state.current_turn == 0
     assert game_state.current_year == 1901
@@ -141,19 +143,19 @@ def test_database_operations():
     assert game_state.status == GameStatus.ACTIVE
     
     # Add a player
-    power_state = db_service.add_player("test_game_1", "FRANCE")
+    power_state = db_service.add_player(unique_game_id, "FRANCE")
     assert power_state.power_name == "FRANCE"
     assert power_state.is_active == True
     assert power_state.is_eliminated == False
     
     # Add a unit
     unit = Unit(unit_type="A", province="PAR", power="FRANCE")
-    db_service.add_unit("test_game_1", "FRANCE", unit)
+    db_service.add_unit(unique_game_id, "FRANCE", unit)
     
     # Get game state
-    retrieved_state = db_service.get_game_state("test_game_1")
+    retrieved_state = db_service.get_game_state(unique_game_id)
     assert retrieved_state is not None
-    assert retrieved_state.game_id == "test_game_1"
+    assert retrieved_state.game_id == unique_game_id
     assert "FRANCE" in retrieved_state.powers
     assert len(retrieved_state.powers["FRANCE"].units) == 1
     assert retrieved_state.powers["FRANCE"].units[0].unit_type == "A"

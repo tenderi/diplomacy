@@ -864,7 +864,21 @@ class Game:
                         "success": True
                     })
         
+        # Check for victory condition after builds
+        self._check_victory_condition()
+        
         return results
+
+    def _check_victory_condition(self) -> None:
+        """Check if any power has achieved victory."""
+        for power_name, power_state in self.game_state.powers.items():
+            if len(power_state.controlled_supply_centers) >= 18:
+                self.done = True
+                self.game_state.status = GameStatus.COMPLETED
+                # Store winner information
+                if not hasattr(self, 'winner'):
+                    self.winner = power_name
+                break
 
     def _advance_phase(self) -> None:
         """Advance to the next phase."""
@@ -939,7 +953,8 @@ class Game:
             This method provides a legacy-compatible interface for accessing
             game state information.
         """
-        return {
+        result = {
+            "game_id": getattr(self, 'game_id', 'unknown'),
             "map_name": self.map_name,
             "turn": self.turn,
             "year": self.year,
@@ -953,6 +968,12 @@ class Game:
             "orders": {power_name: [str(order) for order in orders] 
                       for power_name, orders in self.game_state.orders.items()}
         }
+        
+        # Add winner information if game is done
+        if self.done and hasattr(self, 'winner'):
+            result["winner"] = self.winner
+            
+        return result
     
     def get_game_state(self) -> 'GameState':
         """

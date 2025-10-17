@@ -127,7 +127,7 @@ class TestResponseCache:
         cache.set("endpoint2", {"param": "value1"}, {"data": "3"})
         
         # Invalidate all endpoint1 entries
-        cache.invalidate("endpoint1")
+        cache.invalidate_pattern("endpoint1")
         
         # Verify endpoint1 entries are gone
         assert cache.get("endpoint1", {"param": "value1"}) is None
@@ -250,7 +250,7 @@ class TestResponseCache:
         cache.get("nonexistent", {"param": "value"})  # miss
         
         # Get stats
-        stats = get_cache_stats()
+        stats = cache.get_stats()
         
         assert "hit_count" in stats
         assert "miss_count" in stats
@@ -465,34 +465,44 @@ class TestCacheUtilityFunctions:
         """Create ResponseCache instance."""
         return ResponseCache(default_ttl=60, max_size=10)
     
-    def test_invalidate_cache_function(self, cache):
+    def test_invalidate_cache_function(self):
         """Test invalidate_cache function."""
+        from server.response_cache import _response_cache
+        
+        # Clear the global cache first
+        _response_cache.clear()
+        
         # Set some data
-        cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
+        _response_cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
+        _response_cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
         
         # Invalidate using function
         invalidate_cache("endpoint1")
         
         # Verify endpoint1 is invalidated
-        assert cache.get("endpoint1", {"param": "value1"}) is None
+        assert _response_cache.get("endpoint1", {"param": "value1"}) is None
         
         # Verify endpoint2 still exists
-        assert cache.get("endpoint2", {"param": "value2"}) == {"data": "2"}
+        assert _response_cache.get("endpoint2", {"param": "value2"}) == {"data": "2"}
     
-    def test_clear_response_cache_function(self, cache):
+    def test_clear_response_cache_function(self):
         """Test clear_response_cache function."""
+        from server.response_cache import _response_cache
+        
+        # Clear the global cache first
+        _response_cache.clear()
+        
         # Set some data
-        cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
+        _response_cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
+        _response_cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
         
         # Clear using function
         clear_response_cache()
         
         # Verify all data is cleared
-        assert cache.get("endpoint1", {"param": "value1"}) is None
-        assert cache.get("endpoint2", {"param": "value2"}) is None
-        assert len(cache.cache) == 0
+        assert _response_cache.get("endpoint1", {"param": "value1"}) is None
+        assert _response_cache.get("endpoint2", {"param": "value2"}) is None
+        assert len(_response_cache.cache) == 0
 
 
 class TestResponseCacheEdgeCases:
