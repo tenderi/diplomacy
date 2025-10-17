@@ -1,5 +1,6 @@
 # Diplomacy Server module
 
-from .server import Server
+# Note: Avoid relative imports in __init__.py to prevent conflicts
+# Import specific modules directly when needed
 
-__all__ = ["Server"]
+__all__ = []

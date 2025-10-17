@@ -139,9 +139,9 @@ echo -e "${BLUE}=== Analyzing File Changes ===${NC}"
 
 # Create checksums for local files
 echo -e "${YELLOW}Creating local file checksums...${NC}"
-create_checksums "../../src" "$TEMP_DIR/src_checksums.txt"
-create_checksums "../../maps" "$TEMP_DIR/maps_checksums.txt"
-create_checksums "../../alembic" "$TEMP_DIR/alembic_checksums.txt"
+create_checksums "../src" "$TEMP_DIR/src_checksums.txt"
+create_checksums "../maps" "$TEMP_DIR/maps_checksums.txt"
+create_checksums "../alembic" "$TEMP_DIR/alembic_checksums.txt"
 
 # Check for changes in each component
 SRC_CHANGED=$(check_file_changes "$TEMP_DIR/src_checksums.txt" "/opt/diplomacy/src_checksums.txt")
@@ -162,7 +162,7 @@ echo -e "${BLUE}=== Transferring Changed Files ===${NC}"
 
 if [ "$SRC_CHANGED" = "true" ]; then
     echo -e "${YELLOW}📁 Copying updated source code...${NC}"
-    copy_files "../../src" "/tmp/"
+    copy_files "../src" "/tmp/"
     copy_files "$TEMP_DIR/src_checksums.txt" "/tmp/"
 else
     echo -e "${GREEN}📁 Source code unchanged, skipping...${NC}"
@@ -170,7 +170,7 @@ fi
 
 if [ "$MAPS_CHANGED" = "true" ]; then
     echo -e "${YELLOW}🗺️ Copying updated maps...${NC}"
-    copy_files "../../maps" "/tmp/"
+    copy_files "../maps" "/tmp/"
     copy_files "$TEMP_DIR/maps_checksums.txt" "/tmp/"
 else
     echo -e "${GREEN}🗺️ Maps unchanged, skipping...${NC}"
@@ -178,7 +178,7 @@ fi
 
 if [ "$ALEMBIC_CHANGED" = "true" ]; then
     echo -e "${YELLOW}🗄️ Copying updated alembic...${NC}"
-    copy_files "../../alembic" "/tmp/"
+    copy_files "../alembic" "/tmp/"
     copy_files "$TEMP_DIR/alembic_checksums.txt" "/tmp/"
 else
     echo -e "${GREEN}��️ Alembic unchanged, skipping...${NC}"
@@ -186,8 +186,8 @@ fi
 
 # Always copy requirements.txt (it's small and important)
 echo -e "${YELLOW}📦 Copying requirements.txt...${NC}"
-copy_files "../../requirements.txt" "/tmp/"
-copy_files "../../alembic.ini" "/tmp/"
+copy_files "../requirements.txt" "/tmp/"
+copy_files "../alembic.ini" "/tmp/"
 
 # Deploy the application
 echo -e "${YELLOW}Deploying application on instance...${NC}"

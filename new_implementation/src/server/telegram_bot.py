@@ -14,7 +14,7 @@ import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 from telegram.ext import Application
-from engine.map import Map
+from ..engine.map import Map
 import random
 import json
 from typing import Dict, List, Tuple, Optional
@@ -1282,8 +1282,36 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Run the automated demo game script and show results"""
     try:
+        # Validate update object
+        if not update:
+            logging.error("run_automated_demo: update is None")
+            return
+        
+        if not update.message and not update.callback_query:
+            logging.error("run_automated_demo: no message or callback_query in update")
+            return
+        
         import subprocess
         import os
+        
+        # Helper function to safely send messages
+        async def safe_reply_text(text: str, parse_mode: str = None):
+            try:
+                if update.callback_query:
+                    await update.callback_query.message.reply_text(text, parse_mode=parse_mode)
+                else:
+                    await update.message.reply_text(text, parse_mode=parse_mode)
+            except Exception as e:
+                logging.error(f"Error sending message: {e}")
+        
+        async def safe_reply_photo(photo_file, caption: str = None, parse_mode: str = None):
+            try:
+                if update.callback_query:
+                    await update.callback_query.message.reply_photo(photo=photo_file, caption=caption, parse_mode=parse_mode)
+                else:
+                    await update.message.reply_photo(photo=photo_file, caption=caption, parse_mode=parse_mode)
+            except Exception as e:
+                logging.error(f"Error sending photo: {e}")
         
         # Get the path to the demo script
         script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "demo_automated_game.py")
@@ -1299,7 +1327,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         # Run the demo script with proper environment
         result = subprocess.run(
-            ["python3", "demo_automated_game.py"],
+            ["/usr/bin/python3", "demo_automated_game.py"],
             capture_output=True,
             text=True,
             cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -1307,29 +1335,61 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         
         if result.returncode == 0:
-            # Success - show summary
-            success_msg = (
-                "🎬 *Automated Demo Game Complete!*\n\n"
-                "✅ The demo game ran successfully through multiple phases:\n"
-                "• Spring 1901 Movement\n"
-                "• Spring 1901 Builds\n"
-                "• Autumn 1901 Movement\n"
-                "• Autumn 1901 Builds\n"
-                "• Spring 1902 Movement\n"
-                "• Spring 1902 Builds\n\n"
-                "🗺️ Maps have been generated and saved to:\n"
-                f"`{os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'test_maps')}/`\n\n"
-                "💡 *To run the demo yourself:*\n"
-                "```bash\n"
-                f"cd {os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}\n"
-                "python3 demo_automated_game.py\n"
-                "```"
-            )
+            # Success - post generated maps in order
+            maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "test_maps")
             
-            if update.callback_query:
-                await update.callback_query.edit_message_text(success_msg, parse_mode='Markdown')
+            # Get all generated map files in chronological order
+            import glob
+            map_files = sorted(glob.glob(os.path.join(maps_dir, "demo_*.png")))
+            
+            if map_files:
+                # Send initial message
+                await safe_reply_text("🎬 *Automated Demo Game Complete!*\n\n📊 Posting generated maps in chronological order...", parse_mode='Markdown')
+                
+                # Post each map with description
+                for i, map_file in enumerate(map_files, 1):
+                    try:
+                        # Extract phase info from filename
+                        filename = os.path.basename(map_file)
+                        phase_info = filename.replace("demo_", "").replace(".png", "").replace("_", " ").title()
+                        
+                        # Create caption
+                        caption = f"🗺️ *Map {i}/{len(map_files)}*\n📅 {phase_info}\n\n🎮 Automated Diplomacy Demo Game"
+                        
+                        # Send the map
+                        with open(map_file, 'rb') as f:
+                            await safe_reply_photo(f, caption=caption, parse_mode='Markdown')
+                        
+                        # Small delay between maps
+                        await asyncio.sleep(1)
+                        
+                    except Exception as e:
+                        logging.error(f"Error posting map {map_file}: {e}")
+                        continue
+                
+                # Send completion message
+                completion_msg = (
+                    f"✅ *Demo Complete!*\n\n"
+                    f"📊 Generated {len(map_files)} maps showing the complete game progression\n"
+                    f"🎮 All seven powers played with strategic AI\n"
+                    f"📈 Demonstrates all Diplomacy mechanics and phases"
+                )
+                
+                await safe_reply_text(completion_msg, parse_mode='Markdown')
             else:
-                await update.message.reply_text(success_msg, parse_mode='Markdown')
+                # No maps generated, show text summary
+                success_msg = (
+                    "🎬 *Automated Demo Game Complete!*\n\n"
+                    "✅ The demo game ran successfully, but no maps were generated.\n"
+                    "📊 Check the server logs for details.\n\n"
+                    "💡 *To run the demo yourself:*\n"
+                    "```bash\n"
+                    f"cd {os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}\n"
+                    "/usr/bin/python3 demo_automated_game.py\n"
+                    "```"
+                )
+                
+                await safe_reply_text(success_msg, parse_mode='Markdown')
         else:
             # Error occurred
             error_msg = (
@@ -1338,17 +1398,19 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"**Output:** {result.stdout[:500]}"
             )
             
-            if update.callback_query:
-                await update.callback_query.edit_message_text(error_msg, parse_mode='Markdown')
-            else:
-                await update.message.reply_text(error_msg, parse_mode='Markdown')
+            await safe_reply_text(error_msg, parse_mode='Markdown')
                 
     except Exception as e:
         error_msg = f"❌ Error running automated demo: {str(e)}"
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg)
-        else:
-            await update.message.reply_text(error_msg)
+        logging.error(f"run_automated_demo exception: {e}")
+        try:
+            if update and (update.callback_query or update.message):
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(error_msg)
+                else:
+                    await update.message.reply_text(error_msg)
+        except Exception as reply_error:
+            logging.error(f"Failed to send error message: {reply_error}")
 
 async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     """Send the demo map with all units in starting positions"""
@@ -1357,7 +1419,7 @@ async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         game_state = api_get(f"/games/{game_id}/state")
         
         # Generate map with units
-        from engine.map import Map
+        from ..engine.map import Map
         map_instance = Map("standard")
         
         # Create units dictionary from game state
@@ -1417,7 +1479,7 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         orders = orders_data if orders_data else []
         
         # Generate map with units
-        from engine.map import Map
+        from ..engine.map import Map
         map_instance = Map("standard")
         
         # Create units dictionary from game state
@@ -1434,9 +1496,9 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
             "phase_code": game_state.get("phase_code", "S1901M")
         }
         
-        # Render the map with moves
+        # Render the map with units (no moves visualization for now)
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        img_bytes = Map.render_board_png_with_moves(svg_path, units, orders, f"/tmp/game_map_{game_id}.png", phase_info=phase_info)
+        img_bytes = Map.render_board_png(svg_path, units, output_path=f"/tmp/game_map_{game_id}.png", phase_info=phase_info)
         
         # Get game info for caption
         turn = game_state.get("turn", "Unknown")
@@ -1858,7 +1920,7 @@ async def show_possible_moves(query, game_id: str, unit: str) -> None:
         unit_location = unit_parts[1]  # BER, KIE, etc.
         
         # Get adjacency data from map
-        from engine.map import Map
+        from ..engine.map import Map
         map_instance = Map("standard")
         
         # Get adjacent provinces
@@ -1934,7 +1996,7 @@ async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
             return
         
         # Get map instance for adjacency data
-        from engine.map import Map
+        from ..engine.map import Map
         map_instance = Map("standard")
         
         # Get provinces adjacent to the fleet's sea area
@@ -2000,7 +2062,7 @@ async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_po
         army_location = army_unit.split()[1]    # e.g., 'LON', 'PAR'
         
         # Get map instance for adjacency data
-        from engine.map import Map
+        from ..engine.map import Map
         map_instance = Map("standard")
         
         # Get provinces adjacent to the fleet's sea area that can be convoy destinations

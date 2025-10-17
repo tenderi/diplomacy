@@ -11,7 +11,7 @@ Key features:
 """
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
-from server.server import Server
+from .server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
@@ -29,9 +29,9 @@ import requests
 from sqlalchemy import or_, text
 import logging
 import pytz
-from engine.order import OrderParser
-from engine.data_models import Unit
-from server.response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
+from ..engine.order import OrderParser
+from ..engine.data_models import Unit, GameStatus
+from .response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -116,7 +116,7 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         game_id = str(game.id)
         # Now create the game in the in-memory server with the same game_id
         if game_id not in server.games:
-            from engine.game import Game
+            from ..engine.game import Game
             g = Game(map_name=req.map_name)
             setattr(g, "game_id", game_id)
             server.games[game_id] = g
@@ -142,7 +142,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
         # Add player to in-memory server
         if req.game_id not in server.games:
-            from engine.game import Game
+            from ..engine.game import Game
             g = Game()
             setattr(g, "game_id", req.game_id)
             server.games[req.game_id] = g
@@ -311,7 +311,7 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                 raise HTTPException(status_code=404, detail="Game not found")
             
             # Restore the game in server.games
-            from engine.game import Game
+            from ..engine.game import Game
             restored_game = Game(map_name=game_model.map_name)
             setattr(restored_game, "game_id", game_id)
             
@@ -350,6 +350,9 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
             # Add restored game to server
             server.games[game_id] = restored_game
             
+        except HTTPException:
+            # Re-raise HTTP exceptions (like 404) as-is
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to restore game: {str(e)}")
         finally:
@@ -357,9 +360,38 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
     
     game = server.games[game_id]
     state = game.get_game_state()
-    # Remove non-serializable objects
-    if "map_obj" in state:
-        del state["map_obj"]
+    
+    # Convert GameState object to dictionary for JSON serialization
+    state_dict = {
+        "year": state.current_year,
+        "phase": state.current_phase,
+        "turn": state.current_turn,
+        "done": state.status == GameStatus.COMPLETED,
+        "powers": {},
+        "units": {},
+        "orders": {},
+        "map_name": state.map_name,
+        "phase_code": state.phase_code
+    }
+    
+    # Convert powers to dictionary format
+    for power_name, power_state in state.powers.items():
+        state_dict["powers"][power_name] = {
+            "name": power_state.power_name,
+            "units": [f"{unit.unit_type} {unit.province}" for unit in power_state.units],
+            "supply_centers": list(power_state.controlled_supply_centers),
+            "builds": power_state.build_options,
+            "is_active": power_state.is_active
+        }
+        state_dict["units"][power_name] = [f"{unit.unit_type} {unit.province}" for unit in power_state.units]
+    
+    # Convert orders to dictionary format
+    for power_name, orders in state.orders.items():
+        state_dict["orders"][power_name] = orders
+    
+    # Remove non-serializable objects (map_obj doesn't exist in GameState)
+    # if "map_obj" in state_dict:
+    #     del state_dict["map_obj"]
     # Always include adjudication_results in the state, even if empty
     last_turn = game.turn - 1
     if hasattr(game, "order_history") and last_turn in game.order_history:
@@ -397,13 +429,13 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                             "message": f"Unit {dislodged['unit']} was dislodged from {dislodged['from']}"
                         })
             
-            state["adjudication_results"] = transformed_results
+            state_dict["adjudication_results"] = transformed_results
         else:
             # Old format - use as is
-            state["adjudication_results"] = results if results else {}
+            state_dict["adjudication_results"] = results if results else {}
     else:
-        state["adjudication_results"] = {}
-    return state
+        state_dict["adjudication_results"] = {}
+    return state_dict
 
 def _get_power_for_unit(province: str, game) -> Optional[str]:
     """Get the power that owns a unit in the given province."""
@@ -760,7 +792,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         db.refresh(player)
         # Add player to in-memory server (ensure sync)
         if str(game_id) not in server.games:
-            from engine.game import Game
+            from ..engine.game import Game
             g = Game()
             setattr(g, "game_id", str(game_id))
             server.games[str(game_id)] = g
@@ -1304,7 +1336,7 @@ def cleanup_old_maps() -> Dict[str, Any]:
 def get_map_cache_stats() -> Dict[str, Any]:
     """Get map cache statistics for monitoring."""
     try:
-        from engine.map import Map
+        from ..engine.map import Map
         stats = Map.get_cache_stats()
         return {
             "status": "ok",
@@ -1317,7 +1349,7 @@ def get_map_cache_stats() -> Dict[str, Any]:
 def clear_map_cache() -> Dict[str, Any]:
     """Clear all cached maps."""
     try:
-        from engine.map import Map
+        from ..engine.map import Map
         Map.clear_map_cache()
         return {
             "status": "ok",
@@ -1330,7 +1362,7 @@ def clear_map_cache() -> Dict[str, Any]:
 def preload_common_maps() -> Dict[str, Any]:
     """Preload common map configurations for better performance."""
     try:
-        from engine.map import Map
+        from ..engine.map import Map
         Map.preload_common_maps()
         return {
             "status": "ok",
@@ -1343,7 +1375,7 @@ def preload_common_maps() -> Dict[str, Any]:
 def get_connection_pool_status() -> Dict[str, Any]:
     """Get database connection pool status for monitoring."""
     try:
-        from server.db_session import get_pool_status
+        from .db_session import get_pool_status
         status = get_pool_status()
         return {
             "status": "ok",
@@ -1357,7 +1389,7 @@ def get_connection_pool_status() -> Dict[str, Any]:
 def reset_connection_pool() -> Dict[str, Any]:
     """Reset database connection pool (use with caution)."""
     try:
-        from server.db_session import engine
+        from .db_session import engine
         engine.dispose()  # Close all connections and recreate pool
         return {
             "status": "ok",
@@ -1413,7 +1445,7 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
     db: Session = SessionLocal()
     try:
         # Generate map image
-        from engine.map import Map
+        from ..engine.map import Map
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         
         # Create units dictionary
