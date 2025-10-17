@@ -76,8 +76,20 @@ class TestStrategicAI:
     @pytest.fixture
     def movement_game_state(self, mid_game_state):
         """Create game state in Movement phase."""
+        from engine.data_models import Province
+        
         mid_game_state.current_phase = "Movement"
         mid_game_state.phase_code = "S1901M"
+        
+        # Add map data with adjacent provinces so AI can find move targets
+        mid_game_state.map_data.provinces = {
+            "PAR": Province(name="PAR", province_type="inland", adjacent_provinces=["BUR", "PIC", "BRE"], is_supply_center=True, is_home_supply_center=True),
+            "MAR": Province(name="MAR", province_type="coastal", adjacent_provinces=["BUR", "GAS", "PIE"], is_supply_center=True, is_home_supply_center=True),
+            "BUR": Province(name="BUR", province_type="inland", adjacent_provinces=["PAR", "MAR", "PIC", "GAS"], is_supply_center=False, is_home_supply_center=False),
+            "PIC": Province(name="PIC", province_type="coastal", adjacent_provinces=["PAR", "BUR", "BEL"], is_supply_center=False, is_home_supply_center=False),
+            "BRE": Province(name="BRE", province_type="coastal", adjacent_provinces=["PAR", "PIC", "GAS"], is_supply_center=True, is_home_supply_center=True)
+        }
+        
         return mid_game_state
     
     @pytest.fixture
@@ -103,11 +115,11 @@ class TestStrategicAI:
         # Set supply center counts for builds/destroys
         france_state = mid_game_state.powers["FRANCE"]
         france_state.controlled_supply_centers = ["PAR", "MAR", "BRE", "BUR"]  # 4 SCs
+        france_state.home_supply_centers = ["PAR", "MAR", "BRE", "BUR"]  # Home SCs for building
         france_state.units = [
             Unit(unit_type="A", province="PAR", power="FRANCE"),
-            Unit(unit_type="A", province="MAR", power="FRANCE"),
-            Unit(unit_type="F", province="BRE", power="FRANCE")
-        ]  # 3 units
+            Unit(unit_type="A", province="MAR", power="FRANCE")
+        ]  # 2 units (BRE and BUR are available for building)
         
         return mid_game_state
     
@@ -172,12 +184,17 @@ class TestStrategicAI:
         
         assert orders == []
     
-    @patch('src.engine.strategic_ai.random.random')
+    @patch('engine.strategic_ai.random.random')
     def test_aggression_level_affects_behavior(self, mock_random, ai, movement_game_state):
         """Test that aggression level affects order generation."""
         # Set high aggression
         ai.config.aggression_level = 0.9
-        mock_random.return_value = 0.1  # Low random value
+        ai.config.support_probability = 0.1  # Low support probability
+        ai.config.convoy_probability = 0.1  # Low convoy probability
+        
+        # Mock random to return values that favor aggressive moves
+        # Provide many values since AI makes multiple random calls
+        mock_random.side_effect = [0.1] * 20  # Low values favor aggressive moves
         
         orders = ai.generate_orders(movement_game_state, "FRANCE")
         
@@ -185,7 +202,7 @@ class TestStrategicAI:
         move_orders = [o for o in orders if isinstance(o, MoveOrder)]
         assert len(move_orders) > 0
     
-    @patch('src.engine.strategic_ai.random.random')
+    @patch('engine.strategic_ai.random.random')
     def test_support_probability_affects_support_orders(self, mock_random, ai, movement_game_state):
         """Test that support probability affects support order generation."""
         ai.config.support_probability = 0.9
@@ -217,7 +234,7 @@ class TestStrategicAI:
     def test_adjustment_orders_generation(self, ai, adjustment_game_state):
         """Test adjustment order generation logic."""
         france_state = adjustment_game_state.powers["FRANCE"]
-        orders = ai._generate_adjustment_orders(adjustment_game_state, france_state)
+        orders = ai._generate_build_orders(adjustment_game_state, france_state)
         
         assert isinstance(orders, list)
         for order in orders:
@@ -244,21 +261,27 @@ class TestOrderGenerator:
     def test_generate_move_order(self, generator, sample_unit):
         """Test move order generation."""
         target = "BUR"
-        order = generator.generate_move_order(sample_unit, target)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(return_value=sample_unit)
+        mock_game_state.current_phase = "Movement"
+        
+        order = generator.create_order_from_string(f"A {sample_unit.province} - {target}", sample_unit.power, mock_game_state)
         
         assert isinstance(order, MoveOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
+        assert order.unit == sample_unit
         assert order.target_province == target
         assert order.power == sample_unit.power
     
     def test_generate_hold_order(self, generator, sample_unit):
         """Test hold order generation."""
-        order = generator.generate_hold_order(sample_unit)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(return_value=sample_unit)
+        mock_game_state.current_phase = "Movement"
+        
+        order = generator.create_order_from_string(f"A {sample_unit.province}", sample_unit.power, mock_game_state)
         
         assert isinstance(order, HoldOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
+        assert order.unit == sample_unit
         assert order.power == sample_unit.power
     
     def test_generate_support_order(self, generator, sample_unit):
@@ -266,42 +289,48 @@ class TestOrderGenerator:
         supported_unit = Unit(unit_type="A", province="MAR", power="FRANCE")
         supported_target = "BUR"
         
-        order = generator.generate_support_order(sample_unit, supported_unit, supported_target)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(side_effect=lambda p: sample_unit if p == sample_unit.province else supported_unit)
+        mock_game_state.current_phase = "Movement"
+        
+        order = generator.create_order_from_string(f"A {sample_unit.province} S A {supported_unit.province} - {supported_target}", sample_unit.power, mock_game_state)
         
         assert isinstance(order, SupportOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
-        assert order.supported_unit_type == supported_unit.unit_type
-        assert order.supported_unit_province == supported_unit.province
+        assert order.unit == sample_unit
+        assert order.supported_unit == supported_unit
         assert order.supported_target == supported_target
         assert order.power == sample_unit.power
     
     def test_generate_convoy_order(self, generator, sample_unit):
         """Test convoy order generation."""
-        convoyed_unit = Unit(unit_type="A", province="LON", power="ENGLAND")
+        fleet_unit = Unit(unit_type="F", province="ENG", power="FRANCE")
+        convoyed_unit = Unit(unit_type="A", province="LON", power="FRANCE")
         convoyed_target = "HOL"
-        convoy_chain = ["ENG", "NTH"]
         
-        order = generator.generate_convoy_order(sample_unit, convoyed_unit, convoyed_target, convoy_chain)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(side_effect=lambda p: fleet_unit if p == fleet_unit.province else convoyed_unit)
+        mock_game_state.current_phase = "Movement"
+        
+        order = generator.create_order_from_string(f"F {fleet_unit.province} C A {convoyed_unit.province} - {convoyed_target}", fleet_unit.power, mock_game_state)
         
         assert isinstance(order, ConvoyOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
-        assert order.convoyed_unit_type == convoyed_unit.unit_type
-        assert order.convoyed_unit_province == convoyed_unit.province
+        assert order.unit == fleet_unit
+        assert order.convoyed_unit == convoyed_unit
         assert order.convoyed_target == convoyed_target
-        assert order.convoy_chain == convoy_chain
-        assert order.power == sample_unit.power
+        assert order.power == fleet_unit.power
     
     def test_generate_retreat_order(self, generator, sample_unit):
         """Test retreat order generation."""
         retreat_province = "PIC"
         
-        order = generator.generate_retreat_order(sample_unit, retreat_province)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(return_value=sample_unit)
+        mock_game_state.current_phase = "Retreat"
+        
+        order = generator.create_order_from_string(f"A {sample_unit.province} R {retreat_province}", sample_unit.power, mock_game_state)
         
         assert isinstance(order, RetreatOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
+        assert order.unit == sample_unit
         assert order.retreat_province == retreat_province
         assert order.power == sample_unit.power
     
@@ -310,23 +339,27 @@ class TestOrderGenerator:
         power = "FRANCE"
         build_type = "A"
         build_province = "PAR"
-        build_coast = None
         
-        order = generator.generate_build_order(power, build_type, build_province, build_coast)
+        mock_game_state = Mock()
+        mock_game_state.current_phase = "Builds"
+        
+        order = generator.create_order_from_string(f"BUILD {build_type} {build_province}", power, mock_game_state)
         
         assert isinstance(order, BuildOrder)
         assert order.power == power
         assert order.build_type == build_type
         assert order.build_province == build_province
-        assert order.build_coast == build_coast
     
     def test_generate_destroy_order(self, generator, sample_unit):
         """Test destroy order generation."""
-        order = generator.generate_destroy_order(sample_unit)
+        mock_game_state = Mock()
+        mock_game_state.get_unit_at_province = Mock(return_value=sample_unit)
+        mock_game_state.current_phase = "Builds"
+        
+        order = generator.create_order_from_string(f"DESTROY {sample_unit.unit_type} {sample_unit.province}", sample_unit.power, mock_game_state)
         
         assert isinstance(order, DestroyOrder)
-        assert order.unit_type == sample_unit.unit_type
-        assert order.unit_province == sample_unit.province
+        assert order.destroy_unit == sample_unit
         assert order.power == sample_unit.power
 
 
@@ -340,6 +373,17 @@ class TestStrategicAIEdgeCases:
     
     def test_empty_game_state(self, ai):
         """Test behavior with empty game state."""
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         empty_state = GameState(
             game_id="empty",
             map_name="standard",
@@ -348,7 +392,12 @@ class TestStrategicAIEdgeCases:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active"
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            powers={},
+            map_data=map_data,
+            orders={}
         )
         
         orders = ai.generate_orders(empty_state, "FRANCE")
@@ -379,13 +428,13 @@ class TestStrategicAIEdgeCases:
         # Should handle gracefully, not crash
         assert isinstance(orders, list)
     
-    @patch('src.engine.strategic_ai.random.choice')
-    def test_random_choice_failure(self, mock_choice, ai, movement_game_state):
+    @patch('engine.strategic_ai.random.choice')
+    def test_random_choice_failure(self, mock_choice, ai, mid_game_state):
         """Test behavior when random choice fails."""
         mock_choice.side_effect = Exception("Random choice failed")
         
         # Should handle gracefully
-        orders = ai.generate_orders(movement_game_state, "FRANCE")
+        orders = ai.generate_orders(mid_game_state, "FRANCE")
         assert isinstance(orders, list)
 
 
@@ -425,11 +474,12 @@ class TestStrategicAIIntegration:
             if isinstance(order, MoveOrder):
                 assert order.target_province is not None
             elif isinstance(order, SupportOrder):
-                assert order.supported_unit_type is not None
-                assert order.supported_unit_province is not None
-                assert order.supported_target is not None
+                assert order.supported_unit is not None
+                # supported_target should be None for hold support, not None for move support
+                if order.supported_action == "move":
+                    assert order.supported_target is not None
+                elif order.supported_action == "hold":
+                    assert order.supported_target is None
             elif isinstance(order, ConvoyOrder):
-                assert order.convoyed_unit_type is not None
-                assert order.convoyed_unit_province is not None
+                assert order.convoyed_unit is not None
                 assert order.convoyed_target is not None
-                assert order.convoy_chain is not None

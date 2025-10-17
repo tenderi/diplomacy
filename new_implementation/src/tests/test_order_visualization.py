@@ -69,9 +69,7 @@ def test_orders_dictionary_format():
         
     except Exception as e:
         print(f"❌ Orders dictionary format test failed: {e}")
-        return False
-    
-    return True
+        raise  # Re-raise the exception to fail the test
 
 def test_moves_dictionary_format():
     """Test moves dictionary format visualization"""
@@ -134,9 +132,7 @@ def test_moves_dictionary_format():
         
     except Exception as e:
         print(f"❌ Moves dictionary format test failed: {e}")
-        return False
-    
-    return True
+        raise  # Re-raise the exception to fail the test
 
 def test_comprehensive_order_types():
     """Test all order types comprehensively"""
@@ -204,9 +200,7 @@ def test_comprehensive_order_types():
         
     except Exception as e:
         print(f"❌ Comprehensive order types test failed: {e}")
-        return False
-    
-    return True
+        raise  # Re-raise the exception to fail the test
 
 def main():
     """Run all order visualization tests"""
@@ -227,8 +221,11 @@ def main():
     total = len(tests)
     
     for test in tests:
-        if test():
+        try:
+            test()
             passed += 1
+        except Exception as e:
+            print(f"❌ Test {test.__name__} failed: {e}")
     
     print("\n" + "=" * 50)
     print(f"📊 Test Results: {passed}/{total} tests passed")

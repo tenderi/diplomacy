@@ -247,15 +247,12 @@ class OrderVisualizationService:
             
             for order in orders:
                 try:
-                    # Validate order
-                    valid, reason = order.validate(game_state)
-                    if not valid:
-                        print(f"Invalid order {order}: {reason}")
-                        continue
+                    # For visualization, we show all orders regardless of validity
+                    # This allows us to visualize orders even if they're invalid
                     
                     # Add to appropriate category based on order type and status
                     if isinstance(order, MoveOrder):
-                        if order.status == OrderStatus.SUCCESS:
+                        if order.status in [OrderStatus.SUCCESS, OrderStatus.SUBMITTED]:
                             power_moves["successful"].append({
                                 "unit": f"{order.unit.unit_type} {order.unit.province}",
                                 "target": order.target_province
@@ -292,6 +289,7 @@ class OrderVisualizationService:
                             "unit": f"{order.unit.unit_type} {order.unit.province}",
                             "convoyed_unit": f"{order.convoyed_unit.unit_type} {order.convoyed_unit.province}",
                             "target": order.convoyed_target,
+                            "convoy_chain": order.convoy_chain if hasattr(order, 'convoy_chain') else [],
                             "status": order.status.value
                         })
                     

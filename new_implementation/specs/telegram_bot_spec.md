@@ -55,7 +55,7 @@ The bot will accept standard Diplomacy notation in a single message:
 ## Components Needed
 1. **Telegram Bot Service** - Main bot interface using python-telegram-bot
 2. **HTTP API Server** - RESTful API wrapping the existing game server
-3. **Database Layer** - SQLite/PostgreSQL for user and game persistence
+3. **Database Layer** - PostgreSQL for user and game persistence
 4. **Game Scheduler** - Background service for turn processing and deadlines
 5. **Map Renderer** - Generate map images for Telegram sharing
 6. **Order Parser** - Enhanced parser for single-message order submission

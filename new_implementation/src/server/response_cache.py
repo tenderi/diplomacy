@@ -36,6 +36,7 @@ class ResponseCache:
         self.default_ttl = default_ttl
         self.max_size = max_size
         self.cache: Dict[str, Dict[str, Any]] = {}
+        self.cache_params: Dict[str, Dict[str, Any]] = {}  # Store params for each key
         self.access_times: Dict[str, float] = {}
         self.hit_count = 0
         self.miss_count = 0
@@ -67,6 +68,8 @@ class ResponseCache:
             # Check if expired
             if current_time > cached_data["expires_at"]:
                 del self.cache[key]
+                if key in self.cache_params:
+                    del self.cache_params[key]
                 if key in self.access_times:
                     del self.access_times[key]
                 self.miss_count += 1
@@ -82,6 +85,11 @@ class ResponseCache:
     def put(self, endpoint: str, data: Any, ttl: Optional[int] = None, params: Dict[str, Any] = None) -> None:
         """Cache response data with TTL."""
         with self.lock:
+            # If TTL is 0 or negative, don't cache
+            if ttl is not None and ttl <= 0:
+                logger.debug(f"🚫 Not caching {endpoint} (TTL: {ttl}s)")
+                return
+                
             key = self._generate_key(endpoint, params)
             current_time = time.time()
             expires_at = current_time + (ttl or self.default_ttl)
@@ -96,6 +104,7 @@ class ResponseCache:
                 "created_at": current_time,
                 "endpoint": endpoint
             }
+            self.cache_params[key] = params or {}
             self.access_times[key] = current_time
             
             logger.debug(f"💾 Cached response for {endpoint} (TTL: {ttl or self.default_ttl}s)")
@@ -107,12 +116,28 @@ class ResponseCache:
     def invalidate(self, endpoint: str, params: Dict[str, Any] = None) -> None:
         """Invalidate cached response."""
         with self.lock:
-            key = self._generate_key(endpoint, params)
-            if key in self.cache:
+            if params is None:
+                # Invalidate all entries for this endpoint
+                self.invalidate_pattern(endpoint)
+                return
+            
+            # Find all keys that match the endpoint and have the specified params
+            keys_to_remove = []
+            for key, cached_data in self.cache.items():
+                if cached_data["endpoint"] == endpoint:
+                    # Check if this entry's params contain all the specified params
+                    cached_params = self.cache_params.get(key, {})
+                    if cached_params and all(cached_params.get(k) == v for k, v in params.items()):
+                        keys_to_remove.append(key)
+            
+            for key in keys_to_remove:
                 del self.cache[key]
+                if key in self.cache_params:
+                    del self.cache_params[key]
                 if key in self.access_times:
                     del self.access_times[key]
-                logger.debug(f"🗑️  Invalidated cache for {endpoint}")
+            
+            logger.debug(f"🗑️  Invalidated {len(keys_to_remove)} cache entries for {endpoint}")
     
     def invalidate_pattern(self, pattern: str) -> None:
         """Invalidate all cached responses matching pattern."""
@@ -124,6 +149,8 @@ class ResponseCache:
             
             for key in keys_to_remove:
                 del self.cache[key]
+                if key in self.cache_params:
+                    del self.cache_params[key]
                 if key in self.access_times:
                     del self.access_times[key]
             
@@ -133,6 +160,7 @@ class ResponseCache:
         """Clear all cached responses."""
         with self.lock:
             self.cache.clear()
+            self.cache_params.clear()
             self.access_times.clear()
             logger.info("🗑️  Response cache cleared")
     
@@ -150,6 +178,8 @@ class ResponseCache:
             key_to_remove = sorted_items[i][0]
             if key_to_remove in self.cache:
                 del self.cache[key_to_remove]
+            if key_to_remove in self.cache_params:
+                del self.cache_params[key_to_remove]
             if key_to_remove in self.access_times:
                 del self.access_times[key_to_remove]
     
@@ -165,6 +195,8 @@ class ResponseCache:
             
             for key in expired_keys:
                 del self.cache[key]
+                if key in self.cache_params:
+                    del self.cache_params[key]
                 if key in self.access_times:
                     del self.access_times[key]
             
@@ -177,7 +209,7 @@ class ResponseCache:
         """Get cache statistics."""
         with self.lock:
             total_requests = self.hit_count + self.miss_count
-            hit_rate = (self.hit_count / total_requests * 100) if total_requests > 0 else 0
+            hit_rate = (self.hit_count / total_requests) if total_requests > 0 else 0
             
             return {
                 "cache_size": len(self.cache),
@@ -208,12 +240,20 @@ def cached_response(ttl: int = None, key_params: list = None, invalidate_on: lis
             # Extract endpoint name from function
             endpoint = f"{func.__module__}.{func.__name__}"
             
-            # Build cache key parameters
+            # Build cache key parameters from all arguments
             cache_params = {}
             if key_params:
+                # Use only specified parameters
                 for param_name in key_params:
                     if param_name in kwargs:
                         cache_params[param_name] = kwargs[param_name]
+            else:
+                # Use all arguments (both positional and keyword)
+                import inspect
+                sig = inspect.signature(func)
+                bound_args = sig.bind(*args, **kwargs)
+                bound_args.apply_defaults()
+                cache_params = dict(bound_args.arguments)
             
             # Try to get from cache
             cached_result = _response_cache.get(endpoint, cache_params)

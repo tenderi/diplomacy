@@ -19,8 +19,8 @@ from src.engine.database import clear_database, create_database_schema
 
 def main():
     """Main migration function"""
-    # Get database URL from environment or use default
-    database_url = os.getenv('SQLALCHEMY_DATABASE_URL', 'sqlite:///diplomacy.db')
+    # Get database URL from environment or use PostgreSQL default
+    database_url = os.getenv('SQLALCHEMY_DATABASE_URL', 'postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db')
     
     print(f"🔄 Starting database migration...")
     print(f"📊 Database URL: {database_url}")
@@ -40,11 +40,21 @@ def main():
         
         # Verify tables were created
         with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-                ORDER BY name
-            """))
+            # Use PostgreSQL system tables
+            if 'postgresql' in database_url:
+                result = conn.execute(text("""
+                    SELECT tablename FROM pg_tables 
+                    WHERE schemaname = 'public'
+                    ORDER BY tablename
+                """))
+            else:
+                # Fallback for other databases
+                result = conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public'
+                    ORDER BY table_name
+                """))
+            
             tables = [row[0] for row in result]
             
             print(f"📋 Created tables: {', '.join(tables)}")

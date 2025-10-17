@@ -14,7 +14,7 @@ from .data_models import (
     GameState, PowerState, Unit, Order, OrderType, OrderStatus,
     MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
 )
-from .order import OrderParser
+from .order_parser import OrderParser
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,15 @@ class StrategicAI:
             
         power_state = game_state.powers[power]
         
+        if power_state is None:
+            logger.warning(f"Power state for {power} is None")
+            return []
+        
         if game_state.current_phase == "Movement":
             return self._generate_movement_orders(game_state, power_state)
         elif game_state.current_phase == "Retreat":
             return self._generate_retreat_orders(game_state, power_state)
-        elif game_state.current_phase == "Builds":
+        elif game_state.current_phase in ["Builds", "Adjustment"]:
             return self._generate_build_orders(game_state, power_state)
         else:
             logger.warning(f"Unknown phase: {game_state.current_phase}")
@@ -164,18 +168,24 @@ class StrategicAI:
     def _determine_unit_action(self, game_state: GameState, unit: Unit) -> str:
         """Determine what action a unit should take"""
         # Strategic decision making based on game state
-        if random.random() < self.config.aggression_level:
+        rand_val = random.random()
+        
+        if rand_val < self.config.aggression_level:
+            # High aggression: prefer aggressive moves
             if random.random() < self.config.support_probability:
                 return "support"
             elif random.random() < self.config.convoy_probability and unit.unit_type == "F":
                 return "convoy"
             else:
-                return "move"
+                return "move"  # Aggressive move
         else:
+            # Low aggression: prefer defensive moves
             if random.random() < self.config.defensive_probability:
                 return "hold"
+            elif random.random() < self.config.support_probability:
+                return "support"  # Defensive support
             else:
-                return "move"
+                return "move"  # Still move, but less aggressively
     
     def _create_move_order(self, game_state: GameState, unit: Unit) -> Optional[MoveOrder]:
         """Create a move order using proper data models"""
@@ -275,9 +285,17 @@ class StrategicAI:
         # Choose a target (prefer unoccupied provinces)
         unoccupied_targets = [t for t in valid_targets if not game_state.get_unit_at_province(t)]
         if unoccupied_targets:
-            return random.choice(unoccupied_targets)
+            try:
+                return random.choice(unoccupied_targets)
+            except Exception as e:
+                logger.warning(f"Random choice failed for unoccupied targets: {e}")
+                return unoccupied_targets[0] if unoccupied_targets else None
         elif valid_targets:
-            return random.choice(valid_targets)
+            try:
+                return random.choice(valid_targets)
+            except Exception as e:
+                logger.warning(f"Random choice failed for valid targets: {e}")
+                return valid_targets[0] if valid_targets else None
         
         return None
     
@@ -378,35 +396,45 @@ class OrderGenerator:
         """
         try:
             # Parse the order string
-            parsed_order = self.order_parser.parse_order(order_string)
+            parsed_order = self.order_parser.parse_order_text(order_string, power)
             if not parsed_order:
                 return None
             
-            # Find the unit
-            unit = game_state.get_unit_at_province(parsed_order['unit_province'])
+            # Create appropriate Order object based on type
+            order_type = parsed_order.order_type
+            
+            # BUILD orders don't have a unit
+            if order_type == OrderType.BUILD:
+                return BuildOrder(
+                    power=power,
+                    order_type=OrderType.BUILD,
+                    phase=game_state.current_phase,
+                    build_province=parsed_order.build_province,
+                    build_type=parsed_order.build_type
+                )
+            
+            # Find the unit for other order types
+            unit = game_state.get_unit_at_province(parsed_order.unit_province)
             if not unit or unit.power != power:
                 return None
             
-            # Create appropriate Order object based on type
-            order_type = parsed_order['order_type']
-            
-            if order_type == "move":
+            if order_type == OrderType.MOVE:
                 return MoveOrder(
                     power=power,
                     unit=unit,
                     order_type=OrderType.MOVE,
                     phase=game_state.current_phase,
-                    target_province=parsed_order['target_province']
+                    target_province=parsed_order.target_province
                 )
-            elif order_type == "hold":
+            elif order_type == OrderType.HOLD:
                 return HoldOrder(
                     power=power,
                     unit=unit,
                     order_type=OrderType.HOLD,
                     phase=game_state.current_phase
                 )
-            elif order_type == "support":
-                supported_unit = game_state.get_unit_at_province(parsed_order['supported_unit_province'])
+            elif order_type == OrderType.SUPPORT:
+                supported_unit = game_state.get_unit_at_province(parsed_order.supported_unit_province)
                 if not supported_unit:
                     return None
                     
@@ -416,11 +444,11 @@ class OrderGenerator:
                     order_type=OrderType.SUPPORT,
                     phase=game_state.current_phase,
                     supported_unit=supported_unit,
-                    supported_action=parsed_order.get('supported_action', 'hold'),
-                    supported_target=parsed_order.get('supported_target')
+                    supported_action="hold" if parsed_order.supported_target is None else "move",
+                    supported_target=parsed_order.supported_target
                 )
-            elif order_type == "convoy":
-                convoyed_unit = game_state.get_unit_at_province(parsed_order['convoyed_unit_province'])
+            elif order_type == OrderType.CONVOY:
+                convoyed_unit = game_state.get_unit_at_province(parsed_order.convoyed_unit_province)
                 if not convoyed_unit:
                     return None
                     
@@ -430,26 +458,18 @@ class OrderGenerator:
                     order_type=OrderType.CONVOY,
                     phase=game_state.current_phase,
                     convoyed_unit=convoyed_unit,
-                    convoyed_target=parsed_order['convoyed_target']
+                    convoyed_target=parsed_order.convoyed_target
                 )
-            elif order_type == "retreat":
+            elif order_type == OrderType.RETREAT:
                 return RetreatOrder(
                     power=power,
                     unit=unit,
                     order_type=OrderType.RETREAT,
                     phase=game_state.current_phase,
-                    retreat_province=parsed_order['retreat_province']
+                    retreat_province=parsed_order.retreat_province
                 )
-            elif order_type == "build":
-                return BuildOrder(
-                    power=power,
-                    order_type=OrderType.BUILD,
-                    phase=game_state.current_phase,
-                    build_province=parsed_order['build_province'],
-                    build_type=parsed_order['build_type']
-                )
-            elif order_type == "destroy":
-                destroy_unit = game_state.get_unit_at_province(parsed_order['destroy_unit_province'])
+            elif order_type == OrderType.DESTROY:
+                destroy_unit = game_state.get_unit_at_province(parsed_order.destroy_unit_province)
                 if not destroy_unit:
                     return None
                     

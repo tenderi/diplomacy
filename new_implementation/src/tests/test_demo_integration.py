@@ -25,8 +25,8 @@ def test_demo_game_workflow():
     """Test the complete demo game workflow."""
     print("🧪 Testing Demo Game Order Management...")
     
-    # Create in-memory SQLite database for testing
-    engine = create_engine("sqlite:///:memory:", echo=False)
+    # Create PostgreSQL database for testing
+    engine = create_engine("postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db", echo=False)
     Base.metadata.create_all(engine)
     
     # Create test session
@@ -125,11 +125,10 @@ def test_demo_game_workflow():
         print("    ✅ Telegram bot logic works correctly")
         
         print("\n🎉 All tests passed! Demo game order management is working correctly.")
-        return True
         
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
-        return False
+        raise  # Re-raise the exception to fail the test
         
     finally:
         # Cleanup

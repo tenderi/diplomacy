@@ -66,7 +66,7 @@ This document outlines the comprehensive testing strategy for the Diplomacy Pyth
 **Purpose**: Tests requiring database access.
 
 **Characteristics**:
-- Use test database (SQLite in-memory or separate PostgreSQL)
+- Use test database (PostgreSQL test databases)
 - Clean up after each test
 - Test transactions, constraints, and data integrity
 
@@ -156,7 +156,7 @@ pytest --cov=src/engine --cov=src/server --cov-report=html
 ## Test Fixtures
 
 ### Database Fixtures
-- `temp_db`: Temporary SQLite database
+- `temp_db`: Temporary PostgreSQL database
 - `db_session`: Database session for testing
 - `mock_session_factory`: Mocked database sessions
 

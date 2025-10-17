@@ -2120,9 +2120,13 @@ def normalize_order_provinces(order_text: str, power: str) -> str:
     # NOT: POWER UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
     # The power is handled separately in the API call
     
+    # Remove power name if it's the first part
+    if parts and parts[0] == power:
+        parts = parts[1:]  # Remove the power name
+    
     normalized_parts = []
     for i, part in enumerate(parts):
-        # Skip unit type (A/F) - first part
+        # Skip unit type (A/F) - first part after removing power
         if i == 0 and part in ['A', 'F']:
             normalized_parts.append(part)
             continue

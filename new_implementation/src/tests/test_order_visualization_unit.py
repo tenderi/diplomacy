@@ -36,23 +36,26 @@ class TestOrderVisualizationService:
         france_orders = [
             MoveOrder(
                 power="FRANCE",
-                unit_type="A",
-                unit_province="PAR",
+                unit=Unit(unit_type="A", province="PAR", power="FRANCE"),
+                order_type=OrderType.MOVE,
+                phase="Movement",
                 target_province="BUR",
                 status=OrderStatus.SUBMITTED
             ),
             HoldOrder(
                 power="FRANCE",
-                unit_type="A",
-                unit_province="MAR",
+                unit=Unit(unit_type="A", province="MAR", power="FRANCE"),
+                order_type=OrderType.HOLD,
+                phase="Movement",
                 status=OrderStatus.SUBMITTED
             ),
             SupportOrder(
                 power="FRANCE",
-                unit_type="F",
-                unit_province="BRE",
-                supported_unit_type="A",
-                supported_unit_province="PAR",
+                unit=Unit(unit_type="F", province="BRE", power="FRANCE"),
+                order_type=OrderType.SUPPORT,
+                phase="Movement",
+                supported_unit=Unit(unit_type="A", province="PAR", power="FRANCE"),
+                supported_action="move",
                 supported_target="BUR",
                 status=OrderStatus.SUBMITTED
             )
@@ -61,25 +64,27 @@ class TestOrderVisualizationService:
         germany_orders = [
             MoveOrder(
                 power="GERMANY",
-                unit_type="A",
-                unit_province="BER",
+                unit=Unit(unit_type="A", province="BER", power="GERMANY"),
+                order_type=OrderType.MOVE,
+                phase="Movement",
                 target_province="SIL",
                 status=OrderStatus.SUBMITTED
             ),
             ConvoyOrder(
                 power="GERMANY",
-                unit_type="F",
-                unit_province="KIE",
-                convoyed_unit_type="A",
-                convoyed_unit_province="BER",
+                unit=Unit(unit_type="F", province="KIE", power="GERMANY"),
+                order_type=OrderType.CONVOY,
+                phase="Movement",
+                convoyed_unit=Unit(unit_type="A", province="BER", power="GERMANY"),
                 convoyed_target="BAL",
-                convoy_chain=["BAL"],
                 status=OrderStatus.SUBMITTED
             )
         ]
         
-        game_state.powers["FRANCE"].orders = france_orders
-        game_state.powers["GERMANY"].orders = germany_orders
+        game_state.orders = {
+            "FRANCE": france_orders,
+            "GERMANY": germany_orders
+        }
         
         return game_state
     
@@ -331,6 +336,17 @@ class TestOrderVisualizationEdgeCases:
     
     def test_empty_game_state(self, viz_service):
         """Test visualization with empty game state."""
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         empty_state = GameState(
             game_id="empty",
             map_name="standard",
@@ -339,7 +355,12 @@ class TestOrderVisualizationEdgeCases:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active"
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            powers={},
+            map_data=map_data,
+            orders={}
         )
         
         viz_data = viz_service.create_visualization_data(empty_state)
@@ -365,13 +386,14 @@ class TestOrderVisualizationEdgeCases:
         # Add invalid order
         invalid_order = MoveOrder(
             power="FRANCE",
-            unit_type="A",
-            unit_province="INVALID_PROVINCE",
+            unit=Unit(unit_type="A", province="INVALID_PROVINCE", power="FRANCE"),
+            order_type=OrderType.MOVE,
+            phase="Movement",
             target_province="BUR",
             status=OrderStatus.SUBMITTED
         )
         
-        mid_game_state.powers["FRANCE"].orders.append(invalid_order)
+        mid_game_state.orders["FRANCE"].append(invalid_order)
         
         viz_data = viz_service.create_visualization_data(mid_game_state)
         
@@ -386,6 +408,17 @@ class TestOrderVisualizationEdgeCases:
     
     def test_coast_specifications(self, viz_service):
         """Test visualization with coast specifications."""
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         game_state = GameState(
             game_id="coast_test",
             map_name="standard",
@@ -394,31 +427,38 @@ class TestOrderVisualizationEdgeCases:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active",
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            map_data=map_data,
             powers={
                 "FRANCE": PowerState(
                     power_name="FRANCE",
                     units=[
                         Unit(unit_type="F", province="SPA/NC", power="FRANCE"),
                         Unit(unit_type="F", province="SPA/SC", power="FRANCE")
-                    ],
-                    orders=[
-                        MoveOrder(
-                            power="FRANCE",
-                            unit_type="F",
-                            unit_province="SPA/NC",
-                            target_province="POR",
-                            status=OrderStatus.SUBMITTED
-                        ),
-                        MoveOrder(
-                            power="FRANCE",
-                            unit_type="F",
-                            unit_province="SPA/SC",
-                            target_province="WES",
-                            status=OrderStatus.SUBMITTED
-                        )
                     ]
                 )
+            },
+            orders={
+                "FRANCE": [
+                    MoveOrder(
+                        power="FRANCE",
+                        unit=Unit(unit_type="F", province="SPA/NC", power="FRANCE"),
+                        order_type=OrderType.MOVE,
+                        phase="Movement",
+                        target_province="POR",
+                        status=OrderStatus.SUBMITTED
+                    ),
+                    MoveOrder(
+                        power="FRANCE",
+                        unit=Unit(unit_type="F", province="SPA/SC", power="FRANCE"),
+                        order_type=OrderType.MOVE,
+                        phase="Movement",
+                        target_province="WES",
+                        status=OrderStatus.SUBMITTED
+                    )
+                ]
             }
         )
         
@@ -447,6 +487,17 @@ class TestOrderVisualizationIntegration:
     
     def test_comprehensive_order_types(self, viz_service):
         """Test visualization with all order types."""
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         game_state = GameState(
             game_id="comprehensive_test",
             map_name="standard",
@@ -455,7 +506,9 @@ class TestOrderVisualizationIntegration:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active",
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
             powers={
                 "FRANCE": PowerState(
                     power_name="FRANCE",
@@ -463,30 +516,6 @@ class TestOrderVisualizationIntegration:
                         Unit(unit_type="A", province="PAR", power="FRANCE"),
                         Unit(unit_type="A", province="MAR", power="FRANCE"),
                         Unit(unit_type="F", province="BRE", power="FRANCE")
-                    ],
-                    orders=[
-                        MoveOrder(
-                            power="FRANCE",
-                            unit_type="A",
-                            unit_province="PAR",
-                            target_province="BUR",
-                            status=OrderStatus.SUBMITTED
-                        ),
-                        HoldOrder(
-                            power="FRANCE",
-                            unit_type="A",
-                            unit_province="MAR",
-                            status=OrderStatus.SUBMITTED
-                        ),
-                        SupportOrder(
-                            power="FRANCE",
-                            unit_type="F",
-                            unit_province="BRE",
-                            supported_unit_type="A",
-                            supported_unit_province="PAR",
-                            supported_target="BUR",
-                            status=OrderStatus.SUBMITTED
-                        )
                     ]
                 ),
                 "ENGLAND": PowerState(
@@ -494,37 +523,71 @@ class TestOrderVisualizationIntegration:
                     units=[
                         Unit(unit_type="A", province="LON", power="ENGLAND"),
                         Unit(unit_type="F", province="NTH", power="ENGLAND")
-                    ],
-                    orders=[
-                        ConvoyOrder(
-                            power="ENGLAND",
-                            unit_type="F",
-                            unit_province="NTH",
-                            convoyed_unit_type="A",
-                            convoyed_unit_province="LON",
-                            convoyed_target="HOL",
-                            convoy_chain=["ENG", "NTH"],
-                            status=OrderStatus.SUBMITTED
-                        )
                     ]
                 ),
                 "GERMANY": PowerState(
                     power_name="GERMANY",
                     units=[
                         Unit(unit_type="A", province="BER", power="GERMANY")
-                    ],
-                    orders=[
-                        RetreatOrder(
-                            power="GERMANY",
-                            unit_type="A",
-                            unit_province="BER",
-                            retreat_province="SIL",
-                            status=OrderStatus.SUBMITTED
-                        )
                     ]
                 )
-            }
+            },
+            map_data=map_data,
+            orders={}
         )
+        
+        # Add orders to game state
+        game_state.orders = {
+            "FRANCE": [
+                MoveOrder(
+                    power="FRANCE",
+                    unit=Unit(unit_type="A", province="PAR", power="FRANCE"),
+                    order_type=OrderType.MOVE,
+                    phase="Movement",
+                    target_province="BUR",
+                    status=OrderStatus.SUBMITTED
+                ),
+                HoldOrder(
+                    power="FRANCE",
+                    unit=Unit(unit_type="A", province="MAR", power="FRANCE"),
+                    order_type=OrderType.HOLD,
+                    phase="Movement",
+                    status=OrderStatus.SUBMITTED
+                ),
+                SupportOrder(
+                    power="FRANCE",
+                    unit=Unit(unit_type="F", province="BRE", power="FRANCE"),
+                    order_type=OrderType.SUPPORT,
+                    phase="Movement",
+                    supported_unit=Unit(unit_type="A", province="PAR", power="FRANCE"),
+                    supported_action="move",
+                    supported_target="BUR",
+                    status=OrderStatus.SUBMITTED
+                )
+            ],
+            "ENGLAND": [
+                ConvoyOrder(
+                    power="ENGLAND",
+                    unit=Unit(unit_type="F", province="NTH", power="ENGLAND"),
+                    order_type=OrderType.CONVOY,
+                    phase="Movement",
+                    convoyed_unit=Unit(unit_type="A", province="LON", power="ENGLAND"),
+                    convoyed_target="HOL",
+                    convoy_chain=["ENG", "NTH"],
+                    status=OrderStatus.SUBMITTED
+                )
+            ],
+            "GERMANY": [
+                RetreatOrder(
+                    power="GERMANY",
+                    unit=Unit(unit_type="A", province="BER", power="GERMANY"),
+                    order_type=OrderType.RETREAT,
+                    phase="Retreat",
+                    retreat_province="SIL",
+                    status=OrderStatus.SUBMITTED
+                )
+            ]
+        }
         
         viz_data = viz_service.create_visualization_data(game_state)
         
@@ -550,6 +613,17 @@ class TestOrderVisualizationIntegration:
     
     def test_moves_visualization_comprehensive(self, viz_service):
         """Test comprehensive moves visualization."""
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
+        
         game_state = GameState(
             game_id="moves_test",
             map_name="standard",
@@ -558,31 +632,38 @@ class TestOrderVisualizationIntegration:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active",
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
             powers={
                 "FRANCE": PowerState(
                     power_name="FRANCE",
                     units=[
                         Unit(unit_type="A", province="PAR", power="FRANCE"),
                         Unit(unit_type="A", province="MAR", power="FRANCE")
-                    ],
-                    orders=[
-                        MoveOrder(
-                            power="FRANCE",
-                            unit_type="A",
-                            unit_province="PAR",
-                            target_province="BUR",
-                            status=OrderStatus.SUBMITTED
-                        ),
-                        MoveOrder(
-                            power="FRANCE",
-                            unit_type="A",
-                            unit_province="MAR",
-                            target_province="PIC",
-                            status=OrderStatus.SUBMITTED
-                        )
                     ]
                 )
+            },
+            map_data=map_data,
+            orders={
+                "FRANCE": [
+                    MoveOrder(
+                        power="FRANCE",
+                        unit=Unit(unit_type="A", province="PAR", power="FRANCE"),
+                        order_type=OrderType.MOVE,
+                        phase="Movement",
+                        target_province="BUR",
+                        status=OrderStatus.SUBMITTED
+                    ),
+                    MoveOrder(
+                        power="FRANCE",
+                        unit=Unit(unit_type="A", province="MAR", power="FRANCE"),
+                        order_type=OrderType.MOVE,
+                        phase="Movement",
+                        target_province="PIC",
+                        status=OrderStatus.SUBMITTED
+                    )
+                ]
             }
         )
         
@@ -617,6 +698,7 @@ class TestOrderVisualizationPerformance:
         """Test visualization with large game state."""
         # Create game state with many powers and orders
         powers = {}
+        power_orders = {}
         for power_name in ["FRANCE", "GERMANY", "ENGLAND", "RUSSIA", "TURKEY", "AUSTRIA", "ITALY"]:
             units = [
                 Unit(unit_type="A", province=f"{power_name[:3]}1", power=power_name),
@@ -627,24 +709,39 @@ class TestOrderVisualizationPerformance:
             orders = [
                 MoveOrder(
                     power=power_name,
-                    unit_type="A",
-                    unit_province=f"{power_name[:3]}1",
+                    unit=Unit(unit_type="A", province=f"{power_name[:3]}1", power=power_name),
+                    order_type=OrderType.MOVE,
+                    phase="Movement",
                     target_province=f"{power_name[:3]}2",
                     status=OrderStatus.SUBMITTED
                 ),
                 HoldOrder(
                     power=power_name,
-                    unit_type="F",
-                    unit_province=f"{power_name[:3]}3",
+                    unit=Unit(unit_type="F", province=f"{power_name[:3]}3", power=power_name),
+                    order_type=OrderType.HOLD,
+                    phase="Movement",
                     status=OrderStatus.SUBMITTED
                 )
             ]
             
             powers[power_name] = PowerState(
                 power_name=power_name,
-                units=units,
-                orders=orders
+                units=units
             )
+            
+            # Store orders separately
+            power_orders[power_name] = orders
+        
+        from datetime import datetime
+        from src.engine.data_models import MapData, GameStatus
+        
+        map_data = MapData(
+            map_name="standard",
+            provinces={},
+            supply_centers=[],
+            home_supply_centers={},
+            starting_positions={}
+        )
         
         game_state = GameState(
             game_id="large_test",
@@ -654,8 +751,12 @@ class TestOrderVisualizationPerformance:
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
-            status="active",
-            powers=powers
+            status=GameStatus.ACTIVE,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            powers=powers,
+            map_data=map_data,
+            orders=power_orders
         )
         
         import time

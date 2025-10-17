@@ -99,7 +99,7 @@ PYTEST_CMD="pytest"
 if [[ -n "$MARKERS" ]]; then
     PYTEST_CMD="$PYTEST_CMD -m \"unit or$MARKERS\""
 else
-    PYTEST_CMD="$PYTEST_CMD -m unit"
+    PYTEST_CMD="$PYTEST_CMD"  # Run all tests by default
 fi
 
 # Add verbosity
@@ -123,6 +123,9 @@ echo ""
 echo -e "${BLUE}🚀 Running tests...${NC}"
 echo "Command: $PYTEST_CMD"
 echo ""
+
+# Set PYTHONPATH to include src directory
+export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 
 # Execute the command
 if eval $PYTEST_CMD; then

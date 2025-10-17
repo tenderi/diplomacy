@@ -93,7 +93,15 @@ class TestDAIDEMessageHandling:
         
         # Mock client socket
         mock_client_sock = Mock()
-        mock_client_sock.recv = Mock(return_value=b"HLO (FRANCE)")
+        call_count = 0
+        def mock_recv(size):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return b"HLO (FRANCE)"
+            else:
+                return b""  # End of data to break the loop
+        mock_client_sock.recv = Mock(side_effect=mock_recv)
         mock_client_sock.sendall = Mock()
         
         # Test HLO handling

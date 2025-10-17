@@ -25,8 +25,8 @@ class TestDemoGameManagement:
     @pytest.fixture(autouse=True)
     def setup_test_db(self):
         """Set up test database for each test."""
-        # Create in-memory SQLite database for testing
-        self.engine = create_engine("sqlite:///:memory:", echo=False)
+        # Create PostgreSQL database for testing
+        self.engine = create_engine("postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db", echo=False)
         Base.metadata.create_all(self.engine)
         
         # Create test session

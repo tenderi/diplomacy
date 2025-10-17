@@ -127,7 +127,9 @@ class Server:
             if cmd == "NEW_GAME" or cmd == "CREATE_GAME":
                 map_name = tokens[1] if len(tokens) > 1 else "standard"
                 game_id = str(self.next_game_id)
-                self.games[game_id] = Game(map_name=map_name)
+                game = Game(map_name=map_name)
+                game.game_id = game_id  # Set the game_id attribute
+                self.games[game_id] = game
                 self.next_game_id += 1
                 self.logger.info(f"Created new game with id {game_id} and map {map_name}")
                 return {"status": "ok", "game_id": game_id, "map_name": map_name}
