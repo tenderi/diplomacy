@@ -439,9 +439,87 @@ class TestStrategicAIIntegration:
             map_snapshots=[],
             map_data=MapData(
                 map_name="standard", 
-                provinces={},
-                supply_centers=[],
-                home_supply_centers={},
+                provinces={
+                    "PAR": Province(
+                        name="PAR",
+                        province_type="land",
+                        is_supply_center=True,
+                        is_home_supply_center=True,
+                        home_power="FRANCE",
+                        adjacent_provinces=["BUR", "PIC", "GAS"]
+                    ),
+                    "MAR": Province(
+                        name="MAR",
+                        province_type="land",
+                        is_supply_center=True,
+                        is_home_supply_center=True,
+                        home_power="FRANCE",
+                        adjacent_provinces=["BUR", "LYO", "SPA"]
+                    ),
+                    "BRE": Province(
+                        name="BRE",
+                        province_type="coastal",
+                        is_supply_center=True,
+                        is_home_supply_center=True,
+                        home_power="FRANCE",
+                        adjacent_provinces=["ENG", "MAO", "GAS"],
+                        coastal_provinces=["ENG", "MAO"]
+                    ),
+                    "BUR": Province(
+                        name="BUR",
+                        province_type="land",
+                        is_supply_center=True,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["PAR", "MAR", "BEL", "RUH", "MUN"]
+                    ),
+                    "PIC": Province(
+                        name="PIC",
+                        province_type="coastal",
+                        is_supply_center=False,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["PAR", "BEL", "ENG"],
+                        coastal_provinces=["ENG"]
+                    ),
+                    "GAS": Province(
+                        name="GAS",
+                        province_type="coastal",
+                        is_supply_center=False,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["PAR", "BRE", "SPA"],
+                        coastal_provinces=["MAO"]
+                    ),
+                    "LYO": Province(
+                        name="LYO",
+                        province_type="land",
+                        is_supply_center=False,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["MAR", "SPA", "PIE"]
+                    ),
+                    "SPA": Province(
+                        name="SPA",
+                        province_type="coastal",
+                        is_supply_center=True,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["MAR", "GAS", "LYO", "POR"],
+                        coastal_provinces=["MAO"]
+                    ),
+                    "ENG": Province(
+                        name="ENG",
+                        province_type="sea",
+                        is_supply_center=False,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["BRE", "PIC", "BEL", "NTH", "IRI"]
+                    ),
+                    "MAO": Province(
+                        name="MAO",
+                        province_type="sea",
+                        is_supply_center=False,
+                        is_home_supply_center=False,
+                        adjacent_provinces=["BRE", "GAS", "SPA", "POR", "IRI"]
+                    )
+                },
+                supply_centers=["PAR", "MAR", "BRE", "BUR", "SPA"],
+                home_supply_centers={"FRANCE": ["PAR", "MAR", "BRE"]},
                 starting_positions={}
             )
         )
@@ -458,8 +536,8 @@ class TestStrategicAIIntegration:
         for order in orders:
             assert order.power == "FRANCE"
             assert order.order_type is not None
-            assert order.unit_type in ["A", "F"]
-            assert order.unit_province is not None
+            assert order.unit.unit_type in ["A", "F"]
+            assert order.unit.province is not None
     
     def test_ai_edge_cases(self, strategic_ai, sample_game_state):
         """Test AI edge cases."""
