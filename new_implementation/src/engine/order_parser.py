@@ -39,7 +39,7 @@ class ParsedOrder:
     convoyed_unit_type: Optional[str] = None
     convoyed_unit_province: Optional[str] = None
     convoyed_target: Optional[str] = None
-    convoy_chain: List[str] = None
+    convoy_chain: Optional[List[str]] = None
     retreat_province: Optional[str] = None
     build_type: Optional[str] = None
     build_province: Optional[str] = None
@@ -54,12 +54,12 @@ class OrderParser:
     
     def __init__(self):
         # Order patterns
-        self.move_pattern = re.compile(r'^([AF])\s+([A-Z]{3})\s*-\s*([A-Z]{3})$', re.IGNORECASE)
-        self.hold_pattern = re.compile(r'^([AF])\s+([A-Z]{3})\s*(?:H)?$', re.IGNORECASE)
-        self.support_pattern = re.compile(r'^([AF])\s+([A-Z]{3})\s+S\s+([AF])\s+([A-Z]{3})(?:\s*-\s*([A-Z]{3}))?$', re.IGNORECASE)
-        self.convoy_pattern = re.compile(r'^([AF])\s+([A-Z]{3})\s+C\s+([AF])\s+([A-Z]{3})\s*-\s*([A-Z]{3})$', re.IGNORECASE)
-        self.retreat_pattern = re.compile(r'^([AF])\s+([A-Z]{3})\s+R\s+([A-Z]{3})$', re.IGNORECASE)
-        self.build_pattern = re.compile(r'^BUILD\s+([AF])\s+([A-Z]{3})(?:/([A-Z]{2}))?$', re.IGNORECASE)
+        self.move_pattern = re.compile(r'^([AF])\s+([A-Z]{3,10}(?:/[A-Z]{2})?)\s*-\s*([A-Z]{3,10}(?:/[A-Z]{2})?)$', re.IGNORECASE)
+        self.hold_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+H$', re.IGNORECASE)
+        self.support_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+S\s+([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)(?:\s*-\s*([A-Z]{3}(?:/[A-Z]{2})?))?$', re.IGNORECASE)
+        self.convoy_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+C\s+([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s*-\s*([A-Z]{3}(?:/[A-Z]{2})?)$', re.IGNORECASE)
+        self.retreat_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+R\s+([A-Z]{3}(?:/[A-Z]{2})?)$', re.IGNORECASE)
+        self.build_pattern = re.compile(r'^BUILD\s+([AF])\s+([A-Z]{3})(?:\s*/\s*([A-Z]{2}))?$', re.IGNORECASE)
         self.destroy_pattern = re.compile(r'^DESTROY\s+([AF])\s+([A-Z]{3})$', re.IGNORECASE)
         
         # Power names for validation
@@ -87,9 +87,20 @@ class OrderParser:
         
         # Remove power name if present (e.g., "GERMANY A PAR - BUR" -> "A PAR - BUR")
         parts = order_text.split()
-        if len(parts) > 3 and parts[0].upper() in self.valid_powers:
-            # Power name is first, remove it
-            order_text = ' '.join(parts[1:])
+        if len(parts) > 3:
+            # Check if the first word is a power name or an invalid prefix
+            # Valid orders start with unit type (A or F) or order keywords (BUILD, DESTROY)
+            first_word_upper = parts[0].upper()
+            second_word_upper = parts[1].upper() if len(parts) > 1 else ""
+            
+            # If first word is a power name, remove it
+            if first_word_upper in self.valid_powers:
+                order_text = ' '.join(parts[1:])
+            # If first word is not a unit type or order keyword, but second word is, remove first word
+            # This handles cases like "INVALID A PAR - BUR" -> "A PAR - BUR"
+            elif (first_word_upper not in ['A', 'F', 'BUILD', 'DESTROY'] and 
+                  second_word_upper in ['A', 'F', 'BUILD', 'DESTROY']):
+                order_text = ' '.join(parts[1:])
         
         # Try each order type pattern
         parsed = self._try_move_order(order_text, power)
@@ -139,6 +150,7 @@ class OrderParser:
     
     def _try_hold_order(self, order_text: str, power: str) -> Optional[ParsedOrder]:
         """Try to parse as hold order"""
+        # Try explicit hold order first
         match = self.hold_pattern.match(order_text)
         if match:
             unit_type, unit_province = match.groups()
@@ -149,6 +161,20 @@ class OrderParser:
                 unit_province=unit_province.upper(),
                 raw_text=order_text
             )
+        
+        # Try implicit hold order (just unit type and province)
+        implicit_hold_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)$', re.IGNORECASE)
+        match = implicit_hold_pattern.match(order_text)
+        if match:
+            unit_type, unit_province = match.groups()
+            return ParsedOrder(
+                order_type=OrderType.HOLD,
+                power=power,
+                unit_type=unit_type.upper(),
+                unit_province=unit_province.upper(),
+                raw_text=order_text
+            )
+        
         return None
     
     def _try_support_order(self, order_text: str, power: str) -> Optional[ParsedOrder]:
@@ -276,6 +302,9 @@ class OrderParser:
         # Find the unit
         unit = self._find_unit(parsed.unit_type, parsed.unit_province, power_state)
         
+        if parsed.target_province is None:
+            raise OrderValidationError("Move order requires target province")
+        
         return MoveOrder(
             power=parsed.power,
             unit=unit,
@@ -299,6 +328,9 @@ class OrderParser:
         """Create SupportOrder from parsed data"""
         unit = self._find_unit(parsed.unit_type, parsed.unit_province, power_state)
         
+        if parsed.supported_unit_type is None or parsed.supported_unit_province is None:
+            raise OrderValidationError("Support order requires supported unit type and province")
+        
         # Find supported unit
         supported_unit = self._find_unit_in_game(
             parsed.supported_unit_type, 
@@ -320,6 +352,12 @@ class OrderParser:
         """Create ConvoyOrder from parsed data"""
         unit = self._find_unit(parsed.unit_type, parsed.unit_province, power_state)
         
+        if parsed.convoyed_unit_type is None or parsed.convoyed_unit_province is None:
+            raise OrderValidationError("Convoy order requires convoyed unit type and province")
+        
+        if parsed.convoyed_target is None:
+            raise OrderValidationError("Convoy order requires convoyed target")
+        
         # Find convoyed unit
         convoyed_unit = self._find_unit_in_game(
             parsed.convoyed_unit_type,
@@ -340,6 +378,9 @@ class OrderParser:
         """Create RetreatOrder from parsed data"""
         unit = self._find_unit(parsed.unit_type, parsed.unit_province, power_state)
         
+        if parsed.retreat_province is None:
+            raise OrderValidationError("Retreat order requires retreat province")
+        
         return RetreatOrder(
             power=parsed.power,
             unit=unit,
@@ -350,6 +391,12 @@ class OrderParser:
     
     def _create_build_order(self, parsed: ParsedOrder, power_state: PowerState, game_state: GameState) -> BuildOrder:
         """Create BuildOrder from parsed data"""
+        if parsed.build_province is None:
+            raise OrderValidationError("Build order requires build province")
+        
+        if parsed.build_type is None:
+            raise OrderValidationError("Build order requires build type")
+        
         # Build orders don't have existing units
         dummy_unit = Unit(
             unit_type="",
@@ -369,6 +416,9 @@ class OrderParser:
     
     def _create_destroy_order(self, parsed: ParsedOrder, power_state: PowerState, game_state: GameState) -> DestroyOrder:
         """Create DestroyOrder from parsed data"""
+        if parsed.destroy_unit_type is None or parsed.destroy_unit_province is None:
+            raise OrderValidationError("Destroy order requires destroy unit type and province")
+        
         # Find the unit to destroy
         destroy_unit = self._find_unit(parsed.destroy_unit_type, parsed.destroy_unit_province, power_state)
         

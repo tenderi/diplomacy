@@ -1,12 +1,12 @@
-from src.engine.game import Game
-from src.engine.data_models import Unit
+from engine.game import Game
+from engine.data_models import Unit
 
 def test_game_instantiation():
     game = Game()
     assert game is not None
 
 def test_victory_condition_standard_map():
-    from src.engine.game import Game
+    from engine.game import Game
     game = Game(map_name='standard')
     # Add two players
     game.add_player('FRANCE')

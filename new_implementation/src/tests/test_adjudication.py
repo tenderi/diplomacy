@@ -2,14 +2,14 @@
 Tests for advanced order adjudication and turn processing in Diplomacy.
 Covers support cut, standoffs, convoyed moves, and dislodgement.
 """
-from src.engine.game import Game
+from engine.game import Game
 
 def test_support_cut():
     game = Game('standard')
     game.add_player("FRANCE")
     game.add_player("GERMANY")
     # Add units to the new data model
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='PAR', power='FRANCE')]
     game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='BUR', power='GERMANY')]
     # France supports its own move to BUR, Germany moves to PAR
@@ -25,7 +25,7 @@ def test_standoff():
     game = Game('standard')
     game.add_player("FRANCE")
     game.add_player("GERMANY")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='PAR', power='FRANCE')]
     game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='MAR', power='GERMANY')]
     game.set_orders("FRANCE", ["FRANCE A PAR - BUR"])
@@ -39,7 +39,7 @@ def test_convoyed_move():
     game = Game('standard')
     game.add_player("ENGLAND")
     game.add_player("GERMANY")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["ENGLAND"].units = [Unit(unit_type='A', province='LON', power='ENGLAND'), Unit(unit_type='F', province='NTH', power='ENGLAND'), Unit(unit_type='A', province='YOR', power='ENGLAND')]
     game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='HOL', power='GERMANY')]
     # England A LON - HOL via convoy with support, F NTH convoys, A YOR supports
@@ -63,7 +63,7 @@ def test_dislodgement():
     game = Game('standard')
     game.add_player("FRANCE")
     game.add_player("GERMANY")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='PAR', power='FRANCE')]
     game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='BUR', power='GERMANY'), Unit(unit_type='A', province='MUN', power='GERMANY')]
     # Germany attacks PAR from BUR with support from MUN
@@ -85,7 +85,7 @@ def test_beleaguered_garrison():
     game.add_player("AUSTRIA")
     game.add_player("RUSSIA")
     game.add_player("TURKEY")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["AUSTRIA"].units = [Unit(unit_type='A', province='SER', power='AUSTRIA')]
     game.game_state.powers["RUSSIA"].units = [Unit(unit_type='A', province='RUM', power='RUSSIA'), Unit(unit_type='A', province='BUD', power='RUSSIA')]
     game.game_state.powers["TURKEY"].units = [Unit(unit_type='A', province='BUL', power='TURKEY'), Unit(unit_type='A', province='GRE', power='TURKEY')]
@@ -115,7 +115,7 @@ def test_support_cut_by_dislodgement():
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("RUSSIA")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='BER', power='GERMANY'), Unit(unit_type='A', province='SIL', power='GERMANY')]
     game.game_state.powers["RUSSIA"].units = [Unit(unit_type='A', province='PRU', power='RUSSIA'), Unit(unit_type='A', province='WAR', power='RUSSIA'), Unit(unit_type='A', province='BOH', power='RUSSIA')]
     # Germany tries to take Prussia with support, but supporting unit is dislodged
@@ -140,7 +140,7 @@ def test_self_standoff():
     game = Game('standard')
     game.add_player("AUSTRIA")
     game.add_player("RUSSIA")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     game.game_state.powers["AUSTRIA"].units = [Unit(unit_type='A', province='SER', power='AUSTRIA'), Unit(unit_type='A', province='VIE', power='AUSTRIA')]
     game.game_state.powers["RUSSIA"].units = [Unit(unit_type='A', province='GAL', power='RUSSIA')]
 
@@ -166,13 +166,13 @@ def test_complex_convoy_disruption():
     game = Game('standard')
     game.add_player("FRANCE")
     game.add_player("ITALY")
-    from src.engine.data_models import Unit
-    game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='SPA', power='FRANCE'), Unit(unit_type='F', province='LYO', power='FRANCE'), Unit(unit_type='F', province='TYS', power='FRANCE')]
+    from engine.data_models import Unit
+    game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='SPA', power='FRANCE'), Unit(unit_type='F', province='GOL', power='FRANCE'), Unit(unit_type='F', province='TYS', power='FRANCE')]
     game.game_state.powers["ITALY"].units = [Unit(unit_type='F', province='ION', power='ITALY'), Unit(unit_type='F', province='TUN', power='ITALY')]
     # France tries to convoy army, but one convoying fleet is attacked
     game.set_orders("FRANCE", [
         "FRANCE A SPA - NAP",
-        "FRANCE F LYO C A SPA - NAP",
+        "FRANCE F GOL C A SPA - NAP",
         "FRANCE F TYS C A SPA - NAP"
     ])
     game.set_orders("ITALY", [
@@ -183,7 +183,7 @@ def test_complex_convoy_disruption():
 
     # Fleet should be dislodged, convoy should fail
     assert any(unit.province == 'SPA' for unit in game.game_state.powers["FRANCE"].units)   # Army stays (convoy failed)
-    assert any(unit.province == 'LYO' for unit in game.game_state.powers["FRANCE"].units)   # Fleet stays
+    assert any(unit.province == 'GOL' for unit in game.game_state.powers["FRANCE"].units)   # Fleet stays
     assert not any(unit.province == 'TYS' for unit in game.game_state.powers["FRANCE"].units)  # Fleet dislodged
     assert any(unit.province == 'TYS' for unit in game.game_state.powers["ITALY"].units)    # Italian fleet moved in
     assert not any(unit.province == 'ION' for unit in game.game_state.powers["ITALY"].units)  # Italian fleet moved out
@@ -192,7 +192,7 @@ def test_circular_movement_fleet():
     """Test circular movement between three fleets in adjacent sea/coastal provinces"""
     game = Game('standard')
     game.add_player("ENGLAND")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     # Use three adjacent coastal/sea provinces: HOL, HEL, NTH
     game.game_state.powers["ENGLAND"].units = [Unit(unit_type='F', province='HOL', power='ENGLAND'), Unit(unit_type='F', province='HEL', power='ENGLAND'), Unit(unit_type='F', province='NTH', power='ENGLAND')]
     game.set_orders("ENGLAND", [
@@ -210,7 +210,7 @@ def test_circular_movement_army():
     """Test circular movement between three armies in adjacent land provinces"""
     game = Game('standard')
     game.add_player("ENGLAND")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     # Use three adjacent land provinces: HOL, BEL, RUH
     game.game_state.powers["ENGLAND"].units = [Unit(unit_type='A', province='HOL', power='ENGLAND'), Unit(unit_type='A', province='BEL', power='ENGLAND'), Unit(unit_type='A', province='RUH', power='ENGLAND')]
     game.set_orders("ENGLAND", [
@@ -228,7 +228,7 @@ def test_army_and_fleet_invalid_moves():
     """Test that armies cannot move to ocean spaces and fleets cannot move to land-locked provinces"""
     game = Game('standard')
     game.add_player("ENGLAND")
-    from src.engine.data_models import Unit
+    from engine.data_models import Unit
     # Army in LON, Fleet in NTH
     game.game_state.powers["ENGLAND"].units = [Unit(unit_type='A', province='LON', power='ENGLAND'), Unit(unit_type='F', province='NTH', power='ENGLAND')]
     # Try to move army to NTH (ocean), and fleet to LON (land)
@@ -244,8 +244,8 @@ def test_army_and_fleet_invalid_moves():
 
 def test_self_dislodgement_prohibited():
     """Test that a power cannot dislodge its own unit (self-dislodgement prohibited)."""
-    from src.engine.game import Game
-    from src.engine.data_models import Unit
+    from engine.game import Game
+    from engine.data_models import Unit
     game = Game('standard')
     game.add_player('FRANCE')
     # Place two French units in adjacent provinces

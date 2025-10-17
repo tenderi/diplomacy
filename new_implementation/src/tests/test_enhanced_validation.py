@@ -10,8 +10,8 @@ import os
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.engine.game import Game
-from src.engine.data_models import Unit, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderStatus
+from engine.game import Game
+from engine.data_models import Unit, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderStatus
 
 
 class TestEnhancedValidation:

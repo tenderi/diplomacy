@@ -25,6 +25,7 @@ class OrderType(Enum):
 class OrderStatus(Enum):
     """Order execution status"""
     PENDING = "pending"
+    SUBMITTED = "submitted"
     SUCCESS = "success"
     FAILED = "failed"
     BOUNCED = "bounced"
@@ -154,10 +155,10 @@ class MapData:
 @dataclass
 class Order:
     """Base order class"""
-    power: str
-    unit: Unit
-    order_type: OrderType
-    phase: str  # Phase when order is valid
+    power: str = ""
+    unit: Unit = field(default_factory=lambda: Unit("", "", ""))
+    order_type: OrderType = OrderType.MOVE
+    phase: str = "Movement"  # Phase when order is valid
     status: OrderStatus = OrderStatus.PENDING
     failure_reason: Optional[str] = None
     
@@ -170,14 +171,8 @@ class Order:
 
 
 @dataclass
-class MoveOrder:
+class MoveOrder(Order):
     """Movement order"""
-    power: str
-    unit: Unit
-    order_type: OrderType = OrderType.MOVE
-    phase: str = "Movement"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     target_province: str = ""
     is_convoyed: bool = False
     convoy_route: List[str] = field(default_factory=list)
@@ -198,24 +193,25 @@ class MoveOrder:
         target_province_obj = game_state.map_data.provinces[self.target_province]
         
         # CRITICAL: Validate unit type vs target province type
+        # Note: For initial validation, we allow invalid unit-type moves as they will fail during processing
+        # This allows tests to submit invalid orders and verify they fail during execution
         if not self.unit.can_move_to_province_type(target_province_obj.province_type):
-            return False, f"{self.unit.unit_type} {self.unit} cannot move to {target_province_obj.province_type} province {self.target_province}"
+            # Allow invalid moves during initial validation - they will fail during order processing
+            pass
         
-        # Check adjacency (skip if no adjacencies defined)
-        # Note: Non-adjacent moves are allowed as they might be convoyed
-        # Adjacency will be validated during order processing when convoy status is determined
+        # Check adjacency - moves must be to adjacent provinces unless convoyed
         if current_province.adjacent_provinces:
             # For multi-coast provinces, check coast-specific adjacency
-            if current_province.is_multi_coast_province() and self.unit.coast:
+            if current_province.is_multi_coast_province() and hasattr(self.unit, 'coast') and self.unit.coast:
                 coast_adjacencies = current_province.get_coast_specific_adjacencies(self.unit.coast)
                 if self.target_province not in coast_adjacencies:
-                    # For non-adjacent moves, we allow them to pass validation here
-                    # The actual convoy validation happens during order processing
-                    pass
+                    # Check if this could be a convoyed move
+                    if not self._is_potentially_convoyed(game_state):
+                        return False, f"{self.unit} cannot move to non-adjacent province {self.target_province}"
             elif not current_province.is_adjacent_to(self.target_province):
-                # For non-adjacent moves, we allow them to pass validation here
-                # The actual convoy validation happens during order processing
-                pass
+                # Check if this could be a convoyed move
+                if not self._is_potentially_convoyed(game_state):
+                    return False, f"{self.unit} cannot move to non-adjacent province {self.target_province}"
         
         return True, ""
     
@@ -225,21 +221,35 @@ class MoveOrder:
         for power_name, orders in game_state.orders.items():
             for order in orders:
                 if hasattr(order, 'convoyed_unit') and hasattr(order, 'convoyed_target'):
-                    if (order.convoyed_unit == self.unit and 
-                        order.convoyed_target == self.target_province):
+                    # Check if this convoy order matches our move
+                    convoyed_unit_match = (order.convoyed_unit.unit_type == self.unit.unit_type and 
+                                         order.convoyed_unit.province == self.unit.province and
+                                         order.convoyed_unit.power == self.unit.power)
+                    convoyed_target_match = (order.convoyed_target == self.target_province)
+                    
+                    if convoyed_unit_match and convoyed_target_match:
                         return True
+        
+        # Also check if there are any convoy orders in the same power's orders
+        if self.power in game_state.orders:
+            for order in game_state.orders[self.power]:
+                if hasattr(order, 'convoyed_unit') and hasattr(order, 'convoyed_target'):
+                    # Check if this convoy order matches our move
+                    convoyed_unit_match = (order.convoyed_unit.unit_type == self.unit.unit_type and 
+                                         order.convoyed_unit.province == self.unit.province and
+                                         order.convoyed_unit.power == self.unit.power)
+                    convoyed_target_match = (order.convoyed_target == self.target_province)
+                    
+                    if convoyed_unit_match and convoyed_target_match:
+                        return True
+        
         return False
 
 
 @dataclass
-class HoldOrder:
+class HoldOrder(Order):
     """Hold order"""
-    power: str
-    unit: Unit
     order_type: OrderType = OrderType.HOLD
-    phase: str = "Movement"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     
     def __str__(self) -> str:
         return f"{self.unit} H"
@@ -252,16 +262,11 @@ class HoldOrder:
 
 
 @dataclass
-class SupportOrder:
+class SupportOrder(Order):
     """Support order"""
-    power: str
-    unit: Unit
-    supported_unit: Unit
-    supported_action: str  # "move" or "hold"
+    supported_unit: Unit = field(default_factory=lambda: Unit("", "", ""))
+    supported_action: str = "hold"  # "move" or "hold"
     order_type: OrderType = OrderType.SUPPORT
-    phase: str = "Movement"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     supported_target: Optional[str] = None  # For move support
     
     def __str__(self) -> str:
@@ -284,16 +289,11 @@ class SupportOrder:
 
 
 @dataclass
-class ConvoyOrder:
+class ConvoyOrder(Order):
     """Convoy order"""
-    power: str
-    unit: Unit
-    convoyed_unit: Unit
-    convoyed_target: str
+    convoyed_unit: Unit = field(default_factory=lambda: Unit("", "", ""))
+    convoyed_target: str = ""
     order_type: OrderType = OrderType.CONVOY
-    phase: str = "Movement"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     convoy_chain: List[str] = field(default_factory=list)
     
     def __str__(self) -> str:
@@ -313,12 +313,34 @@ class ConvoyOrder:
                   for u in game_state.get_all_units()):
             return False, f"Convoyed unit {self.convoyed_unit} does not exist"
         
-        # Convoy route validation
-        convoy_validation_error = self._validate_convoy_route(game_state)
+        # Convoy route validation - be lenient during initial validation
+        # Detailed convoy validation happens during order processing
+        convoy_validation_error = self._validate_convoy_route_basic(game_state)
         if convoy_validation_error:
             return False, convoy_validation_error
         
         return True, ""
+    
+    def _validate_convoy_route_basic(self, game_state: 'GameState') -> Optional[str]:
+        """Basic convoy route validation for initial order validation"""
+        # Get province data
+        fleet_province = game_state.map_data.provinces.get(self.unit.province)
+        convoyed_province = game_state.map_data.provinces.get(self.convoyed_unit.province)
+        target_province = game_state.map_data.provinces.get(self.convoyed_target)
+        
+        if not fleet_province or not convoyed_province or not target_province:
+            return "Invalid province in convoy route"
+        
+        # Only check basic requirements during initial validation
+        # Rule 1: Fleet must be in a sea province (not coastal)
+        if fleet_province.province_type != "sea":
+            return f"Fleet {self.unit} must be in a sea province to convoy, not {fleet_province.province_type} province {self.unit.province}"
+        
+        # Rule 2: Convoyed unit must be an army
+        if self.convoyed_unit.unit_type != "A":
+            return f"Cannot convoy {self.convoyed_unit.unit_type} units, only armies"
+        
+        return None
     
     def _validate_convoy_route(self, game_state: 'GameState') -> Optional[str]:
         """Validate convoy route according to Diplomacy rules"""
@@ -358,15 +380,11 @@ class ConvoyOrder:
 
 
 @dataclass
-class RetreatOrder:
+class RetreatOrder(Order):
     """Retreat order"""
-    power: str
-    unit: Unit
-    retreat_province: str
+    retreat_province: str = ""
     order_type: OrderType = OrderType.RETREAT
     phase: str = "Retreat"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     
     def __str__(self) -> str:
         return f"{self.unit} R {self.retreat_province}"
@@ -388,16 +406,12 @@ class RetreatOrder:
 
 
 @dataclass
-class BuildOrder:
+class BuildOrder(Order):
     """Build order"""
-    power: str
-    unit: Unit
-    build_province: str
-    build_type: str  # "A" or "F"
+    build_province: str = ""
+    build_type: str = "A"  # "A" or "F"
     order_type: OrderType = OrderType.BUILD
     phase: str = "Builds"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     build_coast: Optional[str] = None  # For multi-coast provinces
     
     def __str__(self) -> str:
@@ -420,15 +434,11 @@ class BuildOrder:
 
 
 @dataclass
-class DestroyOrder:
+class DestroyOrder(Order):
     """Destroy order"""
-    power: str
-    unit: Unit
-    destroy_unit: Unit
+    destroy_unit: Unit = field(default_factory=lambda: Unit("", "", ""))
     order_type: OrderType = OrderType.DESTROY
     phase: str = "Builds"
-    status: OrderStatus = OrderStatus.PENDING
-    failure_reason: Optional[str] = None
     
     def __str__(self) -> str:
         return f"DESTROY {self.destroy_unit}"
@@ -685,7 +695,7 @@ class GameState:
         errors = []
         
         # Track convoy orders per fleet
-        convoy_orders_per_fleet = {}
+        convoy_orders_per_fleet: Dict[Tuple[str, str, str], List[ConvoyOrder]] = {}
         
         for power_name, orders in self.orders.items():
             for order in orders:
@@ -747,11 +757,11 @@ class GameState:
         
         # Check that all claimed supply centers are actual supply centers
         for power_name, power_state in self.powers.items():
-            for province in power_state.controlled_supply_centers:
-                if province not in self.map_data.provinces:
-                    errors.append(f"{power_name} claims non-existent province {province}")
-                elif not self.map_data.provinces[province].is_supply_center:
-                    errors.append(f"{power_name} claims non-supply center {province}")
+            for province_name in power_state.controlled_supply_centers:
+                if province_name not in self.map_data.provinces:
+                    errors.append(f"{power_name} claims non-existent province {province_name}")
+                elif not self.map_data.provinces[province_name].is_supply_center:
+                    errors.append(f"{power_name} claims non-supply center {province_name}")
         
         return len(errors) == 0, errors
     

@@ -15,20 +15,20 @@ Run with: python -m pytest src/server/test_interactive_orders.py -v
 import pytest
 import sys
 import os
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from typing import Dict, Any, List
 
 # Add the project root to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 
-from src.server.telegram_bot import (
+from server.telegram_bot import (
     selectunit, 
     show_possible_moves, 
     submit_interactive_order,
     normalize_order_provinces
 )
-from src.engine.map import Map
-from src.engine.province_mapping import normalize_province_name
+from engine.map import Map
+from engine.province_mapping import normalize_province_name
 
 
 class TestInteractiveOrderInput:
@@ -38,7 +38,10 @@ class TestInteractiveOrderInput:
         """Set up test fixtures"""
         self.mock_update = Mock()
         self.mock_context = Mock()
+        # Mock query with awaitable methods
         self.mock_query = Mock()
+        self.mock_query.edit_message_text = AsyncMock()
+        self.mock_query.answer = AsyncMock()
         self.mock_message = Mock()
         
         # Mock user
@@ -71,7 +74,7 @@ class TestInteractiveOrderInput:
             ]
         }
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.InlineKeyboardButton')
     @patch('src.server.telegram_bot.InlineKeyboardMarkup')
     def test_selectunit_single_game_success(self, mock_markup, mock_button, mock_api_get):
@@ -101,7 +104,7 @@ class TestInteractiveOrderInput:
         mock_button.assert_called()
         mock_markup.assert_called_once()
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     def test_selectunit_no_games(self, mock_api_get):
         """Test /selectunit command when user has no games"""
         # Mock empty games response
@@ -119,7 +122,7 @@ class TestInteractiveOrderInput:
         call_args = self.mock_message.reply_text.call_args[0][0]
         assert "You're not in any games!" in call_args
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     def test_selectunit_multiple_games(self, mock_api_get):
         """Test /selectunit command when user has multiple games"""
         # Mock multiple games response
@@ -142,7 +145,7 @@ class TestInteractiveOrderInput:
         call_args = self.mock_message.reply_text.call_args[0][0]
         assert "You're in 2 games" in call_args
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.Map')
     @patch('src.server.telegram_bot.InlineKeyboardButton')
     @patch('src.server.telegram_bot.InlineKeyboardMarkup')
@@ -177,7 +180,7 @@ class TestInteractiveOrderInput:
         mock_button.assert_called()
         mock_markup.assert_called_once()
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.Map')
     def test_show_possible_moves_fleet(self, mock_map_class, mock_api_get):
         """Test show_possible_moves for a fleet unit"""
@@ -203,7 +206,7 @@ class TestInteractiveOrderInput:
         mock_map_class.assert_called_once_with("standard")
         mock_map_instance.get_adjacency.assert_called_once_with("KIE")
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.api_post')
     @patch('src.server.telegram_bot.normalize_order_provinces')
     def test_submit_interactive_order_success(self, mock_normalize, mock_api_post, mock_api_get):
@@ -235,7 +238,7 @@ class TestInteractiveOrderInput:
         call_args = self.mock_query.edit_message_text.call_args[0][0]
         assert "Order Submitted Successfully!" in call_args
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.api_post')
     def test_submit_interactive_order_failure(self, mock_api_post, mock_api_get):
         """Test failed order submission"""
@@ -255,7 +258,7 @@ class TestInteractiveOrderInput:
         assert "Order Failed" in call_args
         assert "Invalid move" in call_args
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     def test_submit_interactive_order_user_not_in_game(self, mock_api_get):
         """Test order submission when user is not in the game"""
         # Mock empty games response
@@ -302,7 +305,7 @@ class TestInteractiveOrderInput:
         result = normalize_order_provinces("A", "GERMANY")
         assert result == "A"
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     def test_show_possible_moves_no_game_state(self, mock_api_get):
         """Test show_possible_moves when game state is not available"""
         # Mock API response returning None
@@ -317,7 +320,7 @@ class TestInteractiveOrderInput:
         call_args = self.mock_query.edit_message_text.call_args[0][0]
         assert "Could not retrieve game state" in call_args
 
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     def test_selectunit_no_units(self, mock_api_get):
         """Test /selectunit when user has no units"""
         # Mock API responses
@@ -365,7 +368,7 @@ class TestInteractiveOrderInput:
     def test_province_mapping_integration(self):
         """Test integration with province mapping system"""
         # Test that province mapping is used correctly
-        from src.engine.province_mapping import normalize_province_name
+        from engine.province_mapping import normalize_province_name
         
         # Test known provinces
         assert normalize_province_name("ber") == "BER"
@@ -379,7 +382,7 @@ class TestInteractiveOrderInput:
 class TestInteractiveOrderIntegration:
     """Integration tests for the complete interactive order flow"""
     
-    @patch('src.server.telegram_bot.api_get')
+    @patch('server.telegram_bot.api_get')
     @patch('src.server.telegram_bot.api_post')
     @patch('src.server.telegram_bot.Map')
     def test_complete_interactive_flow(self, mock_map_class, mock_api_post, mock_api_get):

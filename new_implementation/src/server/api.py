@@ -11,7 +11,7 @@ Key features:
 """
 from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
-from src.server.server import Server
+from server.server import Server
 import uvicorn
 from typing import Optional, Dict, List, Any
 from .db_session import SessionLocal
@@ -29,9 +29,9 @@ import requests
 from sqlalchemy import or_, text
 import logging
 import pytz
-from src.engine.order import OrderParser
-from src.engine.data_models import Unit
-from src.server.response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
+from engine.order import OrderParser
+from engine.data_models import Unit
+from server.response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -116,7 +116,7 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         game_id = str(game.id)
         # Now create the game in the in-memory server with the same game_id
         if game_id not in server.games:
-            from src.engine.game import Game
+            from engine.game import Game
             g = Game(map_name=req.map_name)
             setattr(g, "game_id", game_id)
             server.games[game_id] = g
@@ -142,7 +142,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
         # Add player to in-memory server
         if req.game_id not in server.games:
-            from src.engine.game import Game
+            from engine.game import Game
             g = Game()
             setattr(g, "game_id", req.game_id)
             server.games[req.game_id] = g
@@ -311,7 +311,7 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                 raise HTTPException(status_code=404, detail="Game not found")
             
             # Restore the game in server.games
-            from src.engine.game import Game
+            from engine.game import Game
             restored_game = Game(map_name=game_model.map_name)
             setattr(restored_game, "game_id", game_id)
             
@@ -760,7 +760,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         db.refresh(player)
         # Add player to in-memory server (ensure sync)
         if str(game_id) not in server.games:
-            from src.engine.game import Game
+            from engine.game import Game
             g = Game()
             setattr(g, "game_id", str(game_id))
             server.games[str(game_id)] = g
@@ -1304,7 +1304,7 @@ def cleanup_old_maps() -> Dict[str, Any]:
 def get_map_cache_stats() -> Dict[str, Any]:
     """Get map cache statistics for monitoring."""
     try:
-        from src.engine.map import Map
+        from engine.map import Map
         stats = Map.get_cache_stats()
         return {
             "status": "ok",
@@ -1317,7 +1317,7 @@ def get_map_cache_stats() -> Dict[str, Any]:
 def clear_map_cache() -> Dict[str, Any]:
     """Clear all cached maps."""
     try:
-        from src.engine.map import Map
+        from engine.map import Map
         Map.clear_map_cache()
         return {
             "status": "ok",
@@ -1330,7 +1330,7 @@ def clear_map_cache() -> Dict[str, Any]:
 def preload_common_maps() -> Dict[str, Any]:
     """Preload common map configurations for better performance."""
     try:
-        from src.engine.map import Map
+        from engine.map import Map
         Map.preload_common_maps()
         return {
             "status": "ok",
@@ -1343,7 +1343,7 @@ def preload_common_maps() -> Dict[str, Any]:
 def get_connection_pool_status() -> Dict[str, Any]:
     """Get database connection pool status for monitoring."""
     try:
-        from src.server.db_session import get_pool_status
+        from server.db_session import get_pool_status
         status = get_pool_status()
         return {
             "status": "ok",
@@ -1357,7 +1357,7 @@ def get_connection_pool_status() -> Dict[str, Any]:
 def reset_connection_pool() -> Dict[str, Any]:
     """Reset database connection pool (use with caution)."""
     try:
-        from src.server.db_session import engine
+        from server.db_session import engine
         engine.dispose()  # Close all connections and recreate pool
         return {
             "status": "ok",
@@ -1413,7 +1413,7 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
     db: Session = SessionLocal()
     try:
         # Generate map image
-        from src.engine.map import Map
+        from engine.map import Map
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         
         # Create units dictionary

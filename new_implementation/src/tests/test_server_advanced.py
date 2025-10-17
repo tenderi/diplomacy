@@ -4,9 +4,9 @@ Advanced server tests for multiple concurrent games, isolation, and new commands
 import os
 import tempfile
 from typing import List
-from src.server.server import Server
+from server.server import Server
 from fastapi.testclient import TestClient
-from src.server.api import app
+from server.api import app
 
 
 def test_multiple_concurrent_games() -> None:

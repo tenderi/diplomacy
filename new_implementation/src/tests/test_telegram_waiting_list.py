@@ -1,5 +1,5 @@
 import pytest
-from src.server.telegram_bot import process_waiting_list
+from server.telegram_bot import process_waiting_list
 from typing import List, Tuple
 
 class APIMock:

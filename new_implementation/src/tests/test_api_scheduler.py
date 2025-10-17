@@ -2,7 +2,7 @@
 Test the Diplomacy API scheduler and deadline endpoints.
 """
 from fastapi.testclient import TestClient
-from src.server.api import app, process_due_deadlines
+from server.api import app, process_due_deadlines
 
 import datetime
 import time
