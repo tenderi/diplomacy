@@ -14,9 +14,9 @@ from typing import Dict, Any
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from src.server.api import app
-from src.server.db_models import Base, GameModel, UserModel, PlayerModel
-from src.server.db_session import SessionLocal
+from server.api import app
+from server.db_models import Base, GameModel, UserModel, PlayerModel
+from server.db_session import SessionLocal
 
 
 class TestDemoGameManagement:

@@ -10,7 +10,24 @@ from collections import deque
 from datetime import datetime
 
 class Game:
-    """Main game class using new data models exclusively."""
+    """
+    Main game class using new data models exclusively.
+    
+    This class manages the complete Diplomacy game state, including turn processing,
+    order validation, and game phase management. It uses the comprehensive data
+    models defined in data_models.py for proper type safety and validation.
+    
+    Attributes:
+        map_name: Name of the map variant being used
+        map: Map object containing province and adjacency data
+        turn: Current turn number
+        year: Current game year
+        season: Current season (Spring, Fall, Winter)
+        phase: Current phase (Movement, Retreat, Builds)
+        phase_code: Short code for current phase (e.g., "S1901M")
+        done: Whether the game is completed
+        game_state: Complete GameState object containing all game data
+    """
     
     def __init__(self, map_name: str = 'standard') -> None:
         self.map_name: str = map_name
@@ -19,7 +36,7 @@ class Game:
         self.map: Map = Map(actual_map_name)
         
         # Game state tracking
-        self.turn: int = 1
+        self.turn: int = 0
         self.year: int = 1901
         self.season: str = "Spring"
         self.phase: str = "Movement"
@@ -48,7 +65,7 @@ class Game:
         map_data = MapData(
             map_name=self.map_name,
             provinces=provinces,
-            supply_centers=self.map.get_supply_centers(),
+            supply_centers=list(self.map.get_supply_centers()),
             home_supply_centers={},  # Will be populated when powers are added
             starting_positions={}  # Will be populated when powers are added
         )
@@ -57,20 +74,30 @@ class Game:
             game_id="demo",
             map_name=self.map_name,
             map_data=map_data,
-            current_turn=1,
+            current_turn=0,
             current_year=1901,
             current_season="Spring",
             current_phase="Movement",
             phase_code="S1901M",
             powers={},
             orders={},
-            status="active",
+            status=GameStatus.ACTIVE,
             created_at=datetime.now(),
             updated_at=datetime.now()
         )
 
     def add_player(self, power_name: str) -> None:
-        """Add a player to the game."""
+        """
+        Add a player to the game.
+        
+        Args:
+            power_name: Name of the power to add (e.g., "FRANCE", "GERMANY")
+            
+        Note:
+            This method initializes the power with their home supply centers
+            and starting units according to the standard Diplomacy rules.
+            If the power already exists, this method does nothing.
+        """
         if power_name not in self.game_state.powers:
             # Define home supply centers for each power
             home_centers = {
@@ -127,12 +154,35 @@ class Game:
             self.game_state.orders[power_name] = []
 
     def clear_orders(self, power_name: str) -> None:
-        """Clear all orders for a power."""
+        """
+        Clear all orders for a power.
+        
+        Args:
+            power_name: Name of the power to clear orders for
+            
+        Note:
+            This removes all pending orders for the specified power,
+            effectively resetting their order submission for the current phase.
+        """
         if power_name in self.game_state.powers:
             self.game_state.orders[power_name] = []
 
     def set_orders(self, power_name: str, orders: List[str]) -> None:
-        """Set orders for a power. Orders are parsed, validated, and stored."""
+        """
+        Set orders for a power. Orders are parsed, validated, and stored.
+        
+        Args:
+            power_name: Name of the power submitting orders
+            orders: List of order strings (e.g., ["A PAR - BUR", "F BRE H"])
+            
+        Raises:
+            ValueError: If the power is not found in the game
+            OrderValidationError: If any order fails validation
+            
+        Note:
+            Orders are parsed using the OrderParser and validated against
+            the current game state before being stored.
+        """
         if power_name not in self.game_state.powers:
             raise ValueError(f"Power {power_name} not found in game")
         
@@ -141,6 +191,9 @@ class Game:
         
         # Ensure game state phase is up to date
         self.game_state.current_phase = self.phase
+        
+        # Store orders temporarily for convoy validation
+        self.game_state.orders[power_name] = new_orders
         
         # Validate each order
         validation_errors = []
@@ -155,9 +208,6 @@ class Game:
                 if not self.game_state.is_valid_phase_for_order_type(order.order_type):
                     validation_errors.append(f"Order {order}: type {order.order_type.value} not valid for phase {self.game_state.current_phase}")
         
-        # Replace existing orders with new orders temporarily for convoy validation
-        self.game_state.orders[power_name] = new_orders
-        
         # Cross-order validation: Check convoy restrictions
         convoy_validation_errors = self.game_state._validate_convoy_restrictions()
         validation_errors.extend(convoy_validation_errors)
@@ -167,7 +217,20 @@ class Game:
             raise ValueError(f"Invalid orders for {power_name}: {'; '.join(validation_errors)}")
 
     def process_turn(self) -> Dict[str, Any]:
-        """Process a complete turn and return results."""
+        """
+        Process a complete turn and return results.
+        
+        Returns:
+            Dictionary containing:
+                - moves: List of successful moves
+                - dislodgements: List of units that were dislodged
+                - status: "completed" if turn processed successfully
+                
+        Note:
+            This method processes the current phase (Movement, Retreat, or Builds)
+            and then advances to the next phase. The game state is updated
+            with the results of order resolution.
+        """
         results = {
             "moves": [],
             "dislodgements": [],
@@ -189,11 +252,13 @@ class Game:
 
     def _process_movement_phase(self) -> Dict[str, Any]:
         """Process movement phase with full Diplomacy rules."""
-        results = {
+        results: Dict[str, List[Any]] = {
             "moves": [],
             "dislodgements": [],
             "supports": [],
-            "convoys": []
+            "convoys": [],
+            "conflicts": [],
+            "dislodged_units": []
         }
         
         # First pass: Detect convoyed moves and convoy orders
@@ -211,8 +276,8 @@ class Game:
                     convoyed_moves[move_key] = order
         
         # Calculate move strengths and identify conflicts
-        move_strengths = {}  # target_province -> list of (unit, strength, order)
-        support_strengths = {}  # target_province -> list of (supporting_unit, strength)
+        move_strengths: Dict[str, List[Tuple[Unit, int, Order]]] = {}  # target_province -> list of (unit, strength, order)
+        support_strengths: Dict[str, List[Tuple[Unit, int]]] = {}  # target_province -> list of (supporting_unit, strength)
         
         # First pass: Process all moves and holds to determine conflicts and dislodgements
         for power_name, orders in self.game_state.orders.items():
@@ -230,14 +295,14 @@ class Game:
                     if move_key in convoyed_moves:
                         order.is_convoyed = True
                         # Collect all convoy orders for this move
-                        convoy_route = []
+                        convoy_route: List[str] = []
                         for power_name_check, orders_check in self.game_state.orders.items():
                             for convoy_order in orders_check:
                                 if isinstance(convoy_order, ConvoyOrder):
                                     if (convoy_order.convoyed_unit.unit_type == order.unit.unit_type and
                                         convoy_order.convoyed_unit.province == order.unit.province and
                                         convoy_order.convoyed_target == order.target_province):
-                                        convoy_route.append(convoy_order)
+                                        convoy_route.append(convoy_order.unit.province)
                         order.convoy_route = convoy_route
                         
                         # Calculate convoy strength
@@ -394,6 +459,11 @@ class Game:
                                         "dislodged_by": f"{unit.unit_type} {old_province}",
                                         "retreat_options": target_unit.retreat_options
                                     })
+                                    results["dislodged_units"].append({
+                                        "unit": f"{target_unit.unit_type} {dislodged_from}",
+                                        "dislodged_by": f"{unit.unit_type} {old_province}",
+                                        "retreat_options": target_unit.retreat_options
+                                    })
                                     break
             else:
                 # Multiple moves - resolve conflict
@@ -426,9 +496,23 @@ class Game:
                 max_strength = max(total_strengths.values())
                 winners = [unit_key for unit_key, strength in total_strengths.items() if strength == max_strength]
                 
+                # Add conflict information
+                conflict_info = {
+                    "target": target_province,
+                    "participants": list(total_strengths.keys()),
+                    "strengths": total_strengths,
+                    "winner": winners[0] if len(winners) == 1 else None
+                }
+                results["conflicts"].append(conflict_info)
+                
                 if len(winners) == 1:
                     # Single winner
                     winner_key = winners[0]
+                    # Store original provinces before any modifications
+                    unit_original_provinces = {}
+                    for unit, strength, order in remaining_moves:
+                        unit_original_provinces[id(unit)] = unit.province
+                    
                     # Find the actual unit object
                     winner_unit = None
                     for unit, strength, order in remaining_moves:
@@ -488,6 +572,25 @@ class Game:
                                             "dislodged_by": f"{winner_unit.unit_type} {old_province}",
                                             "retreat_options": target_unit.retreat_options
                                         })
+                                        results["dislodged_units"].append({
+                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
+                                            "dislodged_by": f"{winner_unit.unit_type} {old_province}",
+                                            "retreat_options": target_unit.retreat_options
+                                        })
+                    
+                    # Add failed moves for all non-winning units
+                    for unit, strength, order in remaining_moves:
+                        original_province = unit_original_provinces[id(unit)]
+                        unit_key = f"{unit.unit_type} {original_province}"
+                        if unit_key != winner_key:
+                            results["moves"].append({
+                                "unit": f"{unit.unit_type} {original_province}",
+                                "from": original_province,
+                                "to": target_province,
+                                "strength": strength,
+                                "success": False,
+                                "failure_reason": "defeated"
+                            })
                 else:
                     # Multiple winners - standoff, no move
                     for unit, strength, order in remaining_moves:
@@ -519,16 +622,26 @@ class Game:
                             
                             # Check if any convoying fleet was dislodged
                             convoy_disrupted = False
-                            for convoy_order in order.convoy_route:
-                                convoying_fleet = convoy_order.unit
-                                # Check if this convoying fleet was dislodged
+                            for convoy_province in order.convoy_route:
+                                # Find the convoying fleet at this province
+                                convoying_fleet = None
                                 for power_name_check, power in self.game_state.powers.items():
-                                    for convoy_unit in power.units:
-                                        if (convoy_unit.province.startswith("DISLODGED_") and
-                                            convoy_unit.unit_type == convoying_fleet.unit_type and
-                                            convoy_unit.province.replace("DISLODGED_", "") == convoying_fleet.province.replace("DISLODGED_", "")):
-                                            convoy_disrupted = True
+                                    for unit in power.units:
+                                        if unit.province == convoy_province and unit.unit_type == "F":
+                                            convoying_fleet = unit
                                             break
+                                    if convoying_fleet:
+                                        break
+                                
+                                if convoying_fleet:
+                                    # Check if this convoying fleet was dislodged
+                                    for power_name_check, power in self.game_state.powers.items():
+                                        for convoy_unit in power.units:
+                                            if (convoy_unit.province.startswith("DISLODGED_") and
+                                                convoy_unit.unit_type == convoying_fleet.unit_type and
+                                                convoy_unit.province.replace("DISLODGED_", "") == convoying_fleet.province.replace("DISLODGED_", "")):
+                                                convoy_disrupted = True
+                                                break
                                     if convoy_disrupted:
                                         break
                                 if convoy_disrupted:
@@ -556,6 +669,24 @@ class Game:
                         unit.province = from_province
                         break
         
+        # Add hold orders to results
+        for power_name, orders in self.game_state.orders.items():
+            for order in orders:
+                if isinstance(order, HoldOrder):
+                    # Hold orders succeed unless the unit was dislodged
+                    was_dislodged = any(d["unit"] == f"{order.unit.unit_type} {order.unit.province}" 
+                                       for d in results["dislodged_units"])
+                    
+                    if not was_dislodged:
+                        results["moves"].append({
+                            "unit": f"{order.unit.unit_type} {order.unit.province}",
+                            "from": order.unit.province,
+                            "to": order.unit.province,
+                            "strength": 1,
+                            "success": True,
+                            "action": "hold"
+                        })
+        
         return results
 
     def _calculate_convoy_strength(self, order: MoveOrder) -> int:
@@ -582,7 +713,7 @@ class Game:
 
     def _calculate_retreat_options(self, unit: Unit) -> List[str]:
         """Calculate valid retreat options for a dislodged unit."""
-        retreat_options = []
+        retreat_options: List[str] = []
         current_province = unit.province.replace("DISLODGED_", "")
         
         # Get adjacent provinces
@@ -613,7 +744,7 @@ class Game:
 
     def _process_retreat_phase(self) -> Dict[str, Any]:
         """Process retreat phase."""
-        results = {
+        results: Dict[str, List[Any]] = {
             "retreats": [],
             "disbands": []
         }
@@ -695,7 +826,7 @@ class Game:
         if self.season == "Autumn":
             self._update_supply_center_ownership()
         
-        results = {
+        results: Dict[str, List[Any]] = {
             "builds": [],
             "destroys": []
         }
@@ -790,13 +921,32 @@ class Game:
         self.game_state.updated_at = datetime.now()
 
     def get_state(self) -> Dict[str, Any]:
-        """Get current game state for compatibility."""
+        """
+        Get current game state for compatibility.
+        
+        Returns:
+            Dictionary containing:
+                - turn: Current turn number
+                - year: Current game year
+                - season: Current season (Spring/Autumn)
+                - phase: Current phase (Movement/Retreat/Builds)
+                - phase_code: Short phase code (e.g., "S1901M")
+                - powers: List of power names in the game
+                - units: Dictionary mapping powers to their unit lists
+                - orders: Dictionary mapping powers to their order lists
+                
+        Note:
+            This method provides a legacy-compatible interface for accessing
+            game state information.
+        """
         return {
+            "map_name": self.map_name,
             "turn": self.turn,
             "year": self.year,
             "season": self.season,
             "phase": self.phase,
             "phase_code": self.phase_code,
+            "done": self.done,
             "powers": list(self.game_state.powers.keys()),
             "units": {power_name: [f"{u.unit_type} {u.province}" for u in power.units] 
                      for power_name, power in self.game_state.powers.items()},
@@ -805,9 +955,28 @@ class Game:
         }
     
     def get_game_state(self) -> 'GameState':
-        """Get the game state using the new data model directly."""
+        """
+        Get the game state using the new data model directly.
+        
+        Returns:
+            GameState object containing the complete current game state
+            
+        Note:
+            This method returns the full GameState object with all detailed
+            information including units, orders, map data, and power states.
+            Use this for applications that need access to the complete data model.
+        """
         return self.game_state
 
     def is_game_done(self) -> bool:
-        """Check if the game is done."""
+        """
+        Check if the game is done.
+        
+        Returns:
+            True if the game has ended, False otherwise
+            
+        Note:
+            A game is considered done when a power controls 18 or more
+            supply centers, or when all other powers have been eliminated.
+        """
         return self.done

@@ -1,11 +1,26 @@
 from typing import Dict, Any
-from src.engine.game import Game
+from engine.game import Game
 import logging
 from .errors import ServerError, ErrorCode
 import os
 
 class Server:
-    """Main class for accepting and processing game commands."""
+    """
+    Main class for accepting and processing game commands.
+    
+    This class provides the core server functionality for managing Diplomacy games,
+    including game creation, player management, order processing, and turn advancement.
+    It supports both CLI and programmatic interfaces for game control.
+    
+    Attributes:
+        games: Dictionary mapping game IDs to Game instances
+        next_game_id: Counter for generating unique game IDs
+        logger: Logger instance for server operations
+        
+    Environment Variables:
+        DIPLOMACY_LOG_LEVEL: Set logging level (DEBUG, INFO, WARNING, ERROR). Default: INFO
+        DIPLOMACY_LOG_FILE: If set, log output goes to this file instead of stdout
+    """
     def __init__(self) -> None:
         self.games: Dict[str, Game] = {}
         self.next_game_id: int = 1
@@ -41,6 +56,18 @@ class Server:
             return False
 
     def start(self) -> None:
+        """
+        Start the server CLI interface.
+        
+        This method starts an interactive command-line interface that accepts
+        Diplomacy commands and processes them. The server will run until
+        explicitly stopped with 'QUIT' or 'EXIT' commands, or interrupted
+        with Ctrl+C.
+        
+        Note:
+            This method blocks until the server is shut down. For programmatic
+            use, prefer the process_command() method directly.
+        """
         self.logger.info("Diplomacy server started.")
         print("Diplomacy Server CLI. Type commands or 'QUIT' to exit.")
         while True:
@@ -61,9 +88,35 @@ class Server:
                 self.logger.exception(f"Exception in server loop: {e}")
 
     def shutdown(self) -> None:
+        """
+        Shutdown the server gracefully.
+        
+        This method performs cleanup operations and logs the shutdown event.
+        It should be called when the server is no longer needed.
+        """
         self.logger.info("Diplomacy server shutting down.")
 
     def process_command(self, command: str) -> Dict[str, Any]:
+        """
+        Process a Diplomacy server command.
+        
+        Args:
+            command: Command string to process (e.g., "CREATE_GAME standard")
+            
+        Returns:
+            Dictionary containing the command result with keys:
+                - status: "ok" for success, "error" for failure
+                - Additional keys depend on the command type
+                
+        Supported Commands:
+            - CREATE_GAME <map_name>: Create a new game
+            - ADD_PLAYER <game_id> <power>: Add a player to a game
+            - SET_ORDERS <game_id> <power> <order>: Set orders for a power
+            - PROCESS_TURN <game_id>: Process the current turn
+            - GET_GAME_STATE <game_id>: Get current game state
+            - LIST_GAMES: List all active games
+            - QUIT/EXIT: Shutdown the server
+        """
         self.logger.info(f"Received command: {command}")
         tokens = command.strip().split()
         if not tokens:
@@ -112,7 +165,7 @@ class Server:
                 order_str = " ".join(tokens[3:])
                 
                 # Parse the order string into individual orders using the new parser
-                from src.engine.order_parser_utils import split_orders
+                from engine.order_parser_utils import split_orders
                 orders = split_orders(order_str)
                 
                 self.logger.info(f"Raw order string: {order_str}")
@@ -151,7 +204,7 @@ class Server:
                     self.logger.error(f"Game {game_id} not found for GET_GAME_STATE")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
                 self.logger.info(f"Queried game state for game {game_id}")
-                return {"status": "ok", "state": game.get_game_state()}
+                return {"status": "ok", "state": game.get_state()}
             elif cmd == "SAVE_GAME":
                 if len(tokens) < 3:
                     self.logger.error("SAVE_GAME missing arguments")
@@ -224,6 +277,19 @@ class Server:
             return ServerError.create_error_response(ErrorCode.INTERNAL_ERROR, f"Exception: {e}", {"command": command})
 
     def get_game_state(self, game_id: str) -> Any:
+        """
+        Get the current state of a specific game.
+        
+        Args:
+            game_id: Unique identifier of the game
+            
+        Returns:
+            GameState object if the game exists, None otherwise
+            
+        Note:
+            This method returns the complete GameState object containing
+            all game information including units, orders, and power states.
+        """
         game = self.games.get(game_id)
         if not game:
             return None

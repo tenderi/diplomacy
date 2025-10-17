@@ -14,7 +14,7 @@ import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 from telegram.ext import Application
-from src.engine.map import Map
+from engine.map import Map
 import random
 import json
 from typing import Dict, List, Tuple, Optional
@@ -1357,7 +1357,7 @@ async def send_demo_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         game_state = api_get(f"/games/{game_id}/state")
         
         # Generate map with units
-        from src.engine.map import Map
+        from engine.map import Map
         map_instance = Map("standard")
         
         # Create units dictionary from game state
@@ -1417,7 +1417,7 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         orders = orders_data if orders_data else []
         
         # Generate map with units
-        from src.engine.map import Map
+        from engine.map import Map
         map_instance = Map("standard")
         
         # Create units dictionary from game state
@@ -1858,7 +1858,7 @@ async def show_possible_moves(query, game_id: str, unit: str) -> None:
         unit_location = unit_parts[1]  # BER, KIE, etc.
         
         # Get adjacency data from map
-        from src.engine.map import Map
+        from engine.map import Map
         map_instance = Map("standard")
         
         # Get adjacent provinces
@@ -1934,7 +1934,7 @@ async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
             return
         
         # Get map instance for adjacency data
-        from src.engine.map import Map
+        from engine.map import Map
         map_instance = Map("standard")
         
         # Get provinces adjacent to the fleet's sea area
@@ -2000,7 +2000,7 @@ async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_po
         army_location = army_unit.split()[1]    # e.g., 'LON', 'PAR'
         
         # Get map instance for adjacency data
-        from src.engine.map import Map
+        from engine.map import Map
         map_instance = Map("standard")
         
         # Get provinces adjacent to the fleet's sea area that can be convoy destinations
@@ -2111,7 +2111,7 @@ async def submit_interactive_order(query, game_id: str, order_text: str) -> None
 
 def normalize_order_provinces(order_text: str, power: str) -> str:
     """Normalize province names in an order string."""
-    from src.engine.province_mapping import normalize_province_name
+    from engine.province_mapping import normalize_province_name
     
     # Split the order into parts
     parts = order_text.split()

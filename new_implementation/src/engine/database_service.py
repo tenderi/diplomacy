@@ -27,7 +27,20 @@ class DatabaseService:
         self.session_factory = get_session_factory(database_url)
     
     def create_game(self, game_id: str, map_name: str = 'standard') -> GameState:
-        """Create a new game"""
+        """
+        Create a new game in the database.
+        
+        Args:
+            game_id: Unique identifier for the game
+            map_name: Name of the map variant to use (default: 'standard')
+            
+        Returns:
+            GameState object representing the newly created game
+            
+        Note:
+            This method creates both the database record and an empty
+            GameState object ready for players to join.
+        """
         with self.session_factory() as session:
             # Create game record
             game_model = GameModel(
@@ -63,7 +76,24 @@ class DatabaseService:
             return game_state
     
     def add_player(self, game_id: str, power_name: str, user_id: Optional[int] = None) -> PowerState:
-        """Add a player to a game"""
+        """
+        Add a player to a game.
+        
+        Args:
+            game_id: Unique identifier of the game
+            power_name: Name of the power to add (e.g., "FRANCE", "GERMANY")
+            user_id: Optional user ID to associate with the power
+            
+        Returns:
+            PowerState object representing the newly added power
+            
+        Raises:
+            ValueError: If the game is not found or power already exists
+            
+        Note:
+            This method initializes the power with their home supply centers
+            and starting units according to standard Diplomacy rules.
+        """
         with self.session_factory() as session:
             # Get game
             game_model = session.query(GameModel).filter_by(game_id=game_id).first()

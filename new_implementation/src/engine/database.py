@@ -6,7 +6,7 @@ with proper foreign key relationships and data validation constraints.
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy import JSON
@@ -144,7 +144,7 @@ class OrderModel(Base):
     __table_args__ = (
         CheckConstraint("unit_type IN ('A', 'F')", name='ck_order_unit_type'),
         CheckConstraint("order_type IN ('move', 'hold', 'support', 'convoy', 'retreat', 'build', 'destroy')", name='ck_order_type'),
-        CheckConstraint("status IN ('pending', 'success', 'failed', 'bounced')", name='ck_order_status'),
+        CheckConstraint("status IN ('pending', 'submitted', 'success', 'failed', 'bounced')", name='ck_order_status'),
     )
     
     # Relationships

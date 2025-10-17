@@ -1,4 +1,4 @@
-from src.engine.game import Game
+from engine.game import Game
 
 def test_game_instantiation():
     game = Game()

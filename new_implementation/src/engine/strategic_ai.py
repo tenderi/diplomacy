@@ -5,7 +5,7 @@ This module implements AI strategies that use the data_spec.md models exclusivel
 ensuring proper data integrity and demonstrating all Diplomacy mechanics.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 from dataclasses import dataclass
 import random
 import logging
@@ -36,8 +36,22 @@ class StrategicAI:
         self.config = config or StrategicConfig()
         self.order_parser = OrderParser()
         
-    def generate_orders(self, game_state: GameState, power: str) -> List[Order]:
-        """Generate orders for a specific power using proper data models"""
+    def generate_orders(self, game_state: GameState, power: str) -> Sequence[Order]:
+        """
+        Generate orders for a specific power using proper data models.
+        
+        Args:
+            game_state: Current state of the game containing all powers and units
+            power: Name of the power to generate orders for (e.g., "FRANCE", "GERMANY")
+            
+        Returns:
+            Sequence of Order objects representing the AI's strategic decisions
+            for the current phase (Movement, Retreat, or Builds)
+            
+        Note:
+            The AI will generate different types of orders based on the current
+            game phase and strategic configuration settings.
+        """
         if power not in game_state.powers:
             logger.warning(f"Power {power} not found in game state")
             return []
@@ -54,7 +68,7 @@ class StrategicAI:
             logger.warning(f"Unknown phase: {game_state.current_phase}")
             return []
     
-    def _generate_movement_orders(self, game_state: GameState, power_state: PowerState) -> List[Order]:
+    def _generate_movement_orders(self, game_state: GameState, power_state: PowerState) -> Sequence[Order]:
         """Generate movement orders using proper Order data models"""
         orders = []
         
@@ -65,6 +79,7 @@ class StrategicAI:
             # Determine strategic action for this unit
             action = self._determine_unit_action(game_state, unit)
             
+            order: Optional[Order] = None
             if action == "move":
                 order = self._create_move_order(game_state, unit)
             elif action == "support":
@@ -79,7 +94,7 @@ class StrategicAI:
                 
         return orders
     
-    def _generate_retreat_orders(self, game_state: GameState, power_state: PowerState) -> List[Order]:
+    def _generate_retreat_orders(self, game_state: GameState, power_state: PowerState) -> Sequence[Order]:
         """Generate retreat orders for dislodged units"""
         orders = []
         
@@ -102,9 +117,9 @@ class StrategicAI:
         
         return orders
     
-    def _generate_build_orders(self, game_state: GameState, power_state: PowerState) -> List[Order]:
+    def _generate_build_orders(self, game_state: GameState, power_state: PowerState) -> Sequence[Order]:
         """Generate build/destroy orders based on supply center control"""
-        orders = []
+        orders: List[Order] = []
         
         # Check if power needs to build or destroy units
         supply_center_count = len(power_state.controlled_supply_centers)
@@ -121,7 +136,6 @@ class StrategicAI:
                 
                 order = BuildOrder(
                     power=power_state.power_name,
-                    unit=None,  # Build orders don't have units
                     order_type=OrderType.BUILD,
                     phase=game_state.current_phase,
                     build_province=build_province,
@@ -137,14 +151,13 @@ class StrategicAI:
             for i in range(min(destroys_needed, len(destroyable_units))):
                 unit_to_destroy = destroyable_units[i]
                 
-                order = DestroyOrder(
+                destroy_order = DestroyOrder(
                     power=power_state.power_name,
-                    unit=None,  # Destroy orders don't have units
                     order_type=OrderType.DESTROY,
                     phase=game_state.current_phase,
                     destroy_unit=unit_to_destroy
                 )
-                orders.append(order)
+                orders.append(destroy_order)
         
         return orders
     
@@ -347,7 +360,22 @@ class OrderGenerator:
         self.order_parser = OrderParser()
     
     def create_order_from_string(self, order_string: str, power: str, game_state: GameState) -> Optional[Order]:
-        """Create an Order object from a string representation"""
+        """
+        Create an Order object from a string representation.
+        
+        Args:
+            order_string: String representation of the order (e.g., "A PAR - BUR")
+            power: Name of the power submitting the order
+            game_state: Current game state for validation
+            
+        Returns:
+            Order object if parsing and validation succeed, None otherwise
+            
+        Example:
+            >>> generator = OrderGenerator()
+            >>> order = generator.create_order_from_string("A PAR - BUR", "FRANCE", game_state)
+            >>> print(order.target_province)  # "BUR"
+        """
         try:
             # Parse the order string
             parsed_order = self.order_parser.parse_order(order_string)
@@ -415,7 +443,6 @@ class OrderGenerator:
             elif order_type == "build":
                 return BuildOrder(
                     power=power,
-                    unit=None,
                     order_type=OrderType.BUILD,
                     phase=game_state.current_phase,
                     build_province=parsed_order['build_province'],
@@ -428,7 +455,6 @@ class OrderGenerator:
                     
                 return DestroyOrder(
                     power=power,
-                    unit=None,
                     order_type=OrderType.DESTROY,
                     phase=game_state.current_phase,
                     destroy_unit=destroy_unit
@@ -441,7 +467,20 @@ class OrderGenerator:
         return None
     
     def validate_orders(self, orders: List[Order], game_state: GameState) -> List[Tuple[bool, str]]:
-        """Validate a list of orders against the game state"""
+        """
+        Validate a list of orders against the current game state.
+        
+        Args:
+            orders: List of Order objects to validate
+            game_state: Current game state for validation context
+            
+        Returns:
+            List of tuples containing (is_valid, error_message) for each order
+            
+        Note:
+            Each order is validated individually. Invalid orders will have
+            error messages explaining why they failed validation.
+        """
         results = []
         
         for order in orders:

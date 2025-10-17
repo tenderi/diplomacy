@@ -3,8 +3,8 @@ Test DAIDE protocol server: verifies TCP connection, message echo, and integrati
 """
 import socket
 import time
-from src.server.daide_protocol import DAIDEServer
-from src.server.server import Server
+from server.daide_protocol import DAIDEServer
+from server.server import Server
 
 # Helper to find a free port
 

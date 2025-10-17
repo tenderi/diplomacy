@@ -10,8 +10,8 @@ import os
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.engine.game import Game
-from src.engine.data_models import Unit, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, OrderStatus
+from engine.game import Game
+from engine.data_models import Unit, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, OrderStatus
 
 
 class TestOrderResolution:
@@ -72,13 +72,20 @@ class TestOrderResolution:
         game.add_player('FRANCE')
         game.add_player('GERMANY')
         
-        # Set up units
-        army_paris = Unit(unit_type='A', province='PAR', power='FRANCE')
-        army_marseille = Unit(unit_type='A', province='MAR', power='FRANCE')
-        army_munich = Unit(unit_type='A', province='MUN', power='GERMANY')
+        # Get existing units instead of creating duplicates
+        army_paris = None
+        army_marseille = None
+        army_munich = None
         
-        game.game_state.powers['FRANCE'].units.extend([army_paris, army_marseille])
-        game.game_state.powers['GERMANY'].units.append(army_munich)
+        for unit in game.game_state.powers['FRANCE'].units:
+            if unit.province == 'PAR':
+                army_paris = unit
+            elif unit.province == 'MAR':
+                army_marseille = unit
+        
+        for unit in game.game_state.powers['GERMANY'].units:
+            if unit.province == 'MUN':
+                army_munich = unit
         
         # French army moves to Burgundy with support
         move_france = MoveOrder(
@@ -124,9 +131,9 @@ class TestOrderResolution:
         assert failed_moves[0]["unit"] == "A MUN"
         assert failed_moves[0]["to"] == "BUR"
         
-        # German unit should be dislodged
-        assert len(results["dislodged_units"]) == 1
-        assert results["dislodged_units"][0]["unit"] == "A MUN"
+        # German unit should NOT be dislodged (it failed to move, but wasn't dislodged)
+        # A unit is only dislodged if it's IN a province and another unit successfully moves there
+        assert len(results["dislodged_units"]) == 0
 
     def test_convoy_move(self):
         """Test convoy moves."""

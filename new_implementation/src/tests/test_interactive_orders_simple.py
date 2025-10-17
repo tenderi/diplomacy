@@ -17,7 +17,7 @@ def test_province_mapping():
     """Test province name normalization"""
     print("Testing province mapping...")
     
-    from src.engine.province_mapping import normalize_province_name
+    from engine.province_mapping import normalize_province_name
     
     # Test known provinces
     assert normalize_province_name("ber") == "BER"
@@ -33,7 +33,7 @@ def test_normalize_order_provinces():
     """Test order normalization function"""
     print("Testing order normalization...")
     
-    from src.server.telegram_bot import normalize_order_provinces
+    from server.telegram_bot import normalize_order_provinces
     
     # Test basic normalization
     result = normalize_order_provinces("A BER - SIL", "GERMANY")
@@ -53,7 +53,7 @@ def test_map_adjacency():
     """Test map adjacency functionality"""
     print("Testing map adjacency...")
     
-    from src.engine.map import Map
+    from engine.map import Map
     
     # Create map instance
     map_instance = Map("standard")
@@ -103,7 +103,7 @@ def test_selectunit_command_mock(mock_api_get):
     """Test /selectunit command with mocked API"""
     print("Testing /selectunit command...")
     
-    from src.server.telegram_bot import selectunit
+    from server.telegram_bot import selectunit
     import asyncio
     
     # Mock API responses
@@ -142,7 +142,7 @@ def test_unit_type_filtering():
     """Test unit type filtering for moves"""
     print("Testing unit type filtering...")
     
-    from src.engine.map import Map
+    from engine.map import Map
     
     # Create map instance
     map_instance = Map("standard")

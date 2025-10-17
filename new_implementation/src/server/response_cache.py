@@ -100,6 +100,10 @@ class ResponseCache:
             
             logger.debug(f"💾 Cached response for {endpoint} (TTL: {ttl or self.default_ttl}s)")
     
+    def set(self, endpoint: str, params: Dict[str, Any], data: Any, ttl: Optional[int] = None) -> None:
+        """Alias for put() method to match test expectations."""
+        self.put(endpoint, data, ttl, params)
+    
     def invalidate(self, endpoint: str, params: Dict[str, Any] = None) -> None:
         """Invalidate cached response."""
         with self.lock:

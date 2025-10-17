@@ -9,7 +9,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(BASE_DIR)
 
-from src.engine.game import Game
+from engine.game import Game
 
 def test_consecutive_phases():
     """Test 6 consecutive phases: movement → retreat → retreat → movement → build → movement"""
