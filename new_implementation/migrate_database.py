@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.engine.database import clear_database, create_database_schema
+from engine.database import clear_database, create_database_schema
 
 
 def main():

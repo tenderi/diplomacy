@@ -374,7 +374,7 @@ class TestStrategicAIEdgeCases:
     def test_empty_game_state(self, ai):
         """Test behavior with empty game state."""
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",

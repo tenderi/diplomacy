@@ -17,24 +17,25 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from server.api import app
-from server.db_models import Base, GameModel, UserModel, PlayerModel
-from server.db_session import SessionLocal
+from engine.database import Base, GameModel, UserModel, PlayerModel
+import pytest
 
 
+@pytest.mark.skipif(not (os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")), reason="Database URL not configured for demo integration test")
 def test_demo_game_workflow():
     """Test the complete demo game workflow."""
     print("🧪 Testing Demo Game Order Management...")
     
     # Create PostgreSQL database for testing
-    engine = create_engine("postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db", echo=False)
+    db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+    engine = create_engine(db_url, echo=False)
     Base.metadata.create_all(engine)
     
     # Create test session
     TestingSessionLocal = sessionmaker(autoflush=False, bind=engine)
     db = TestingSessionLocal()
     
-    # Override the app's database session
-    app.dependency_overrides[SessionLocal] = lambda: db
+    # DAL manages sessions internally; no app override required
     
     try:
         client = TestClient(app)

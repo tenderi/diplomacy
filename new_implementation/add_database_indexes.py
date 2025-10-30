@@ -22,10 +22,10 @@ from sqlalchemy.exc import SQLAlchemyError
 import logging
 
 # Add src directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-from src.server.db_config import SQLALCHEMY_DATABASE_URL
-from src.server.db_models import Base
+from server.db_config import SQLALCHEMY_DATABASE_URL
+from engine.database import Base
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

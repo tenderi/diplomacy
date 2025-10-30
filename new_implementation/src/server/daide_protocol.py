@@ -1,10 +1,17 @@
 """
 DAIDE protocol handler for Diplomacy server.
 Listens for TCP connections, parses DAIDE messages, and maps them to server commands.
+Strict handling: HLO creates a DAL-backed game and ORD validates via engine and persists via DAL.
 """
 import socket
 import threading
 from typing import Any, Optional
+from .db_config import SQLALCHEMY_DATABASE_URL
+from engine.database_service import DatabaseService
+from engine.order_parser import OrderParser
+
+# Initialize a DAL instance for DAIDE operations
+db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)
 
 class DAIDEServer:
     """DAIDE protocol server for bot/server communication."""
@@ -68,24 +75,51 @@ class DAIDEServer:
                 # Minimal DAIDE message parsing: handle HLO (POWER)
                 if daide_message.startswith("HLO (") and daide_message.endswith(")"):
                     power_name = daide_message[5:-1].strip()
-                    # Create a new game and add the player
-                    create_result = self.server.process_command("CREATE_GAME standard")
-                    if create_result.get("status") == "ok":
-                        game_id = create_result["game_id"]
+                    # Create DAL-backed game
+                    try:
+                        game_model = db_service.create_game(map_name="standard")
+                        game_id = str(game_model.id)
+                        # Ensure in-memory game exists with same id
+                        if game_id not in self.server.games:
+                            from engine.game import Game
+                            g = Game(map_name="standard")
+                            setattr(g, "game_id", game_id)
+                            self.server.games[game_id] = g
+                        # Add player via server path (affects in-memory engine)
                         add_result = self.server.process_command(f"ADD_PLAYER {game_id} {power_name}")
                         if add_result.get("status") == "ok":
                             response = f"HLO OK {game_id} {power_name}\n"
                         else:
                             response = f"ERR ADD_PLAYER {add_result.get('message','error')}\n"
-                    else:
-                        response = f"ERR CREATE_GAME {create_result.get('message','error')}\n"
+                    except Exception as e:
+                        response = f"ERR CREATE_GAME {e}\n"
                 elif daide_message.startswith("ORD (") and daide_message.endswith(")"):
                     # Example: ORD (A PAR - BUR)
                     if not game_id or not power_name:
                         response = "ERR ORD No game or power context. Send HLO first.\n"
                     else:
-                        # Acknowledge orders without strict validation to keep DAIDE simple
-                        response = f"ORD OK {game_id} {power_name}\n"
+                        try:
+                            order_str = daide_message[5:-1].strip()
+                            # Validate using engine parser with current in-memory game state
+                            if game_id not in self.server.games:
+                                response = "ERR ORD Game not loaded in memory.\n"
+                            else:
+                                game_obj = self.server.games[game_id]
+                                parsed_orders = OrderParser.parse_orders_list([order_str], power_name, game_obj)
+                                if not parsed_orders:
+                                    response = "ERR ORD Invalid order.\n"
+                                else:
+                                    # Persist via DAL
+                                    db_service.submit_orders(game_id=int(game_id), power_name=power_name, orders=parsed_orders)
+                                    # Also set in-memory via server to keep state coherent
+                                    result = self.server.process_command(f"SET_ORDERS {game_id} {power_name} {order_str}")
+                                    if result.get("status") == "ok":
+                                        response = f"ORD OK {game_id} {power_name}\n"
+                                    else:
+                                        msg = result.get("error") or result.get("message") or "Order error"
+                                        response = f"ERR ORD {msg}\n"
+                        except Exception as e:
+                            response = f"ERR ORD {e}\n"
                 elif daide_message == "SUB":
                     # Submit orders acknowledgement
                     response = "SUB OK\n"
