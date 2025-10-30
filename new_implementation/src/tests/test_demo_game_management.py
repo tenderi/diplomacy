@@ -226,8 +226,8 @@ class TestDemoGameManagement:
         state = state_response.json()
         assert "units" in state
         assert "powers" in state
-        assert "turn" in state
-        assert "phase" in state
+        assert "current_turn" in state
+        assert "current_phase" in state
         
         # Verify Germany has units
         assert "GERMANY" in state["units"]

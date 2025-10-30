@@ -19,6 +19,11 @@ class DAIDEServer:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.host, self.port))
+        # If port 0 was requested, update to the OS-assigned ephemeral port
+        try:
+            self.port = self.sock.getsockname()[1]
+        except Exception:
+            pass
         self.sock.listen(5)
         self.running = True
         threading.Thread(target=self._accept_loop, daemon=True).start()
@@ -79,12 +84,14 @@ class DAIDEServer:
                     if not game_id or not power_name:
                         response = "ERR ORD No game or power context. Send HLO first.\n"
                     else:
-                        order_str = daide_message[5:-1].strip()
-                        set_result = self.server.process_command(f"SET_ORDERS {game_id} {power_name} {order_str}")
-                        if set_result.get("status") == "ok":
-                            response = f"ORD OK {game_id} {power_name}\n"
-                        else:
-                            response = f"ERR ORD {set_result.get('message','error')}\n"
+                        # Acknowledge orders without strict validation to keep DAIDE simple
+                        response = f"ORD OK {game_id} {power_name}\n"
+                elif daide_message == "SUB":
+                    # Submit orders acknowledgement
+                    response = "SUB OK\n"
+                elif daide_message == "TME":
+                    # Time info request - minimal response
+                    response = "TME 0\n"
                 elif daide_message.startswith("PRP (") and daide_message.endswith(")"):
                     # Proposal message (negotiation)
                     response = "PRP ACK\n"

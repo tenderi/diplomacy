@@ -167,7 +167,7 @@ class Server:
                 order_str = " ".join(tokens[3:])
                 
                 # Parse the order string into individual orders using the new parser
-                from ..engine.order_parser_utils import split_orders
+                from engine.order_parser_utils import split_orders
                 orders = split_orders(order_str)
                 
                 self.logger.info(f"Raw order string: {order_str}")
@@ -294,5 +294,10 @@ class Server:
         """
         game = self.games.get(game_id)
         if not game:
-            return None
+            # Return structured error per spec instead of None
+            return ServerError.create_error_response(
+                ErrorCode.GAME_NOT_FOUND,
+                f"Game {game_id} not found",
+                {"game_id": game_id},
+            )
         return game.get_game_state()
