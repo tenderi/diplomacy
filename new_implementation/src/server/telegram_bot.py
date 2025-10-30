@@ -14,7 +14,7 @@ import asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
 from telegram.ext import Application
-from ..engine.map import Map
+from engine.map import Map
 import random
 import json
 from typing import Dict, List, Tuple, Optional
