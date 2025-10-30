@@ -314,7 +314,11 @@ class StrategicAI:
                     adjacent_units.append(target_unit)
         
         if adjacent_units:
-            return random.choice(adjacent_units)
+            try:
+                return random.choice(adjacent_units)
+            except Exception as e:
+                logger.warning(f"Random choice failed for adjacent units: {e}")
+                return adjacent_units[0]
         
         return None
     
@@ -325,7 +329,11 @@ class StrategicAI:
         armies = [u for u in power_units if u.unit_type == "A" and u != unit]
         
         if armies:
-            return random.choice(armies)
+            try:
+                return random.choice(armies)
+            except Exception as e:
+                logger.warning(f"Random choice failed for convoy armies: {e}")
+                return armies[0]
         
         return None
     
@@ -338,7 +346,11 @@ class StrategicAI:
                 coastal_provinces.append(province_name)
         
         if coastal_provinces:
-            return random.choice(coastal_provinces)
+            try:
+                return random.choice(coastal_provinces)
+            except Exception as e:
+                logger.warning(f"Random choice failed for convoy destination: {e}")
+                return coastal_provinces[0]
         
         return None
     

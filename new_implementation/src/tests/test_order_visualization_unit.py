@@ -337,7 +337,7 @@ class TestOrderVisualizationEdgeCases:
     def test_empty_game_state(self, viz_service):
         """Test visualization with empty game state."""
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",
@@ -409,7 +409,7 @@ class TestOrderVisualizationEdgeCases:
     def test_coast_specifications(self, viz_service):
         """Test visualization with coast specifications."""
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",
@@ -488,7 +488,7 @@ class TestOrderVisualizationIntegration:
     def test_comprehensive_order_types(self, viz_service):
         """Test visualization with all order types."""
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",
@@ -614,7 +614,7 @@ class TestOrderVisualizationIntegration:
     def test_moves_visualization_comprehensive(self, viz_service):
         """Test comprehensive moves visualization."""
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",
@@ -733,7 +733,7 @@ class TestOrderVisualizationPerformance:
             power_orders[power_name] = orders
         
         from datetime import datetime
-        from src.engine.data_models import MapData, GameStatus
+        from engine.data_models import MapData, GameStatus
         
         map_data = MapData(
             map_name="standard",

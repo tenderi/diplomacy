@@ -109,7 +109,7 @@ class TelegramBotTestFramework:
         
         try:
             # Import the function
-            import src.server.telegram_bot as telegram_bot
+            import server.telegram_bot as telegram_bot
             func = getattr(telegram_bot, func_name)
         except (ImportError, AttributeError) as e:
             self.log_test(f"{func_name} import", False, f"Could not import: {str(e)}")

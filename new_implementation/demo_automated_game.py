@@ -35,11 +35,11 @@ from dataclasses import dataclass
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.server.server import Server
-from src.engine.game import Game
-from src.engine.data_models import GameState, PowerState, Unit, GameStatus
-from src.engine.map import Map
-from src.engine.order_parser import OrderParser
+from server.server import Server
+from engine.game import Game
+from engine.data_models import GameState, PowerState, Unit, GameStatus
+from engine.map import Map
+from engine.order_parser import OrderParser
 
 
 @dataclass
@@ -459,7 +459,7 @@ class AutomatedDemoGame:
             
         try:
             # Generate actual PNG map
-            from src.engine.map import Map
+            from engine.map import Map
             
             svg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", "standard.svg")
             filepath = os.path.join(self.maps_dir, f"{filename}.png")

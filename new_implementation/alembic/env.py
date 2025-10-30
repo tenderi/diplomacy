@@ -1,7 +1,7 @@
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -50,7 +50,7 @@ config.set_main_option("sqlalchemy.url", db_url)
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
-from src.server.db_models import Base  # type: ignore
+from engine.database import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate
 # target_metadata = None

@@ -15,8 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from server.api import app
-from server.db_models import Base, GameModel, UserModel, PlayerModel
-from server.db_session import SessionLocal
+from engine.database import Base, GameModel, UserModel, PlayerModel
 
 
 class TestDemoGameManagement:
@@ -25,16 +24,18 @@ class TestDemoGameManagement:
     @pytest.fixture(autouse=True)
     def setup_test_db(self):
         """Set up test database for each test."""
-        # Create PostgreSQL database for testing
-        self.engine = create_engine("postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db", echo=False)
+        db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+        if not db_url:
+            pytest.skip("Database URL not configured; skipping demo DB tests")
+        # Create PostgreSQL database for testing (uses provided URL)
+        self.engine = create_engine(db_url, echo=False)
         Base.metadata.create_all(self.engine)
         
         # Create test session
         TestingSessionLocal = sessionmaker(autoflush=False, bind=self.engine)
         self.db = TestingSessionLocal()
         
-        # Override the app's database session
-        app.dependency_overrides[SessionLocal] = lambda: self.db
+        # No direct dependency override needed; DAL uses its own session factory
         
         yield
         

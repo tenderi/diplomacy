@@ -5,7 +5,7 @@ This migration implements the comprehensive database schema defined in data_spec
 with proper foreign key relationships and data validation constraints.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, Index
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -76,9 +76,10 @@ class PlayerModel(Base):
     last_order_time = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Constraints
+    # Constraints and indexes
     __table_args__ = (
         UniqueConstraint('game_id', 'power_name', name='uq_game_power'),
+        Index('ix_players_game', 'game_id'),
     )
     
     # Relationships
@@ -140,11 +141,12 @@ class OrderModel(Base):
     turn_number = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Constraints
+    # Constraints and indexes
     __table_args__ = (
         CheckConstraint("unit_type IN ('A', 'F')", name='ck_order_unit_type'),
         CheckConstraint("order_type IN ('move', 'hold', 'support', 'convoy', 'retreat', 'build', 'destroy')", name='ck_order_type'),
         CheckConstraint("status IN ('pending', 'submitted', 'success', 'failed', 'bounced')", name='ck_order_status'),
+        Index('ix_orders_game_turn', 'game_id', 'turn_number'),
     )
     
     # Relationships
@@ -225,9 +227,10 @@ class MessageModel(Base):
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Constraints
+    # Constraints and indexes
     __table_args__ = (
         CheckConstraint("message_type IN ('private', 'broadcast', 'system')", name='ck_message_type'),
+        Index('ix_messages_game', 'game_id'),
     )
     
     # Relationships

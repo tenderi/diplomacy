@@ -3,10 +3,10 @@
 
 import os
 import sys
-sys.path.insert(0, '/home/tenderi/diplomacy/new_implementation/src')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from sqlalchemy import create_engine
-from src.engine.database_service import DatabaseService
+from engine.database_service import DatabaseService
 
 print("=== Minimal Database Test ===")
 
@@ -49,7 +49,7 @@ print("\n3. Testing with environment variable...")
 os.environ['SQLALCHEMY_DATABASE_URL'] = db_url
 
 try:
-    from src.server.db_config import SQLALCHEMY_DATABASE_URL
+    from server.db_config import SQLALCHEMY_DATABASE_URL
     print(f"Config URL: {SQLALCHEMY_DATABASE_URL}")
     
     service2 = DatabaseService(SQLALCHEMY_DATABASE_URL)
