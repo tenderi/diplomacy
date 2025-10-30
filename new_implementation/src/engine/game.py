@@ -1,6 +1,6 @@
 from typing import Dict, List, Any, Optional, Tuple
 from .map import Map
-from .order import OrderParser
+from .order_parser import OrderParser
 from .data_models import (
     Order, GameState, PowerState, Unit, MapData, Province, OrderType, OrderStatus, GameStatus,
     MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
@@ -187,7 +187,14 @@ class Game:
             raise ValueError(f"Power {power_name} not found in game")
         
         # Convert string orders to new order objects
-        new_orders = OrderParser.parse_orders_list(orders, power_name, self)
+        parser = OrderParser()
+        parsed_orders = parser.parse_orders(";".join(orders), power_name)
+        # Build concrete Order objects from parsed forms
+        power_state = self.game_state.powers[power_name]
+        new_orders = []
+        for parsed in parsed_orders:
+            order_obj = parser.create_order_from_parsed(parsed, self.game_state)
+            new_orders.append(order_obj)
         
         # Ensure game state phase is up to date
         self.game_state.current_phase = self.phase
@@ -200,7 +207,7 @@ class Game:
         for order in new_orders:
             if order:
                 # Validate order against game state
-                valid, reason = OrderParser.validate_order(order, self.game_state)
+                valid, reason = OrderParser().validate_orders([order], self.game_state)[0]
                 if not valid:
                     validation_errors.append(f"Order {order}: {reason}")
                 

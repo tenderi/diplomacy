@@ -6,9 +6,11 @@ to ensure proper data integrity and consistency.
 """
 
 from typing import List, Optional, Dict, Any, Tuple
+import json
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
     TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel,
@@ -25,6 +27,8 @@ class DatabaseService:
     
     def __init__(self, database_url: str):
         self.session_factory = get_session_factory(database_url)
+        # Fallback mapping for server schema ids (when games.game_id column does not exist)
+        self._fallback_ids: Dict[str, int] = {}
     
     def create_game(self, game_id: str, map_name: str = 'standard') -> GameState:
         """
@@ -42,19 +46,44 @@ class DatabaseService:
             GameState object ready for players to join.
         """
         with self.session_factory() as session:
-            # Create game record
-            game_model = GameModel(
-                game_id=game_id,
-                map_name=map_name,
-                current_turn=0,
-                current_year=1901,
-                current_season='Spring',
-                current_phase='Movement',
-                phase_code='S1901M',
-                status='active'
-            )
-            session.add(game_model)
-            session.commit()
+            # Create game record using engine schema; fallback to server schema if needed
+            try:
+                game_model = GameModel(
+                    game_id=game_id,
+                    map_name=map_name,
+                    current_turn=0,
+                    current_year=1901,
+                    current_season='Spring',
+                    current_phase='Movement',
+                    phase_code='S1901M',
+                    status='active'
+                )
+                session.add(game_model)
+                session.commit()
+            except Exception:
+                session.rollback()
+                # Fallback: server schema (map_name, state, is_active)
+                state_payload = {
+                    "game_id": game_id,
+                    "map_name": map_name,
+                    "current_turn": 0,
+                    "current_year": 1901,
+                    "current_season": "Spring",
+                    "current_phase": "Movement",
+                    "phase_code": "S1901M",
+                    "status": "active",
+                    "powers": {},
+                    "units": {},
+                    "orders": {}
+                }
+                result = session.execute(
+                    text("INSERT INTO games (map_name, state, is_active) VALUES (:map_name, CAST(:state AS JSON), true) RETURNING id"),
+                    {"map_name": map_name, "state": json.dumps(state_payload)}
+                )
+                row = result.fetchone()
+                if row is not None:
+                    self._fallback_ids[game_id] = int(row[0])
+                session.commit()
             
             # Create empty game state
             game_state = GameState(
@@ -75,6 +104,84 @@ class DatabaseService:
             
             return game_state
     
+    def save_game_state(self, game_state: GameState) -> bool:
+        """Persist entire game state. Returns True on success."""
+        try:
+            self.update_game_state(game_state)
+            return True
+        except Exception:
+            # Fallback: server schema JSON state
+            with self.session_factory() as session:
+                if game_state.game_id not in self._fallback_ids:
+                    return False
+                db_id = self._fallback_ids[game_state.game_id]
+                payload: Dict[str, Any] = {
+                    "game_id": game_state.game_id,
+                    "map_name": game_state.map_name,
+                    "current_turn": game_state.current_turn,
+                    "current_year": game_state.current_year,
+                    "current_season": game_state.current_season,
+                    "current_phase": game_state.current_phase,
+                    "phase_code": game_state.phase_code,
+                    "status": game_state.status.value if hasattr(game_state.status, 'value') else str(game_state.status),
+                    "powers": {p: {
+                        "power_name": ps.power_name,
+                        "supply_centers": ps.controlled_supply_centers,
+                    } for p, ps in game_state.powers.items()},
+                    "units": {p: [f"{u.unit_type} {u.province}" for u in ps.units] for p, ps in game_state.powers.items()},
+                    "orders": {p: [str(o) for o in orders] for p, orders in game_state.orders.items()},
+                }
+                session.execute(
+                    text("UPDATE games SET state = CAST(:state AS JSON) WHERE id = :id"),
+                    {"state": json.dumps(payload), "id": db_id}
+                )
+                session.commit()
+                return True
+
+    def update_units(self, game_id: str, power_name: str, units: List[Unit]) -> bool:
+        """Update units for a specific power."""
+        with self.session_factory() as session:
+            # Try engine schema first
+            try:
+                game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+                if not game_model:
+                    raise ValueError("not found")
+                session.query(UnitModel).filter_by(game_id=game_model.id, power_name=power_name).delete()
+                for unit in units:
+                    session.add(UnitModel(
+                        game_id=game_model.id,
+                        power_name=power_name,
+                        unit_type=unit.unit_type,
+                        province=unit.province,
+                        is_dislodged=unit.is_dislodged,
+                        dislodged_by=unit.dislodged_by,
+                        can_retreat=unit.can_retreat,
+                        retreat_options=unit.retreat_options,
+                    ))
+                session.commit()
+                return True
+            except Exception:
+                session.rollback()
+                if game_id not in self._fallback_ids:
+                    return False
+                db_id = self._fallback_ids[game_id]
+                row = session.execute(text("SELECT state FROM games WHERE id = :id"), {"id": db_id}).fetchone()
+                state = row[0] if row else {}
+                if not isinstance(state, dict):
+                    try:
+                        state = json.loads(state)
+                    except Exception:
+                        state = {}
+                units_block = state.get("units", {})
+                units_block[power_name] = [f"{u.unit_type} {u.province}" for u in units]
+                state["units"] = units_block
+                session.execute(
+                    text("UPDATE games SET state = CAST(:state AS JSON) WHERE id = :id"),
+                    {"state": json.dumps(state), "id": db_id}
+                )
+                session.commit()
+                return True
+
     def add_player(self, game_id: str, power_name: str, user_id: Optional[int] = None) -> PowerState:
         """
         Add a player to a game.
@@ -210,9 +317,52 @@ class DatabaseService:
         """Get complete game state"""
         with self.session_factory() as session:
             # Get game
-            game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+            try:
+                game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+            except Exception:
+                session.rollback()
+                game_model = None
             if not game_model:
-                return None
+                # Fallback: server schema JSON fetch
+                if game_id not in self._fallback_ids:
+                    return None
+                db_id = self._fallback_ids[game_id]
+                row = session.execute(text("SELECT state FROM games WHERE id = :id"), {"id": db_id}).fetchone()
+                payload = row[0] if row else None
+                if not payload:
+                    return None
+                if not isinstance(payload, dict):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        return None
+                # Build minimal GameState
+                powers: Dict[str, PowerState] = {}
+                units_block = payload.get("units", {}) or {}
+                for p_name, unit_strs in units_block.items():
+                    units_list = []
+                    for us in unit_strs:
+                        try:
+                            unit_type, province = us.split(" ", 1)
+                            units_list.append(Unit(unit_type=unit_type, province=province, power=p_name))
+                        except Exception:
+                            continue
+                    powers[p_name] = PowerState(power_name=p_name, units=units_list, controlled_supply_centers=[])
+                return GameState(
+                    game_id=payload.get("game_id", game_id),
+                    map_name=payload.get("map_name", "standard"),
+                    current_turn=payload.get("current_turn", 0),
+                    current_year=payload.get("current_year", 1901),
+                    current_season=payload.get("current_season", "Spring"),
+                    current_phase=payload.get("current_phase", "Movement"),
+                    phase_code=payload.get("phase_code", "S1901M"),
+                    status=GameStatus.ACTIVE,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                    powers=powers,
+                    map_data=self._load_map_data(payload.get("map_name", "standard")),
+                    orders={}
+                )
             
             # Get players
             players = session.query(PlayerModel).filter_by(game_id=game_model.id).all()

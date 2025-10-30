@@ -28,7 +28,7 @@ def test_list_games_and_state_import_ok():
     r_state = client.get(f"/games/{game_id}/state")
     assert r_state.status_code == 200
     body = r_state.json()
-    for key in ["year", "phase", "turn", "powers", "units", "orders"]:
+    for key in ["game_id", "current_year", "current_phase", "current_turn", "powers", "units", "orders", "supply_centers", "status", "phase_code"]:
         assert key in body
 
 
