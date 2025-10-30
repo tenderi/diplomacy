@@ -199,7 +199,7 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                         telegram_id = getattr(user, "telegram_id", None) if user is not None else None
                         if telegram_id is not None:
                             requests.post(
-                                "http://localhost:8081/notify",
+                                NOTIFY_URL,
                                 json={"telegram_id": int(telegram_id), "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {result.get('error', 'Order error')}"},
                                 timeout=2,
                             )
@@ -591,6 +591,9 @@ if not scheduler_logger.hasHandlers():
     handler.setFormatter(formatter)
     scheduler_logger.addHandler(handler)
 
+# Notification service URL (Telegram bot notify endpoint)
+NOTIFY_URL = os.environ.get("DIPLOMACY_NOTIFY_URL", "http://localhost:8081/notify")
+
 # --- Helper to notify all players in a game ---
 def notify_players(game_id: int, message: str):
     db: Session = SessionLocal()
@@ -601,7 +604,7 @@ def notify_players(game_id: int, message: str):
             if telegram_id_val is not None and telegram_id_val != '':
                 try:
                     requests.post(
-                        "http://localhost:8081/notify",
+                        NOTIFY_URL,
                         json={"telegram_id": int(telegram_id_val), "message": message},
                         timeout=2,
                     )
@@ -827,7 +830,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         # --- Notification logic ---
         try:
             requests.post(
-                "http://localhost:8081/notify",
+                NOTIFY_URL,
                 json={"telegram_id": int(req.telegram_id), "message": f"You have joined game {game_id} as {req.power}."},
                 timeout=2,
             )
@@ -878,7 +881,7 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
         # Notify the quitting player
         try:
             requests.post(
-                "http://localhost:8081/notify",
+                NOTIFY_URL,
                 json={"telegram_id": int(req.telegram_id), "message": f"You have quit game {game_id}."},
                 timeout=2,
             )
@@ -931,7 +934,7 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
                 recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
                 if recipient_telegram_id is not None:
                     requests.post(
-                        "http://localhost:8081/notify",
+                        NOTIFY_URL,
                         json={"telegram_id": int(recipient_telegram_id), "message": f"New private message in game {game_id} from {user.full_name or user.telegram_id}: {req.text}"},
                         timeout=2,
                     )
