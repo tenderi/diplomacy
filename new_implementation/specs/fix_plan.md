@@ -4,9 +4,10 @@
 
 ### 1. Production Deployment Issues 🔥
 - **Fix Telegram bot connection errors** - Bot can't connect to API (localhost:8000 connection refused)
+- Configure `DIPLOMACY_API_URL` for bot in deployment (avoid localhost)
 - **Fix map viewing functionality** - 500 error on `/games/{game_id}/state` endpoint
 - **Fix database migration issues** - Alembic migrations failing due to import errors
-- **Fix API endpoint routing** - Missing `/games` endpoint for listing games
+- **Fix API endpoint routing** - `/games` implemented; verify response and list format
 - **Verify service startup** - Ensure both API and bot services start correctly
 
 ### 2. Import System Cleanup ✅ COMPLETED
@@ -47,12 +48,12 @@
 
 ### 🔄 IN PROGRESS
 - **Production deployment** - Working on fixing bot connection issues
-- **API endpoint fixes** - Resolving map viewing and game listing issues
+- **API endpoint verification** - Test `/games` list and map state endpoints
 
 ### ⚠️ KNOWN ISSUES
 - **Telegram bot registration** - Users can't register due to API connection issues
 - **Map viewing** - 500 error when trying to view game maps
-- **Game listing** - Missing endpoint for listing available games
+- **Game listing** - Endpoint present; needs functionality verification
 
 ## 🎯 SUCCESS CRITERIA
 
