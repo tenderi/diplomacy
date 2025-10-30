@@ -29,8 +29,8 @@ import requests
 from sqlalchemy import or_, text
 import logging
 import pytz
-from ..engine.order import OrderParser
-from ..engine.data_models import Unit, GameStatus
+from engine.order import OrderParser
+from engine.data_models import Unit, GameStatus
 from .response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 
 @asynccontextmanager
@@ -116,7 +116,7 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         game_id = str(game.id)
         # Now create the game in the in-memory server with the same game_id
         if game_id not in server.games:
-            from ..engine.game import Game
+            from engine.game import Game
             g = Game(map_name=req.map_name)
             setattr(g, "game_id", game_id)
             server.games[game_id] = g
@@ -142,7 +142,7 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
         # Add player to in-memory server
         if req.game_id not in server.games:
-            from ..engine.game import Game
+            from engine.game import Game
             g = Game()
             setattr(g, "game_id", req.game_id)
             server.games[req.game_id] = g
@@ -311,7 +311,7 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
                 raise HTTPException(status_code=404, detail="Game not found")
             
             # Restore the game in server.games
-            from ..engine.game import Game
+            from engine.game import Game
             restored_game = Game(map_name=game_model.map_name)
             setattr(restored_game, "game_id", game_id)
             
@@ -728,6 +728,31 @@ def health_check() -> Dict[str, str]:
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
+
+@app.get("/games")
+def list_games() -> Dict[str, Any]:
+    """List all games with basic info and player count."""
+    db: Session = SessionLocal()
+    try:
+        games = db.query(GameModel).order_by(GameModel.id.asc()).all()
+        result: list[dict[str, Any]] = []
+        for g in games:
+            players = db.query(PlayerModel).filter(PlayerModel.game_id == g.id).all()
+            result.append(
+                {
+                    "id": g.id,
+                    "map_name": g.map_name,
+                    "is_active": g.is_active,
+                    "deadline": g.deadline.isoformat() if getattr(g, "deadline", None) else None,
+                    "player_count": len(players),
+                    "powers": [p.power for p in players],
+                }
+            )
+        return {"games": result}
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 # --- New User Endpoints for Persistent Registration and Multi-Game Support ---
 class RegisterPersistentUserRequest(BaseModel):
@@ -1336,7 +1361,7 @@ def cleanup_old_maps() -> Dict[str, Any]:
 def get_map_cache_stats() -> Dict[str, Any]:
     """Get map cache statistics for monitoring."""
     try:
-        from ..engine.map import Map
+        from engine.map import Map
         stats = Map.get_cache_stats()
         return {
             "status": "ok",
@@ -1349,7 +1374,7 @@ def get_map_cache_stats() -> Dict[str, Any]:
 def clear_map_cache() -> Dict[str, Any]:
     """Clear all cached maps."""
     try:
-        from ..engine.map import Map
+        from engine.map import Map
         Map.clear_map_cache()
         return {
             "status": "ok",
@@ -1362,7 +1387,7 @@ def clear_map_cache() -> Dict[str, Any]:
 def preload_common_maps() -> Dict[str, Any]:
     """Preload common map configurations for better performance."""
     try:
-        from ..engine.map import Map
+        from engine.map import Map
         Map.preload_common_maps()
         return {
             "status": "ok",
