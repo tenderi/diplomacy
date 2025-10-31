@@ -1035,10 +1035,16 @@ class Map:
 
     @staticmethod
     def _draw_phase_info(draw: ImageDraw.Draw, phase_info: dict, image_size: tuple) -> None:
-        """Draw phase information in the bottom right corner of the map"""
+        """Draw phase information overlay according to visualization spec.
+        
+        Format: "Year Season Phase" (e.g., "1901 Spring Movement")
+        Includes phase code (e.g., "S1901M") if available
+        Position: top-right corner (per spec)
+        Font size: 16 points (within 14-18 range)
+        """
         try:
-            # Use a smaller font for phase info
-            phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+            # Use font size 16 (within 14-18 point range from spec)
+            phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
         except Exception:
             phase_font = ImageFont.load_default()
         
@@ -1046,34 +1052,43 @@ class Map:
         year = phase_info.get("year", "1901")
         season = phase_info.get("season", "Spring")
         phase = phase_info.get("phase", "Movement")
-        phase_code = phase_info.get("phase_code", "S1901M")
+        phase_code = phase_info.get("phase_code", "")
+        turn = phase_info.get("turn", None)
         
-        # Create phase text
-        phase_text = f"{phase_code} - {season} {year} {phase}"
+        # Create phase text: "Year Season Phase" format
+        phase_text = f"{year} {season} {phase}"
         
-        # Calculate position (bottom right corner with padding)
+        # Add phase code if available
+        if phase_code:
+            phase_text = f"{phase_code} - {phase_text}"
+        
+        # Add turn number if available and useful
+        if turn and turn > 1:
+            phase_text = f"{phase_text} (Turn {turn})"
+        
+        # Calculate position (top-right corner with padding)
         width, height = image_size
-        padding = 20
+        padding = 15
         
         # Get text dimensions
         bbox = draw.textbbox((0, 0), phase_text, font=phase_font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Position in bottom right
+        # Position in top-right corner
         x = width - text_width - padding
-        y = height - text_height - padding
+        y = padding
         
         # Draw background rectangle for better readability
-        bg_padding = 8
+        bg_padding = 6
         draw.rectangle([
             x - bg_padding, 
             y - bg_padding, 
             x + text_width + bg_padding, 
             y + text_height + bg_padding
-        ], fill=(0, 0, 0, 180))  # Semi-transparent black background
+        ], fill=(0, 0, 0, 200))  # Semi-transparent black background (more opaque for readability)
         
-        # Draw phase text
+        # Draw phase text in white for contrast
         draw.text((x, y), phase_text, fill="white", font=phase_font)
         
     @staticmethod
@@ -1128,6 +1143,136 @@ class Map:
         
         # Draw order visualizations
         Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
+        
+        # Save or return PNG
+        if isinstance(output_path, str) and output_path:
+            bg.save(output_path, format="PNG")
+        output = BytesIO()
+        bg.save(output, format="PNG")
+        img_bytes = output.getvalue()
+        
+        # Cache the generated image
+        _map_cache.put(cache_key, img_bytes)
+        
+        return img_bytes
+
+    @staticmethod
+    def render_board_png_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
+        """
+        Render orders map PNG showing all submitted orders before adjudication.
+        
+        This is an alias for render_board_png_with_orders but with a clearer name for the orders map type.
+        
+        Args:
+            svg_path: Path to SVG map file
+            units: Dictionary of power -> list of units
+            orders: Dictionary of power -> list of order dictionaries (with status="pending")
+            phase_info: Dictionary with turn/season/phase information
+            output_path: Optional output file path
+            supply_center_control: Dictionary of province -> power controlling supply center
+            
+        Returns:
+            PNG image bytes
+        """
+        # Ensure all orders have status="pending" for orders map
+        pending_orders = {}
+        for power, power_orders in orders.items():
+            pending_orders[power] = []
+            for order in power_orders:
+                order_copy = order.copy()
+                order_copy["status"] = "pending"  # Orders map shows pending status
+                pending_orders[power].append(order_copy)
+        
+        return Map.render_board_png_with_orders(
+            svg_path, units, pending_orders, phase_info, output_path, supply_center_control
+        )
+
+    @staticmethod
+    def render_board_png_resolution(svg_path: str, units: dict, orders: dict, resolution_data: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
+        """
+        Render resolution map PNG showing order results, conflicts, and dislodgements after adjudication.
+        
+        Args:
+            svg_path: Path to SVG map file
+            units: Dictionary of power -> list of units (after adjudication, includes dislodged units)
+            orders: Dictionary of power -> list of order dictionaries (with final status)
+            resolution_data: Dictionary containing conflict and resolution information:
+                {
+                    "conflicts": [
+                        {
+                            "province": "BUR",
+                            "attackers": ["FRANCE", "GERMANY"],
+                            "defender": "AUSTRIA",
+                            "strengths": {"FRANCE": 2, "GERMANY": 1, "AUSTRIA": 1},
+                            "result": "standoff|victory|bounce"
+                        }
+                    ],
+                    "dislodgements": [
+                        {
+                            "unit": "A BUR",
+                            "dislodged_by": "A PAR",
+                            "retreat_options": ["BEL", "PIC"]
+                        }
+                    ]
+                }
+            phase_info: Dictionary with turn/season/phase information
+            output_path: Optional output file path
+            supply_center_control: Dictionary of province -> power controlling supply center
+            
+        Returns:
+            PNG image bytes
+        """
+        if svg_path is None:
+            raise ValueError("svg_path must not be None")
+        
+        # Generate cache key including resolution data
+        cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, orders=orders)
+        cache_key += hashlib.md5(json.dumps(resolution_data, sort_keys=True).encode()).hexdigest()[:8]
+        
+        # Try to get from cache first
+        cached_img = _map_cache.get(cache_key)
+        if cached_img is not None:
+            if isinstance(output_path, str) and output_path:
+                with open(output_path, 'wb') as f:
+                    f.write(cached_img)
+            return cached_img
+        
+        # Cache miss - generate new map
+        # First render the base map with final unit positions (including dislodged units)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control)
+        bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
+        draw = ImageDraw.Draw(bg)
+        
+        # Get province coordinates
+        coords = Map.get_svg_province_coordinates(svg_path)
+        
+        # Define power colors
+        power_colors = {
+            "AUSTRIA": "#c48f85",
+            "ENGLAND": "darkviolet", 
+            "FRANCE": "royalblue",
+            "GERMANY": "#a08a75",
+            "ITALY": "forestgreen",
+            "RUSSIA": "#757d91",
+            "TURKEY": "#b9a61c",
+        }
+        
+        # Draw order visualizations with status indicators
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
+        
+        # Draw conflict markers
+        conflicts = resolution_data.get("conflicts", [])
+        for conflict in conflicts:
+            province = conflict.get("province")
+            strengths = conflict.get("strengths", {})
+            result = conflict.get("result", "")
+            
+            if result == "standoff":
+                Map._draw_standoff_indicator(draw, province, coords)
+            else:
+                Map._draw_conflict_marker(draw, province, strengths, result, coords)
+        
+        # Note: Dislodged units are already drawn by render_board_png with offset and D marker
         
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
@@ -1427,6 +1572,8 @@ class Map:
                 elif order_type == "convoy":
                     via = order.get("via", [])
                     Map._draw_convoy_order(draw, unit_province, target, via, color, status, coords)
+                elif order_type == "retreat":
+                    Map._draw_retreat_order(draw, unit_province, target, color, status, coords)
                 elif order_type == "build":
                     Map._draw_build_order(draw, target, color, status, coords)
                 elif order_type == "destroy":
@@ -1581,7 +1728,7 @@ class Map:
 
     @staticmethod
     def _draw_movement_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
-        """Draw movement order arrow"""
+        """Draw movement order arrow with status indicators"""
         if from_province not in coords or to_province not in coords:
             return
             
@@ -1591,10 +1738,18 @@ class Map:
         # Choose arrow style based on status
         if status == "success" or status == "pending":
             Map._draw_arrow(draw, from_coord, to_coord, color, width=3, style="solid")
+            # Add success checkmark at arrow tip
+            if status == "success":
+                Map._draw_checkmark(draw, to_coord, "green")
         elif status == "failed":
             Map._draw_arrow(draw, from_coord, to_coord, "red", width=2, style="dashed")
+            # Add failure X at arrow tip
+            Map._draw_status_x(draw, to_coord, "red")
         elif status == "bounced":
-            Map._draw_arrow(draw, from_coord, to_coord, "orange", width=2, style="dashed")
+            # Draw curved return arrow for bounce
+            Map._draw_bounce_arrow(draw, from_coord, to_coord, "orange", width=2)
+            # Add bounce indicator at destination
+            Map._draw_status_x(draw, to_coord, "orange")
 
     @staticmethod
     def _draw_hold_order(draw, province: str, color: str, status: str, coords: dict):
@@ -1612,7 +1767,7 @@ class Map:
 
     @staticmethod
     def _draw_support_order(draw, supporter_province: str, supported_move: str, color: str, status: str, coords: dict):
-        """Draw support order (circle + arrow)"""
+        """Draw support order (circle + arrow) with support cut indicators"""
         if supporter_province not in coords:
             return
             
@@ -1631,9 +1786,23 @@ class Map:
             if supported_to in coords:
                 supported_coord = coords[supported_to]
                 if status == "success":
-                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="solid")
+                    # Draw dashed support line (different from movement)
+                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="dashed")
+                else:
+                    # Draw support line with cut indicator
+                    Map._draw_arrow(draw, supporter_coord, supported_coord, "red", width=2, style="dashed")
+                    # Draw red X through support line to indicate cut
+                    Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
+        elif len(parts) >= 2:
+            # Support hold - just show circle and connection line
+            supported_prov = parts[-1] if len(parts) == 2 else parts[1]
+            if supported_prov in coords:
+                supported_coord = coords[supported_prov]
+                if status == "success":
+                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="dashed")
                 else:
                     Map._draw_arrow(draw, supporter_coord, supported_coord, "red", width=2, style="dashed")
+                    Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
 
     @staticmethod
     def _draw_convoy_order(draw, convoyer_province: str, convoyed_to: str, via_route: list, color: str, status: str, coords: dict):
@@ -1673,6 +1842,192 @@ class Map:
             
         coord = coords[province]
         Map._draw_cross(draw, coord, "red", width=4)
+    
+    @staticmethod
+    def _draw_retreat_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
+        """Draw retreat order (dotted arrow, red if invalid)"""
+        if from_province not in coords or to_province not in coords:
+            return
+            
+        from_coord = coords[from_province]
+        to_coord = coords[to_province]
+        
+        # Use dotted line style for retreat
+        retreat_color = "red" if status == "failed" else color
+        Map._draw_dotted_arrow(draw, from_coord, to_coord, retreat_color, width=2)
+        
+        # Add failure indicator if invalid retreat
+        if status == "failed":
+            Map._draw_status_x(draw, to_coord, "red")
+    
+    @staticmethod
+    def _draw_conflict_marker(draw, province: str, strengths: dict, result: str, coords: dict):
+        """Draw conflict marker for battles"""
+        if province not in coords:
+            return
+            
+        coord = coords[province]
+        x, y = coord
+        
+        # Draw conflict marker (star or special symbol)
+        marker_size = 20
+        Map._draw_star(draw, (x, y), marker_size, "red", "yellow")
+        
+        # Add strength indicator if available
+        if strengths:
+            max_strength = max(strengths.values())
+            # Draw strength number
+            try:
+                font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+            except Exception:
+                font = ImageFont.load_default()
+            draw.text((x + marker_size + 5, y - 10), str(max_strength), fill="black", font=font)
+    
+    @staticmethod
+    def _draw_standoff_indicator(draw, province: str, coords: dict):
+        """Draw standoff indicator (equal strength conflict)"""
+        if province not in coords:
+            return
+            
+        coord = coords[province]
+        x, y = coord
+        
+        # Draw special standoff marker (circle with equal sign)
+        radius = 15
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline="orange", width=3)
+        # Draw equal sign
+        draw.line([x - 8, y - 3, x + 8, y - 3], fill="orange", width=2)
+        draw.line([x - 8, y + 3, x + 8, y + 3], fill="orange", width=2)
+    
+    @staticmethod
+    def _draw_bounce_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 2):
+        """Draw curved return arrow for bounced moves"""
+        from_x, from_y = from_coord
+        to_x, to_y = to_coord
+        
+        # Calculate midpoint
+        mid_x = (from_x + to_x) / 2
+        mid_y = (from_y + to_y) / 2
+        
+        # Calculate perpendicular offset for curve
+        import math
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        perp_angle = angle + math.pi / 2
+        offset = 40  # Larger offset for bounce curve
+        
+        control_x = mid_x + offset * math.cos(perp_angle)
+        control_y = mid_y + offset * math.sin(perp_angle)
+        
+        # Draw curved line showing bounce
+        steps = 30
+        points = []
+        for i in range(steps + 1):
+            t = i / steps
+            x = (1-t)**2 * from_x + 2*(1-t)*t * control_x + t**2 * to_x
+            y = (1-t)**2 * from_y + 2*(1-t)*t * control_y + t**2 * to_y
+            points.append((x, y))
+        
+        # Draw the curve
+        for i in range(len(points) - 1):
+            draw.line([points[i], points[i+1]], fill=color, width=width)
+        
+        # Draw arrowhead at destination (pointing back)
+        angle_to_dest = math.atan2(to_y - control_y, to_x - control_x)
+        arrow_length = 12
+        arrow_angle = math.pi / 6
+        head_x1 = to_x - arrow_length * math.cos(angle_to_dest - arrow_angle)
+        head_y1 = to_y - arrow_length * math.sin(angle_to_dest - arrow_angle)
+        head_x2 = to_x - arrow_length * math.cos(angle_to_dest + arrow_angle)
+        head_y2 = to_y - arrow_length * math.sin(angle_to_dest + arrow_angle)
+        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+    
+    @staticmethod
+    def _draw_dotted_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 2):
+        """Draw dotted arrow for retreat orders"""
+        from_x, from_y = from_coord
+        to_x, to_y = to_coord
+        
+        # Draw dotted line
+        import math
+        length = math.sqrt((to_x - from_x)**2 + (to_y - from_y)**2)
+        if length == 0:
+            return
+        
+        dot_spacing = 8
+        num_dots = int(length / dot_spacing)
+        dx = (to_x - from_x) / num_dots if num_dots > 0 else 0
+        dy = (to_y - from_y) / num_dots if num_dots > 0 else 0
+        
+        for i in range(0, num_dots, 2):
+            x1 = from_x + i * dx
+            y1 = from_y + i * dy
+            x2 = from_x + (i + 1) * dx if i + 1 < num_dots else to_x
+            y2 = from_y + (i + 1) * dy if i + 1 < num_dots else to_y
+            draw.line([x1, y1, x2, y2], fill=color, width=width)
+        
+        # Draw arrowhead
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        arrow_length = 12
+        arrow_angle = math.pi / 6
+        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
+        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+    
+    @staticmethod
+    def _draw_checkmark(draw, coord: tuple, color: str = "green"):
+        """Draw success checkmark at coordinate"""
+        x, y = coord
+        size = 12
+        
+        # Draw checkmark (check shape)
+        check_points = [
+            (x - size, y),
+            (x - size // 3, y + size // 2),
+            (x + size, y - size // 2)
+        ]
+        draw.line([check_points[0], check_points[1], check_points[2]], fill=color, width=3)
+    
+    @staticmethod
+    def _draw_status_x(draw, coord: tuple, color: str = "red"):
+        """Draw failure X marker at coordinate"""
+        x, y = coord
+        size = 10
+        
+        # Draw X
+        draw.line([x - size, y - size, x + size, y + size], fill=color, width=3)
+        draw.line([x - size, y + size, x + size, y - size], fill=color, width=3)
+    
+    @staticmethod
+    def _draw_support_cut_indicator(draw, from_coord: tuple, to_coord: tuple):
+        """Draw red X through support line to indicate support was cut"""
+        # Draw X at midpoint of support line
+        mid_x = (from_coord[0] + to_coord[0]) / 2
+        mid_y = (from_coord[1] + to_coord[1]) / 2
+        Map._draw_status_x(draw, (mid_x, mid_y), "red")
+    
+    @staticmethod
+    def _draw_star(draw, coord: tuple, size: int, outline_color: str, fill_color: str):
+        """Draw star shape for conflict markers"""
+        import math
+        x, y = coord
+        
+        # Create 5-pointed star
+        outer_radius = size
+        inner_radius = size * 0.4
+        
+        points = []
+        for i in range(10):
+            angle = i * math.pi / 5 - math.pi / 2  # Start at top
+            radius = outer_radius if i % 2 == 0 else inner_radius
+            px = x + radius * math.cos(angle)
+            py = y + radius * math.sin(angle)
+            points.append((px, py))
+        
+        # Draw filled star
+        if len(points) > 2:
+            draw.polygon(points, fill=fill_color, outline=outline_color, width=2)
 
     @staticmethod
     def _convert_color_to_rgb(color: str) -> str:

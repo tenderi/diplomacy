@@ -1685,5 +1685,174 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         # db.close() # This line is removed as per the edit hint
         pass
 
+@app.post("/games/{game_id}/generate_map/orders")
+def generate_orders_map(game_id: str) -> Dict[str, Any]:
+    """Generate and return an orders map showing all submitted orders before adjudication.
+    
+    Returns PNG image bytes as base64-encoded string or file path.
+    """
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game = server.games[game_id]
+    try:
+        from ..engine.map import Map
+        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        
+        # Get units
+        units = {}
+        for power_name, power in game.game_state.powers.items():
+            power_units = []
+            for unit in power.units:
+                power_units.append(f"{unit.unit_type} {unit.province}")
+            if power_units:
+                units[power_name] = power_units
+        
+        # Get orders in visualization format
+        orders = {}
+        for power_name, order_list in game.game_state.orders.items():
+            if order_list:
+                orders[power_name] = []
+                for order in order_list:
+                    # Convert Order object to visualization dict format
+                    order_dict = {
+                        "type": order.order_type.value.lower() if hasattr(order.order_type, 'value') else str(order.order_type).lower(),
+                        "unit": f"{order.unit.unit_type} {order.unit.province}",
+                        "status": "pending"
+                    }
+                    
+                    # Add order-specific fields
+                    if hasattr(order, 'target') and order.target:
+                        order_dict["target"] = order.target
+                    if hasattr(order, 'supported_unit') and order.supported_unit:
+                        order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
+                        if hasattr(order, 'supported_target') and order.supported_target:
+                            order_dict["supporting"] += f" - {order.supported_target}"
+                    
+                    orders[power_name].append(order_dict)
+        
+        # Get phase information
+        phase_info = game.get_phase_info()
+        
+        # Get supply center control
+        supply_center_control = {}
+        for power_name, power in game.game_state.powers.items():
+            for sc in power.controlled_supply_centers:
+                supply_center_control[sc] = power_name
+        
+        # Generate orders map
+        img_bytes = Map.render_board_png_orders(
+            svg_path, 
+            units, 
+            orders, 
+            phase_info, 
+            supply_center_control
+        )
+        
+        # Save to temp location
+        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
+        map_filename = f"game_{game_id}_orders_{game.phase_code}_{int(datetime.now().timestamp())}.png"
+        map_path = f"/tmp/diplomacy_maps/{map_filename}"
+        
+        with open(map_path, 'wb') as f:
+            f.write(img_bytes)
+        
+        return {
+            "status": "ok",
+            "map_path": map_path,
+            "phase_code": game.phase_code,
+            "message": f"Orders map generated for {game.phase_code}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/games/{game_id}/generate_map/resolution")
+def generate_resolution_map(game_id: str) -> Dict[str, Any]:
+    """Generate and return a resolution map showing order results, conflicts, and dislodgements.
+    
+    Returns PNG image bytes as base64-encoded string or file path.
+    """
+    if game_id not in server.games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game = server.games[game_id]
+    try:
+        from ..engine.map import Map
+        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        
+        # Get units (including dislodged)
+        units = {}
+        for power_name, power in game.game_state.powers.items():
+            power_units = []
+            for unit in power.units:
+                unit_str = f"{unit.unit_type} {unit.province}"
+                if unit.is_dislodged:
+                    unit_str = f"{unit.unit_type} DISLODGED_{unit.province}"
+                power_units.append(unit_str)
+            if power_units:
+                units[power_name] = power_units
+        
+        # Get orders with status (would need to compare with previous state)
+        orders = {}
+        for power_name, order_list in game.game_state.orders.items():
+            if order_list:
+                orders[power_name] = []
+                for order in order_list:
+                    order_dict = {
+                        "type": order.order_type.value.lower() if hasattr(order.order_type, 'value') else str(order.order_type).lower(),
+                        "unit": f"{order.unit.unit_type} {order.unit.province}",
+                        "status": "success"  # Default - would need proper resolution logic
+                    }
+                    
+                    if hasattr(order, 'target') and order.target:
+                        order_dict["target"] = order.target
+                    if hasattr(order, 'supported_unit') and order.supported_unit:
+                        order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
+                    
+                    orders[power_name].append(order_dict)
+        
+        # Get phase information
+        phase_info = game.get_phase_info()
+        
+        # Get supply center control
+        supply_center_control = {}
+        for power_name, power in game.game_state.powers.items():
+            for sc in power.controlled_supply_centers:
+                supply_center_control[sc] = power_name
+        
+        # Create resolution data (simplified - would need proper extraction)
+        resolution_data = {
+            "conflicts": [],
+            "dislodgements": [],
+            "order_results": {}
+        }
+        
+        # Generate resolution map
+        img_bytes = Map.render_board_png_resolution(
+            svg_path,
+            units,
+            orders,
+            resolution_data,
+            phase_info,
+            supply_center_control
+        )
+        
+        # Save to temp location
+        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
+        map_filename = f"game_{game_id}_resolution_{game.phase_code}_{int(datetime.now().timestamp())}.png"
+        map_path = f"/tmp/diplomacy_maps/{map_filename}"
+        
+        with open(map_path, 'wb') as f:
+            f.write(img_bytes)
+        
+        return {
+            "status": "ok",
+            "map_path": map_path,
+            "phase_code": game.phase_code,
+            "message": f"Resolution map generated for {game.phase_code}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)
