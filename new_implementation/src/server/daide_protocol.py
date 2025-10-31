@@ -72,54 +72,102 @@ class DAIDEServer:
                     break
                 daide_message = data.decode("utf-8").strip()
                 message_count += 1
-                # Minimal DAIDE message parsing: handle HLO (POWER)
-                if daide_message.startswith("HLO (") and daide_message.endswith(")"):
-                    power_name = daide_message[5:-1].strip()
-                    # Create DAL-backed game
-                    try:
-                        game_model = db_service.create_game(map_name="standard")
-                        game_id = str(game_model.id)
-                        # Ensure in-memory game exists with same id
-                        if game_id not in self.server.games:
-                            from engine.game import Game
-                            g = Game(map_name="standard")
-                            setattr(g, "game_id", game_id)
-                            self.server.games[game_id] = g
-                        # Add player via server path (affects in-memory engine)
-                        add_result = self.server.process_command(f"ADD_PLAYER {game_id} {power_name}")
-                        if add_result.get("status") == "ok":
-                            response = f"HLO OK {game_id} {power_name}\n"
-                        else:
-                            response = f"ERR ADD_PLAYER {add_result.get('message','error')}\n"
-                    except Exception as e:
-                        response = f"ERR CREATE_GAME {e}\n"
-                elif daide_message.startswith("ORD (") and daide_message.endswith(")"):
-                    # Example: ORD (A PAR - BUR)
-                    if not game_id or not power_name:
-                        response = "ERR ORD No game or power context. Send HLO first.\n"
+                # Minimal DAIDE message parsing: handle HLO (POWER) with strict error reporting
+                if daide_message.startswith("HLO"):
+                    if not daide_message.startswith("HLO ("):
+                        response = "ERR HLO Invalid format. Expected: HLO (POWER)\n"
+                    elif not daide_message.endswith(")"):
+                        response = "ERR HLO Unclosed parentheses. Expected: HLO (POWER)\n"
+                    elif daide_message == "HLO ()":
+                        response = "ERR HLO Empty power name\n"
+                    elif daide_message.count("(") != 1 or daide_message.count(")") != 1:
+                        response = "ERR HLO Invalid format. Multiple parentheses detected\n"
                     else:
-                        try:
-                            order_str = daide_message[5:-1].strip()
-                            # Validate using engine parser with current in-memory game state
-                            if game_id not in self.server.games:
-                                response = "ERR ORD Game not loaded in memory.\n"
+                        power_name = daide_message[5:-1].strip()
+                        if not power_name:
+                            response = "ERR HLO Empty power name\n"
+                        else:
+                            # Validate power name format (basic check)
+                            if "\n" in power_name or len(power_name.split()) > 1:
+                                response = "ERR HLO Invalid power name format\n"
                             else:
-                                game_obj = self.server.games[game_id]
-                                parsed_orders = OrderParser.parse_orders_list([order_str], power_name, game_obj)
-                                if not parsed_orders:
-                                    response = "ERR ORD Invalid order.\n"
-                                else:
-                                    # Persist via DAL
-                                    db_service.submit_orders(game_id=int(game_id), power_name=power_name, orders=parsed_orders)
-                                    # Also set in-memory via server to keep state coherent
-                                    result = self.server.process_command(f"SET_ORDERS {game_id} {power_name} {order_str}")
-                                    if result.get("status") == "ok":
-                                        response = f"ORD OK {game_id} {power_name}\n"
+                                # Create DAL-backed game
+                                try:
+                                    game_state = db_service.create_game(map_name="standard")
+                                    game_id = str(game_state.game_id)
+                                    # Ensure in-memory game exists with same id
+                                    if game_id not in self.server.games:
+                                        from engine.game import Game
+                                        g = Game(map_name="standard")
+                                        setattr(g, "game_id", game_id)
+                                        self.server.games[game_id] = g
+                                    # Add player via server path (affects in-memory engine)
+                                    add_result = self.server.process_command(f"ADD_PLAYER {game_id} {power_name}")
+                                    if add_result.get("status") == "ok":
+                                        response = f"HLO OK {game_id} {power_name}\n"
                                     else:
-                                        msg = result.get("error") or result.get("message") or "Order error"
-                                        response = f"ERR ORD {msg}\n"
-                        except Exception as e:
-                            response = f"ERR ORD {e}\n"
+                                        error_msg = add_result.get('message', add_result.get('error', 'error'))
+                                        response = f"ERR ADD_PLAYER {error_msg}\n"
+                                except Exception as e:
+                                    response = f"ERR CREATE_GAME {str(e)}\n"
+                elif daide_message.startswith("ORD"):
+                    # Strict ORD message validation
+                    if not daide_message.startswith("ORD ("):
+                        if daide_message == "ORD":
+                            response = "ERR ORD Missing order parentheses. Expected: ORD (ORDER)\n"
+                        elif daide_message.startswith("ORD ") and not daide_message.startswith("ORD ("):
+                            response = "ERR ORD Invalid format. Expected: ORD (ORDER)\n"
+                        else:
+                            response = "ERR ORD Invalid format\n"
+                    elif not daide_message.endswith(")"):
+                        response = "ERR ORD Unclosed parentheses\n"
+                    elif daide_message == "ORD ()":
+                        response = "ERR ORD Empty order\n"
+                    elif "\n" in daide_message:
+                        response = "ERR ORD Invalid format: newline in order\n"
+                    else:
+                        # Example: ORD (A PAR - BUR)
+                        if not game_id or not power_name:
+                            response = "ERR ORD No game or power context. Send HLO first.\n"
+                        else:
+                            try:
+                                order_str = daide_message[5:-1].strip()
+                                if not order_str:
+                                    response = "ERR ORD Empty order string\n"
+                                # Validate using engine parser with current in-memory game state
+                                elif game_id not in self.server.games:
+                                    response = "ERR ORD Game not loaded in memory.\n"
+                                else:
+                                    game_obj = self.server.games[game_id]
+                                    # Parse order using OrderParser instance
+                                    parser = OrderParser()
+                                    parsed_orders = parser.parse_orders(order_str, power_name)
+                                    if not parsed_orders:
+                                        response = "ERR ORD Invalid order syntax or game state violation\n"
+                                    else:
+                                        # Create Order objects from parsed orders
+                                        order_objects = []
+                                        for parsed in parsed_orders:
+                                            try:
+                                                # Create order object from parsed order
+                                                order_obj = parser.create_order_from_parsed(parsed, game_obj.get_game_state())
+                                                if order_obj:
+                                                    order_objects.append(order_obj)
+                                            except Exception as e:
+                                                response = f"ERR ORD Failed to create order: {str(e)}\n"
+                                                break
+                                        else:
+                                            # Persist via DAL
+                                            db_service.submit_orders(game_id=int(game_id), power_name=power_name, orders=order_objects)
+                                        # Also set in-memory via server to keep state coherent
+                                        result = self.server.process_command(f"SET_ORDERS {game_id} {power_name} {order_str}")
+                                        if result.get("status") == "ok":
+                                            response = f"ORD OK {game_id} {power_name}\n"
+                                        else:
+                                            msg = result.get("error") or result.get("message") or "Order error"
+                                            response = f"ERR ORD {msg}\n"
+                            except Exception as e:
+                                response = f"ERR ORD {str(e)}\n"
                 elif daide_message == "SUB":
                     # Submit orders acknowledgement
                     response = "SUB OK\n"

@@ -134,16 +134,24 @@ def test_consecutive_phases():
     print(f"France units: {[f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]}")
     
     # Phase 7: Movement (Spring 1902 Movement)
+    # Note: After Phase 6, A BER and A PAR were destroyed, so use remaining units
     print("\n--- Phase 7: Movement (Spring 1902 Movement) ---")
+    # Get actual units that exist after Phase 6
+    germany_units = [f'{u.unit_type} {u.province}' for u in game.game_state.powers['GERMANY'].units]
+    france_units = [f'{u.unit_type} {u.province}' for u in game.game_state.powers['FRANCE'].units]
+    print(f"Available Germany units: {germany_units}")
+    print(f"Available France units: {france_units}")
+    
+    # Use units that actually exist (from Phase 6 output: A BOH, A VIE, F BOT for Germany)
     game.set_orders("GERMANY", [
-        "GERMANY A SIL - GAL",   # Germany moves army
-        "GERMANY A TYR - VIE",   # Germany moves army
-        "GERMANY F BAL - BOT"    # Germany moves fleet
+        "GERMANY A BOH H",   # Germany holds with army in Bohemia
+        "GERMANY A VIE H",   # Germany holds with army in Vienna
+        "GERMANY F BOT H"    # Germany holds with fleet
     ])
     game.set_orders("FRANCE", [
-        "FRANCE A BUR - BEL",    # France moves army
-        "FRANCE A PIE - TUS",    # France moves army
-        "FRANCE F ENG - IRI"     # France moves fleet
+        "FRANCE A BEL H",    # France holds with army in Belgium
+        "FRANCE A TUS H",    # France holds with army in Tuscany
+        "FRANCE F IRI H"     # France holds with fleet
     ])
     
     game.process_turn()

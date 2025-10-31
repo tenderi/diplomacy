@@ -25,7 +25,7 @@ import requests
 import logging
 import pytz
 from engine.order_parser import OrderParser
-from engine.database import order_to_dict, unit_to_dict, dict_to_order, dict_to_unit
+from engine.database import order_to_dict, unit_to_dict, dict_to_order, dict_to_unit, PlayerModel
 from engine.data_models import Unit, GameStatus
 from .response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 from engine.database_service import DatabaseService
@@ -208,14 +208,16 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
     # db: Session = SessionLocal() # This line is removed as per the edit hint
     results = []
     try:
-        player = db_service.get_player_by_game_id_and_power(game_id=int(req.game_id), power=req.power)
+        # game_id can be string, method handles conversion
+        player = db_service.get_player_by_game_id_and_power(game_id=req.game_id, power=req.power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         # Authorization check: Only assigned user can submit orders
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None or player.user_id != user.id:
             raise HTTPException(status_code=403, detail="You are not authorized to submit orders for this power.")
-        game = db_service.get_game_by_id(int(req.game_id))
+        # Get game by game_id string (not numeric id)
+        game = db_service.get_game_by_game_id(str(req.game_id))
         # Default to turn 0 if not found
         turn = 0
         state_dict = {}
@@ -233,10 +235,23 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
             game_obj = server.games[str(req.game_id)]
             for order in req.orders:
                 try:
-                    parsed_list = OrderParser.parse_orders_list([order], req.power, game_obj)
-                    if parsed_list:
-                        parsed_orders.extend(parsed_list)
-                        results.append({"order": order, "success": True, "error": None})
+                    parser = OrderParser()
+                    parsed = parser.parse_orders(order, req.power)
+                    if parsed:
+                        # Convert ParsedOrder to Order objects
+                        order_objects = []
+                        for p in parsed:
+                            try:
+                                order_obj = parser.create_order_from_parsed(p, game_obj.get_game_state())
+                                if order_obj:
+                                    order_objects.append(order_obj)
+                            except Exception:
+                                pass
+                        if order_objects:
+                            parsed_orders.extend(order_objects)
+                            results.append({"order": order, "success": True, "error": None})
+                        else:
+                            results.append({"order": order, "success": False, "error": "Failed to create order object"})
                     else:
                         results.append({"order": order, "success": False, "error": "Invalid order"})
                 except Exception as e:
@@ -247,11 +262,17 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                             user = db_service.get_user_by_id(user_id)
                             telegram_id = getattr(user, "telegram_id", None) if user is not None else None
                             if telegram_id is not None:
-                                requests.post(
-                                    NOTIFY_URL,
-                                    json={"telegram_id": int(telegram_id), "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {e}"},
-                                    timeout=2,
-                                )
+                                try:
+                                    # Only send notification if telegram_id is numeric (real Telegram ID)
+                                    telegram_id_int = int(telegram_id)
+                                    requests.post(
+                                        NOTIFY_URL,
+                                        json={"telegram_id": telegram_id_int, "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {e}"},
+                                        timeout=2,
+                                    )
+                                except (ValueError, TypeError):
+                                    # Skip notification for non-numeric telegram_id (test IDs like "u1")
+                                    pass
                     except Exception as notify_err:
                         scheduler_logger.error(f"Failed to notify order error: {notify_err}")
         else:
@@ -298,7 +319,8 @@ def process_turn(game_id: str) -> Dict[str, str]:
     invalidate_cache(f"games/{game_id}")
     # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
-        game = db_service.get_game_by_id(int(game_id))
+        # Use get_game_by_game_id since game_id is a string
+        game = db_service.get_game_by_game_id(game_id)
         if game is not None and game_id in server.games:
             game_obj = server.games[game_id]
             state_obj = game_obj.get_game_state()
@@ -309,8 +331,9 @@ def process_turn(game_id: str) -> Dict[str, str]:
                 print(f"DEBUG: process_turn: failed to assign spec-shaped game.state: {e}")
             # --- Save game state snapshot ---
             game_obj = server.games[game_id]
+            # Use numeric id for create_game_snapshot which expects integer game_id (numeric id)
             snapshot = db_service.create_game_snapshot(
-                game_id=int(game_id),
+                game_id=game.id,  # Use numeric id
                 turn=game_obj.turn,
                 year=game_obj.year,
                 season=game_obj.season,
@@ -319,22 +342,26 @@ def process_turn(game_id: str) -> Dict[str, str]:
                 game_state=safe_state
             )
             # db.add(snapshot) # This line is removed as per the edit hint
-            # Set new deadline if game is not done
-            if not state.get("done", False):
+            # Set new deadline if game is not done (check status instead of done attribute)
+            # GameStatus values: ACTIVE, COMPLETED, PAUSED
+            if state_obj.status != GameStatus.COMPLETED:
                 setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
             else:
                 setattr(game, 'deadline', None)
         # db.commit() # This line is removed as per the edit hint
         # --- Game end notification ---
         try:
-            state_val = getattr(game, 'state', None)
-            if game is not None and isinstance(state_val, dict) and state_val is not None and state_val.get("done"):
-                notify_players(int(game.id), f"Game {game.id} has ended! Final state: {game.state}")  # type: ignore
+            if game is not None:
+                state_val = getattr(game, 'state', None)
+                if isinstance(state_val, dict) and state_val is not None and state_val.get("done"):
+                    notify_players(game.id, f"Game {game.id} has ended! Final state: {game.state}")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game end: {e}")
         return {"status": "ok"}
     except Exception as e:
         # db.rollback() # This line is removed as per the edit hint
+        import traceback
+        scheduler_logger.error(f"process_turn error: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # db.close() # This line is removed as per the edit hint
@@ -354,6 +381,7 @@ def get_game_state(game_id: str) -> GameStateOut:
     """
     # If game doesn't exist in server.games, try to restore it from database
     # Prefer in-memory game if present; otherwise, read from DAL
+    game = None
     if game_id in server.games:
         game = server.games[game_id]
         state = game.get_game_state()
@@ -408,10 +436,9 @@ def get_game_state(game_id: str) -> GameStateOut:
     )
     state_dict = state_out.model_dump()
 
-    last_turn = game.turn - 1
     # In-memory adjudication results if available
-    if game_id in server.games:
-        game = server.games[game_id]
+    if game is not None and game_id in server.games:
+        last_turn = game.turn - 1
         if hasattr(game, "order_history") and last_turn in game.order_history:
             state_dict["adjudication_results"] = game.order_history[last_turn] or {}
         else:
@@ -465,7 +492,7 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
     # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         players = db_service.get_players_by_game_id(int(game_id))
-        return [{"id": p.id, "power": p.power, "telegram_id": p.telegram_id} for p in players]
+        return [{"id": p.id, "power": getattr(p, "power_name", None) or getattr(p, "power", None), "telegram_id": getattr(p, "telegram_id", None)} for p in players]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -481,8 +508,22 @@ def get_orders(game_id: str) -> List[Dict[str, Any]]:
         orders: List[Dict[str, Any]] = []
         for player in players:
             player_orders = db_service.get_orders_by_player_id(player.id)
+            power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
             for order in player_orders:
-                orders.append({"player_id": player.id, "power": player.power, "order": order.order_text})
+                # Convert OrderModel to string representation
+                unit_str = f"{order.unit_type} {order.unit_province}"
+                order_str = f"{power_name} {unit_str}"
+                if order.order_type == "move" and order.target_province:
+                    order_str += f" - {order.target_province}"
+                elif order.order_type == "hold":
+                    order_str += " H"
+                elif order.order_type == "support":
+                    if order.supported_unit_type and order.supported_unit_province:
+                        order_str += f" S {order.supported_unit_type} {order.supported_unit_province}"
+                        if order.supported_target:
+                            order_str += f" - {order.supported_target}"
+                # Add more order types as needed
+                orders.append({"player_id": player.id, "power": power_name, "order": order_str})
         return orders
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -516,7 +557,7 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     """Get current orders for a specific power in a game (current turn only)."""
     # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
-        player = db_service.get_player_by_game_id_and_power(game_id=int(game_id), power=power)
+        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         orders = db_service.get_orders_by_player_id(player.id)
@@ -535,7 +576,7 @@ def clear_orders_for_power(game_id: int, power: str, telegram_id: str = Body(...
     """
     # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
-        player = db_service.get_player_by_game_id_and_power(game_id=int(game_id), power=power)
+        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         user = db_service.get_user_by_telegram_id(telegram_id)
@@ -608,12 +649,18 @@ def notify_players(game_id: int, message: str):
             telegram_id_val = getattr(player, 'telegram_id', None)
             if telegram_id_val is not None and telegram_id_val != '':
                 try:
-                    requests.post(
-                        NOTIFY_URL,
-                        json={"telegram_id": int(telegram_id_val), "message": message},
-                        timeout=2,
-                    )
-                    scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
+                    # Only send notification if telegram_id is numeric (skip test IDs like "u1")
+                    try:
+                        telegram_id_int = int(telegram_id_val)
+                        requests.post(
+                            NOTIFY_URL,
+                            json={"telegram_id": telegram_id_int, "message": message},
+                            timeout=2,
+                        )
+                        scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
+                    except ValueError:
+                        # Skip non-numeric telegram_ids (test IDs)
+                        scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id_val}")
                 except Exception as e:
                     scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
     finally:
@@ -771,10 +818,10 @@ def list_games() -> Dict[str, Any]:
             result.append({
                 "id": g.id,
                 "map_name": g.map_name,
-                "is_active": g.is_active,
-                "deadline": g.deadline.isoformat() if getattr(g, "deadline", None) else None,
+                "is_active": getattr(g, "is_active", None) if hasattr(g, "is_active") else (g.status == "active"),
+                "deadline": getattr(g, "deadline", None).isoformat() if getattr(g, "deadline", None) else None,
                 "player_count": len(players),
-                "powers": [p.power for p in players],
+                "powers": [p.power_name for p in players],
             })
         return {"games": result}
     except Exception as e:
@@ -815,7 +862,13 @@ def get_user_games(telegram_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail="User not found")
         # Query players via explicit join to avoid any stale relationship caching
         players = db_service.get_players_by_user_id(user.id)
-        games = [{"game_id": p.game_id, "power": p.power} for p in players]
+        games = []
+        for p in players:
+            # Query game_id directly to avoid lazy loading issues
+            game = db_service.get_game_by_id(p.game_id)
+            if game:
+                game_id_val = getattr(game, "game_id", None) or str(getattr(game, "id", None))
+                games.append({"game_id": game_id_val, "power": p.power_name})
         return {"telegram_id": telegram_id, "games": games}
     finally:
         # db.close() # This line is removed as per the edit hint
@@ -841,7 +894,8 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if taken:
             raise HTTPException(status_code=400, detail="Power already taken")
-        player = db_service.create_player(game_id=game_id, power=req.power, user_id=user.id)
+        # Use add_player which creates the player in the database and returns PowerState
+        power_state = db_service.add_player(game_id=game_id, power_name=req.power, user_id=user.id)
         # db.add(player) # This line is removed as per the edit hint
         # db.commit() # This line is removed as per the edit hint
         # db.refresh(player) # This line is removed as per the edit hint
@@ -851,20 +905,33 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
             g = Game()
             setattr(g, "game_id", str(game_id))
             server.games[str(game_id)] = g
-        result = server.process_command(f"ADD_PLAYER {game_id} {req.power}")
+        result = server.process_command(f"ADD_PLAYER {str(game_id)} {req.power}")
         if result.get("status") != "ok":
             raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
         # --- Notification logic ---
         try:
-            requests.post(
-                NOTIFY_URL,
-                json={"telegram_id": int(req.telegram_id), "message": f"You have joined game {game_id} as {req.power}."},
-                timeout=2,
-            )
+            # Only send notification if telegram_id is numeric (real Telegram ID)
+            try:
+                telegram_id_int = int(req.telegram_id)
+                requests.post(
+                    NOTIFY_URL,
+                    json={"telegram_id": telegram_id_int, "message": f"You have joined game {game_id} as {req.power}."},
+                    timeout=2,
+                )
+            except (ValueError, TypeError):
+                # Skip notification for non-numeric telegram_id (test IDs like "u1")
+                pass
         except Exception as e:
             scheduler_logger.error(f"Failed to notify joining player {req.telegram_id}: {e}")
+        # Get the PlayerModel to retrieve player.id for return value
+        player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
+        player_id = player_model.id if player_model else user.id
+        
         try:
-            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")
+            # Get numeric game id for notify_players
+            game = db_service.get_game_by_id(game_id)
+            if game:
+                notify_players(game.id, f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # --- Game start notification ---
@@ -876,12 +943,12 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
                 required_powers = 7  # Standard Diplomacy
             else:
                 required_powers = 7  # Default fallback
-            player_count = db_service.get_player_count_by_game_id(game_id)
-            if player_count == required_powers:
-                notify_players(game_id, f"Game {game_id} is now full. The game has started! Good luck to all players.")
+            player_count = len(db_service.get_players_by_game_id(game.id)) if game else 0
+            if player_count >= required_powers:
+                notify_players(game.id, f"Game {game_id} is now full. The game has started! Good luck to all players.")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
-        return {"status": "ok", "player_id": player.id}
+        return {"status": "ok", "player_id": player_id}
     except Exception as e:
         # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
@@ -919,16 +986,23 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
         # --- Notification logic ---
         # Notify the quitting player
         try:
-            requests.post(
-                NOTIFY_URL,
-                json={"telegram_id": int(req.telegram_id), "message": f"You have quit game {game_id}."},
-                timeout=2,
-            )
+            # Only send notification if telegram_id is numeric (real Telegram ID)
+            try:
+                telegram_id_int = int(req.telegram_id)
+                requests.post(
+                    NOTIFY_URL,
+                    json={"telegram_id": telegram_id_int, "message": f"You have quit game {game_id}."},
+                    timeout=2,
+                )
+            except (ValueError, TypeError):
+                # Skip notification for non-numeric telegram_id (test IDs like "u1")
+                pass
         except Exception as e:
             scheduler_logger.error(f"Failed to notify quitting player {req.telegram_id}: {e}")
         # Notify all other players in the game
         try:
-            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has left game {game_id} (power {player.power}).")
+            power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
+            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has left game {game_id} (power {power_name}).")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
@@ -977,11 +1051,17 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
                 recipient_user = db_service.get_user_by_id(recipient_user_id)
                 recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
                 if recipient_telegram_id is not None:
-                    requests.post(
-                        NOTIFY_URL,
-                        json={"telegram_id": int(recipient_telegram_id), "message": f"New private message in game {game_id} from {user.full_name or user.telegram_id}: {req.text}"},
-                        timeout=2,
-                    )
+                    try:
+                        # Only send notification if telegram_id is numeric (real Telegram ID)
+                        telegram_id_int = int(recipient_telegram_id)
+                        requests.post(
+                            NOTIFY_URL,
+                            json={"telegram_id": telegram_id_int, "message": f"New private message in game {game_id} from {user.full_name or user.telegram_id}: {req.text}"},
+                            timeout=2,
+                        )
+                    except (ValueError, TypeError):
+                        # Skip notification for non-numeric telegram_id (test IDs like "u1")
+                        pass
         except Exception as e:
             scheduler_logger.error(f"Failed to notify private message: {e}")
         return {"status": "ok", "message_id": msg.id}
@@ -1127,11 +1207,17 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         if not player:
             raise HTTPException(status_code=404, detail="Player not found")
         # SQLAlchemy ORM: must use getattr for boolean columns
-        if getattr(player, 'is_active', True) is False:
+        if getattr(player, 'is_active', True) is False and player.user_id is None:
             return {"status": "already_inactive"}
-        setattr(player, 'is_active', False)
-        db_service.update_player_is_active(player.id, False)
-        db_service.commit()
+        # Clear user_id to allow replacement, and set is_active to False
+        # We need to update both in the same session
+        with db_service.session_factory() as session:
+            player_to_update = session.query(PlayerModel).filter_by(id=player.id).first()
+            if player_to_update:
+                player_to_update.user_id = None
+                player_to_update.is_active = False
+                session.commit()
+                session.refresh(player_to_update)
         notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
         return {"status": "ok", "game_id": game_id, "power": power}
     except Exception as e:

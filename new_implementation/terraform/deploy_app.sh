@@ -2,6 +2,10 @@
 
 # Deployment script for Diplomacy app to single EC2 instance
 # This script copies the application code and starts the service
+#
+# Usage:
+#   ./deploy_app.sh              # Normal deployment
+#   ./deploy_app.sh --reset-db   # Reset database and deploy
 
 set -e
 
@@ -12,7 +16,31 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Parse command line arguments
+RESET_DB=false
+for arg in "$@"; do
+    case $arg in
+        --reset-db|--reset-database)
+            RESET_DB=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--reset-db]"
+            echo ""
+            echo "Options:"
+            echo "  --reset-db, --reset-database    Drop and recreate the database before deployment"
+            echo "  --help, -h                      Show this help message"
+            exit 0
+            ;;
+        *)
+            ;;
+    esac
+done
+
 echo -e "${GREEN}=== Diplomacy App Deployment Script (Diff-Based) ===${NC}"
+if [ "$RESET_DB" = true ]; then
+    echo -e "${YELLOW}⚠️  DATABASE RESET MODE: Database will be dropped and recreated${NC}"
+fi
 
 # Check if terraform is available and get instance IP
 if ! command -v terraform &> /dev/null; then
@@ -257,8 +285,43 @@ else
     echo -e "${GREEN}No source changes, skipping dependency update...${NC}"
 fi
 
-# Run database migrations if alembic is present and changed, or if this is a fresh deployment
-if ([ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANGED" = "true" ]) && run_ssh "test -f /opt/diplomacy/alembic.ini"; then
+# Reset database if requested
+if [ "$RESET_DB" = true ]; then
+    echo -e "${RED}⚠️  RESETTING DATABASE - This will delete ALL data!${NC}"
+    echo -e "${YELLOW}Dropping and recreating database...${NC}"
+    run_ssh "
+        cd /opt/diplomacy
+        export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2-)
+        sudo -u diplomacy python3 reset_database.py diplomacy_db <<< 'y' || {
+            echo 'Error: Database reset script not found or failed'
+            echo 'Attempting manual reset via psql...'
+            DB_NAME=\$(echo \$SQLALCHEMY_DATABASE_URL | sed -n 's/.*\/\([^?]*\).*/\1/p')
+            DB_USER=\$(echo \$SQLALCHEMY_DATABASE_URL | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
+            sudo -u postgres psql <<EOF
+            SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '\$DB_NAME' AND pid <> pg_backend_pid();
+            DROP DATABASE IF EXISTS \$DB_NAME;
+            CREATE DATABASE \$DB_NAME OWNER \$DB_USER;
+            GRANT ALL PRIVILEGES ON DATABASE \$DB_NAME TO \$DB_USER;
+            EOF
+        }
+        echo '✅ Database reset completed'
+    "
+    echo -e "${GREEN}✅ Database reset completed${NC}"
+fi
+
+# Copy reset script if it exists locally
+if [ -f "../reset_database.py" ]; then
+    echo -e "${YELLOW}📄 Copying database reset script...${NC}"
+    copy_files "../reset_database.py" "/tmp/"
+    run_ssh "
+        sudo cp /tmp/reset_database.py /opt/diplomacy/
+        sudo chown diplomacy:diplomacy /opt/diplomacy/reset_database.py
+        sudo chmod +x /opt/diplomacy/reset_database.py
+    "
+fi
+
+# Run database migrations if alembic is present and changed, or if this is a fresh deployment, or if DB was reset
+if ([ "$RESET_DB" = "true" ] || [ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANGED" = "true" ]) && run_ssh "test -f /opt/diplomacy/alembic.ini"; then
     echo -e "${YELLOW}Running database migrations...${NC}"
     run_ssh "cd /opt/diplomacy && sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head" || echo -e "${YELLOW}Note: Migration failed, but continuing...${NC}"
 else

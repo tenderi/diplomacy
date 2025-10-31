@@ -159,16 +159,20 @@ def test_adjudication_results_in_state():
     # Create a game and register a user
     resp = client.post("/games/create", json={"map_name": "standard"})
     game_id = int(resp.json()["game_id"])
-    client.post("/users/register", json={"telegram_id": "u1", "full_name": "User1"})
+    # Use persistent_register which actually creates the user in the database
+    client.post("/users/persistent_register", json={"telegram_id": "u1", "full_name": "User1"})
     # Add player to the game (associate user with power)
-    client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
+    join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
+    assert join_resp.status_code == 200, f"Join failed: {join_resp.json()}"
     # Submit a valid order and process the turn
     order = "FRANCE F BRE H"
-    client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1"})
+    set_orders_resp = client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1"})
+    assert set_orders_resp.status_code == 200, f"Set orders failed: {set_orders_resp.json()}"
     client.post(f"/games/{game_id}/process_turn")
     # Get the game state
     resp = client.get(f"/games/{game_id}/state")
     data = resp.json()
+    # adjudication_results is optional and may be empty dict if game not in server.games
     assert "adjudication_results" in data
     # In spec mode, adjudication_results can be engine-shaped dict; require dict
     results = data["adjudication_results"]

@@ -47,7 +47,7 @@ class UserModel(Base):
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=False)
+    telegram_id = Column(String(255), unique=True, nullable=False)
     full_name = Column(String(255), nullable=False)
     username = Column(String(255))
     is_active = Column(Boolean, default=True)
