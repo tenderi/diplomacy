@@ -131,7 +131,8 @@ def test_database_operations():
     
     # Create a game
     import time
-    unique_game_id = f"test_game_{int(time.time())}"
+    import uuid
+    unique_game_id = f"test_game_{uuid.uuid4().hex[:12]}"
     game_state = db_service.create_game(unique_game_id, "standard")
     assert game_state.game_id == unique_game_id
     assert game_state.map_name == "standard"
@@ -142,8 +143,11 @@ def test_database_operations():
     assert game_state.phase_code == "S1901M"
     assert game_state.status == GameStatus.ACTIVE
     
-    # Add a player
-    power_state = db_service.add_player(unique_game_id, "FRANCE")
+    # Get numeric game ID for add_player
+    game_model = db_service.get_game_by_game_id(unique_game_id)
+    assert game_model is not None
+    # Add a player (add_player expects numeric game_id)
+    power_state = db_service.add_player(game_model.id, "FRANCE")
     assert power_state.power_name == "FRANCE"
     assert power_state.is_active == True
     assert power_state.is_eliminated == False

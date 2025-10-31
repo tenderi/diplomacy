@@ -31,16 +31,28 @@ class DatabaseService:
         Create a new game in the database and return the persisted model.
 
         Args:
+            game_id: Optional unique identifier for the game. If not provided, will use the database-assigned ID.
             map_name: Name of the map variant to use (default: 'standard')
 
         Returns:
             The created GameModel (with database-assigned id)
+            
+        Raises:
+            ValueError: If game_id is empty string or None when provided, or if map_name is empty or None
         """
+        # Validate inputs
+        if game_id is not None and (not isinstance(game_id, str) or not game_id.strip()):
+            raise ValueError("game_id must be a non-empty string if provided")
+        if not map_name or not isinstance(map_name, str) or not map_name.strip():
+            raise ValueError("map_name must be a non-empty string")
+        
         session = self.session_factory()
         try:
             # Create with provisional game_id; will normalize to numeric string id after insert
+            # If game_id not provided, will be set after insert based on id
+            temp_game_id = game_id or ""
             game_model = GameModel(
-                game_id=game_id or "",
+                game_id=temp_game_id if temp_game_id else "0",  # Temporary value, will update
                 map_name=map_name,
                 current_turn=0,
                 current_year=1901,
@@ -52,10 +64,17 @@ class DatabaseService:
             session.add(game_model)
             session.commit()
             session.refresh(game_model)
-            # Ensure game_id is a stable string of the numeric PK to match API/test expectations
-            if not game_model.game_id or not str(game_model.game_id).isdigit():
-                game_model.game_id = str(game_model.id)
-                session.commit()
+            # Ensure game_id is set: use provided game_id if valid, otherwise use numeric PK
+            if game_id and game_id.strip():
+                # Keep provided game_id
+                if game_model.game_id != game_id:
+                    game_model.game_id = game_id
+                    session.commit()
+            else:
+                # Use numeric PK as game_id if not provided
+                if not game_model.game_id or game_model.game_id == "0":
+                    game_model.game_id = str(game_model.id)
+                    session.commit()
             # Return spec GameState for compatibility with tests
             game_state = GameState(
                 game_id=str(game_model.game_id),
@@ -131,8 +150,8 @@ class DatabaseService:
     def add_unit(self, game_id: str, power_name: str, unit: Unit) -> None:
         """Add a unit to a game"""
         with self.session_factory() as session:
-            # Get game
-            game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+            # Get game by game_id string
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
             if not game_model:
                 raise ValueError(f"Game {game_id} not found")
             
@@ -153,8 +172,8 @@ class DatabaseService:
     def submit_orders(self, game_id: str, power_name: str, orders: List[Order]) -> None:
         """Submit orders for a power"""
         with self.session_factory() as session:
-            # Get game
-            game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+            # Get game by game_id string
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
             if not game_model:
                 raise ValueError(f"Game {game_id} not found")
             
@@ -209,7 +228,7 @@ class DatabaseService:
             if game_id_int is not None:
                 game_model = session.query(GameModel).filter_by(id=game_id_int).first()
             else:
-                game_model = session.query(GameModel).filter_by(game_id=game_id).first()
+                game_model = self._get_game_model_by_game_id_string(session, game_id)
             if not game_model:
                 return None
             
@@ -338,8 +357,9 @@ class DatabaseService:
                     order_data["convoyed_target"] = order_model.convoyed_target
                 if order_model.convoy_chain:
                     order_data["convoy_chain"] = order_model.convoy_chain
-                if order_model.retreat_province:
-                    order_data["retreat_province"] = order_model.retreat_province
+                # Retreat orders use target_province, not a separate retreat_province field
+                # if hasattr(order_model, 'retreat_province') and order_model.retreat_province:
+                #     order_data["retreat_province"] = order_model.retreat_province
                 if order_model.build_type:
                     order_data["build_type"] = order_model.build_type
                 if order_model.build_province:
@@ -391,8 +411,8 @@ class DatabaseService:
     def update_game_state(self, game_state: GameState) -> None:
         """Update game state in database"""
         with self.session_factory() as session:
-            # Get game
-            game_model = session.query(GameModel).filter_by(game_id=game_state.game_id).first()
+            # Get game by game_id string
+            game_model = self._get_game_model_by_game_id_string(session, game_state.game_id)
             if not game_model:
                 raise ValueError(f"Game {game_state.game_id} not found")
             
@@ -465,7 +485,8 @@ class DatabaseService:
     # --- Users ---
     def get_user_by_telegram_id(self, telegram_id: str) -> Optional[UserModel]:
         with self.session_factory() as session:
-            return session.query(UserModel).filter_by(telegram_id=int(telegram_id)).first()
+            # telegram_id is stored as VARCHAR in database, query as string
+            return session.query(UserModel).filter_by(telegram_id=str(telegram_id)).first()
 
     def get_user_by_id(self, user_id: int) -> Optional[UserModel]:
         with self.session_factory() as session:
@@ -474,7 +495,7 @@ class DatabaseService:
     def create_user(self, telegram_id: str, full_name: Optional[str] = None, username: Optional[str] = None) -> UserModel:
         with self.session_factory() as session:
             user = UserModel(
-                telegram_id=int(telegram_id),
+                telegram_id=str(telegram_id),
                 full_name=full_name or str(telegram_id),
                 username=username,
                 is_active=True,
@@ -509,9 +530,23 @@ class DatabaseService:
         with self.session_factory() as session:
             return session.query(PlayerModel).filter_by(game_id=game_id, user_id=user_id).first()
 
-    def get_player_by_game_id_and_power(self, game_id: int, power: str) -> Optional[PlayerModel]:
+    def get_player_by_game_id_and_power(self, game_id: int | str, power: str) -> Optional[PlayerModel]:
+        """Get player by game_id (can be numeric id or string game_id) and power."""
         with self.session_factory() as session:
-            return session.query(PlayerModel).filter_by(game_id=game_id, power_name=power).first()
+            # If game_id is string, look up the numeric id first
+            if isinstance(game_id, str):
+                from sqlalchemy import text
+                # Use raw SQL with explicit cast to ensure string comparison
+                result = session.execute(
+                    text("SELECT id FROM games WHERE game_id = CAST(:game_id AS VARCHAR)"),
+                    {"game_id": game_id}
+                ).first()
+                if not result:
+                    return None
+                game_id_int = result.id
+            else:
+                game_id_int = game_id
+            return session.query(PlayerModel).filter_by(game_id=game_id_int, power_name=power).first()
 
     def get_player_count_by_game_id(self, game_id: int) -> int:
         with self.session_factory() as session:
@@ -528,6 +563,24 @@ class DatabaseService:
     def get_game_by_id(self, game_id: int) -> Optional[GameModel]:
         with self.session_factory() as session:
             return session.query(GameModel).filter_by(id=game_id).first()
+
+    def _get_game_model_by_game_id_string(self, session: Session, game_id: str) -> Optional[GameModel]:
+        """Helper to get GameModel by game_id string using raw SQL (handles VARCHAR column properly)."""
+        from sqlalchemy import text
+        game_id_str = str(game_id)
+        # Use raw SQL with explicit CAST to ensure string comparison works
+        result = session.execute(
+            text("SELECT id FROM games WHERE game_id = CAST(:game_id AS VARCHAR)"),
+            {"game_id": game_id_str}
+        ).first()
+        if result:
+            return session.query(GameModel).filter_by(id=result.id).first()
+        return None
+
+    def get_game_by_game_id(self, game_id: str | int) -> Optional[GameModel]:
+        """Get game by game_id string (not numeric id)."""
+        with self.session_factory() as session:
+            return self._get_game_model_by_game_id_string(session, str(game_id))
 
     def get_all_games(self) -> List[GameModel]:
         with self.session_factory() as session:
