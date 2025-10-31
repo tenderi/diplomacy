@@ -1364,18 +1364,26 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text(error_msg)
             return
         
+        # Set up environment with correct PYTHONPATH
+        env = os.environ.copy()
+        src_dir = os.path.join(project_root, "src")
+        if os.path.exists(src_dir):
+            env["PYTHONPATH"] = f"{src_dir}:{env.get('PYTHONPATH', '')}"
+        else:
+            env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
+        
         # Run the demo script with proper environment
         result = subprocess.run(
-            ["/usr/bin/python3", "demo_automated_game.py"],
+            ["/usr/bin/python3", script_path],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            env={**os.environ, "PYTHONPATH": os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}
+            cwd=project_root,
+            env=env
         )
         
         if result.returncode == 0:
             # Success - post generated maps in order
-            maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "test_maps")
+            maps_dir = os.path.join(project_root, "test_maps")
             
             # Get all generated map files in chronological order
             import glob

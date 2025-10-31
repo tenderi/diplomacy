@@ -49,7 +49,14 @@ config.set_main_option("sqlalchemy.url", db_url)
 # Fix relative import issue by using absolute import
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
+# Add src directory to path so we can import engine modules
+base_dir = os.path.dirname(os.path.dirname(__file__))
+src_dir = os.path.join(base_dir, 'src')
+if os.path.exists(src_dir):
+    sys.path.insert(0, src_dir)
+else:
+    # Fallback: add base directory if src doesn't exist
+    sys.path.insert(0, base_dir)
 from engine.database import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate

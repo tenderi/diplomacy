@@ -289,23 +289,86 @@ fi
 if [ "$RESET_DB" = true ]; then
     echo -e "${RED}⚠️  RESETTING DATABASE - This will delete ALL data!${NC}"
     echo -e "${YELLOW}Dropping and recreating database...${NC}"
-    run_ssh "
-        cd /opt/diplomacy
-        export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2-)
-        sudo -u diplomacy python3 reset_database.py diplomacy_db <<< 'y' || {
-            echo 'Error: Database reset script not found or failed'
-            echo 'Attempting manual reset via psql...'
-            DB_NAME=\$(echo \$SQLALCHEMY_DATABASE_URL | sed -n 's/.*\/\([^?]*\).*/\1/p')
-            DB_USER=\$(echo \$SQLALCHEMY_DATABASE_URL | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')
-            sudo -u postgres psql <<EOF
-            SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '\$DB_NAME' AND pid <> pg_backend_pid();
-            DROP DATABASE IF EXISTS \$DB_NAME;
-            CREATE DATABASE \$DB_NAME OWNER \$DB_USER;
-            GRANT ALL PRIVILEGES ON DATABASE \$DB_NAME TO \$DB_USER;
-            EOF
-        }
-        echo '✅ Database reset completed'
-    "
+    
+    # Create a temporary script on the remote server to avoid heredoc issues
+    run_ssh "cat > /tmp/reset_db.sh << 'SCRIPT_EOF'
+#!/bin/bash
+set -e
+cd /opt/diplomacy
+
+# Get database connection URL from .env file
+if [ ! -f /opt/diplomacy/.env ]; then
+    echo 'Error: .env file not found'
+    exit 1
+fi
+
+export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2- | tr -d '\"\"\\\"''')
+
+if [ -z \"\$SQLALCHEMY_DATABASE_URL\" ]; then
+    echo 'Error: SQLALCHEMY_DATABASE_URL not found in .env file'
+    exit 1
+fi
+
+# Parse PostgreSQL connection string: postgresql+psycopg2://user:password@host:port/database
+# More robust parsing using sed patterns
+# Remove protocol prefix (postgresql+psycopg2:// or postgresql://)
+DB_CONN=\$(echo \"\$SQLALCHEMY_DATABASE_URL\" | sed -E 's|^postgresql(\+psycopg2)?://||')
+# Extract user (everything before first colon)
+DB_USER=\$(echo \"\$DB_CONN\" | sed -E 's|:.*$||')
+# Extract password (between first colon and @)
+DB_PASS=\$(echo \"\$DB_CONN\" | sed -E 's|^[^:]+:([^@]+)@.*|\1|')
+# Extract host (between @ and / or :)
+DB_HOST=\$(echo \"\$DB_CONN\" | sed -E 's|^[^@]+@([^:/]+)[:/].*|\1|')
+# Extract port (after : but before /, optional)
+DB_PORT=\$(echo \"\$DB_CONN\" | sed -E 's|^[^@]+@[^:]+:([^/]+)/.*|\1|' 2>/dev/null || echo '5432')
+# Extract database name (after last /, before ? or end)
+DB_NAME=\$(echo \"\$DB_CONN\" | sed -E 's|^.+/([^?]+).*|\1|')
+
+# If port is empty, default to 5432
+if [ -z \"\$DB_PORT\" ]; then
+    DB_PORT=5432
+fi
+
+# Validate extracted values
+if [ -z \"\$DB_NAME\" ] || [ \"\$DB_NAME\" = \"\$DB_CONN\" ] || [ -z \"\$DB_USER\" ]; then
+    echo \"Error: Could not extract DB_NAME or DB_USER from connection string\"
+    echo \"Original connection string (sanitized): \$(echo \$SQLALCHEMY_DATABASE_URL | sed 's/:[^:@]*@/:***@/')\"
+    echo \"Parsed DB_CONN: \$DB_CONN\"
+    echo \"Parsed values: DB_NAME=\$DB_NAME, DB_USER=\$DB_USER, DB_HOST=\$DB_HOST, DB_PORT=\$DB_PORT\"
+    exit 1
+fi
+
+echo \"Resetting database: \$DB_NAME for user: \$DB_USER\"
+
+# Terminate active connections (ignore errors)
+sudo -u postgres psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '\$DB_NAME' AND pid <> pg_backend_pid();\" 2>/dev/null || true
+
+# Drop and recreate database
+sudo -u postgres psql -c \"DROP DATABASE IF EXISTS \\\"\$DB_NAME\\\";\" || true
+sudo -u postgres psql -c \"CREATE DATABASE \\\"\$DB_NAME\\\" OWNER \\\"\$DB_USER\\\";\" || {
+    echo \"Error: Failed to create database\"
+    exit 1
+}
+
+# Grant privileges
+sudo -u postgres psql -c \"GRANT ALL PRIVILEGES ON DATABASE \\\"\$DB_NAME\\\" TO \\\"\$DB_USER\\\";\" || {
+    echo \"Error: Failed to grant privileges\"
+    exit 1
+}
+
+echo '✅ Database reset completed'
+SCRIPT_EOF
+chmod +x /tmp/reset_db.sh"
+    
+    # Execute the script
+    run_ssh "sudo bash /tmp/reset_db.sh" || {
+        echo -e "${RED}Error: Database reset failed${NC}"
+        exit 1
+    }
+    
+    # Clean up temporary script
+    run_ssh "rm -f /tmp/reset_db.sh"
+    
     echo -e "${GREEN}✅ Database reset completed${NC}"
 fi
 
@@ -323,7 +386,21 @@ fi
 # Run database migrations if alembic is present and changed, or if this is a fresh deployment, or if DB was reset
 if ([ "$RESET_DB" = "true" ] || [ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANGED" = "true" ]) && run_ssh "test -f /opt/diplomacy/alembic.ini"; then
     echo -e "${YELLOW}Running database migrations...${NC}"
-    run_ssh "cd /opt/diplomacy && sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head" || echo -e "${YELLOW}Note: Migration failed, but continuing...${NC}"
+    run_ssh "
+        cd /opt/diplomacy
+        export PYTHONPATH=\"/opt/diplomacy/src:\${PYTHONPATH:-}\"
+        export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2-)
+        sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head
+    " || {
+        echo -e "${RED}⚠️  Migration failed!${NC}"
+        echo -e "${YELLOW}Attempting to diagnose the issue...${NC}"
+        run_ssh "
+            cd /opt/diplomacy
+            export PYTHONPATH=\"/opt/diplomacy/src:\${PYTHONPATH:-}\"
+            sudo -u diplomacy python3 -c 'from engine.database import Base; print(\"✅ Import successful\")' || echo '❌ Import failed'
+        "
+        echo -e "${YELLOW}Continuing deployment despite migration failure...${NC}"
+    }
 else
     echo -e "${GREEN}No alembic changes, skipping migrations...${NC}"
 fi
