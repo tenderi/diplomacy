@@ -55,20 +55,19 @@ def test_map_changes():
         print("   ✅ Unit markers (A/F letters) should be smaller")
         print("   ✅ No area name text overlays")
         
-        return True
+        assert True, "Test completed successfully"
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == "__main__":
-    success = test_map_changes()
-    
-    if success:
+    try:
+        test_map_changes()
         print("\n🎉 Map generation test completed!")
         print("💡 Check test_updated_map.png to verify the changes")
-    else:
+    except Exception:
         print("\n💥 Map generation test failed!")
         sys.exit(1)

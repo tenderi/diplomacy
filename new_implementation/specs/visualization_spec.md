@@ -11,9 +11,11 @@ This document defines the complete visualization requirements for the Diplomacy 
 
 The visualization system generates maps at key points during game progression, showing:
 1. **Game State**: Current unit positions and supply center control
-2. **Order Intent**: Submitted orders before processing
+2. **Order Intent**: Submitted orders before processing (with clear visual distinction between order types)
 3. **Resolution Results**: Order outcomes, conflicts, and dislodgements
 4. **Phase Completion**: Final stable state after phase processing
+
+**Visual Clarity Principle**: Each order type uses distinct colors and styles to minimize visual clutter and clearly communicate order intent.
 
 ---
 
@@ -74,31 +76,24 @@ The visualization system generates maps at key points during game progression, s
 - Units drawn as colored circles with type indicators (A/F)
 - Provinces colored by controlling power
 - Unoccupied supply centers shown in owner's color
-- No order indicators visible
+- No order indicators visible (clean state view)
 
 **File Naming**: `demo_{counter:02d}_{year}_{season}_{phase}_initial.png`
 **Example**: `demo_01_1901_Spring_Movement_initial.png`
 
 ### 2.2 Orders Map
-**Purpose**: Show all submitted orders before adjudication
+**Purpose**: Show all submitted orders before adjudication with clear visual distinction
 **Content**:
 - All current unit positions
 - Movement arrows (solid lines, power-colored)
-- Support order indicators (dashed lines or circles)
-- Convoy route indicators (curved arrows)
+- Support order indicators:
+  - **Defensive support**: Light green dashed lines from supporter to defending unit, with defending unit circled in supporter's power color
+  - **Offensive support**: Light pink/sky blue dashed arrows: supporter → supported unit location → attack target
+- Convoy route indicators (curved gold/orange arrows: convoyed army → convoying fleet(s) → destination)
 - Hold indicators (circles or markers around holding units)
 - Retreat arrows (if in retreat phase)
 - Build markers (if in build phase)
 - Destroy markers (if in destroy phase)
-
-**Visual Elements**:
-- **Movement Orders**: Solid arrow from origin to destination, colored by power
-- **Hold Orders**: Circle around unit, power-colored border
-- **Support Orders**: Dashed arrow from supporter to supported unit/move, or support circle
-- **Convoy Orders**: Curved arrow showing convoy route (army → fleet → destination)
-- **Retreat Orders**: Dotted arrow showing retreat path, red coloring if invalid
-- **Build Orders**: Green marker at build location with unit type indicator
-- **Destroy Orders**: Red X or marker at destroy location
 
 **File Naming**: `demo_{counter:02d}_{year}_{season}_{phase}_orders.png`
 **Example**: `demo_01_1901_Spring_Movement_orders.png`
@@ -176,11 +171,23 @@ The visualization system generates maps at key points during game progression, s
 - **RUSSIA**: `#757d91` (blue-gray)
 - **TURKEY**: `#b9a61c` (yellow-brown)
 
-### 3.2 Order Visualization
+### 3.2 Order Visualization Color Scheme
+
+**Purpose**: Distinct colors reduce visual clutter and clearly distinguish order types.
+
+**Color Assignments** (detailed specifications in section 3.3):
+- **Movement Arrows**: Power colors (solid lines, 3-4px width) - primary action, highest visual priority
+- **Defensive Support**: Light green `#90EE90` (lines) + supporting unit's power color (defender circles)
+- **Offensive Support**: Light pink `#FFB6C1` or sky blue `#87CEEB` (dashed arrows)
+- **Convoy Routes**: Gold `#FFD700` or dark orange `#FF8C00` (curved lines)
+- **Hold Indicators**: Power-colored borders (2-3px dashed border)
+- **Retreat Arrows**: Power color for valid, red for invalid (dotted, 2-3px width)
+
+### 3.3 Order Visualization Details
 
 #### Movement Orders
 - **Arrow Type**: Solid line with arrowhead
-- **Color**: Power color of unit making move
+- **Color**: Power color of unit making move (unchanged from current implementation)
 - **Width**: 3-4 pixels
 - **Style**: Straight line from origin to destination center
 - **Status Indicators**:
@@ -193,21 +200,35 @@ The visualization system generates maps at key points during game progression, s
 - **Color**: Power color of unit
 - **Style**: Dashed or dotted border
 - **Label**: Optional "H" text near unit
+- **Note**: If unit is supported (hold support), it will have an additional colored circle as specified in defensive support above
 
 #### Support Orders
-- **Arrow Type**: Dashed line (different from movement)
-- **Color**: Power color of supporting unit
+
+**Defensive Support (Hold Support)**:
+- **Visual Elements**:
+  - Dashed line from supporting unit to the defending unit (light green `#90EE90`)
+  - Circle around the defending unit in the supporting unit's power color (3-4px border)
+- **Purpose**: Clearly show which unit is providing defensive support to a unit holding
+- **Width**: 2-3 pixels (support line)
+- **Support Cut**: Red X through support line if cut
+
+**Offensive Support (Move Support)**:
+- **Visual Elements**:
+  - Dashed arrow path: supporting unit → supported unit's province → attack target
+  - Color: Light pink `#FFB6C1` or sky blue `#87CEEB` (distinct from defensive support)
+- **Purpose**: Show support is flowing through the attacking unit to the target province
 - **Width**: 2-3 pixels
-- **Style**: Arrow pointing from supporter to supported unit/province
-- **Alternative**: Circle around supporting unit with connecting line
 - **Support Cut**: Red X through support line if cut
 
 #### Convoy Orders
-- **Arrow Type**: Curved line following convoy route
-- **Color**: Power color of convoyed army
+- **Visual Elements**:
+  - Curved arrow starting from convoyed army
+  - Path: convoyed army → first convoying fleet → subsequent convoying fleets → destination province
+  - Dedicated convoy color: `#FFD700` (gold) or `#FF8C00` (dark orange)
+  - Circles/markers around convoying fleets in convoy color
+- **Style**: Curved path showing complete convoy chain with each fleet as waypoint
 - **Width**: 2-3 pixels
-- **Style**: Curved path showing: army → fleet(s) → destination
-- **Fleet Indicators**: Circles around convoying fleets
+- **Purpose**: Clearly show convoy route distinct from movement and support orders
 
 #### Retreat Orders
 - **Arrow Type**: Dotted line with arrowhead
@@ -229,7 +250,7 @@ The visualization system generates maps at key points during game progression, s
 - **Size**: ~15-20 pixels
 - **Style**: Prominent marker clearly showing destroyed unit location
 
-### 3.3 Supply Center Visualization
+### 3.4 Supply Center Visualization
 **Ownership**:
 - Province filled with controlling power's color (light tint, ~30% opacity)
 - Border highlighted if supply center
@@ -242,7 +263,7 @@ The visualization system generates maps at key points during game progression, s
 - In resolution maps, show previous owner (faded) and new owner (solid)
 - Transition indicators if ownership changes
 
-### 3.4 Conflict Markers
+### 3.5 Conflict Markers
 **Battle Indicators**:
 - Special marker at conflict location
 - Show attacking powers and defenders
@@ -257,7 +278,7 @@ The visualization system generates maps at key points during game progression, s
 - Curved arrow showing units bouncing back
 - Multiple bounce markers if multiple units bounced
 
-### 3.5 Phase Information Overlay
+### 3.6 Phase Information Overlay
 **Required Information**:
 - Year (e.g., "1901")
 - Season ("Spring" or "Autumn")
@@ -293,10 +314,16 @@ The visualization system generates maps at key points during game progression, s
 2. Parse province coordinates
 3. Fill provinces with power colors (supply center control)
 4. Draw units at province centers
-5. Draw order indicators (arrows, markers, circles)
+5. Draw order indicators in order of visual priority:
+   a. Hold indicators (underneath, so other indicators appear on top)
+   b. Support lines and circles (defensive and offensive)
+   c. Convoy routes
+   d. Movement arrows (on top, as primary actions)
 6. Draw conflict markers and dislodged units
 7. Add phase information overlay
 8. Export to PNG
+
+**Visual Layer Order**: Ensures movement arrows remain clearly visible while support and convoy indicators provide context without obscuring primary actions
 
 ### 4.4 Performance Requirements
 - **Generation Time**: < 2 seconds per map
@@ -359,22 +386,28 @@ The visualization system generates maps at key points during game progression, s
 - Resolution map shows no changes
 - Final map identical to initial map
 
-### 6.3 Multiple Conflicts
+### 6.3 Multiple Support Orders
+- **Multiple units supporting same defense**: All support lines visible, overlapping colored circles around defended unit
+- **Multiple units supporting same attack**: All support arrows converge at target via supported unit's location
+- **Visual clarity**: Ensure overlapping support lines are distinguishable (slightly offset or transparent)
+
+### 6.4 Complex Convoy Chains
+- Show full convoy route with all intermediate fleets in convoy color
+- Curved path clearly indicating: army → fleet1 → fleet2 → ... → destination
+- Each convoying fleet marked as waypoint
+- Label convoy chains if multiple exist simultaneously
+
+### 6.5 Multiple Conflicts
 - Show all conflict markers clearly
 - Use different marker styles if conflicts overlap
 - Text labels if necessary to distinguish
 
-### 6.4 Complex Convoy Chains
-- Show full convoy route with all intermediate fleets
-- Curved path clearly indicating convoy path
-- Label convoy chains if multiple exist
-
-### 6.5 Retreat Failures
+### 6.6 Retreat Failures
 - Show invalid retreats with red indicators
 - Show forced disbands clearly
 - Indicate why retreat failed (occupied, invalid province)
 
-### 6.6 Build Constraints
+### 6.7 Build Constraints
 - Show available build locations if power has options
 - Indicate why certain locations cannot build (occupied, not home SC)
 - Show destroy requirements clearly (more units than SCs)
@@ -451,7 +484,12 @@ For debugging or fallback, generate corresponding `.txt` files:
 ### 9.2 Accuracy Requirements
 - Unit positions match game state exactly
 - Supply center colors match actual control
-- Order visualization matches submitted orders
+- Order visualization matches submitted orders exactly
+- Support indicators correctly show:
+  - Which units are supporting (defensive vs offensive)
+  - Which units are being supported
+  - Support paths clearly visible
+- Convoy routes show complete chain from army to destination
 - Resolution visualization matches adjudication results
 
 ### 9.3 Performance Checks
@@ -499,5 +537,9 @@ For debugging or fallback, generate corresponding `.txt` files:
 
 ---
 
-**Status**: This specification is current as of 2025-10-31. The visualization system is implemented and operational, with maps generated automatically during demo games and available on-demand via API.
+**Status**: This specification is current as of 2025-11-03. The visualization system is implemented and operational. Recent enhancements include:
+- Enhanced support order visualization with distinct colors for defensive and offensive support
+- Improved convoy route visualization with dedicated convoy color
+- Clearer visual distinction between order types to reduce map clutter
+- Maps generated automatically during demo games and available on-demand via API.
 

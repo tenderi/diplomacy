@@ -6,7 +6,7 @@ to ensure proper data integrity and consistency.
 """
 
 from typing import List, Optional, Dict, Any, Tuple, Iterable
-from datetime import datetime
+from datetime import datetime, UTC
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from .database import (
@@ -169,13 +169,19 @@ class DatabaseService:
             session.add(unit_model)
             session.commit()
     
-    def submit_orders(self, game_id: str, power_name: str, orders: List[Order]) -> None:
+    def submit_orders(self, game_id: str, power_name: str, orders: List[Order], turn_number: Optional[int] = None) -> None:
         """Submit orders for a power"""
+        import logging
+        logger = logging.getLogger("diplomacy.database")
         with self.session_factory() as session:
             # Get game by game_id string
-            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
             if not game_model:
                 raise ValueError(f"Game {game_id} not found")
+            
+            # Use provided turn_number or fall back to game_model.current_turn
+            order_turn = turn_number if turn_number is not None else game_model.current_turn
+            logger.info(f"submit_orders: game_id={game_id}, power={power_name}, turn_number param={turn_number}, game_model.current_turn={getattr(game_model, 'current_turn', None)}, using order_turn={order_turn}")
             
             # Create order records
             for order in orders:
@@ -201,7 +207,7 @@ class DatabaseService:
                     status=order.status.value,
                     failure_reason=order.failure_reason,
                     phase=order.phase,
-                    turn_number=game_model.current_turn
+                    turn_number=order_turn
                 )
                 session.add(order_model)
             
@@ -212,7 +218,7 @@ class DatabaseService:
             ).first()
             if player_model:
                 player_model.orders_submitted = True
-                player_model.last_order_time = datetime.utcnow()
+                player_model.last_order_time = datetime.now(UTC)
             
             session.commit()
     
@@ -248,8 +254,8 @@ class DatabaseService:
                     current_phase=game_model.current_phase,
                     phase_code=game_model.phase_code,
                     status=status_val,
-                    created_at=getattr(game_model, 'created_at', datetime.utcnow()),
-                    updated_at=getattr(game_model, 'updated_at', datetime.utcnow()),
+                    created_at=getattr(game_model, 'created_at', datetime.now(UTC)),
+                    updated_at=getattr(game_model, 'updated_at', datetime.now(UTC)),
                     powers={},
                     map_data=self._load_map_data(game_model.map_name),
                     orders={}
@@ -423,7 +429,7 @@ class DatabaseService:
             game_model.current_phase = game_state.current_phase
             game_model.phase_code = game_state.phase_code
             game_model.status = game_state.status.value
-            game_model.updated_at = datetime.utcnow()
+            game_model.updated_at = datetime.now(UTC)
             
             # Update units
             self._update_units(session, game_model.id, game_state)
@@ -471,15 +477,92 @@ class DatabaseService:
                 session.add(supply_center_model)
     
     def _load_map_data(self, map_name: str) -> MapData:
-        """Load map data (placeholder - should load from actual map files)"""
-        # This is a placeholder - in a real implementation, this would load
-        # the actual map data from the map files
+        """Load map data from Map class"""
+        from .map import Map
+        
+        # Load the map using the Map class
+        map_instance = Map(map_name)
+        
+        # Convert Map provinces to data_models Province objects
+        provinces = {}
+        for province_name in map_instance.get_locations():
+            map_province = map_instance.get_province(province_name)
+            if map_province:
+                # Determine province type
+                if map_province.type == "sea":
+                    province_type = "sea"
+                elif map_province.type == "coast":
+                    province_type = "coastal"
+                else:
+                    province_type = "land"
+                
+                # Convert Map Province to data_models Province
+                provinces[province_name] = Province(
+                    name=province_name,
+                    province_type=province_type,
+                    is_supply_center=province_name in map_instance.get_supply_centers(),
+                    is_home_supply_center=False,  # Will be set below
+                    adjacent_provinces=list(map_province.adjacent) if map_province.adjacent else []
+                )
+        
+        # Define home supply centers for standard Diplomacy powers
+        home_supply_centers = {
+            'ENGLAND': ['LON', 'EDI', 'LVP'],
+            'FRANCE': ['PAR', 'MAR', 'BRE'],
+            'GERMANY': ['BER', 'KIE', 'MUN'],
+            'ITALY': ['ROM', 'VEN', 'NAP'],
+            'AUSTRIA': ['VIE', 'BUD', 'TRI'],
+            'RUSSIA': ['MOS', 'WAR', 'SEV', 'STP'],
+            'TURKEY': ['CON', 'SMY', 'ANK'],
+        }
+        
+        # Mark home supply centers in provinces
+        for power_name, centers in home_supply_centers.items():
+            for center in centers:
+                if center in provinces:
+                    provinces[center].is_home_supply_center = True
+                    provinces[center].home_power = power_name
+        
+        # Define standard starting positions for standard map
+        starting_positions = {}
+        if map_name in ['standard', 'demo']:
+            starting_units_dict = {
+                'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
+                'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
+                'GERMANY': ['A BER', 'A MUN', 'F KIE'],
+                'ITALY': ['A ROM', 'A VEN', 'F NAP'],
+                'AUSTRIA': ['A VIE', 'A BUD', 'F TRI'],
+                'RUSSIA': ['A MOS', 'A WAR', 'F SEV', 'F STP'],
+                'TURKEY': ['A CON', 'A SMY', 'F ANK'],
+            }
+            
+            for power_name, unit_strings in starting_units_dict.items():
+                units = []
+                for unit_str in unit_strings:
+                    unit_type, province = unit_str.split()
+                    # Handle special case for STP (South Coast)
+                    coast = None
+                    if province == "STP" and unit_type == "F":
+                        coast = "SC"  # South Coast
+                    
+                    unit = Unit(
+                        unit_type=unit_type,
+                        province=province,
+                        power=power_name,
+                        coast=coast,
+                        is_dislodged=False,
+                        can_retreat=True,
+                        retreat_options=[]
+                    )
+                    units.append(unit)
+                starting_positions[power_name] = units
+        
         return MapData(
             map_name=map_name,
-            provinces={},
-            supply_centers=[],
-            home_supply_centers={},
-            starting_positions={}
+            provinces=provinces,
+            supply_centers=list(map_instance.get_supply_centers()),
+            home_supply_centers=home_supply_centers,
+            starting_positions=starting_positions
         )
 
     # --- Users ---
@@ -524,7 +607,8 @@ class DatabaseService:
 
     def get_players_by_user_id(self, user_id: int) -> List[PlayerModel]:
         with self.session_factory() as session:
-            return session.query(PlayerModel).filter_by(user_id=user_id).all()
+            # Only return active players (user_id is not None and is_active is True)
+            return session.query(PlayerModel).filter_by(user_id=user_id, is_active=True).all()
 
     def get_player_by_game_id_and_user_id(self, game_id: int, user_id: int) -> Optional[PlayerModel]:
         with self.session_factory() as session:
@@ -581,6 +665,18 @@ class DatabaseService:
         """Get game by game_id string (not numeric id)."""
         with self.session_factory() as session:
             return self._get_game_model_by_game_id_string(session, str(game_id))
+    
+    def get_game_current_turn(self, game_id: str | int) -> int:
+        """Get the current_turn for a game by game_id string. Returns 0 if not found.
+        This method queries fresh to ensure we get the latest committed value."""
+        with self.session_factory() as session:
+            # Query directly for current_turn column to get fresh value
+            result = session.query(GameModel.current_turn).filter(
+                GameModel.game_id == str(game_id)
+            ).first()
+            if result:
+                return result[0]
+            return 0
 
     def get_all_games(self) -> List[GameModel]:
         with self.session_factory() as session:
@@ -591,13 +687,46 @@ class DatabaseService:
             return session.query(GameModel).count()
 
     def get_games_with_deadlines_and_active_status(self) -> List[GameModel]:
-        # No deadline column defined; return all active games
+        """Get all active games that may have deadlines."""
         with self.session_factory() as session:
             return session.query(GameModel).filter_by(status='active').all()
 
     def update_game_deadline(self, game_id: int, deadline: Optional[datetime]) -> None:
-        # Placeholder: no deadline column in schema; no-op
-        return None
+        """
+        Update the deadline for a game.
+        
+        Args:
+            game_id: The game ID to update
+            deadline: The new deadline (or None to clear the deadline)
+        """
+        with self.session_factory() as session:
+            game = session.query(GameModel).filter_by(id=game_id).first()
+            if game:
+                game.deadline = deadline
+                session.commit()
+    
+    def increment_game_current_turn(self, game_id: int | str) -> None:
+        """Increment the current_turn for a game. Used for order history tracking.
+        
+        Args:
+            game_id: Can be either the numeric id (int) or game_id string
+        """
+        import logging
+        logger = logging.getLogger("diplomacy.database")
+        with self.session_factory() as session:
+            # Try by numeric id first, then by game_id string
+            if isinstance(game_id, int):
+                game = session.query(GameModel).filter_by(id=game_id).first()
+            else:
+                game = self._get_game_model_by_game_id_string(session, str(game_id))
+            if game:
+                old_turn = getattr(game, 'current_turn', 0)
+                game.current_turn = old_turn + 1
+                session.flush()  # Ensure changes are written before commit
+                session.commit()
+                logger.debug(f"increment_game_current_turn: game_id={game_id}, old_turn={old_turn}, new_turn={game.current_turn}")
+            else:
+                logger.warning(f"increment_game_current_turn: game not found for game_id={game_id}")
 
     # --- Orders ---
     def get_orders_by_player_id(self, player_id: int) -> List[OrderModel]:
@@ -694,6 +823,22 @@ class DatabaseService:
             if game_id is not None:
                 q = q.filter_by(game_id=game_id)
             return q.first()
+
+    def get_game_snapshots_with_old_map_images(self, cutoff_time: datetime) -> List[MapSnapshotModel]:
+        """
+        Get all game snapshots with map images older than the cutoff time.
+        
+        Args:
+            cutoff_time: Datetime threshold - snapshots older than this will be returned
+            
+        Returns:
+            List of MapSnapshotModel objects with map_image_path older than cutoff_time
+        """
+        with self.session_factory() as session:
+            return session.query(MapSnapshotModel).filter(
+                MapSnapshotModel.map_image_path.isnot(None),
+                MapSnapshotModel.created_at < cutoff_time
+            ).all()
 
     def delete_all_game_snapshots(self) -> None:
         with self.session_factory() as session:

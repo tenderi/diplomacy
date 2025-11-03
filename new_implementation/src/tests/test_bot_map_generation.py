@@ -23,7 +23,8 @@ def test_bot_map_generation():
         
         # Create a test game
         print("🎮 Creating test game...")
-        game_id = server.process_command("CREATE_GAME standard")
+        result = server.process_command("CREATE_GAME standard")
+        game_id = result["game_id"] if isinstance(result, dict) else result
         print(f"✅ Created game {game_id}")
         
         # Add a player
@@ -33,7 +34,8 @@ def test_bot_map_generation():
         
         # Get game state
         print("📊 Getting game state...")
-        game_state = server.process_command(f"GET_GAME_STATE {game_id}")
+        result = server.process_command(f"GET_GAME_STATE {game_id}")
+        game_state = result.get("state", result) if isinstance(result, dict) else result
         print(f"✅ Game state: {json.dumps(game_state, indent=2)}")
         
         # Generate map using the same code the bot uses
@@ -55,7 +57,7 @@ def test_bot_map_generation():
         
         # Generate map (same as bot)
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        img_bytes = Map.render_board_png_with_moves(svg_path, units, [], phase_info=phase_info)
+        img_bytes = Map.render_board_png_with_moves(svg_path, units, {}, phase_info=phase_info)
         
         # Save the map
         map_filename = f"bot_test_map_{game_id}.png"
@@ -71,20 +73,19 @@ def test_bot_map_generation():
         server.process_command(f"DELETE_GAME {game_id}")
         print("🧹 Cleaned up test game")
         
-        return True
+        assert True, "Test completed successfully"
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == "__main__":
-    success = test_bot_map_generation()
-    
-    if success:
+    try:
+        test_bot_map_generation()
         print("\n🎉 Bot map generation test completed!")
         print("💡 Check the generated bot_test_map_*.png file")
-    else:
+    except Exception:
         print("\n💥 Bot map generation test failed!")
         sys.exit(1)

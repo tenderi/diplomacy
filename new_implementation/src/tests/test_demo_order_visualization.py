@@ -271,7 +271,7 @@ def test_demo_game_order_visualization():
     print("✅ Power ownership validation is working!")
     print("✅ All order types are properly visualized!")
     
-    return True
+    assert True, "Test completed successfully"
 
 
 def main():
