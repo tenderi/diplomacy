@@ -205,10 +205,16 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(user.id)
     try:
         # List all games the user is in
-        user_games_response = api_get(f"/users/{user_id}/games")
-        
-        # Extract games list from API response
-        user_games = user_games_response.get("games", []) if user_games_response else []
+        try:
+            user_games_response = api_get(f"/users/{user_id}/games")
+            # Extract games list from API response
+            user_games = user_games_response.get("games", []) if user_games_response else []
+        except requests.exceptions.HTTPError as e:
+            # Handle 404 (user not found) gracefully - treat as no games
+            if e.response is not None and e.response.status_code == 404:
+                user_games = []
+            else:
+                raise  # Re-raise other HTTP errors
 
         # Handle different response formats safely
         if not user_games or not isinstance(user_games, list):
@@ -800,10 +806,16 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Show orders menu for user's games"""
     try:
         user_id = str(update.effective_user.id)
-        user_games_response = api_get(f"/users/{user_id}/games")
-        
-        # Extract games list from API response
-        user_games = user_games_response.get("games", []) if user_games_response else []
+        try:
+            user_games_response = api_get(f"/users/{user_id}/games")
+            # Extract games list from API response
+            user_games = user_games_response.get("games", []) if user_games_response else []
+        except requests.exceptions.HTTPError as e:
+            # Handle 404 (user not found) gracefully - treat as no games
+            if e.response is not None and e.response.status_code == 404:
+                user_games = []
+            else:
+                raise  # Re-raise other HTTP errors
 
         # Handle different response types safely
         if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
@@ -902,10 +914,16 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Show map menu for user's games or default map if not in any games"""
     try:
         user_id = str(update.effective_user.id)
-        user_games_response = api_get(f"/users/{user_id}/games")
-        
-        # Extract games list from API response
-        user_games = user_games_response.get("games", []) if user_games_response else []
+        try:
+            user_games_response = api_get(f"/users/{user_id}/games")
+            # Extract games list from API response
+            user_games = user_games_response.get("games", []) if user_games_response else []
+        except requests.exceptions.HTTPError as e:
+            # Handle 404 (user not found) gracefully - treat as no games
+            if e.response is not None and e.response.status_code == 404:
+                user_games = []
+            else:
+                raise  # Re-raise other HTTP errors
 
         # Handle different response types safely
         if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
@@ -1862,8 +1880,15 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     try:
         # Check if user is in this game
-        user_games_response = api_get(f"/users/{user_id}/games")
-        user_games = user_games_response.get("games", []) if user_games_response else []
+        try:
+            user_games_response = api_get(f"/users/{user_id}/games")
+            user_games = user_games_response.get("games", []) if user_games_response else []
+        except requests.exceptions.HTTPError as e:
+            # Handle 404 (user not found) gracefully - treat as no games
+            if e.response is not None and e.response.status_code == 404:
+                user_games = []
+            else:
+                raise  # Re-raise other HTTP errors
         
         user_in_game = any(str(g["game_id"]) == str(game_id) for g in user_games)
         
