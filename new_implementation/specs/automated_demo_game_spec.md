@@ -1,10 +1,10 @@
-# Automated Demo Game Specification
+# Perfect Demo Game Specification
 
 ## Purpose
-The Automated Demo Game is a comprehensive demonstration system that showcases all Diplomacy game mechanics, order types, and phases through a fully automated game simulation. It serves as both a testing tool and an educational resource, demonstrating the complete functionality of the Diplomacy engine.
+The Perfect Demo Game is a comprehensive demonstration system that showcases all Diplomacy game mechanics, order types, and phases through a carefully choreographed sequence of hardcoded orders. It serves as both a testing tool and an educational resource, demonstrating the complete functionality of the Diplomacy engine.
 
 ## Overview
-The automated demo game plays a complete Diplomacy game automatically, generating realistic orders for all seven powers, processing all phases (Movement, Retreat, Build/Destroy), and creating visual documentation of the game progression through map generation.
+The perfect demo game plays a complete Diplomacy game automatically using predetermined orders for all seven powers, processing all phases (Movement, Retreat, Build/Destroy), and creating visual documentation of the game progression through map generation. Unlike the previous automated demo which used AI-generated orders, this uses hardcoded scenarios to demonstrate specific mechanics.
 
 ## Core Features
 
@@ -43,9 +43,9 @@ The automated demo game plays a complete Diplomacy game automatically, generatin
 
 ### 1. **Core Components**
 
-#### `AutomatedDemoGame` Class
+#### `PerfectDemoGame` Class
 ```python
-class AutomatedDemoGame:
+class PerfectDemoGame:
     def __init__(self):
         self.api_base = "http://localhost:8000"
         self.game_id = None
@@ -356,34 +356,28 @@ class DemoGameConfig:
 
 ### 1. **Basic Demo Game**
 ```python
-from automated_demo_game import AutomatedDemoGame
+from demo_perfect_game import PerfectDemoGame
 
 # Create and run demo game
-demo = AutomatedDemoGame()
-demo.run_demo_game()
+demo = PerfectDemoGame()
+demo.run_demo()
 ```
 
 ### 2. **Custom Configuration**
 ```python
-from automated_demo_game import AutomatedDemoGame, DemoGameConfig
+from demo_perfect_game import PerfectDemoGame
 
-# Custom configuration
-config = DemoGameConfig()
-config.MAX_TURNS = 15
-config.AGGRESSION_LEVEL = 0.9
-config.MAP_RESOLUTION = (2560, 1440)
-
-# Run with custom config
-demo = AutomatedDemoGame(config)
-demo.run_demo_game()
+# Create perfect demo game (hardcoded scenarios)
+demo = PerfectDemoGame()
+demo.run_demo()
 ```
 
 ### 3. **Telegram Bot Integration**
 ```python
 # Bot command to start demo game
-async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    demo = AutomatedDemoGame()
-    await demo.run_demo_game_async(update, context)
+async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Runs demo_perfect_game.py via subprocess
+    # See telegram_bot.py for implementation
 ```
 
 ## Testing and Validation

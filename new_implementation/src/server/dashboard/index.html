@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diplomacy Bot Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/static/dashboard.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Diplomacy Bot Dashboard</h1>
+            <div class="refresh-controls">
+                <label>
+                    <input type="checkbox" id="autoRefresh" checked> Auto-refresh (5s)
+                </label>
+                <button id="manualRefresh">Refresh Now</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Service Status Panel -->
+            <section id="serviceStatus" class="panel">
+                <h2>Service Status</h2>
+                <div class="services-grid" id="servicesContainer">
+                    <div class="service-card loading">Loading...</div>
+                </div>
+            </section>
+
+            <!-- Database Statistics -->
+            <section id="databaseStats" class="panel">
+                <h2>Database Statistics</h2>
+                <div class="stats-grid" id="statsContainer">
+                    <div class="stat-card loading">Loading...</div>
+                </div>
+            </section>
+
+            <!-- Logs Viewer -->
+            <section id="logsViewer" class="panel">
+                <h2>Logs Viewer</h2>
+                <div class="logs-controls">
+                    <select id="logService">
+                        <option value="diplomacy">Diplomacy API</option>
+                        <option value="diplomacy-bot" selected>Diplomacy Bot</option>
+                    </select>
+                    <select id="logLines">
+                        <option value="50">50 lines</option>
+                        <option value="100" selected>100 lines</option>
+                        <option value="200">200 lines</option>
+                        <option value="500">500 lines</option>
+                    </select>
+                    <button id="refreshLogs">Refresh Logs</button>
+                    <label>
+                        <input type="checkbox" id="autoScrollLogs" checked> Auto-scroll
+                    </label>
+                    <input type="text" id="logFilter" placeholder="Filter logs...">
+                </div>
+                <div class="logs-output" id="logsOutput">
+                    <div class="loading">Loading logs...</div>
+                </div>
+            </section>
+
+            <!-- Database Viewer -->
+            <section id="databaseViewer" class="panel">
+                <h2>Database Viewer</h2>
+                <div class="db-controls">
+                    <select id="tableSelector">
+                        <option value="">Select a table...</option>
+                    </select>
+                    <button id="refreshTable">Refresh</button>
+                </div>
+                <div class="table-info" id="tableInfo" style="display: none;">
+                    <p>Total rows: <span id="totalRows">0</span></p>
+                    <div class="pagination">
+                        <button id="prevPage" disabled>Previous</button>
+                        <span>Page <span id="currentPage">1</span></span>
+                        <button id="nextPage" disabled>Next</button>
+                    </div>
+                </div>
+                <div class="table-container" id="tableContainer">
+                    <p class="placeholder">Select a table to view data</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/dashboard/static/dashboard.js"></script>
+</body>
+</html>
+

@@ -77,6 +77,7 @@ sudo /opt/diplomacy/status.sh
 - **API**: `http://YOUR_INSTANCE_IP:8000`
 - **Via Nginx**: `http://YOUR_INSTANCE_IP`
 - **Docs**: `http://YOUR_INSTANCE_IP:8000/docs`
+- **Dashboard**: `http://YOUR_INSTANCE_IP/dashboard` (deploy with `./deploy_dashboard.sh`)
 
 ## Management Commands
 
@@ -104,6 +105,19 @@ ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo systemctl restart diplomacy
 # Use the built-in deployment script
 ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo -u diplomacy /opt/diplomacy/deploy.sh"
 ```
+
+### Deploy Dashboard
+```bash
+# Deploy the dashboard (HTML, CSS, JS files)
+./deploy_dashboard.sh
+```
+
+The dashboard provides a web interface for monitoring and managing the bot:
+- **Service Status**: View and restart services
+- **Logs Viewer**: View real-time logs from both services
+- **Database Viewer**: Browse database tables and view statistics
+
+Access the dashboard at: `http://YOUR_INSTANCE_IP/dashboard`
 
 ## Architecture
 

@@ -10,6 +10,8 @@ Key features:
 - Strict typing and modern Python best practices
 """
 from fastapi import FastAPI, HTTPException, Body
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from .models import GameStateOut, PowerStateOut, UnitOut
 from .server import Server
@@ -24,6 +26,10 @@ from contextlib import asynccontextmanager
 import requests
 import logging
 import pytz
+import subprocess
+import re
+from pathlib import Path
+from sqlalchemy import text
 from engine.order_parser import OrderParser
 from engine.database import order_to_dict, unit_to_dict, dict_to_order, dict_to_unit, PlayerModel, MessageModel
 from engine.data_models import Unit, GameStatus, MoveOrder, SupportOrder
@@ -83,12 +89,98 @@ def _state_to_spec_dict(state_obj: Any) -> Dict[str, Any]:
 
 # Lifespan function defined below at line 797 - need to define before FastAPI()
 
+def _initialize_database_schema():
+    """Initialize database schema if it doesn't exist. Can be called synchronously.
+    
+    This function:
+    - Checks if the database schema (tables) exists
+    - Creates the schema if it doesn't exist
+    - Logs errors but doesn't crash the server (endpoints will handle gracefully)
+    """
+    try:
+        from engine.database import create_database_schema
+        from sqlalchemy import create_engine, inspect, text
+        from sqlalchemy.exc import OperationalError, ProgrammingError
+        
+        db_url = SQLALCHEMY_DATABASE_URL
+        if not db_url:
+            logging.warning("SQLALCHEMY_DATABASE_URL not set. Database-dependent endpoints will fail.")
+            return
+        
+        try:
+            engine = create_engine(db_url)
+            try:
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                
+                needs_schema_create = 'games' not in tables
+                needs_column_update = False
+                
+                if 'users' in tables:
+                    # Check if users table has all required columns
+                    users_columns = [col['name'] for col in inspector.get_columns('users')]
+                    required_columns = ['is_active', 'created_at', 'updated_at']
+                    missing_columns = [col for col in required_columns if col not in users_columns]
+                    if missing_columns:
+                        needs_column_update = True
+                        logging.info(f"Users table missing columns: {missing_columns}, updating schema...")
+                
+                if needs_schema_create or needs_column_update:
+                    if needs_column_update:
+                        logging.info("Database schema missing columns, updating schema on startup...")
+                    else:
+                        logging.info("Database schema not found, creating schema on startup...")
+                    try:
+                        schema_engine = create_database_schema(db_url)
+                        schema_engine.dispose()
+                        # Verify with a fresh connection
+                        verify_engine = create_engine(db_url)
+                        verify_inspector = inspect(verify_engine)
+                        verify_tables = verify_inspector.get_table_names()
+                        verify_engine.dispose()
+                        if 'games' in verify_tables:
+                            logging.info("✅ Database schema initialized/updated successfully")
+                        else:
+                            logging.error("❌ Schema creation reported success but verification failed - tables still missing")
+                    except Exception as schema_error:
+                        logging.error(f"❌ Failed to create database schema: {schema_error}")
+                        logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
+                        raise
+                else:
+                    logging.info("✅ Database schema already exists")
+            except (OperationalError, ProgrammingError) as db_error:
+                logging.error(f"❌ Database connection error during schema check: {db_error}")
+                logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
+                logging.error("   Check that PostgreSQL is running and the database URL is correct")
+            except Exception as e:
+                logging.error(f"❌ Unexpected error checking database schema: {e}")
+                import traceback
+                logging.error(traceback.format_exc())
+            finally:
+                engine.dispose()
+        except Exception as engine_error:
+            logging.error(f"❌ Failed to create database engine: {engine_error}")
+            logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
+    except ImportError as import_error:
+        logging.error(f"❌ Failed to import database modules: {import_error}")
+        logging.error("   Ensure engine.database module is available")
+    except Exception as e:
+        # If schema initialization fails, log but don't crash - let endpoints handle it gracefully
+        logging.error(f"❌ Database schema initialization failed: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan context manager.
     Starts the deadline_scheduler background task on app startup and ensures clean shutdown.
+    Also ensures database schema is initialized before handling requests.
     """
+    # Initialize database schema on startup (synchronous operation)
+    _initialize_database_schema()
+    
     task = asyncio.create_task(deadline_scheduler())
     try:
         yield
@@ -96,6 +188,10 @@ async def lifespan(app: FastAPI):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+# Initialize schema immediately when module is imported (for TestClient compatibility)
+# TestClient doesn't always trigger lifespan, so initialize here as well
+_initialize_database_schema()
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
 
@@ -816,7 +912,23 @@ class RegisterPersistentUserRequest(BaseModel):
 
 @app.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
+    """Register a persistent user for multi-game support.
+    
+    Args:
+        req: RegisterPersistentUserRequest with telegram_id (required) and full_name (optional)
+    
+    Returns:
+        {"status": "ok", "user_id": int} on success
+    
+    Raises:
+        HTTPException 400: If telegram_id is empty or invalid
+        HTTPException 500: If database operation fails
+    """
     try:
+        # Validate telegram_id
+        if not req.telegram_id or not req.telegram_id.strip():
+            raise HTTPException(status_code=400, detail="telegram_id is required and cannot be empty")
+        
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             user = db_service.create_user(telegram_id=req.telegram_id, full_name=req.full_name)
@@ -824,7 +936,16 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
     except HTTPException:
         raise  # Re-raise HTTPException as-is
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        # Provide more helpful error messages for common database errors
+        if "does not exist" in error_msg.lower() and ("relation" in error_msg.lower() or "table" in error_msg.lower()):
+            logging.error(f"Database schema not initialized. Error: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail="Database schema not initialized. Please check server logs for schema initialization errors."
+            )
+        logging.error(f"User registration error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Registration failed: {error_msg}")
 
 @app.get("/users/{telegram_id}/games")
 def get_user_games(telegram_id: str) -> Dict[str, Any]:
@@ -1971,8 +2092,365 @@ def generate_resolution_map(game_id: str) -> Dict[str, Any]:
             "message": f"Resolution map generated for {game.phase_code}"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)
-)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Dashboard API Endpoints ---
+
+# Allowed service names for security
+ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
+
+def _get_service_status(service_name: str) -> Dict[str, Any]:
+    """Get status information for a systemd service."""
+    if service_name not in ALLOWED_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Invalid service name: {service_name}")
+    
+    # Use full paths to commands
+    SYSTEMCTL_PATH = "/usr/bin/systemctl"
+    SUDO_PATH = "/usr/bin/sudo"
+    PATH_ENV = {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin"}
+    
+    try:
+        # Try with sudo first (required for system services)
+        # Check if service is active
+        result = subprocess.run(
+            [SUDO_PATH, SYSTEMCTL_PATH, "is-active", service_name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=PATH_ENV
+        )
+        is_active = result.stdout.strip() == "active" if result.returncode == 0 else False
+        
+        # Get detailed status with sudo
+        status_result = subprocess.run(
+            [SUDO_PATH, SYSTEMCTL_PATH, "status", service_name, "--no-pager", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=PATH_ENV
+        )
+        
+        # Extract uptime and other info from status output
+        status_output = status_result.stdout
+        active_since = None
+        if is_active:
+            # Try to extract "Active: active (running) since ..." line
+            since_match = re.search(r"Active:.*since (.+?)\n", status_output)
+            if since_match:
+                active_since = since_match.group(1).strip()
+        
+        return {
+            "name": service_name,
+            "status": "active" if is_active else "inactive",
+            "is_active": is_active,
+            "active_since": active_since,
+            "status_output": status_output[:500] if status_output else ""  # Limit output
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "name": service_name,
+            "status": "unknown",
+            "is_active": False,
+            "active_since": None,
+            "error": "Timeout checking service status"
+        }
+    except Exception as e:
+        return {
+            "name": service_name,
+            "status": "error",
+            "is_active": False,
+            "active_since": None,
+            "error": str(e)
+        }
+
+@app.get("/dashboard/api/services/status")
+def get_services_status() -> Dict[str, Any]:
+    """Get status of all managed services."""
+    try:
+        services = []
+        for service_name in ALLOWED_SERVICES:
+            services.append(_get_service_status(service_name))
+        return {"services": services}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RestartServiceRequest(BaseModel):
+    service: str
+
+@app.post("/dashboard/api/services/restart")
+def restart_service(req: RestartServiceRequest) -> Dict[str, Any]:
+    """Restart a systemd service."""
+    if req.service not in ALLOWED_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Invalid service name: {req.service}. Allowed: {ALLOWED_SERVICES}")
+    
+    # Use full paths - restart requires sudo
+    SYSTEMCTL_PATH = "/usr/bin/systemctl"
+    SUDO_PATH = "/usr/bin/sudo"
+    PATH_ENV = {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin"}
+    
+    try:
+        result = subprocess.run(
+            [SUDO_PATH, SYSTEMCTL_PATH, "restart", req.service],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=PATH_ENV
+        )
+        if result.returncode == 0:
+            # Wait a moment then check status
+            import time
+            time.sleep(1)
+            status = _get_service_status(req.service)
+            return {
+                "status": "ok",
+                "service": req.service,
+                "message": f"Service {req.service} restarted successfully",
+                "service_status": status
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to restart service: {result.stderr}"
+            )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Timeout restarting service")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/api/logs/{service}")
+def get_service_logs(service: str, lines: int = 100) -> Dict[str, Any]:
+    """Get logs for a systemd service."""
+    if service not in ALLOWED_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Invalid service name: {service}")
+    
+    # Use full paths - journalctl requires sudo for system services
+    JOURNALCTL_PATH = "/usr/bin/journalctl"
+    SUDO_PATH = "/usr/bin/sudo"
+    PATH_ENV = {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin"}
+    
+    try:
+        # Limit lines to prevent excessive output
+        lines = min(max(lines, 1), 1000)
+        
+        result = subprocess.run(
+            [SUDO_PATH, JOURNALCTL_PATH, "-u", service, "--no-pager", "-n", str(lines)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=PATH_ENV
+        )
+        
+        if result.returncode == 0:
+            log_lines = result.stdout.strip().split('\n')
+            return {
+                "service": service,
+                "lines": len(log_lines),
+                "logs": log_lines
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve logs: {result.stderr}"
+            )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Timeout retrieving logs")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Allowed table names for security (read-only)
+ALLOWED_TABLES = [
+    "games", "players", "units", "orders", "supply_centers",
+    "turn_history", "map_snapshots", "messages", "users"
+]
+
+@app.get("/dashboard/api/database/tables")
+def get_database_tables() -> Dict[str, Any]:
+    """List all database tables."""
+    try:
+        # Query PostgreSQL information_schema to get table list
+        session = db_service.session_factory()
+        try:
+            query = text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                ORDER BY table_name
+            """)
+            result = session.execute(query)
+            tables = [row[0] for row in result] if result else []
+            return {"tables": tables}
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/api/database/table/{table_name}")
+def get_table_data(table_name: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    """Get data from a database table."""
+    if table_name not in ALLOWED_TABLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid table name: {table_name}. Allowed: {ALLOWED_TABLES}"
+        )
+    
+    limit = min(max(limit, 1), 1000)  # Limit between 1 and 1000
+    offset = max(offset, 0)
+    
+    try:
+        session = db_service.session_factory()
+        try:
+            # Get table schema
+            schema_query = text("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_name = :table_name
+                ORDER BY ordinal_position
+            """)
+            schema_result = session.execute(schema_query, {"table_name": table_name})
+            columns = [
+                {"name": row[0], "type": row[1], "nullable": row[2] == "YES"}
+                for row in schema_result
+            ]
+            
+            # Get row count - use safe parameterized query
+            count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+            count_result = session.execute(count_query)
+            total_rows = count_result.scalar() if count_result else 0
+            
+            # Get table data - use safe parameterized query for limit/offset
+            data_query = text(f"SELECT * FROM {table_name} LIMIT :limit_val OFFSET :offset_val")
+            data_result = session.execute(data_query, {"limit_val": limit, "offset_val": offset})
+            
+            # Convert rows to dicts
+            rows = []
+            if columns:
+                column_names = [col["name"] for col in columns]
+                for row in data_result:
+                    row_dict = {}
+                    for i, col_name in enumerate(column_names):
+                        if i < len(row):
+                            value = row[i]
+                            # Convert datetime and other objects to strings
+                            if isinstance(value, datetime):
+                                row_dict[col_name] = value.isoformat()
+                            elif value is None:
+                                row_dict[col_name] = None
+                            else:
+                                row_dict[col_name] = str(value)
+                        else:
+                            row_dict[col_name] = None
+                    rows.append(row_dict)
+            
+            return {
+                "table_name": table_name,
+                "columns": columns,
+                "total_rows": total_rows,
+                "limit": limit,
+                "offset": offset,
+                "rows": rows
+            }
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/api/database/stats")
+def get_database_stats() -> Dict[str, Any]:
+    """Get database statistics."""
+    try:
+        session = db_service.session_factory()
+        try:
+            stats: Dict[str, Any] = {}
+            
+            # Total games
+            games_query = text("SELECT COUNT(*) FROM games")
+            games_result = session.execute(games_query)
+            stats["total_games"] = games_result.scalar() or 0
+            
+            # Active games
+            active_query = text("SELECT COUNT(*) FROM games WHERE status = 'active'")
+            active_result = session.execute(active_query)
+            stats["active_games"] = active_result.scalar() or 0
+            
+            # Total players
+            players_query = text("SELECT COUNT(*) FROM players")
+            players_result = session.execute(players_query)
+            stats["total_players"] = players_result.scalar() or 0
+            
+            # Total users
+            users_query = text("SELECT COUNT(*) FROM users")
+            users_result = session.execute(users_query)
+            stats["total_users"] = users_result.scalar() or 0
+            
+            # Total orders
+            orders_query = text("SELECT COUNT(*) FROM orders")
+            orders_result = session.execute(orders_query)
+            stats["total_orders"] = orders_result.scalar() or 0
+            
+            # Recent activity (games updated in last 24 hours)
+            recent_query = text("""
+                SELECT COUNT(*) FROM games 
+                WHERE updated_at > NOW() - INTERVAL '24 hours'
+            """)
+            recent_result = session.execute(recent_query)
+            stats["recent_activity"] = recent_result.scalar() or 0
+            
+            return stats
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Dashboard Frontend Serving ---
+
+# Get the directory where this file is located
+_dashboard_dir = Path(__file__).parent / "dashboard"
+_static_dir = _dashboard_dir / "static"
+
+# Mount static files if directory exists
+if _static_dir.exists():
+    app.mount("/dashboard/static", StaticFiles(directory=str(_static_dir)), name="dashboard-static")
+
+@app.get("/", response_class=HTMLResponse)
+def root() -> HTMLResponse:
+    """Root endpoint - redirect to dashboard or show info."""
+    # If dashboard exists, redirect to it
+    dashboard_html = _dashboard_dir / "index.html"
+    if dashboard_html.exists():
+        return RedirectResponse(url="/dashboard")
+    else:
+        # Show API info if dashboard not available
+        return HTMLResponse(
+            content="""
+            <html>
+            <head><title>Diplomacy API</title></head>
+            <body>
+                <h1>Diplomacy Game Server API</h1>
+                <p>API is running. Available endpoints:</p>
+                <ul>
+                    <li><a href="/docs">API Documentation (Swagger)</a></li>
+                    <li><a href="/health">Health Check</a></li>
+                    <li><a href="/dashboard">Dashboard</a> (if deployed)</li>
+                </ul>
+            </body>
+            </html>
+            """,
+            status_code=200
+        )
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def serve_dashboard() -> HTMLResponse:
+    """Serve the dashboard HTML page."""
+    dashboard_html = _dashboard_dir / "index.html"
+    if dashboard_html.exists():
+        with open(dashboard_html, "r", encoding="utf-8") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    else:
+        return HTMLResponse(
+            content="<h1>Dashboard not found</h1><p>Dashboard files not installed.</p><p>Run <code>./deploy_dashboard.sh</code> to deploy the dashboard.</p>",
+            status_code=404
+        )
 
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)

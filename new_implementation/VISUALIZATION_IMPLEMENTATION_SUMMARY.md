@@ -56,7 +56,7 @@ All visualization requirements from `visualization_spec.md` have been successful
 - ✅ Full caching support
 
 ### 5. Demo Game Integration
-**File**: `demo_automated_game.py`
+**File**: `demo_perfect_game.py`
 
 - ✅ **Order conversion**: `_convert_order_to_visualization_format()` 
   - Converts order strings ("A PAR - BUR") to visualization dictionaries
@@ -210,7 +210,7 @@ Map.render_board_png_resolution(
    - Added `render_board_png_resolution()` method
    - Enhanced existing order drawing methods
 
-2. **`demo_automated_game.py`**
+2. **`demo_perfect_game.py`**
    - Added `_convert_order_to_visualization_format()` method
    - Added `_extract_resolution_data()` method
    - Updated `generate_orders_map()` to use PNG generation

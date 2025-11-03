@@ -203,7 +203,7 @@ class TelegramBotTestFramework:
                 "callback_data": "view_default_map"
             },
             {
-                "name": "Run Automated Demo",
+                "name": "Run Perfect Demo",
                 "context": "callback",
                 "callback_data": "run_automated_demo"
             },

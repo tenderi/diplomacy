@@ -397,14 +397,12 @@ class TestDatabaseServiceErrorHandling:
     def test_database_connection_error(self, mock_session, temp_db):
         """Test handling of database connection errors."""
         # The invalid URL will raise NoSuchModuleError when trying to create engine
-        # This is a SQLAlchemy error, so we catch the base exception
+        # This happens during DatabaseService initialization, not during create_game
         from sqlalchemy.exc import NoSuchModuleError
         
-        service = DatabaseService("invalid://url")
-        
-        # Creating a game with invalid URL will fail when trying to create session
+        # The exception is raised during __init__ when creating the session factory
         with pytest.raises((SQLAlchemyError, NoSuchModuleError)):
-            service.create_game("test_game", "standard")
+            service = DatabaseService("invalid://url")
     
     def test_invalid_game_id(self, db_service):
         """Test handling of invalid game ID."""

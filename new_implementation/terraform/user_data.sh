@@ -119,6 +119,18 @@ fi
 echo "Creating diplomacy application user..."
 useradd -m -s /bin/bash diplomacy || echo "User already exists"
 
+# Configure sudo access for diplomacy user to run systemctl commands (for dashboard)
+echo "Configuring sudo access for diplomacy user..."
+cat > /etc/sudoers.d/diplomacy-systemctl << 'SUDO_EOF'
+# Allow diplomacy user to run systemctl and journalctl commands for dashboard
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy, /usr/bin/systemctl status diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy, /usr/bin/systemctl is-active diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy, /usr/bin/systemctl restart diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy *, /usr/bin/journalctl -u diplomacy-bot *
+SUDO_EOF
+chmod 0440 /etc/sudoers.d/diplomacy-systemctl
+echo "✓ Sudo access configured for diplomacy user"
+
 # Set up application directory
 echo "Setting up application directories..."
 mkdir -p /opt/diplomacy
@@ -259,7 +271,11 @@ nginx -t
 # Run database migrations
 echo "Running database migrations..."
 cd /opt/diplomacy
-sudo -u diplomacy alembic upgrade head
+# Use python -m alembic which works regardless of PATH, or try full path
+# alembic is installed via pip install --user, so it's in ~/.local/bin
+# Using python -m is more reliable as it uses the installed package directly
+sudo -u diplomacy bash -c 'export PATH=/home/diplomacy/.local/bin:$PATH && cd /opt/diplomacy && python3 -m alembic upgrade head' || \
+sudo -u diplomacy bash -c 'cd /opt/diplomacy && /home/diplomacy/.local/bin/alembic upgrade head'
 echo "✓ Database migrations completed"
 
 # Enable and start services

@@ -2,6 +2,16 @@
 import os
 import pytest
 
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 try:
 	from fastapi.testclient import TestClient
 	from server.api import app
@@ -16,10 +26,11 @@ def client():
 
 
 def _has_db_url() -> bool:
+	"""Check if database URL is configured. Supports .env file loading."""
 	return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
 
 
-@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured for API tests")
+@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
 class TestApiSpecShapes:
 	def test_games_list_and_state_shape(self, client: TestClient):
 		# Ensure list endpoint works and returns structure
