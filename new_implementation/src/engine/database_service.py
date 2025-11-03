@@ -6,7 +6,7 @@ to ensure proper data integrity and consistency.
 """
 
 from typing import List, Optional, Dict, Any, Tuple, Iterable
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from .database import (
@@ -218,7 +218,7 @@ class DatabaseService:
             ).first()
             if player_model:
                 player_model.orders_submitted = True
-                player_model.last_order_time = datetime.now(UTC)
+                player_model.last_order_time = datetime.now(timezone.utc)
             
             session.commit()
     
@@ -254,8 +254,8 @@ class DatabaseService:
                     current_phase=game_model.current_phase,
                     phase_code=game_model.phase_code,
                     status=status_val,
-                    created_at=getattr(game_model, 'created_at', datetime.now(UTC)),
-                    updated_at=getattr(game_model, 'updated_at', datetime.now(UTC)),
+                    created_at=getattr(game_model, 'created_at', datetime.now(timezone.utc)),
+                    updated_at=getattr(game_model, 'updated_at', datetime.now(timezone.utc)),
                     powers={},
                     map_data=self._load_map_data(game_model.map_name),
                     orders={}
@@ -429,7 +429,7 @@ class DatabaseService:
             game_model.current_phase = game_state.current_phase
             game_model.phase_code = game_state.phase_code
             game_model.status = game_state.status.value
-            game_model.updated_at = datetime.now(UTC)
+            game_model.updated_at = datetime.now(timezone.utc)
             
             # Update units
             self._update_units(session, game_model.id, game_state)
