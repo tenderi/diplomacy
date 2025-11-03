@@ -159,6 +159,45 @@ if ! run_ssh "test -f /opt/diplomacy/.env"; then
     exit 1
 fi
 
+# Verify and ensure SQLALCHEMY_DATABASE_URL is defined in .env file
+echo -e "${YELLOW}Verifying SQLALCHEMY_DATABASE_URL configuration...${NC}"
+run_ssh "
+    if ! grep -q '^SQLALCHEMY_DATABASE_URL=' /opt/diplomacy/.env 2>/dev/null; then
+        echo '⚠️  Warning: SQLALCHEMY_DATABASE_URL not found in .env file'
+        echo '   Attempting to construct from .env file contents...'
+        
+        # Try to construct from individual components if they exist
+        DB_USER=\$(grep '^db_username=' /opt/diplomacy/.env 2>/dev/null | cut -d '=' -f2- | tr -d '\"\"\\\"''' || echo '')
+        DB_PASS=\$(grep '^db_password=' /opt/diplomacy/.env 2>/dev/null | cut -d '=' -f2- | tr -d '\"\"\\\"''' || echo '')
+        DB_HOST=\$(grep '^db_host=' /opt/diplomacy/.env 2>/dev/null | cut -d '=' -f2- | tr -d '\"\"\\\"''' || echo 'localhost')
+        DB_PORT=\$(grep '^db_port=' /opt/diplomacy/.env 2>/dev/null | cut -d '=' -f2- | tr -d '\"\"\\\"''' || echo '5432')
+        DB_NAME=\$(grep '^db_name=' /opt/diplomacy/.env 2>/dev/null | cut -d '=' -f2- | tr -d '\"\"\\\"''' || echo '')
+        
+        if [ -n \"\$DB_USER\" ] && [ -n \"\$DB_PASS\" ] && [ -n \"\$DB_NAME\" ]; then
+            SQLALCHEMY_DATABASE_URL=\"postgresql+psycopg2://\${DB_USER}:\${DB_PASS}@\${DB_HOST}:\${DB_PORT}/\${DB_NAME}\"
+            echo \"SQLALCHEMY_DATABASE_URL=\$SQLALCHEMY_DATABASE_URL\" | sudo tee -a /opt/diplomacy/.env > /dev/null
+            echo '✅ Added SQLALCHEMY_DATABASE_URL to .env file'
+        else
+            echo '❌ Error: Cannot construct SQLALCHEMY_DATABASE_URL from .env components'
+            echo '   Required components: db_username, db_password, db_name'
+            exit 1
+        fi
+    else
+        # Verify it's not empty
+        DB_URL=\$(grep '^SQLALCHEMY_DATABASE_URL=' /opt/diplomacy/.env | cut -d '=' -f2- | tr -d '\"\"\\\"''' | xargs)
+        if [ -z \"\$DB_URL\" ]; then
+            echo '❌ Error: SQLALCHEMY_DATABASE_URL is empty in .env file'
+            exit 1
+        else
+            echo '✅ SQLALCHEMY_DATABASE_URL is properly configured'
+        fi
+    fi
+" || {
+    echo -e "${RED}Error: Failed to verify/configure SQLALCHEMY_DATABASE_URL${NC}"
+    echo -e "${YELLOW}Please ensure the .env file contains SQLALCHEMY_DATABASE_URL or the required database components${NC}"
+    exit 1
+}
+
 # Create temporary directory for checksums
 TEMP_DIR="/tmp/diplomacy_deploy_$$"
 mkdir -p "$TEMP_DIR"
@@ -389,7 +428,15 @@ if ([ "$RESET_DB" = "true" ] || [ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANG
     run_ssh "
         cd /opt/diplomacy
         export PYTHONPATH=\"/opt/diplomacy/src:\${PYTHONPATH:-}\"
-        export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2-)
+        export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2- | tr -d '\"\"\\\"''')
+        
+        # Handle multiple migration heads by upgrading to all heads, then to merge
+        HEAD_COUNT=\$(sudo -u diplomacy /home/diplomacy/.local/bin/alembic heads 2>&1 | grep -E '^[a-f0-9]{12}' | wc -l)
+        if [ \"\$HEAD_COUNT\" -gt 1 ]; then
+            echo 'Multiple migration heads detected, upgrading all heads first...'
+            sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade heads
+        fi
+        # Now upgrade to the latest (merge migration if it exists)
         sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head
     " || {
         echo -e "${RED}⚠️  Migration failed!${NC}"
@@ -405,11 +452,102 @@ else
     echo -e "${GREEN}No alembic changes, skipping migrations...${NC}"
 fi
 
-# Restart services only if code changed
-if [ "$SRC_CHANGED" = "true" ]; then
-    echo -e "${YELLOW}Restarting diplomacy services (code changed)...${NC}"
+# Ensure database schema is initialized (even if migrations don't run or fail)
+echo -e "${YELLOW}Ensuring database schema is initialized...${NC}"
+run_ssh "
+    cd /opt/diplomacy
+    
+    # Read SQLALCHEMY_DATABASE_URL from .env file (handle quotes)
+    SQLALCHEMY_DATABASE_URL=\$(grep '^SQLALCHEMY_DATABASE_URL=' /opt/diplomacy/.env | cut -d '=' -f2- | tr -d '\"\"\\\"''' | xargs)
+    
+    if [ -z \"\$SQLALCHEMY_DATABASE_URL\" ]; then
+        echo '⚠️  Warning: SQLALCHEMY_DATABASE_URL not found in .env file'
+        echo '   Schema initialization will be skipped'
+    else
+        echo 'Initializing database schema...'
+        # Pass environment variables explicitly to sudo, and read .env in Python as fallback
+        sudo -u diplomacy env PYTHONPATH=\"/opt/diplomacy/src\" SQLALCHEMY_DATABASE_URL=\"\$SQLALCHEMY_DATABASE_URL\" python3 << 'PYTHON_SCRIPT'
+import sys
+import os
+sys.path.insert(0, '/opt/diplomacy/src')
+
+try:
+    from sqlalchemy import create_engine, inspect
+    from engine.database import create_database_schema
+    
+    # Try to get from environment first, then read from .env file as fallback
+    db_url = os.environ.get('SQLALCHEMY_DATABASE_URL')
+    if not db_url:
+        # Fallback: read directly from .env file
+        env_file = '/opt/diplomacy/.env'
+        if os.path.exists(env_file):
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('SQLALCHEMY_DATABASE_URL='):
+                        db_url = line.split('=', 1)[1].strip()
+                        # Remove quotes if present
+                        db_url = db_url.strip('\"').strip(\"'\")
+                        break
+    
+    if not db_url:
+        print('❌ SQLALCHEMY_DATABASE_URL not set and could not be read from .env file')
+        sys.exit(1)
+    
+    # Check if schema exists
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        if 'games' not in tables:
+            print('📊 Database schema not found, creating...')
+            schema_engine = create_database_schema(db_url)
+            schema_engine.dispose()
+            
+            # Verify creation
+            verify_engine = create_engine(db_url)
+            verify_inspector = inspect(verify_engine)
+            verify_tables = verify_inspector.get_table_names()
+            verify_engine.dispose()
+            
+            if 'games' in verify_tables:
+                print('✅ Database schema initialized successfully')
+            else:
+                print('❌ Schema creation failed verification')
+                sys.exit(1)
+        else:
+            print('✅ Database schema already exists')
+    except Exception as e:
+        print(f'❌ Error checking/creating schema: {e}')
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        engine.dispose()
+except ImportError as e:
+    print(f'❌ Failed to import database modules: {e}')
+    sys.exit(1)
+except Exception as e:
+    print(f'❌ Unexpected error: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYTHON_SCRIPT
+    fi
+" || {
+    echo -e "${RED}⚠️  Schema initialization failed, but continuing deployment...${NC}"
+    echo -e "${YELLOW}The server will attempt to initialize schema on startup${NC}"
+}
+
+# Restart services only if code changed or if schema was initialized
+if [ "$SRC_CHANGED" = "true" ] || [ "$RESET_DB" = "true" ]; then
+    echo -e "${YELLOW}Restarting diplomacy services (code changed or database reset)...${NC}"
+    # Ensure systemd has the latest .env file loaded
+    run_ssh "sudo systemctl daemon-reload"
     run_ssh "sudo systemctl restart diplomacy"
     run_ssh "sudo systemctl restart diplomacy-bot"
+    echo -e "${GREEN}Services restarted with updated configuration${NC}"
 else
     echo -e "${GREEN}No code changes, services remain running...${NC}"
 fi

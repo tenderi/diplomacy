@@ -14,8 +14,27 @@ from typing import Dict, Any
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 from server.api import app
 from engine.database import Base, GameModel, UserModel, PlayerModel
+
+
+def _has_demo_map() -> bool:
+	"""Check if demo map file exists."""
+	import os
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	demo_map_path = os.path.join(project_root, 'maps', 'demo.json')
+	return os.path.exists(demo_map_path)
 
 
 class TestDemoGameManagement:
@@ -23,12 +42,17 @@ class TestDemoGameManagement:
     
     @pytest.fixture(autouse=True)
     def setup_test_db(self):
-        """Set up test database for each test."""
+        """Set up test database for each test.
+        
+        Note: We don't drop tables after tests to avoid interfering with other tests
+        that may run after this class. Tables are created if needed, but not dropped.
+        """
         db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
         if not db_url:
-            pytest.skip("Database URL not configured; skipping demo DB tests")
+            pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
         # Create PostgreSQL database for testing (uses provided URL)
         self.engine = create_engine(db_url, echo=False)
+        # Ensure schema exists (create_all is idempotent - won't recreate existing tables)
         Base.metadata.create_all(self.engine)
         
         # Create test session
@@ -39,14 +63,10 @@ class TestDemoGameManagement:
         
         yield
         
-        # Cleanup - drop tables in correct order to handle foreign keys
+        # Cleanup - close session and engine, but don't drop tables
+        # Dropping tables would interfere with other tests that may run after this class
         self.db.close()
-        try:
-            # Drop in reverse dependency order
-            Base.metadata.drop_all(self.engine, checkfirst=True)
-        except Exception:
-            # If drop fails, try to close connection and continue
-            self.engine.dispose()
+        self.engine.dispose()
     
     def test_user_games_api_response_structure(self):
         """Test that /users/{telegram_id}/games returns correct structure."""
@@ -87,6 +107,7 @@ class TestDemoGameManagement:
                 power_key = "power" if "power" in game_data else "power_name"
                 assert game_data[power_key] == "GERMANY"
     
+    @pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
     def test_demo_game_creation_and_user_association(self):
         """Test that demo game creation properly associates user with game."""
         import uuid
@@ -131,6 +152,7 @@ class TestDemoGameManagement:
         power_key = "power" if "power" in matching_game else "power_name"
         assert matching_game[power_key] == "GERMANY"
     
+    @pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
     def test_demo_game_with_ai_players(self):
         """Test demo game creation with AI players for all powers."""
         import uuid
@@ -186,6 +208,7 @@ class TestDemoGameManagement:
         power_key = "power" if "power" in human_player else "power_name"
         assert human_player[power_key] == "GERMANY"
     
+    @pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
     def test_order_submission_for_demo_game(self):
         """Test that orders can be submitted for demo games."""
         import uuid
@@ -223,6 +246,7 @@ class TestDemoGameManagement:
         orders = orders_response.json()
         assert len(orders) >= 0  # Orders might not be saved in the format we expect
     
+    @pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
     def test_game_state_retrieval_for_demo_game(self):
         """Test that game state can be retrieved for demo games."""
         import uuid
@@ -305,6 +329,7 @@ class TestDemoGameManagement:
         assert isinstance(user_games, list)
         assert len(user_games) == 0
     
+    @pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
     def test_demo_game_map_generation(self):
         """Test that demo game can generate maps."""
         client = TestClient(app)

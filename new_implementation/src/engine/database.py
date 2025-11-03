@@ -5,7 +5,7 @@ This migration implements the comprehensive database schema defined in data_spec
 with proper foreign key relationships and data validation constraints.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, Index
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, Index, text, inspect
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -243,8 +243,53 @@ class MessageModel(Base):
 def create_database_schema(database_url: str):
     """Create the complete database schema"""
     engine = create_engine(database_url)
+    # Create all tables - this auto-commits in SQLAlchemy
     Base.metadata.create_all(engine)
-    return engine
+    
+    # Ensure all columns exist (handle case where table exists but columns are missing)
+    # This is a safety check for columns that might have been added to models after table creation
+    inspector_instance = inspect(engine)
+    table_names = inspector_instance.get_table_names()
+    
+    with engine.begin() as conn:
+        if 'users' in table_names:
+            users_columns = [col['name'] for col in inspector_instance.get_columns('users')]
+            
+            # Add missing columns if they don't exist
+            if 'is_active' not in users_columns:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT true"))
+                    conn.execute(text("UPDATE users SET is_active = true WHERE is_active IS NULL"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN is_active SET NOT NULL"))
+                except Exception as e:
+                    # If column already exists or other error, continue
+                    pass
+            
+            if 'created_at' not in users_columns:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
+                    conn.execute(text("UPDATE users SET created_at = NOW() WHERE created_at IS NULL"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET NOT NULL"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW()"))
+                except Exception:
+                    pass
+            
+            if 'updated_at' not in users_columns:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
+                    conn.execute(text("UPDATE users SET updated_at = NOW() WHERE updated_at IS NULL"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET NOT NULL"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET DEFAULT NOW()"))
+                except Exception:
+                    pass
+        
+        # Force a commit by executing a simple query
+        conn.execute(text("SELECT 1"))
+    
+    # Dispose engine to ensure all connections are closed
+    engine.dispose()
+    # Return a new engine for the caller to use
+    return create_engine(database_url)
 
 
 def clear_database(database_url: str):

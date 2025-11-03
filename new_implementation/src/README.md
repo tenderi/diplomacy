@@ -30,7 +30,10 @@ python -m server.api
 
 ## Testing
 - Integration and API tests live in `src/tests/`
-- Requires `SQLALCHEMY_DATABASE_URL` to be set; tests auto-skip if absent
+- Requires `SQLALCHEMY_DATABASE_URL` or `DIPLOMACY_DATABASE_URL` to be set; tests auto-skip if absent
+- You can set the database URL via:
+  - Environment variable: `export SQLALCHEMY_DATABASE_URL="postgresql+psycopg2://user:pass@host/db"`
+  - `.env` file in project root: `SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://user:pass@host/db`
 ```
 pytest -q src/tests
 ```

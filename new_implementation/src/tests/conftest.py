@@ -10,6 +10,89 @@ import tempfile
 import os
 from typing import Generator, Dict, Any
 from unittest.mock import Mock, MagicMock
+
+# Load environment variables from .env file if it exists
+# This allows tests to automatically pick up database URL configuration
+# MUST happen before any database imports
+try:
+    from dotenv import load_dotenv
+    # Look for .env file in project root (two levels up from src/tests)
+    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    env_path = os.path.join(project_root, '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
+
+# Initialize database schema BEFORE importing any database-dependent modules
+# This ensures schema exists before pytest imports test modules that might connect to DB
+_db_schema_initialized = False
+
+def _ensure_db_schema():
+    """Ensure database schema is initialized before tests run."""
+    global _db_schema_initialized
+    if _db_schema_initialized:
+        return
+    
+    try:
+        from sqlalchemy import create_engine, inspect, text
+        db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+        
+        if db_url:
+            # Check if schema exists and is complete
+            engine = create_engine(db_url)
+            try:
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                
+                needs_schema_create = 'games' not in tables
+                needs_column_update = False
+                
+                if 'users' in tables:
+                    # Check if users table has all required columns
+                    users_columns = [col['name'] for col in inspector.get_columns('users')]
+                    required_columns = ['is_active', 'created_at', 'updated_at']
+                    missing_columns = [col for col in required_columns if col not in users_columns]
+                    if missing_columns:
+                        needs_column_update = True
+                
+                if needs_schema_create or needs_column_update:
+                    # Schema missing or incomplete, create/update it
+                    from engine.database import create_database_schema
+                    schema_engine = create_database_schema(db_url)
+                    schema_engine.dispose()
+                    # Verify creation
+                    verify_engine = create_engine(db_url)
+                    verify_inspector = inspect(verify_engine)
+                    verify_tables = verify_inspector.get_table_names()
+                    verify_engine.dispose()
+                    
+                    if 'games' not in verify_tables:
+                        print("⚠️  Warning: Could not initialize database schema. Tests requiring database will be skipped.")
+                    else:
+                        print("✅ Database schema initialized/updated before test collection")
+                # If schema exists and is complete, no action needed
+            except Exception as e:
+                # If we can't check/create schema, that's okay - tests will skip
+                pass
+            finally:
+                engine.dispose()
+    except Exception:
+        # If schema initialization fails, tests will handle it gracefully
+        pass
+    
+    _db_schema_initialized = True
+
+# Initialize schema immediately when conftest is loaded (before test collection)
+_ensure_db_schema()
+
+# Also use pytest_configure hook as a backup - runs very early in pytest lifecycle
+def pytest_configure(config):
+    """Pytest hook that runs before test collection - ensures schema is ready."""
+    _ensure_db_schema()
+
+# Now safe to import database-dependent modules
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,12 +103,33 @@ Base = None  # type: ignore
 SessionLocal = None  # type: ignore
 
 
+def _get_db_url() -> str:
+    """Get database URL from environment variables.
+    
+    Checks for SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL.
+    Returns the URL if found, None otherwise.
+    """
+    return os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+
+
 @pytest.fixture
 def temp_db():
-    """Optional database engine for tests that need it; skips if DB URL missing."""
-    db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+    """Optional database engine for tests that need it; skips if DB URL missing.
+    
+    To enable database-dependent tests, set one of these environment variables:
+    - SQLALCHEMY_DATABASE_URL (e.g., postgresql+psycopg2://user:pass@localhost:5432/dbname)
+    - DIPLOMACY_DATABASE_URL
+    
+    You can also create a .env file in the project root with:
+    SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://user:pass@localhost:5432/dbname
+    """
+    db_url = _get_db_url()
     if not db_url:
-        pytest.skip("Database URL not configured; skipping DB-dependent fixtures")
+        pytest.skip(
+            "Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL "
+            "environment variable, or create a .env file in the project root. "
+            "Example: postgresql+psycopg2://user:pass@localhost:5432/dbname"
+        )
     engine = create_engine(db_url, echo=False)
     try:
         yield engine

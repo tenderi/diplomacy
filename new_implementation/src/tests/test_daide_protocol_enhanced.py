@@ -11,13 +11,23 @@ import socket
 import threading
 from unittest.mock import Mock, patch
 
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 from server.daide_protocol import DAIDEServer
 from server.server import Server
 
 
 def _has_db_url() -> bool:
-    """Check if database URL is configured."""
-    return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
+	"""Check if database URL is configured. Supports .env file loading."""
+	return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
 
 
 class TestDAIDEServer:
@@ -948,7 +958,7 @@ class TestDAIDEServerLifecycle:
 
 # Integration tests
 @pytest.mark.integration
-@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured for DAIDE integration tests")
+@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
 class TestDAIDEIntegration:
     """Integration tests for DAIDE protocol."""
     

@@ -13,6 +13,16 @@ from typing import Dict, Any
 # Add the project root to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -21,7 +31,15 @@ from engine.database import Base, GameModel, UserModel, PlayerModel
 import pytest
 
 
-@pytest.mark.skipif(not (os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")), reason="Database URL not configured for demo integration test")
+def _has_demo_map() -> bool:
+	"""Check if demo map file exists."""
+	import os
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	demo_map_path = os.path.join(project_root, 'maps', 'demo.json')
+	return os.path.exists(demo_map_path)
+
+@pytest.mark.skipif(not (os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
+@pytest.mark.skipif(not _has_demo_map(), reason="Demo map file (maps/demo.json) not found. Demo game tests require demo map variant.")
 def test_demo_game_workflow():
     """Test the complete demo game workflow."""
     print("🧪 Testing Demo Game Order Management...")
@@ -132,9 +150,10 @@ def test_demo_game_workflow():
         raise  # Re-raise the exception to fail the test
         
     finally:
-        # Cleanup
+        # Cleanup - close session and engine, but don't drop tables
+        # Dropping tables would interfere with other tests that may run after this test
         db.close()
-        Base.metadata.drop_all(engine)
+        engine.dispose()
 
 
 def test_api_response_parsing_edge_cases():

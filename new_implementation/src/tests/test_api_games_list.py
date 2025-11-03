@@ -3,15 +3,25 @@ import pytest
 
 from fastapi.testclient import TestClient
 
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 os.environ.setdefault("DIPLOMACY_MAP_PATH", "maps/standard.svg")
 
 
 def _has_db_url() -> bool:
-    """Check if database URL is configured."""
-    return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
+	"""Check if database URL is configured. Supports .env file loading."""
+	return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
 
 
-@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured for API tests")
+@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
 @pytest.mark.integration
 def test_list_games_and_state_import_ok():
     """Test game creation, listing, and state retrieval via API."""

@@ -2,6 +2,16 @@
 import os
 import pytest
 
+# Load environment variables from .env file if it exists
+try:
+	from dotenv import load_dotenv
+	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	env_path = os.path.join(project_root, '.env')
+	if os.path.exists(env_path):
+		load_dotenv(env_path)
+except ImportError:
+	pass
+
 # FastAPI test client
 try:
 	from fastapi.testclient import TestClient
@@ -16,10 +26,11 @@ def client():
 
 
 def _has_db_url() -> bool:
+	"""Check if database URL is configured. Supports .env file loading."""
 	return bool(os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL"))
 
 
-@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured for integration tests")
+@pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
 class TestSpecOnlyFlow:
 	def test_create_join_submit_process_state(self, client: TestClient):
 		# 1) Create game

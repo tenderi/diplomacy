@@ -130,7 +130,7 @@ def test_demo_game():
     print("  🎯 Testing demo script execution...")
     try:
         result = subprocess.run(
-            ["ssh", "-i", "~/.ssh/helgeKeyPair.pem", "ubuntu@54.78.51.19", "cd /opt/diplomacy && /usr/bin/python3 demo_automated_game.py --help"],
+            ["ssh", "-i", "~/.ssh/helgeKeyPair.pem", "ubuntu@54.78.51.19", "cd /opt/diplomacy && /usr/bin/python3 demo_perfect_game.py --help"],
             capture_output=True,
             text=True,
             timeout=30,

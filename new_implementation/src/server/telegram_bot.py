@@ -438,7 +438,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await start_demo_game(update, context)
 
     elif data == "run_automated_demo":
-        await query.edit_message_text("🎬 Starting automated demo game...")
+        await query.edit_message_text("🎬 Starting perfect demo game...")
         await run_automated_demo(update, context)
 
     elif data == "back_to_main_menu":
@@ -1147,7 +1147,7 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     # Add inline keyboard with demo button
     keyboard = [
-        [InlineKeyboardButton("🎬 Run Automated Demo Game", callback_data="run_automated_demo")]
+        [InlineKeyboardButton("🎬 Run Perfect Demo Game", callback_data="run_automated_demo")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1337,7 +1337,7 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(error_msg)
 
 async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Run the automated demo game script and show results"""
+    """Run the perfect demo game script and show results"""
     try:
         # Validate update object
         if not update:
@@ -1370,8 +1370,13 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except Exception as e:
                 logging.error(f"Error sending photo: {e}")
         
+        # Get the project root by going up from the current file (telegram_bot.py)
+        # telegram_bot.py is in src/server/, so go up 2 levels to get project root
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_file_dir))
+        
         # Get the path to the demo script
-        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "demo_automated_game.py")
+        script_path = os.path.join(project_root, "demo_perfect_game.py")
         
         # Check if the script exists
         if not os.path.exists(script_path):
@@ -1405,21 +1410,21 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             # Get all generated map files in chronological order
             import glob
-            map_files = sorted(glob.glob(os.path.join(maps_dir, "demo_*.png")))
+            map_files = sorted(glob.glob(os.path.join(maps_dir, "perfect_demo_*.png")))
             
             if map_files:
                 # Send initial message
-                await safe_reply_text("🎬 *Automated Demo Game Complete!*\n\n📊 Posting generated maps in chronological order...", parse_mode='Markdown')
+                await safe_reply_text("🎬 *Perfect Demo Game Complete!*\n\n📊 Posting generated maps in chronological order...", parse_mode='Markdown')
                 
                 # Post each map with description
                 for i, map_file in enumerate(map_files, 1):
                     try:
                         # Extract phase info from filename
                         filename = os.path.basename(map_file)
-                        phase_info = filename.replace("demo_", "").replace(".png", "").replace("_", " ").title()
+                        phase_info = filename.replace("perfect_demo_", "").replace(".png", "").replace("_", " ").title()
                         
                         # Create caption
-                        caption = f"🗺️ *Map {i}/{len(map_files)}*\n📅 {phase_info}\n\n🎮 Automated Diplomacy Demo Game"
+                        caption = f"🗺️ *Map {i}/{len(map_files)}*\n📅 {phase_info}\n\n🎮 Perfect Diplomacy Demo Game"
                         
                         # Send the map
                         with open(map_file, 'rb') as f:
@@ -1434,23 +1439,23 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
                 # Send completion message
                 completion_msg = (
-                    f"✅ *Demo Complete!*\n\n"
+                    f"✅ *Perfect Demo Complete!*\n\n"
                     f"📊 Generated {len(map_files)} maps showing the complete game progression\n"
-                    f"🎮 All seven powers played with strategic AI\n"
-                    f"📈 Demonstrates all Diplomacy mechanics and phases"
+                    f"🎮 Hardcoded perfect scenarios demonstrating all mechanics\n"
+                    f"📈 Shows 2-1 battles, support cuts, convoys, retreats, and builds"
                 )
                 
                 await safe_reply_text(completion_msg, parse_mode='Markdown')
             else:
                 # No maps generated, show text summary
                 success_msg = (
-                    "🎬 *Automated Demo Game Complete!*\n\n"
+                    "🎬 *Perfect Demo Game Complete!*\n\n"
                     "✅ The demo game ran successfully, but no maps were generated.\n"
                     "📊 Check the server logs for details.\n\n"
                     "💡 *To run the demo yourself:*\n"
                     "```bash\n"
                     f"cd {os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}\n"
-                    "/usr/bin/python3 demo_automated_game.py\n"
+                    "/usr/bin/python3 demo_perfect_game.py\n"
                     "```"
                 )
                 
@@ -1466,7 +1471,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await safe_reply_text(error_msg, parse_mode='Markdown')
                 
     except Exception as e:
-        error_msg = f"❌ Error running automated demo: {str(e)}"
+        error_msg = f"❌ Error running perfect demo: {str(e)}"
         logging.error(f"run_automated_demo exception: {e}")
         try:
             if update and (update.callback_query or update.message):

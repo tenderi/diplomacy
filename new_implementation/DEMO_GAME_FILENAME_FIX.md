@@ -42,7 +42,7 @@ Added verification to ensure:
 
 ## Files Modified
 
-**`demo_automated_game.py`**:
+**`demo_perfect_game.py`**:
 - Updated filename generation in `play_game()` method to include step numbers
 - Enhanced `generate_and_save_map()` with directory creation and file verification
 - Enhanced `generate_orders_map()` with better error handling and PNG verification
