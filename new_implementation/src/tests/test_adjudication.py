@@ -46,7 +46,7 @@ def test_convoyed_move():
     game.set_orders("ENGLAND", [
         "ENGLAND A LON - HOL",
         "ENGLAND F NTH C A LON - HOL",
-        "ENGLAND A YOR S A LON - HOL"  # Support for the convoyed attack
+        "ENGLAND A YOR S F NTH"  # Support the convoying fleet (YOR is adjacent to NTH)
     ])
     game.set_orders("GERMANY", [
         "GERMANY A HOL H"
@@ -65,19 +65,19 @@ def test_dislodgement():
     game.add_player("GERMANY")
     from engine.data_models import Unit
     game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='PAR', power='FRANCE')]
-    game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='BUR', power='GERMANY'), Unit(unit_type='A', province='MUN', power='GERMANY')]
-    # Germany attacks PAR from BUR with support from MUN
+    game.game_state.powers["GERMANY"].units = [Unit(unit_type='A', province='BUR', power='GERMANY'), Unit(unit_type='A', province='PIC', power='GERMANY')]
+    # Germany attacks PAR from BUR with support from PIC (PIC is adjacent to both BUR and PAR)
     game.set_orders("FRANCE", ["FRANCE A PAR H"])
     game.set_orders("GERMANY", [
         "GERMANY A BUR - PAR",
-        "GERMANY A MUN S A BUR - PAR"
+        "GERMANY A PIC S A BUR - PAR"
     ])
     game.process_turn()
     # French unit should be dislodged from PAR
     assert not any(unit.province == 'PAR' for unit in game.game_state.powers["FRANCE"].units)
     assert any(unit.province == 'PAR' for unit in game.game_state.powers["GERMANY"].units)
     assert not any(unit.province == 'BUR' for unit in game.game_state.powers["GERMANY"].units)
-    assert any(unit.province == 'MUN' for unit in game.game_state.powers["GERMANY"].units)
+    assert any(unit.province == 'PIC' for unit in game.game_state.powers["GERMANY"].units)
 
 def test_beleaguered_garrison():
     """Test beleaguered garrison: two equal attacks standoff, defender stays"""

@@ -1,373 +1,108 @@
-# Perfect Automated Demo Game Design Plan
+# Fix Plan - Actionable Items
 
 ## Overview
 
-Create a new hardcoded automated demo game that demonstrates all Diplomacy mechanics through a carefully choreographed sequence. Unlike the current dynamic AI-based demo, this will use predetermined orders to showcase specific scenarios: 2-1 battles, support cuts, convoys, standoffs, retreats, and build phases.
+This document contains actionable implementation tasks and fixes for the Diplomacy game engine.
 
-## Core Design Principles
+## New Feature: Supply Center Persistence
 
-1. **Hardcoded Orders**: All orders pre-written in a scenario sequence, no AI generation
-2. **Strategic Logic**: Every move makes strategic sense; no self-attacks or illogical orders
-3. **Complete Coverage**: Demonstrates all 7 order types (Move, Hold, Support, Convoy, Retreat, Build, Destroy)
-4. **Educational Focus**: Each phase teaches specific mechanics
-5. **Visual Storytelling**: Maps show clear cause-and-effect relationships
+### Overview
 
-## Game Structure
+Implement Diplomacy rule: **Supply centers remain under control of a power even after the unit leaves, until another power moves a unit into that province.**
 
-### Duration: 2 Years (1901-1902)
+### Requirements
 
-- Spring 1901: Initial expansion and first conflicts
-- Fall 1901: Consolidation, supply center changes, builds
-- Spring 1902: Advanced tactics, support combinations, convoys
-- Fall 1902: Complex conflicts, retreats, final builds
+1. **Control Persistence**
+   - When an army/fleet leaves a supply center province, that power retains control
+   - Control only changes when another power successfully moves a unit into the province
+   - This affects build/destroy calculations at end of Fall season
 
-### Phase Sequence
+2. **Visualization**
+   - Map coloring should show supply center control (not just unit positions)
+   - Supply centers controlled but not occupied should be colored appropriately
+   - Both occupied and unoccupied controlled supply centers should be visible
 
-1. Spring 1901 Movement
-2. Spring 1901 Retreat (if dislodgements occur)
-3. Fall 1901 Movement
-4. Fall 1901 Retreat (if dislodgements occur)
-5. Fall 1901 Builds
-6. Spring 1902 Movement
-7. Spring 1902 Retreat (if dislodgements occur)
-8. Fall 1902 Movement
-9. Fall 1902 Retreat (if dislodgements occur)
-10. Fall 1902 Builds
+3. **Build/Destroy Logic**
+   - Supply center count = units in supply centers + controlled but unoccupied supply centers
+   - Powers can build if `controlled_supply_centers > units`
+   - Powers must destroy if `units > controlled_supply_centers`
 
-## Scenario Design: Spring 1901
+### Implementation Details
 
-### Objectives
+#### 1. Game Engine Changes (`src/engine/game.py`)
 
-- Demonstrate basic moves and holds
-- Show first 2-1 battle with support
-- Create one dislodgement for retreat phase
+**Current Behavior:**
+- `_update_supply_center_ownership()` only considers units currently occupying supply centers
+- Control is lost immediately when unit leaves
 
-### Hardcoded Orders
+**Required Changes:**
+- Track previous supply center control (persist across turns)
+- Only update control when:
+  - A unit successfully moves into a supply center (new power takes control)
+  - A unit holds in a supply center (maintains control)
+- If a supply center becomes empty but was previously controlled, maintain that control
 
-**AUSTRIA:**
+**Key Methods to Modify:**
+- `_update_supply_center_ownership()`: Persist control when units leave
+- `_process_movement_phase()`: Update control only when units successfully move into supply centers
 
-- `A VIE - TYR` (expansion move)
-- `A BUD - RUM` (expansion move)
-- `F TRI H` (defensive hold)
+#### 2. Data Model Changes (`src/engine/data_models.py`)
 
-**ENGLAND:**
+**PowerState additions:**
+- Already has `controlled_supply_centers` list
+- Need to ensure this persists correctly when units move away
 
-- `F LON - ENG` (fleet positioning)
-- `F EDI - NTH` (fleet expansion)
-- `A LVP - CLY` (army positioning)
+**GameState additions:**
+- May need to track "last occupier" for supply centers if not already tracked
+- Ensure `controlled_supply_centers` is correctly maintained
 
-**FRANCE:**
+#### 3. Visualization Changes (`src/engine/map.py`)
 
-- `A PAR - BUR` (move to Belgium border)
-- `A MAR - PIE` (southern expansion)
-- `F BRE - MAO` (fleet expansion)
+**Current Behavior:**
+- `_color_provinces_by_power_with_transparency()` uses `supply_center_control` parameter
+- Colors provinces based on unit positions primarily
 
-**GERMANY:**
+**Required Changes:**
+- Ensure `supply_center_control` includes both occupied and unoccupied controlled centers
+- Unoccupied controlled supply centers should be colored with appropriate transparency
+- Visual distinction between occupied vs. unoccupied but controlled centers (optional enhancement)
 
-- `A BER - KIE` (movement)
-- `A MUN - SIL` (movement)
-- `F KIE - HOL` (move with support from army)
+#### 4. Map Generation Updates
 
-**ITALY:**
+**Files to update:**
+- `demo_perfect_game.py`: Ensure supply center control is passed correctly to map generation
+- `server/api.py`: Ensure supply center control in game state is correctly calculated and returned
 
-- `A ROM - VEN` (movement)
-- `A NAP - APU` (movement)
-- `F NAP - ION` (fleet expansion)
+### Testing Strategy
 
-**RUSSIA:**
+1. **Unit Test Cases:**
+   - Unit moves from supply center A to province B (non-SC) → A remains controlled
+   - Unit moves from supply center A to supply center C → A remains controlled, C changes control
+   - Enemy unit successfully moves into controlled but empty supply center → control changes
+   - Build phase: Power has 5 controlled SCs, 3 units → can build 2 units
 
-- `A MOS - UKR` (movement)
-- `A WAR - GAL` (movement toward Austria)
-- `F SEV - BLA` (fleet expansion)
-- `F STP - BOT` (fleet expansion)
+2. **Integration Test:**
+   - Create scenario where France moves A PAR to BUR (PAR is supply center)
+   - Verify PAR remains French-controlled even when empty
+   - Move another power's unit to PAR → verify control changes
+   - Check build/destroy calculations work correctly
 
-**TURKEY:**
+3. **Visualization Test:**
+   - Generate map with unoccupied but controlled supply center
+   - Verify province is colored appropriately
+   - Verify control is visible in all map types (initial, orders, resolution, final)
 
-- `A CON - BUL` (movement)
-- `A SMY - ARM` (movement)
-- `F ANK - BLA` (fleet to Black Sea)
+### Success Criteria
 
-### Expected Outcomes
+1. ✅ Supply centers persist control when units leave
+2. ✅ Control only changes when another power successfully moves in
+3. ✅ Build/destroy calculations use persistent control (not just unit positions)
+4. ✅ Maps correctly visualize controlled but unoccupied supply centers
+5. ✅ All existing tests pass
+6. ✅ New test cases pass for control persistence
 
-- Basic positioning established
-- No major conflicts in first turn
-- Units in position for Fall conflicts
+### Implementation Notes
 
-## Scenario Design: Fall 1901
-
-### Objectives
-
-- Demonstrate 2-1 battle (supported attack succeeds)
-- Show standoff (equal strength bounce)
-- Demonstrate support cut mechanics
-- Create dislodgement for retreat phase
-
-### Hardcoded Orders
-
-**AUSTRIA:**
-
-- `A TYR - VEN` (attack Italy)
-- `A RUM H` (hold, supported)
-- `F TRI S A TYR - VEN` (support attack)
-
-**ENGLAND:**
-
-- `F ENG - BEL` (move to Belgium)
-- `F NTH S F ENG - BEL` (support move)
-- `A CLY H` (hold)
-
-**FRANCE:**
-
-- `A BUR - BEL` (attack Belgium, creates 2-1 with support)
-- `A PIE - TYS` (fleet movement)
-- `F MAO S A BUR - BEL` (support attack - creates 2-1)
-
-**GERMANY:**
-
-- `A SIL - GAL` (attack toward Russia)
-- `A HOL - BEL` (competing for Belgium - will bounce)
-- `A KIE S A HOL - BEL` (support - creates standoff with France)
-
-**ITALY:**
-
-- `A VEN H` (hold, will be dislodged)
-- `A APU S A VEN H` (defensive support, will be cut)
-- `F ION - ADR` (fleet movement)
-
-**RUSSIA:**
-
-- `A UKR - RUM` (attack Romania)
-- `A GAL S A UKR - RUM` (support attack - creates 2-1)
-- `F BLA - CON` (attack Constantinople)
-- `F BOT S F BLA - CON` (support - invalid support, shows support rules)
-
-**TURKEY:**
-
-- `A BUL - RUM` (competing for Romania - will bounce)
-- `A ARM - SEV` (attack Russia)
-- `F BLA H` (hold, will be dislodged)
-
-### Expected Outcomes
-
-- France takes Belgium with 2-1 support (A BUR + F MAO support vs F ENG)
-- Standoff in Belgium between Germany and France
-- Austria takes Venice with 2-1 (A TYR + F TRI support vs A VEN)
-- Russia takes Romania with 2-1 (A UKR + A GAL support vs A RUM)
-- Turkey's fleet in Black Sea dislodged
-- Italy's army in Venice dislodged
-
-## Scenario Design: Fall 1901 Retreat
-
-### Objectives
-
-- Demonstrate retreat orders
-- Show forced disband (no valid retreat)
-
-### Hardcoded Retreat Orders
-
-**ITALY:**
-
-- `A VEN R APU` (retreat to Apulia)
-
-**TURKEY:**
-
-- `F BLA D` (disband - no valid retreat, Black Sea surrounded)
-
-### Expected Outcomes
-
-- Italy retreats successfully
-- Turkey forced to disband
-
-## Scenario Design: Fall 1901 Builds
-
-### Objectives
-
-- Demonstrate build orders
-- Show supply center control changes
-
-### Hardcoded Build Orders
-
-**FRANCE:** (gained Belgium)
-
-- `BUILD A MAR` (build in Marseilles)
-
-**AUSTRIA:** (gained Venice)
-
-- `BUILD A BUD` (build in Budapest)
-
-**RUSSIA:** (gained Romania)
-
-- `BUILD A MOS` (build in Moscow)
-
-**GERMANY, ENGLAND, ITALY, TURKEY:**
-
-- No builds (no net SC gains)
-
-### Expected Outcomes
-
-- France builds army in Marseilles
-- Austria builds army in Budapest
-- Russia builds army in Moscow
-- All other powers hold steady
-
-## Scenario Design: Spring 1902
-
-### Objectives
-
-- Demonstrate convoy orders
-- Show complex support combinations
-- Create multiple conflicts
-
-### Hardcoded Orders
-
-**ENGLAND:**
-
-- `A LVP - BEL VIA CONVOY` (convoy to Belgium)
-- `F NTH C A LVP - BEL` (convoy order)
-- `F ENG S F NTH` (support convoy fleet)
-
-**FRANCE:**
-
-- `A BEL H` (hold Belgium)
-- `A PAR S A BEL H` (support hold)
-- `F MAO - SPA` (fleet to Spain)
-- `A MAR - PIE` (army south)
-
-**GERMANY:**
-
-- `A KIE - HOL` (retake Holland)
-- `A SIL - WAR` (attack Poland)
-- `A BEL - RUH` (retreat from Belgium conflict)
-
-### Expected Outcomes
-
-- England successfully convoys army to Belgium
-- Complex 3-way conflict in Belgium
-- Various positioning moves
-
-## File Structure
-
-### New File: `demo_perfect_game.py`
-
-Location: `/home/helgejalonen/diplomacy/new_implementation/demo_perfect_game.py`
-
-**Key Components:**
-
-1. **ScenarioData Class**
-```python
-@dataclass
-class ScenarioData:
-    year: int
-    season: str
-    phase: str
-    orders: Dict[str, List[str]]
-    expected_outcomes: Dict[str, Any]  # For validation
-    description: str  # Educational description
-```
-
-2. **PerfectDemoGame Class**
-```python
-class PerfectDemoGame:
-    def __init__(self):
-        self.scenarios: List[ScenarioData] = []
-        self.load_scenarios()
-    
-    def load_scenarios(self):
-        """Load all hardcoded scenario data"""
-        
-    def run_demo(self):
-        """Execute the perfect demo game sequence"""
-        
-    def process_scenario(self, scenario: ScenarioData):
-        """Process a single scenario phase"""
-```
-
-3. **Scenario Registry**
-
-All orders stored in a structured format:
-
-```python
-SCENARIOS = {
-    "1901_Spring_Movement": ScenarioData(
-        year=1901,
-        season="Spring",
-        phase="Movement",
-        orders={
-            "AUSTRIA": ["A VIE - TYR", "A BUD - RUM", "F TRI H"],
-            ...
-        },
-        description="Initial positioning phase..."
-    ),
-    ...
-}
-```
-
-## Implementation Details
-
-### Order Validation
-
-- All hardcoded orders must be legal (validated before game starts)
-- No self-attacks or invalid moves
-- Support orders must follow adjacency rules
-- Convoy routes must be valid
-
-### Map Generation
-
-- Generate 4 maps per phase: initial, orders, resolution, final
-- Use existing `Map.render_board_png_orders()` and `Map.render_board_png_resolution()`
-- Follow naming convention: `perfect_demo_{counter:02d}_{year}_{season}_{phase}_{type}.png`
-
-### Educational Annotations
-
-- Each scenario includes description text
-- Maps can include annotations explaining key mechanics
-- Console output explains what's happening and why
-
-### State Verification
-
-- After each phase, verify expected outcomes
-- Check supply center control changes
-- Verify unit positions match expectations
-- Log any discrepancies
-
-## Integration Points
-
-### Server Integration
-
-- Uses existing `Server.process_command()` interface
-- No changes needed to server code
-- Same game creation and order submission flow
-
-### Map Visualization
-
-- Uses existing `Map.render_board_png_*()` methods
-- All visualization features already implemented
-- No new visualization code needed
-
-## Success Criteria
-
-1. All 7 order types demonstrated
-2. All 3 phases shown (Movement, Retreat, Builds)
-3. Strategic coherence (no illogical moves)
-4. Clear 2-1 battle scenarios
-5. Support cut demonstration
-6. Convoy demonstration
-7. Standoff demonstration
-8. Retreat demonstration
-9. Build/Destroy demonstration
-10. All maps generate correctly
-
-## Testing Strategy
-
-1. Validate all hardcoded orders are legal
-2. Run complete scenario and verify outcomes match expectations
-3. Verify all maps generate without errors
-4. Check file naming and ordering
-5. Validate strategic coherence (no self-attacks, logical moves)
-
-## Future Enhancements (Out of Scope)
-
-- Multiple scenario variants
-- Interactive mode to step through phases
-- Detailed annotations on maps
-- Export to educational formats
+- This is a standard Diplomacy rule, so implementation should match official game behavior
+- Control persistence is critical for build/destroy phase calculations
+- Visualization helps players understand why they can build even if they don't have units in all their controlled SCs

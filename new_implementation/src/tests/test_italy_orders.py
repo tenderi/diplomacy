@@ -31,24 +31,24 @@ def test_italy_orders_specifically():
     print(f"\n📋 Submitting Autumn 1901 orders (same as demo game):")
     
     # Germany orders
-    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN S A BER H'])
-    print(f"  GERMANY: A BER - PRU, A MUN S A BER H")
+    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN S A BER'])
+    print(f"  GERMANY: A BER - PRU, A MUN S A BER")
     
     # France orders  
-    game.set_orders('FRANCE', ['A PAR - BUR', 'A MAR - PIE', 'F GAS - SPA'])
-    print(f"  FRANCE: A PAR - BUR, A MAR - PIE, F GAS - SPA")
+    game.set_orders('FRANCE', ['A PAR - BUR', 'A MAR - PIE', 'F BRE - MAO'])
+    print(f"  FRANCE: A PAR - BUR, A MAR - PIE, F BRE - MAO")
     
     # England orders
     game.set_orders('ENGLAND', ['F LON H', 'F EDI - CLY', 'A LVP - WAL'])
     print(f"  ENGLAND: F LON H, F EDI - CLY, A LVP - WAL")
     
     # Russia orders
-    game.set_orders('RUSSIA', ['A MOS S F SEV H', 'A WAR - PRU', 'F SEV S A MOS - UKR', 'F LVN H'])
-    print(f"  RUSSIA: A MOS S F SEV H, A WAR - PRU, F SEV S A MOS - UKR, F LVN H")
+    game.set_orders('RUSSIA', ['A MOS S F SEV', 'A WAR - PRU', 'F SEV S A MOS - UKR', 'F STP H'])
+    print(f"  RUSSIA: A MOS S F SEV, A WAR - PRU, F SEV S A MOS - UKR, F STP H")
     
     # Italy orders (THE KEY ONES)
-    game.set_orders('ITALY', ['A ROM S A VEN H', 'A VEN S A ROM H', 'F NAP - ROM'])
-    print(f"  ITALY: A ROM S A VEN H, A VEN S A ROM H, F NAP - ROM")
+    game.set_orders('ITALY', ['A ROM S A VEN', 'A VEN S A ROM', 'F NAP - ROM'])
+    print(f"  ITALY: A ROM S A VEN, A VEN S A ROM, F NAP - ROM")
     
     # Austria orders
     game.set_orders('AUSTRIA', ['A VIE H', 'A BUD S A VIE - GAL', 'F TRI - SER'])

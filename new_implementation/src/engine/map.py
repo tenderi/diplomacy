@@ -490,8 +490,19 @@ class Map:
                 return ImageFont.load_default()
 
     @staticmethod
-    def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path, supply_center_control=None, current_phase=None):
-        """Color provinces using proper transparency with separate overlay layer."""
+    def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path, supply_center_control=None, current_phase=None, color_only_supply_centers=False, supply_centers_set=None):
+        """Color provinces using proper transparency with separate overlay layer.
+        
+        Args:
+            bg_image: Background image to color
+            units: Dictionary mapping powers to their unit lists
+            power_colors: Dictionary mapping power names to colors
+            svg_path: Path to SVG map file
+            supply_center_control: Dictionary mapping supply center provinces to controlling powers
+            current_phase: Current game phase (for future use)
+            color_only_supply_centers: If True, only color supply center provinces
+            supply_centers_set: Set of supply center province names (required if color_only_supply_centers is True)
+        """
         try:
             # Use cached SVG data instead of parsing again
             tree, jdip_coords = Map._get_cached_svg_data(svg_path)
@@ -536,6 +547,19 @@ class Map:
                         if not prov.startswith("DISLODGED_"):
                             province_power_map[prov] = color
             
+            # Get supply centers set if filtering is enabled
+            if color_only_supply_centers:
+                if supply_centers_set is None:
+                    # Try to get supply centers from Map instance if available
+                    try:
+                        map_instance = Map("standard")
+                        supply_centers_set = set(map_instance.get_supply_centers())
+                    except:
+                        supply_centers_set = set()  # Fallback: empty set
+                # Filter province_power_map to only include supply centers
+                province_power_map = {prov: color for prov, color in province_power_map.items() 
+                                    if prov in supply_centers_set}
+            
             # Color each province based on power control using SVG paths
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
@@ -544,6 +568,11 @@ class Map:
                     normalized_id = province_id.lstrip('_').upper()
                     
                     if normalized_id in province_power_map:
+                        # If color_only_supply_centers is enabled, skip non-supply-center provinces
+                        if color_only_supply_centers:
+                            if supply_centers_set and normalized_id not in supply_centers_set:
+                                continue
+                        
                         # Get the power color for this province
                         power_color = province_power_map[normalized_id]
                         
@@ -869,7 +898,7 @@ class Map:
             return (0, 0, 0)
 
     @staticmethod
-    def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None, supply_center_control: dict = None) -> bytes:
+    def render_board_png(svg_path: str, units: dict, output_path: str = None, phase_info: dict = None, supply_center_control: dict = None, color_only_supply_centers: bool = False) -> bytes:
         """Render board PNG with comprehensive caching for performance optimization."""
         if svg_path is None:
             raise ValueError("svg_path must not be None")
@@ -963,8 +992,17 @@ class Map:
         # 4. Draw units with province coloring
         font = Map._get_cached_font(30)  # Font size for army/fleet markers
         
+        # Get supply centers set if filtering is enabled
+        supply_centers_set = None
+        if color_only_supply_centers:
+            try:
+                map_instance = Map("standard")
+                supply_centers_set = set(map_instance.get_supply_centers())
+            except:
+                supply_centers_set = set()
+        
         # First pass: Color provinces based on power control using proper transparency
-        Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path, supply_center_control, phase_info.get('phase') if phase_info else None)
+        Map._color_provinces_by_power_with_transparency(bg, units, power_colors, svg_path, supply_center_control, phase_info.get('phase') if phase_info else None, color_only_supply_centers, supply_centers_set)
         
         # Second pass: Draw units on top
         for power, unit_list in units.items():
@@ -1092,7 +1130,7 @@ class Map:
         draw.text((x, y), phase_text, fill="white", font=phase_font)
         
     @staticmethod
-    def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
+    def render_board_png_with_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None, color_only_supply_centers: bool = False) -> bytes:
         """
         Render map with comprehensive order visualization and caching.
         
@@ -1123,7 +1161,7 @@ class Map:
         
         # Cache miss - generate new map
         # First render the base map
-        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(bg)
         
@@ -1157,7 +1195,7 @@ class Map:
         return img_bytes
 
     @staticmethod
-    def render_board_png_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
+    def render_board_png_orders(svg_path: str, units: dict, orders: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None, color_only_supply_centers: bool = False) -> bytes:
         """
         Render orders map PNG showing all submitted orders before adjudication.
         
@@ -1170,6 +1208,7 @@ class Map:
             phase_info: Dictionary with turn/season/phase information
             output_path: Optional output file path
             supply_center_control: Dictionary of province -> power controlling supply center
+            color_only_supply_centers: If True, only color supply center provinces
             
         Returns:
             PNG image bytes
@@ -1184,11 +1223,11 @@ class Map:
                 pending_orders[power].append(order_copy)
         
         return Map.render_board_png_with_orders(
-            svg_path, units, pending_orders, phase_info, output_path, supply_center_control
+            svg_path, units, pending_orders, phase_info, output_path, supply_center_control, color_only_supply_centers
         )
 
     @staticmethod
-    def render_board_png_resolution(svg_path: str, units: dict, orders: dict, resolution_data: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None) -> bytes:
+    def render_board_png_resolution(svg_path: str, units: dict, orders: dict, resolution_data: dict, phase_info: dict = None, output_path: str = None, supply_center_control: dict = None, color_only_supply_centers: bool = False) -> bytes:
         """
         Render resolution map PNG showing order results, conflicts, and dislodgements after adjudication.
         
@@ -1239,7 +1278,7 @@ class Map:
         
         # Cache miss - generate new map
         # First render the base map with final unit positions (including dislodged units)
-        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control)
+        base_img_bytes = Map.render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers)
         bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(bg)
         

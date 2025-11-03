@@ -64,6 +64,10 @@ class OrderVisualizationService:
             
             for order in orders:
                 try:
+                    # Filter out orders with power mismatch (corrupted data)
+                    if order.power != power_name:
+                        continue  # Skip corrupted orders
+                    
                     # Skip validation for visualization - we want to show all orders
                     # even if they might be invalid (non-adjacent moves, wrong phase, etc.)
                     

@@ -285,6 +285,41 @@ class SupportOrder(Order):
                   for u in game_state.get_all_units()):
             return False, f"Supported unit {self.supported_unit} does not exist"
         
+        # Validate adjacency: Supporting unit must be adjacent to the destination province
+        # For move support: must be adjacent to the target province
+        # For hold support: must be adjacent to the province being held
+        supporting_province = game_state.map_data.provinces.get(self.unit.province)
+        if not supporting_province:
+            return False, f"Supporting unit {self.unit} province {self.unit.province} not found in map"
+        
+        if self.supported_action == "move" and self.supported_target:
+            # Move support: supporting unit must be adjacent to the destination
+            target_province = game_state.map_data.provinces.get(self.supported_target)
+            if not target_province:
+                return False, f"Target province {self.supported_target} not found"
+            
+            # Check if supporting unit can reach the target (adjacent or coast-accessible for fleets)
+            if supporting_province.province_type == "sea":
+                # Sea fleets can support coastal provinces they're adjacent to
+                if not (target_province.province_type == "coastal" and target_province.is_adjacent_to(self.unit.province)):
+                    return False, f"Fleet {self.unit} in sea province cannot support attack on {target_province.province_type} province {self.supported_target}"
+            elif supporting_province.province_type == "coastal":
+                # Coastal units can support if they're adjacent
+                if not supporting_province.is_adjacent_to(self.supported_target):
+                    return False, f"{self.unit} cannot support attack on non-adjacent province {self.supported_target}"
+            else:
+                # Land armies can support if they're adjacent
+                if not supporting_province.is_adjacent_to(self.supported_target):
+                    return False, f"{self.unit} cannot support attack on non-adjacent province {self.supported_target}"
+        elif self.supported_action == "hold":
+            # Hold support: supporting unit must be adjacent to the province being held
+            supported_province = game_state.map_data.provinces.get(self.supported_unit.province)
+            if not supported_province:
+                return False, f"Supported unit province {self.supported_unit.province} not found"
+            
+            if not supporting_province.is_adjacent_to(self.supported_unit.province):
+                return False, f"{self.unit} cannot support hold on non-adjacent province {self.supported_unit.province}"
+        
         return True, ""
 
 
