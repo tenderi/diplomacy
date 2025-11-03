@@ -805,6 +805,8 @@ def list_games() -> Dict[str, Any]:
                 "powers": [p.power_name for p in players],
             })
         return {"games": result}
+    except HTTPException:
+        raise  # Re-raise HTTPException as-is
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 # --- New User Endpoints for Persistent Registration and Multi-Game Support ---
@@ -819,6 +821,8 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
         if user is None:
             user = db_service.create_user(telegram_id=req.telegram_id, full_name=req.full_name)
         return {"status": "ok", "user_id": user.id}
+    except HTTPException:
+        raise  # Re-raise HTTPException as-is
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -838,6 +842,8 @@ def get_user_games(telegram_id: str) -> Dict[str, Any]:
                 game_id_val = getattr(game, "game_id", None) or str(getattr(game, "id", None))
                 games.append({"game_id": game_id_val, "power": p.power_name})
         return {"telegram_id": telegram_id, "games": games}
+    except HTTPException:
+        raise  # Re-raise HTTPException as-is
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
