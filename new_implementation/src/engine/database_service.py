@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any, Tuple, Iterable
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
     TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel,
@@ -862,8 +863,10 @@ class DatabaseService:
 
     # --- Misc helpers --- 
     def execute_query(self, sql: str) -> None:
+        """Execute a raw SQL query. Used for health checks."""
         with self.session_factory() as session:
-            session.execute(sql)  # type: ignore[arg-type]
+            session.execute(text(sql))
+            session.commit()
 
     def commit(self) -> None:
         # Sessions are scoped per method; no global commit required
