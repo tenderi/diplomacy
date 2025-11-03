@@ -189,7 +189,7 @@ pytest --cov=src/engine --cov=src/server --cov-report=html
 
 ### GitHub Actions Workflow
 - Runs on every push and pull request
-- Tests Python 3.10, 3.11, 3.12
+- Tests Python 3.13
 - Generates coverage reports
 - Comments coverage on PRs
 - Fails if coverage < 85%
