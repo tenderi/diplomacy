@@ -351,17 +351,20 @@ class Game:
                         support_strengths[order.supported_target].append((supporting_unit, 1))
         
         # Check for mutual moves (units trying to swap positions)
+        # A mutual move occurs when: Unit A moves to Province X, and Unit B (currently in X) moves to A's source province
         mutual_moves = []
         for target_province, moves in move_strengths.items():
             if len(moves) == 1:
                 unit, strength, order = moves[0]
-                # Check if there's a unit in the target province that's also moving
+                # Check if there's a unit currently in the target province that's also moving to unit's source province
                 for other_target, other_moves in move_strengths.items():
                     if other_target != target_province:
                         for other_unit, other_strength, other_order in other_moves:
-                            if isinstance(other_order, MoveOrder) and other_order.target_province == unit.province:
-                                # This is a mutual move (swap)
-                                mutual_moves.append((unit, strength, order, other_unit, other_strength, other_order))
+                            if isinstance(other_order, MoveOrder):
+                                # Mutual move: other_unit is in target_province AND moving to unit's source province
+                                if other_unit.province == target_province and other_order.target_province == unit.province:
+                                    # This is a mutual move (swap)
+                                    mutual_moves.append((unit, strength, order, other_unit, other_strength, other_order))
         
         # Process mutual moves first
         for unit1, strength1, order1, unit2, strength2, order2 in mutual_moves:
@@ -420,13 +423,30 @@ class Game:
                 
                 if isinstance(order, MoveOrder):
                     # Check for self-dislodgement
+                    # IMPORTANT: A unit can move to a province if the friendly unit there is also moving away
                     self_dislodgement = False
                     for power_name, power in self.game_state.powers.items():
                         for target_unit in power.units:
                             if target_unit.province == target_province and target_unit != unit and target_unit.power == unit.power:
-                                # Self-dislodgement prohibited
-                                self_dislodgement = True
-                                break
+                                # Check if the target unit is also moving away by checking move_strengths
+                                # A unit is moving away if there's a move order for it targeting a different province
+                                target_unit_is_moving = False
+                                for move_target, move_list in move_strengths.items():
+                                    for move_unit, move_strength, move_order in move_list:
+                                        if (isinstance(move_order, MoveOrder) and 
+                                            move_unit == target_unit and
+                                            move_order.target_province != target_province):
+                                            # Target unit is moving to a different province
+                                            target_unit_is_moving = True
+                                            break
+                                    if target_unit_is_moving:
+                                        break
+                                
+                                # Only block if target unit is NOT moving away
+                                if not target_unit_is_moving:
+                                    # Self-dislodgement prohibited
+                                    self_dislodgement = True
+                                    break
                         if self_dislodgement:
                             break
                     
@@ -450,6 +470,19 @@ class Game:
                             "strength": strength,
                             "success": True
                         })
+                        
+                        # Update supply center control if target is a supply center
+                        target_province_obj = self.game_state.map_data.provinces.get(target_province)
+                        if target_province_obj and target_province_obj.is_supply_center:
+                            # Remove control from previous owner (if any)
+                            for power_name, power_state in self.game_state.powers.items():
+                                if target_province in power_state.controlled_supply_centers:
+                                    power_state.controlled_supply_centers.remove(target_province)
+                                    break
+                            # Assign control to unit's power
+                            unit_power_state = self.game_state.powers.get(unit.power)
+                            if unit_power_state and target_province not in unit_power_state.controlled_supply_centers:
+                                unit_power_state.controlled_supply_centers.append(target_province)
                         
                         # Check if there's an enemy unit in the target province that needs to be dislodged
                         for power_name, power in self.game_state.powers.items():
@@ -563,6 +596,19 @@ class Game:
                                 "strength": max_strength,
                                 "success": True
                             })
+                            
+                            # Update supply center control if target is a supply center
+                            target_province_obj = self.game_state.map_data.provinces.get(target_province)
+                            if target_province_obj and target_province_obj.is_supply_center:
+                                # Remove control from previous owner (if any)
+                                for power_name, power_state in self.game_state.powers.items():
+                                    if target_province in power_state.controlled_supply_centers:
+                                        power_state.controlled_supply_centers.remove(target_province)
+                                        break
+                                # Assign control to winner's power
+                                winner_power_state = self.game_state.powers.get(winner_unit.power)
+                                if winner_power_state and target_province not in winner_power_state.controlled_supply_centers:
+                                    winner_power_state.controlled_supply_centers.append(target_province)
                             
                             # Dislodge other units that are currently in the target province
                             for power_name, power in self.game_state.powers.items():
@@ -764,13 +810,27 @@ class Game:
                     if self._is_valid_retreat(order):
                         # Execute retreat
                         old_province = order.unit.province.replace("DISLODGED_", "")
-                        order.unit.province = order.retreat_province
+                        retreat_province = order.retreat_province
+                        order.unit.province = retreat_province
                         order.unit.is_dislodged = False
                         order.unit.retreat_options = []
                         
+                        # Update supply center control if retreat target is a supply center
+                        target_province_obj = self.game_state.map_data.provinces.get(retreat_province)
+                        if target_province_obj and target_province_obj.is_supply_center:
+                            # Remove control from previous owner (if any)
+                            for other_power_name, other_power_state in self.game_state.powers.items():
+                                if retreat_province in other_power_state.controlled_supply_centers:
+                                    other_power_state.controlled_supply_centers.remove(retreat_province)
+                                    break
+                            # Assign control to retreating unit's power
+                            retreating_power_state = self.game_state.powers.get(power_name)
+                            if retreating_power_state and retreat_province not in retreating_power_state.controlled_supply_centers:
+                                retreating_power_state.controlled_supply_centers.append(retreat_province)
+                        
                         results["retreats"].append({
                             "unit": f"{order.unit.unit_type} {old_province}",
-                            "to": order.retreat_province,
+                            "to": retreat_province,
                             "success": True
                         })
                     else:
@@ -894,10 +954,17 @@ class Game:
         return True, ""
 
     def _update_supply_center_ownership(self) -> None:
-        """Update supply center ownership based on unit occupation at end of Fall."""
-        # Clear all current supply center ownership
+        """Update supply center ownership based on unit occupation at end of Fall.
+        
+        This method ensures that:
+        1. Supply centers with units are controlled by the power owning the unit
+        2. Supply centers without units maintain their previous control (persistence)
+        3. Only supply centers with units get control updated here (others maintain previous control)
+        """
+        # Build a set of all currently controlled supply centers (to preserve empty ones)
+        all_currently_controlled = set()
         for power_state in self.game_state.powers.values():
-            power_state.controlled_supply_centers.clear()
+            all_currently_controlled.update(power_state.controlled_supply_centers)
         
         # Determine ownership based on unit occupation
         for province_name, province in self.game_state.map_data.provinces.items():
@@ -907,13 +974,18 @@ class Game:
                 
                 if occupying_unit:
                     # Unit occupies the supply center - power controls it
-                    power_state = self.game_state.powers[occupying_unit.power]
-                    power_state.controlled_supply_centers.append(province_name)
-                else:
-                    # No unit occupying - check if it was previously controlled
-                    # For now, we'll leave it unowned (in a full implementation,
-                    # we'd track the last occupier)
-                    pass
+                    # Remove control from previous owner (if different)
+                    for power_name, power_state in self.game_state.powers.items():
+                        if (province_name in power_state.controlled_supply_centers and 
+                            power_name != occupying_unit.power):
+                            power_state.controlled_supply_centers.remove(province_name)
+                    
+                    # Assign control to unit's power
+                    unit_power_state = self.game_state.powers[occupying_unit.power]
+                    if province_name not in unit_power_state.controlled_supply_centers:
+                        unit_power_state.controlled_supply_centers.append(province_name)
+                # Else: Supply center is empty - keep previous control (persistence)
+                # No action needed - controlled_supply_centers already contains the correct owner
 
     def _process_builds_phase(self) -> Dict[str, Any]:
         """Process builds phase with unit adjustments."""
@@ -1057,11 +1129,16 @@ class Game:
             "phase": self.phase,
             "phase_code": self.phase_code,
             "done": self.done,
-            "powers": list(self.game_state.powers.keys()),
+            "powers": {power_name: {
+                "power_name": power_name,
+                "controlled_supply_centers": power_state.controlled_supply_centers,
+                "home_supply_centers": power_state.home_supply_centers
+            } for power_name, power_state in self.game_state.powers.items()},
             "units": {power_name: [f"{u.unit_type} {u.province}" for u in power.units] 
                      for power_name, power in self.game_state.powers.items()},
             "orders": {power_name: [str(order) for order in orders] 
-                      for power_name, orders in self.game_state.orders.items()}
+                      for power_name, orders in self.game_state.orders.items()},
+            "supply_centers": self.game_state.get_supply_centers()  # Include supply center ownership map
         }
         
         # Add winner information if game is done

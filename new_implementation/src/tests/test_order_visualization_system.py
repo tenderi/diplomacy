@@ -27,7 +27,7 @@ def create_test_game_state():
     france_units = [
         Unit(unit_type="A", province="PAR", power="FRANCE"),
         Unit(unit_type="A", province="MAR", power="FRANCE"),
-        Unit(unit_type="F", province="BRE", power="FRANCE")
+        Unit(unit_type="A", province="PIC", power="FRANCE")  # Change to PIC which is adjacent to BUR
     ]
     
     germany_units = [
@@ -37,7 +37,7 @@ def create_test_game_state():
     ]
     
     england_units = [
-        Unit(unit_type="A", province="LON", power="ENGLAND"),
+        Unit(unit_type="F", province="LON", power="ENGLAND"),  # Fleet in LON
         Unit(unit_type="F", province="NTH", power="ENGLAND"),
         Unit(unit_type="F", province="ENG", power="ENGLAND")
     ]
@@ -46,7 +46,7 @@ def create_test_game_state():
     france_state = PowerState(
         power_name="FRANCE",
         units=france_units,
-        controlled_supply_centers=["PAR", "MAR", "BRE"]
+        controlled_supply_centers=["PAR", "MAR", "PIC"]
     )
     
     germany_state = PowerState(
@@ -58,14 +58,14 @@ def create_test_game_state():
     england_state = PowerState(
         power_name="ENGLAND",
         units=england_units,
-        controlled_supply_centers=["LON", "NTH", "ENG"]
+        controlled_supply_centers=["LON", "NTH", "ENG"]  # Keep 3 supply centers for 3 units
     )
     
     # Create map data
     provinces = {
         "PAR": Province(name="PAR", province_type="land", is_supply_center=True, is_home_supply_center=True),
         "MAR": Province(name="MAR", province_type="coastal", is_supply_center=True, is_home_supply_center=True),
-        "BRE": Province(name="BRE", province_type="coastal", is_supply_center=True, is_home_supply_center=True),
+        "PIC": Province(name="PIC", province_type="coastal", is_supply_center=True, is_home_supply_center=False),
         "BER": Province(name="BER", province_type="land", is_supply_center=True, is_home_supply_center=True),
         "MUN": Province(name="MUN", province_type="land", is_supply_center=True, is_home_supply_center=True),
         "KIE": Province(name="KIE", province_type="coastal", is_supply_center=True, is_home_supply_center=True),
@@ -77,26 +77,26 @@ def create_test_game_state():
         "HOL": Province(name="HOL", province_type="coastal", is_supply_center=False, is_home_supply_center=False)
     }
     
-    # Add adjacencies
-    provinces["PAR"].adjacent_provinces = ["BUR", "MAR"]
-    provinces["MAR"].adjacent_provinces = ["PAR", "BRE"]
-    provinces["BRE"].adjacent_provinces = ["MAR", "ENG"]
-    provinces["BER"].adjacent_provinces = ["MUN", "KIE"]
-    provinces["MUN"].adjacent_provinces = ["BER", "BUR"]
-    provinces["KIE"].adjacent_provinces = ["BER", "HOL"]
-    provinces["LON"].adjacent_provinces = ["NTH", "ENG", "BEL"]  # Add BEL adjacency
-    provinces["NTH"].adjacent_provinces = ["LON", "HOL"]
-    provinces["ENG"].adjacent_provinces = ["LON", "BRE"]
-    provinces["BUR"].adjacent_provinces = ["PAR", "MUN", "BEL"]
-    provinces["BEL"].adjacent_provinces = ["BUR", "HOL", "LON"]  # Add LON adjacency
-    provinces["HOL"].adjacent_provinces = ["BEL", "KIE", "NTH"]
+    # Add adjacencies (matching standard map)
+    provinces["PAR"].adjacent_provinces = ["BUR", "MAR", "BRE", "GAS", "PIC"]
+    provinces["MAR"].adjacent_provinces = ["PAR", "BRE", "PIE", "GAS"]
+    provinces["PIC"].adjacent_provinces = ["BEL", "BRE", "BUR", "ENG", "PAR"]
+    provinces["BER"].adjacent_provinces = ["MUN", "KIE", "BAL"]
+    provinces["MUN"].adjacent_provinces = ["BER", "BUR", "RUH", "KIE", "TYR", "BOH", "SIL"]
+    provinces["KIE"].adjacent_provinces = ["BER", "HOL", "HEL", "BAL", "MUN"]
+    provinces["LON"].adjacent_provinces = ["NTH", "ENG", "YOR", "BEL"]  # LON adjacent to BEL (coastal)
+    provinces["NTH"].adjacent_provinces = ["LON", "HOL", "DEN", "HEL", "YOR", "SKA", "NWY", "EDI"]
+    provinces["ENG"].adjacent_provinces = ["LON", "BRE", "PIC", "BEL", "NTH"]
+    provinces["BUR"].adjacent_provinces = ["PAR", "MUN", "BEL", "GAS", "PIC", "RUH"]
+    provinces["BEL"].adjacent_provinces = ["BUR", "HOL", "PIC", "ENG"]
+    provinces["HOL"].adjacent_provinces = ["BEL", "KIE", "NTH", "HEL", "RUH"]
     
     map_data = MapData(
         map_name="test",
         provinces=provinces,
-        supply_centers=["PAR", "MAR", "BRE", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
+        supply_centers=["PAR", "MAR", "PIC", "BER", "MUN", "KIE", "LON", "NTH", "ENG"],
         home_supply_centers={
-            "FRANCE": ["PAR", "MAR", "BRE"],
+            "FRANCE": ["PAR", "MAR"],
             "GERMANY": ["BER", "MUN", "KIE"],
             "ENGLAND": ["LON", "NTH", "ENG"]
         },
@@ -122,7 +122,7 @@ def create_test_game_state():
         ),
         SupportOrder(
             power="FRANCE",
-            unit=france_units[2],  # F BRE
+            unit=france_units[2],  # A PIC
             order_type=OrderType.SUPPORT,
             phase="Movement",
             supported_unit=france_units[0],  # A PAR
@@ -148,24 +148,23 @@ def create_test_game_state():
             phase="Movement",
             status=OrderStatus.SUCCESS  # Set to success for testing
         ),
-        ConvoyOrder(
+        MoveOrder(
             power="GERMANY",
             unit=germany_units[2],  # F KIE
-            order_type=OrderType.CONVOY,
+            order_type=OrderType.MOVE,
             phase="Movement",
-            convoyed_unit=germany_units[0],  # A BER
-            convoyed_target="HOL",
-            status=OrderStatus.SUCCESS  # Set to success for testing
+            target_province="HOL",
+            status=OrderStatus.SUCCESS  # Set to success for testing (KIE can move to HOL)
         )
     ]
     
     england_orders = [
         MoveOrder(
             power="ENGLAND",
-            unit=england_units[0],  # A LON
+            unit=england_units[0],  # F LON
             order_type=OrderType.MOVE,
             phase="Movement",
-            target_province="BEL",
+            target_province="NTH",  # Fleet can move LON -> NTH
             status=OrderStatus.SUCCESS  # Set to success for testing
         ),
         HoldOrder(
@@ -180,9 +179,9 @@ def create_test_game_state():
             unit=england_units[2],  # F ENG
             order_type=OrderType.SUPPORT,
             phase="Movement",
-            supported_unit=england_units[0],  # A LON
-            supported_action="move",
-            supported_target="BEL",
+            supported_unit=england_units[1],  # F NTH
+            supported_action="hold",  # Support hold instead (sea fleets can support hold on adjacent sea provinces)
+            supported_target=None,
             status=OrderStatus.SUCCESS  # Set to success for testing
         )
     ]
@@ -253,7 +252,7 @@ def test_order_visualization():
     # Check support order
     support_order = next((o for o in france_orders if o["type"] == "support"), None)
     assert support_order is not None
-    assert support_order["unit"] == "F BRE"
+    assert support_order["unit"] == "A PIC"
     assert support_order["supporting"] == "A PAR"
     assert support_order["supported_target"] == "BUR"
     assert support_order["power"] == "FRANCE"
@@ -369,7 +368,7 @@ def test_order_visualization_report():
     assert "ENGLAND Orders" in report
     assert "A PAR → BUR" in report  # France move order
     assert "A MAR H" in report       # France hold order
-    assert "F BRE S A PAR → BUR" in report  # France support order
+    assert "A PIC S A PAR → BUR" in report  # France support order
     
     print("✅ Order visualization report working correctly!")
 

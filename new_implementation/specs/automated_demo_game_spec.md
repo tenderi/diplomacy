@@ -451,3 +451,141 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **CURRENT STATUS**: The automated demo game is fully implemented and production-ready. It successfully demonstrates all Diplomacy mechanics, generates comprehensive visual documentation, and provides an excellent educational resource for understanding the game. The system is integrated with the main server infrastructure and can be run via both command-line and Telegram bot interfaces.
 
 **NEXT PRIORITIES**: Performance optimization, enhanced AI strategies, and expanded educational features.
+
+---
+
+## Perfect Automated Demo Game Design
+
+### Overview
+
+The Perfect Automated Demo Game uses hardcoded orders to demonstrate all Diplomacy mechanics through a carefully choreographed sequence. Unlike the dynamic AI-based demo, this uses predetermined orders to showcase specific scenarios: 2-1 battles, support cuts, convoys, standoffs, retreats, and build phases.
+
+### Core Design Principles
+
+1. **Hardcoded Orders**: All orders pre-written in a scenario sequence, no AI generation
+2. **Strategic Logic**: Every move makes strategic sense; no self-attacks or illogical orders
+3. **Complete Coverage**: Demonstrates all 7 order types (Move, Hold, Support, Convoy, Retreat, Build, Destroy)
+4. **Educational Focus**: Each phase teaches specific mechanics
+5. **Visual Storytelling**: Maps show clear cause-and-effect relationships
+
+### Game Structure
+
+**Duration: 2 Years (1901-1902)**
+
+- Spring 1901: Initial expansion and first conflicts
+- Fall 1901: Consolidation, supply center changes, builds
+- Spring 1902: Advanced tactics, support combinations, convoys
+- Fall 1902: Complex conflicts, retreats, final builds
+
+**Phase Sequence:**
+1. Spring 1901 Movement
+2. Spring 1901 Retreat (if dislodgements occur)
+3. Fall 1901 Movement
+4. Fall 1901 Retreat (if dislodgements occur)
+5. Fall 1901 Builds
+6. Spring 1902 Movement
+7. Spring 1902 Retreat (if dislodgements occur)
+8. Fall 1902 Movement
+9. Fall 1902 Retreat (if dislodgements occur)
+10. Fall 1902 Builds
+
+### Scenario Designs
+
+#### Spring 1901 Movement
+
+**Objectives:**
+- Demonstrate basic moves and holds
+- Show first 2-1 battle with support
+- Create one dislodgement for retreat phase
+
+**Hardcoded Orders:**
+- **AUSTRIA**: `A VIE - TYR`, `A BUD - RUM`, `F TRI H`
+- **ENGLAND**: `F LON - ENG`, `F EDI - NTH`, `A LVP - CLY`
+- **FRANCE**: `A PAR - BUR`, `A MAR - PIE`, `F BRE - MAO`
+- **GERMANY**: `A BER - KIE`, `A MUN - SIL`, `F KIE - HOL`
+- **ITALY**: `A ROM - TUS`, `A VEN H`, `F NAP - ION`
+- **RUSSIA**: `A MOS - UKR`, `A WAR - GAL`, `F SEV - BLA`, `F STP - BOT`
+- **TURKEY**: `A CON - BUL`, `A SMY - ARM`, `F ANK - BLA`
+
+**Expected Outcomes:**
+- Basic positioning established
+- No major conflicts in first turn
+- Units in position for Fall conflicts
+
+#### Fall 1901 Movement
+
+**Objectives:**
+- Demonstrate 2-1 battle (supported attack succeeds)
+- Show standoff (equal strength bounce)
+- Demonstrate support cut mechanics
+- Create dislodgement for retreat phase
+
+**Hardcoded Orders:**
+- **AUSTRIA**: `A TYR - VEN`, `A RUM H`, `F TRI S A TYR - VEN`
+- **ENGLAND**: `F ENG H`, `F NTH H`, `A CLY H`
+- **FRANCE**: `A BUR - BEL`, `A PIE H`, `F MAO S A BUR - BEL`
+- **GERMANY**: `A SIL - GAL`, `A BER H`, `F KIE S A SIL - GAL`
+- **ITALY**: `A VEN H`, `A TUS S A VEN`, `F ION - ADR`
+- **RUSSIA**: `A UKR - RUM`, `A GAL S A UKR - RUM`, `F SEV H`, `F BOT H`
+- **TURKEY**: `A BUL - RUM`, `A ARM - SEV`, `F ANK H`
+
+**Expected Outcomes:**
+- France takes Belgium with 2-1 support
+- Austria takes Venice with 2-1
+- Russia takes Romania with 2-1
+- Turkey's fleet in Black Sea dislodged (if controlled by Turkey)
+- Italy's army in Venice dislodged
+
+#### Fall 1901 Retreat
+
+**Objectives:**
+- Demonstrate retreat orders
+- Show forced disband (no valid retreat)
+
+**Hardcoded Retreat Orders:**
+- **ITALY**: `A VEN R APU` (retreat to Apulia)
+- **TURKEY**: `F BLA D` (disband - no valid retreat, Black Sea surrounded)
+
+#### Fall 1901 Builds
+
+**Objectives:**
+- Demonstrate build orders
+- Show supply center control changes
+
+**Hardcoded Build Orders:**
+- **FRANCE**: `BUILD A MAR` (gained Belgium)
+- **AUSTRIA**: `BUILD A BUD` (gained Venice)
+- **RUSSIA**: `BUILD A MOS` (gained Romania)
+- Others: No builds
+
+#### Spring 1902 Movement
+
+**Objectives:**
+- Demonstrate convoy orders
+- Show complex support combinations
+- Create multiple conflicts
+
+**Hardcoded Orders:**
+- **ENGLAND**: Convoy orders (dynamically adjusted based on unit positions)
+- **FRANCE**: `A BEL H`, `A PAR S A BEL H`, `F MAO - SPA`, `A MAR - PIE`
+- **GERMANY**: `A KIE - HOL`, `A SIL - WAR`, `A BEL - RUH`
+- Other powers: Dynamic adjustment based on actual positions
+
+### Implementation Details
+
+**File**: `demo_perfect_game.py`
+
+**Key Components:**
+1. **ScenarioData Class**: Stores year, season, phase, orders, expected outcomes, description
+2. **PerfectDemoGame Class**: Manages scenario playback and map generation
+3. **Dynamic Order Adjustment**: Adjusts orders based on actual game state positions
+
+**Map Generation:**
+- Generate 4 maps per phase: initial, orders, resolution, final
+- Naming convention: `perfect_demo_{year}_{season_num}_{phase_num}_{season}_{phase}_{type}.png`
+- Uses existing `Map.render_board_png_orders()` and `Map.render_board_png_resolution()`
+
+**State Verification:**
+- After each phase, verify expected outcomes
+- Check supply center control changes
+- Verify unit positions match expectations
