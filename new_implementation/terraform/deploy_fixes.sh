@@ -84,11 +84,22 @@ run_ssh "
     # Update pip first
     sudo -u diplomacy pip3 install --user --upgrade pip
     
-    # Install Pillow specifically (this is the missing dependency) with --break-system-packages
-    sudo -u diplomacy pip3 install --user --break-system-packages Pillow
+    # Check pip version - --break-system-packages is only available in pip 23.0+
+    PIP_VERSION=\$(pip3 --version | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f1)
+    if [ \"\$PIP_VERSION\" -ge 23 ] 2>/dev/null; then
+        PIP_EXTRA_FLAGS=\"--break-system-packages\"
+    else
+        PIP_EXTRA_FLAGS=\"\"
+    fi
     
-    # Install other critical dependencies that might be missing
-    sudo -u diplomacy pip3 install --user --break-system-packages fastapi uvicorn sqlalchemy psycopg2-binary
+    # Install Pillow specifically (this is the missing dependency)
+    if [ -n \"\$PIP_EXTRA_FLAGS\" ]; then
+        sudo -u diplomacy pip3 install --user \$PIP_EXTRA_FLAGS Pillow
+        sudo -u diplomacy pip3 install --user \$PIP_EXTRA_FLAGS fastapi uvicorn sqlalchemy psycopg2-binary
+    else
+        sudo -u diplomacy pip3 install --user Pillow
+        sudo -u diplomacy pip3 install --user fastapi uvicorn sqlalchemy psycopg2-binary
+    fi
     
     # Verify installation
     echo 'Verifying PIL/Pillow installation...'

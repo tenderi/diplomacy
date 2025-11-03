@@ -107,7 +107,7 @@ create_checksums() {
     local checksum_file="$2"
     
     if [ -d "$dir" ]; then
-        find "$dir" -type f \( -name "*.py" -o -name "*.txt" -o -name "*.ini" -o -name "*.json" -o -name "*.svg" \) | \
+        find "$dir" -type f \( -name "*.py" -o -name "*.txt" -o -name "*.ini" -o -name "*.json" -o -name "*.svg" -o -name "*.html" -o -name "*.css" -o -name "*.js" \) | \
         xargs md5sum > "$checksum_file" 2>/dev/null || true
     else
         touch "$checksum_file"
@@ -252,9 +252,15 @@ else
 fi
 
 # Always copy requirements.txt (it's small and important)
-echo -e "${YELLOW}📦 Copying requirements.txt...${NC}"
+echo -e "${YELLOW}📦 Copying requirements.txt and config files...${NC}"
 copy_files "../requirements.txt" "/tmp/"
 copy_files "../alembic.ini" "/tmp/"
+
+# Copy demo script if it exists
+if [ -f "../demo_perfect_game.py" ]; then
+    echo -e "${YELLOW}📄 Copying demo_perfect_game.py...${NC}"
+    copy_files "../demo_perfect_game.py" "/tmp/"
+fi
 
 # Deploy the application
 echo -e "${YELLOW}Deploying application on instance...${NC}"
@@ -289,6 +295,14 @@ run_ssh "
     sudo chown diplomacy:diplomacy /opt/diplomacy/requirements.txt
     sudo chown diplomacy:diplomacy /opt/diplomacy/alembic.ini 2>/dev/null || true
     
+    # Deploy demo script if it exists
+    if [ -f '/tmp/demo_perfect_game.py' ]; then
+        sudo cp /tmp/demo_perfect_game.py /opt/diplomacy/
+        sudo chown diplomacy:diplomacy /opt/diplomacy/demo_perfect_game.py
+        sudo chmod +x /opt/diplomacy/demo_perfect_game.py
+        echo '✅ Demo script deployed'
+    fi
+    
     # Update checksums on server
     if [ -f '/tmp/src_checksums.txt' ]; then
         sudo cp /tmp/src_checksums.txt /opt/diplomacy/
@@ -310,7 +324,13 @@ if [ "$SRC_CHANGED" = "true" ] || [ "$REQUIREMENTS_CHANGED" = "true" ]; then
     run_ssh "
         # Install dependencies with better error handling
         echo 'Installing Python dependencies...'
-        sudo -u diplomacy pip3 install --user --no-warn-script-location --break-system-packages -r /opt/diplomacy/requirements.txt
+        # Check pip version - --break-system-packages is only available in pip 23.0+
+        PIP_VERSION=\$(pip3 --version | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f1)
+        if [ \"\$PIP_VERSION\" -ge 23 ] 2>/dev/null; then
+            sudo -u diplomacy pip3 install --user --no-warn-script-location --break-system-packages -r /opt/diplomacy/requirements.txt
+        else
+            sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt
+        fi
         
         # Verify critical dependencies are installed
         echo 'Verifying critical dependencies...'
@@ -582,7 +602,8 @@ fi
 
 # Show final status
 echo -e "${YELLOW}Getting final status...${NC}"
-run_ssh "sudo /opt/diplomacy/status.sh"
+# Run status.sh without sudo - it can check status without elevated privileges for most things
+run_ssh "/opt/diplomacy/status.sh || echo 'Status check completed (some commands may require sudo)'"
 
 # Clean up temporary files
 rm -rf "$TEMP_DIR"
