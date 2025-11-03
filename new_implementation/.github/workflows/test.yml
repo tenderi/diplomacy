@@ -63,11 +63,6 @@ jobs:
         SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
       run: |
         pytest src/tests/ -m integration --cov=src/engine --cov=src/server --cov-report=xml --cov-report=term-missing --cov-fail-under=85
-      
-    - name: Run integration tests (skip DB tests)
-      if: matrix.python-version != '3.11'
-      run: |
-        pytest src/tests/ -m "integration and not database" --cov=src/engine --cov=src/server --cov-report=xml --cov-report=term-missing --cov-fail-under=85 || pytest src/tests/ -m integration --cov=src/engine --cov=src/server --cov-report=xml --cov-report=term-missing || true
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
