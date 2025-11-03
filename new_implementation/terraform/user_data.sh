@@ -129,7 +129,19 @@ diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy, /usr/bin/sys
 diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy *, /usr/bin/journalctl -u diplomacy-bot *
 SUDO_EOF
 chmod 0440 /etc/sudoers.d/diplomacy-systemctl
-echo "✓ Sudo access configured for diplomacy user"
+
+# Configure sudo access for ubuntu user (used in deployment scripts)
+echo "Configuring sudo access for ubuntu user..."
+cat > /etc/sudoers.d/ubuntu-systemctl << 'SUDO_EOF'
+# Allow ubuntu user to run systemctl and journalctl commands (for deployment scripts)
+ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *
+ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
+ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart *, /usr/bin/systemctl stop *, /usr/bin/systemctl start *
+ubuntu ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
+ubuntu ALL=(ALL) NOPASSWD: /usr/bin/ss -tlnp
+SUDO_EOF
+chmod 0440 /etc/sudoers.d/ubuntu-systemctl
+echo "✓ Sudo access configured for diplomacy and ubuntu users"
 
 # Set up application directory
 echo "Setting up application directories..."
@@ -174,11 +186,19 @@ pytz==2024.2
 python-dotenv==1.0.1
 httpx==0.28.1
 aiofiles==24.1.0
+Pillow>=11.0.0,<13.0.0
 EOF
 
 # Install Python dependencies (latest versions work on Ubuntu!)
 echo "Installing Python dependencies..."
-sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt
+# Check pip version - --break-system-packages is only available in pip 23.0+
+# Try with the flag first, fallback if it fails
+if sudo -u diplomacy pip3 install --user --no-warn-script-location --break-system-packages -r /opt/diplomacy/requirements.txt 2>/dev/null; then
+    echo "Dependencies installed with --break-system-packages flag"
+else
+    echo "Installing without --break-system-packages flag (older pip version)"
+    sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt
+fi
 
 echo "✓ Python dependencies installed successfully"
 
@@ -252,6 +272,10 @@ server {
         proxy_connect_timeout       60s;
         proxy_send_timeout          60s;
         proxy_read_timeout          60s;
+        
+        # Ensure proper request forwarding
+        proxy_redirect off;
+        proxy_buffering off;
     }
     
     location /health {
@@ -268,15 +292,21 @@ ln -sf /etc/nginx/sites-available/diplomacy /etc/nginx/sites-enabled/
 # Test Nginx configuration
 nginx -t
 
-# Run database migrations
-echo "Running database migrations..."
+# Run database migrations (only if alembic.ini exists - code may not be deployed yet)
+echo "Checking for database migrations..."
 cd /opt/diplomacy
-# Use python -m alembic which works regardless of PATH, or try full path
-# alembic is installed via pip install --user, so it's in ~/.local/bin
-# Using python -m is more reliable as it uses the installed package directly
-sudo -u diplomacy bash -c 'export PATH=/home/diplomacy/.local/bin:$PATH && cd /opt/diplomacy && python3 -m alembic upgrade head' || \
-sudo -u diplomacy bash -c 'cd /opt/diplomacy && /home/diplomacy/.local/bin/alembic upgrade head'
-echo "✓ Database migrations completed"
+if [ -f "/opt/diplomacy/alembic.ini" ]; then
+    echo "Running database migrations..."
+    # Use python -m alembic which works regardless of PATH, or try full path
+    # alembic is installed via pip install --user, so it's in ~/.local/bin
+    # Using python -m is more reliable as it uses the installed package directly
+    sudo -u diplomacy bash -c 'export PATH=/home/diplomacy/.local/bin:$PATH && cd /opt/diplomacy && python3 -m alembic upgrade head' || \
+    sudo -u diplomacy bash -c 'cd /opt/diplomacy && /home/diplomacy/.local/bin/alembic upgrade head'
+    echo "✓ Database migrations completed"
+else
+    echo "⚠ Alembic config not found - migrations will run during code deployment"
+    echo "✓ Skipping migrations (will be handled by deploy script)"
+fi
 
 # Enable and start services
 echo "Enabling and starting services..."
@@ -299,16 +329,16 @@ echo "📁 Directory Structure:"
 ls -la /opt/diplomacy/ | head -10
 echo ""
 echo "🐘 PostgreSQL Status:"
-systemctl is-active postgresql
+sudo systemctl is-active postgresql 2>/dev/null || echo "Unable to check (requires sudo)"
 echo ""
 echo "🎯 Diplomacy API Status:"
-systemctl is-active diplomacy
+sudo systemctl is-active diplomacy 2>/dev/null || echo "Unable to check (requires sudo)"
 echo ""
 echo "🤖 Telegram Bot Status:"
-systemctl is-active diplomacy-bot
+sudo systemctl is-active diplomacy-bot 2>/dev/null || echo "Unable to check (requires sudo)"
 echo ""
 echo "🌐 Network Status:"
-ss -tlnp | grep ":8000\|:80\|:5432"
+sudo ss -tlnp 2>/dev/null | grep ":8000\|:80\|:5432" || ss -tln | grep ":8000\|:80\|:5432" || echo "Unable to check network status"
 echo ""
 echo "💾 Disk Usage:"
 df -h /opt
@@ -317,14 +347,14 @@ echo "🧠 Memory Usage:"
 free -h
 echo ""
 echo "📊 API Health Check:"
-curl -s http://localhost:8000/ | head -100
+curl -s http://localhost:8000/ 2>/dev/null | head -100 || echo "API not responding"
 echo ""
 echo "📋 Recent Logs:"
 echo "API Logs:"
-journalctl -u diplomacy --no-pager -n 5 | cat
+sudo journalctl -u diplomacy --no-pager -n 5 2>/dev/null | cat || echo "Unable to retrieve logs (requires sudo)"
 echo ""
 echo "Bot Logs:"
-journalctl -u diplomacy-bot --no-pager -n 5 | cat
+sudo journalctl -u diplomacy-bot --no-pager -n 5 2>/dev/null | cat || echo "Unable to retrieve logs (requires sudo)"
 EOF
 
 chmod +x /opt/diplomacy/status.sh
