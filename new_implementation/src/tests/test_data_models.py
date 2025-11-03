@@ -8,7 +8,7 @@ to ensure they work correctly and fix the order visualization issues.
 
 import os
 import sys
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -206,8 +206,8 @@ def test_order_creation_and_validation():
         current_phase="Movement",
         phase_code="S1901M",
         status=GameStatus.ACTIVE,
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
         powers={"FRANCE": power_state},
         map_data=map_data,
         orders={}
