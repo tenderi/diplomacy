@@ -592,13 +592,31 @@ class TestDatabaseServiceMocked:
         mock_game_model.current_phase = "Movement"
         mock_game_model.phase_code = "S1901M"
         mock_game_model.status = "active"
+        mock_game_model.id = 1  # Add id attribute needed by the code
         
-        mock_session.query.return_value.filter.return_value.first.return_value = mock_game_model
+        # Setup mock chain for filter_by (not filter)
+        mock_query = mock_session.query.return_value
+        mock_filter_by = mock_query.filter_by.return_value
+        mock_filter_by.first.return_value = mock_game_model
+        
+        # Also mock players query
+        mock_player_query = Mock()
+        mock_player_query.filter_by.return_value.all.return_value = []
+        mock_session.query.return_value = mock_player_query
+        
+        # Reset query mock to handle both GameModel and PlayerModel queries
+        def query_side_effect(model_class):
+            if model_class.__name__ == "GameModel":
+                return mock_query
+            else:
+                return mock_player_query
+        
+        mock_session.query.side_effect = query_side_effect
         
         result = db_service_mocked.get_game_state("mocked_game")
         
         # Verify session was used
-        mock_session.query.assert_called_once()
+        assert mock_session.query.called
         
         assert isinstance(result, GameState)
         assert result.game_id == "mocked_game"

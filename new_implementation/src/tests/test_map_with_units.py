@@ -61,20 +61,19 @@ def test_map_with_units():
         print("   ✅ Phase info in bottom right corner")
         print("   ✅ No area name text overlays")
         
-        return True
+        assert True, "Test completed successfully"
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 if __name__ == "__main__":
-    success = test_map_with_units()
-    
-    if success:
+    try:
+        test_map_with_units()
         print("\n🎉 Map generation test completed!")
         print("💡 Check test_map_with_units.png to verify the fix")
-    else:
+    except Exception:
         print("\n💥 Map generation test failed!")
         sys.exit(1)

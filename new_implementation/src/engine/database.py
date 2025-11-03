@@ -29,6 +29,7 @@ class GameModel(Base):
     current_phase = Column(String(20), nullable=False, default='Movement')
     phase_code = Column(String(10), nullable=False, default='S1901M')
     status = Column(String(20), nullable=False, default='active')
+    deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

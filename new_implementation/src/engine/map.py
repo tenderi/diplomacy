@@ -189,6 +189,11 @@ _font_cache: Optional[ImageFont.ImageFont] = None
 # Global map cache instance
 _map_cache = MapCache()
 
+# Visualization color constants
+DEFENSIVE_SUPPORT_COLOR = "#90EE90"  # Light green
+OFFENSIVE_SUPPORT_COLOR = "#FFB6C1"  # Light pink (alternative: "#87CEEB" sky blue)
+CONVOY_COLOR = "#FFD700"  # Gold (alternative: "#FF8C00" dark orange)
+
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
     
@@ -1582,21 +1587,46 @@ class Map:
         """
         Draw comprehensive order visualization based on orders dictionary format.
         
+        Draws in proper visual layer order: hold → support → convoy → movement (primary actions on top)
+        
         Args:
             draw: PIL ImageDraw object
             orders: Dictionary of power -> list of order dictionaries
             coords: Dictionary of province -> (x, y) coordinates
             power_colors: Dictionary of power -> color
         """
+        # Separate orders by type for proper layering
+        hold_orders = []
+        support_orders = []
+        convoy_orders = []
+        movement_orders = []
+        other_orders = []
+        
         for power, power_orders in orders.items():
             color = power_colors.get(power.upper(), "black")
             
             for order in power_orders:
                 order_type = order.get("type", "")
+                order_with_context = (order, power, color)
+                
+                if order_type == "hold":
+                    hold_orders.append(order_with_context)
+                elif order_type == "support":
+                    support_orders.append(order_with_context)
+                elif order_type == "convoy":
+                    convoy_orders.append(order_with_context)
+                elif order_type == "move":
+                    movement_orders.append(order_with_context)
+                else:
+                    other_orders.append(order_with_context)
+        
+        # Draw in layer order: hold → support → convoy → movement → other
+        for order_list in [hold_orders, support_orders, convoy_orders, movement_orders, other_orders]:
+            for order, power, color in order_list:
+                order_type = order.get("type", "")
                 unit = order.get("unit", "")
                 target = order.get("target", "")
                 status = order.get("status", "success")
-                reason = order.get("reason", "")
                 
                 # Extract province from unit (e.g., "A PAR" -> "PAR")
                 unit_province = unit.split()[-1] if unit else ""
@@ -1606,11 +1636,34 @@ class Map:
                 elif order_type == "hold":
                     Map._draw_hold_order(draw, unit_province, color, status, coords)
                 elif order_type == "support":
-                    supporting = order.get("supporting", "")
-                    Map._draw_support_order(draw, unit_province, supporting, color, status, coords)
+                    # Extract support order parameters
+                    supported_action = order.get("supported_action", "hold")
+                    supported_unit_province = order.get("supported_unit_province", "")
+                    if not supported_unit_province:
+                        # Fallback: try to parse from "supporting" field
+                        supporting = order.get("supporting", "")
+                        if supporting:
+                            supported_unit_province = supporting.split()[-1] if " " in supporting else supporting
+                    supported_target = order.get("supported_target")
+                    supporting_power_color = color
+                    Map._draw_support_order(draw, unit_province, supported_unit_province, 
+                                           supported_action, supported_target, 
+                                           supporting_power_color, status, coords)
                 elif order_type == "convoy":
-                    via = order.get("via", [])
-                    Map._draw_convoy_order(draw, unit_province, target, via, color, status, coords)
+                    # Extract convoy order parameters
+                    convoyed_army_province = order.get("convoyed_army_province", "")
+                    if not convoyed_army_province:
+                        # Fallback: try to parse from "convoyed_unit" field
+                        convoyed_unit = order.get("convoyed_unit", "")
+                        if convoyed_unit:
+                            convoyed_army_province = convoyed_unit.split()[-1] if " " in convoyed_unit else convoyed_unit
+                    convoy_chain = order.get("convoy_chain", [])
+                    if not convoy_chain:
+                        # Fallback: try to use "via" field
+                        convoy_chain = order.get("via", [])
+                    convoy_color = CONVOY_COLOR
+                    Map._draw_convoy_order(draw, convoyed_army_province, target, 
+                                         convoy_chain, convoy_color, status, coords)
                 elif order_type == "retreat":
                     Map._draw_retreat_order(draw, unit_province, target, color, status, coords)
                 elif order_type == "build":
@@ -1634,136 +1687,114 @@ class Map:
             
             # Draw successful moves
             for move in power_moves.get("successful", []):
-                if isinstance(move, dict):
-                    unit = move.get("unit", "")
-                    target = move.get("target", "")
-                    if unit and target:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            from_province = unit_parts[1]
-                            Map._draw_movement_order(draw, from_province, target, color, "success", coords)
-                else:
-                    # Handle legacy string format
-                    parts = move.split()
-                    if len(parts) >= 4:
-                        Map._draw_movement_order(draw, parts[1], parts[3], color, "success", coords)
+                if not isinstance(move, dict):
+                    continue
+                unit = move.get("unit", "")
+                target = move.get("target", "")
+                if unit and target:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        from_province = unit_parts[1]
+                        Map._draw_movement_order(draw, from_province, target, color, "success", coords)
             
             # Draw failed moves
             for move in power_moves.get("failed", []):
-                if isinstance(move, dict):
-                    unit = move.get("unit", "")
-                    target = move.get("target", "")
-                    if unit and target:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            from_province = unit_parts[1]
-                            Map._draw_movement_order(draw, from_province, target, color, "failed", coords)
-                else:
-                    # Handle legacy string format
-                    parts = move.split()
-                    if len(parts) >= 4:
-                        Map._draw_movement_order(draw, parts[1], parts[3], color, "failed", coords)
+                if not isinstance(move, dict):
+                    continue
+                unit = move.get("unit", "")
+                target = move.get("target", "")
+                if unit and target:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        from_province = unit_parts[1]
+                        Map._draw_movement_order(draw, from_province, target, color, "failed", coords)
             
             # Draw bounced moves
             for move in power_moves.get("bounced", []):
-                if isinstance(move, dict):
-                    unit = move.get("unit", "")
-                    target = move.get("target", "")
-                    if unit and target:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            from_province = unit_parts[1]
-                            Map._draw_movement_order(draw, from_province, target, color, "bounced", coords)
-                else:
-                    # Handle legacy string format
-                    parts = move.split()
-                    if len(parts) >= 4:
-                        Map._draw_movement_order(draw, parts[1], parts[3], color, "bounced", coords)
+                if not isinstance(move, dict):
+                    continue
+                unit = move.get("unit", "")
+                target = move.get("target", "")
+                if unit and target:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        from_province = unit_parts[1]
+                        Map._draw_movement_order(draw, from_province, target, color, "bounced", coords)
             
             # Draw holds
             for hold in power_moves.get("holds", []):
-                if isinstance(hold, dict):
-                    unit = hold.get("unit", "")
-                    if unit:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            province = unit_parts[1]
-                            Map._draw_hold_order(draw, province, color, "success", coords)
-                else:
-                    # Handle legacy string format
-                    province = hold.split()[-1]
-                    Map._draw_hold_order(draw, province, color, "success", coords)
+                if not isinstance(hold, dict):
+                    continue
+                unit = hold.get("unit", "")
+                if unit:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        province = unit_parts[1]
+                        Map._draw_hold_order(draw, province, color, "success", coords)
             
             # Draw supports
             for support in power_moves.get("supports", []):
-                if isinstance(support, dict):
-                    unit = support.get("unit", "")
-                    supporting = support.get("supporting", "")
-                    target = support.get("target", "")
-                    if unit and supporting and target:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            supporter = unit_parts[1]
-                            Map._draw_support_order(draw, supporter, f"{supporting} - {target}", color, "success", coords)
-                else:
-                    # Handle legacy string format
-                    parts = support.split()
-                    if len(parts) >= 4:
-                        supporter = parts[1]
-                        supported_move = " ".join(parts[3:])
-                        Map._draw_support_order(draw, supporter, supported_move, color, "success", coords)
+                if not isinstance(support, dict):
+                    continue
+                unit = support.get("unit", "")
+                supporting = support.get("supporting", "")
+                target = support.get("target", "")
+                if unit and supporting:
+                    unit_parts = unit.split()
+                    supporting_parts = supporting.split()
+                    if len(unit_parts) >= 2 and len(supporting_parts) >= 2:
+                        supporter = unit_parts[1]
+                        supported_unit_province = supporting_parts[1]
+                        # Determine support type: if target exists, it's offensive support
+                        supported_action = "move" if target else "hold"
+                        supported_target = target if target else None
+                        Map._draw_support_order(draw, supporter, supported_unit_province, 
+                                               supported_action, supported_target, 
+                                               color, "success", coords)
             
             # Draw convoys
             for convoy in power_moves.get("convoys", []):
-                if isinstance(convoy, dict):
-                    unit = convoy.get("unit", "")
-                    convoyed_unit = convoy.get("convoyed_unit", "")
-                    target = convoy.get("target", "")
-                    if unit and convoyed_unit and target:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            convoyer = unit_parts[1]
-                            convoyed_parts = convoyed_unit.split()
-                            if len(convoyed_parts) >= 2:
-                                convoyed_province = convoyed_parts[1]
-                                Map._draw_convoy_order(draw, convoyer, convoyed_province, [], color, "success", coords)
-                else:
-                    # Handle legacy string format
-                    parts = convoy.split()
-                    if len(parts) >= 4:
-                        convoyer = parts[1]
-                        convoyed_move = " ".join(parts[3:])
-                        convoyed_parts = convoyed_move.split()
-                        if len(convoyed_parts) >= 3:
-                            Map._draw_convoy_order(draw, convoyer, convoyed_parts[2], [], color, "success", coords)
+                if not isinstance(convoy, dict):
+                    continue
+                unit = convoy.get("unit", "")
+                convoyed_unit = convoy.get("convoyed_unit", "")
+                target = convoy.get("target", "")
+                convoy_chain = convoy.get("convoy_chain", [])
+                if unit and convoyed_unit and target:
+                    unit_parts = unit.split()
+                    convoyed_parts = convoyed_unit.split()
+                    if len(unit_parts) >= 2 and len(convoyed_parts) >= 2:
+                        convoyed_army_province = convoyed_parts[1]
+                        # The convoying fleet is the unit, but we start from the convoyed army
+                        # convoy_chain should include all convoying fleets (excluding the convoyed army)
+                        if not convoy_chain:
+                            # If no chain provided, add the convoying fleet
+                            convoying_fleet = unit_parts[1]
+                            convoy_chain = [convoying_fleet] if convoying_fleet != convoyed_army_province else []
+                        Map._draw_convoy_order(draw, convoyed_army_province, target, 
+                                              convoy_chain, CONVOY_COLOR, "success", coords)
             
             # Draw builds
             for build in power_moves.get("builds", []):
-                if isinstance(build, dict):
-                    unit = build.get("unit", "")
-                    if unit:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            province = unit_parts[1]
-                            Map._draw_build_order(draw, province, color, "success", coords)
-                else:
-                    # Handle legacy string format
-                    province = build.split()[-1]
-                    Map._draw_build_order(draw, province, color, "success", coords)
+                if not isinstance(build, dict):
+                    continue
+                unit = build.get("unit", "")
+                if unit:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        province = unit_parts[1]
+                        Map._draw_build_order(draw, province, color, "success", coords)
             
             # Draw destroys
             for destroy in power_moves.get("destroys", []):
-                if isinstance(destroy, dict):
-                    unit = destroy.get("unit", "")
-                    if unit:
-                        unit_parts = unit.split()
-                        if len(unit_parts) >= 2:
-                            province = unit_parts[1]
-                            Map._draw_destroy_order(draw, province, color, coords)
-                else:
-                    # Handle legacy string format
-                    province = destroy.split()[-1]
-                    Map._draw_destroy_order(draw, province, color, coords)
+                if not isinstance(destroy, dict):
+                    continue
+                unit = destroy.get("unit", "")
+                if unit:
+                    unit_parts = unit.split()
+                    if len(unit_parts) >= 2:
+                        province = unit_parts[1]
+                        Map._draw_destroy_order(draw, province, color, coords)
 
     @staticmethod
     def _draw_movement_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
@@ -1805,58 +1836,106 @@ class Map:
             Map._draw_circle(draw, coord, "red", width=2, style="dashed")
 
     @staticmethod
-    def _draw_support_order(draw, supporter_province: str, supported_move: str, color: str, status: str, coords: dict):
-        """Draw support order (circle + arrow) with support cut indicators"""
-        if supporter_province not in coords:
+    def _draw_support_order(draw, supporter_province: str, supported_unit_province: str, 
+                           supported_action: str, supported_target: Optional[str], 
+                           supporting_power_color: str, status: str, coords: dict):
+        """
+        Draw support order with distinct colors for defensive vs offensive support.
+        
+        Args:
+            draw: PIL ImageDraw object
+            supporter_province: Province of the unit providing support
+            supported_unit_province: Province of the unit being supported
+            supported_action: "hold" for defensive support, "move" for offensive support
+            supported_target: Target province (for offensive support only)
+            supporting_power_color: Power color of supporting unit (for defender circle)
+            status: Order status ("success", "failed", etc.)
+            coords: Dictionary mapping province names to (x, y) coordinates
+        """
+        if supporter_province not in coords or supported_unit_province not in coords:
             return
             
         supporter_coord = coords[supporter_province]
+        supported_coord = coords[supported_unit_province]
         
-        # Draw circle around supporting unit
-        if status == "success":
-            Map._draw_circle(draw, supporter_coord, color, width=2, style="solid")
-        else:
-            Map._draw_circle(draw, supporter_coord, "red", width=2, style="dashed")
-        
-        # Parse supported move and draw arrow
-        parts = supported_move.split()
-        if len(parts) >= 3 and parts[1] == "-":
-            supported_to = parts[2]
-            if supported_to in coords:
-                supported_coord = coords[supported_to]
-                if status == "success":
-                    # Draw dashed support line (different from movement)
-                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="dashed")
-                else:
-                    # Draw support line with cut indicator
-                    Map._draw_arrow(draw, supporter_coord, supported_coord, "red", width=2, style="dashed")
-                    # Draw red X through support line to indicate cut
+        if supported_action == "hold":
+            # Defensive Support (Hold Support)
+            support_color = DEFENSIVE_SUPPORT_COLOR if status == "success" else "red"
+            
+            # Draw dashed line from supporter to defending unit
+            Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, width=2, style="dashed")
+            
+            # Draw circle around defending unit in supporting unit's power color (3-4px border)
+            if status == "success":
+                Map._draw_circle(draw, supported_coord, supporting_power_color, width=3, style="solid")
+            
+            # Add red X through support line if cut
+            if status != "success":
+                Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
+                
+        elif supported_action == "move" and supported_target:
+            # Offensive Support (Move Support)
+            support_color = OFFENSIVE_SUPPORT_COLOR if status == "success" else "red"
+            
+            if supported_target in coords:
+                target_coord = coords[supported_target]
+                
+                # Draw dashed arrow path: supporter → supported unit → attack target
+                # First segment: supporter to supported unit
+                Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, width=2, style="dashed")
+                # Second segment: supported unit to target
+                Map._draw_arrow(draw, supported_coord, target_coord, support_color, width=2, style="dashed")
+                
+                # Add red X through support line if cut
+                if status != "success":
                     Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
-        elif len(parts) >= 2:
-            # Support hold - just show circle and connection line
-            supported_prov = parts[-1] if len(parts) == 2 else parts[1]
-            if supported_prov in coords:
-                supported_coord = coords[supported_prov]
-                if status == "success":
-                    Map._draw_arrow(draw, supporter_coord, supported_coord, color, width=2, style="dashed")
-                else:
-                    Map._draw_arrow(draw, supporter_coord, supported_coord, "red", width=2, style="dashed")
-                    Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
+                    if supported_target in coords:
+                        Map._draw_support_cut_indicator(draw, supported_coord, target_coord)
 
     @staticmethod
-    def _draw_convoy_order(draw, convoyer_province: str, convoyed_to: str, via_route: list, color: str, status: str, coords: dict):
-        """Draw convoy order (curved arrow through convoy chain)"""
-        if convoyer_province not in coords or convoyed_to not in coords:
-            return
-            
-        convoyer_coord = coords[convoyer_province]
-        convoyed_coord = coords[convoyed_to]
+    def _draw_convoy_order(draw, convoyed_army_province: str, convoyed_to: str, 
+                          convoy_chain: List[str], convoy_color: str, status: str, coords: dict):
+        """
+        Draw convoy order showing full convoy chain starting from convoyed army.
         
-        # Draw curved arrow through convoy route
-        if status == "success":
-            Map._draw_curved_arrow(draw, convoyer_coord, convoyed_coord, color, width=2, style="solid")
-        else:
-            Map._draw_curved_arrow(draw, convoyer_coord, convoyed_coord, "red", width=2, style="dashed")
+        Args:
+            draw: PIL ImageDraw object
+            convoyed_army_province: Province where the convoyed army starts
+            convoyed_to: Destination province
+            convoy_chain: List of convoying fleet provinces in order
+            convoy_color: Dedicated convoy color (CONVOY_COLOR)
+            status: Order status ("success", "failed", etc.)
+            coords: Dictionary mapping province names to (x, y) coordinates
+        """
+        if convoyed_army_province not in coords or convoyed_to not in coords:
+            return
+        
+        convoy_color_actual = convoy_color if status == "success" else "red"
+        
+        # Build complete path: army → fleet1 → fleet2 → ... → destination
+        path = [convoyed_army_province]
+        path.extend(convoy_chain)
+        path.append(convoyed_to)
+        
+        # Draw curved arrows connecting each segment of the path
+        for i in range(len(path) - 1):
+            from_prov = path[i]
+            to_prov = path[i + 1]
+            
+            if from_prov not in coords or to_prov not in coords:
+                continue
+                
+            from_coord = coords[from_prov]
+            to_coord = coords[to_prov]
+            
+            # Draw curved arrow segment
+            Map._draw_curved_arrow(draw, from_coord, to_coord, convoy_color_actual, width=2, style="solid" if status == "success" else "dashed")
+        
+        # Draw circles/markers around convoying fleets in convoy color
+        for fleet_prov in convoy_chain:
+            if fleet_prov in coords:
+                fleet_coord = coords[fleet_prov]
+                Map._draw_circle(draw, fleet_coord, convoy_color_actual, width=2, style="solid")
 
     @staticmethod
     def _draw_build_order(draw, province: str, color: str, status: str, coords: dict):

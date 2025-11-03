@@ -142,11 +142,17 @@ class OrderVisualizationService:
             "failure_reason": order.failure_reason,
             "supporting": f"{order.supported_unit.unit_type} {order.supported_unit.province}",
             "supported_action": order.supported_action,
+            "supported_unit_province": order.supported_unit.province,
             "supported_target": order.supported_target
         }
     
     def _create_convoy_visualization(self, order: ConvoyOrder, game_state: GameState) -> Dict[str, Any]:
         """Create visualization data for convoy order"""
+        # Extract convoy chain provinces (fleet provinces in order)
+        convoy_chain = []
+        if hasattr(order, 'convoy_chain') and order.convoy_chain:
+            convoy_chain = [province for province in order.convoy_chain if province]
+        
         return {
             "type": "convoy",
             "unit": f"{order.unit.unit_type} {order.unit.province}",
@@ -154,8 +160,9 @@ class OrderVisualizationService:
             "status": order.status.value,
             "failure_reason": order.failure_reason,
             "convoyed_unit": f"{order.convoyed_unit.unit_type} {order.convoyed_unit.province}",
+            "convoyed_army_province": order.convoyed_unit.province,
             "convoyed_target": order.convoyed_target,
-            "convoy_chain": order.convoy_chain
+            "convoy_chain": convoy_chain
         }
     
     def _create_retreat_visualization(self, order: RetreatOrder, game_state: GameState) -> Dict[str, Any]:

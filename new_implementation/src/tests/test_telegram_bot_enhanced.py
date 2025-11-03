@@ -132,21 +132,28 @@ class TestProcessWaitingList:
         notify_callback = Mock()
         
         result = process_waiting_list(waiting_list, 3, powers, notify_callback)
-        assert result is None  # No game created
+        assert result == (None, None)  # No game created, returns tuple
     
     def test_process_waiting_list_enough_players(self):
         """Test processing waiting list with enough players."""
+        # waiting_list should be list of tuples (telegram_id, full_name)
         waiting_list = [
-            {'user_id': 1, 'power': 'FRANCE'},
-            {'user_id': 2, 'power': 'GERMANY'},
-            {'user_id': 3, 'power': 'ENGLAND'}
+            ('1', 'User1'),
+            ('2', 'User2'),
+            ('3', 'User3')
         ]
         powers = ['FRANCE', 'GERMANY', 'ENGLAND']
         notify_callback = Mock()
         
-        with patch('server.telegram_bot.api_post') as mock_api_post:
-            mock_api_post.return_value = {'game_id': 123}
-            
-            result = process_waiting_list(waiting_list, 3, powers, notify_callback)
-            assert result is not None
-            mock_api_post.assert_called_once()
+        # Mock api_post function to handle both create and join calls
+        def mock_api_post_func(endpoint, data):
+            if endpoint == "/games/create":
+                return {'game_id': 123}
+            elif endpoint.startswith("/games/123/join"):
+                return {'status': 'ok'}
+            return {}
+        
+        result = process_waiting_list(waiting_list, 3, powers, notify_callback, api_post_func=mock_api_post_func)
+        assert result is not None
+        assert result[0] == 123  # game_id
+        assert len(result[1]) == 3  # assignments

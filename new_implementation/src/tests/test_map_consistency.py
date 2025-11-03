@@ -39,7 +39,7 @@ def test_map_generation_consistency():
         print(f"✅ Generated {len(img_bytes_1)} bytes")
         
         print("📊 Testing render_board_png_with_moves (used by bot)...")
-        img_bytes_2 = Map.render_board_png_with_moves(svg_path, units, [], phase_info=phase_info)
+        img_bytes_2 = Map.render_board_png_with_moves(svg_path, units, {}, phase_info=phase_info)
         print(f"✅ Generated {len(img_bytes_2)} bytes")
         
         # Check if they're similar (should be since render_board_png_with_moves calls render_board_png internally)
@@ -67,18 +67,17 @@ def test_map_generation_consistency():
         print("   ✅ Unit markers")
         print("   ❌ NO area name text overlays")
         
-        return True
+        assert True, "Test completed successfully"
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
-        return False
+        raise
 
 if __name__ == "__main__":
-    success = test_map_generation_consistency()
-    
-    if success:
+    try:
+        test_map_generation_consistency()
         print("\n🎉 Map generation consistency test completed!")
         print("💡 Both bot and demo script should now use the same fixed code")
-    else:
+    except Exception:
         print("\n💥 Map generation consistency test failed!")
         sys.exit(1)

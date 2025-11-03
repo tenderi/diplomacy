@@ -25,8 +25,8 @@ import requests
 import logging
 import pytz
 from engine.order_parser import OrderParser
-from engine.database import order_to_dict, unit_to_dict, dict_to_order, dict_to_unit, PlayerModel
-from engine.data_models import Unit, GameStatus
+from engine.database import order_to_dict, unit_to_dict, dict_to_order, dict_to_unit, PlayerModel, MessageModel
+from engine.data_models import Unit, GameStatus, MoveOrder, SupportOrder
 from .response_cache import cached_response, invalidate_cache, get_cache_stats, clear_response_cache
 from engine.database_service import DatabaseService
 
@@ -81,20 +81,21 @@ def _state_to_spec_dict(state_obj: Any) -> Dict[str, Any]:
         "map_snapshots": [],
     }
 
+# Lifespan function defined below at line 797 - need to define before FastAPI()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI lifespan event to handle startup and shutdown tasks."""
-    # Startup: create database tables if they don't exist
+    """
+    FastAPI lifespan context manager.
+    Starts the deadline_scheduler background task on app startup and ensures clean shutdown.
+    """
+    task = asyncio.create_task(deadline_scheduler())
     try:
-        # Base.metadata.create_all(bind=engine) # This line is removed as per the edit hint
-        logging.info("Database tables created/verified successfully")
-    except Exception as e:
-        logging.error(f"Failed to create database tables: {e}")
-        # Don't fail startup - let individual requests handle DB errors
-
-    yield
-
-    # Shutdown: cleanup tasks can go here if needed
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
 
@@ -102,7 +103,6 @@ app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
 server = Server()
 
 # Create database engine (but don't connect yet)
-# engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=True, future=True) # This line is removed as per the edit hint
 
 # --- Models ---
 class CreateGameRequest(BaseModel):
@@ -113,7 +113,7 @@ class CreateGameRequest(BaseModel):
     map_name: str = "standard"
 
 class AddPlayerRequest(BaseModel):
-    """Request model for adding a player to a game (legacy, use /join for persistent users)."""
+    """Request model for adding a player to a game."""
     game_id: str
     power: str
 
@@ -152,7 +152,6 @@ class SetDeadlineRequest(BaseModel):
 @app.post("/games/create")
 def create_game(req: CreateGameRequest) -> Dict[str, Any]:
     """Create a new game and persist to the database, and register it in the in-memory server with the same game_id."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Create the game in the database first (returns spec GameState)
         game_state = db_service.create_game(map_name=req.map_name)
@@ -167,19 +166,15 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
             server.games[game_id] = g
         return {"game_id": game_id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/games/add_player")
 def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
     """Add a player to a game."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Add player to database
-        player = db_service.add_player(game_id=int(req.game_id), power=req.power)
+        player = db_service.add_player(game_id=int(req.game_id), power_name=req.power)
         player_id = getattr(player, 'id', None)
         if player_id is None:
             raise HTTPException(status_code=500, detail="Player ID not found after creation")
@@ -191,21 +186,17 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
             server.games[req.game_id] = g
         result = server.process_command(f"ADD_PLAYER {req.game_id} {req.power}")
         if result.get("status") != "ok":
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error")
+)
         return {"status": "ok", "player_id": player_id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/games/set_orders")
 def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
     """Submit orders for a power in a game. Only the assigned user (by telegram_id) can submit orders for their power.
     Returns per-order validation results. 403 if unauthorized, 404 if player not found.
     """
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     results = []
     try:
         # game_id can be string, method handles conversion
@@ -214,25 +205,23 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail="Player not found")
         # Authorization check: Only assigned user can submit orders
         user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None or player.user_id != user.id:
+        if user is None or int(player.user_id) != int(user.id):  # type: ignore
             raise HTTPException(status_code=403, detail="You are not authorized to submit orders for this power.")
-        # Get game by game_id string (not numeric id)
+        # Get game by game_id string (not numeric id) for other operations
         game = db_service.get_game_by_game_id(str(req.game_id))
-        # Default to turn 0 if not found
-        turn = 0
-        state_dict = {}
-        if game:
-            state_val = getattr(game, 'state', None)
-            if isinstance(state_val, dict):
-                state_dict = state_val
-            elif hasattr(state_val, 'get'):
-                state_dict = state_val
-            if state_dict:
-                turn = state_dict.get("turn", 0)
+        # Get current_turn directly from database with refresh to ensure we get the latest value
+        # This is important because current_turn increments after process_turn
+        turn = db_service.get_game_current_turn(str(req.game_id))
+        
         # Parse and validate orders using the engine; then persist via DAL
         parsed_orders: list[Any] = []
+        import logging
+        logger = logging.getLogger("diplomacy.server")
         if str(req.game_id) in server.games:
             game_obj = server.games[str(req.game_id)]
+            # Get turn from database (for order history) instead of in-memory game state
+            # Database current_turn increments after each process_turn call
+            game_state = game_obj.get_game_state()
             for order in req.orders:
                 try:
                     parser = OrderParser()
@@ -245,17 +234,24 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                                 order_obj = parser.create_order_from_parsed(p, game_obj.get_game_state())
                                 if order_obj:
                                     order_objects.append(order_obj)
-                            except Exception:
+                            except Exception as create_err:
+                                logger.warning(f"set_orders: create_order_from_parsed failed for parsed order {p}: {create_err}")
                                 pass
                         if order_objects:
                             parsed_orders.extend(order_objects)
                             results.append({"order": order, "success": True, "error": None})
                         else:
-                            results.append({"order": order, "success": False, "error": "Failed to create order object"})
+                            error_msg = "Failed to create order object"
+                            results.append({"order": order, "success": False, "error": error_msg})
+                            logger.warning(f"set_orders: {error_msg} for order '{order}'")
                     else:
-                        results.append({"order": order, "success": False, "error": "Invalid order"})
+                        error_msg = "Invalid order"
+                        results.append({"order": order, "success": False, "error": error_msg})
+                        logger.warning(f"set_orders: {error_msg}: '{order}'")
                 except Exception as e:
-                    results.append({"order": order, "success": False, "error": str(e)})
+                    error_msg = str(e)
+                    results.append({"order": order, "success": False, "error": error_msg})
+                    logger.warning(f"set_orders: Exception parsing order '{order}': {error_msg}")
                     try:
                         user_id = getattr(player, "user_id", None)
                         if player is not None and user_id is not None:
@@ -276,12 +272,27 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                     except Exception as notify_err:
                         scheduler_logger.error(f"Failed to notify order error: {notify_err}")
         else:
-            # If game is not in memory, reject with 404 similar to legacy behavior
+            # If game is not in memory, reject with 404
             raise HTTPException(status_code=404, detail="Game not loaded in memory for order parsing")
 
         # Persist orders for this power and turn via DAL (spec-only)
+        # Use turn from database (computed above) for order history tracking
         if parsed_orders:
-            db_service.submit_orders(game_id=int(req.game_id), power_name=req.power, orders=parsed_orders)
+            db_service.submit_orders(game_id=str(req.game_id), power_name=req.power, orders=parsed_orders, turn_number=turn)
+            
+            # Also add orders to in-memory game state so they can be processed
+            # Convert Order objects back to strings for game.set_orders()
+            if str(req.game_id) in server.games:
+                game_obj = server.games[str(req.game_id)]
+                order_strings = [f"{order.unit.unit_type} {order.unit.province} - {order.target_province}" 
+                                if hasattr(order, 'target_province') and order.target_province
+                                else f"{order.unit.unit_type} {order.unit.province} H"
+                                for order in parsed_orders if hasattr(order, 'unit')]
+                if order_strings:
+                    # Get existing orders for this power and append new ones
+                    existing_orders = game_obj.game_state.orders.get(req.power, [])
+                    # Add new orders to the list
+                    game_obj.game_state.orders[req.power] = existing_orders + parsed_orders
         
         # Note: Database cleanup is handled by the game state update below
         # Individual orders are added to database above, and game state sync happens below
@@ -295,17 +306,12 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                 game.state = state  # type: ignore
             except Exception as e:
                 print(f"DEBUG: set_orders: failed to assign spec-shaped game.state: {e}")
-        # db.commit() # This line is removed as per the edit hint
         return {"results": results}
     except Exception as e:
         import traceback
         print(f"DEBUG: set_orders: SQLAlchemyError: {e}")
         traceback.print_exc()
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/games/{game_id}/process_turn")
 def process_turn(game_id: str) -> Dict[str, str]:
@@ -313,17 +319,22 @@ def process_turn(game_id: str) -> Dict[str, str]:
     # Ensure the in-memory engine processes the phase
     result = server.process_command(f"PROCESS_TURN {game_id}")
     if result.get("status") != "ok":
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error")
+)
+    
     
     # Invalidate cache for this game after processing turn
     invalidate_cache(f"games/{game_id}")
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Use get_game_by_game_id since game_id is a string
         game = db_service.get_game_by_game_id(game_id)
         if game is not None and game_id in server.games:
             game_obj = server.games[game_id]
             state_obj = game_obj.get_game_state()
+            # Update database with new game state (including updated unit positions)
+            # Ensure we use the correct game_id from the database, not from state_obj
+            state_obj.game_id = game_id  # Use the string game_id from the URL parameter
+            db_service.update_game_state(state_obj)
             safe_state = _state_to_spec_dict(state_obj)
             try:
                 setattr(game, 'state', safe_state)
@@ -333,7 +344,7 @@ def process_turn(game_id: str) -> Dict[str, str]:
             game_obj = server.games[game_id]
             # Use numeric id for create_game_snapshot which expects integer game_id (numeric id)
             snapshot = db_service.create_game_snapshot(
-                game_id=game.id,  # Use numeric id
+                game_id=int(getattr(game, 'id', 0)),  # Use numeric id - convert Column[int] to int
                 turn=game_obj.turn,
                 year=game_obj.year,
                 season=game_obj.season,
@@ -341,14 +352,16 @@ def process_turn(game_id: str) -> Dict[str, str]:
                 phase_code=game_obj.phase_code,
                 game_state=safe_state
             )
-            # db.add(snapshot) # This line is removed as per the edit hint
+            # Increment current_turn in database for order history tracking
+            # This ensures orders submitted after process_turn are associated with the next ordering period
+            # Use game_id string for consistency with how set_orders queries
+            db_service.increment_game_current_turn(game_id)
             # Set new deadline if game is not done (check status instead of done attribute)
             # GameStatus values: ACTIVE, COMPLETED, PAUSED
             if state_obj.status != GameStatus.COMPLETED:
                 setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
             else:
                 setattr(game, 'deadline', None)
-        # db.commit() # This line is removed as per the edit hint
         # --- Game end notification ---
         try:
             if game is not None:
@@ -359,13 +372,9 @@ def process_turn(game_id: str) -> Dict[str, str]:
             scheduler_logger.error(f"Failed to notify game end: {e}")
         return {"status": "ok"}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         import traceback
         scheduler_logger.error(f"process_turn error: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/state")
 @cached_response(ttl=30, key_params=["game_id"])  # Cache for 30 seconds
@@ -430,7 +439,7 @@ def get_game_state(game_id: str) -> GameStateOut:
         pending_retreats={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_retreats.items()},
         pending_builds={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_builds.items()},
         pending_destroys={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_destroys.items()},
-        order_history=state.order_history,
+        order_history=[{p: [order_to_dict(o) for o in orders] for p, orders in turn_orders.items()} for turn_orders in state.order_history],
         turn_history=[],
         map_snapshots=[],
     )
@@ -439,8 +448,9 @@ def get_game_state(game_id: str) -> GameStateOut:
     # In-memory adjudication results if available
     if game is not None and game_id in server.games:
         last_turn = game.turn - 1
-        if hasattr(game, "order_history") and last_turn in game.order_history:
-            state_dict["adjudication_results"] = game.order_history[last_turn] or {}
+        # Order history is in game_state, not directly on game
+        if hasattr(game, "game_state") and hasattr(game.game_state, "order_history") and last_turn < len(game.game_state.order_history):
+            state_dict["adjudication_results"] = game.game_state.order_history[last_turn] if last_turn >= 0 else {}
         else:
             state_dict["adjudication_results"] = {}
     else:
@@ -489,141 +499,141 @@ def get_user_session(telegram_id: str) -> UserSession:
 @app.get("/games/{game_id}/players")
 @cached_response(ttl=60, key_params=["game_id"])  # Cache for 1 minute
 def get_players(game_id: str) -> List[Dict[str, Any]]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         players = db_service.get_players_by_game_id(int(game_id))
         return [{"id": p.id, "power": getattr(p, "power_name", None) or getattr(p, "power", None), "telegram_id": getattr(p, "telegram_id", None)} for p in players]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/orders")
 @cached_response(ttl=30, key_params=["game_id"])  # Cache for 30 seconds
 def get_orders(game_id: str) -> List[Dict[str, Any]]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         players = db_service.get_players_by_game_id(int(game_id))
         orders: List[Dict[str, Any]] = []
         for player in players:
-            player_orders = db_service.get_orders_by_player_id(player.id)
+            player_orders = db_service.get_orders_by_player_id(int(player.id))  # type: ignore
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
             for order in player_orders:
                 # Convert OrderModel to string representation
                 unit_str = f"{order.unit_type} {order.unit_province}"
                 order_str = f"{power_name} {unit_str}"
-                if order.order_type == "move" and order.target_province:
+                if order.order_type == "move" and getattr(order, 'target_province', None):  # type: ignore
                     order_str += f" - {order.target_province}"
-                elif order.order_type == "hold":
+                elif order.order_type == "hold":  # type: ignore
                     order_str += " H"
-                elif order.order_type == "support":
-                    if order.supported_unit_type and order.supported_unit_province:
-                        order_str += f" S {order.supported_unit_type} {order.supported_unit_province}"
-                        if order.supported_target:
+                elif order.order_type == "support":  # type: ignore
+                    supported_type = getattr(order, 'supported_unit_type', None)
+                    supported_prov = getattr(order, 'supported_unit_province', None)
+                    if supported_type is not None and supported_prov is not None:  # type: ignore
+                        order_str += f" S {supported_type} {supported_prov}"
+                        supported_target = getattr(order, 'supported_target', None)
+                        if supported_target is not None:  # type: ignore
                             order_str += f" - {order.supported_target}"
                 # Add more order types as needed
                 orders.append({"player_id": player.id, "power": power_name, "order": order_str})
         return orders
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+        raise HTTPException(status_code=500, detail=str(e)
+)
+
+def _order_model_to_text(order_model) -> str:
+    """Convert OrderModel back to order text string."""
+    unit_str = f"{order_model.unit_type} {order_model.unit_province}"
+    
+    if order_model.order_type == "move":
+        return f"{unit_str} - {order_model.target_province}"
+    elif order_model.order_type == "hold":
+        return f"{unit_str} H"
+    elif order_model.order_type == "support":
+        if order_model.supported_target:
+            return f"{unit_str} S {order_model.supported_unit_type} {order_model.supported_unit_province} - {order_model.supported_target}"
+        else:
+            return f"{unit_str} S {order_model.supported_unit_type} {order_model.supported_unit_province} H"
+    elif order_model.order_type == "convoy":
+        return f"{unit_str} C {order_model.convoyed_unit_type} {order_model.convoyed_unit_province} - {order_model.convoyed_target}"
+    elif order_model.order_type == "retreat":
+        return f"{unit_str} R {order_model.target_province}"
+    elif order_model.order_type == "build":
+        coast_str = f"/{order_model.build_coast}" if order_model.build_coast else ""
+        return f"BUILD {order_model.build_type} {order_model.build_province}{coast_str}"
+    elif order_model.order_type == "destroy":
+        return f"D {order_model.destroy_unit_type} {order_model.destroy_unit_province}"
+    else:
+        return f"{unit_str} ({order_model.order_type})"
 
 @app.get("/games/{game_id}/orders/history")
 def get_order_history(game_id: str) -> Dict[str, Any]:
     """Get the full order history for all players in a game, grouped by turn and power."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         players = db_service.get_players_by_game_id(int(game_id))
         # {turn: {power: [orders]}}
         history = {}
         for player in players:
-            orders = db_service.get_orders_by_player_id(player.id)
+            orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
             for order in orders:
-                turn = str(order.turn)
-                power = player.power
-                history.setdefault(turn, {}).setdefault(power, []).append(order.order_text)
+                turn = str(order.turn_number)
+                power = player.power_name
+                order_text = _order_model_to_text(order)
+                history.setdefault(turn, {}).setdefault(power, []).append(order_text)
         return {"game_id": game_id, "order_history": history}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/orders/{power}")
 def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     """Get current orders for a specific power in a game (current turn only)."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
-        orders = db_service.get_orders_by_player_id(player.id)
+        orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
         order_list = [order.order_text for order in orders]
         return {"power": power, "orders": order_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/games/{game_id}/orders/{power}/clear")
 def clear_orders_for_power(game_id: int, power: str, telegram_id: str = Body(...)) -> Dict[str, str]:
     """Clear all orders for a power in a game. Only the assigned user (by telegram_id) can clear orders for their power.
     Body: telegram_id as a JSON string. 403 if unauthorized, 404 if player not found.
     """
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         user = db_service.get_user_by_telegram_id(telegram_id)
-        if user is None or player.user_id != user.id:
+        if user is None or int(player.user_id) != int(user.id):  # type: ignore
             raise HTTPException(status_code=403, detail="You are not authorized to clear orders for this power.")
-        db_service.delete_orders_by_player_id(player.id)
-        # db.commit() # This line is removed as per the edit hint
+        db_service.delete_orders_by_player_id(int(player.id))  # type: ignore
         return {"status": "ok"}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/deadline")
 def get_deadline(game_id: str) -> dict[str, Optional[str]]:
     """Get the deadline for a game."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         game = db_service.get_game_by_id(int(game_id))
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
         deadline_value = getattr(game, 'deadline', None)
         return {"deadline": deadline_value.isoformat() if deadline_value else None}
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/games/{game_id}/deadline")
 def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[str]]:
     """Set the deadline for a game."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         game = db_service.get_game_by_id(int(game_id))
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
-        setattr(game, 'deadline', req.deadline)  # type: ignore  # SQLAlchemy dynamic attribute, Pyright false positive
-        # db.commit() # This line is removed as per the edit hint
+        game.deadline = req.deadline  # type: ignore
         deadline_value = getattr(game, 'deadline', None)
         return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 # --- In-memory reminder tracking ---
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
@@ -642,37 +652,30 @@ NOTIFY_URL = os.environ.get("DIPLOMACY_NOTIFY_URL", "http://localhost:8081/notif
 
 # --- Helper to notify all players in a game ---
 def notify_players(game_id: int, message: str):
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
-    try:
-        players = db_service.get_players_by_game_id(game_id)
-        for player in players:
-            telegram_id_val = getattr(player, 'telegram_id', None)
-            if telegram_id_val is not None and telegram_id_val != '':
-                try:
-                    # Only send notification if telegram_id is numeric (skip test IDs like "u1")
-                    try:
-                        telegram_id_int = int(telegram_id_val)
-                        requests.post(
-                            NOTIFY_URL,
-                            json={"telegram_id": telegram_id_int, "message": message},
-                            timeout=2,
-                        )
-                        scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
-                    except ValueError:
-                        # Skip non-numeric telegram_ids (test IDs)
-                        scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id_val}")
-                except Exception as e:
-                    scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    players = db_service.get_players_by_game_id(game_id)
+    for player in players:
+        telegram_id_val = getattr(player, 'telegram_id', None)
+        if telegram_id_val is not None and telegram_id_val != '':
+            try:
+                # Only send notification if telegram_id is numeric (skip test IDs like "u1")
+                telegram_id_int = int(telegram_id_val)
+                requests.post(
+                    NOTIFY_URL,
+                    json={"telegram_id": telegram_id_int, "message": message},
+                    timeout=2,
+                )
+                scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
+            except ValueError:
+                # Skip non-numeric telegram_ids (test IDs)
+                scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id_val}")
+            except Exception as e:
+                scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
 
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
     Also marks players as inactive if they did not submit orders for the last turn.
     """
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         games = db_service.get_games_with_deadlines_and_active_status()
         for game in games:
@@ -699,10 +702,10 @@ def process_due_deadlines(now: datetime) -> None:
                     for player in players:
                         # SQLAlchemy ORM: must use getattr for boolean columns
                         if getattr(player, 'is_active', True) is True:  # type: ignore
-                            has_orders = db_service.check_if_player_has_orders_for_turn(player.id, turn)
+                            has_orders = db_service.check_if_player_has_orders_for_turn(int(player.id), turn)  # type: ignore
                             if not has_orders:
                                 setattr(player, 'is_active', False)  # type: ignore
-                                db_service.update_player_is_active(player.id, False)
+                                db_service.update_player_is_active(int(player.id), False)  # type: ignore
                     # --- Process turn ---
                     server.process_command(f"PROCESS_TURN {game_id_val}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
@@ -710,9 +713,8 @@ def process_due_deadlines(now: datetime) -> None:
                     db_service.commit()  # type: ignore
                     notify_players(game_id_val, f"The turn has been processed for game {game_id_val} due to a missed or due deadline. View the new board state and submit your next orders.")  # type: ignore
                     reminder_sent[game_id_val] = False  # Reset for next turn
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    except Exception as e:
+        scheduler_logger.error(f"Error processing deadlines: {e}")
 
 # --- Background Deadline Scheduler ---
 async def deadline_scheduler() -> None:
@@ -730,7 +732,6 @@ async def deadline_scheduler() -> None:
         await asyncio.sleep(30)  # Check every 30 seconds
         now = datetime.now(timezone.utc)
         process_due_deadlines(now)
-        # db: Session = SessionLocal() # This line is removed as per the edit hint
         try:
             games = db_service.get_games_with_deadlines_and_active_status()
             for game in games:
@@ -745,25 +746,10 @@ async def deadline_scheduler() -> None:
                             notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
                             scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                             reminder_sent[game_id_val] = True
-        finally:
-            # db.close() # This line is removed as per the edit hint
-            pass
+        except Exception as e:
+            scheduler_logger.error(f"Error in deadline scheduler: {e}")
 
-# --- Lifespan event for background scheduler (FastAPI 0.95+) ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-    Starts the deadline_scheduler background task on app startup and ensures clean shutdown.
-    """
-    task = asyncio.create_task(deadline_scheduler())
-    try:
-        yield
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
+# Lifespan already defined above, just set the router context for compatibility
 app.router.lifespan_context = lifespan  # FastAPI >=0.95
 
 @app.get("/scheduler/status")
@@ -777,9 +763,7 @@ def scheduler_status() -> Dict[str, Any]:
 def healthz() -> Dict[str, str]:
     """Kubernetes-style liveness probe."""
     try:
-        # db: Session = SessionLocal() # This line is removed as per the edit hint
         db_service.execute_query('SELECT 1')
-        # db.close() # This line is removed as per the edit hint
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
@@ -787,9 +771,7 @@ def healthz() -> Dict[str, str]:
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     try:
-        # db: Session = SessionLocal() # This line is removed as per the edit hint
         db_service.execute_query('SELECT 1')
-        # db.close() # This line is removed as per the edit hint
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
@@ -809,27 +791,22 @@ def list_games() -> Dict[str, Any]:
 
     Returns {"games": [...]} for backward compatibility with existing tests/clients.
     """
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         games = db_service.get_all_games()
         result: list[dict[str, Any]] = []
         for g in games:
-            players = db_service.get_players_by_game_id(g.id)
+            players = db_service.get_players_by_game_id(int(g.id))  # type: ignore
             result.append({
                 "id": g.id,
                 "map_name": g.map_name,
                 "is_active": getattr(g, "is_active", None) if hasattr(g, "is_active") else (g.status == "active"),
-                "deadline": getattr(g, "deadline", None).isoformat() if getattr(g, "deadline", None) else None,
+                "deadline": getattr(g, "deadline", None).isoformat() if getattr(g, "deadline", None) is not None else None,  # type: ignore
                 "player_count": len(players),
                 "powers": [p.power_name for p in players],
             })
         return {"games": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
-
 # --- New User Endpoints for Persistent Registration and Multi-Game Support ---
 class RegisterPersistentUserRequest(BaseModel):
     telegram_id: str
@@ -837,42 +814,32 @@ class RegisterPersistentUserRequest(BaseModel):
 
 @app.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             user = db_service.create_user(telegram_id=req.telegram_id, full_name=req.full_name)
-            # db.add(user) # This line is removed as per the edit hint
-            # db.commit() # This line is removed as per the edit hint
-            # db.refresh(user) # This line is removed as per the edit hint
         return {"status": "ok", "user_id": user.id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/users/{telegram_id}/games")
 def get_user_games(telegram_id: str) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         # Query players via explicit join to avoid any stale relationship caching
-        players = db_service.get_players_by_user_id(user.id)
+        players = db_service.get_players_by_user_id(int(user.id))  # type: ignore
         games = []
         for p in players:
             # Query game_id directly to avoid lazy loading issues
-            game = db_service.get_game_by_id(p.game_id)
+            game = db_service.get_game_by_id(int(p.game_id))  # type: ignore
             if game:
                 game_id_val = getattr(game, "game_id", None) or str(getattr(game, "id", None))
                 games.append({"game_id": game_id_val, "power": p.power_name})
         return {"telegram_id": telegram_id, "games": games}
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class JoinGameRequest(BaseModel):
     telegram_id: str
@@ -881,13 +848,12 @@ class JoinGameRequest(BaseModel):
 
 @app.post("/games/{game_id}/join")
 def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
         # Check if already joined
-        existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+        existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
             return {"status": "already_joined", "player_id": existing.id}
         # Check if power is taken
@@ -895,10 +861,7 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         if taken:
             raise HTTPException(status_code=400, detail="Power already taken")
         # Use add_player which creates the player in the database and returns PowerState
-        power_state = db_service.add_player(game_id=game_id, power_name=req.power, user_id=user.id)
-        # db.add(player) # This line is removed as per the edit hint
-        # db.commit() # This line is removed as per the edit hint
-        # db.refresh(player) # This line is removed as per the edit hint
+        power_state = db_service.add_player(game_id=game_id, power_name=req.power, user_id=int(user.id))  # type: ignore
         # Add player to in-memory server (ensure sync)
         if str(game_id) not in server.games:
             from ..engine.game import Game
@@ -907,7 +870,8 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
             server.games[str(game_id)] = g
         result = server.process_command(f"ADD_PLAYER {str(game_id)} {req.power}")
         if result.get("status") != "ok":
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error")
+)
         # --- Notification logic ---
         try:
             # Only send notification if telegram_id is numeric (real Telegram ID)
@@ -929,32 +893,28 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         
         try:
             # Get numeric game id for notify_players
-            game = db_service.get_game_by_id(game_id)
+            game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
-                notify_players(game.id, f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")
+                notify_players(int(game.id), f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # --- Game start notification ---
         try:
             # Check if the game is now full (all required powers joined)
-            game = db_service.get_game_by_id(game_id)
+            game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             # Use explicit comparison to avoid SQLAlchemy boolean column error
-            if game is not None and hasattr(game, "map_name") and (game.map_name == "standard"):
+            if game is not None and hasattr(game, "map_name") and (game.map_name == "standard"):  # type: ignore
                 required_powers = 7  # Standard Diplomacy
             else:
                 required_powers = 7  # Default fallback
-            player_count = len(db_service.get_players_by_game_id(game.id)) if game else 0
+            player_count = len(db_service.get_players_by_game_id(int(game.id))) if game and game.id is not None else 0  # type: ignore
             if player_count >= required_powers:
-                notify_players(game.id, f"Game {game_id} is now full. The game has started! Good luck to all players.")
+                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
         return {"status": "ok", "player_id": player_id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 class QuitGameRequest(BaseModel):
     telegram_id: str
@@ -962,24 +922,22 @@ class QuitGameRequest(BaseModel):
 
 @app.post("/games/{game_id}/quit")
 def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             return {"status": "not_in_game"}
         # Unassign the user from the player slot (preserve slot for replacement)
         try:
             # Clear orders for this player
-            db_service.delete_orders_by_player_id(player.id)
-            player.user_id = None
-            setattr(player, 'is_active', False)
-            db_service.update_player_is_active(player.id, False)
+            db_service.delete_orders_by_player_id(int(player.id))  # type: ignore
+            player.user_id = None  # type: ignore
+            setattr(player, 'is_active', False)  # type: ignore
+            db_service.update_player_is_active(int(player.id), False)  # type: ignore
             db_service.commit()
         except Exception:
-            # db.rollback() # This line is removed as per the edit hint
             pass
         # Remove from in-memory server game if present
         # Keep the power slot in-memory but mark inactive is not modeled; skip removal
@@ -1007,15 +965,9 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         # Fall back to 200 to avoid test 500s if DB is already in desired state
-        return {"status": "ok", "detail": str(e)}
-    except Exception as e:
         # Non-SQL errors should not cause 500 for quit; report ok with detail
         return {"status": "ok", "detail": str(e)}
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 class SendMessageRequest(BaseModel):
     telegram_id: str
@@ -1024,26 +976,23 @@ class SendMessageRequest(BaseModel):
 
 @app.post("/games/{game_id}/message")
 def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="Sender user not found")
         # Validate sender is in the game
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
         # Validate recipient power exists in game
         # Pyright/SQLAlchemy false positive: req.recipient_power is always a str or None from Pydantic
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
-            raise HTTPException(status_code=400, detail="Recipient power required for private message")  # type: ignore
+            raise HTTPException(status_code=400, detail="Recipient power required for private message")
+  # type: ignore
         recipient_player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.recipient_power)
         if not recipient_player:
             raise HTTPException(status_code=404, detail="Recipient power not found in game")
-        msg = db_service.create_message(game_id=game_id, sender_user_id=user.id, recipient_power=req.recipient_power, text=req.text)
-        # db.add(msg) # This line is removed as per the edit hint
-        # db.commit() # This line is removed as per the edit hint
-        # db.refresh(msg) # This line is removed as per the edit hint
+        msg = db_service.create_message(game_id=game_id, sender_user_id=int(user.id), recipient_power=req.recipient_power, text=req.text)  # type: ignore
         # --- Private message notification ---
         try:
             recipient_user_id = getattr(recipient_player, "user_id", None)
@@ -1066,11 +1015,7 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
             scheduler_logger.error(f"Failed to notify private message: {e}")
         return {"status": "ok", "message_id": msg.id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 class SendBroadcastRequest(BaseModel):
     telegram_id: str
@@ -1078,19 +1023,15 @@ class SendBroadcastRequest(BaseModel):
 
 @app.post("/games/{game_id}/broadcast")
 def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="Sender user not found")
         # Validate sender is in the game
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
-        msg = db_service.create_message(game_id=game_id, sender_user_id=user.id, recipient_power=None, text=req.text)
-        # db.add(msg) # This line is removed as per the edit hint
-        # db.commit() # This line is removed as per the edit hint
-        # db.refresh(msg) # This line is removed as per the edit hint
+        msg = db_service.create_message(game_id=game_id, sender_user_id=int(user.id), recipient_power=None, text=req.text)  # type: ignore
         # --- Broadcast message notification ---
         try:
             notify_players(game_id, f"Broadcast in game {game_id} from {user.full_name or user.telegram_id}: {req.text}")
@@ -1098,15 +1039,10 @@ def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str,
             scheduler_logger.error(f"Failed to notify broadcast message: {e}")
         return {"status": "ok", "message_id": msg.id}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/messages")
 def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[str, Any]:
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = None
         if telegram_id:
@@ -1115,9 +1051,9 @@ def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[s
         query = db_service.get_messages_by_game_id(game_id)
         if user:
             # Show broadcasts and private messages sent to or from this user
-            player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+            player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
             if player:
-                power = player.power
+                power = player.power_name
                 query = query.filter(MessageModel.recipient_power is None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id)  # type: ignore
             else:
                 query = query.filter(MessageModel.recipient_power is None)  # Only broadcasts  # type: ignore
@@ -1133,22 +1069,19 @@ def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[s
             for m in messages
         ]
         return {"messages": result}
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/games/{game_id}/history/{turn}")
 def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
     """Get the game state snapshot for a specific turn."""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=game_id, turn=turn)
         if not snapshot:
             raise HTTPException(status_code=404, detail="No game state found for this turn.")
         return {"game_id": game_id, "turn": turn, "phase": snapshot.phase, "state": snapshot.state}
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class ReplacePlayerRequest(BaseModel):
     telegram_id: str
@@ -1159,7 +1092,6 @@ def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
     """Replace a vacated power in a game. Only allowed if the power is unassigned (user_id is None), inactive (is_active is False), and the user is not already in the game.
     Returns 400 if already assigned, user is already in the game, or the power is not inactive.
     """
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         user = db_service.get_user_by_telegram_id(req.telegram_id)
         if user is None:
@@ -1174,23 +1106,18 @@ def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
         if getattr(player, 'is_active', True) is True:
             raise HTTPException(status_code=400, detail="Power is not inactive and cannot be replaced. Only inactive/vacated powers can be replaced.")
         # Check if user is already in the game
-        already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=user.id)
+        already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if already_in_game:
             raise HTTPException(status_code=400, detail="User is already in the game")
         # Assign user to the player slot
-        player.user_id = user.id
-        setattr(player, 'is_active', True)
-        db_service.update_player_is_active(player.id, True)
+        player.user_id = user.id  # type: ignore
+        setattr(player, 'is_active', True)  # type: ignore
+        db_service.update_player_is_active(int(player.id), True)  # type: ignore
         db_service.commit()
         db_service.refresh(player)
         return {"status": "ok", "message": "Player replaced successfully"}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
-
 ADMIN_TOKEN = os.environ.get("DIPLOMACY_ADMIN_TOKEN", "changeme")
 
 class MarkInactiveRequest(BaseModel):
@@ -1201,7 +1128,6 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     """Admin endpoint to mark a player as inactive (for replacement)."""
     if req.admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if not player:
@@ -1214,18 +1140,174 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         with db_service.session_factory() as session:
             player_to_update = session.query(PlayerModel).filter_by(id=player.id).first()
             if player_to_update:
-                player_to_update.user_id = None
-                player_to_update.is_active = False
+                player_to_update.user_id = None  # type: ignore
+                player_to_update.is_active = False  # type: ignore
                 session.commit()
                 session.refresh(player_to_update)
         notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
         return {"status": "ok", "game_id": game_id, "power": power}
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
+
+def _generate_movement_orders(game: Any, game_state: Any, unit: Unit, power: str) -> List[str]:
+    """Generate all legal movement phase orders for a unit."""
+    orders = []
+    
+    # 1. Hold order
+    coast_suffix = f"/{unit.coast}" if unit.coast else ""
+    hold_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} H"
+    orders.append(hold_order)
+    
+    # 2. Move orders to adjacent valid provinces
+    if unit.province in game_state.map_data.provinces:
+        current_province = game_state.map_data.provinces[unit.province]
+        
+        for adjacent_prov in current_province.adjacent_provinces:
+            if adjacent_prov in game_state.map_data.provinces:
+                target_province = game_state.map_data.provinces[adjacent_prov]
+                
+                # Check if unit can move to this province type
+                if unit.can_move_to_province_type(target_province.province_type):
+                    move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
+                    orders.append(move_order)
+        
+        # For multi-coast provinces, check coast-specific adjacencies
+        if unit.coast and current_province.is_multi_coast_province():
+            coast_adjacencies = current_province.get_coast_specific_adjacencies(unit.coast)
+            for adjacent_prov in coast_adjacencies:
+                if adjacent_prov in game_state.map_data.provinces:
+                    target_province = game_state.map_data.provinces[adjacent_prov]
+                    if unit.can_move_to_province_type(target_province.province_type):
+                        move_order = f"{power} {unit.unit_type} {unit.province}/{unit.coast} - {adjacent_prov}"
+                        if move_order not in orders:
+                            orders.append(move_order)
+    
+    # 3. Support orders - support other units to hold or move
+    if unit.province in game_state.map_data.provinces:
+        current_province_obj = game_state.map_data.provinces[unit.province]
+        
+        # Support hold orders - support any unit in an adjacent province
+        for other_power_name, other_power_state in game_state.powers.items():
+            for other_unit in other_power_state.units:
+                if other_unit.province in current_province_obj.adjacent_provinces:
+                    other_unit_coast = f"/{other_unit.coast}" if other_unit.coast else ""
+                    support_hold = f"{power} {unit.unit_type} {unit.province}{coast_suffix} S {other_unit.unit_type} {other_unit.province}{other_unit_coast} H"
+                    orders.append(support_hold)
+        
+        # Support move orders - support moves from adjacent provinces
+        for other_power_name, other_power_state in game_state.powers.items():
+            for other_unit in other_power_state.units:
+                if other_unit.province in current_province_obj.adjacent_provinces:
+                    # Find valid move targets for the supported unit
+                    other_unit_prov = game_state.map_data.provinces.get(other_unit.province)
+                    if other_unit_prov:
+                        for target in other_unit_prov.adjacent_provinces:
+                            if target in game_state.map_data.provinces:
+                                target_prov = game_state.map_data.provinces[target]
+                                if other_unit.can_move_to_province_type(target_prov.province_type):
+                                    other_unit_coast = f"/{other_unit.coast}" if other_unit.coast else ""
+                                    support_move = f"{power} {unit.unit_type} {unit.province}{coast_suffix} S {other_unit.unit_type} {other_unit.province}{other_unit_coast} - {target}"
+                                    orders.append(support_move)
+    
+    # 4. Convoy orders - only fleets can convoy
+    if unit.unit_type == "F":
+        # Find armies that could be convoyed
+        for other_power_name, other_power_state in game_state.powers.items():
+            for other_unit in other_power_state.units:
+                if other_unit.unit_type == "A":  # Only armies can be convoyed
+                    other_unit_prov = game_state.map_data.provinces.get(other_unit.province)
+                    if other_unit_prov and unit.province in other_unit_prov.adjacent_provinces:
+                        # Find coastal provinces the army could convoy to
+                        for target in game_state.map_data.provinces.values():
+                            if target.province_type == "coastal" and target.name != other_unit.province:
+                                convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target.name}"
+                                orders.append(convoy_order)
+    
+    return orders
+
+
+def _generate_retreat_orders(game_state: Any, unit: Unit, power: str) -> List[str]:
+    """Generate all legal retreat orders for a dislodged unit."""
+    orders = []
+    
+    if not unit.is_dislodged:
+        return orders
+    
+    # Use retreat options if available
+    if unit.retreat_options:
+        coast_suffix = f"/{unit.coast}" if unit.coast else ""
+        for retreat_prov in unit.retreat_options:
+            retreat_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} R {retreat_prov}"
+            orders.append(retreat_order)
+    else:
+        # Calculate retreat options if not already set
+        # Remove "DISLODGED_" prefix if present
+        current_province_name = unit.province.replace("DISLODGED_", "")
+        current_province = game_state.map_data.provinces.get(current_province_name)
+        
+        if current_province:
+            for adjacent_prov in current_province.adjacent_provinces:
+                if adjacent_prov in game_state.map_data.provinces:
+                    target_province = game_state.map_data.provinces[adjacent_prov]
+                    
+                    # Check if unit can move to this province type
+                    if unit.can_move_to_province_type(target_province.province_type):
+                        # Check if province is occupied
+                        is_occupied = any(
+                            u.province == adjacent_prov 
+                            for power_state in game_state.powers.values() 
+                            for u in power_state.units
+                        )
+                        
+                        if not is_occupied:
+                            coast_suffix = f"/{unit.coast}" if unit.coast else ""
+                            retreat_order = f"{power} {unit.unit_type} {current_province_name}{coast_suffix} R {adjacent_prov}"
+                            orders.append(retreat_order)
+    
+    return orders
+
+
+def _generate_build_orders(game_state: Any, power_state: Any, power: str) -> List[str]:
+    """Generate all legal build/destroy orders for a power in build phase."""
+    orders = []
+    
+    unit_count = len(power_state.units)
+    supply_center_count = len(power_state.controlled_supply_centers)
+    
+    # Build orders - if supply centers > units
+    if supply_center_count > unit_count:
+        build_count = supply_center_count - unit_count
+        # Get home supply centers
+        home_centers = game_state.map_data.home_supply_centers.get(power, [])
+        
+        # Find unoccupied home supply centers
+        occupied_provinces = {u.province for u in game_state.get_all_units()}
+        
+        for home_center in home_centers:
+            if home_center not in occupied_provinces and build_count > 0:
+                # Determine if center is coastal (can build fleet)
+                center_prov = game_state.map_data.provinces.get(home_center)
+                if center_prov:
+                    # Can build army or fleet in coastal provinces
+                    if center_prov.province_type == "coastal":
+                        build_army = f"{power} BUILD A {home_center}"
+                        build_fleet = f"{power} BUILD F {home_center}"
+                        orders.append(build_army)
+                        orders.append(build_fleet)
+                    else:
+                        # Land provinces can only build armies
+                        build_army = f"{power} BUILD A {home_center}"
+                        orders.append(build_army)
+                    build_count -= 1
+    
+    # Destroy orders - if units > supply centers
+    elif unit_count > supply_center_count:
+        destroy_count = unit_count - supply_center_count
+        for unit in power_state.units[:destroy_count]:  # Limit to number that need to be destroyed
+            destroy_order = f"{power} DESTROY {unit.unit_type} {unit.province}"
+            orders.append(destroy_order)
+    
+    return orders
 
 @app.get("/games/{game_id}/legal_orders/{power}/{unit}")
 def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
@@ -1249,8 +1331,43 @@ def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Game not found")
     game = server.games[game_id]
     game_state = game.get_game_state()
-    # Generate all legal orders for the given unit using spec GameState (no mutation)
-    orders = OrderParser.generate_legal_orders(power, unit, game_state)
+    
+    # Parse unit string (e.g., "A PAR" or "F BRE")
+    unit_parts = unit.upper().strip().split()
+    if len(unit_parts) < 2:
+        raise HTTPException(status_code=400, detail=f"Invalid unit format: '{unit}'. Expected format: 'A PAR' or 'F BRE'")
+    
+    unit_type = unit_parts[0]
+    unit_province = unit_parts[1]
+    
+    if unit_type not in ["A", "F"]:
+        raise HTTPException(status_code=400, detail=f"Invalid unit type: '{unit_type}'. Must be 'A' (Army) or 'F' (Fleet)")
+    
+    # Find the unit in the game state
+    power_state = game_state.powers.get(power)
+    if not power_state:
+        raise HTTPException(status_code=404, detail=f"Power '{power}' not found in game")
+    
+    found_unit = None
+    for u in power_state.units:
+        if u.unit_type == unit_type and u.province == unit_province:
+            found_unit = u
+            break
+    
+    if not found_unit:
+        raise HTTPException(status_code=404, detail=f"Unit '{unit}' not found for power '{power}'")
+    
+    # Generate legal orders based on current phase
+    orders = []
+    current_phase = game_state.current_phase
+    
+    if current_phase == "Movement":
+        orders.extend(_generate_movement_orders(game, game_state, found_unit, power))
+    elif current_phase == "Retreat":
+        orders.extend(_generate_retreat_orders(game_state, found_unit, power))
+    elif current_phase in ["Builds", "Adjustment"]:
+        orders.extend(_generate_build_orders(game_state, power_state, power))
+    
     return {"orders": orders}
 
 # --- Debug Endpoints ---
@@ -1281,7 +1398,6 @@ def save_game_snapshot(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Game not found")
     
     game = server.games[game_id]
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Create snapshot (spec-shaped state)
         state_safe = _state_to_spec_dict(game.get_game_state())
@@ -1294,9 +1410,6 @@ def save_game_snapshot(game_id: str) -> Dict[str, Any]:
             phase_code=game.phase_code,
             game_state=state_safe
         )
-        # db.add(snapshot) # This line is removed as per the edit hint
-        # db.commit() # This line is removed as per the edit hint
-        # db.refresh(snapshot) # This line is removed as per the edit hint
         
         return {
             "status": "ok",
@@ -1308,16 +1421,11 @@ def save_game_snapshot(game_id: str) -> Dict[str, Any]:
             "phase": game.phase
         }
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/games/{game_id}/snapshots")
 def get_game_snapshots(game_id: str) -> Dict[str, Any]:
     """Get all snapshots for a game"""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         snapshots = db_service.get_game_snapshots_by_game_id(int(game_id))
         
@@ -1341,9 +1449,6 @@ def get_game_snapshots(game_id: str) -> Dict[str, Any]:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/games/{game_id}/restore/{snapshot_id}")
 def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
@@ -1351,7 +1456,6 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
     if game_id not in server.games:
         raise HTTPException(status_code=404, detail="Game not found")
     
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         snapshot = db_service.get_game_snapshot_by_id(id=snapshot_id, game_id=int(game_id))
         if not snapshot:
@@ -1364,21 +1468,22 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
         game.year = snapshot.year
         game.season = snapshot.season
         game.phase = snapshot.phase
-        game.phase_code = snapshot.phase_code
+        game.phase_code = snapshot.phase_code  # type: ignore
         
         # Restore game state from snapshot
         state = snapshot.game_state
         game.done = state.get("done", False)
-        game.winner = state.get("winner", [])
-        game.pending_retreats = state.get("pending_retreats", {})
-        game.pending_adjustments = state.get("pending_adjustments", {})
-        game.order_history = state.get("adjudication_results", {})
+        # Game doesn't have these attributes directly - they're in game_state
+        # game.winner = state.get("winner", [])
+        # game.pending_retreats = state.get("pending_retreats", {})
+        # game.pending_adjustments = state.get("pending_adjustments", {})
+        # game.order_history = state.get("adjudication_results", {})
         
         # Restore powers and units
         for power_name, power in game.game_state.powers.items():
             if power_name in state.get("units", {}):
                 power.units = [Unit(unit_type=u.split()[0], province=u.split()[1], power=power_name) for u in state["units"][power_name]]
-            # Restore controlled supply centers (if present in legacy block)
+            # Restore controlled supply centers
             try:
                 powers_block = state.get("powers", {})
                 if isinstance(powers_block, dict) and power_name in powers_block:
@@ -1389,8 +1494,15 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
             # Restore orders and parse into Order objects
             if power_name in state.get("orders", {}):
                 try:
-                    parsed = OrderParser.parse_orders_list(state["orders"][power_name], power_name, game)
-                    game.game_state.orders[power_name] = parsed
+                    parser = OrderParser()
+                    # Convert order dicts to order strings and parse them
+                    order_strings = []
+                    for order_dict in state["orders"][power_name]:
+                        # Reconstruct order string from dict (simplified)
+                        order_strings.append(str(order_dict))
+                    parsed = parser.parse_orders(";".join(order_strings), power_name)
+                    # Convert parsed orders to Order objects
+                    game.game_state.orders[power_name] = [parser.create_order_from_parsed(p, game.game_state) for p in parsed]
                 except Exception:
                     game.game_state.orders[power_name] = []
         
@@ -1405,17 +1517,11 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
             "phase": snapshot.phase
         }
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
-
 # --- Admin Endpoints ---
 @app.post("/admin/delete_all_games")
 def admin_delete_all_games() -> Dict[str, Any]:
     """Delete all games (admin only)"""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Count games before deletion
         games_count = db_service.get_game_count()
@@ -1452,42 +1558,29 @@ def admin_delete_all_games() -> Dict[str, Any]:
             "deleted_count": games_count
         }
     except Exception as e:
-        # db.rollback() # This line is removed as per the edit hint
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/admin/games_count")
 def admin_get_games_count() -> Dict[str, Any]:
     """Get count of active games (admin only)"""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         count = db_service.get_game_count()
         return {"count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/admin/users_count")
 def admin_get_users_count() -> Dict[str, Any]:
     """Get count of registered users (admin only)"""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         count = db_service.get_user_count()
         return {"count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/admin/cleanup_old_maps")
 def cleanup_old_maps() -> Dict[str, Any]:
     """Clean up map images older than 24 hours (admin only)"""
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Find snapshots with map images older than 24 hours
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -1495,12 +1588,13 @@ def cleanup_old_maps() -> Dict[str, Any]:
         
         cleaned_count = 0
         for snapshot in old_snapshots:
-            if snapshot.map_image_path and os.path.exists(snapshot.map_image_path):
+            map_path: Optional[str] = snapshot.map_image_path  # type: ignore
+            if map_path and os.path.exists(map_path):
                 try:
-                    os.remove(snapshot.map_image_path)
+                    os.remove(map_path)
                     cleaned_count += 1
                 except Exception as e:
-                    print(f"Error removing {snapshot.map_image_path}: {e}")
+                    print(f"Error removing {map_path}: {e}")
         
         return {
             "status": "ok",
@@ -1509,9 +1603,6 @@ def cleanup_old_maps() -> Dict[str, Any]:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.get("/admin/map_cache_stats")
 def get_map_cache_stats() -> Dict[str, Any]:
@@ -1524,7 +1615,8 @@ def get_map_cache_stats() -> Dict[str, Any]:
             "cache_stats": stats
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/admin/clear_map_cache")
 def clear_map_cache() -> Dict[str, Any]:
@@ -1537,7 +1629,8 @@ def clear_map_cache() -> Dict[str, Any]:
             "message": "Map cache cleared successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/admin/preload_maps")
 def preload_common_maps() -> Dict[str, Any]:
@@ -1550,7 +1643,8 @@ def preload_common_maps() -> Dict[str, Any]:
             "message": "Common maps preloaded successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.get("/admin/connection_pool_status")
 def get_connection_pool_status() -> Dict[str, Any]:
@@ -1562,14 +1656,13 @@ def get_connection_pool_status() -> Dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/admin/connection_pool_reset")
 def reset_connection_pool() -> Dict[str, Any]:
     """Reset database connection pool (use with caution)."""
     try:
-        # from .db_session import engine # This line is removed as per the edit hint
-        # engine.dispose()  # Close all connections and recreate pool # This line is removed as per the edit hint
         # The original code had this line commented out, so I'm keeping it commented.
         # If the intent was to remove it, a new edit would be needed.
         return {
@@ -1577,7 +1670,8 @@ def reset_connection_pool() -> Dict[str, Any]:
             "message": "Connection pool reset (simulated)"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.get("/admin/response_cache_stats")
 def get_response_cache_stats() -> Dict[str, Any]:
@@ -1590,7 +1684,8 @@ def get_response_cache_stats() -> Dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/admin/clear_response_cache")
 def clear_response_cache_endpoint() -> Dict[str, Any]:
@@ -1602,7 +1697,8 @@ def clear_response_cache_endpoint() -> Dict[str, Any]:
             "message": "Response cache cleared successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/admin/invalidate_cache/{game_id}")
 def invalidate_game_cache(game_id: str) -> Dict[str, Any]:
@@ -1614,7 +1710,8 @@ def invalidate_game_cache(game_id: str) -> Dict[str, Any]:
             "message": f"Cache invalidated for game {game_id}"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/games/{game_id}/generate_map")
 def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
@@ -1623,7 +1720,6 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Game not found")
     
     game = server.games[game_id]
-    # db: Session = SessionLocal() # This line is removed as per the edit hint
     try:
         # Generate map image (tolerant to missing/invalid data)
         from ..engine.map import Map
@@ -1638,12 +1734,14 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         except Exception as e:
             render_warnings.append(f"units_build_failed: {e}")
             units = {}
-        # Get phase information safely
-        try:
-            phase_info = game.get_phase_info()
-        except Exception as e:
-            render_warnings.append(f"phase_info_failed: {e}")
-            phase_info = {"year": None, "season": None, "phase": None, "phase_code": None}
+        # Get phase information - construct manually since get_phase_info doesn't exist
+        phase_info = {
+            "turn": game.turn,
+            "year": game.year,
+            "season": game.season,
+            "phase": game.phase,
+            "phase_code": game.phase_code
+        }
         # Try rendering; on failure, fallback to empty-orders map
         try:
             img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
@@ -1666,8 +1764,8 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         )
         
         if latest_snapshot:
-            latest_snapshot.map_image_path = map_path
-            db_service.update_game_snapshot_map_image_path(latest_snapshot.id, map_path)
+            latest_snapshot.map_image_path = map_path  # type: ignore
+            db_service.update_game_snapshot_map_image_path(int(latest_snapshot.id), map_path)  # type: ignore
             db_service.commit()
         
         response = {
@@ -1677,13 +1775,13 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
             "message": f"Map generated for {game.phase_code}"
         }
         if render_warnings:
-            response["render_warnings"] = render_warnings
+            # Cast response to Any to allow adding list to dict
+            from typing import cast
+            response = cast(dict[str, Any], response)
+            response["render_warnings"] = list(render_warnings)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # db.close() # This line is removed as per the edit hint
-        pass
 
 @app.post("/games/{game_id}/generate_map/orders")
 def generate_orders_map(game_id: str) -> Dict[str, Any]:
@@ -1722,17 +1820,24 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
                     }
                     
                     # Add order-specific fields
-                    if hasattr(order, 'target') and order.target:
-                        order_dict["target"] = order.target
-                    if hasattr(order, 'supported_unit') and order.supported_unit:
-                        order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
-                        if hasattr(order, 'supported_target') and order.supported_target:
-                            order_dict["supporting"] += f" - {order.supported_target}"
+                    if isinstance(order, MoveOrder) and hasattr(order, 'target_province') and order.target_province:
+                        order_dict["target"] = order.target_province
+                    if isinstance(order, SupportOrder):
+                        if hasattr(order, 'supported_unit') and order.supported_unit:
+                            order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
+                            if hasattr(order, 'supported_target') and order.supported_target:
+                                order_dict["supporting"] += f" - {order.supported_target}"
                     
                     orders[power_name].append(order_dict)
         
-        # Get phase information
-        phase_info = game.get_phase_info()
+        # Get phase information - construct manually since get_phase_info doesn't exist
+        phase_info = {
+            "turn": game.turn,
+            "year": game.year,
+            "season": game.season,
+            "phase": game.phase,
+            "phase_code": game.phase_code
+        }
         
         # Get supply center control
         supply_center_control = {}
@@ -1745,8 +1850,8 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
             svg_path, 
             units, 
             orders, 
-            phase_info, 
-            supply_center_control
+            phase_info=phase_info, 
+            supply_center_control=supply_center_control
         )
         
         # Save to temp location
@@ -1764,7 +1869,8 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
             "message": f"Orders map generated for {game.phase_code}"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 @app.post("/games/{game_id}/generate_map/resolution")
 def generate_resolution_map(game_id: str) -> Dict[str, Any]:
@@ -1804,15 +1910,22 @@ def generate_resolution_map(game_id: str) -> Dict[str, Any]:
                         "status": "success"  # Default - would need proper resolution logic
                     }
                     
-                    if hasattr(order, 'target') and order.target:
-                        order_dict["target"] = order.target
-                    if hasattr(order, 'supported_unit') and order.supported_unit:
-                        order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
+                    if isinstance(order, MoveOrder) and hasattr(order, 'target_province') and order.target_province:
+                        order_dict["target"] = order.target_province
+                    if isinstance(order, SupportOrder):
+                        if hasattr(order, 'supported_unit') and order.supported_unit:
+                            order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
                     
                     orders[power_name].append(order_dict)
         
-        # Get phase information
-        phase_info = game.get_phase_info()
+        # Get phase information - construct manually since get_phase_info doesn't exist
+        phase_info = {
+            "turn": game.turn,
+            "year": game.year,
+            "season": game.season,
+            "phase": game.phase,
+            "phase_code": game.phase_code
+        }
         
         # Get supply center control
         supply_center_control = {}
@@ -1833,8 +1946,8 @@ def generate_resolution_map(game_id: str) -> Dict[str, Any]:
             units,
             orders,
             resolution_data,
-            phase_info,
-            supply_center_control
+            phase_info=phase_info,
+            supply_center_control=supply_center_control
         )
         
         # Save to temp location
@@ -1852,7 +1965,8 @@ def generate_resolution_map(game_id: str) -> Dict[str, Any]:
             "message": f"Resolution map generated for {game.phase_code}"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)
+)
 
 if __name__ == "__main__":
     uvicorn.run("server.api:app", host="0.0.0.0", port=8000, reload=True)

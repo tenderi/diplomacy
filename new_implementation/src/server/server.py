@@ -188,7 +188,7 @@ class Server:
                 if not game:
                     self.logger.error(f"Game {game_id} not found for PROCESS_TURN")
                     return ServerError.create_error_response(ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id})
-                game.process_turn()
+                turn_results = game.process_turn()
                 
                 # Clear all orders after processing to prevent accumulation
                 for power_name in game.game_state.powers.keys():
