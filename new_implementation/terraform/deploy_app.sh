@@ -262,6 +262,13 @@ if [ -f "../demo_perfect_game.py" ]; then
     copy_files "../demo_perfect_game.py" "/tmp/"
 fi
 
+# Copy dashboard files if they exist
+DASHBOARD_DIR="../src/server/dashboard"
+if [ -d "$DASHBOARD_DIR" ]; then
+    echo -e "${YELLOW}📊 Copying dashboard files...${NC}"
+    copy_files "$DASHBOARD_DIR" "/tmp/dashboard"
+fi
+
 # Deploy the application
 echo -e "${YELLOW}Deploying application on instance...${NC}"
 run_ssh "
@@ -294,6 +301,15 @@ run_ssh "
     sudo cp /tmp/alembic.ini /opt/diplomacy/ 2>/dev/null || true
     sudo chown diplomacy:diplomacy /opt/diplomacy/requirements.txt
     sudo chown diplomacy:diplomacy /opt/diplomacy/alembic.ini 2>/dev/null || true
+    
+    # Deploy dashboard if it exists
+    if [ -d '/tmp/dashboard' ]; then
+        sudo mkdir -p /opt/diplomacy/src/server/dashboard
+        sudo rm -rf /opt/diplomacy/src/server/dashboard/*
+        sudo cp -r /tmp/dashboard/* /opt/diplomacy/src/server/dashboard/
+        sudo chown -R diplomacy:diplomacy /opt/diplomacy/src/server/dashboard
+        echo '✅ Dashboard deployed'
+    fi
     
     # Deploy demo script if it exists
     if [ -f '/tmp/demo_perfect_game.py' ]; then
@@ -450,21 +466,17 @@ if ([ "$RESET_DB" = "true" ] || [ "$ALEMBIC_CHANGED" = "true" ] || [ "$SRC_CHANG
         export PYTHONPATH=\"/opt/diplomacy/src:\${PYTHONPATH:-}\"
         export SQLALCHEMY_DATABASE_URL=\$(grep SQLALCHEMY_DATABASE_URL /opt/diplomacy/.env | cut -d '=' -f2- | tr -d '\"\"\\\"''')
         
-        # Handle multiple migration heads by upgrading to all heads, then to merge
-        HEAD_COUNT=\$(sudo -u diplomacy /home/diplomacy/.local/bin/alembic heads 2>&1 | grep -E '^[a-f0-9]{12}' | wc -l)
-        if [ \"\$HEAD_COUNT\" -gt 1 ]; then
-            echo 'Multiple migration heads detected, upgrading all heads first...'
-            sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade heads
-        fi
-        # Now upgrade to the latest (merge migration if it exists)
-        sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade head
+        # Handle migrations - always use 'heads' which works for both single and multiple heads
+        # 'alembic upgrade heads' works correctly whether there's one head or multiple heads
+        echo 'Running database migrations...'
+        sudo -u diplomacy /home/diplomacy/.local/bin/alembic upgrade heads
     " || {
         echo -e "${RED}⚠️  Migration failed!${NC}"
         echo -e "${YELLOW}Attempting to diagnose the issue...${NC}"
         run_ssh "
             cd /opt/diplomacy
             export PYTHONPATH=\"/opt/diplomacy/src:\${PYTHONPATH:-}\"
-            sudo -u diplomacy python3 -c 'from engine.database import Base; print(\"✅ Import successful\")' || echo '❌ Import failed'
+            sudo -u diplomacy env PYTHONPATH=\"/opt/diplomacy/src\" python3 -c 'import sys; sys.path.insert(0, \"/opt/diplomacy/src\"); from engine.database import Base; print(\"✅ Import successful\")' || echo '❌ Import failed'
         "
         echo -e "${YELLOW}Continuing deployment despite migration failure...${NC}"
     }
@@ -560,16 +572,129 @@ PYTHON_SCRIPT
     echo -e "${YELLOW}The server will attempt to initialize schema on startup${NC}"
 }
 
+# Fix systemd service configurations (telegram bot and Nginx)
+echo -e "${YELLOW}Ensuring service configurations are correct...${NC}"
+run_ssh "
+    # Fix telegram bot service configuration
+    sudo tee /etc/systemd/system/diplomacy-bot.service > /dev/null << 'BOTSERVICEEOF'
+[Unit]
+Description=Diplomacy Telegram Bot
+After=network.target postgresql.service diplomacy.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=diplomacy
+WorkingDirectory=/opt/diplomacy
+EnvironmentFile=/opt/diplomacy/.env
+ExecStart=/usr/bin/python3 /opt/diplomacy/src/server/run_telegram_bot.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+BOTSERVICEEOF
+
+    # Fix Nginx configuration with explicit dashboard routing
+    sudo tee /etc/nginx/sites-available/diplomacy > /dev/null << 'NGINXCONFEOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    
+    server_name _;
+    
+    client_max_body_size 10M;
+    
+    # Explicit dashboard location (must come before location /)
+    location /dashboard {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_redirect off;
+        proxy_buffering off;
+    }
+    
+    # Dashboard static files
+    location /dashboard/static {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        expires 1h;
+    }
+    
+    # Health check
+    location /health {
+        proxy_pass http://localhost:8000/health;
+        access_log off;
+    }
+    
+    # API endpoints
+    location /api {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_redirect off;
+    }
+    
+    # Default location
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_redirect off;
+        proxy_buffering off;
+    }
+}
+NGINXCONFEOF
+
+    # Test and reload Nginx
+    if sudo nginx -t > /dev/null 2>&1; then
+        sudo systemctl reload nginx
+        echo '✅ Nginx configuration updated'
+    else
+        echo '⚠️  Nginx configuration test failed, but continuing...'
+        sudo nginx -t || true
+    fi
+    
+    # Reload systemd to pick up service changes
+    sudo systemctl daemon-reload
+    echo '✅ Systemd configuration reloaded'
+"
+
 # Restart services only if code changed or if schema was initialized
 if [ "$SRC_CHANGED" = "true" ] || [ "$RESET_DB" = "true" ]; then
     echo -e "${YELLOW}Restarting diplomacy services (code changed or database reset)...${NC}"
-    # Ensure systemd has the latest .env file loaded
-    run_ssh "sudo systemctl daemon-reload"
     run_ssh "sudo systemctl restart diplomacy"
     run_ssh "sudo systemctl restart diplomacy-bot"
     echo -e "${GREEN}Services restarted with updated configuration${NC}"
 else
     echo -e "${GREEN}No code changes, services remain running...${NC}"
+    # Still restart telegram bot to ensure it's using the correct configuration
+    echo -e "${YELLOW}Restarting telegram bot to ensure correct configuration...${NC}"
+    run_ssh "sudo systemctl restart diplomacy-bot"
 fi
 
 # Wait a moment for service to start
@@ -613,6 +738,7 @@ echo ""
 echo -e "${GREEN}Your Diplomacy server is now running at:${NC}"
 echo -e "API: ${GREEN}http://$INSTANCE_IP:8000${NC}"
 echo -e "API Docs: ${GREEN}http://$INSTANCE_IP:8000/docs${NC}"
+echo -e "Dashboard: ${GREEN}http://$INSTANCE_IP/dashboard${NC}"
 echo -e "Via Nginx: ${GREEN}http://$INSTANCE_IP${NC}"
 echo ""
 echo -e "${BLUE}Deployment Summary:${NC}"
