@@ -34,6 +34,8 @@
 
 6. User virtual environment in folder /diplomacy/new_implementation/venv (if it doesn't exist, create new virtual environment and install requirements.txt from new_implementation/requirements.txt)
 
+7. Don't maintain backwards compatibility - breaking changes are ok, we can drop the database if necessary.
+
 999. Important: When authoring documentation (ie. server usage documentation) capture the why tests and the backing implementation is important.
 
 9999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.

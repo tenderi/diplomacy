@@ -86,7 +86,7 @@ class TelegramBotTester:
             'telegram.replykeyboardmarkup': Mock(),
         }):
             # Import the bot functions
-            from server.telegram_bot import show_help
+            from server.telegram_bot.ui import show_help
             
             # Create mock update and context
             message = MockMessage("/help", self.test_user)
@@ -110,7 +110,7 @@ class TelegramBotTester:
             'telegram.keyboardbutton': Mock(),
             'telegram.replykeyboardmarkup': Mock(),
         }):
-            from server.telegram_bot import selectunit
+            from server.telegram_bot.orders import selectunit
             
             # Test with message
             message = MockMessage("/selectunit", self.test_user)
@@ -173,7 +173,7 @@ class TelegramBotTester:
             }
             mock_api_post.return_value = {"success": True}
             
-            from server.telegram_bot import selectunit
+            from server.telegram_bot.orders import selectunit
             
             # Test with mocked API
             message = MockMessage("/selectunit", self.test_user)

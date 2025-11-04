@@ -10,11 +10,11 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any, List
 
-from server.telegram_bot import (
-    get_cached_default_map, set_cached_default_map, generate_default_map,
-    get_telegram_token, api_post, api_get, normalize_order_provinces,
-    process_waiting_list
-)
+from server.telegram_bot.maps import get_cached_default_map, set_cached_default_map, generate_default_map
+from server.telegram_bot.config import get_telegram_token
+from server.telegram_bot.api_client import api_post, api_get
+from server.telegram_bot.orders import normalize_order_provinces
+from server.telegram_bot.games import process_waiting_list
 
 
 class TestTelegramBotFunctions:
@@ -84,26 +84,26 @@ class TestBotCommands:
             result = get_telegram_token()
             assert result == ''
     
-    @patch('server.telegram_bot.requests.post')
+    @patch('server.telegram_bot.api_client.requests.post')
     def test_api_post_success(self, mock_post):
         """Test successful API POST request."""
         mock_response = Mock()
         mock_response.json.return_value = {'status': 'success'}
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
-        
+
         result = api_post('/test', {'data': 'test'})
         assert result == {'status': 'success'}
         mock_post.assert_called_once()
-    
-    @patch('server.telegram_bot.requests.get')
+
+    @patch('server.telegram_bot.api_client.requests.get')
     def test_api_get_success(self, mock_get):
         """Test successful API GET request."""
         mock_response = Mock()
         mock_response.json.return_value = {'data': 'test'}
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
-        
+
         result = api_get('/test')
         assert result == {'data': 'test'}
         mock_get.assert_called_once()

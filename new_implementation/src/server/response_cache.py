@@ -53,6 +53,21 @@ class ResponseCache:
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode()).hexdigest()
     
+    def _get_endpoint_path(self, endpoint: str) -> str:
+        """Extract route path from endpoint name for cache invalidation."""
+        # Endpoint format: server.api.routes.users.get_user_games
+        # Try to extract route path from module name
+        if "routes.users" in endpoint:
+            # Extract telegram_id from params if available
+            return "users"
+        elif "routes.games" in endpoint:
+            return "games"
+        elif "routes.orders" in endpoint:
+            return "games"
+        elif "routes.messages" in endpoint:
+            return "games"
+        return endpoint
+    
     def get(self, endpoint: str, params: Dict[str, Any] = None) -> Optional[Any]:
         """Get cached response if available and not expired."""
         with self.lock:
@@ -98,16 +113,25 @@ class ResponseCache:
             if len(self.cache) >= self.max_size:
                 self._cleanup_oldest()
             
+            # Extract route path for cache invalidation
+            route_path = self._get_endpoint_path(endpoint)
+            # Build route path with params if available (e.g., "users/12345")
+            if params and "telegram_id" in params:
+                route_path = f"{route_path}/{params['telegram_id']}"
+            elif params and "game_id" in params:
+                route_path = f"{route_path}/{params['game_id']}"
+            
             self.cache[key] = {
                 "data": data,
                 "expires_at": expires_at,
                 "created_at": current_time,
-                "endpoint": endpoint
+                "endpoint": endpoint,
+                "route_path": route_path  # Store route path for pattern matching
             }
             self.cache_params[key] = params or {}
             self.access_times[key] = current_time
             
-            logger.debug(f"💾 Cached response for {endpoint} (TTL: {ttl or self.default_ttl}s)")
+            logger.debug(f"💾 Cached response for {endpoint} (TTL: {ttl or self.default_ttl}s, route: {route_path})")
     
     def set(self, endpoint: str, params: Dict[str, Any], data: Any, ttl: Optional[int] = None) -> None:
         """Alias for put() method to match test expectations."""
@@ -140,11 +164,26 @@ class ResponseCache:
             logger.debug(f"🗑️  Invalidated {len(keys_to_remove)} cache entries for {endpoint}")
     
     def invalidate_pattern(self, pattern: str) -> None:
-        """Invalidate all cached responses matching pattern."""
+        """Invalidate all cached responses matching pattern.
+        
+        Pattern can match:
+        - Endpoint name (e.g., 'server.api.routes.users.get_user_games')
+        - Route path (e.g., 'users/12345' matches endpoints under users/ routes)
+        - Partial endpoint name
+        """
         with self.lock:
             keys_to_remove = []
             for key, cached_data in self.cache.items():
-                if pattern in cached_data["endpoint"]:
+                endpoint = cached_data.get("endpoint", "")
+                route_path = cached_data.get("route_path", "")
+                
+                # Check if pattern matches endpoint name
+                if pattern in endpoint:
+                    keys_to_remove.append(key)
+                # Check if pattern matches route path (exact match or prefix)
+                elif route_path and pattern in route_path:
+                    keys_to_remove.append(key)
+                elif route_path and route_path.startswith(pattern):
                     keys_to_remove.append(key)
             
             for key in keys_to_remove:

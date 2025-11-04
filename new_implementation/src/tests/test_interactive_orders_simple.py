@@ -33,7 +33,7 @@ def test_normalize_order_provinces():
     """Test order normalization function"""
     print("Testing order normalization...")
     
-    from server.telegram_bot import normalize_order_provinces
+    from server.telegram_bot.orders import normalize_order_provinces
     
     # Test basic normalization
     result = normalize_order_provinces("A BER - SIL", "GERMANY")
@@ -98,12 +98,12 @@ def test_callback_data_parsing():
     
     print("✅ Callback data parsing tests passed")
 
-@patch('server.telegram_bot.api_get')
+@patch('server.telegram_bot.orders.api_get')
 def test_selectunit_command_mock(mock_api_get):
     """Test /selectunit command with mocked API"""
     print("Testing /selectunit command...")
     
-    from server.telegram_bot import selectunit
+    from server.telegram_bot.orders import selectunit
     import asyncio
     
     # Mock API responses

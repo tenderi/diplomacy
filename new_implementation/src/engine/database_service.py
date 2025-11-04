@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
+import logging
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
     TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel,
@@ -26,6 +27,7 @@ class DatabaseService:
     
     def __init__(self, database_url: str):
         self.session_factory = get_session_factory(database_url)
+        self.logger = logging.getLogger("diplomacy.engine.database_service")
     
     def create_game(self, game_id: Optional[str] = None, map_name: str = 'standard') -> GameState:
         """
@@ -172,8 +174,6 @@ class DatabaseService:
     
     def submit_orders(self, game_id: str, power_name: str, orders: List[Order], turn_number: Optional[int] = None) -> None:
         """Submit orders for a power"""
-        import logging
-        logger = logging.getLogger("diplomacy.database")
         with self.session_factory() as session:
             # Get game by game_id string
             game_model = self._get_game_model_by_game_id_string(session, str(game_id))
@@ -182,7 +182,7 @@ class DatabaseService:
             
             # Use provided turn_number or fall back to game_model.current_turn
             order_turn = turn_number if turn_number is not None else game_model.current_turn
-            logger.info(f"submit_orders: game_id={game_id}, power={power_name}, turn_number param={turn_number}, game_model.current_turn={getattr(game_model, 'current_turn', None)}, using order_turn={order_turn}")
+            self.logger.info(f"submit_orders: game_id={game_id}, power={power_name}, turn_number param={turn_number}, game_model.current_turn={getattr(game_model, 'current_turn', None)}, using order_turn={order_turn}")
             
             # Create order records
             for order in orders:
@@ -384,7 +384,7 @@ class DatabaseService:
                     order = dict_to_order(order_data)
                     orders_dict[order_model.power_name].append(order)
                 except Exception as e:
-                    print(f"Warning: Failed to convert order: {e}")
+                    self.logger.warning(f"Failed to convert order: {e}")
             
             # Create game state
             # Safely coerce status
@@ -592,6 +592,79 @@ class DatabaseService:
     def get_user_count(self) -> int:
         with self.session_factory() as session:
             return session.query(UserModel).count()
+    
+    # --- Channel Management ---
+    def link_game_to_channel(
+        self, 
+        game_id: str, 
+        channel_id: str, 
+        channel_name: Optional[str] = None,
+        settings: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Link a Telegram channel to a game."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model:
+                raise ValueError(f"Game {game_id} not found")
+            
+            game_model.channel_id = channel_id
+            if channel_name:
+                # Store channel name in settings if needed
+                current_settings = game_model.channel_settings or {}
+                if settings:
+                    current_settings.update(settings)
+                current_settings["channel_name"] = channel_name
+                game_model.channel_settings = current_settings
+            elif settings:
+                current_settings = game_model.channel_settings or {}
+                current_settings.update(settings)
+                game_model.channel_settings = current_settings
+            
+            game_model.updated_at = datetime.now(timezone.utc)
+            session.commit()
+    
+    def unlink_game_from_channel(self, game_id: str) -> None:
+        """Unlink a Telegram channel from a game."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model:
+                raise ValueError(f"Game {game_id} not found")
+            
+            game_model.channel_id = None
+            game_model.channel_settings = None
+            game_model.updated_at = datetime.now(timezone.utc)
+            session.commit()
+    
+    def get_game_channel_info(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Get channel information for a game."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model or not game_model.channel_id:
+                return None
+            
+            settings = game_model.channel_settings or {}
+            
+            return {
+                "channel_id": game_model.channel_id,
+                "channel_name": settings.get("channel_name"),
+                "settings": settings
+            }
+    
+    def update_game_channel_settings(self, game_id: str, settings: Dict[str, Any]) -> None:
+        """Update channel settings for a game."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model:
+                raise ValueError(f"Game {game_id} not found")
+            
+            if not game_model.channel_id:
+                raise ValueError(f"Game {game_id} is not linked to a channel")
+            
+            current_settings = game_model.channel_settings or {}
+            current_settings.update(settings)
+            game_model.channel_settings = current_settings
+            game_model.updated_at = datetime.now(timezone.utc)
+            session.commit()
 
     # --- Players ---
     def create_player(self, game_id: int, power: str, user_id: Optional[int] = None) -> PlayerModel:
@@ -712,8 +785,6 @@ class DatabaseService:
         Args:
             game_id: Can be either the numeric id (int) or game_id string
         """
-        import logging
-        logger = logging.getLogger("diplomacy.database")
         with self.session_factory() as session:
             # Try by numeric id first, then by game_id string
             if isinstance(game_id, int):
@@ -725,9 +796,9 @@ class DatabaseService:
                 game.current_turn = old_turn + 1
                 session.flush()  # Ensure changes are written before commit
                 session.commit()
-                logger.debug(f"increment_game_current_turn: game_id={game_id}, old_turn={old_turn}, new_turn={game.current_turn}")
+                self.logger.debug(f"increment_game_current_turn: game_id={game_id}, old_turn={old_turn}, new_turn={game.current_turn}")
             else:
-                logger.warning(f"increment_game_current_turn: game not found for game_id={game_id}")
+                self.logger.warning(f"increment_game_current_turn: game not found for game_id={game_id}")
 
     # --- Orders ---
     def get_orders_by_player_id(self, player_id: int) -> List[OrderModel]:

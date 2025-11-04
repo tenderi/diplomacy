@@ -442,6 +442,10 @@ def test_order_history_and_clearing():
 
 
 def test_persistent_user_registration_and_multi_game():
+    # Clear cache before test to ensure clean state
+    from server.response_cache import clear_response_cache
+    clear_response_cache()
+    
     client = TestClient(app)
     # Register user
     resp = client.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
