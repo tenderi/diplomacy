@@ -14,6 +14,19 @@ This document contains actionable implementation tasks and fixes for the Diploma
 
 *No active priorities at this time. All planned features have been implemented.*
 
+### Known Issues (Future Work)
+
+#### Demo Perfect Game Script
+**Status**: Low priority - First turn works, but subsequent turns don't progress
+
+The `demo_perfect_game.py` script successfully executes the first turn but fails to advance after that. The game state doesn't update properly between turns, preventing the demo from completing its full sequence.
+
+**Issue Location**: `demo_perfect_game.py` - Turn progression logic
+
+**Impact**: Low - Demo script is for testing/visualization, not core functionality
+
+**Planned Fix**: Investigate and fix turn progression logic in a future session
+
 ---
 
 ## Future Enhancements (Optional)

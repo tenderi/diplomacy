@@ -237,7 +237,7 @@ Type=simple
 User=diplomacy
 WorkingDirectory=/opt/diplomacy
 EnvironmentFile=/opt/diplomacy/.env
-ExecStart=/usr/bin/python3 -m src.server.telegram_bot
+ExecStart=/usr/bin/python3 /opt/diplomacy/src/server/run_telegram_bot.py
 Restart=always
 RestartSec=3
 StandardOutput=journal
@@ -256,7 +256,11 @@ server {
     
     server_name _;
     
-    location / {
+    # Increase buffer sizes for large requests
+    client_max_body_size 10M;
+    
+    # Dashboard route - explicit handling to ensure proper forwarding
+    location /dashboard {
         proxy_pass http://localhost:8000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -278,9 +282,61 @@ server {
         proxy_buffering off;
     }
     
+    # Dashboard static files
+    location /dashboard/static {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        
+        # Cache static files
+        proxy_cache_valid 200 1h;
+        expires 1h;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Health check endpoint
     location /health {
         proxy_pass http://localhost:8000/health;
         access_log off;
+    }
+    
+    # API endpoints
+    location /api {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        proxy_http_version 1.1;
+        proxy_connect_timeout       60s;
+        proxy_send_timeout          60s;
+        proxy_read_timeout          60s;
+        proxy_redirect off;
+    }
+    
+    # Default location - proxy everything else
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout       60s;
+        proxy_send_timeout          60s;
+        proxy_read_timeout          60s;
+        
+        # Ensure proper request forwarding
+        proxy_redirect off;
+        proxy_buffering off;
     }
 }
 EOF
