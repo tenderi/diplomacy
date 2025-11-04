@@ -138,7 +138,9 @@ def test_replace_only_inactive_allowed_via_api():
     
     from server.api import app, ADMIN_TOKEN
     from fastapi.testclient import TestClient
-    if not (os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")):
+    from tests.conftest import _get_db_url
+    db_url = _get_db_url()
+    if not db_url:
         pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
     client = TestClient(app)
     # Register two users
@@ -174,7 +176,8 @@ def test_adjudication_results_in_state():
     
     from server.api import app
     from fastapi.testclient import TestClient
-    if not (os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")):
+    from tests.conftest import _get_db_url
+    if not _get_db_url():
         pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
     client = TestClient(app)
     # Create a game and register a user

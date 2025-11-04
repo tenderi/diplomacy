@@ -15,6 +15,10 @@ from io import BytesIO
 import hashlib
 import time
 from functools import lru_cache
+import logging
+
+# Module-level logger for static methods
+logger = logging.getLogger("diplomacy.engine.map")
 
 class Province:
     """Represents a province on the Diplomacy map."""
@@ -36,6 +40,7 @@ class MapCache:
         self.cache_dir = cache_dir
         self.cache: Dict[str, Tuple[bytes, float]] = {}  # key -> (image_bytes, timestamp)
         self.access_times: Dict[str, float] = {}  # key -> last_access_time
+        self.logger = logging.getLogger("diplomacy.engine.map.cache")
         
         # Create cache directory
         os.makedirs(cache_dir, exist_ok=True)
@@ -68,7 +73,7 @@ class MapCache:
                     meta_data = json.load(f)
                     self.access_times = meta_data.get("access_times", {})
         except Exception as e:
-            print(f"Warning: Could not load cache metadata: {e}")
+            self.logger.warning(f"Could not load cache metadata: {e}")
     
     def _save_cache_metadata(self) -> None:
         """Save cache metadata to disk."""
@@ -81,7 +86,7 @@ class MapCache:
             with open(cache_meta_file, 'w') as f:
                 json.dump(meta_data, f)
         except Exception as e:
-            print(f"Warning: Could not save cache metadata: {e}")
+            self.logger.warning(f"Could not save cache metadata: {e}")
     
     def get(self, cache_key: str) -> Optional[bytes]:
         """Get cached map image if available."""
@@ -99,7 +104,7 @@ class MapCache:
                             self.cache[cache_key] = (img_bytes, time.time())
                             return img_bytes
                     except Exception as e:
-                        print(f"Warning: Could not load cached image {cache_key}: {e}")
+                        self.logger.warning(f"Could not load cached image {cache_key}: {e}")
             
             return self.cache[cache_key][0]
         
@@ -119,7 +124,7 @@ class MapCache:
             with open(cache_file, 'wb') as f:
                 f.write(img_bytes)
         except Exception as e:
-            print(f"Warning: Could not save cached image {cache_key}: {e}")
+            self.logger.warning(f"Could not save cached image {cache_key}: {e}")
         
         # Cleanup if cache is too large
         self._cleanup_cache()
@@ -150,7 +155,7 @@ class MapCache:
                 if os.path.exists(cache_file):
                     os.remove(cache_file)
             except Exception as e:
-                print(f"Warning: Could not remove cache file {cache_file}: {e}")
+                self.logger.warning(f"Could not remove cache file {cache_file}: {e}")
             
             # Remove from access times
             if key_to_remove in self.access_times:
@@ -168,7 +173,7 @@ class MapCache:
                     file_path = os.path.join(self.cache_dir, filename)
                     os.remove(file_path)
         except Exception as e:
-            print(f"Warning: Could not clear cache directory: {e}")
+            self.logger.warning(f"Could not clear cache directory: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
@@ -206,6 +211,7 @@ class Map:
         self.provinces: Dict[str, Province] = {}
         self.supply_centers: Set[str] = set()
         self.map_name: str = map_name
+        self.logger = logging.getLogger("diplomacy.engine.map")
         self._init_map(map_name)
 
     def _init_map(self, map_name: str) -> None:
@@ -428,7 +434,7 @@ class Map:
                     from v2_map_coordinates import get_all_v2_coordinates
                     coords = get_all_v2_coordinates()
                 except ImportError:
-                    print("⚠️  Warning: v2_map_coordinates module not found, using fallback coordinates")
+                    logger.warning("v2_map_coordinates module not found, using fallback coordinates")
                     # Fallback coordinates for V2 map
                     coords = {
                         'LON': (1921, 2378), 'PAR': (1948, 2859), 'BER': (2960, 2423),
@@ -604,7 +610,7 @@ class Map:
             bg_image.paste(overlay, (0, 0), overlay)
                     
         except Exception as e:
-            print(f"Warning: Could not parse SVG for province coloring: {e}")
+            logger.warning(f"Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
 
     @staticmethod
@@ -708,7 +714,7 @@ class Map:
                                 draw.text((x - w/2, y - h/2), text, fill="white", font=font)
                     
         except Exception as e:
-            print(f"Warning: Could not parse SVG for province coloring: {e}")
+            logger.warning(f"Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
     
     @staticmethod
@@ -759,7 +765,7 @@ class Map:
                     draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path with transform: {e}")
+            logger.warning(f"Could not fill SVG path with transform: {e}")
             # Fallback: continue without path filling
 
     @staticmethod
@@ -812,7 +818,7 @@ class Map:
                     draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path with direct coordinates: {e}")
+            logger.warning(f"Could not fill SVG path with direct coordinates: {e}")
             # Fallback: continue without path filling
 
     @staticmethod
@@ -872,7 +878,7 @@ class Map:
                     draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
-            print(f"Warning: Could not fill SVG path: {e}")
+            logger.warning(f"Could not fill SVG path: {e}")
             # Fallback: continue without path filling
 
     @staticmethod
@@ -1527,9 +1533,9 @@ class Map:
     def get_adjacency(self, location: str) -> List[str]:
         prov = self.get_province(location)
         if prov:
-            print(f"DEBUG: get_adjacency({location}) -> {prov.adjacent}")
+            self.logger.debug(f"get_adjacency({location}) -> {prov.adjacent}")
             return list(prov.adjacent)
-        print(f"DEBUG: get_adjacency({location}) -> [] (not found)")
+        self.logger.debug(f"get_adjacency({location}) -> [] (not found)")
         return []
 
     def validate_location(self, location: str) -> bool:
@@ -1561,9 +1567,9 @@ class Map:
         
         try:
             Map.render_board_png(svg_path, empty_units, phase_info=empty_phase_info)
-            print("✅ Preloaded empty map")
+            logger.info("Preloaded empty map")
         except Exception as e:
-            print(f"⚠️  Could not preload empty map: {e}")
+            logger.warning(f"Could not preload empty map: {e}")
         
         # Preload starting positions map
         starting_units = {
@@ -1578,9 +1584,9 @@ class Map:
         
         try:
             Map.render_board_png(svg_path, starting_units, phase_info=empty_phase_info)
-            print("✅ Preloaded starting positions map")
+            logger.info("Preloaded starting positions map")
         except Exception as e:
-            print(f"⚠️  Could not preload starting positions map: {e}")
+            logger.warning(f"Could not preload starting positions map: {e}")
     
     @staticmethod
     def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict):

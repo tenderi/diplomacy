@@ -43,7 +43,7 @@ class SelectunitFixTester:
             # Mock the API call
             with patch('src.server.telegram_bot.api_get', return_value=mock_api_response):
                 # Import the selectunit function
-                from server.telegram_bot import selectunit
+                from server.telegram_bot.orders import selectunit
                 
                 # Create mock objects that simulate a callback query (button press)
                 class MockUser:
@@ -96,7 +96,7 @@ class SelectunitFixTester:
             
             # Mock the API call
             with patch('src.server.telegram_bot.api_get', return_value=mock_api_response):
-                from server.telegram_bot import selectunit
+                from server.telegram_bot.orders import selectunit
                 
                 # Create mock objects that simulate a message (/selectunit command)
                 class MockUser:
@@ -144,7 +144,7 @@ class SelectunitFixTester:
             mock_api_response = {"games": []}
             
             with patch('src.server.telegram_bot.api_get', return_value=mock_api_response):
-                from server.telegram_bot import selectunit
+                from server.telegram_bot.orders import selectunit
                 
                 class MockUser:
                     def __init__(self):
@@ -195,7 +195,7 @@ class SelectunitFixTester:
             }
             
             with patch('src.server.telegram_bot.api_get', return_value=mock_api_response):
-                from server.telegram_bot import selectunit
+                from server.telegram_bot.orders import selectunit
                 
                 class MockUser:
                     def __init__(self):

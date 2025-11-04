@@ -30,6 +30,8 @@ class GameModel(Base):
     phase_code = Column(String(10), nullable=False, default='S1901M')
     status = Column(String(20), nullable=False, default='active')
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
+    channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
+    channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

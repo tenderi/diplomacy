@@ -104,12 +104,26 @@ SessionLocal = None  # type: ignore
 
 
 def _get_db_url() -> str:
-    """Get database URL from environment variables.
+    """Get database URL from environment variables or default config.
     
     Checks for SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL.
+    Falls back to default from server.db_config if not set.
     Returns the URL if found, None otherwise.
     """
-    return os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+    # First check environment variables
+    db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+    
+    # If not set, try to use default from db_config (but allow None for CI/skip scenarios)
+    if not db_url:
+        try:
+            from server.db_config import SQLALCHEMY_DATABASE_URL as default_url
+            # Only use default if it's not the placeholder (contains actual connection info)
+            if default_url and "localhost" in default_url:
+                db_url = default_url
+        except ImportError:
+            pass
+    
+    return db_url
 
 
 @pytest.fixture

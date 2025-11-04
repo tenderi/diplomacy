@@ -47,7 +47,8 @@ class TestDemoGameManagement:
         Note: We don't drop tables after tests to avoid interfering with other tests
         that may run after this class. Tables are created if needed, but not dropped.
         """
-        db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
+        from tests.conftest import _get_db_url
+        db_url = _get_db_url()
         if not db_url:
             pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
         # Create PostgreSQL database for testing (uses provided URL)

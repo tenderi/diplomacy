@@ -53,7 +53,7 @@ class BotFunctionTester:
                     }
                     
                     # Import the function
-                    from server.telegram_bot import selectunit
+                    from server.telegram_bot.orders import selectunit
                     
                     # Create mock update objects
                     class MockUser:
@@ -169,7 +169,7 @@ class BotFunctionTester:
         
         try:
             # Test API functions directly
-            from server.telegram_bot import api_get, api_post
+            from server.telegram_bot.api_client import api_get, api_post
             
             # Mock requests
             with patch('requests.get') as mock_get, patch('requests.post') as mock_post:

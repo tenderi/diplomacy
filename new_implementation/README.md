@@ -11,21 +11,86 @@ A modern, fully-tested Diplomacy board game server in Python. This project is de
 - Strict typing and Ruff compliance
 
 ## Installation
-1. Clone the repository
-2. (Optional) Create a virtual environment: `python3 -m venv venv && source venv/bin/activate`
-3. Install requirements: `pip install -r requirements.txt`
+
+### Prerequisites
+- Python 3.8 or higher
+- PostgreSQL (for production/database features)
+- Telegram Bot Token (for Telegram bot features)
+
+### Quick Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd diplomacy/new_implementation
+   ```
+
+2. **Create virtual environment (recommended)**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set up database (optional but recommended)**
+   ```bash
+   # Create PostgreSQL database
+   createdb diplomacy_db
+   
+   # Set environment variable
+   export SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://user:password@localhost/diplomacy_db
+   ```
+
+5. **Set up Telegram bot (optional)**
+   ```bash
+   # Get token from @BotFather on Telegram
+   export TELEGRAM_BOT_TOKEN=your-bot-token-here
+   ```
 
 ## How to Run
-- **Start the server:**
-  ```bash
-  python -m server.server
-  ```
-- **Use the client:**
-  See [README_client.md](./src/README_client.md) for usage examples.
-- **Run all tests:**
-  ```bash
-  pytest new_implementation/src/ --maxfail=5 --disable-warnings
-  ```
+
+### Start the API Server
+
+```bash
+# Start the FastAPI server
+python -m server._api_module
+
+# Or with uvicorn
+uvicorn server._api_module:app --host 0.0.0.0 --port 8000
+```
+
+The API will be available at `http://localhost:8000`
+
+### Start the Telegram Bot
+
+```bash
+# Ensure TELEGRAM_BOT_TOKEN is set
+export TELEGRAM_BOT_TOKEN=your-token-here
+
+# Start the bot
+python -m server.telegram_bot
+```
+
+### Run Tests
+
+```bash
+# Run all tests
+pytest src/tests/ -v
+
+# Run with coverage
+pytest src/tests/ --cov=src --cov-report=html
+
+# Run specific test file
+pytest src/tests/test_game.py -v
+```
+
+### Use the Client
+
+See [README_client.md](./src/README_client.md) for client usage examples.
 
 ## Quickstart Example (CLI)
 1. Start the server (see above)
@@ -51,9 +116,25 @@ A modern, fully-tested Diplomacy board game server in Python. This project is de
 - Update documentation after each increment
 - See [documentation_plan.md](./specs/documentation_plan.md) for more
 
+## Documentation
+
+- **[Telegram Bot Commands](./docs/TELEGRAM_BOT_COMMANDS.md)** - Complete command reference
+- **[FAQ & Troubleshooting](./docs/FAQ.md)** - Common questions and solutions
+- **[Server API Documentation](./src/server/README.md)** - API endpoint reference
+- **[Engine Documentation](./src/engine/README.md)** - Core game engine docs
+- **[Client Documentation](./src/README_client.md)** - Client usage guide
+
 ## FAQ & Troubleshooting
-- See [specs/](./specs/) for rules, requirements, and troubleshooting
-- For issues, check the logs and ensure all dependencies are installed
+
+For common questions and troubleshooting, see:
+- **[FAQ Guide](./docs/FAQ.md)** - Comprehensive FAQ and troubleshooting
+- **[Telegram Bot Commands](./docs/TELEGRAM_BOT_COMMANDS.md)** - All bot commands
+- [specs/](./specs/) - Detailed specifications and rules
+
+For issues:
+- Check the logs for detailed error messages
+- Ensure all dependencies are installed
+- Verify environment variables are set correctly
 
 ## Why tests and implementation matter
 Tests ensure correctness, reliability, and maintainability. All features are covered by tests, and strict typing and Ruff compliance are enforced.

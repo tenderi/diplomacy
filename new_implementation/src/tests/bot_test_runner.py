@@ -238,7 +238,7 @@ class TelegramBotTestFramework:
         print("\n🧪 Testing API functions...")
         
         try:
-            from server.telegram_bot import api_get, api_post
+            from server.telegram_bot.api_client import api_get, api_post
             
             with patch('requests.get') as mock_get, patch('requests.post') as mock_post:
                 # Mock successful responses
