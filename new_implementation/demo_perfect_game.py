@@ -684,40 +684,46 @@ class PerfectDemoGame:
             if actual_phase != scenario.phase or actual_year != scenario.year or actual_season != scenario.season:
                 print(f"⚠️ Phase mismatch: Expected {scenario.season} {scenario.year} {scenario.phase}, got {actual_season} {actual_year} {actual_phase}")
                 
-                # If we're in Retreat phase but expecting Movement, check if we should skip
+                # If we're in Retreat phase but expecting Movement, we need to process Retreat first
                 if actual_phase == "Retreat" and scenario.phase == "Movement":
-                    has_dislodgements = self.check_for_dislodgements(game_state)
-                    if not has_dislodgements:
-                        print(f"  ⏭️ No dislodgements found, processing empty Retreat phase to advance")
-                        # Process empty retreat phase to advance
-                        if not self.process_phase():
-                            print("  ❌ Failed to process Retreat phase")
-                            continue
-                        # Get updated state
-                        result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
-                        if result.get("status") == "ok":
-                            game_state = result.get("state")
-                            # Check again
-                            if game_state.get('phase') != scenario.phase:
-                                print(f"  ⚠️ Still in wrong phase after processing: {game_state.get('phase')}")
-                                continue
-                    else:
-                        # There are dislodgements - we need to handle the Retreat phase
-                        print(f"  ⚠️ Dislodgements found, but scenario expects {scenario.phase}. Processing Retreat first.")
-                        # Generate empty retreat orders - let game auto-disband if needed
-                        empty_retreat_orders = {}
-                        self.submit_orders(empty_retreat_orders)
-                        if not self.process_phase():
-                            print("  ❌ Failed to process Retreat phase")
-                            continue
-                        # Get updated state
-                        result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
-                        if result.get("status") == "ok":
-                            game_state = result.get("state")
+                    print(f"  ⏭️ Processing Retreat phase first (dislodgements occurred)")
+                    # Generate empty retreat orders - let game auto-disband if needed
+                    empty_retreat_orders = {}
+                    self.submit_orders(empty_retreat_orders)
+                    if not self.process_phase():
+                        print("  ❌ Failed to process Retreat phase")
+                        continue
+                    # Get updated state after processing Retreat
+                    result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
+                    if result.get("status") == "ok":
+                        game_state = result.get("state")
+                        actual_phase = game_state.get('phase')
+                        actual_year = game_state.get('year')
+                        actual_season = game_state.get('season')
+                        print(f"  📍 After Retreat: {actual_season} {actual_year} {actual_phase}")
                 
-                # If still in wrong phase, skip this scenario
+                # If we're in Builds phase but expecting Movement, we need to process Builds first
+                if actual_phase == "Builds" and scenario.phase == "Movement":
+                    print(f"  ⏭️ Processing Builds phase first")
+                    # Generate empty build orders
+                    empty_build_orders = {}
+                    self.submit_orders(empty_build_orders)
+                    if not self.process_phase():
+                        print("  ❌ Failed to process Builds phase")
+                        continue
+                    # Get updated state after processing Builds
+                    result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
+                    if result.get("status") == "ok":
+                        game_state = result.get("state")
+                        actual_phase = game_state.get('phase')
+                        actual_year = game_state.get('year')
+                        actual_season = game_state.get('season')
+                        print(f"  📍 After Builds: {actual_season} {actual_year} {actual_phase}")
+                
+                # If still in wrong phase after handling, skip this scenario
                 if game_state.get('phase') != scenario.phase or game_state.get('year') != scenario.year or game_state.get('season') != scenario.season:
                     print(f"  ⚠️ Cannot proceed - still in {game_state.get('season')} {game_state.get('year')} {game_state.get('phase')}, expected {scenario.season} {scenario.year} {scenario.phase}")
+                    print(f"  ⏭️ Skipping this scenario and continuing")
                     continue
             
             # Skip retreat phases if no dislodgements occurred (only for scenarios explicitly marked as Retreat)
