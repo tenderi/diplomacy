@@ -122,8 +122,8 @@ class Game:
             if power_name.upper() in home_centers:
                 self.game_state.map_data.home_supply_centers[power_name] = home_centers[power_name.upper()]
             
-            # Assign standard starting units if using the standard map or demo mode
-            if self.map_name in ['standard', 'demo']:
+            # Assign standard starting units if using the standard map, standard-v2, or demo mode
+            if self.map_name in ['standard', 'standard-v2', 'demo']:
                 starting_units = {
                     'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
                     'FRANCE': ['A PAR', 'A MAR', 'F BRE'],

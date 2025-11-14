@@ -51,15 +51,21 @@ def test_map_generation_consistency():
             print(f"   render_board_png: {len(img_bytes_1)} bytes")
             print(f"   render_board_png_with_moves: {len(img_bytes_2)} bytes")
         
-        # Save test images for manual inspection
-        with open("test_bot_map.png", "wb") as f:
+        # Save test images for manual inspection in test_maps folder
+        test_maps_dir = os.path.join(os.path.dirname(__file__), "test_maps")
+        os.makedirs(test_maps_dir, exist_ok=True)
+        
+        bot_map_path = os.path.join(test_maps_dir, "test_bot_map.png")
+        demo_map_path = os.path.join(test_maps_dir, "test_demo_map.png")
+        
+        with open(bot_map_path, "wb") as f:
             f.write(img_bytes_2)
-        with open("test_demo_map.png", "wb") as f:
+        with open(demo_map_path, "wb") as f:
             f.write(img_bytes_1)
         
         print("💾 Saved test images:")
-        print("   - test_bot_map.png (render_board_png_with_moves)")
-        print("   - test_demo_map.png (render_board_png)")
+        print(f"   - {bot_map_path} (render_board_png_with_moves)")
+        print(f"   - {demo_map_path} (render_board_png)")
         print()
         print("🔍 Manual verification:")
         print("   Both images should have:")

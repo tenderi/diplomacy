@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEST_DIR="$PROJECT_ROOT/src/tests"
+TEST_DIR="$PROJECT_ROOT/tests"
 COVERAGE_DIR="$PROJECT_ROOT/htmlcov"
 COVERAGE_XML="$PROJECT_ROOT/coverage.xml"
 

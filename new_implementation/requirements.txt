@@ -36,3 +36,4 @@ pytz>=2024.2
 # Additional utilities
 python-multipart>=0.0.17  # For FastAPI file uploads
 python-dotenv>=1.0.1     # For environment variable management
+click>=8.1.0,<9.0.0      # For command-line interface

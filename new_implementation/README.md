@@ -79,13 +79,13 @@ python -m server.telegram_bot
 
 ```bash
 # Run all tests
-pytest src/tests/ -v
+pytest tests/ -v
 
 # Run with coverage
-pytest src/tests/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 
 # Run specific test file
-pytest src/tests/test_game.py -v
+pytest tests/test_game.py -v
 ```
 
 ### Use the Client

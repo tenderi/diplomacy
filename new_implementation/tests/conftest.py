@@ -16,7 +16,7 @@ from unittest.mock import Mock, MagicMock
 # MUST happen before any database imports
 try:
     from dotenv import load_dotenv
-    # Look for .env file in project root (two levels up from src/tests)
+    # Look for .env file in project root (one level up from tests)
     project_root = os.path.join(os.path.dirname(__file__), '..', '..')
     env_path = os.path.join(project_root, '.env')
     if os.path.exists(env_path):

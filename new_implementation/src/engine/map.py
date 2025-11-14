@@ -194,10 +194,20 @@ _font_cache: Optional[ImageFont.ImageFont] = None
 # Global map cache instance
 _map_cache = MapCache()
 
-# Visualization color constants
-DEFENSIVE_SUPPORT_COLOR = "#90EE90"  # Light green
-OFFENSIVE_SUPPORT_COLOR = "#FFB6C1"  # Light pink (alternative: "#87CEEB" sky blue)
-CONVOY_COLOR = "#FFD700"  # Gold (alternative: "#FF8C00" dark orange)
+# Import visualization configuration
+from .visualization_config import get_config
+
+# Get global config instance
+_viz_config = get_config()
+
+
+def _get_power_colors_dict() -> Dict[str, str]:
+    """Get power colors dictionary from config."""
+    power_colors = {}
+    for power in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]:
+        power_colors[power] = _viz_config.get_power_color(power)
+    return power_colors
+
 
 class Map:
     """Represents the Diplomacy map, including provinces and their adjacencies."""
@@ -215,7 +225,8 @@ class Map:
         self._init_map(map_name)
 
     def _init_map(self, map_name: str) -> None:
-        if map_name == 'standard':
+        if map_name == 'standard' or map_name == 'standard-v2':
+            # standard-v2 uses the same game logic as standard, just different visual appearance
             self._init_classic_map()
         else:
             # Load map from file for variants
@@ -403,6 +414,36 @@ class Map:
                     self.provinces[adj].add_adjacent(name)
 
     @staticmethod
+    def _resolve_svg_path(map_name: str = 'standard') -> str:
+        """
+        Resolve SVG file path based on map name.
+        
+        Args:
+            map_name: Name of the map variant ('standard' or 'standard-v2')
+            
+        Returns:
+            Path to the SVG file
+        """
+        base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+        
+        if map_name == 'standard-v2':
+            # Use v2.svg for standard-v2 map
+            svg_path = os.path.join(base_dir, "v2.svg")
+            # Fallback to standard if v2.svg doesn't exist
+            if not os.path.exists(svg_path):
+                svg_path = base_path
+        elif map_name == 'standard':
+            svg_path = base_path
+        else:
+            # For other variants, try {map_name}.svg
+            svg_path = os.path.join(base_dir, f"{map_name}.svg")
+            if not os.path.exists(svg_path):
+                svg_path = base_path  # Fallback to standard
+        
+        return svg_path
+
+    @staticmethod
     def _get_cached_svg_data(svg_path: str) -> Tuple[ET.ElementTree, Dict[str, Tuple[float, float]]]:
         """Get cached SVG data or parse and cache it."""
         global _svg_cache
@@ -428,27 +469,53 @@ class Map:
             tree = ET.parse(svg_path)
             root = tree.getroot()
             
-            # Check if this is the V2 map (doesn't have jdipNS structure)
-            if 'v2' in svg_path.lower():
-                try:
-                    from v2_map_coordinates import get_all_v2_coordinates
-                    coords = get_all_v2_coordinates()
-                except ImportError:
-                    logger.warning("v2_map_coordinates module not found, using fallback coordinates")
-                    # Fallback coordinates for V2 map
-                    coords = {
-                        'LON': (1921, 2378), 'PAR': (1948, 2859), 'BER': (2960, 2423),
-                        'VIE': (3074, 3039), 'MOS': (4849, 2167), 'ROM': (2793, 3613),
-                        'CON': (4233, 3821), 'EDI': (1886, 1866), 'MAR': (2020, 3265),
-                        'MUN': (2645, 2808), 'BUD': (3497, 3099), 'WAR': (3612, 2564),
-                        'VEN': (2662, 3265), 'SMY': (4609, 3974), 'STP': (4347, 1624),
-                        'KIE': (2662, 2448), 'TRI': (3130, 3306), 'SEV': (5268, 3021),
-                        'NAP': (2980, 3732), 'ANK': (4785, 3682), 'LVP': (1767, 2022),
-                        'BRE': (1697, 2782), 'BOH': (3012, 2808), 'GAL': (3673, 2825),
-                        'UKR': (4186, 2698), 'TYR': (2801, 3055), 'ARM': (5392, 3676),
-                        'PIC': (2000, 2665), 'SIL': (3052, 2597), 'PRU': (3360, 2367),
-                        'LIV': (3783, 2096), 'FIN': (3781, 1321), 'SYR': (5143, 4231)
-                    }
+            # Check if this is the standard-v2 map (doesn't have jdipNS structure)
+            # standard-v2 uses text elements with transform attributes instead of jdipNS:PROVINCE
+            if 'v2.svg' in svg_path or 'standard-v2' in svg_path.lower():
+                coords = {}
+                import re
+                # Get viewBox to scale coordinates appropriately
+                viewbox = root.get('viewBox', '0 0 7016 4960')
+                viewbox_parts = viewbox.split()
+                if len(viewbox_parts) >= 4:
+                    svg_width = float(viewbox_parts[2])
+                    svg_height = float(viewbox_parts[3])
+                else:
+                    svg_width = 7016.0
+                    svg_height = 4960.0
+                
+                # Output dimensions for rendering (standard map size)
+                output_width = 1835.0
+                output_height = 1360.0
+                
+                # Scale factors
+                scale_x = output_width / svg_width
+                scale_y = output_height / svg_height
+                
+                # Parse text elements with transform="translate(x, y)" attributes
+                # Text content format: "FullNameABBREV" (e.g., "LondonLON", "EdinburghEDI")
+                for text_elem in root.findall('.//{http://www.w3.org/2000/svg}text'):
+                    transform = text_elem.get('transform', '')
+                    if 'translate' in transform:
+                        # Extract coordinates from transform='translate(x y)'
+                        match = re.search(r'translate\(([\d.]+)\s+([\d.]+)\)', transform)
+                        if match:
+                            x = float(match.group(1))
+                            y = float(match.group(2))
+                            # Scale coordinates to match output dimensions
+                            x_scaled = x * scale_x
+                            y_scaled = y * scale_y
+                            # Get text content
+                            content = ''.join(text_elem.itertext()).strip()
+                            # Extract abbreviation (typically last 2-4 uppercase letters)
+                            # Pattern: full name followed by abbreviation
+                            abbrev_match = re.search(r'([A-Z]{2,4})$', content)
+                            if abbrev_match:
+                                abbrev = abbrev_match.group(1).upper()
+                                coords[abbrev] = (x_scaled, y_scaled)
+                
+                if not coords:
+                    logger.warning(f"Failed to extract coordinates from v2 SVG at {svg_path}, using empty dict")
             else:
                 # Use jdipNS coordinates - these are the correct coordinate system
                 coords = {}
@@ -990,16 +1057,8 @@ class Map:
         draw = ImageDraw.Draw(bg)
         # 2. Get province coordinates (cached)
         coords = Map.get_svg_province_coordinates(svg_path)
-        # 3. Define power colors (fallbacks)
-        power_colors = {
-            "AUSTRIA": "#c48f85",
-            "ENGLAND": "darkviolet",
-            "FRANCE": "royalblue",
-            "GERMANY": "#a08a75",
-            "ITALY": "forestgreen",
-            "RUSSIA": "#757d91",
-            "TURKEY": "#b9a61c",
-        }
+        # 3. Get power colors from config
+        power_colors = _get_power_colors_dict()
         # 4. Draw units with province coloring
         font = Map._get_cached_font(30)  # Font size for army/fleet markers
         
@@ -1044,22 +1103,50 @@ class Map:
                 # NO SCALING - use SVG coordinates directly
                 # All coordinates are now in the same coordinate system (no scaling needed)
                 
-                # Draw unit circle with different styling for dislodged units
-                r = 14  # Reduced by 30% from 28 to 20 (28 * 0.7 = 19.6, rounded to 20)
-                if is_dislodged:
-                    # Semi-transparent circle with dashed border for dislodged units
-                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="red", width=2)
-                    # Add "D" marker for dislodged
-                    dislodged_font = Map._get_cached_font(20)
-                    draw.text((x + r - 5, y - r + 5), "D", fill="red", font=dislodged_font)
-                else:
-                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline="black", width=3)
+                # Get unit specs from config
+                unit_specs = _viz_config.get_unit_specs()
+                unit_diameter = unit_specs["diameter"]
+                r = unit_diameter // 2  # Radius from diameter
                 
-                # Draw unit type letter
+                if is_dislodged:
+                    # Dislodged unit: offset position, red border, "D" marker
+                    dislodged_offset = unit_specs["dislodged_offset"]
+                    x += dislodged_offset[0]
+                    y += dislodged_offset[1]
+                    dislodged_border_width = unit_specs["dislodged_border_width"]
+                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, 
+                               outline=_viz_config.get_color("failure"), width=dislodged_border_width)
+                    
+                    # Add "D" marker in top-right corner
+                    dislodged_indicator_size = unit_specs["dislodged_indicator_size"]
+                    dislodged_indicator_offset = unit_specs["dislodged_indicator_offset"]
+                    indicator_x = x + r - dislodged_indicator_offset[0]
+                    indicator_y = y - r + dislodged_indicator_offset[1]
+                    # Draw small circle/square for "D" marker
+                    indicator_r = dislodged_indicator_size // 2
+                    draw.ellipse((indicator_x - indicator_r, indicator_y - indicator_r,
+                                indicator_x + indicator_r, indicator_y + indicator_r),
+                               fill=_viz_config.get_color("failure"), 
+                               outline=_viz_config.get_color("failure"))
+                    # Draw "D" text
+                    dislodged_font = Map._get_cached_font(dislodged_indicator_size)
+                    draw.text((indicator_x - indicator_r//2, indicator_y - indicator_r//2), "D", 
+                            fill="white", font=dislodged_font)
+                else:
+                    # Standard unit: black border
+                    border_width = unit_specs["border_width"]
+                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, 
+                               outline="black", width=border_width)
+                
+                # Draw unit type letter using config font size
                 text = unit_type
-                bbox = draw.textbbox((0, 0), text, font=font)
+                font_specs = _viz_config.get_font_specs()
+                unit_label_font = Map._get_cached_font(font_specs["unit_label_size"])
+                bbox = draw.textbbox((0, 0), text, font=unit_label_font)
                 w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
+                # Use contrasting color (white or black based on power color brightness)
+                text_color = "white"  # Default to white, could be made smarter
+                draw.text((x - w/2, y - h/2), text, fill=text_color, font=unit_label_font)
         
         # 5. Add phase information to bottom right corner
         if phase_info:
@@ -1089,11 +1176,12 @@ class Map:
         Format: "Year Season Phase" (e.g., "1901 Spring Movement")
         Includes phase code (e.g., "S1901M") if available
         Position: top-right corner (per spec)
-        Font size: 16 points (within 14-18 range)
+        Font size: from config (within 14-18 range)
         """
+        font_specs = _viz_config.get_font_specs()
+        font_size = font_specs["phase_overlay_size"]
         try:
-            # Use font size 16 (within 14-18 point range from spec)
-            phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+            phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
         except Exception:
             phase_font = ImageFont.load_default()
         
@@ -1179,16 +1267,8 @@ class Map:
         # Get province coordinates for order visualization
         coords = Map.get_svg_province_coordinates(svg_path)
         
-        # Define power colors
-        power_colors = {
-            "AUSTRIA": "#c48f85",
-            "ENGLAND": "darkviolet", 
-            "FRANCE": "royalblue",
-            "GERMANY": "#a08a75",
-            "ITALY": "forestgreen",
-            "RUSSIA": "#757d91",
-            "TURKEY": "#b9a61c",
-        }
+        # Get power colors from config
+        power_colors = _get_power_colors_dict()
         
         # Draw order visualizations
         Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
@@ -1296,16 +1376,8 @@ class Map:
         # Get province coordinates
         coords = Map.get_svg_province_coordinates(svg_path)
         
-        # Define power colors
-        power_colors = {
-            "AUSTRIA": "#c48f85",
-            "ENGLAND": "darkviolet", 
-            "FRANCE": "royalblue",
-            "GERMANY": "#a08a75",
-            "ITALY": "forestgreen",
-            "RUSSIA": "#757d91",
-            "TURKEY": "#b9a61c",
-        }
+        # Get power colors from config
+        power_colors = _get_power_colors_dict()
         
         # Draw order visualizations with status indicators
         Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
@@ -1375,16 +1447,8 @@ class Map:
         # Get province coordinates for move visualization
         coords = Map.get_svg_province_coordinates(svg_path)
         
-        # Define power colors
-        power_colors = {
-            "AUSTRIA": "#c48f85",
-            "ENGLAND": "darkviolet", 
-            "FRANCE": "royalblue",
-            "GERMANY": "#a08a75",
-            "ITALY": "forestgreen",
-            "RUSSIA": "#757d91",
-            "TURKEY": "#b9a61c",
-        }
+        # Get power colors from config
+        power_colors = _get_power_colors_dict()
         
         # Draw moves visualization
         Map._draw_moves_visualization(draw, moves, coords, power_colors)
@@ -1626,7 +1690,13 @@ class Map:
                 else:
                     other_orders.append(order_with_context)
         
-        # Draw in layer order: hold → support → convoy → movement → other
+        # Draw in layer order per spec section 3.4.11:
+        # 3. Hold indicators
+        # 4. Support lines and circles
+        # 5. Convoy routes
+        # 6. Movement arrows
+        # 7. Retreat arrows (in other_orders)
+        # Note: Units, Build/Destroy, Conflict markers, Status indicators drawn separately
         for order_list in [hold_orders, support_orders, convoy_orders, movement_orders, other_orders]:
             for order, power, color in order_list:
                 order_type = order.get("type", "")
@@ -1667,7 +1737,7 @@ class Map:
                     if not convoy_chain:
                         # Fallback: try to use "via" field
                         convoy_chain = order.get("via", [])
-                    convoy_color = CONVOY_COLOR
+                    convoy_color = _viz_config.get_color("convoy")
                     Map._draw_convoy_order(draw, convoyed_army_province, target, 
                                          convoy_chain, convoy_color, status, coords)
                 elif order_type == "retreat":
@@ -1778,7 +1848,7 @@ class Map:
                             convoying_fleet = unit_parts[1]
                             convoy_chain = [convoying_fleet] if convoying_fleet != convoyed_army_province else []
                         Map._draw_convoy_order(draw, convoyed_army_province, target, 
-                                              convoy_chain, CONVOY_COLOR, "success", coords)
+                                              convoy_chain, _viz_config.get_color("convoy"), "success", coords)
             
             # Draw builds
             for build in power_moves.get("builds", []):
@@ -1865,32 +1935,41 @@ class Map:
         supported_coord = coords[supported_unit_province]
         
         if supported_action == "hold":
-            # Defensive Support (Hold Support)
-            support_color = DEFENSIVE_SUPPORT_COLOR if status == "success" else "red"
+            # Defensive Support (Hold Support) - spec section 3.4.4
+            arrow_specs = _viz_config.get_arrow_specs()
+            marker_specs = _viz_config.get_marker_specs()
+            support_color = _viz_config.get_color("support_defensive") if status == "success" else _viz_config.get_color("failure")
             
-            # Draw dashed line from supporter to defending unit
-            Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, width=2, style="dashed")
+            # Draw dashed line from supporter to defending unit (light green)
+            Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, 
+                          width=arrow_specs["line_width_secondary"], style="dashed")
             
-            # Draw circle around defending unit in supporting unit's power color (3-4px border)
+            # Draw circle around defending unit in supporting unit's power color
             if status == "success":
-                Map._draw_circle(draw, supported_coord, supporting_power_color, width=3, style="solid")
+                circle_diameter = marker_specs["support_circle_diameter"]
+                circle_border_width = marker_specs["support_circle_border_width"]
+                Map._draw_circle_at_size(draw, supported_coord, supporting_power_color, 
+                                       circle_diameter, circle_border_width, style="solid")
             
             # Add red X through support line if cut
             if status != "success":
                 Map._draw_support_cut_indicator(draw, supporter_coord, supported_coord)
                 
         elif supported_action == "move" and supported_target:
-            # Offensive Support (Move Support)
-            support_color = OFFENSIVE_SUPPORT_COLOR if status == "success" else "red"
+            # Offensive Support (Move Support) - spec section 3.4.4
+            arrow_specs = _viz_config.get_arrow_specs()
+            support_color = _viz_config.get_color("support_offensive") if status == "success" else _viz_config.get_color("failure")
             
             if supported_target in coords:
                 target_coord = coords[supported_target]
                 
                 # Draw dashed arrow path: supporter → supported unit → attack target
                 # First segment: supporter to supported unit
-                Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, width=2, style="dashed")
+                Map._draw_arrow(draw, supporter_coord, supported_coord, support_color, 
+                             width=arrow_specs["line_width_secondary"], style="dashed")
                 # Second segment: supported unit to target
-                Map._draw_arrow(draw, supported_coord, target_coord, support_color, width=2, style="dashed")
+                Map._draw_arrow(draw, supported_coord, target_coord, support_color, 
+                             width=arrow_specs["line_width_secondary"], style="dashed")
                 
                 # Add red X through support line if cut
                 if status != "success":
@@ -1902,21 +1981,17 @@ class Map:
     def _draw_convoy_order(draw, convoyed_army_province: str, convoyed_to: str, 
                           convoy_chain: List[str], convoy_color: str, status: str, coords: dict):
         """
-        Draw convoy order showing full convoy chain starting from convoyed army.
+        Draw convoy order per spec section 3.4.5.
         
-        Args:
-            draw: PIL ImageDraw object
-            convoyed_army_province: Province where the convoyed army starts
-            convoyed_to: Destination province
-            convoy_chain: List of convoying fleet provinces in order
-            convoy_color: Dedicated convoy color (CONVOY_COLOR)
-            status: Order status ("success", "failed", etc.)
-            coords: Dictionary mapping province names to (x, y) coordinates
+        Curved path (bezier) from army through all fleets to destination.
+        Gold/orange color, solid line, circles around convoying fleets, arrowhead at destination.
         """
         if convoyed_army_province not in coords or convoyed_to not in coords:
             return
         
-        convoy_color_actual = convoy_color if status == "success" else "red"
+        arrow_specs = _viz_config.get_arrow_specs()
+        marker_specs = _viz_config.get_marker_specs()
+        convoy_color_actual = convoy_color if status == "success" else _viz_config.get_color("failure")
         
         # Build complete path: army → fleet1 → fleet2 → ... → destination
         path = [convoyed_army_province]
@@ -1934,94 +2009,170 @@ class Map:
             from_coord = coords[from_prov]
             to_coord = coords[to_prov]
             
-            # Draw curved arrow segment
-            Map._draw_curved_arrow(draw, from_coord, to_coord, convoy_color_actual, width=2, style="solid" if status == "success" else "dashed")
+            # Draw curved arrow segment using config line width
+            Map._draw_curved_arrow(draw, from_coord, to_coord, convoy_color_actual, 
+                                  width=arrow_specs["line_width_secondary"], 
+                                  style="solid" if status == "success" else "dashed")
         
-        # Draw circles/markers around convoying fleets in convoy color
+        # Draw circles/markers around convoying fleets in convoy color (per spec)
+        fleet_marker_diameter = marker_specs["convoy_fleet_marker_diameter"]
+        fleet_marker_border_width = marker_specs["convoy_fleet_marker_border_width"]
         for fleet_prov in convoy_chain:
             if fleet_prov in coords:
                 fleet_coord = coords[fleet_prov]
-                Map._draw_circle(draw, fleet_coord, convoy_color_actual, width=2, style="solid")
+                Map._draw_circle_at_size(draw, fleet_coord, convoy_color_actual, 
+                                       fleet_marker_diameter, fleet_marker_border_width, style="solid")
 
     @staticmethod
     def _draw_build_order(draw, province: str, color: str, status: str, coords: dict):
-        """Draw build order (glowing circle)"""
+        """
+        Draw build marker per spec section 3.4.7.
+        
+        Green circle with plus sign or "A"/"F" label, power-colored border.
+        """
         if province not in coords:
             return
-            
-        coord = coords[province]
         
-        if status == "success":
-            # Draw glowing circle with enhanced brightness
-            Map._draw_glowing_circle(draw, coord, color, width=4)
-        else:
-            # Draw red cross for failed build
-            Map._draw_cross(draw, coord, "red", width=4)
+        marker_specs = _viz_config.get_marker_specs()
+        marker_diameter = marker_specs["build_marker_diameter"]
+        border_width = marker_specs["build_marker_border_width"]
+        r = marker_diameter // 2
+        
+        x, y = coords[province]
+        build_color = _viz_config.get_color("success")
+        rgb_build_color = Map._convert_color_to_rgb(build_color)
+        rgb_border_color = Map._convert_color_to_rgb(color)
+        
+        # Draw green circle with power-colored border
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=rgb_build_color, 
+                    outline=rgb_border_color, width=border_width)
+        
+        # Draw plus sign or unit type label (for now, use plus sign)
+        plus_size = marker_diameter // 2
+        # Horizontal line
+        draw.line([x - plus_size//2, y, x + plus_size//2, y], 
+                 fill="white", width=border_width)
+        # Vertical line
+        draw.line([x, y - plus_size//2, x, y + plus_size//2], 
+                 fill="white", width=border_width)
 
     @staticmethod
     def _draw_destroy_order(draw, province: str, color: str, coords: dict):
-        """Draw destroy order (red cross)"""
+        """
+        Draw destroy marker per spec section 3.4.8.
+        
+        Red circle with X symbol, power-colored border.
+        """
         if province not in coords:
             return
-            
-        coord = coords[province]
-        Map._draw_cross(draw, coord, "red", width=4)
+        
+        marker_specs = _viz_config.get_marker_specs()
+        marker_diameter = marker_specs["destroy_marker_diameter"]
+        border_width = marker_specs["destroy_marker_border_width"]
+        r = marker_diameter // 2
+        
+        x, y = coords[province]
+        destroy_color = _viz_config.get_color("failure")
+        rgb_destroy_color = Map._convert_color_to_rgb(destroy_color)
+        rgb_border_color = Map._convert_color_to_rgb(color)
+        
+        # Draw red circle with power-colored border
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=rgb_destroy_color, 
+                    outline=rgb_border_color, width=border_width)
+        
+        # Draw X symbol
+        x_size = marker_diameter // 2
+        x_line_width = border_width
+        rgb_white = (255, 255, 255)
+        draw.line([x - x_size, y - x_size, x + x_size, y + x_size], 
+                 fill=rgb_white, width=x_line_width)
+        draw.line([x - x_size, y + x_size, x + x_size, y - x_size], 
+                 fill=rgb_white, width=x_line_width)
     
     @staticmethod
     def _draw_retreat_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
-        """Draw retreat order (dotted arrow, red if invalid)"""
+        """
+        Draw retreat order per spec section 3.4.6.
+        
+        Dotted arrow, red if invalid retreat. Uses unified arrow function.
+        """
         if from_province not in coords or to_province not in coords:
             return
             
         from_coord = coords[from_province]
         to_coord = coords[to_province]
         
-        # Use dotted line style for retreat
-        retreat_color = "red" if status == "failed" else color
-        Map._draw_dotted_arrow(draw, from_coord, to_coord, retreat_color, width=2)
+        # Use dotted line style for retreat, red if invalid
+        arrow_specs = _viz_config.get_arrow_specs()
+        retreat_color = _viz_config.get_color("failure") if status == "failed" else color
+        arrow_status = "failure" if status == "failed" else None
         
-        # Add failure indicator if invalid retreat
-        if status == "failed":
-            Map._draw_status_x(draw, to_coord, "red")
+        # Use unified arrow function with dotted style
+        Map._draw_arrow(draw, from_coord, to_coord, retreat_color, 
+                       width=arrow_specs["line_width_secondary"], 
+                       style="dotted", status=arrow_status)
     
     @staticmethod
     def _draw_conflict_marker(draw, province: str, strengths: dict, result: str, coords: dict):
-        """Draw conflict marker for battles"""
+        """
+        Draw battle indicator per spec section 3.4.9.
+        
+        Star/shield symbol, red/orange color, optional strength label.
+        """
         if province not in coords:
             return
             
         coord = coords[province]
         x, y = coord
         
+        marker_specs = _viz_config.get_marker_specs()
+        marker_size = marker_specs["battle_indicator_size"]
+        border_width = marker_specs["battle_indicator_border_width"]
+        battle_color = _viz_config.get_color("failure")  # Red for battles
+        
         # Draw conflict marker (star or special symbol)
-        marker_size = 20
-        Map._draw_star(draw, (x, y), marker_size, "red", "yellow")
+        Map._draw_star(draw, (x, y), marker_size, battle_color, "yellow")
         
         # Add strength indicator if available
         if strengths:
             max_strength = max(strengths.values())
-            # Draw strength number
+            font_specs = _viz_config.get_font_specs()
+            font_size = font_specs["conflict_label_size"]
             try:
-                font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+                font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
             except Exception:
                 font = ImageFont.load_default()
             draw.text((x + marker_size + 5, y - 10), str(max_strength), fill="black", font=font)
     
     @staticmethod
     def _draw_standoff_indicator(draw, province: str, coords: dict):
-        """Draw standoff indicator (equal strength conflict)"""
+        """
+        Draw standoff indicator per spec section 3.4.9.
+        
+        Equal sign or balanced scales symbol, yellow/orange color.
+        """
         if province not in coords:
             return
             
         coord = coords[province]
         x, y = coord
         
+        marker_specs = _viz_config.get_marker_specs()
+        marker_size = marker_specs["standoff_indicator_size"]
+        border_width = marker_specs["standoff_indicator_border_width"]
+        standoff_color = "#FFD700"  # Yellow for standoff (could be configurable)
+        rgb_standoff_color = Map._convert_color_to_rgb(standoff_color)
+        
         # Draw special standoff marker (circle with equal sign)
-        radius = 15
-        draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline="orange", width=3)
+        radius = marker_size // 2
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], 
+                    outline=rgb_standoff_color, width=border_width)
         # Draw equal sign
-        draw.line([x - 8, y - 3, x + 8, y - 3], fill="orange", width=2)
-        draw.line([x - 8, y + 3, x + 8, y + 3], fill="orange", width=2)
+        line_length = radius - 2
+        draw.line([x - line_length, y - 3, x + line_length, y - 3], 
+                 fill=rgb_standoff_color, width=border_width)
+        draw.line([x - line_length, y + 3, x + line_length, y + 3], 
+                 fill=rgb_standoff_color, width=border_width)
     
     @staticmethod
     def _draw_bounce_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 2):
@@ -2100,10 +2251,15 @@ class Map:
         draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
     
     @staticmethod
-    def _draw_checkmark(draw, coord: tuple, color: str = "green"):
-        """Draw success checkmark at coordinate"""
+    def _draw_success_checkmark(draw, coord: tuple, color: Optional[str] = None):
+        """Draw success checkmark at coordinate using config values."""
+        if color is None:
+            color = _viz_config.get_color("success")
         x, y = coord
-        size = 12
+        marker_specs = _viz_config.get_marker_specs()
+        size = marker_specs["status_indicator_size"]
+        line_width = marker_specs["status_indicator_line_width"]
+        rgb_color = Map._convert_color_to_rgb(color)
         
         # Draw checkmark (check shape)
         check_points = [
@@ -2111,17 +2267,32 @@ class Map:
             (x - size // 3, y + size // 2),
             (x + size, y - size // 2)
         ]
-        draw.line([check_points[0], check_points[1], check_points[2]], fill=color, width=3)
+        draw.line([check_points[0], check_points[1], check_points[2]], fill=rgb_color, width=line_width)
+    
+    @staticmethod
+    def _draw_failure_x(draw, coord: tuple, color: Optional[str] = None):
+        """Draw failure X marker at coordinate using config values."""
+        if color is None:
+            color = _viz_config.get_color("failure")
+        x, y = coord
+        marker_specs = _viz_config.get_marker_specs()
+        size = marker_specs["status_indicator_size"]
+        line_width = marker_specs["status_indicator_line_width"]
+        rgb_color = Map._convert_color_to_rgb(color)
+        
+        # Draw X
+        draw.line([x - size, y - size, x + size, y + size], fill=rgb_color, width=line_width)
+        draw.line([x - size, y + size, x + size, y - size], fill=rgb_color, width=line_width)
+    
+    @staticmethod
+    def _draw_checkmark(draw, coord: tuple, color: str = "green"):
+        """Legacy method - use _draw_success_checkmark instead."""
+        Map._draw_success_checkmark(draw, coord, color)
     
     @staticmethod
     def _draw_status_x(draw, coord: tuple, color: str = "red"):
-        """Draw failure X marker at coordinate"""
-        x, y = coord
-        size = 10
-        
-        # Draw X
-        draw.line([x - size, y - size, x + size, y + size], fill=color, width=3)
-        draw.line([x - size, y + size, x + size, y - size], fill=color, width=3)
+        """Legacy method - use _draw_failure_x instead."""
+        Map._draw_failure_x(draw, coord, color)
     
     @staticmethod
     def _draw_support_cut_indicator(draw, from_coord: tuple, to_coord: tuple):
@@ -2167,25 +2338,48 @@ class Map:
         return color  # Return named colors as-is
 
     @staticmethod
-    def _draw_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 3, style: str = "solid"):
-        """Draw arrow between two coordinates"""
+    def _draw_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: Optional[int] = None, style: str = "solid", status: Optional[str] = None):
+        """
+        Unified arrow drawing function using config values.
+        
+        Args:
+            draw: ImageDraw object
+            from_coord: Start coordinate (x, y)
+            to_coord: End coordinate (x, y)
+            color: Arrow color (hex or named color)
+            width: Line width (uses config if None)
+            style: Line style ("solid", "dashed", "dotted")
+            status: Optional status indicator ("success", "failure", "bounce")
+        """
+        # Get arrow specs from config
+        arrow_specs = _viz_config.get_arrow_specs()
+        line_width = width if width is not None else arrow_specs["line_width_primary"]
+        arrowhead_size = arrow_specs["arrowhead_size"]
+        arrowhead_base_width = arrow_specs["arrowhead_base_width"]
+        
         # Convert color to RGB if needed
         rgb_color = Map._convert_color_to_rgb(color)
         
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
-        # Draw arrow line
+        # Draw arrow line based on style
         if style == "dashed":
-            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, rgb_color, width)
-        else:
-            draw.line([from_x, from_y, to_x, to_y], fill=rgb_color, width=width)
+            line_style = _viz_config.get_line_style("dashed")
+            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, rgb_color, line_width, 
+                                dash=line_style.get("dash", 4), gap=line_style.get("gap", 2))
+        elif style == "dotted":
+            line_style = _viz_config.get_line_style("dotted")
+            Map._draw_dotted_line(draw, from_x, from_y, to_x, to_y, rgb_color, line_width,
+                                 dot=line_style.get("dot", 2), gap=line_style.get("gap", 2))
+        else:  # solid
+            draw.line([from_x, from_y, to_x, to_y], fill=rgb_color, width=line_width)
         
-        # Draw arrowhead
+        # Draw arrowhead using config size
         import math
         angle = math.atan2(to_y - from_y, to_x - from_x)
-        arrow_length = 15
-        arrow_angle = math.pi / 6  # 30 degrees
+        arrow_length = arrowhead_size
+        arrow_angle = math.pi / 6  # 30 degrees (triangular shape)
         
         # Calculate arrowhead points
         head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
@@ -2195,10 +2389,20 @@ class Map:
         
         # Draw arrowhead
         draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=rgb_color)
+        
+        # Draw status indicators if provided
+        if status == "success":
+            Map._draw_success_checkmark(draw, to_coord)
+        elif status == "failure":
+            Map._draw_failure_x(draw, to_coord)
+        elif status == "bounce":
+            # Draw bounce indicator (curved return arrow)
+            bounce_color = _viz_config.get_color("failure")  # Use failure color for bounce
+            Map._draw_bounce_arrow(draw, to_coord, from_coord, bounce_color, arrow_specs["line_width_secondary"])
 
     @staticmethod
     def _draw_circle(draw, coord: tuple, color: str, width: int = 2, style: str = "solid"):
-        """Draw circle around coordinate"""
+        """Draw circle around coordinate (legacy - use _draw_circle_at_size for config-based sizing)"""
         x, y = coord
         radius = 15
         
@@ -2206,6 +2410,19 @@ class Map:
             Map._draw_dashed_circle(draw, x, y, radius, color, width)
         else:
             draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline=color, width=width)
+    
+    @staticmethod
+    def _draw_circle_at_size(draw, coord: tuple, color: str, diameter: int, width: int, style: str = "solid"):
+        """Draw circle at specified diameter using config values."""
+        x, y = coord
+        radius = diameter // 2
+        rgb_color = Map._convert_color_to_rgb(color)
+        
+        if style == "dashed":
+            Map._draw_dashed_circle(draw, x, y, radius, rgb_color, width)
+        else:
+            draw.ellipse([x - radius, y - radius, x + radius, y + radius], 
+                        outline=rgb_color, width=width)
 
     @staticmethod
     def _draw_glowing_circle(draw, coord: tuple, color: str, width: int = 4):
@@ -2268,12 +2485,10 @@ class Map:
         Map._draw_arrow(draw, (control_x, control_y), to_coord, color, width, style)
 
     @staticmethod
-    def _draw_dashed_line(draw, x1: int, y1: int, x2: int, y2: int, color: str, width: int):
-        """Draw dashed line"""
+    def _draw_dashed_line(draw, x1: int, y1: int, x2: int, y2: int, color: str, width: int, dash: int = 4, gap: int = 2):
+        """Draw dashed line with configurable dash and gap lengths."""
         import math
         length = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        dash_length = 10
-        gap_length = 5
         
         if length == 0:
             return
@@ -2287,12 +2502,36 @@ class Map:
         while current_length < length:
             start_x = x1 + current_length * dx
             start_y = y1 + current_length * dy
-            end_length = min(current_length + dash_length, length)
+            end_length = min(current_length + dash, length)
             end_x = x1 + end_length * dx
             end_y = y1 + end_length * dy
             
             draw.line([start_x, start_y, end_x, end_y], fill=color, width=width)
-            current_length += dash_length + gap_length
+            current_length += dash + gap
+    
+    @staticmethod
+    def _draw_dotted_line(draw, x1: int, y1: int, x2: int, y2: int, color: str, width: int, dot: int = 2, gap: int = 2):
+        """Draw dotted line with configurable dot and gap lengths."""
+        import math
+        length = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        
+        if length == 0:
+            return
+        
+        # Calculate unit vector
+        dx = (x2 - x1) / length
+        dy = (y2 - y1) / length
+        
+        # Draw dots
+        current_length = 0
+        while current_length < length:
+            dot_x = x1 + current_length * dx
+            dot_y = y1 + current_length * dy
+            # Draw small circle for dot
+            radius = width // 2
+            draw.ellipse([dot_x - radius, dot_y - radius, dot_x + radius, dot_y + radius], 
+                        fill=color, outline=color)
+            current_length += dot + gap
 
     @staticmethod
     def _draw_dashed_circle(draw, x: int, y: int, radius: int, color: str, width: int):

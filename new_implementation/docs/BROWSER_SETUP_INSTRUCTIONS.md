@@ -217,7 +217,7 @@ google-chrome --headless --disable-gpu --dump-dom about:blank
 - `requirements.txt` - Added selenium dependency
 - `src/engine/map_browser.py` - New browser-based rendering module  
 - `install_browser_deps.sh` - EC2 setup script
-- `terraform/single-ec2/deploy_fixes.sh` - Updated deployment script
+- `infra/terraform/single-ec2/deploy_fixes.sh` - Updated deployment script
 
 ## Testing
 

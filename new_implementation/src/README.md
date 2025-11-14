@@ -29,13 +29,13 @@ python -m server.api
   - ORD validates orders with engine and persists via DAL
 
 ## Testing
-- Integration and API tests live in `src/tests/`
+- Integration and API tests live in `tests/`
 - Requires `SQLALCHEMY_DATABASE_URL` or `DIPLOMACY_DATABASE_URL` to be set; tests auto-skip if absent
 - You can set the database URL via:
   - Environment variable: `export SQLALCHEMY_DATABASE_URL="postgresql+psycopg2://user:pass@host/db"`
   - `.env` file in project root: `SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://user:pass@host/db`
 ```
-pytest -q src/tests
+pytest -q tests
 ```
 
 ## Notes

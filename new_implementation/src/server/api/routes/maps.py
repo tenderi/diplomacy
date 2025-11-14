@@ -22,7 +22,16 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
     
     game = server.games[game_id]
     try:
-        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on game's map_name
+        map_name = getattr(game, 'map_name', 'standard')
+        if map_name == 'standard-v2':
+            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+            svg_path = os.path.join(base_dir, "v2.svg")
+            if not os.path.exists(svg_path):
+                svg_path = base_path
+        else:
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         render_warnings: list[str] = []
         # Create units dictionary safely
         units = {}
@@ -94,7 +103,16 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
     
     game = server.games[game_id]
     try:
-        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on game's map_name
+        map_name = getattr(game, 'map_name', 'standard')
+        if map_name == 'standard-v2':
+            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+            svg_path = os.path.join(base_dir, "v2.svg")
+            if not os.path.exists(svg_path):
+                svg_path = base_path
+        else:
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         
         # Get units
         units = {}
@@ -178,7 +196,16 @@ def generate_resolution_map(game_id: str) -> Dict[str, Any]:
     
     game = server.games[game_id]
     try:
-        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on game's map_name
+        map_name = getattr(game, 'map_name', 'standard')
+        if map_name == 'standard-v2':
+            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+            svg_path = os.path.join(base_dir, "v2.svg")
+            if not os.path.exists(svg_path):
+                svg_path = base_path
+        else:
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         
         # Get units
         units = {}

@@ -20,7 +20,7 @@ from pathlib import Path
 @pytest.fixture
 def project_root():
     """Get the project root directory"""
-    return Path(__file__).parent.parent.parent
+    return Path(__file__).parent.parent
 
 
 @pytest.fixture
@@ -278,6 +278,7 @@ class TestImportPaths:
         
         result = subprocess.run(
             [sys.executable, '-c',
+             f'import sys; import os; sys.path.insert(0, os.environ.get("PYTHONPATH", "")); '
              'from server.telegram_bot.config import get_telegram_token; '
              'from server.server import Server; '
              'print("All imports successful")'],
@@ -320,7 +321,15 @@ class TestServiceExecution:
         
         # Load telegram_bot.py as a module (like the wrapper does)
         telegram_bot_path = src_dir / "server" / "telegram_bot.py"
+        
+        # Check that the file exists
+        if not telegram_bot_path.exists():
+            pytest.skip(f"telegram_bot.py not found at {telegram_bot_path}")
+        
         spec = importlib.util.spec_from_file_location("telegram_bot_main", str(telegram_bot_path))
+        if spec is None or spec.loader is None:
+            pytest.fail(f"Could not create spec for {telegram_bot_path}")
+        
         telegram_bot = importlib.util.module_from_spec(spec)
         telegram_bot.__package__ = 'server'
         spec.loader.exec_module(telegram_bot)

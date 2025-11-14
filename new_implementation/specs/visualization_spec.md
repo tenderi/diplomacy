@@ -83,57 +83,21 @@ The visualization system generates maps at key points during game progression, s
 
 ### 2.2 Orders Map
 **Purpose**: Show all submitted orders before adjudication with clear visual distinction
-**Content**:
-- All current unit positions
-- Movement arrows (solid lines, power-colored)
-- Support order indicators:
-  - **Defensive support**: Light green dashed lines from supporter to defending unit, with defending unit circled in supporter's power color
-  - **Offensive support**: Light pink/sky blue dashed arrows: supporter → supported unit location → attack target
-- Convoy route indicators (curved gold/orange arrows: convoyed army → convoying fleet(s) → destination)
-- Hold indicators (circles or markers around holding units)
-- Retreat arrows (if in retreat phase)
-- Build markers (if in build phase)
-- Destroy markers (if in destroy phase)
+**Content**: All current unit positions plus order indicators (movement arrows, support lines, convoy routes, hold indicators, retreat arrows, build/destroy markers). See section 3.4 for detailed marker specifications.
 
 **File Naming**: `demo_{counter:02d}_{year}_{season}_{phase}_orders.png`
 **Example**: `demo_01_1901_Spring_Movement_orders.png`
 
 ### 2.3 Resolution Map
 **Purpose**: Show order adjudication results, conflicts, and outcomes
-**Content**:
-- Final unit positions after adjudication
-- Successful moves (green checkmark or highlight)
-- Failed moves (red X or highlight)
-- Dislodged units (offset position with red border and "D" marker)
-- Conflict markers (battle indicators)
-- Support cut indicators
-- Standoff indicators (equal strength conflicts)
-
-**Visual Elements**:
-- **Successful Orders**: Green checkmark or highlight
-- **Failed Orders**: Red X or highlight with reason (if space permits)
-- **Dislodged Units**: Drawn offset (+20, +20 pixels) with red border and "D" marker
-- **Conflicts**: Special markers showing battle locations
-- **Standoffs**: Indicator showing equal strength (beleaguered garrison)
-- **Support Cuts**: Visual indication when support was disrupted
-- **Bounces**: Indicators showing units that bounced back
+**Content**: Final unit positions plus status indicators (success checkmarks, failure X marks, dislodged units, conflict markers, standoff indicators, bounce indicators). See section 3.4 for detailed marker specifications.
 
 **File Naming**: `demo_{counter:02d}_{year}_{season}_{phase}_resolution.png`
 **Example**: `demo_01_1901_Spring_Movement_resolution.png`
 
 ### 2.4 Final State Map
 **Purpose**: Show stable game state after phase completion
-**Content**:
-- All final unit positions
-- Updated supply center control (if changed)
-- Phase information overlay showing next phase
-- No order indicators (clean state view)
-
-**Visual Elements**:
-- Units in final positions
-- Provinces colored by current controller
-- Supply centers shown in owner's color
-- Clean presentation suitable for archival
+**Content**: All final unit positions, updated supply center control, phase information overlay. No order indicators (clean state view).
 
 **File Naming**: `demo_{counter:02d}_{year}_{season}_{phase}_final.png`
 **Example**: `demo_01_1901_Spring_Movement_final.png`
@@ -142,27 +106,9 @@ The visualization system generates maps at key points during game progression, s
 
 ## 3. Visual Element Specifications
 
-### 3.1 Unit Representation
-**Armies**:
-- Circle with "A" label
-- Colored by power (see power colors below)
-- Size: ~20-25 pixels diameter
-- Black border (or red if dislodged)
+**Note**: All visual specifications in this section should be configurable via a configuration file (see section 4.0). The values provided here are defaults/recommendations that can be overridden through configuration. Where possible, common variables should be used (e.g., all arrows share the same shape and size, differing only in color and line style).
 
-**Fleets**:
-- Circle with "F" label
-- Colored by power
-- Size: ~20-25 pixels diameter
-- Black border (or red if dislodged)
-
-**Dislodged Units**:
-- Same as above but:
-  - Red border instead of black
-  - Offset position (+20, +20 pixels from province center)
-  - "D" marker in top-right corner
-  - Visible during Resolution and Retreat phases only
-
-**Power Colors**:
+### 3.1 Power Colors
 - **AUSTRIA**: `#c48f85` (light brown)
 - **ENGLAND**: `darkviolet` (purple)
 - **FRANCE**: `royalblue` (blue)
@@ -171,86 +117,7 @@ The visualization system generates maps at key points during game progression, s
 - **RUSSIA**: `#757d91` (blue-gray)
 - **TURKEY**: `#b9a61c` (yellow-brown)
 
-### 3.2 Order Visualization Color Scheme
-
-**Purpose**: Distinct colors reduce visual clutter and clearly distinguish order types.
-
-**Color Assignments** (detailed specifications in section 3.3):
-- **Movement Arrows**: Power colors (solid lines, 3-4px width) - primary action, highest visual priority
-- **Defensive Support**: Light green `#90EE90` (lines) + supporting unit's power color (defender circles)
-- **Offensive Support**: Light pink `#FFB6C1` or sky blue `#87CEEB` (dashed arrows)
-- **Convoy Routes**: Gold `#FFD700` or dark orange `#FF8C00` (curved lines)
-- **Hold Indicators**: Power-colored borders (2-3px dashed border)
-- **Retreat Arrows**: Power color for valid, red for invalid (dotted, 2-3px width)
-
-### 3.3 Order Visualization Details
-
-#### Movement Orders
-- **Arrow Type**: Solid line with arrowhead
-- **Color**: Power color of unit making move (unchanged from current implementation)
-- **Width**: 3-4 pixels
-- **Style**: Straight line from origin to destination center
-- **Status Indicators**:
-  - Success: Green checkmark at arrow tip
-  - Failure: Red X at arrow tip
-  - Bounce: Curved arrow showing return to origin
-
-#### Hold Orders
-- **Indicator**: Circle around unit (2-3 pixel border)
-- **Color**: Power color of unit
-- **Style**: Dashed or dotted border
-- **Label**: Optional "H" text near unit
-- **Note**: If unit is supported (hold support), it will have an additional colored circle as specified in defensive support above
-
-#### Support Orders
-
-**Defensive Support (Hold Support)**:
-- **Visual Elements**:
-  - Dashed line from supporting unit to the defending unit (light green `#90EE90`)
-  - Circle around the defending unit in the supporting unit's power color (3-4px border)
-- **Purpose**: Clearly show which unit is providing defensive support to a unit holding
-- **Width**: 2-3 pixels (support line)
-- **Support Cut**: Red X through support line if cut
-
-**Offensive Support (Move Support)**:
-- **Visual Elements**:
-  - Dashed arrow path: supporting unit → supported unit's province → attack target
-  - Color: Light pink `#FFB6C1` or sky blue `#87CEEB` (distinct from defensive support)
-- **Purpose**: Show support is flowing through the attacking unit to the target province
-- **Width**: 2-3 pixels
-- **Support Cut**: Red X through support line if cut
-
-#### Convoy Orders
-- **Visual Elements**:
-  - Curved arrow starting from convoyed army
-  - Path: convoyed army → first convoying fleet → subsequent convoying fleets → destination province
-  - Dedicated convoy color: `#FFD700` (gold) or `#FF8C00` (dark orange)
-  - Circles/markers around convoying fleets in convoy color
-- **Style**: Curved path showing complete convoy chain with each fleet as waypoint
-- **Width**: 2-3 pixels
-- **Purpose**: Clearly show convoy route distinct from movement and support orders
-
-#### Retreat Orders
-- **Arrow Type**: Dotted line with arrowhead
-- **Color**: Power color (red if invalid retreat)
-- **Width**: 2-3 pixels
-- **Style**: Dotted line from dislodged unit to retreat destination
-- **Failure**: Red X if retreat to occupied province
-
-#### Build Orders
-- **Indicator**: Green circle or plus sign (+) at build location
-- **Color**: Green with power-colored border
-- **Size**: ~15-20 pixels
-- **Label**: Unit type (A/F) inside marker
-- **Style**: Prominent marker clearly showing new unit location
-
-#### Destroy Orders
-- **Indicator**: Red X or circle with X
-- **Color**: Red with power-colored border
-- **Size**: ~15-20 pixels
-- **Style**: Prominent marker clearly showing destroyed unit location
-
-### 3.4 Supply Center Visualization
+### 3.2 Supply Center Visualization
 **Ownership**:
 - Province filled with controlling power's color (light tint, ~30% opacity)
 - Border highlighted if supply center
@@ -263,22 +130,7 @@ The visualization system generates maps at key points during game progression, s
 - In resolution maps, show previous owner (faded) and new owner (solid)
 - Transition indicators if ownership changes
 
-### 3.5 Conflict Markers
-**Battle Indicators**:
-- Special marker at conflict location
-- Show attacking powers and defenders
-- Strength indicators if possible (numbers)
-
-**Standoff Indicators**:
-- Special marker showing equal strength
-- "Standoff" label or symbol
-- Beleaguered garrison indicator
-
-**Bounce Indicators**:
-- Curved arrow showing units bouncing back
-- Multiple bounce markers if multiple units bounced
-
-### 3.6 Phase Information Overlay
+### 3.3 Phase Information Overlay
 **Required Information**:
 - Year (e.g., "1901")
 - Season ("Spring" or "Autumn")
@@ -294,7 +146,379 @@ The visualization system generates maps at key points during game progression, s
 
 ---
 
+## 3.4 Detailed Marker Specifications
+
+This section provides comprehensive visual specifications for all markers used in map visualizations. All values are defaults that should be configurable via configuration file (see section 4.0).
+
+### 3.4.1 Unit Markers
+
+#### Standard Unit Marker (Army/Fleet)
+**Shape**: Circle
+**Size**: 20-25 pixels diameter
+**Fill Color**: Power color (see section 3.1 for power colors)
+**Border**: 
+  - Width: 2-3 pixels
+  - Color: Black (`#000000`)
+  - Style: Solid
+**Label**:
+  - Text: "A" for Army, "F" for Fleet
+  - Font: Sans-serif, bold
+  - Font size: 10-12 points
+  - Color: White or black (contrasting with power color)
+  - Position: Centered within circle
+**Position**: Province center coordinates (from SVG path data)
+
+#### Dislodged Unit Marker
+**Shape**: Circle (same as standard unit)
+**Size**: 20-25 pixels diameter
+**Fill Color**: Power color (same as standard unit)
+**Border**:
+  - Width: 3-4 pixels
+  - Color: Red (`#FF0000` or `#DC143C`)
+  - Style: Solid, thicker than standard
+**Label**: Same as standard unit ("A" or "F")
+**Dislodged Indicator**:
+  - Shape: Small circle or square
+  - Size: 8-10 pixels
+  - Color: Red (`#FF0000`)
+  - Label: "D" (white text, 8-10 point font)
+  - Position: Top-right corner of unit circle (offset by 5-7 pixels)
+**Position**: Offset from province center by (+20, +20) pixels
+**Visibility**: Only shown during Resolution and Retreat phases
+
+### 3.4.2 Movement Order Markers
+
+#### Movement Arrow
+**Shape**: Straight line with arrowhead
+**Line**:
+  - Width: 3-4 pixels
+  - Color: Power color of moving unit
+  - Style: Solid
+  - Start: Origin province center
+  - End: Destination province center
+**Arrowhead**:
+  - Shape: Triangular arrowhead
+  - Size: 12-15 pixels (base width)
+  - Color: Same as line (power color)
+  - Position: At destination province center
+  - Fill: Solid (same color as line)
+**Status Indicators** (on Resolution maps):
+  - **Success**: Green checkmark (✓) at arrow tip
+    - Size: 12-15 pixels
+    - Color: Green (`#00FF00` or `#32CD32`)
+    - Position: Overlapping arrowhead
+  - **Failure**: Red X (✗) at arrow tip
+    - Size: 12-15 pixels
+    - Color: Red (`#FF0000`)
+    - Position: Overlapping arrowhead
+    - Line width: 2-3 pixels
+  - **Bounce**: Curved arrow showing return path
+    - Style: Dashed or dotted
+    - Color: Orange or yellow (`#FFA500` or `#FFD700`)
+    - Width: 2-3 pixels
+    - Path: Destination → Origin (curved)
+
+### 3.4.3 Hold Order Markers
+
+#### Hold Indicator
+**Shape**: Circle or dashed border around unit
+**Size**: 30-35 pixels diameter (larger than unit circle)
+**Border**:
+  - Width: 2-3 pixels
+  - Color: Power color of holding unit
+  - Style: Dashed or dotted
+  - Dash pattern: 4-5 pixels dash, 2-3 pixels gap
+**Position**: Centered on unit (unit circle inside hold indicator)
+**Label** (optional):
+  - Text: "H"
+  - Font: Sans-serif, regular
+  - Font size: 8-10 points
+  - Color: Power color
+  - Position: Below or to the side of unit marker
+
+### 3.4.4 Support Order Markers
+
+#### Defensive Support (Hold Support)
+**Support Line**:
+  - Shape: Straight dashed line
+  - Width: 2-3 pixels
+  - Color: Light green (`#90EE90`)
+  - Style: Dashed
+  - Dash pattern: 3-4 pixels dash, 2-3 pixels gap
+  - Start: Supporting unit center
+  - End: Defended unit center
+**Defended Unit Circle**:
+  - Shape: Circle around defended unit
+  - Size: 30-35 pixels diameter
+  - Border:
+    - Width: 3-4 pixels
+    - Color: Supporting unit's power color (not light green)
+    - Style: Solid
+  - Position: Centered on defended unit
+**Support Cut Indicator** (if support is cut):
+  - Shape: Red X (✗) across support line
+  - Size: 15-18 pixels
+  - Color: Red (`#FF0000`)
+  - Line width: 3-4 pixels
+  - Position: Center of support line
+
+#### Offensive Support (Move Support)
+**Support Arrow**:
+  - Shape: Dashed arrow path with two segments
+  - Path: Supporting unit → Supported unit's province → Attack target
+  - Width: 2-3 pixels
+  - Color: Light pink (`#FFB6C1`) or sky blue (`#87CEEB`)
+  - Style: Dashed
+  - Dash pattern: 3-4 pixels dash, 2-3 pixels gap
+  - Arrowhead: At attack target (same style as movement arrow)
+**Support Cut Indicator** (if support is cut):
+  - Same as defensive support: Red X across support line
+  - Position: Center of support line segment
+
+### 3.4.5 Convoy Order Markers
+
+#### Convoy Route
+**Shape**: Curved path connecting convoyed army, convoying fleets, and destination
+**Path**:
+  - Start: Convoyed army position
+  - Waypoints: Each convoying fleet position
+  - End: Destination province center
+  - Style: Curved (bezier curve) to show flow
+**Line**:
+  - Width: 2-3 pixels
+  - Color: Gold (`#FFD700`) or dark orange (`#FF8C00`)
+  - Style: Solid (distinct from support dashed lines)
+**Arrowhead**:
+  - Shape: Triangular arrowhead
+  - Size: 12-15 pixels
+  - Color: Same as line (gold/orange)
+  - Position: At destination province center
+**Convoying Fleet Markers**:
+  - Shape: Circle around convoying fleet
+  - Size: 28-32 pixels diameter
+  - Border:
+    - Width: 2-3 pixels
+    - Color: Gold (`#FFD700`) or dark orange (`#FF8C00`)
+    - Style: Solid or dashed
+  - Position: Centered on convoying fleet unit
+
+### 3.4.6 Retreat Order Markers
+
+#### Retreat Arrow
+**Shape**: Dotted line with arrowhead
+**Line**:
+  - Width: 2-3 pixels
+  - Color: Power color (if valid retreat) or red (`#FF0000` if invalid)
+  - Style: Dotted
+  - Dot pattern: 2-3 pixels dot, 2-3 pixels gap
+  - Start: Dislodged unit position (offset position)
+  - End: Retreat destination province center
+**Arrowhead**:
+  - Shape: Triangular arrowhead
+  - Size: 10-12 pixels
+  - Color: Same as line
+  - Position: At retreat destination
+**Invalid Retreat Indicator**:
+  - Shape: Red X (✗) at arrow tip
+  - Size: 12-15 pixels
+  - Color: Red (`#FF0000`)
+  - Position: Overlapping arrowhead
+
+### 3.4.7 Build Order Markers
+
+#### Build Marker
+**Shape**: Circle with plus sign (+) or green circle
+**Size**: 15-20 pixels diameter
+**Fill Color**: Green (`#00FF00` or `#32CD32`)
+**Border**:
+  - Width: 2-3 pixels
+  - Color: Power color of building power
+  - Style: Solid
+**Label**:
+  - Text: "A" or "F" (unit type being built)
+  - Font: Sans-serif, bold
+  - Font size: 10-12 points
+  - Color: White or black (contrasting with green)
+  - Position: Centered within marker
+**Plus Sign** (alternative):
+  - Shape: Plus (+) symbol
+  - Size: 10-12 pixels
+  - Color: White
+  - Line width: 2-3 pixels
+  - Position: Centered within green circle
+**Position**: Build location (home supply center province center)
+
+### 3.4.8 Destroy Order Markers
+
+#### Destroy Marker
+**Shape**: Circle with X or red circle with X
+**Size**: 15-20 pixels diameter
+**Fill Color**: Red (`#FF0000` or `#DC143C`)
+**Border**:
+  - Width: 2-3 pixels
+  - Color: Power color of destroying power
+  - Style: Solid
+**X Symbol**:
+  - Shape: X (cross)
+  - Size: 10-12 pixels
+  - Color: White
+  - Line width: 2-3 pixels
+  - Position: Centered within red circle
+**Label** (optional):
+  - Text: "A" or "F" (unit type being destroyed)
+  - Font: Sans-serif, bold
+  - Font size: 8-10 points
+  - Color: White
+  - Position: Below or to the side of X symbol
+**Position**: Unit location (province center where unit is being destroyed)
+
+### 3.4.9 Conflict Markers
+
+#### Battle Indicator
+**Shape**: Star, shield, or crossed swords symbol
+**Size**: 20-25 pixels
+**Color**: Red (`#FF0000`) or orange (`#FFA500`)
+**Border**: 
+  - Width: 2-3 pixels
+  - Color: Black or dark red
+  - Style: Solid
+**Position**: At conflict location (province center where battle occurs)
+**Label** (optional):
+  - Text: Strength numbers (e.g., "3v2" for 3 attackers vs 2 defenders)
+  - Font: Sans-serif, bold
+  - Font size: 10-12 points
+  - Color: White or black (contrasting with marker)
+  - Position: Centered within or below marker
+
+#### Standoff Indicator
+**Shape**: Equal sign (=) or balanced scales symbol
+**Size**: 18-22 pixels
+**Color**: Yellow (`#FFD700`) or orange (`#FFA500`)
+**Border**:
+  - Width: 2-3 pixels
+  - Color: Black
+  - Style: Solid
+**Position**: At standoff location (province center)
+**Label** (optional):
+  - Text: "Standoff" or "="
+  - Font: Sans-serif, bold
+  - Font size: 8-10 points
+  - Color: Black
+  - Position: Below marker
+
+#### Bounce Indicator
+**Shape**: Curved arrow showing return path
+**Line**:
+  - Width: 2-3 pixels
+  - Color: Orange (`#FFA500`) or yellow (`#FFD700`)
+  - Style: Dashed or dotted
+  - Path: Curved from destination back to origin
+**Arrowhead**: At origin (showing return)
+**Position**: Overlapping or near the failed movement arrow
+
+### 3.4.10 Status Indicators
+
+#### Success Checkmark
+**Shape**: Checkmark (✓)
+**Size**: 12-15 pixels
+**Color**: Green (`#00FF00` or `#32CD32`)
+**Line Width**: 2-3 pixels
+**Position**: At arrow tip or order completion point
+**Usage**: Movement success, successful retreat, successful build
+
+#### Failure X Mark
+**Shape**: X (✗)
+**Size**: 12-15 pixels
+**Color**: Red (`#FF0000`)
+**Line Width**: 2-3 pixels
+**Position**: At arrow tip or order failure point
+**Usage**: Movement failure, retreat failure, support cut
+
+### 3.4.11 Visual Layer Priority
+
+Markers are drawn in the following order (bottom to top) to ensure clarity:
+1. **Base map** (SVG background)
+2. **Province fills** (supply center control colors)
+3. **Hold indicators** (dashed circles around units)
+4. **Support lines and circles** (defensive and offensive support)
+5. **Convoy routes** (curved gold/orange paths)
+6. **Movement arrows** (primary actions, on top)
+7. **Retreat arrows** (if in retreat phase)
+8. **Unit markers** (standard and dislodged)
+9. **Build/Destroy markers** (if in build phase)
+10. **Conflict markers** (battles, standoffs)
+11. **Status indicators** (checkmarks, X marks)
+12. **Phase information overlay** (text in corner)
+
+This layering ensures that:
+- Movement arrows (primary actions) remain clearly visible
+- Support and convoy indicators provide context without obscuring primary actions
+- Unit markers are always visible
+- Status indicators appear on top for immediate feedback
+
+---
+
 ## 4. Technical Specifications
+
+### 4.0 Configuration-Driven Visual Guidelines
+
+**Important**: All visual specifications described in section 3.4 should be configurable via a configuration file (e.g., `visualization_config.json` or `visualization_config.yaml`). This allows for easy customization and maintenance of visual elements without modifying code.
+
+**Configuration Principles**:
+1. **Single Source of Truth**: All visual parameters (sizes, colors, styles) should be defined in one configuration file
+2. **Common Variables**: Use shared variables for common elements:
+   - **Arrow Specifications**: All arrows (movement, retreat, support, convoy) should use the same base shape and size, differing only in color and line style (solid/dashed/dotted)
+   - **Arrowhead Size**: Single variable for all arrowheads (12-15 pixels)
+   - **Line Widths**: Common variables for different line types (e.g., `line_width_primary`, `line_width_secondary`)
+   - **Unit Marker Size**: Single variable for all unit markers (standard and dislodged)
+   - **Circle Sizes**: Common variables for different circle types (hold indicators, support circles, convoy markers)
+3. **Color Palette**: Define all colors in a central palette with semantic names (e.g., `color_success`, `color_failure`, `color_convoy`, `power_colors`)
+4. **Style Patterns**: Define dash/dot patterns as reusable templates
+
+**Configuration File Structure** (example):
+```json
+{
+  "arrows": {
+    "arrowhead_size": 12,
+    "arrowhead_base_width": 15,
+    "line_width_primary": 3,
+    "line_width_secondary": 2,
+    "shape": "triangular"
+  },
+  "colors": {
+    "success": "#00FF00",
+    "failure": "#FF0000",
+    "convoy": "#FFD700",
+    "support_defensive": "#90EE90",
+    "support_offensive": "#FFB6C1",
+    "power_colors": {
+      "AUSTRIA": "#c48f85",
+      "ENGLAND": "darkviolet",
+      ...
+    }
+  },
+  "units": {
+    "diameter": 22,
+    "border_width": 2,
+    "dislodged_border_width": 3,
+    "dislodged_offset": [20, 20]
+  },
+  "line_styles": {
+    "solid": {},
+    "dashed": {"dash": 4, "gap": 2},
+    "dotted": {"dot": 2, "gap": 2}
+  }
+}
+```
+
+**Benefits**:
+- Easy adjustment of visual elements from a single configuration file
+- Consistent sizing across all similar elements (all arrows same size)
+- Simplified maintenance (change once, applies everywhere)
+- Theme customization without code changes
+- A/B testing of visual styles
+
+**Implementation Note**: The rendering code should read from this configuration file at initialization and use the values throughout. Default values should be provided if the configuration file is missing or incomplete.
 
 ### 4.1 Image Format
 - **Format**: PNG (lossless compression)
@@ -314,16 +538,10 @@ The visualization system generates maps at key points during game progression, s
 2. Parse province coordinates
 3. Fill provinces with power colors (supply center control)
 4. Draw units at province centers
-5. Draw order indicators in order of visual priority:
-   a. Hold indicators (underneath, so other indicators appear on top)
-   b. Support lines and circles (defensive and offensive)
-   c. Convoy routes
-   d. Movement arrows (on top, as primary actions)
+5. Draw order indicators in order of visual priority (see section 3.4.11)
 6. Draw conflict markers and dislodged units
 7. Add phase information overlay
 8. Export to PNG
-
-**Visual Layer Order**: Ensures movement arrows remain clearly visible while support and convoy indicators provide context without obscuring primary actions
 
 ### 4.4 Performance Requirements
 - **Generation Time**: < 2 seconds per map

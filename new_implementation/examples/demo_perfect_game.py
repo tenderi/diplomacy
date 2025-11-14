@@ -16,7 +16,12 @@ All orders are hardcoded and validated to ensure they demonstrate specific
 mechanics and create educational scenarios.
 
 Usage:
-    python3 demo_perfect_game.py
+    python3 demo_perfect_game.py [--map MAP_NAME] [--color-only-supply-centers] [--log]
+
+Options:
+    --map, --map-name    Map variant to use: "standard" (default) or "standard-v2"
+    --color-only-supply-centers    Color only supply center provinces
+    --log, --log-file    Output all log messages to demo.log in the current directory
 
 The script will:
 1. Create a demo game
@@ -29,16 +34,24 @@ The script will:
 import os
 import sys
 import time
+import click
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 
 # Add the src directory to Python path so we can import engine and server modules
 script_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.join(script_dir, "src")
+# src is in the parent directory (new_implementation/src, not examples/src)
+parent_dir = os.path.dirname(script_dir)
+src_dir = os.path.join(parent_dir, "src")
 if os.path.exists(src_dir):
     sys.path.insert(0, src_dir)
 else:
-    sys.path.insert(0, script_dir)
+    # Fallback: try script_dir/src or just parent_dir
+    fallback_src = os.path.join(script_dir, "src")
+    if os.path.exists(fallback_src):
+        sys.path.insert(0, fallback_src)
+    else:
+        sys.path.insert(0, parent_dir)
 
 from server.server import Server
 from engine.game import Game
@@ -60,9 +73,10 @@ class ScenarioData:
 class PerfectDemoGame:
     """Hardcoded demo game that plays a predetermined sequence of scenarios."""
     
-    def __init__(self, color_only_supply_centers: bool = False):
+    def __init__(self, map_name: str = "standard", color_only_supply_centers: bool = False):
+        self.map_name = map_name
         self.server = Server()
-        self.map = Map("standard")
+        self.map = Map(map_name)
         self.game_id: Optional[str] = None
         self.phase_count = 0
         self.scenarios: List[ScenarioData] = []
@@ -484,7 +498,7 @@ class PerfectDemoGame:
                 "supply_centers": {
                     "BEL": "FRANCE",  # France gained Belgium
                     "VEN": "AUSTRIA",  # Austria gained Venice
-                    "RUM": "RUSSIA"   # Russia gained Romania
+                    "RUM": "AUSTRIA"   # Austria held Romania (3-way battle: AUSTRIA hold vs RUSSIA move with support vs TURKEY move)
                 }
             }
         ))
@@ -605,10 +619,10 @@ class PerfectDemoGame:
     
     def create_demo_game(self) -> bool:
         """Create a new demo game instance."""
-        print("🎯 Creating demo game...")
+        print(f"🎯 Creating demo game with map: {self.map_name}...")
         
         try:
-            result = self.server.process_command("CREATE_GAME standard")
+            result = self.server.process_command(f"CREATE_GAME {self.map_name}")
             
             if result.get("status") == "ok":
                 self.game_id = result["game_id"]
@@ -682,11 +696,9 @@ class PerfectDemoGame:
             actual_season = game_state.get('season')
             
             if actual_phase != scenario.phase or actual_year != scenario.year or actual_season != scenario.season:
-                print(f"⚠️ Phase mismatch: Expected {scenario.season} {scenario.year} {scenario.phase}, got {actual_season} {actual_year} {actual_phase}")
-                
-                # If we're in Retreat phase but expecting Movement, we need to process Retreat first
+                # If we're in Retreat phase but expecting Movement, this is expected (dislodgements occurred)
                 if actual_phase == "Retreat" and scenario.phase == "Movement":
-                    print(f"  ⏭️ Processing Retreat phase first (dislodgements occurred)")
+                    print(f"ℹ️  Intermediate phase detected: {actual_season} {actual_year} {actual_phase} (dislodgements occurred, processing before {scenario.season} {scenario.year} {scenario.phase})")
                     # Generate empty retreat orders - let game auto-disband if needed
                     empty_retreat_orders = {}
                     self.submit_orders(empty_retreat_orders)
@@ -700,11 +712,16 @@ class PerfectDemoGame:
                         actual_phase = game_state.get('phase')
                         actual_year = game_state.get('year')
                         actual_season = game_state.get('season')
-                        print(f"  📍 After Retreat: {actual_season} {actual_year} {actual_phase}")
+                        print(f"  ✅ After Retreat: {actual_season} {actual_year} {actual_phase}")
+                # If we're in Builds phase but expecting Movement, this is expected
+                elif actual_phase == "Builds" and scenario.phase == "Movement":
+                    print(f"ℹ️  Intermediate phase detected: {actual_season} {actual_year} {actual_phase} (processing before {scenario.season} {scenario.year} {scenario.phase})")
+                else:
+                    # Unexpected phase mismatch
+                    print(f"⚠️ Phase mismatch: Expected {scenario.season} {scenario.year} {scenario.phase}, got {actual_season} {actual_year} {actual_phase}")
                 
                 # If we're in Builds phase but expecting Movement, we need to process Builds first
                 if actual_phase == "Builds" and scenario.phase == "Movement":
-                    print(f"  ⏭️ Processing Builds phase first")
                     # Generate empty build orders
                     empty_build_orders = {}
                     self.submit_orders(empty_build_orders)
@@ -718,7 +735,7 @@ class PerfectDemoGame:
                         actual_phase = game_state.get('phase')
                         actual_year = game_state.get('year')
                         actual_season = game_state.get('season')
-                        print(f"  📍 After Builds: {actual_season} {actual_year} {actual_phase}")
+                        print(f"  ✅ After Builds: {actual_season} {actual_year} {actual_phase}")
                 
                 # If still in wrong phase after handling, skip this scenario
                 if game_state.get('phase') != scenario.phase or game_state.get('year') != scenario.year or game_state.get('season') != scenario.season:
@@ -850,7 +867,7 @@ class PerfectDemoGame:
         
         # Also derive from unit positions (more reliable)
         from engine.map import Map
-        map_obj = Map("standard")
+        map_obj = Map(self.map_name)
         scs = map_obj.get_supply_centers()
         for power_name, power_units in units.items():
             for unit_str in power_units:
@@ -888,9 +905,14 @@ class PerfectDemoGame:
                 print(f"    ✅ Supply center {sc} controlled by {expected_power}")
     
     def submit_orders(self, orders: Dict[str, List[str]]) -> bool:
-        """Submit orders for all powers. Returns True if at least one power's orders succeeded."""
+        """Submit orders for all powers. Returns True if at least one power's orders succeeded, or if no orders to submit."""
         success_count = 0
         failed_powers = []
+        total_orders = sum(len(power_orders) for power_orders in orders.values())
+        
+        # If no orders to submit, this is not an error (e.g., retreat phase with no dislodgements)
+        if total_orders == 0:
+            return True
         
         try:
             for power_name, power_orders in orders.items():
@@ -948,10 +970,19 @@ class PerfectDemoGame:
             traceback.print_exc()
             return False
     
+    def _get_svg_path(self) -> str:
+        """Get the SVG path based on map_name."""
+        maps_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "maps")
+        if self.map_name == "standard-v2":
+            svg_path = os.path.join(maps_dir, "v2.svg")
+        else:
+            svg_path = os.path.join(maps_dir, "standard.svg")
+        return svg_path
+    
     def generate_and_save_map(self, game_state: Dict[str, Any], filename: str) -> None:
         """Generate and save map visualization."""
         try:
-            svg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", "standard.svg")
+            svg_path = self._get_svg_path()
             
             # Ensure maps directory exists
             os.makedirs(self.maps_dir, exist_ok=True)
@@ -1122,7 +1153,7 @@ class PerfectDemoGame:
                         viz_orders[power_name].append(viz_order)
             
             # Generate PNG map
-            svg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", "standard.svg")
+            svg_path = self._get_svg_path()
             
             # Ensure maps directory exists
             os.makedirs(self.maps_dir, exist_ok=True)
@@ -1369,7 +1400,7 @@ class PerfectDemoGame:
                         viz_orders[power_name].append(viz_order)
             
             # Generate PNG map
-            svg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", "standard.svg")
+            svg_path = self._get_svg_path()
             
             # Ensure maps directory exists
             os.makedirs(self.maps_dir, exist_ok=True)
@@ -1456,9 +1487,47 @@ class PerfectDemoGame:
                     print(f"    {unit}")
 
 
-def main():
-    """Main entry point for the perfect demo game."""
+@click.command()
+@click.option(
+    "-m", "--map", "--map-name",
+    "map_name",
+    default="standard",
+    type=click.Choice(["standard", "standard-v2"], case_sensitive=False),
+    help="Map variant to use (default: standard)"
+)
+@click.option(
+    "--color-only-supply-centers",
+    is_flag=True,
+    help="Color only supply center provinces instead of all controlled provinces"
+)
+@click.option(
+    "--log", "--log-file",
+    "log_file",
+    is_flag=True,
+    help="Output all log messages to demo.log in the current directory"
+)
+def main(map_name: str, color_only_supply_centers: bool, log_file: bool):
+    """
+    Perfect Automated Diplomacy Demo Game
+    
+    This script runs a hardcoded automated Diplomacy game that demonstrates all
+    game mechanics through a carefully choreographed sequence of predetermined orders.
+    
+    Examples:
+      python3 demo_perfect_game.py                    # Run with standard map (default)
+      python3 demo_perfect_game.py -m standard-v2      # Run with standard-v2 map
+      python3 demo_perfect_game.py --log               # Run with logging to demo.log
+      python3 demo_perfect_game.py -m standard-v2 --log # Run with v2 map and logging
+    """
+    # Configure logging to file if requested
+    if log_file:
+        log_file_path = os.path.join(os.getcwd(), "demo.log")
+        os.environ["DIPLOMACY_LOG_FILE"] = log_file_path
+        print(f"📝 Logging enabled: {log_file_path}")
+    
     print("🎮 Perfect Automated Diplomacy Demo Game")
+    print("=" * 60)
+    print(f"🗺️  Using map: {map_name}")
     print("=" * 60)
     
     # Verify imports work
@@ -1476,7 +1545,7 @@ def main():
     
     # Create and run demo game
     try:
-        demo = PerfectDemoGame()
+        demo = PerfectDemoGame(map_name=map_name, color_only_supply_centers=color_only_supply_centers)
         demo.run_demo()
     except Exception as e:
         print(f"❌ Demo game failed: {e}")
