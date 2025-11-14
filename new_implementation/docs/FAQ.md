@@ -271,7 +271,7 @@ createdb diplomacy_db
 
 **A**: 
 - Check database URL is set (many tests skip without it)
-- Run specific test: `pytest src/tests/test_file.py::test_name -v`
+- Run specific test: `pytest tests/test_file.py::test_name -v`
 - Check test output for specific error messages
 - Ensure all dependencies are installed
 
@@ -323,7 +323,7 @@ createdb diplomacy_db
 
 - **Documentation**: See `docs/` directory and `specs/` directory
 - **Logs**: Check server logs for detailed error messages
-- **Tests**: Run tests to verify functionality: `pytest src/tests/`
+- **Tests**: Run tests to verify functionality: `pytest tests/`
 - **GitHub Issues**: Report bugs or request features
 
 ---

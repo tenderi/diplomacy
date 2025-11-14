@@ -40,7 +40,7 @@ Guide for developers contributing to or extending the Diplomacy Python Implement
 1. **Engine** (`src/engine/`): Core game logic, rules, and adjudication
 2. **Server** (`src/server/`): API endpoints, Telegram bot, DAIDE protocol
 3. **Database** (`src/engine/database*.py`): Data persistence layer
-4. **Tests** (`src/tests/`): Comprehensive test suite
+4. **Tests** (`tests/`): Comprehensive test suite
 
 ---
 
@@ -140,7 +140,7 @@ ruff format src/
 
 ### 5. Add Tests
 
-- Unit tests in `src/tests/test_*.py`
+- Unit tests in `tests/test_*.py`
 - Integration tests for workflows
 - Ensure 100% coverage of new code
 
@@ -184,16 +184,16 @@ class TestMyFeature:
 
 ```bash
 # All tests
-pytest src/tests/ -v
+pytest tests/ -v
 
 # Specific category
-pytest src/tests/ -v -m unit
+pytest tests/ -v -m unit
 
 # Specific file
-pytest src/tests/test_game.py -v
+pytest tests/test_game.py -v
 
 # With coverage
-pytest src/tests/ --cov=src --cov-report=html
+pytest tests/ --cov=src --cov-report=html
 ```
 
 ---

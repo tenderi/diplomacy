@@ -41,12 +41,15 @@ def test_map_changes():
         
         img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
         
-        # Save the map
+        # Save the map to test_maps folder
+        test_maps_dir = os.path.join(os.path.dirname(__file__), "test_maps")
+        os.makedirs(test_maps_dir, exist_ok=True)
         map_filename = "test_updated_map.png"
-        with open(map_filename, 'wb') as f:
+        output_path = os.path.join(test_maps_dir, map_filename)
+        with open(output_path, 'wb') as f:
             f.write(img_bytes)
         
-        print(f"✅ Map generated: {map_filename}")
+        print(f"✅ Map generated: {output_path}")
         print(f"📊 Map size: {len(img_bytes)} bytes")
         print(f"📊 Units: {units}")
         
@@ -67,7 +70,7 @@ if __name__ == "__main__":
     try:
         test_map_changes()
         print("\n🎉 Map generation test completed!")
-        print("💡 Check test_updated_map.png to verify the changes")
+        print("💡 Check test_maps/test_updated_map.png to verify the changes")
     except Exception:
         print("\n💥 Map generation test failed!")
         sys.exit(1)

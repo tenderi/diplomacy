@@ -48,11 +48,69 @@ These items are documented in specifications but are not currently prioritized:
 - Performance benchmarks
 - Additional integration tests
 
-**Status**: Low priority - Current test coverage is excellent (493 passing tests)
+**Status**: Low priority - Current test coverage is excellent (542 passing tests)
+
+### Standard-v2 Map Integration
+**Status**: ✅ Complete and operational
+
+The standard-v2 map is fully implemented as a selectable alternative to the standard map. It uses the same game logic (adjacencies, provinces) as standard but has a different visual appearance.
+
+**Implementation Details**:
+- ✅ Map class recognizes "standard-v2" as valid map_name (uses standard map logic for adjacencies)
+- ✅ SVG path resolution handles standard-v2 correctly (uses `maps/v2.svg`)
+- ✅ Coordinate extraction implemented for v2 SVG (parses text elements with transform attributes)
+- ✅ All API routes support standard-v2 map generation
+- ✅ Telegram bot supports standard-v2 map rendering
+- ✅ Test coverage: `test_standard_v2_map.py` verifies functionality
+- ✅ v2.svg file exists at `maps/v2.svg`
+
+**Technical Notes**:
+- SVG Structure: v2 SVG uses text elements with `transform="translate(x, y)"` attributes (not jdipNS elements)
+- Coordinate System: Coordinates extracted from transform attributes and scaled appropriately
+- Map Name: Uses `"standard-v2"` (not just "v2")
+- Game Logic: Uses same adjacencies and provinces as standard map
 
 ---
 
 ## Implementation History
+
+### ✅ Completed: Test Organization and Execution Context Fixes
+**Completed**: 2025-01-27
+
+Fixed test infrastructure and execution context issues:
+- All test-generated PNG files now save to `tests/test_maps/` folder (not root directory)
+- Fixed execution context tests for production PYTHONPATH handling
+- Fixed telegram bot main function importability test
+- Updated test count: 542 passing, 35 skipped, 0 failures
+
+**Files Modified**:
+- `tests/test_standard_v2_map.py` - Updated to save PNGs to test_maps/
+- `tests/test_map_consistency.py` - Updated to save PNGs to test_maps/
+- `tests/test_map_opacity_font.py` - Updated to save PNGs to test_maps/
+- `tests/test_map_with_units.py` - Updated to save PNGs to test_maps/
+- `tests/test_bot_map_generation.py` - Updated to save PNGs to test_maps/
+- `tests/test_execution_context.py` - Fixed project root path calculation and PYTHONPATH handling
+
+---
+
+### ✅ Completed: Standard-v2 Map Integration
+**Completed**: 2025-01-27
+
+Fully implemented standard-v2 map as selectable alternative:
+- Map class initialization supports "standard-v2"
+- SVG path resolution correctly handles v2.svg
+- Coordinate extraction from v2 SVG text elements with transforms
+- API routes support standard-v2 map generation
+- Telegram bot supports standard-v2 map rendering
+- Comprehensive test coverage
+
+**Files Modified**:
+- `src/engine/map.py` - Map class initialization and v2 coordinate extraction
+- `src/server/telegram_bot/maps.py` - SVG path resolution for standard-v2
+- `src/server/api/routes/maps.py` - SVG path resolution for standard-v2
+- `tests/test_standard_v2_map.py` - Test coverage
+
+---
 
 ### ✅ Completed: Telegram Channel Integration (Phase 1)
 **Completed**: 2025-01-27
@@ -134,7 +192,7 @@ Clean, modular structure:
 
 ## Current Status Summary
 
-**Test Suite**: ✅ 493 passing, 36 skipped (database tests), 0 failures
+**Test Suite**: ✅ 542 passing, 35 skipped (database tests), 0 failures
 
 **Feature Status**:
 - ✅ Core game engine - Complete
@@ -143,6 +201,7 @@ Clean, modular structure:
 - ✅ Telegram Channel Integration (Phase 1) - Complete
 - ✅ Database persistence - Complete
 - ✅ Map visualization - Complete
+- ✅ Standard-v2 Map Integration - Complete
 - ✅ Documentation - Complete
 
 **Code Quality**:

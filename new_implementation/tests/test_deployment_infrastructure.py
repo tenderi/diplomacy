@@ -18,8 +18,8 @@ import sys
 @pytest.fixture
 def terraform_dir():
     """Get the terraform directory"""
-    project_root = Path(__file__).parent.parent.parent
-    return project_root / "terraform"
+    project_root = Path(__file__).parent.parent
+    return project_root / "infra" / "terraform"
 
 
 @pytest.fixture

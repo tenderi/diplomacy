@@ -1,0 +1,71 @@
+{
+  "arrows": {
+    "arrowhead_size": 12,
+    "arrowhead_base_width": 15,
+    "line_width_primary": 3,
+    "line_width_secondary": 2,
+    "shape": "triangular"
+  },
+  "colors": {
+    "success": "#00FF00",
+    "failure": "#FF0000",
+    "convoy": "#FFD700",
+    "support_defensive": "#90EE90",
+    "support_offensive": "#FFB6C1",
+    "power_colors": {
+      "AUSTRIA": "#c48f85",
+      "ENGLAND": "darkviolet",
+      "FRANCE": "royalblue",
+      "GERMANY": "#a08a75",
+      "ITALY": "forestgreen",
+      "RUSSIA": "#757d91",
+      "TURKEY": "#b9a61c"
+    }
+  },
+  "units": {
+    "diameter": 22,
+    "border_width": 2,
+    "dislodged_border_width": 3,
+    "dislodged_offset": [20, 20],
+    "label_font_size": 11,
+    "dislodged_indicator_size": 9,
+    "dislodged_indicator_offset": [6, 6]
+  },
+  "line_styles": {
+    "solid": {},
+    "dashed": {
+      "dash": 4,
+      "gap": 2
+    },
+    "dotted": {
+      "dot": 2,
+      "gap": 2
+    }
+  },
+  "markers": {
+    "hold_indicator_diameter": 32,
+    "hold_indicator_border_width": 2,
+    "support_circle_diameter": 32,
+    "support_circle_border_width": 3,
+    "convoy_fleet_marker_diameter": 30,
+    "convoy_fleet_marker_border_width": 2,
+    "build_marker_diameter": 18,
+    "build_marker_border_width": 2,
+    "destroy_marker_diameter": 18,
+    "destroy_marker_border_width": 2,
+    "battle_indicator_size": 22,
+    "battle_indicator_border_width": 2,
+    "standoff_indicator_size": 20,
+    "standoff_indicator_border_width": 2,
+    "status_indicator_size": 13,
+    "status_indicator_line_width": 2
+  },
+  "fonts": {
+    "unit_label_size": 11,
+    "hold_label_size": 9,
+    "phase_overlay_size": 16,
+    "conflict_label_size": 11,
+    "standoff_label_size": 9
+  }
+}
+

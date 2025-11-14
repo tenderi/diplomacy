@@ -158,7 +158,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_dir)))
 
         # Get the path to the demo script
-        script_path = os.path.join(project_root, "demo_perfect_game.py")
+        script_path = os.path.join(project_root, "examples", "demo_perfect_game.py")
 
         # Check if the script exists
         if not os.path.exists(script_path):

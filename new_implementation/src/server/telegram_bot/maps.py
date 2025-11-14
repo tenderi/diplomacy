@@ -178,8 +178,11 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         orders_data = api_get(f"/games/{game_id}/orders")
         orders = orders_data if orders_data else []
 
+        # Get map_name from game state
+        map_name = game_state.get("map", "standard")
+        
         # Generate map with units
-        map_instance = Map("standard")
+        map_instance = Map(map_name)
 
         # Create units dictionary from game state
         units = {}
@@ -206,8 +209,15 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
                     for sc in power_data["controlled_supply_centers"]:
                         supply_center_control[sc] = power_name
 
-        # Render the map with units and supply center control
-        svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on map_name
+        if map_name == 'standard-v2':
+            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+            svg_path = os.path.join(base_dir, "v2.svg")
+            if not os.path.exists(svg_path):
+                svg_path = base_path
+        else:
+            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         img_bytes = Map.render_board_png(
             svg_path, units, output_path=f"/tmp/game_map_{game_id}.png", 
             phase_info=phase_info, supply_center_control=supply_center_control
@@ -278,10 +288,17 @@ async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "phase_code": game_state.get("phase_code", "S1901M")
         }
 
-        base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
-        svg_path = f"{base_map_path}{map_name}.svg"
-        if not os.path.isfile(svg_path):
-            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on map_name
+        if map_name == 'standard-v2':
+            base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
+            svg_path = os.path.join(base_map_path, "v2.svg") if base_map_path else "maps/v2.svg"
+            if not os.path.isfile(svg_path):
+                svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        else:
+            base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
+            svg_path = f"{base_map_path}{map_name}.svg"
+            if not os.path.isfile(svg_path):
+                svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         # Get supply center control
         supply_center_control = {}
         if "supply_centers" in game_state:
@@ -342,10 +359,17 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     for sc in power_data["controlled_supply_centers"]:
                         supply_center_control[sc] = power_name
 
-        base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
-        svg_path = f"{base_map_path}{map_name}.svg"
-        if not os.path.isfile(svg_path):
-            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        # Resolve SVG path based on map_name
+        if map_name == 'standard-v2':
+            base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
+            svg_path = os.path.join(base_map_path, "v2.svg") if base_map_path else "maps/v2.svg"
+            if not os.path.isfile(svg_path):
+                svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        else:
+            base_map_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg").replace("standard.svg", "")
+            svg_path = f"{base_map_path}{map_name}.svg"
+            if not os.path.isfile(svg_path):
+                svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         try:
             img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info, supply_center_control=supply_center_control)
         except Exception as e:

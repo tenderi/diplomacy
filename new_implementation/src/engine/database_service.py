@@ -524,9 +524,9 @@ class DatabaseService:
                     provinces[center].is_home_supply_center = True
                     provinces[center].home_power = power_name
         
-        # Define standard starting positions for standard map
+        # Define standard starting positions for standard map, standard-v2, or demo mode
         starting_positions = {}
-        if map_name in ['standard', 'demo']:
+        if map_name in ['standard', 'standard-v2', 'demo']:
             starting_units_dict = {
                 'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
                 'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
