@@ -123,10 +123,20 @@ useradd -m -s /bin/bash diplomacy || echo "User already exists"
 echo "Configuring sudo access for diplomacy user..."
 cat > /etc/sudoers.d/diplomacy-systemctl << 'SUDO_EOF'
 # Allow diplomacy user to run systemctl and journalctl commands for dashboard
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy, /usr/bin/systemctl status diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy, /usr/bin/systemctl is-active diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy, /usr/bin/systemctl restart diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy *, /usr/bin/journalctl -u diplomacy-bot *
+# Note: Each command must be on a separate line for proper sudoers syntax
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl start diplomacy
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl start diplomacy-bot
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop diplomacy
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop diplomacy-bot
+# Allow journalctl with various flags (wildcard must be at end)
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy *
+diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy-bot *
 SUDO_EOF
 chmod 0440 /etc/sudoers.d/diplomacy-systemctl
 

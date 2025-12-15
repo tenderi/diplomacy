@@ -6,6 +6,7 @@ These tests verify that the bugs reported in the demo game are fixed:
 2. GAL battle resolves correctly
 3. VEN defense with support results in standoff
 4. Maps after 6/36 have movement orders
+5. Unit can move into province when occupying unit is moving away (F KIE -> HOL, A BER -> KIE)
 """
 
 import pytest
@@ -338,4 +339,47 @@ def test_dislodged_units_handled_correctly():
     
     # Verify retreat options are calculated
     assert len(unit1.retreat_options) > 0, "Dislodged unit should have retreat options"
+
+
+def test_unit_can_move_into_province_when_occupying_unit_moves_away():
+    """Test that a unit can move into a province when the occupying unit is moving away.
+    
+    Scenario: F KIE -> HOL and A BER -> KIE should both succeed.
+    F KIE moves from KIE while A BER moves to KIE - these actions happen at the same time.
+    """
+    game = Game('standard')
+    game.add_player("GERMANY")
+    
+    # Create fleet in KIE
+    fleet_kie = Unit("F", "KIE", "GERMANY")
+    # Create army in BER
+    army_ber = Unit("A", "BER", "GERMANY")
+    
+    game.game_state.powers["GERMANY"].units.append(fleet_kie)
+    game.game_state.powers["GERMANY"].units.append(army_ber)
+    
+    # F KIE -> HOL
+    move_fleet = MoveOrder(
+        power="GERMANY",
+        unit=fleet_kie,
+        target_province="HOL"
+    )
+    # A BER -> KIE
+    move_army = MoveOrder(
+        power="GERMANY",
+        unit=army_ber,
+        target_province="KIE"
+    )
+    
+    game.game_state.orders["GERMANY"] = [move_fleet, move_army]
+    
+    results = game._process_movement_phase()
+    
+    # Both moves should succeed
+    successful_moves = [m for m in results.get("moves", []) if m.get("success") == True]
+    assert len(successful_moves) == 2, f"Expected 2 successful moves, got {len(successful_moves)}: {results.get('moves', [])}"
+    
+    # Verify unit positions
+    assert fleet_kie.province == "HOL", f"Fleet should be in HOL, got {fleet_kie.province}"
+    assert army_ber.province == "KIE", f"Army should be in KIE, got {army_ber.province}"
 

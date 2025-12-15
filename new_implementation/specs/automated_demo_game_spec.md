@@ -461,6 +461,7 @@ The Perfect Automated Demo Game uses hardcoded orders to demonstrate all Diploma
 3. **Complete Coverage**: Demonstrates all 7 order types (Move, Hold, Support, Convoy, Retreat, Build, Destroy)
 4. **Educational Focus**: Each phase teaches specific mechanics
 5. **Visual Storytelling**: Maps show clear cause-and-effect relationships
+6. **Deterministic Execution**: The game is absolutely deterministic - given the same initial state and hardcoded orders, it will always produce the same results. This makes it a final test that every feature is working correctly.
 
 ### Game Structure
 
@@ -576,8 +577,19 @@ The Perfect Automated Demo Game uses hardcoded orders to demonstrate all Diploma
 
 **Map Generation:**
 - Generate 4 maps per phase: initial, orders, resolution, final
+- **IMPORTANT**: Maps are ONLY generated for scenarios that are actually processed. Scenarios that are skipped (e.g., retreat phases with no dislodgements, or scenarios that don't match the current game state) do not generate maps. This ensures the output only contains maps for turns that actually took place.
 - Naming convention: `perfect_demo_{year}_{season_num}_{phase_num}_{season}_{phase}_{type}.png`
 - Uses existing `Map.render_board_png_orders()` and `Map.render_board_png_resolution()`
+
+**Deterministic Behavior:**
+- All orders are hardcoded in the scenario definitions. The game is fully deterministic - running it multiple times with the same inputs will produce identical results.
+- The only exception is retreat orders, which are generated based on actual dislodged units. However, this is still deterministic because the dislodged units are determined by the hardcoded orders and game engine logic.
+- Order adjustments (e.g., adjusting unit positions based on actual game state) are deterministic transformations of the hardcoded orders.
+- The game stops deterministically when:
+  1. The game reaches a `done` state (victory condition met)
+  2. All scenarios in the hardcoded list have been processed or skipped
+  3. A maximum phase limit (50) is reached (safety limit)
+- This deterministic behavior makes the perfect demo game a final test that every feature is working correctly. Any changes to game logic will be immediately visible in the demo game results.
 
 **State Verification:**
 - After each phase, verify expected outcomes

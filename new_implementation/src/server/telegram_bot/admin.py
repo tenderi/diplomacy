@@ -7,7 +7,7 @@ import subprocess
 import asyncio
 import glob
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes
 
 from .api_client import api_post
@@ -210,13 +210,27 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             env["PYTHONPATH"] = f"{project_root}:{env.get('PYTHONPATH', '')}"
 
         # Run the demo script with proper environment
-        result = subprocess.run(
-            ["/usr/bin/python3", script_path],
-            capture_output=True,
-            text=True,
-            cwd=project_root,
-            env=env
-        )
+        # Add timeout of 5 minutes (300 seconds) to prevent hanging
+        try:
+            result = subprocess.run(
+                ["/usr/bin/python3", script_path],
+                capture_output=True,
+                text=True,
+                cwd=project_root,
+                env=env,
+                timeout=300  # 5 minute timeout
+            )
+        except subprocess.TimeoutExpired:
+            error_msg = (
+                "❌ *Demo script timed out*\n\n"
+                "The demo script took longer than 5 minutes to complete\\.\n"
+                "This might indicate an infinite loop or a very slow operation\\.\n\n"
+                "💡 *Try running the script manually to debug:*\n"
+                f"```bash\ncd {escape_markdown(project_root)}\n/usr/bin/python3 {escape_markdown(os.path.relpath(script_path, project_root))}\n```"
+            )
+            await safe_reply_text(error_msg, parse_mode='Markdown')
+            logger.error("Demo script timed out after 5 minutes")
+            return
 
         if result.returncode == 0:
             # Success - post generated maps in order
@@ -251,34 +265,61 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         break
 
             if map_files:
-                # Send initial message
-                await safe_reply_text("🎬 *Perfect Demo Game Complete!*\n\n📊 Posting generated maps in chronological order...", parse_mode='Markdown')
-
-                # Post each map with description
+                # Prepare media group with all maps
+                media_group = []
                 for i, map_file in enumerate(map_files, 1):
                     try:
                         # Extract phase info from filename
                         filename = os.path.basename(map_file)
                         phase_info = filename.replace("perfect_demo_", "").replace(".png", "").replace("_", " ").title()
-
-                        # Create caption
-                        caption = f"🗺️ *Map {i}/{len(map_files)}*\n📅 {phase_info}\n\n🎮 Perfect Diplomacy Demo Game"
-
-                        # Send the map
-                        with open(map_file, 'rb') as f:
-                            await safe_reply_photo(f, caption=caption, parse_mode='Markdown')
-
-                        # Small delay between maps
-                        await asyncio.sleep(1)
-
+                        
+                        # Only first photo gets caption (Telegram limitation)
+                        caption = None
+                        if i == 1:
+                            caption = (
+                                f"🗺️ *Perfect Demo Game Maps*\n\n"
+                                f"📊 *{len(map_files)} maps* showing complete game progression\n"
+                                f"📅 *First:* {phase_info}\n\n"
+                                f"👆 *Tap to scroll through all maps*"
+                            )
+                        
+                        # Add to media group (use file path - library handles file opening)
+                        media_group.append(InputMediaPhoto(
+                            media=map_file,
+                            caption=caption,
+                            parse_mode='Markdown' if caption else None
+                        ))
                     except Exception as e:
-                        logger.error(f"Error posting map {map_file}: {e}")
+                        logger.error(f"Error preparing map {map_file} for media group: {e}")
                         continue
+                
+                # Send media group if we have any maps
+                if media_group:
+                    try:
+                        if update.callback_query:
+                            await update.callback_query.message.reply_media_group(media_group)
+                        else:
+                            await update.message.reply_media_group(media_group)
+                    except Exception as e:
+                        logger.error(f"Error sending media group: {e}")
+                        # Fallback to individual messages if media group fails
+                        logger.info("Falling back to individual map messages")
+                        for i, map_file in enumerate(map_files, 1):
+                            try:
+                                filename = os.path.basename(map_file)
+                                phase_info = filename.replace("perfect_demo_", "").replace(".png", "").replace("_", " ").title()
+                                caption = f"🗺️ *Map {i}/{len(map_files)}*\n📅 {phase_info}\n\n🎮 Perfect Diplomacy Demo Game"
+                                with open(map_file, 'rb') as f:
+                                    await safe_reply_photo(f, caption=caption, parse_mode='Markdown')
+                                await asyncio.sleep(1)
+                            except Exception as e2:
+                                logger.error(f"Error posting map {map_file} in fallback: {e2}")
+                                continue
 
                 # Send completion message
                 completion_msg = (
                     f"✅ *Perfect Demo Complete!*\n\n"
-                    f"📊 Generated {len(map_files)} maps showing the complete game progression\n"
+                    f"📊 Generated {len(map_files)} maps in gallery above\n"
                     f"🎮 Hardcoded perfect scenarios demonstrating all mechanics\n"
                     f"📈 Shows 2-1 battles, support cuts, convoys, retreats, and builds"
                 )
@@ -327,14 +368,51 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 await safe_reply_text(success_msg, parse_mode='Markdown')
         else:
-            # Error occurred - escape error messages for Markdown
-            escaped_stderr = escape_markdown(result.stderr[:500]) if result.stderr else "No error output"
-            escaped_stdout = escape_markdown(result.stdout[:500]) if result.stdout else "No output"
+            # Error occurred - show full error details
+            # Get more output (up to 2000 chars) and show both stderr and stdout
+            stderr_output = result.stderr if result.stderr else "No error output"
+            stdout_output = result.stdout if result.stdout else "No output"
+            
+            # Log full error for debugging
+            logger.error(f"Demo script failed with return code {result.returncode}")
+            logger.error(f"STDERR: {stderr_output}")
+            logger.error(f"STDOUT: {stdout_output}")
+            
+            # Combine stdout and stderr (demo script prints errors to stdout)
+            combined_output = stdout_output + "\n" + stderr_output if stderr_output else stdout_output
+            
+            # Extract the error/traceback section (usually at the end)
+            # Look for common error indicators
+            error_section = ""
+            lines = combined_output.split('\n')
+            
+            # Find the last error/traceback section
+            error_start_idx = -1
+            for i in range(len(lines) - 1, -1, -1):
+                line_lower = lines[i].lower()
+                if any(keyword in line_lower for keyword in ['traceback', 'exception', 'error:', 'failed:', '❌']):
+                    error_start_idx = max(0, i - 20)  # Include 20 lines before error
+                    break
+            
+            if error_start_idx >= 0:
+                error_section = '\n'.join(lines[error_start_idx:])
+            else:
+                # No clear error section found, show last 50 lines
+                error_section = '\n'.join(lines[-50:])
+            
+            # Escape for Markdown
+            escaped_error = escape_markdown(error_section)
+            
+            # Build error message (Telegram limit is 4096 chars, so be careful)
+            # Show last 2000 chars of error section
+            if len(escaped_error) > 2000:
+                escaped_error = "..." + escaped_error[-2000:]
             
             error_msg = (
-                f"❌ *Demo script failed*\n\n"
-                f"**Error:** {escaped_stderr}\n\n"
-                f"**Output:** {escaped_stdout}"
+                f"❌ *Demo script failed* (return code: {result.returncode})\n\n"
+                f"**Error Details:**\n```\n{escaped_error}\n```\n\n"
+                f"💡 *Check server logs for full output*\n"
+                f"`sudo journalctl -u diplomacy-bot -n 100`"
             )
 
             await safe_reply_text(error_msg, parse_mode='Markdown')
