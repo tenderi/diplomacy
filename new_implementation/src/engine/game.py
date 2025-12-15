@@ -9,6 +9,8 @@ import logging
 from collections import deque
 from datetime import datetime
 
+logger = logging.getLogger("diplomacy.engine.game")
+
 class Game:
     """
     Main game class using new data models exclusively.
@@ -290,6 +292,35 @@ class Game:
         for power_name, orders in self.game_state.orders.items():
             for order in orders:
                 if isinstance(order, MoveOrder):
+                    # CRITICAL: Validate adjacency before processing move
+                    # This prevents non-adjacent moves from being executed even if they passed initial validation
+                    current_province_obj = self.game_state.map_data.provinces.get(order.unit.province)
+                    target_province_obj = self.game_state.map_data.provinces.get(order.target_province)
+                    
+                    if current_province_obj and target_province_obj:
+                        # Check if move is convoyed
+                        move_key = (order.unit.unit_type, order.unit.province, order.target_province)
+                        is_convoyed = move_key in convoyed_moves
+                        
+                        # Validate adjacency (unless convoyed)
+                        if not is_convoyed:
+                            # Check adjacency
+                            is_adjacent = current_province_obj.is_adjacent_to(order.target_province)
+                            
+                            # For multi-coast provinces, check coast-specific adjacency
+                            if not is_adjacent and current_province_obj.is_multi_coast_province():
+                                if hasattr(order.unit, 'coast') and order.unit.coast:
+                                    coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
+                                    is_adjacent = order.target_province in coast_adjacencies
+                            
+                            if not is_adjacent:
+                                # Invalid move - log warning and skip
+                                logger.warning(
+                                    f"Invalid move rejected: {order.unit} cannot move to non-adjacent province {order.target_province} "
+                                    f"(not convoyed). Order: {order}"
+                                )
+                                continue  # Skip this move
+                    
                     target = order.target_province
                     if target not in move_strengths:
                         move_strengths[target] = []
@@ -327,6 +358,9 @@ class Game:
                     move_strengths[target].append((order.unit, 1, order))
         
         # Second pass: Process support orders
+        # Track support orders by target province and supported unit for proper matching
+        support_orders_by_target: Dict[str, List[Tuple[SupportOrder, Unit]]] = {}  # target_province -> [(support_order, supported_unit)]
+        
         for power_name, orders in self.game_state.orders.items():
             for order in orders:
                 if isinstance(order, SupportOrder):
@@ -345,10 +379,25 @@ class Game:
                                 break
 
                     if not is_support_cut:
-                        # Support is not cut, add support strength
-                        if order.supported_target not in support_strengths:
-                            support_strengths[order.supported_target] = []
-                        support_strengths[order.supported_target].append((supporting_unit, 1))
+                        # Support is not cut, determine target province and supported unit
+                        if order.supported_action == "hold":
+                            # Hold support: target is the province being held
+                            target_province = order.supported_unit.province
+                            supported_unit = order.supported_unit
+                        else:
+                            # Move support: target is the destination province
+                            target_province = order.supported_target
+                            supported_unit = order.supported_unit
+                        
+                        if target_province:
+                            if target_province not in support_orders_by_target:
+                                support_orders_by_target[target_province] = []
+                            support_orders_by_target[target_province].append((order, supported_unit))
+                            
+                            # Also add to support_strengths for backward compatibility
+                            if target_province not in support_strengths:
+                                support_strengths[target_province] = []
+                            support_strengths[target_province].append((supporting_unit, 1))
         
         # Check for mutual moves (units trying to swap positions)
         # A mutual move occurs when: Unit A moves to Province X, and Unit B (currently in X) moves to A's source province
@@ -413,13 +462,26 @@ class Game:
                 old_province = unit.province
                 
                 # Add support strength
-                if target_province in support_strengths:
-                    for supporting_unit, support_strength in support_strengths[target_province]:
-                        # Check if this support is for this specific move
+                # Match support orders to this specific unit and move
+                if target_province in support_orders_by_target:
+                    for support_order, supported_unit in support_orders_by_target[target_province]:
+                        # Check if this support is for this specific unit
                         if isinstance(order, MoveOrder):
-                            # The support is for the target province, so it applies to any move to that province
-                            strength += support_strength
-                            break
+                            # For move support: supported_unit must match the moving unit
+                            if (support_order.supported_action == "move" and
+                                supported_unit.unit_type == unit.unit_type and
+                                supported_unit.province == unit.province and
+                                supported_unit.power == unit.power):
+                                strength += 1
+                                break
+                        elif isinstance(order, HoldOrder):
+                            # For hold support: supported_unit must match the holding unit
+                            if (support_order.supported_action == "hold" and
+                                supported_unit.unit_type == unit.unit_type and
+                                supported_unit.province == unit.province and
+                                supported_unit.power == unit.power):
+                                strength += 1
+                                break
                 
                 if isinstance(order, MoveOrder):
                     # Check for self-dislodgement
@@ -516,21 +578,26 @@ class Game:
                     total_strengths[unit_key] += strength
                 
                 # Add support from support orders
-                if target_province in support_strengths:
-                    for supporting_unit, support_strength in support_strengths[target_province]:
-                        # Find which unit this support is for by looking at the support order
-                        for power_name, orders in self.game_state.orders.items():
-                            for support_order in orders:
-                                if isinstance(support_order, SupportOrder):
-                                    if (support_order.unit == supporting_unit and 
-                                        support_order.supported_target == target_province):
-                                        # This support order is for this target province
-                                        # Find the unit that this support is targeting
-                                        supported_unit = support_order.supported_unit
-                                        unit_key = f"{supported_unit.unit_type} {supported_unit.province}"
-                                        if unit_key in total_strengths:
-                                            total_strengths[unit_key] += support_strength
-                                        break
+                # Match support orders to specific units
+                if target_province in support_orders_by_target:
+                    for support_order, supported_unit in support_orders_by_target[target_province]:
+                        # Find the unit in remaining_moves that matches the supported unit
+                        for unit, strength, order in remaining_moves:
+                            # Match by unit type, province, and power
+                            # Also verify the support action matches the order type
+                            unit_matches = (supported_unit.unit_type == unit.unit_type and
+                                          supported_unit.province == unit.province and
+                                          supported_unit.power == unit.power)
+                            
+                            if unit_matches:
+                                # Verify support action matches order type
+                                if ((support_order.supported_action == "move" and isinstance(order, MoveOrder)) or
+                                    (support_order.supported_action == "hold" and isinstance(order, HoldOrder))):
+                                    # This support is for this unit
+                                    unit_key = f"{unit.unit_type} {unit.province}"
+                                    if unit_key in total_strengths:
+                                        total_strengths[unit_key] += 1
+                                    break
                 
                 # Find winner
                 max_strength = max(total_strengths.values())
@@ -646,12 +713,23 @@ class Game:
                             })
                 else:
                     # Multiple winners - standoff, no move
+                    # ALL units (both moving and holding) bounce - no one moves
                     for unit, strength, order in remaining_moves:
                         if isinstance(order, MoveOrder):
                             results["moves"].append({
                                 "unit": f"{unit.unit_type} {unit.province}",
                                 "from": unit.province,
                                 "to": target_province,
+                                "strength": strength,
+                                "success": False,
+                                "failure_reason": "bounced"
+                            })
+                        elif isinstance(order, HoldOrder):
+                            # Hold order in standoff - unit remains in place
+                            results["moves"].append({
+                                "unit": f"{unit.unit_type} {unit.province}",
+                                "from": unit.province,
+                                "to": unit.province,  # No move
                                 "strength": strength,
                                 "success": False,
                                 "failure_reason": "bounced"

@@ -83,9 +83,42 @@ class PerfectDemoGame:
         self._last_adjudication_results: Dict[str, Any] = {}  # Store adjudication results from last process_phase
         self.color_only_supply_centers: bool = color_only_supply_centers  # Option to color only supply center provinces
         
-        # Ensure test_maps directory exists
-        self.maps_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_maps")
-        os.makedirs(self.maps_dir, exist_ok=True)
+        # Ensure test_maps directory exists in project root (not relative to script)
+        # Try to find project root by checking for indicators
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Check if script is in examples/ subdirectory or directly in project root
+        if os.path.basename(script_dir) == "examples":
+            # Script is in examples/, so project root is parent directory
+            project_root = os.path.dirname(script_dir)
+        else:
+            # Script is directly in project root (deployment scenario)
+            project_root = script_dir
+        
+        # Verify we have the right project root by checking for indicators
+        if not os.path.exists(os.path.join(project_root, "src")) and not os.path.exists(os.path.join(project_root, "requirements.txt")):
+            # Fallback: try parent directory
+            parent_root = os.path.dirname(project_root)
+            if os.path.exists(os.path.join(parent_root, "src")) or os.path.exists(os.path.join(parent_root, "requirements.txt")):
+                project_root = parent_root
+        
+        # Use project_root/test_maps for consistency with bot admin.py
+        self.maps_dir = os.path.join(project_root, "test_maps")
+        
+        # Ensure directory exists with proper error handling
+        try:
+            os.makedirs(self.maps_dir, exist_ok=True)
+        except PermissionError as e:
+            # If permission denied, try to provide helpful error message
+            error_msg = (
+                f"Permission denied creating test_maps directory: {self.maps_dir}\n"
+                f"  Script location: {os.path.abspath(__file__)}\n"
+                f"  Project root: {project_root}\n"
+                f"  Current user: {os.getenv('USER', 'unknown')}\n"
+                f"  Current directory: {os.getcwd()}\n"
+                f"  Try: sudo mkdir -p {self.maps_dir} && sudo chown {os.getenv('USER', 'diplomacy')}:{os.getenv('USER', 'diplomacy')} {self.maps_dir}"
+            )
+            raise PermissionError(error_msg) from e
         
         # Load all scenarios
         self.load_scenarios()
@@ -585,6 +618,148 @@ class PerfectDemoGame:
             },
             description="Final build phase. Powers adjust units based on supply center control."
         ))
+        
+        # Spring 1903 Movement
+        self.scenarios.append(ScenarioData(
+            year=1903,
+            season="Spring",
+            phase="Movement",
+            orders={
+                "FRANCE": ["A PAR - BUR", "A BRE - PIC", "A MAR - GAS"],
+                "AUSTRIA": ["A VIE - BOH", "A BUD - SER", "F TRI - ADR"],
+                "RUSSIA": ["A MOS - UKR", "A WAR - GAL", "F STP - BOT"],
+                "ENGLAND": ["A LON - YOR", "F ENG - NTH", "F LVP - CLY"],
+                "GERMANY": ["A BER - KIE", "A MUN - BUR", "F KIE - HEL"],
+                "ITALY": ["A ROM - VEN", "A NAP - APU", "F VEN - ADR"],
+                "TURKEY": ["A CON - BUL", "A ANK - ARM", "F SMY - AEG"]
+            },
+            description="Spring 1903: Continued expansion and strategic positioning."
+        ))
+        
+        # Spring 1903 Retreat
+        self.scenarios.append(ScenarioData(
+            year=1903,
+            season="Spring",
+            phase="Retreat",
+            orders={},
+            description="Demonstrates retreat orders if units were dislodged in Spring 1903.",
+            skip_if_no_dislodgements=True
+        ))
+        
+        # Fall 1903 Movement
+        self.scenarios.append(ScenarioData(
+            year=1903,
+            season="Autumn",
+            phase="Movement",
+            orders={
+                "FRANCE": ["A BUR - MUN", "A PIC - BEL", "A GAS - SPA"],
+                "AUSTRIA": ["A BOH - MUN", "A SER - GRE", "F ADR - ION"],
+                "RUSSIA": ["A UKR - SEV", "A GAL - WAR", "F BOT - SWE"],
+                "ENGLAND": ["A YOR - EDI", "F NTH - DEN", "F CLY - NAO"],
+                "GERMANY": ["A KIE - HOL", "A MUN - TYR", "F HEL - DEN"],
+                "ITALY": ["A VEN - TYR", "A APU - NAP", "F ADR - ION"],
+                "TURKEY": ["A BUL - SER", "A ARM - SEV", "F AEG - ION"]
+            },
+            description="Fall 1903: Major conflicts and supply center captures."
+        ))
+        
+        # Fall 1903 Retreat
+        self.scenarios.append(ScenarioData(
+            year=1903,
+            season="Autumn",
+            phase="Retreat",
+            orders={},
+            description="Demonstrates retreat orders if units were dislodged in Fall 1903.",
+            skip_if_no_dislodgements=True
+        ))
+        
+        # Fall 1903 Builds
+        self.scenarios.append(ScenarioData(
+            year=1903,
+            season="Autumn",
+            phase="Builds",
+            orders={
+                "FRANCE": [],
+                "AUSTRIA": [],
+                "RUSSIA": [],
+                "ENGLAND": [],
+                "GERMANY": [],
+                "ITALY": [],
+                "TURKEY": []
+            },
+            description="Build phase after Fall 1903."
+        ))
+        
+        # Spring 1904 Movement
+        self.scenarios.append(ScenarioData(
+            year=1904,
+            season="Spring",
+            phase="Movement",
+            orders={
+                "FRANCE": ["A BEL - RUH", "A SPA - POR", "A MAR - PIE"],
+                "AUSTRIA": ["A MUN - BUR", "A GRE - ALB", "F ION - TUN"],
+                "RUSSIA": ["A SEV - RUM", "A WAR - PRU", "F SWE - FIN"],
+                "ENGLAND": ["A EDI - CLY", "F DEN - BAL", "F NAO - MAO"],
+                "GERMANY": ["A HOL - BEL", "A TYR - VEN", "F DEN - KIE"],
+                "ITALY": ["A TYR - VIE", "A NAP - ROM", "F ION - TUN"],
+                "TURKEY": ["A SER - BUD", "A SEV - UKR", "F ION - TYS"]
+            },
+            description="Spring 1904: Advanced strategic play and multi-power conflicts."
+        ))
+        
+        # Spring 1904 Retreat
+        self.scenarios.append(ScenarioData(
+            year=1904,
+            season="Spring",
+            phase="Retreat",
+            orders={},
+            description="Demonstrates retreat orders if units were dislodged in Spring 1904.",
+            skip_if_no_dislodgements=True
+        ))
+        
+        # Fall 1904 Movement
+        self.scenarios.append(ScenarioData(
+            year=1904,
+            season="Autumn",
+            phase="Movement",
+            orders={
+                "FRANCE": ["A RUH - MUN", "A POR - SPA", "A PIE - MAR"],
+                "AUSTRIA": ["A BUR - PAR", "A ALB - GRE", "F TUN - WES"],
+                "RUSSIA": ["A RUM - BUD", "A PRU - BER", "F FIN - STP"],
+                "ENGLAND": ["A CLY - LVP", "F BAL - SWE", "F MAO - ENG"],
+                "GERMANY": ["A BEL - PIC", "A VEN - ROM", "F KIE - HEL"],
+                "ITALY": ["A VIE - BUD", "A ROM - NAP", "F TUN - TYS"],
+                "TURKEY": ["A BUD - VIE", "A UKR - MOS", "F TYS - ION"]
+            },
+            description="Fall 1904: Continued expansion and elimination threats."
+        ))
+        
+        # Fall 1904 Retreat
+        self.scenarios.append(ScenarioData(
+            year=1904,
+            season="Autumn",
+            phase="Retreat",
+            orders={},
+            description="Demonstrates retreat orders if units were dislodged in Fall 1904.",
+            skip_if_no_dislodgements=True
+        ))
+        
+        # Fall 1904 Builds
+        self.scenarios.append(ScenarioData(
+            year=1904,
+            season="Autumn",
+            phase="Builds",
+            orders={
+                "FRANCE": [],
+                "AUSTRIA": [],
+                "RUSSIA": [],
+                "ENGLAND": [],
+                "GERMANY": [],
+                "ITALY": [],
+                "TURKEY": []
+            },
+            description="Build phase after Fall 1904."
+        ))
     
     def run_demo(self) -> None:
         """Execute the perfect demo game sequence."""
@@ -659,14 +834,18 @@ class PerfectDemoGame:
         return True
     
     def play_scenarios(self) -> None:
-        """Play through all hardcoded scenarios."""
+        """Play through all hardcoded scenarios, then generate dynamic orders."""
         print("\n🎲 Starting scenario playback...")
         
         # Map season and phase to numbers for chronological ordering
         season_order = {"Spring": "01", "Autumn": "02"}
         phase_order = {"Movement": "01", "Retreat": "02", "Builds": "03"}
         
-        for scenario in self.scenarios:
+        scenario_index = 0
+        max_phases = 50  # Limit to prevent infinite loops
+        
+        while scenario_index < len(self.scenarios) and self.phase_count < max_phases:
+            scenario = self.scenarios[scenario_index]
             # Adjust scenario orders based on actual game state if needed
             scenario = self.adjust_scenario_for_state(scenario)
             print(f"\n📅 {scenario.season} {scenario.year} - {scenario.phase}")
@@ -815,9 +994,71 @@ class PerfectDemoGame:
                         self.verify_expected_outcomes(updated_state, scenario.expected_outcomes)
             
             self.phase_count += 1
+            scenario_index += 1
             
             # Small delay for readability
             time.sleep(0.5)
+        
+        # After hardcoded scenarios, generate dynamic orders
+        if scenario_index >= len(self.scenarios) and self.phase_count < max_phases:
+            print("\n🔄 Hardcoded scenarios complete. Generating dynamic orders...")
+            self.generate_dynamic_orders(max_phases - self.phase_count)
+    
+    def generate_movement_orders(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Generate movement orders based on current game state using simple heuristics."""
+        orders: Dict[str, List[str]] = {}
+        units = game_state.get("units", {})
+        map_data = game_state.get("map_data", {})
+        provinces = map_data.get("provinces", {})
+        
+        for power_name, power_units in units.items():
+            power_orders = []
+            
+            for unit_str in power_units:
+                if "DISLODGED_" in unit_str:
+                    continue  # Skip dislodged units
+                
+                parts = unit_str.split()
+                if len(parts) < 2:
+                    continue
+                
+                unit_type = parts[0]
+                province = parts[1]
+                
+                # Get adjacent provinces
+                province_data = provinces.get(province)
+                if not province_data:
+                    # Default to hold if province not found
+                    power_orders.append(f"{unit_type} {province} H")
+                    continue
+                
+                adjacent = province_data.get("adjacent_provinces", [])
+                
+                # Simple heuristic: try to move to an adjacent province that's not occupied by friendly units
+                # or hold if no good moves available
+                moved = False
+                for adj_prov in adjacent:
+                    # Check if adjacent province is occupied by friendly unit
+                    is_friendly = False
+                    for other_unit in power_units:
+                        if adj_prov in other_unit and other_unit != unit_str:
+                            is_friendly = True
+                            break
+                    
+                    if not is_friendly:
+                        # Try to move here
+                        power_orders.append(f"{unit_type} {province} - {adj_prov}")
+                        moved = True
+                        break
+                
+                if not moved:
+                    # Hold if no good moves
+                    power_orders.append(f"{unit_type} {province} H")
+            
+            if power_orders:
+                orders[power_name] = power_orders
+        
+        return orders
     
     def check_for_dislodgements(self, game_state: Dict[str, Any]) -> bool:
         """Check if there are any dislodged units in the game state."""
@@ -972,11 +1213,32 @@ class PerfectDemoGame:
     
     def _get_svg_path(self) -> str:
         """Get the SVG path based on map_name."""
-        maps_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "maps")
+        # Use the same resolution method as Map class
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        
+        # Try project_root/maps first
+        maps_dir = os.path.join(project_root, "maps")
+        
         if self.map_name == "standard-v2":
             svg_path = os.path.join(maps_dir, "v2.svg")
+            # Fallback to standard if v2.svg doesn't exist
+            if not os.path.exists(svg_path):
+                svg_path = os.path.join(maps_dir, "standard.svg")
         else:
             svg_path = os.path.join(maps_dir, "standard.svg")
+        
+        # If still not found, try environment variable
+        if not os.path.exists(svg_path):
+            env_path = os.environ.get("DIPLOMACY_MAP_PATH")
+            if env_path and os.path.exists(env_path):
+                svg_path = env_path
+            else:
+                # Try relative to current working directory
+                cwd_maps = os.path.join(os.getcwd(), "maps", "standard.svg")
+                if os.path.exists(cwd_maps):
+                    svg_path = cwd_maps
+        
         return svg_path
     
     def generate_and_save_map(self, game_state: Dict[str, Any], filename: str) -> None:
@@ -990,7 +1252,15 @@ class PerfectDemoGame:
             
             # Verify SVG path exists
             if not os.path.exists(svg_path):
-                raise FileNotFoundError(f"SVG map not found at {svg_path}")
+                error_msg = (
+                    f"SVG map not found at {svg_path}\n"
+                    f"  Maps directory: {os.path.dirname(svg_path)}\n"
+                    f"  Current working directory: {os.getcwd()}\n"
+                    f"  Script location: {os.path.dirname(os.path.abspath(__file__))}\n"
+                    f"  Project root: {os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}\n"
+                    f"  DIPLOMACY_MAP_PATH env: {os.environ.get('DIPLOMACY_MAP_PATH', 'not set')}"
+                )
+                raise FileNotFoundError(error_msg)
             
             # Create units dictionary from game state
             units = {}
@@ -1026,18 +1296,30 @@ class PerfectDemoGame:
             }
             
             # Generate PNG map with supply center control
+            print(f"  🗺️ Generating map: {filename}")
+            print(f"     SVG path: {svg_path}")
+            print(f"     Output path: {filepath}")
+            print(f"     Units count: {sum(len(u) for u in units.values())}")
+            
             img_bytes = Map.render_board_png(svg_path, units, output_path=filepath, phase_info=phase_info, supply_center_control=supply_center_control, color_only_supply_centers=self.color_only_supply_centers)
             
             # Verify file was created
             if not os.path.exists(filepath):
-                raise FileNotFoundError(f"PNG file was not created at {filepath}")
+                error_msg = (
+                    f"PNG file was not created at {filepath}\n"
+                    f"  Maps directory exists: {os.path.exists(self.maps_dir)}\n"
+                    f"  Maps directory writable: {os.access(self.maps_dir, os.W_OK) if os.path.exists(self.maps_dir) else 'N/A'}\n"
+                    f"  Image bytes generated: {len(img_bytes) if img_bytes else 0} bytes"
+                )
+                raise FileNotFoundError(error_msg)
             
-            print(f"  🗺️ Map saved: {filepath}")
+            print(f"  ✅ Map saved: {filepath} ({os.path.getsize(filepath)} bytes)")
             
         except Exception as e:
-            print(f"  ⚠️ Could not generate map {filename}: {e}")
+            print(f"  ❌ Could not generate map {filename}: {e}")
             import traceback
             traceback.print_exc()
+            # Don't re-raise - allow demo to continue even if map generation fails
     
     def _convert_order_to_visualization_format(self, order_text: str, power_name: str) -> Optional[Dict[str, Any]]:
         """Convert order text string to visualization dictionary format."""
@@ -1161,7 +1443,15 @@ class PerfectDemoGame:
             
             # Verify SVG path exists
             if not os.path.exists(svg_path):
-                raise FileNotFoundError(f"SVG map not found at {svg_path}")
+                error_msg = (
+                    f"SVG map not found at {svg_path}\n"
+                    f"  Maps directory: {os.path.dirname(svg_path)}\n"
+                    f"  Current working directory: {os.getcwd()}\n"
+                    f"  Script location: {os.path.dirname(os.path.abspath(__file__))}\n"
+                    f"  Project root: {os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}\n"
+                    f"  DIPLOMACY_MAP_PATH env: {os.environ.get('DIPLOMACY_MAP_PATH', 'not set')}"
+                )
+                raise FileNotFoundError(error_msg)
             
             # Create units dictionary from game state
             units = {}
@@ -1408,7 +1698,15 @@ class PerfectDemoGame:
             
             # Verify SVG path exists
             if not os.path.exists(svg_path):
-                raise FileNotFoundError(f"SVG map not found at {svg_path}")
+                error_msg = (
+                    f"SVG map not found at {svg_path}\n"
+                    f"  Maps directory: {os.path.dirname(svg_path)}\n"
+                    f"  Current working directory: {os.getcwd()}\n"
+                    f"  Script location: {os.path.dirname(os.path.abspath(__file__))}\n"
+                    f"  Project root: {os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}\n"
+                    f"  DIPLOMACY_MAP_PATH env: {os.environ.get('DIPLOMACY_MAP_PATH', 'not set')}"
+                )
+                raise FileNotFoundError(error_msg)
             
             # Create units dictionary from game state (includes dislodged units)
             units = {}

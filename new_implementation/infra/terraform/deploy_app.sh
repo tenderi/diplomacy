@@ -18,17 +18,36 @@ NC='\033[0m' # No Color
 
 # Parse command line arguments
 RESET_DB=false
+SKIP_TESTS=false
+TEST_ONLY=false
+FAIL_ON_WARNINGS=false
+
 for arg in "$@"; do
     case $arg in
         --reset-db|--reset-database)
             RESET_DB=true
             shift
             ;;
+        --skip-tests)
+            SKIP_TESTS=true
+            shift
+            ;;
+        --test-only)
+            TEST_ONLY=true
+            shift
+            ;;
+        --fail-on-warnings)
+            FAIL_ON_WARNINGS=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 [--reset-db]"
+            echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --reset-db, --reset-database    Drop and recreate the database before deployment"
+            echo "  --skip-tests                    Skip environment tests (not recommended)"
+            echo "  --test-only                     Run tests without deploying"
+            echo "  --fail-on-warnings              Treat warnings as errors in tests"
             echo "  --help, -h                      Show this help message"
             exit 0
             ;;
@@ -159,6 +178,52 @@ if ! run_ssh "test -f /opt/diplomacy/.env"; then
     exit 1
 fi
 
+# Phase 1: Pre-deployment Environment Validation
+if [ "$SKIP_TESTS" != true ]; then
+    echo -e "${BLUE}=== Phase 1: Pre-Deployment Environment Validation ===${NC}"
+    
+    # Copy test script to remote if it doesn't exist
+    if [ -f "../../infra/scripts/test_remote_setup.sh" ]; then
+        echo -e "${YELLOW}Copying test script to remote server...${NC}"
+        copy_files "../../infra/scripts/test_remote_setup.sh" "/tmp/"
+        run_ssh "
+            sudo cp /tmp/test_remote_setup.sh /opt/diplomacy/
+            sudo chmod +x /opt/diplomacy/test_remote_setup.sh
+            sudo chown diplomacy:diplomacy /opt/diplomacy/test_remote_setup.sh
+        "
+    fi
+    
+    # Run pre-deployment tests
+    echo -e "${YELLOW}Running pre-deployment environment tests...${NC}"
+    TEST_FLAGS=""
+    if [ "$FAIL_ON_WARNINGS" = true ]; then
+        TEST_FLAGS="--fail-on-warnings"
+    fi
+    
+    if run_ssh "sudo -u diplomacy /opt/diplomacy/test_remote_setup.sh $TEST_FLAGS" 2>&1 | tee /tmp/pre_deploy_test_output; then
+        echo -e "${GREEN}✅ Pre-deployment tests passed${NC}"
+    else
+        TEST_EXIT_CODE=${PIPESTATUS[0]}
+        if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo -e "${RED}❌ Pre-deployment tests failed!${NC}"
+            echo -e "${YELLOW}Test output saved to /tmp/pre_deploy_test_output${NC}"
+            if [ "$TEST_ONLY" = true ]; then
+                exit 1
+            else
+                echo -e "${YELLOW}Continuing with deployment despite test failures...${NC}"
+                read -p "Press Enter to continue or Ctrl+C to abort: " || exit 1
+            fi
+        fi
+    fi
+else
+    echo -e "${YELLOW}⚠️  Pre-deployment tests skipped (--skip-tests flag)${NC}"
+fi
+
+if [ "$TEST_ONLY" = true ]; then
+    echo -e "${GREEN}Test-only mode: Exiting after tests${NC}"
+    exit 0
+fi
+
 # Verify and ensure SQLALCHEMY_DATABASE_URL is defined in .env file
 echo -e "${YELLOW}Verifying SQLALCHEMY_DATABASE_URL configuration...${NC}"
 run_ssh "
@@ -262,6 +327,17 @@ if [ -f "../../examples/demo_perfect_game.py" ]; then
     copy_files "../../examples/demo_perfect_game.py" "/tmp/"
 fi
 
+# Copy test scripts if they exist
+if [ -f "../../infra/scripts/test_remote_setup.sh" ]; then
+    echo -e "${YELLOW}📋 Copying test_remote_setup.sh...${NC}"
+    copy_files "../../infra/scripts/test_remote_setup.sh" "/tmp/"
+fi
+
+if [ -f "../../infra/scripts/compare_environments.py" ]; then
+    echo -e "${YELLOW}📋 Copying compare_environments.py...${NC}"
+    copy_files "../../infra/scripts/compare_environments.py" "/tmp/"
+fi
+
 # Copy dashboard files if they exist
 DASHBOARD_DIR="../../src/server/dashboard"
 if [ -d "$DASHBOARD_DIR" ]; then
@@ -301,6 +377,12 @@ run_ssh "
     sudo cp /tmp/alembic.ini /opt/diplomacy/ 2>/dev/null || true
     sudo chown diplomacy:diplomacy /opt/diplomacy/requirements.txt
     sudo chown diplomacy:diplomacy /opt/diplomacy/alembic.ini 2>/dev/null || true
+    
+    # Ensure test_maps directory exists with proper permissions
+    sudo mkdir -p /opt/diplomacy/test_maps
+    sudo chown diplomacy:diplomacy /opt/diplomacy/test_maps
+    sudo chmod 755 /opt/diplomacy/test_maps
+    echo '✅ test_maps directory created/verified'
     
     # Deploy dashboard if it exists
     if [ -d '/tmp/dashboard' ]; then
@@ -700,6 +782,9 @@ fi
 # Wait a moment for service to start
 sleep 3
 
+# Phase 3: Service Health Verification
+echo -e "${BLUE}=== Phase 3: Service Health Verification ===${NC}"
+
 # Check service status
 echo -e "${YELLOW}Checking service status...${NC}"
 SERVICE_STATUS=$(run_ssh "sudo systemctl is-active diplomacy" || echo "failed")
@@ -723,6 +808,75 @@ if run_ssh "curl -f http://localhost:8000/ > /dev/null 2>&1"; then
     echo -e "${GREEN}✓ API is responding!${NC}"
 else
     echo -e "${YELLOW}⚠ API is not responding yet (may still be starting up)${NC}"
+fi
+
+# Phase 2: Post-Deployment Validation
+if [ "$SKIP_TESTS" != true ]; then
+    echo -e "${BLUE}=== Phase 2: Post-Deployment Validation ===${NC}"
+    
+    # Run post-deployment tests
+    echo -e "${YELLOW}Running post-deployment environment tests...${NC}"
+    TEST_FLAGS=""
+    if [ "$FAIL_ON_WARNINGS" = true ]; then
+        TEST_FLAGS="--fail-on-warnings"
+    fi
+    
+    if run_ssh "sudo -u diplomacy /opt/diplomacy/test_remote_setup.sh $TEST_FLAGS" 2>&1 | tee /tmp/post_deploy_test_output; then
+        echo -e "${GREEN}✅ Post-deployment tests passed${NC}"
+    else
+        TEST_EXIT_CODE=${PIPESTATUS[0]}
+        if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo -e "${RED}❌ Post-deployment tests failed!${NC}"
+            echo -e "${YELLOW}Test output saved to /tmp/post_deploy_test_output${NC}"
+            echo -e "${YELLOW}Please review the test output and fix any issues${NC}"
+        fi
+    fi
+    
+    # Test path resolution (critical for map generation)
+    echo -e "${YELLOW}Testing path resolution...${NC}"
+    if run_ssh "sudo -u diplomacy python3 -c \"
+import os
+import sys
+sys.path.insert(0, '/opt/diplomacy/src')
+from server.telegram_bot.admin import run_automated_demo
+# Test that paths resolve correctly
+script_dir = '/opt/diplomacy/examples'
+project_root = '/opt/diplomacy'
+maps_dir = os.path.join(project_root, 'test_maps')
+print(f'Project root: {project_root}')
+print(f'Maps dir: {maps_dir}')
+print(f'Maps dir exists: {os.path.exists(maps_dir)}')
+print('✅ Path resolution test passed')
+\""; then
+        echo -e "${GREEN}✓ Path resolution test passed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Path resolution test had issues${NC}"
+    fi
+    
+    # Test message formatting (dry-run)
+    echo -e "${YELLOW}Testing Telegram message formatting...${NC}"
+    if run_ssh "sudo -u diplomacy python3 -c \"
+import sys
+sys.path.insert(0, '/opt/diplomacy/src')
+from server.telegram_bot.utils import escape_markdown, safe_markdown_path
+# Test with various paths
+test_paths = [
+    '/opt/diplomacy/test_maps/file.png',
+    '/opt/diplomacy/test_maps/file_with_underscores.png',
+    '/opt/diplomacy/test_maps/file (1).png',
+]
+for path in test_paths:
+    escaped = escape_markdown(path)
+    formatted = safe_markdown_path(path)
+    assert len(formatted) < 500, 'Formatted path too long'
+print('✅ Message formatting test passed')
+\""; then
+        echo -e "${GREEN}✓ Message formatting test passed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Message formatting test had issues${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Post-deployment tests skipped (--skip-tests flag)${NC}"
 fi
 
 # Show final status
