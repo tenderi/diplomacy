@@ -26,16 +26,17 @@ from server.telegram_bot.maps import (
 )
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
-    join, quit, replace, wait
+    join, quit, replace, wait, status, players
 )
 from server.telegram_bot.orders import (
-    order, orders, myorders, clearorders, orderhistory, processturn, viewmap, selectunit,
+    order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
     show_possible_moves, show_convoy_options, show_convoy_destinations, submit_interactive_order,
     show_my_orders_menu
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
 from server.telegram_bot.ui import (
-    show_main_menu, show_map_menu, show_help, show_admin_menu, refresh_keyboard, handle_menu_buttons
+    show_main_menu, show_map_menu, show_help, show_admin_menu, refresh_keyboard, handle_menu_buttons,
+    rules, examples
 )
 from server.telegram_bot.admin import start_demo_game, run_automated_demo, debug_command
 from server.telegram_bot.notifications import fastapi_app, notify
@@ -433,6 +434,8 @@ def main():
     app.add_handler(CommandHandler("register", register))
     app.add_handler(CommandHandler("join", join))
     app.add_handler(CommandHandler("games", games))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("players", players))
     app.add_handler(CommandHandler("quit", quit))
     app.add_handler(CommandHandler("orders", orders))
     app.add_handler(CommandHandler("order", order))
@@ -441,6 +444,7 @@ def main():
     app.add_handler(CommandHandler("selectunit", selectunit))
     app.add_handler(CommandHandler("myorders", myorders))
     app.add_handler(CommandHandler("clearorders", clearorders))
+    app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("orderhistory", orderhistory))
     app.add_handler(CommandHandler("message", message))
     app.add_handler(CommandHandler("broadcast", broadcast))
@@ -452,6 +456,9 @@ def main():
     app.add_handler(CommandHandler("refresh_map", refresh_map_cache))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("refresh", refresh_keyboard))
+    app.add_handler(CommandHandler("help", show_help))
+    app.add_handler(CommandHandler("rules", rules))
+    app.add_handler(CommandHandler("examples", examples))
     app.add_handler(CommandHandler("link_channel", link_channel))
     app.add_handler(CommandHandler("unlink_channel", unlink_channel))
     app.add_handler(CommandHandler("channel_info", channel_info))

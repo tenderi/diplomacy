@@ -2160,7 +2160,7 @@ class Map:
         marker_specs = _viz_config.get_marker_specs()
         marker_size = marker_specs["standoff_indicator_size"]
         border_width = marker_specs["standoff_indicator_border_width"]
-        standoff_color = "#FFD700"  # Yellow for standoff (could be configurable)
+        standoff_color = _viz_config.get_color("convoy")  # Use convoy color (gold/yellow) for standoff
         rgb_standoff_color = Map._convert_color_to_rgb(standoff_color)
         
         # Draw special standoff marker (circle with equal sign)

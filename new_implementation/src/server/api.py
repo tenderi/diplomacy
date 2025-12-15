@@ -25,7 +25,7 @@ from .db_config import SQLALCHEMY_DATABASE_URL
 from .api.shared import deadline_scheduler, db_service
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -66,6 +66,15 @@ def _initialize_database_schema():
                     if missing_columns:
                         needs_column_update = True
                         logging.info(f"Users table missing columns: {missing_columns}, updating schema...")
+                
+                if 'games' in tables:
+                    # Check if games table has channel columns
+                    games_columns = [col['name'] for col in inspector.get_columns('games')]
+                    required_channel_columns = ['channel_id', 'channel_settings']
+                    missing_channel_columns = [col for col in required_channel_columns if col not in games_columns]
+                    if missing_channel_columns:
+                        needs_column_update = True
+                        logging.info(f"Games table missing channel columns: {missing_channel_columns}, updating schema...")
                 
                 if needs_schema_create or needs_column_update:
                     if needs_column_update:
@@ -135,7 +144,7 @@ async def lifespan(app: FastAPI):
 # TestClient doesn't always trigger lifespan, so initialize here as well
 _initialize_database_schema()
 
-app = FastAPI(title="Diplomacy Server API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Diplomacy Server API", version="2.0.0", lifespan=lifespan)
 
 # Register all route modules
 app.include_router(games.router)
@@ -145,6 +154,7 @@ app.include_router(messages.router)
 app.include_router(maps.router)
 app.include_router(admin.router)
 app.include_router(dashboard.router)
+app.include_router(channels.router, tags=["channels"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

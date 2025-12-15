@@ -227,6 +227,11 @@ async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Error clearing orders: {e}")
 
 
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /clear command - alias for /clearorders."""
+    await clearorders(update, context)
+
+
 async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """View order history for the user's active game."""
     user = update.effective_user

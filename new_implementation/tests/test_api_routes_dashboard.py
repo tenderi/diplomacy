@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
-from server.api import app
+from server._api_module import app
 from tests.conftest import _get_db_url
 
 

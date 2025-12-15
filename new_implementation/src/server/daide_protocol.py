@@ -72,7 +72,7 @@ class DAIDEServer:
                     break
                 daide_message = data.decode("utf-8").strip()
                 message_count += 1
-                # Minimal DAIDE message parsing: handle HLO (POWER) with strict error reporting
+                # DAIDE message parsing: handle HLO (POWER) with strict error reporting
                 if daide_message.startswith("HLO"):
                     if not daide_message.startswith("HLO ("):
                         response = "ERR HLO Invalid format. Expected: HLO (POWER)\n"
@@ -172,7 +172,7 @@ class DAIDEServer:
                     # Submit orders acknowledgement
                     response = "SUB OK\n"
                 elif daide_message == "TME":
-                    # Time info request - minimal response
+                    # Time info request - returns current time offset (0 = no offset)
                     response = "TME 0\n"
                 elif daide_message.startswith("PRP (") and daide_message.endswith(")"):
                     # Proposal message (negotiation)
