@@ -245,6 +245,71 @@ async def deadline_scheduler() -> None:
                             notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
                             scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                             reminder_sent[game_id_val] = True
+                            
+                            # Channel integration: Post player dashboard with reminder
+                            try:
+                                from ..telegram_bot.channels import (
+                                    should_auto_post_notification,
+                                    post_player_dashboard_to_channel
+                                )
+                                
+                                game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
+                                
+                                if should_auto_post_notification(game_id_str, "deadline"):
+                                    channel_info = db_service.get_game_channel_info(game_id_str)
+                                    if channel_info:
+                                        # Get game state
+                                        if game_id_str in server.games:
+                                            game_obj = server.games[game_id_str]
+                                            current_state = game_obj.get_game_state()
+                                            
+                                            # Get players data
+                                            players_data = None
+                                            try:
+                                                players_list = db_service.get_players_by_game_id(game_id_val)
+                                                players_data = []
+                                                for p in players_list:
+                                                    user = db_service.get_user_by_id(int(p.user_id)) if p.user_id else None
+                                                    players_data.append({
+                                                        "power": p.power_name,
+                                                        "user_id": p.user_id,
+                                                        "is_active": getattr(p, 'is_active', True),
+                                                        "telegram_id": getattr(user, 'telegram_id', None) if user else None,
+                                                        "full_name": getattr(user, 'full_name', None) if user else None,
+                                                    })
+                                            except Exception:
+                                                pass
+                                            
+                                            # Convert current state to dict
+                                            game_state_dict = {
+                                                "game_id": game_id_str,
+                                                "current_year": current_state.current_year,
+                                                "current_season": current_state.current_season,
+                                                "current_phase": current_state.current_phase,
+                                                "phase_code": current_state.phase_code,
+                                                "orders": {
+                                                    power: []
+                                                    for power in current_state.powers.keys()
+                                                },
+                                                "powers": {
+                                                    power: {
+                                                        "orders_submitted": power_state.orders_submitted,
+                                                        "last_order_time": power_state.last_order_time.isoformat() if power_state.last_order_time else None,
+                                                        "is_active": power_state.is_active,
+                                                        "is_eliminated": power_state.is_eliminated
+                                                    }
+                                                    for power, power_state in current_state.powers.items()
+                                                }
+                                            }
+                                            
+                                            post_player_dashboard_to_channel(
+                                                channel_id=channel_info.get("channel_id"),
+                                                game_id=game_id_str,
+                                                game_state=game_state_dict,
+                                                players_data=players_data
+                                            )
+                            except Exception as e:
+                                scheduler_logger.debug(f"Failed to post dashboard with reminder: {e}")
         except Exception as e:
             scheduler_logger.error(f"Error in deadline scheduler: {e}")
 

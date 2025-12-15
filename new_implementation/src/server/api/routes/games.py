@@ -141,14 +141,39 @@ def process_turn(game_id: str) -> Dict[str, str]:
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game end: {e}")
         
-        # Channel integration: Auto-post map after turn processing
+        # Channel integration: Auto-post map and battle results after turn processing
         try:
-            from ..telegram_bot.channels import should_auto_post_map, post_map_to_channel
+            from ..telegram_bot.channels import (
+                should_auto_post_map, post_map_to_channel,
+                should_auto_post_notification, post_battle_results_to_channel
+            )
             from .maps import generate_map_for_snapshot
+            from engine.database import order_to_dict
             
-            if should_auto_post_map(game_id):
-                channel_info = db_service.get_game_channel_info(game_id)
-                if channel_info:
+            channel_info = db_service.get_game_channel_info(game_id)
+            if channel_info:
+                # Get previous supply centers before processing (for comparison)
+                previous_supply_centers = {}
+                if game_id in server.games:
+                    prev_state = server.games[game_id].get_game_state()
+                    for power_name, power_state in prev_state.powers.items():
+                        previous_supply_centers[power_name] = list(power_state.controlled_supply_centers)
+                
+                # Get order history from the turn that was just processed
+                order_history = None
+                if game_id in server.games:
+                    game_obj = server.games[game_id]
+                    if hasattr(game_obj, "game_state") and hasattr(game_obj.game_state, "order_history"):
+                        # Get the last turn's orders (before they were cleared)
+                        last_turn_index = game_obj.turn - 1
+                        if last_turn_index >= 0 and last_turn_index < len(game_obj.game_state.order_history):
+                            order_history = {
+                                power: [order_to_dict(o) for o in orders]
+                                for power, orders in game_obj.game_state.order_history[last_turn_index].items()
+                            }
+                
+                # Auto-post map
+                if should_auto_post_map(game_id):
                     try:
                         result = generate_map_for_snapshot(game_id)
                         map_path = result.get("map_path")
@@ -160,6 +185,44 @@ def process_turn(game_id: str) -> Dict[str, str]:
                             )
                     except Exception as e:
                         logger.warning(f"Failed to auto-post map to channel for game {game_id}: {e}")
+                
+                # Auto-post battle results after Movement phase adjudication
+                if should_auto_post_notification(game_id, "adjudication"):
+                    try:
+                        # Get current game state as dict
+                        if game_id in server.games:
+                            game_obj = server.games[game_id]
+                            current_state = game_obj.get_game_state()
+                            
+                            # Convert to dict format
+                            game_state_dict = {
+                                "current_year": current_state.current_year,
+                                "current_season": current_state.current_season,
+                                "current_phase": current_state.current_phase,
+                                "phase_code": current_state.phase_code,
+                                "supply_centers": {
+                                    power: list(power_state.controlled_supply_centers)
+                                    for power, power_state in current_state.powers.items()
+                                },
+                                "units": {
+                                    power: [{"unit_type": u.unit_type, "province": u.province, 
+                                            "is_dislodged": u.is_dislodged, "dislodged_by": u.dislodged_by}
+                                           for u in power_state.units]
+                                    for power, power_state in current_state.powers.items()
+                                }
+                            }
+                            
+                            # Only post for Movement phase (when battles occur)
+                            if current_state.current_phase == "Movement" or current_state.current_phase == "Retreat":
+                                post_battle_results_to_channel(
+                                    channel_id=channel_info.get("channel_id"),
+                                    game_id=game_id,
+                                    game_state=game_state_dict,
+                                    order_history=order_history,
+                                    previous_supply_centers=previous_supply_centers
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-post battle results to channel for game {game_id}: {e}")
         except Exception as e:
             logger.debug(f"Channel integration check failed for game {game_id}: {e}")
         
