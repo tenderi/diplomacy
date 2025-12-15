@@ -21,7 +21,7 @@ os.chdir(server_dir)
 # This is necessary so that when server.server is imported, Python knows 'server' is a package
 # and relative imports (like 'from .errors import ...') will work
 if 'server' not in sys.modules:
-    # Create a minimal package module for 'server'
+    # Create a package module for 'server' to enable proper package imports
     server_pkg = importlib.util.module_from_spec(
         importlib.util.spec_from_file_location("server", os.path.join(server_dir, "__init__.py"))
     )

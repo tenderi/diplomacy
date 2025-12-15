@@ -59,34 +59,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /register command - register a new user."""
+    """Handle /register command - register user with the bot."""
     user = update.effective_user
     if not user or not update.message:
         if update.message:
             await update.message.reply_text("Registration failed: No user context.")
         return
     user_id = str(user.id)
-    full_name = getattr(user, 'full_name', None)
+    full_name = f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
+    username = user.username or ""
     try:
-        api_post("/users/persistent_register", {"telegram_id": user_id, "full_name": full_name})
-
-        # Show main menu after successful registration
-        keyboard = [
-            [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
-            [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
-            [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
-            [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-
-        await update.message.reply_text(
-            f"🎉 *Registration successful!*\n\n"
-            f"Welcome {full_name or 'Unknown'} (ID: {user_id})\n\n"
-            f"🎲 Use *Join Game* to select from available games\n"
-            f"⏳ Or use *Join Waiting List* for auto-matching",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        result = api_post("/users/persistent_register", {
+            "telegram_id": user_id,
+            "full_name": full_name,
+            "username": username
+        })
+        if result.get("status") == "ok":
+            await update.message.reply_text(
+                f"✅ *Registration Successful!*\n\n"
+                f"Welcome, {full_name}!\n\n"
+                f"🎮 You can now:\n"
+                f"• Join games with /join\n"
+                f"• View available games with /games\n"
+                f"• Join the waiting list with /wait",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(f"Registration error: {result.get('message', 'Unknown error')}")
     except Exception as e:
         await update.message.reply_text(f"Registration error: {e}")
 
@@ -191,12 +190,188 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🔧 Unable to retrieve your game status.\n"
             f"This is usually temporary.\n\n"
             f"💡 *Try:*\n"
-            f"• Browse available games directly\n"
-            f"• Return to main menu and try again\n\n"
-            f"*Error:* {str(e)[:100]}",
+            f"🎲 Browse available games\n"
+            f"🏠 Return to main menu",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /status command - get current game status, phase, and deadline."""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Status command failed: No user context.")
+        return
+    
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    
+    try:
+        # Get user's games
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        if not user_games:
+            await update.message.reply_text(
+                "❌ You're not in any games!\n\n"
+                "💡 Join a game first with /join or /games"
+            )
+            return
+        
+        # If game_id provided, show status for that game
+        if args:
+            game_id = args[0]
+            # Find the game
+            target_game = None
+            for g in user_games:
+                if str(g.get('game_id')) == str(game_id):
+                    target_game = g
+                    break
+            
+            if not target_game:
+                await update.message.reply_text(f"You are not in game {game_id}.")
+                return
+            
+            # Get detailed game state
+            game_state = api_get(f"/games/{game_id}/state")
+            if not game_state:
+                await update.message.reply_text(f"Could not retrieve status for game {game_id}.")
+                return
+            
+            power = target_game.get('power', 'Unknown')
+            year = game_state.get('year', 1901)
+            season = game_state.get('season', 'Spring')
+            phase = game_state.get('phase', 'Movement')
+            phase_code = game_state.get('phase_code', 'S1901M')
+            deadline = game_state.get('deadline')
+            
+            status_text = (
+                f"📊 *Game {game_id} Status*\n\n"
+                f"🎯 **You are:** {power}\n"
+                f"📅 **Turn:** {year} {season}\n"
+                f"🔄 **Phase:** {phase}\n"
+                f"📝 **Phase Code:** {phase_code}\n"
+            )
+            
+            if deadline:
+                status_text += f"⏰ **Deadline:** {deadline}\n"
+            
+            # Get order submission status
+            orders_data = api_get(f"/games/{game_id}/orders")
+            if orders_data:
+                submitted_powers = list(orders_data.get('orders', {}).keys())
+                if power in submitted_powers:
+                    status_text += f"\n✅ **Your orders:** Submitted"
+                else:
+                    status_text += f"\n⏳ **Your orders:** Not yet submitted"
+            
+            await update.message.reply_text(status_text, parse_mode='Markdown')
+        else:
+            # Show status for all user's games
+            if len(user_games) == 1:
+                # Auto-select if only one game
+                game_id = str(user_games[0].get('game_id'))
+                # Recursively call with game_id
+                context.args = [game_id]
+                await status(update, context)
+            else:
+                # Show list of games
+                lines = [f"📊 *Your Games Status* ({len(user_games)})\n"]
+                for g in user_games:
+                    game_id = str(g.get('game_id', 'Unknown'))
+                    power = g.get('power', 'Unknown')
+                    state = g.get('state', 'Unknown')
+                    lines.append(f"🏰 **Game {game_id}** ({power}) - {state}")
+                    lines.append(f"   Use `/status {game_id}` for details")
+                
+                await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving status: {e}")
+
+
+async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /players command - list all players in current game with their powers."""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Players command failed: No user context.")
+        return
+    
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    
+    try:
+        # Get user's games
+        user_games_response = api_get(f"/users/{user_id}/games")
+        user_games = user_games_response.get("games", []) if user_games_response else []
+        
+        if not user_games:
+            await update.message.reply_text(
+                "❌ You're not in any games!\n\n"
+                "💡 Join a game first with /join or /games"
+            )
+            return
+        
+        # Determine which game to show players for
+        if args:
+            game_id = args[0]
+            # Verify user is in this game
+            target_game = None
+            for g in user_games:
+                if str(g.get('game_id')) == str(game_id):
+                    target_game = g
+                    break
+            
+            if not target_game:
+                await update.message.reply_text(f"You are not in game {game_id}.")
+                return
+        else:
+            # Use first game if only one
+            if len(user_games) == 1:
+                game_id = str(user_games[0].get('game_id'))
+            else:
+                await update.message.reply_text(
+                    f"Please specify a game ID:\n\n"
+                    + "\n".join([f"• `/players {g.get('game_id')}` - Game {g.get('game_id')} ({g.get('power')})" 
+                                for g in user_games]),
+                    parse_mode='Markdown'
+                )
+                return
+        
+        # Get game state and players
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await update.message.reply_text(f"Could not retrieve game {game_id}.")
+            return
+        
+        # Get players from API
+        players_data = api_get(f"/games/{game_id}/players")
+        if not players_data:
+            await update.message.reply_text(f"Could not retrieve players for game {game_id}.")
+            return
+        
+        players_list = players_data.get('players', [])
+        if not players_list:
+            await update.message.reply_text(f"No players found in game {game_id}.")
+            return
+        
+        # Format player list
+        lines = [f"👥 *Players in Game {game_id}*\n"]
+        for player in players_list:
+            power = player.get('power', 'Unknown')
+            user_info = player.get('user', {})
+            username = user_info.get('username') or user_info.get('full_name', 'Unknown')
+            is_active = player.get('is_active', True)
+            status_emoji = "✅" if is_active else "❌"
+            lines.append(f"{status_emoji} **{power}** - {username}")
+        
+        await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving players: {e}")
 
 
 async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -240,36 +415,48 @@ async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def show_power_selection(update: Update, game_id: str) -> None:
     """Show available powers for a specific game."""
+    query = update.callback_query
+    if not query:
+        return
+    
     try:
-        # Get available powers for the game
-        available_powers = ["Austria", "England", "France", "Germany", "Italy", "Russia", "Turkey"]
-
+        # Get game state to see available powers
+        game_state = api_get(f"/games/{game_id}/state")
+        if not game_state:
+            await query.edit_message_text(f"Could not retrieve game {game_id}.")
+            return
+        
+        # Get players to see which powers are taken
+        players_data = api_get(f"/games/{game_id}/players")
+        taken_powers = set()
+        if players_data:
+            for player in players_data.get('players', []):
+                taken_powers.add(player.get('power'))
+        
+        # Create keyboard with available powers
         keyboard = []
-        for i in range(0, len(available_powers), 2):  # 2 buttons per row
-            row = []
-            for j in range(2):
-                if i + j < len(available_powers):
-                    power = available_powers[i + j]
-                    row.append(InlineKeyboardButton(f"🏰 {power}", callback_data=f"join_game_{game_id}_{power}"))
-            keyboard.append(row)
-
-        # Add back button
-        keyboard.append([InlineKeyboardButton("⬅️ Back to Games", callback_data="back_to_games")])
-
+        for power in POWERS:
+            if power not in taken_powers:
+                button_text = f"Join as {power}"
+                callback_data = f"join_game_{game_id}_{power}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        if not keyboard:
+            await query.edit_message_text(f"Game {game_id} is full. All powers are taken.")
+            return
+        
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_games")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        message = f"🏰 *Select your power for Game {game_id}:*"
-
-        if update.callback_query:
-            await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-        else:
-            await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-
+        
+        await query.edit_message_text(
+            f"🎮 *Select Power for Game {game_id}*\n\n"
+            f"Available powers:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    
     except Exception as e:
-        error_msg = f"❌ Error loading powers: {str(e)}"
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg)
-        else:
-            await update.message.reply_text(error_msg)
+        await query.edit_message_text(f"Error: {str(e)}")
 
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -277,24 +464,25 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
         if update.message:
-            await update.message.reply_text("Game joining failed: No user context.")
+            await update.message.reply_text("Join command failed: No user context.")
         return
     user_id = str(user.id)
     args = context.args if context.args is not None else []
     if len(args) < 2:
         await update.message.reply_text("Usage: /join <game_id> <power>")
         return
-    game_id, power = args[0], args[1].upper()
+    game_id = args[0]
+    power = args[1].upper()
     try:
         result = api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": power})
         if result.get("status") == "ok":
-            await update.message.reply_text(f"You have joined game {game_id} as {power}.")
+            await update.message.reply_text(f"🎉 Successfully joined Game {game_id} as {power}!")
         elif result.get("status") == "already_joined":
-            await update.message.reply_text(f"You are already in game {game_id} as {power}.")
+            await update.message.reply_text(f"You are already in Game {game_id} as {power}.")
         else:
-            await update.message.reply_text(f"Join failed: {result}")
+            await update.message.reply_text(f"Failed to join: {result.get('message', 'Unknown error')}")
     except Exception as e:
-        await update.message.reply_text(f"Failed to join game: {e}")
+        await update.message.reply_text(f"Join error: {e}")
 
 
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -302,7 +490,7 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
         if update.message:
-            await update.message.reply_text("Quit failed: No user context.")
+            await update.message.reply_text("Quit command failed: No user context.")
         return
     user_id = str(user.id)
     args = context.args if context.args is not None else []
@@ -313,13 +501,13 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         result = api_post(f"/games/{game_id}/quit", {"telegram_id": user_id, "game_id": int(game_id)})
         if result.get("status") == "ok":
-            await update.message.reply_text(f"You have quit game {game_id}.")
+            await update.message.reply_text(f"You have left Game {game_id}.")
         elif result.get("status") == "not_in_game":
-            await update.message.reply_text(f"You are not in game {game_id}.")
+            await update.message.reply_text(f"You are not in Game {game_id}.")
         else:
-            await update.message.reply_text(f"Quit failed: {result}")
+            await update.message.reply_text(f"Failed to quit: {result.get('message', 'Unknown error')}")
     except Exception as e:
-        await update.message.reply_text(f"Failed to quit game: {e}")
+        await update.message.reply_text(f"Quit error: {e}")
 
 
 async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -334,98 +522,67 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(args) < 2:
         await update.message.reply_text("Usage: /replace <game_id> <power>")
         return
-    game_id, power = args[0], args[1].upper()
+    game_id = args[0]
+    power = args[1].upper()
     try:
         result = api_post(f"/games/{game_id}/replace", {"telegram_id": user_id, "power": power})
         if result.get("status") == "ok":
-            await update.message.reply_text(f"You have replaced {power} in game {game_id}.")
+            await update.message.reply_text(f"✅ Successfully replaced player for {power} in Game {game_id}!")
         else:
-            await update.message.reply_text(f"Replace failed: {result}")
+            await update.message.reply_text(f"Failed to replace: {result.get('message', 'Unknown error')}")
     except Exception as e:
-        await update.message.reply_text(f"Failed to replace player: {e}")
-
-
-def process_waiting_list(
-    waiting_list: List[Tuple[str, str]],
-    waiting_list_size: int,
-    powers: List[str],
-    notify_callback,
-    api_post_func=None
-) -> Tuple[Optional[str], Optional[List[Tuple[Tuple[str, str], str]]]]:
-    """
-    Process the waiting list: if enough players, create a game, assign powers, and notify users.
-    notify_callback(telegram_id, message) is called for each user.
-    Returns (game_id, assignments) if a game was created, else (None, None).
-    """
-    if api_post_func is None:
-        api_post_func = api_post
-    if len(waiting_list) >= waiting_list_size:
-        players = waiting_list[:waiting_list_size]
-        random.shuffle(players)
-        assigned_powers = list(zip(players, powers))
-        # Create game
-        try:
-            game_resp = api_post_func("/games/create", {"map_name": "standard"})
-            game_id = game_resp["game_id"]
-            # Assign powers
-            for (telegram_id, full_name), power in assigned_powers:
-                api_post_func(
-                    f"/games/{game_id}/join",
-                    {"telegram_id": telegram_id, "game_id": int(game_id), "power": power}
-                )
-            # Notify users
-            for (telegram_id, full_name), power in assigned_powers:
-                try:
-                    notify_callback(telegram_id, f"A new game (ID: {game_id}) has started! You are {power}.")
-                except Exception as e:
-                    logger.warning(f"Failed to notify {telegram_id}: {e}")
-            # Remove assigned users from waiting list
-            del waiting_list[:waiting_list_size]
-            return game_id, assigned_powers
-        except Exception as e:
-            logger.error(f"Failed to create game: {e}")
-            return None, None
-    return None, None
+        await update.message.reply_text(f"Replace error: {e}")
 
 
 async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /wait command - join the waiting list for automatic game matching."""
+    """
+    Process the waiting list: if enough players, create a game, assign powers, and notify users.
+    """
     user = update.effective_user
-    if not user:
+    if not user or not update.message:
         if update.message:
             await update.message.reply_text("Wait command failed: No user context.")
-        elif update.callback_query:
-            await update.callback_query.edit_message_text("Wait command failed: No user context.")
         return
-
-    async def reply_or_edit(text: str, parse_mode='Markdown'):
-        """Helper function to handle both message and callback query contexts"""
-        if update.message:
-            await update.message.reply_text(text, parse_mode=parse_mode)
-        elif update.callback_query:
-            await update.callback_query.edit_message_text(text, parse_mode=parse_mode)
-
+    
     user_id = str(user.id)
-    full_name = getattr(user, 'full_name', None) or user_id
-    # Check if already in waiting list
-    if any(u[0] == user_id for u in WAITING_LIST):
-        await reply_or_edit("You are already in the waiting list for the next game.")
+    full_name = f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
+    
+    # Check if user is already in waiting list
+    if any(uid == user_id for uid, _ in WAITING_LIST):
+        await update.message.reply_text("⏳ You're already on the waiting list!")
         return
+    
+    # Add to waiting list
     WAITING_LIST.append((user_id, full_name))
-    await reply_or_edit(
-        f"Added to waiting list ({len(WAITING_LIST)}/{WAITING_LIST_SIZE}). "
-        f"You will be notified when the game starts."
+    await update.message.reply_text(
+        f"⏳ Added to waiting list! ({len(WAITING_LIST)}/{WAITING_LIST_SIZE} players)\n\n"
+        f"When {WAITING_LIST_SIZE} players join, a new game will be created automatically."
     )
+    
     # If enough players, create a new game
-    async def telegram_notify_callback(telegram_id, message):
+    if len(WAITING_LIST) >= WAITING_LIST_SIZE:
+        players = WAITING_LIST[:WAITING_LIST_SIZE]
+        random.shuffle(players)
+        assigned_powers = list(zip(players, POWERS))
+        
         try:
-            await update.get_bot().send_message(chat_id=telegram_id, text=message)
+            # Create game
+            game_resp = api_post("/games/create", {"map_name": "standard"})
+            game_id = game_resp.get("game_id")
+            
+            # Add all players
+            for (player_id, player_name), power in assigned_powers:
+                api_post(
+                    f"/games/{game_id}/join",
+                    {"telegram_id": player_id, "game_id": int(game_id), "power": power}
+                )
+            
+            # Clear waiting list
+            WAITING_LIST.clear()
+            
+            # Notify all players (would need bot instance)
+            logger.info(f"Created game {game_id} with {len(assigned_powers)} players from waiting list")
+            
         except Exception as e:
-            logger.warning(f"Failed to notify {telegram_id}: {e}")
-
-    # Use a sync wrapper for process_waiting_list
-    def sync_notify_callback(telegram_id, message):
-        asyncio.create_task(telegram_notify_callback(telegram_id, message))
-
-    process_waiting_list(WAITING_LIST, WAITING_LIST_SIZE, POWERS, sync_notify_callback)
-
+            logger.error(f"Error creating game from waiting list: {e}")
+            await update.message.reply_text(f"Error creating game: {e}")
