@@ -270,6 +270,13 @@ class Game:
             "dislodged_units": []
         }
         
+        # Store original provinces before processing (needed for self-dislodgement checks)
+        # Use id(unit) as key since Unit is not hashable
+        original_provinces = {}
+        for power_name, power in self.game_state.powers.items():
+            for unit in power.units:
+                original_provinces[id(unit)] = unit.province
+        
         # First pass: Detect convoyed moves and convoy orders
         convoy_orders = {}  # (convoyed_unit_type, convoyed_unit_province, convoyed_target) -> convoy_order
         convoyed_moves = {}  # (unit_type, unit_province, target) -> convoy_order
@@ -361,11 +368,16 @@ class Game:
         # Track support orders by target province and supported unit for proper matching
         support_orders_by_target: Dict[str, List[Tuple[SupportOrder, Unit]]] = {}  # target_province -> [(support_order, supported_unit)]
         
+        # Track which units are supporting (for implicit hold orders)
+        # Use tuple (power, unit_type, province) as key since Unit is not hashable
+        supporting_units = set()  # Set of (power, unit_type, province) tuples
+        
         for power_name, orders in self.game_state.orders.items():
             for order in orders:
                 if isinstance(order, SupportOrder):
                     # Check if supporting unit is dislodged
                     supporting_unit = order.unit
+                    supporting_units.add((supporting_unit.power, supporting_unit.unit_type, supporting_unit.province))
                     is_support_cut = False
 
                     # Check if any unit is moving to the supporting unit's province
@@ -398,6 +410,34 @@ class Game:
                             if target_province not in support_strengths:
                                 support_strengths[target_province] = []
                             support_strengths[target_province].append((supporting_unit, 1))
+        
+        # Third pass: Add implicit hold orders for units that are supporting but don't have explicit hold orders
+        # A unit that is supporting is effectively holding in its own province for conflict resolution
+        for power_name, power in self.game_state.powers.items():
+            for supporting_unit in power.units:
+                unit_key = (supporting_unit.power, supporting_unit.unit_type, supporting_unit.province)
+                if unit_key not in supporting_units:
+                    continue
+                # Check if this unit already has a hold order in move_strengths
+                unit_province = supporting_unit.province
+                has_explicit_hold = False
+                if unit_province in move_strengths:
+                    for unit, strength, order in move_strengths[unit_province]:
+                        if unit == supporting_unit and isinstance(order, HoldOrder):
+                            has_explicit_hold = True
+                            break
+                
+                # If no explicit hold order, add implicit hold for conflict resolution
+                if not has_explicit_hold:
+                    if unit_province not in move_strengths:
+                        move_strengths[unit_province] = []
+                    # Create a temporary hold order for conflict resolution
+                    # (HoldOrder is already imported at the top of the file)
+                    implicit_hold = HoldOrder(
+                        power=supporting_unit.power,
+                        unit=supporting_unit
+                    )
+                    move_strengths[unit_province].append((supporting_unit, 1, implicit_hold))
         
         # Check for mutual moves (units trying to swap positions)
         # A mutual move occurs when: Unit A moves to Province X, and Unit B (currently in X) moves to A's source province
@@ -456,117 +496,199 @@ class Game:
             remaining_moves = [(unit, strength, order) for unit, strength, order in moves if f"{unit.unit_type} {unit.province}" not in processed_units]
             if not remaining_moves:
                 continue
-            if len(remaining_moves) == 1:
-                # Single move - succeeds
-                unit, strength, order = remaining_moves[0]
-                old_province = unit.province
-                
-                # Add support strength
-                # Match support orders to this specific unit and move
-                if target_province in support_orders_by_target:
-                    for support_order, supported_unit in support_orders_by_target[target_province]:
-                        # Check if this support is for this specific unit
-                        if isinstance(order, MoveOrder):
-                            # For move support: supported_unit must match the moving unit
-                            if (support_order.supported_action == "move" and
-                                supported_unit.unit_type == unit.unit_type and
-                                supported_unit.province == unit.province and
-                                supported_unit.power == unit.power):
-                                strength += 1
+            
+            # Check if there's a unit already in the target province that's holding
+            # This must be checked even if there's only one move order, as it creates a conflict
+            # IMPORTANT: A unit that is moving away from the target province should NOT be treated as holding
+            holding_unit_in_target = None
+            for power_name, power in self.game_state.powers.items():
+                for unit_in_province in power.units:
+                    if unit_in_province.province == target_province:
+                        # Check if this unit is moving away (has a MoveOrder to a different province)
+                        unit_is_moving_away = False
+                        for move_target, move_list in move_strengths.items():
+                            for move_unit, move_strength, move_order in move_list:
+                                if (isinstance(move_order, MoveOrder) and 
+                                    move_unit == unit_in_province and
+                                    move_order.target_province != target_province):
+                                    # Unit is moving to a different province - it's leaving
+                                    unit_is_moving_away = True
+                                    break
+                            if unit_is_moving_away:
                                 break
-                        elif isinstance(order, HoldOrder):
-                            # For hold support: supported_unit must match the holding unit
-                            if (support_order.supported_action == "hold" and
-                                supported_unit.unit_type == unit.unit_type and
-                                supported_unit.province == unit.province and
-                                supported_unit.power == unit.power):
-                                strength += 1
+                        
+                        # If unit is moving away, don't treat it as holding
+                        if unit_is_moving_away:
+                            continue
+                        
+                        # Check if this unit has a hold order
+                        unit_has_hold_order = False
+                        for order_in_moves in [o for _, _, o in remaining_moves]:
+                            if isinstance(order_in_moves, HoldOrder) and order_in_moves.unit == unit_in_province:
+                                unit_has_hold_order = True
                                 break
-                
-                if isinstance(order, MoveOrder):
-                    # Check for self-dislodgement
-                    # IMPORTANT: A unit can move to a province if the friendly unit there is also moving away
-                    self_dislodgement = False
-                    for power_name, power in self.game_state.powers.items():
-                        for target_unit in power.units:
-                            if target_unit.province == target_province and target_unit != unit and target_unit.power == unit.power:
-                                # Check if the target unit is also moving away by checking move_strengths
-                                # A unit is moving away if there's a move order for it targeting a different province
-                                target_unit_is_moving = False
-                                for move_target, move_list in move_strengths.items():
-                                    for move_unit, move_strength, move_order in move_list:
-                                        if (isinstance(move_order, MoveOrder) and 
-                                            move_unit == target_unit and
-                                            move_order.target_province != target_province):
-                                            # Target unit is moving to a different province
-                                            target_unit_is_moving = True
-                                            break
-                                    if target_unit_is_moving:
+                        
+                        # If unit is in target province but doesn't have a hold order in remaining_moves,
+                        # check if it should have one (it might have been filtered out or not added)
+                        if not unit_has_hold_order:
+                            # Check if this unit has any order at all
+                            unit_has_any_order = False
+                            for power_orders in self.game_state.orders.values():
+                                for power_order in power_orders:
+                                    if (isinstance(power_order, (MoveOrder, HoldOrder)) and 
+                                        power_order.unit == unit_in_province):
+                                        unit_has_any_order = True
+                                        # If it's a hold order, it should be in remaining_moves
+                                        if isinstance(power_order, HoldOrder):
+                                            # Add it to remaining_moves if it's not already there
+                                            if not any(u == unit_in_province for u, _, _ in remaining_moves):
+                                                remaining_moves.append((unit_in_province, 1, power_order))
                                         break
-                                
-                                # Only block if target unit is NOT moving away
-                                if not target_unit_is_moving:
-                                    # Self-dislodgement prohibited
-                                    self_dislodgement = True
+                                if unit_has_any_order:
                                     break
-                        if self_dislodgement:
+                        
+                        # If we found a holding unit, mark it
+                        if unit_has_hold_order or (not unit_has_any_order and any(isinstance(o, HoldOrder) and o.unit == unit_in_province for _, _, o in remaining_moves)):
+                            holding_unit_in_target = unit_in_province
                             break
+                if holding_unit_in_target:
+                    break
+            
+            # If there's a holding unit and a moving unit, treat as conflict (even if len(remaining_moves) == 1)
+            # This ensures equal strength battles are resolved correctly
+            # After adding hold orders, re-check remaining_moves length
+            if len(remaining_moves) == 1:
+                unit, strength, order = remaining_moves[0]
+                # If this is a move order and there's a unit holding in the target, it's a conflict
+                # The hold order should have been added above, so remaining_moves should now have 2 items
+                # But if for some reason it wasn't added, skip single move processing
+                if isinstance(order, MoveOrder) and holding_unit_in_target:
+                    # Hold order should be in remaining_moves now - skip to conflict resolution
+                    # This will be handled in the else branch below
+                    if len(remaining_moves) == 1:
+                        # Hold order wasn't added - skip single move processing to force conflict resolution
+                        continue
+                else:
+                    # Single move with no conflict - succeeds
+                    old_province = unit.province
                     
-                    if self_dislodgement:
-                        # Self-dislodgement prohibited - move fails
-                        results["moves"].append({
-                            "unit": f"{unit.unit_type} {old_province}",
-                            "from": old_province,
-                            "to": target_province,
-                            "strength": strength,
-                            "success": False,
-                            "failure_reason": "self_dislodgement_prohibited"
-                        })
-                    else:
-                        # Execute move
-                        unit.province = target_province
-                        results["moves"].append({
-                            "unit": f"{unit.unit_type} {old_province}",
-                            "from": old_province,
-                            "to": target_province,
-                            "strength": strength,
-                            "success": True
-                        })
-                        
-                        # Update supply center control if target is a supply center
-                        target_province_obj = self.game_state.map_data.provinces.get(target_province)
-                        if target_province_obj and target_province_obj.is_supply_center:
-                            # Remove control from previous owner (if any)
-                            for power_name, power_state in self.game_state.powers.items():
-                                if target_province in power_state.controlled_supply_centers:
-                                    power_state.controlled_supply_centers.remove(target_province)
+                    # Add support strength
+                    # Match support orders to this specific unit and move
+                    if target_province in support_orders_by_target:
+                        for support_order, supported_unit in support_orders_by_target[target_province]:
+                            # Check if this support is for this specific unit
+                            if isinstance(order, MoveOrder):
+                                # For move support: supported_unit must match the moving unit
+                                if (support_order.supported_action == "move" and
+                                    supported_unit.unit_type == unit.unit_type and
+                                    supported_unit.province == unit.province and
+                                    supported_unit.power == unit.power):
+                                    strength += 1
                                     break
-                            # Assign control to unit's power
-                            unit_power_state = self.game_state.powers.get(unit.power)
-                            if unit_power_state and target_province not in unit_power_state.controlled_supply_centers:
-                                unit_power_state.controlled_supply_centers.append(target_province)
-                        
-                        # Check if there's an enemy unit in the target province that needs to be dislodged
+                            elif isinstance(order, HoldOrder):
+                                # For hold support: supported_unit must match the holding unit
+                                if (support_order.supported_action == "hold" and
+                                    supported_unit.unit_type == unit.unit_type and
+                                    supported_unit.province == unit.province and
+                                    supported_unit.power == unit.power):
+                                    strength += 1
+                                    break
+                    
+                    if isinstance(order, MoveOrder):
+                        # Check for self-dislodgement
+                        # IMPORTANT: A unit can move to a province if the friendly unit there is also moving away
+                        self_dislodgement = False
                         for power_name, power in self.game_state.powers.items():
                             for target_unit in power.units:
-                                if target_unit.province == target_province and target_unit != unit:
-                                    # This unit is being dislodged
-                                    dislodged_from = target_unit.province
-                                    target_unit.is_dislodged = True
-                                    target_unit.province = f"DISLODGED_{dislodged_from}"
-                                    target_unit.retreat_options = self._calculate_retreat_options(target_unit)
-                                    
-                                    results["dislodgements"].append({
-                                        "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                        "dislodged_by": f"{unit.unit_type} {old_province}",
-                                        "retreat_options": target_unit.retreat_options
-                                    })
-                                    results["dislodged_units"].append({
-                                        "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                        "dislodged_by": f"{unit.unit_type} {old_province}",
-                                        "retreat_options": target_unit.retreat_options
-                                    })
-                                    break
+                                if target_unit != unit and target_unit.power == unit.power:
+                                    # Check if target_unit was originally in the target province (before any moves)
+                                    target_unit_original_province = original_provinces.get(id(target_unit), target_unit.province)
+                                    if target_unit_original_province == target_province:
+                                        # Target unit was originally in target province - check if it's moving away
+                                        target_unit_is_moving_away = False
+                                        
+                                        # Check if target_unit has a MoveOrder to a different province
+                                        # Compare by power, unit_type, and original province since unit objects may differ
+                                        target_unit_original_province_for_match = original_provinces.get(id(target_unit), target_unit.province)
+                                        for power_orders in self.game_state.orders.values():
+                                            for power_order in power_orders:
+                                                if isinstance(power_order, MoveOrder):
+                                                    # Match by power, unit_type, and original province
+                                                    order_unit = power_order.unit
+                                                    order_unit_original_province = original_provinces.get(id(order_unit), order_unit.province)
+                                                    if (order_unit.power == target_unit.power and
+                                                        order_unit.unit_type == target_unit.unit_type and
+                                                        order_unit_original_province == target_unit_original_province_for_match and
+                                                        power_order.target_province != target_province):
+                                                        # Target unit is moving to a different province
+                                                        target_unit_is_moving_away = True
+                                                        break
+                                            if target_unit_is_moving_away:
+                                                break
+                                        
+                                        # Only block if target unit is NOT moving away
+                                        if not target_unit_is_moving_away:
+                                            # Self-dislodgement prohibited
+                                            self_dislodgement = True
+                                            break
+                            if self_dislodgement:
+                                break
+                        
+                        if self_dislodgement:
+                            # Self-dislodgement prohibited - move fails
+                            results["moves"].append({
+                                "unit": f"{unit.unit_type} {old_province}",
+                                "from": old_province,
+                                "to": target_province,
+                                "strength": strength,
+                                "success": False,
+                                "failure_reason": "self_dislodgement_prohibited"
+                            })
+                        else:
+                            # Execute move
+                            unit.province = target_province
+                            results["moves"].append({
+                                "unit": f"{unit.unit_type} {old_province}",
+                                "from": old_province,
+                                "to": target_province,
+                                "strength": strength,
+                                "success": True
+                            })
+                            
+                            # Update supply center control if target is a supply center
+                            target_province_obj = self.game_state.map_data.provinces.get(target_province)
+                            if target_province_obj and target_province_obj.is_supply_center:
+                                # Remove control from previous owner (if any)
+                                for power_name, power_state in self.game_state.powers.items():
+                                    if target_province in power_state.controlled_supply_centers:
+                                        power_state.controlled_supply_centers.remove(target_province)
+                                        break
+                                # Assign control to unit's power
+                                unit_power_state = self.game_state.powers.get(unit.power)
+                                if unit_power_state and target_province not in unit_power_state.controlled_supply_centers:
+                                    unit_power_state.controlled_supply_centers.append(target_province)
+                            
+                            # Check if there's an enemy unit in the target province that needs to be dislodged
+                            for power_name, power in self.game_state.powers.items():
+                                for target_unit in power.units:
+                                    if target_unit.province == target_province and target_unit != unit:
+                                        # This unit is being dislodged
+                                        dislodged_from = target_unit.province
+                                        target_unit.is_dislodged = True
+                                        target_unit.province = f"DISLODGED_{dislodged_from}"
+                                        target_unit.retreat_options = self._calculate_retreat_options(target_unit)
+                                        
+                                        results["dislodgements"].append({
+                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
+                                            "dislodged_by": f"{unit.unit_type} {old_province}",
+                                            "retreat_options": target_unit.retreat_options
+                                        })
+                                        results["dislodged_units"].append({
+                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
+                                            "dislodged_by": f"{unit.unit_type} {old_province}",
+                                            "retreat_options": target_unit.retreat_options
+                                        })
+                                        break
             else:
                 # Multiple moves - resolve conflict
                 # Add support strengths

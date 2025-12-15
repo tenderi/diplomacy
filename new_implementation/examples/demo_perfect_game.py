@@ -500,16 +500,20 @@ class PerfectDemoGame:
         ))
         
         # Fall 1901 Retreat
-        # Note: Dislodged units have format "A DISLODGED_VEN", need to handle this
+        # Note: After Fall 1901 Movement, Italy's A VEN is dislodged by Austria
+        # We'll generate retreat orders dynamically, but the scenario should demonstrate:
+        # 1. A unit retreating to a free province (A VEN R APU)
+        # 2. A unit being destroyed (if any unit has no valid retreat)
         self.scenarios.append(ScenarioData(
             year=1901,
             season="Autumn",
             phase="Retreat",
             orders={
                 # Orders will be dynamically generated based on actual dislodged units
-                # Format: "A DISLODGED_VEN R APU" or "DESTROY F BLA" for disband
+                # Format: "A VEN R APU" for retreat or "DESTROY F BLA" for destroy
+                # The generate_retreat_orders_for_dislodged method will create these
             },
-            description="Demonstrates retreat orders and forced disband when no valid retreat exists."
+            description="Demonstrates retreat orders (A VEN R APU) and forced disband when no valid retreat exists."
         ))
         
         # Fall 1901 Builds
@@ -540,13 +544,14 @@ class PerfectDemoGame:
         # Note: After Fall 1901, England's army is in CLY (not LVP), and fleet positions may vary
         # Based on Fall 1901 outcomes: France takes BEL, England's F ENG is dislodged from BEL
         # England should have F NTH and A CLY after retreat phase
+        # This scenario demonstrates CONVOY: England convoys A CLY to BEL using F NTH
         # Orders will be dynamically adjusted based on actual unit positions
         self.scenarios.append(ScenarioData(
             year=1902,
             season="Spring",
             phase="Movement",
             orders={
-                "ENGLAND": ["A CLY H", "F NTH H", "F ENG H"],  # Simplified - will be adjusted
+                "ENGLAND": ["A CLY - BEL", "F NTH C A CLY - BEL", "F ENG H"],  # Convoy: A CLY via F NTH to BEL
                 "FRANCE": ["A BEL H", "A PIE H", "F MAO H", "A MAR H"],  # Simplified - will be adjusted
                 "GERMANY": ["A BER H", "A SIL H", "F KIE H"],  # Simplified - will be adjusted (no A KIE or A BEL)
                 "AUSTRIA": ["A VEN H", "A RUM H", "F TRI H", "A BUD H"],  # Simplified - will be adjusted (no A TYR)
@@ -554,7 +559,7 @@ class PerfectDemoGame:
                 "RUSSIA": ["A UKR H", "A GAL H", "F SEV H", "F BOT H", "A MOS H"],  # Simplified - will be adjusted
                 "TURKEY": ["A BUL H", "A ARM H", "F ANK H"]  # Simplified - will be adjusted
             },
-            description="Demonstrates convoy orders and complex support combinations."
+            description="Demonstrates convoy orders: A CLY is convoyed to BEL by F NTH."
         ))
         
         # Spring 1902 Retreat (if dislodgements occur)
@@ -619,147 +624,6 @@ class PerfectDemoGame:
             description="Final build phase. Powers adjust units based on supply center control."
         ))
         
-        # Spring 1903 Movement
-        self.scenarios.append(ScenarioData(
-            year=1903,
-            season="Spring",
-            phase="Movement",
-            orders={
-                "FRANCE": ["A PAR - BUR", "A BRE - PIC", "A MAR - GAS"],
-                "AUSTRIA": ["A VIE - BOH", "A BUD - SER", "F TRI - ADR"],
-                "RUSSIA": ["A MOS - UKR", "A WAR - GAL", "F STP - BOT"],
-                "ENGLAND": ["A LON - YOR", "F ENG - NTH", "F LVP - CLY"],
-                "GERMANY": ["A BER - KIE", "A MUN - BUR", "F KIE - HEL"],
-                "ITALY": ["A ROM - VEN", "A NAP - APU", "F VEN - ADR"],
-                "TURKEY": ["A CON - BUL", "A ANK - ARM", "F SMY - AEG"]
-            },
-            description="Spring 1903: Continued expansion and strategic positioning."
-        ))
-        
-        # Spring 1903 Retreat
-        self.scenarios.append(ScenarioData(
-            year=1903,
-            season="Spring",
-            phase="Retreat",
-            orders={},
-            description="Demonstrates retreat orders if units were dislodged in Spring 1903.",
-            skip_if_no_dislodgements=True
-        ))
-        
-        # Fall 1903 Movement
-        self.scenarios.append(ScenarioData(
-            year=1903,
-            season="Autumn",
-            phase="Movement",
-            orders={
-                "FRANCE": ["A BUR - MUN", "A PIC - BEL", "A GAS - SPA"],
-                "AUSTRIA": ["A BOH - MUN", "A SER - GRE", "F ADR - ION"],
-                "RUSSIA": ["A UKR - SEV", "A GAL - WAR", "F BOT - SWE"],
-                "ENGLAND": ["A YOR - EDI", "F NTH - DEN", "F CLY - NAO"],
-                "GERMANY": ["A KIE - HOL", "A MUN - TYR", "F HEL - DEN"],
-                "ITALY": ["A VEN - TYR", "A APU - NAP", "F ADR - ION"],
-                "TURKEY": ["A BUL - SER", "A ARM - SEV", "F AEG - ION"]
-            },
-            description="Fall 1903: Major conflicts and supply center captures."
-        ))
-        
-        # Fall 1903 Retreat
-        self.scenarios.append(ScenarioData(
-            year=1903,
-            season="Autumn",
-            phase="Retreat",
-            orders={},
-            description="Demonstrates retreat orders if units were dislodged in Fall 1903.",
-            skip_if_no_dislodgements=True
-        ))
-        
-        # Fall 1903 Builds
-        self.scenarios.append(ScenarioData(
-            year=1903,
-            season="Autumn",
-            phase="Builds",
-            orders={
-                "FRANCE": [],
-                "AUSTRIA": [],
-                "RUSSIA": [],
-                "ENGLAND": [],
-                "GERMANY": [],
-                "ITALY": [],
-                "TURKEY": []
-            },
-            description="Build phase after Fall 1903."
-        ))
-        
-        # Spring 1904 Movement
-        self.scenarios.append(ScenarioData(
-            year=1904,
-            season="Spring",
-            phase="Movement",
-            orders={
-                "FRANCE": ["A BEL - RUH", "A SPA - POR", "A MAR - PIE"],
-                "AUSTRIA": ["A MUN - BUR", "A GRE - ALB", "F ION - TUN"],
-                "RUSSIA": ["A SEV - RUM", "A WAR - PRU", "F SWE - FIN"],
-                "ENGLAND": ["A EDI - CLY", "F DEN - BAL", "F NAO - MAO"],
-                "GERMANY": ["A HOL - BEL", "A TYR - VEN", "F DEN - KIE"],
-                "ITALY": ["A TYR - VIE", "A NAP - ROM", "F ION - TUN"],
-                "TURKEY": ["A SER - BUD", "A SEV - UKR", "F ION - TYS"]
-            },
-            description="Spring 1904: Advanced strategic play and multi-power conflicts."
-        ))
-        
-        # Spring 1904 Retreat
-        self.scenarios.append(ScenarioData(
-            year=1904,
-            season="Spring",
-            phase="Retreat",
-            orders={},
-            description="Demonstrates retreat orders if units were dislodged in Spring 1904.",
-            skip_if_no_dislodgements=True
-        ))
-        
-        # Fall 1904 Movement
-        self.scenarios.append(ScenarioData(
-            year=1904,
-            season="Autumn",
-            phase="Movement",
-            orders={
-                "FRANCE": ["A RUH - MUN", "A POR - SPA", "A PIE - MAR"],
-                "AUSTRIA": ["A BUR - PAR", "A ALB - GRE", "F TUN - WES"],
-                "RUSSIA": ["A RUM - BUD", "A PRU - BER", "F FIN - STP"],
-                "ENGLAND": ["A CLY - LVP", "F BAL - SWE", "F MAO - ENG"],
-                "GERMANY": ["A BEL - PIC", "A VEN - ROM", "F KIE - HEL"],
-                "ITALY": ["A VIE - BUD", "A ROM - NAP", "F TUN - TYS"],
-                "TURKEY": ["A BUD - VIE", "A UKR - MOS", "F TYS - ION"]
-            },
-            description="Fall 1904: Continued expansion and elimination threats."
-        ))
-        
-        # Fall 1904 Retreat
-        self.scenarios.append(ScenarioData(
-            year=1904,
-            season="Autumn",
-            phase="Retreat",
-            orders={},
-            description="Demonstrates retreat orders if units were dislodged in Fall 1904.",
-            skip_if_no_dislodgements=True
-        ))
-        
-        # Fall 1904 Builds
-        self.scenarios.append(ScenarioData(
-            year=1904,
-            season="Autumn",
-            phase="Builds",
-            orders={
-                "FRANCE": [],
-                "AUSTRIA": [],
-                "RUSSIA": [],
-                "ENGLAND": [],
-                "GERMANY": [],
-                "ITALY": [],
-                "TURKEY": []
-            },
-            description="Build phase after Fall 1904."
-        ))
     
     def run_demo(self) -> None:
         """Execute the perfect demo game sequence."""
@@ -834,7 +698,13 @@ class PerfectDemoGame:
         return True
     
     def play_scenarios(self) -> None:
-        """Play through all hardcoded scenarios, then generate dynamic orders."""
+        """Play through all hardcoded scenarios deterministically.
+        
+        This method processes scenarios in order, generating maps only for scenarios
+        that are actually executed. The game is fully deterministic with all orders
+        hardcoded (except retreat orders which are generated based on actual
+        dislodged units, which is deterministic given the game state).
+        """
         print("\n🎲 Starting scenario playback...")
         
         # Map season and phase to numbers for chronological ordering
@@ -857,11 +727,13 @@ class PerfectDemoGame:
             result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
             if result.get("status") != "ok":
                 print("❌ Failed to get game state")
+                scenario_index += 1
                 continue
             game_state = result.get("state")
             
             if not game_state:
                 print("❌ Failed to get game state")
+                scenario_index += 1
                 continue
             
             # Check if game is completed
@@ -883,6 +755,7 @@ class PerfectDemoGame:
                     self.submit_orders(empty_retreat_orders)
                     if not self.process_phase():
                         print("  ❌ Failed to process Retreat phase")
+                        scenario_index += 1
                         continue
                     # Get updated state after processing Retreat
                     result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
@@ -906,6 +779,7 @@ class PerfectDemoGame:
                     self.submit_orders(empty_build_orders)
                     if not self.process_phase():
                         print("  ❌ Failed to process Builds phase")
+                        scenario_index += 1
                         continue
                     # Get updated state after processing Builds
                     result = self.server.process_command(f"GET_GAME_STATE {self.game_id}")
@@ -916,34 +790,42 @@ class PerfectDemoGame:
                         actual_season = game_state.get('season')
                         print(f"  ✅ After Builds: {actual_season} {actual_year} {actual_phase}")
                 
-                # If still in wrong phase after handling, skip this scenario
+                # If still in wrong phase after handling, skip this scenario (no maps generated)
                 if game_state.get('phase') != scenario.phase or game_state.get('year') != scenario.year or game_state.get('season') != scenario.season:
                     print(f"  ⚠️ Cannot proceed - still in {game_state.get('season')} {game_state.get('year')} {game_state.get('phase')}, expected {scenario.season} {scenario.year} {scenario.phase}")
-                    print(f"  ⏭️ Skipping this scenario and continuing")
+                    print(f"  ⏭️ Skipping this scenario (no maps generated)")
+                    scenario_index += 1
                     continue
             
             # Skip retreat phases if no dislodgements occurred (only for scenarios explicitly marked as Retreat)
+            # No maps generated for skipped scenarios
             if scenario.skip_if_no_dislodgements and scenario.phase == "Retreat":
                 has_dislodgements = self.check_for_dislodgements(game_state)
                 if not has_dislodgements:
-                    print(f"  ⏭️ Skipping {scenario.phase} phase - no dislodgements occurred")
+                    print(f"  ⏭️ Skipping {scenario.phase} phase - no dislodgements occurred (no maps generated)")
                     # Still process the phase to advance game state
                     if not self.process_phase():
                         print("  ❌ Failed to process phase")
+                    scenario_index += 1
+                    self.phase_count += 1
                     continue
                 else:
                     # Generate retreat orders dynamically based on actual dislodged units
                     scenario.orders = self.generate_retreat_orders_for_dislodged(game_state)
             
+            # At this point, we know the scenario will be processed - generate maps
             # Generate filename with chronological ordering (year_season_phase_state)
             # Format: perfect_demo_YYYY_SS_PP_season_phase_state
             # where SS = season number (01=Spring, 02=Autumn), PP = phase number (01=Movement, 02=Retreat, 03=Builds)
             season_num = season_order.get(scenario.season, "00")
             phase_num = phase_order.get(scenario.phase, "00")
             
-            # Generate and save initial map
-            filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_01_initial"
-            self.generate_and_save_map(game_state, filename)
+            # For Builds phase, skip initial and orders maps - only show final map with new units
+            # The initial state is already visible in the previous phase's final map
+            if scenario.phase != "Builds":
+                # Generate and save initial map
+                filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_01_initial"
+                self.generate_and_save_map(game_state, filename)
             
             # Submit hardcoded orders
             # Skip empty orders (like retreat phases with no dislodged units or build phases with no builds)
@@ -956,9 +838,10 @@ class PerfectDemoGame:
                 print("  ⏭️ No orders to submit (empty order set)")
                 orders_submitted = True  # Not an error if intentionally empty
             
-            # Generate orders map (using submitted orders, not original)
-            orders_filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_02_orders"
-            self.generate_orders_map(game_state, scenario.orders, orders_filename)
+            # Generate orders map (skip for Builds phase - build orders are simple and don't need visualization)
+            if scenario.phase != "Builds":
+                orders_filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_02_orders"
+                self.generate_orders_map(game_state, scenario.orders, orders_filename)
             
             # Store previous state for resolution comparison
             previous_state = game_state.copy()
@@ -967,6 +850,8 @@ class PerfectDemoGame:
             if not self.process_phase():
                 print("  ❌ Failed to process phase - game state may be inconsistent")
                 # Still continue to next scenario
+                scenario_index += 1
+                self.phase_count += 1
                 continue
             
             # Get updated game state
@@ -979,12 +864,15 @@ class PerfectDemoGame:
                         updated_state["adjudication_results"] = self._last_adjudication_results
                     
                     # Generate resolution map
+                    # For Builds phase, show resolution map (highlighting new units) instead of final map
+                    # For other phases, show both resolution and final maps
                     resolution_filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_03_resolution"
                     self.generate_resolution_map(updated_state, scenario.orders, resolution_filename, previous_state)
                     
-                    # Generate final map
-                    final_filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_04_final"
-                    self.generate_and_save_map(updated_state, final_filename)
+                    # Generate final map (skip for Builds phase - resolution map is sufficient)
+                    if scenario.phase != "Builds":
+                        final_filename = f"perfect_demo_{scenario.year}_{season_num}_{phase_num}_{scenario.season}_{scenario.phase}_04_final"
+                        self.generate_and_save_map(updated_state, final_filename)
                     
                     # Display game state
                     self.display_game_state(updated_state)
@@ -999,10 +887,8 @@ class PerfectDemoGame:
             # Small delay for readability
             time.sleep(0.5)
         
-        # After hardcoded scenarios, generate dynamic orders
-        if scenario_index >= len(self.scenarios) and self.phase_count < max_phases:
-            print("\n🔄 Hardcoded scenarios complete. Generating dynamic orders...")
-            self.generate_dynamic_orders(max_phases - self.phase_count)
+        # Hardcoded scenarios complete - demo finished
+        print("\n✅ All hardcoded scenarios complete!")
     
     def generate_movement_orders(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
         """Generate movement orders based on current game state using simple heuristics."""
@@ -1070,23 +956,79 @@ class PerfectDemoGame:
         return False
     
     def generate_retreat_orders_for_dislodged(self, game_state: Dict[str, Any]) -> Dict[str, List[str]]:
-        """Generate retreat orders for all dislodged units."""
-        # NOTE: Parser limitation - dislodged units have province "DISLODGED_VEN"
-        # but parser expects exact match with unit.province. We can't generate
-        # retreat orders that will work with current parser.
-        # Solution: Return empty orders - game will auto-disband units
-        # that have no valid retreat and no order submitted (correct Diplomacy behavior)
-        return {}
+        """Generate retreat orders for all dislodged units.
+        
+        Returns orders in format:
+        - "A VEN R APU" for retreat to free province (demonstrates retreat to free province)
+        - "DESTROY F BLA" for units with no valid retreat (demonstrates unit destruction)
+        """
+        retreat_orders = {}
+        units = game_state.get("units", {})
+        
+        # Check adjudication results for dislodged units with retreat options
+        adjudication_results = game_state.get("adjudication_results", {})
+        dislodged_units_info = {}
+        
+        # Extract dislodged units info from adjudication results if available
+        if adjudication_results:
+            for power_name, power_results in adjudication_results.items():
+                if isinstance(power_results, dict):
+                    dislodgements = power_results.get("dislodgements", [])
+                    dislodged_units = power_results.get("dislodged_units", [])
+                    for dislodged_info in dislodgements + dislodged_units:
+                        if isinstance(dislodged_info, dict):
+                            unit_str = dislodged_info.get("unit", "")
+                            retreat_opts = dislodged_info.get("retreat_options", [])
+                            if unit_str and retreat_opts:
+                                dislodged_units_info[unit_str] = retreat_opts
+        
+        for power_name, power_units in units.items():
+            power_retreat_orders = []
+            for unit_str in power_units:
+                # Check if unit is dislodged (format: "A DISLODGED_VEN")
+                if "DISLODGED_" in unit_str:
+                    parts = unit_str.split()
+                    if len(parts) >= 2:
+                        unit_type = parts[0]
+                        dislodged_province = parts[1]
+                        
+                        # Extract original province from "DISLODGED_VEN"
+                        original_province = dislodged_province.replace("DISLODGED_", "")
+                        
+                        # Try to get retreat options from adjudication results first
+                        full_unit_str = f"{unit_type} {original_province}"
+                        retreat_options = dislodged_units_info.get(full_unit_str, [])
+                        
+                        # If not found in adjudication results, use common patterns
+                        if not retreat_options:
+                            retreat_options = self._get_common_retreat_options(original_province)
+                        
+                        # Check if any retreat option is free (not occupied)
+                        # This is simplified - in reality we'd check game_state for occupied provinces
+                        if retreat_options:
+                            # Use first available retreat option
+                            retreat_province = retreat_options[0]
+                            power_retreat_orders.append(f"{unit_type} {original_province} R {retreat_province}")
+                        else:
+                            # No valid retreat - unit must be destroyed
+                            power_retreat_orders.append(f"DESTROY {unit_type} {original_province}")
+            
+            if power_retreat_orders:
+                retreat_orders[power_name] = power_retreat_orders
+        
+        return retreat_orders
     
     def _get_common_retreat_options(self, province: str) -> List[str]:
         """Get common retreat options for a province (simplified - real implementation would check game state)."""
         # Common retreat patterns - this is simplified
         # In reality, we'd query the game state for actual retreat options
         retreat_map = {
-            "VEN": ["APU", "TUS", "ROM"],
-            "BLA": [],  # Usually no valid retreats - surrounded
-            "ADR": ["VEN", "ION", "TRI"],
-            "GAL": []  # Usually no valid retreats after being dislodged
+            "VEN": ["APU"],  # A VEN can retreat to APU (adjacent, usually free) - demonstrates retreat to free province
+            "BLA": [],  # Usually no valid retreats - surrounded (will be destroyed) - demonstrates unit destruction
+            "ADR": ["ION", "VEN", "TRI"],  # F ADR can retreat to adjacent sea/coastal
+            "GAL": [],  # Usually no valid retreats after being dislodged
+            "BEL": ["PIC", "RUH"],  # Common retreat options for BEL
+            "ENG": ["NTH", "IRI"]  # Common retreat options for ENG
         }
         return retreat_map.get(province, [])
     
