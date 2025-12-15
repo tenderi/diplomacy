@@ -116,6 +116,29 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data == "join_waiting_list":
         await wait(update, context)
+    
+    elif data.startswith("vote_proposal_"):
+        # Handle proposal voting: vote_proposal_<game_id>_<vote_type>
+        parts = data.split("_")
+        if len(parts) >= 4:
+            game_id = parts[2]
+            vote_type = parts[3]  # support, oppose, undecided
+            
+            # Acknowledge vote
+            vote_emoji = {"support": "👍", "oppose": "👎", "undecided": "🤔"}.get(vote_type, "✅")
+            await query.answer(f"Voted {vote_emoji} on proposal")
+            
+            # Update message with vote count (simplified - will be enhanced with database)
+            try:
+                # Get current message text
+                current_text = query.message.text if query.message else ""
+                
+                # Extract current vote counts if present
+                # For now, just acknowledge the vote
+                # Full implementation will track votes in database
+                await query.edit_message_reply_markup(reply_markup=query.message.reply_markup)
+            except Exception as e:
+                logger.warning(f"Error updating vote: {e}")
 
     elif data.startswith("demo_orders_"):
         game_id = data.split("_")[2]

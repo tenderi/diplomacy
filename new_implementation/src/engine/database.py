@@ -242,6 +242,64 @@ class MessageModel(Base):
     recipient = relationship("UserModel", foreign_keys=[recipient_user_id], back_populates="messages_received")
 
 
+class ChannelMessageModel(Base):
+    """Channel messages table (for Telegram channel integration)"""
+    __tablename__ = 'channel_messages'
+    
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
+    channel_id = Column(String(255), nullable=False)
+    message_id = Column(Integer, nullable=False)
+    message_type = Column(String(50), nullable=False)  # 'map', 'broadcast', 'notification', 'battle_results', 'dashboard', 'timeline'
+    content = Column(Text)
+    thread_id = Column(Integer, nullable=True)  # For forum topics/threads
+    parent_message_id = Column(Integer, nullable=True)  # For reply threading
+    reaction_counts = Column(JSON, nullable=True)  # JSONB for reaction tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    game = relationship("GameModel")
+
+
+class ChannelProposalModel(Base):
+    """Channel proposals table (for voting on proposals)"""
+    __tablename__ = 'channel_proposals'
+    
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
+    channel_id = Column(String(255), nullable=False)
+    message_id = Column(Integer, nullable=False)
+    proposal_title = Column(String(255))
+    proposal_text = Column(Text, nullable=False)
+    power = Column(String(20), nullable=False)
+    votes_support = Column(Integer, default=0)
+    votes_oppose = Column(Integer, default=0)
+    votes_undecided = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    game = relationship("GameModel")
+
+
+class ChannelTimelineEventModel(Base):
+    """Channel timeline events table (for historical timeline)"""
+    __tablename__ = 'channel_timeline_events'
+    
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
+    turn_number = Column(Integer, nullable=False)
+    year = Column(Integer, nullable=False)
+    season = Column(String(10), nullable=False)
+    phase = Column(String(20), nullable=False)
+    event_type = Column(String(50), nullable=False)  # 'elimination', 'major_battle', 'supply_change', 'victory'
+    event_description = Column(Text, nullable=False)
+    power = Column(String(20), nullable=True)  # Power involved in event
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    game = relationship("GameModel")
+
+
 def create_database_schema(database_url: str):
     """Create the complete database schema"""
     engine = create_engine(database_url)

@@ -157,12 +157,27 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_dir)))
 
-        # Get the path to the demo script
-        script_path = os.path.join(project_root, "examples", "demo_perfect_game.py")
-
+        # Try multiple possible locations for the demo script
+        # 1. examples/demo_perfect_game.py (for local development)
+        # 2. demo_perfect_game.py in project root (for deployment)
+        possible_paths = [
+            os.path.join(project_root, "examples", "demo_perfect_game.py"),
+            os.path.join(project_root, "demo_perfect_game.py")
+        ]
+        
+        script_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                script_path = path
+                break
+        
         # Check if the script exists
-        if not os.path.exists(script_path):
-            error_msg = f"❌ Demo script not found at {script_path}"
+        if not script_path:
+            error_msg = (
+                f"❌ Demo script not found. Checked locations:\n"
+                f"  • {possible_paths[0]}\n"
+                f"  • {possible_paths[1]}"
+            )
             if update.callback_query:
                 await update.callback_query.edit_message_text(error_msg)
             else:
@@ -229,6 +244,8 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await safe_reply_text(completion_msg, parse_mode='Markdown')
             else:
                 # No maps generated, show text summary
+                # Determine the relative path for the help message
+                script_rel_path = os.path.relpath(script_path, project_root)
                 success_msg = (
                     "🎬 *Perfect Demo Game Complete!*\n\n"
                     "✅ The demo game ran successfully, but no maps were generated.\n"
@@ -236,7 +253,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     "💡 *To run the demo yourself:*\n"
                     "```bash\n"
                     f"cd {project_root}\n"
-                    "/usr/bin/python3 demo_perfect_game.py\n"
+                    f"/usr/bin/python3 {script_rel_path}\n"
                     "```"
                 )
 
