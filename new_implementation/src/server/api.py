@@ -25,7 +25,7 @@ from .db_config import SQLALCHEMY_DATABASE_URL
 from .api.shared import deadline_scheduler, db_service
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, health
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -155,6 +155,7 @@ app.include_router(maps.router)
 app.include_router(admin.router)
 app.include_router(dashboard.router)
 app.include_router(channels.router, tags=["channels"])
+app.include_router(health.router, tags=["health"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

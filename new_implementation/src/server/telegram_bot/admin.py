@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import api_post
 from .maps import send_demo_map
+from .utils import escape_markdown, safe_markdown_path
 
 logger = logging.getLogger("diplomacy.telegram_bot.admin")
 
@@ -133,7 +134,7 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.error("run_automated_demo: no message or callback_query in update")
             return
 
-        # Helper function to safely send messages
+        # Helper function to safely send messages with Markdown error handling
         async def safe_reply_text(text: str, parse_mode: str = None):
             try:
                 if update.callback_query:
@@ -141,7 +142,23 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     await update.message.reply_text(text, parse_mode=parse_mode)
             except Exception as e:
-                logger.error(f"Error sending message: {e}")
+                error_str = str(e)
+                # If it's a Markdown parsing error, retry without parse_mode
+                if "parse entities" in error_str.lower() or "can't find end" in error_str.lower():
+                    logger.warning(f"Markdown parsing error, retrying as plain text: {e}")
+                    try:
+                        if update.callback_query:
+                            await update.callback_query.message.reply_text(text, parse_mode=None)
+                        else:
+                            await update.message.reply_text(text, parse_mode=None)
+                    except Exception as e2:
+                        logger.error(f"Error sending message even as plain text: {e2}")
+                        # Log the problematic message for debugging
+                        logger.debug(f"Problematic message content (first 500 chars): {text[:500]}")
+                else:
+                    logger.error(f"Error sending message: {e}")
+                    # Log the problematic message for debugging
+                    logger.debug(f"Problematic message content (first 500 chars): {text[:500]}")
 
         async def safe_reply_photo(photo_file, caption: str = None, parse_mode: str = None):
             try:
@@ -203,10 +220,35 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if result.returncode == 0:
             # Success - post generated maps in order
-            maps_dir = os.path.join(project_root, "test_maps")
-
-            # Get all generated map files in chronological order
-            map_files = sorted(glob.glob(os.path.join(maps_dir, "perfect_demo_*.png")))
+            # Try multiple possible locations for test_maps directory
+            possible_maps_dirs = [
+                os.path.join(project_root, "test_maps"),  # Project root
+                os.path.join(project_root, "examples", "test_maps"),  # Examples subdirectory
+                os.path.join(os.path.dirname(script_path), "test_maps") if script_path else None,  # Same dir as script
+            ]
+            
+            maps_dir = None
+            map_files = []
+            
+            for maps_dir_candidate in possible_maps_dirs:
+                if maps_dir_candidate and os.path.exists(maps_dir_candidate):
+                    # Get all generated map files in chronological order
+                    map_files = sorted(glob.glob(os.path.join(maps_dir_candidate, "perfect_demo_*.png")))
+                    if map_files:
+                        maps_dir = maps_dir_candidate
+                        break
+            
+            # If still no maps found, try to find any test_maps directory
+            if not map_files:
+                for root, dirs, files in os.walk(project_root):
+                    if 'test_maps' in dirs:
+                        test_maps_path = os.path.join(root, 'test_maps')
+                        map_files = sorted(glob.glob(os.path.join(test_maps_path, "perfect_demo_*.png")))
+                        if map_files:
+                            maps_dir = test_maps_path
+                            break
+                    if map_files:
+                        break
 
             if map_files:
                 # Send initial message
@@ -243,33 +285,62 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 await safe_reply_text(completion_msg, parse_mode='Markdown')
             else:
-                # No maps generated, show text summary
+                # No maps generated, show text summary with diagnostic info
                 # Determine the relative path for the help message
-                script_rel_path = os.path.relpath(script_path, project_root)
+                script_rel_path = os.path.relpath(script_path, project_root) if script_path else "demo_perfect_game.py"
+                
+                # Check if maps_dir exists but is empty
+                maps_dir_exists = maps_dir and os.path.exists(maps_dir) if maps_dir else False
+                maps_dir_info = f"Maps directory: {maps_dir}" if maps_dir else "Maps directory: not found"
+                
+                # Check stdout/stderr for errors
+                stderr_output = result.stderr[-500:] if result.stderr else ""  # Last 500 chars
+                stdout_output = result.stdout[-500:] if result.stdout else ""  # Last 500 chars
+                has_errors = "Could not generate" in stderr_output or "Could not generate" in stdout_output or "Error" in stderr_output
+                
+                # Escape paths and dynamic content for Markdown
+                escaped_maps_dir = escape_markdown(maps_dir) if maps_dir else "not found"
+                escaped_project_root = escape_markdown(project_root)
+                escaped_script_path = escape_markdown(script_rel_path)
+                escaped_maps_path = safe_markdown_path(maps_dir or os.path.join(project_root, 'test_maps'))
+                
                 success_msg = (
                     "🎬 *Perfect Demo Game Complete!*\n\n"
-                    "✅ The demo game ran successfully, but no maps were generated.\n"
-                    "📊 Check the server logs for details.\n\n"
-                    "💡 *To run the demo yourself:*\n"
+                    "✅ The demo game ran successfully, but no maps were generated\\.\n\n"
+                    f"📊 *Diagnostics:*\n"
+                    f"  • Maps directory: {escaped_maps_dir}\n"
+                    f"  • Project root: {escaped_project_root}\n"
+                    f"  • Script path: {escaped_script_path}\n"
+                )
+                
+                if has_errors:
+                    success_msg += "\n⚠️ *Errors detected in output \\- check logs for details\\.*\n"
+                
+                success_msg += (
+                    "\n💡 *To run the demo yourself:*\n"
                     "```bash\n"
-                    f"cd {project_root}\n"
-                    f"/usr/bin/python3 {script_rel_path}\n"
-                    "```"
+                    f"cd {escape_markdown(project_root)}\n"
+                    f"/usr/bin/python3 {escaped_script_path}\n"
+                    "```\n\n"
+                    f"📁 *Maps will be saved to:* {escaped_maps_path}"
                 )
 
                 await safe_reply_text(success_msg, parse_mode='Markdown')
         else:
-            # Error occurred
+            # Error occurred - escape error messages for Markdown
+            escaped_stderr = escape_markdown(result.stderr[:500]) if result.stderr else "No error output"
+            escaped_stdout = escape_markdown(result.stdout[:500]) if result.stdout else "No output"
+            
             error_msg = (
                 f"❌ *Demo script failed*\n\n"
-                f"**Error:** {result.stderr[:500]}\n\n"
-                f"**Output:** {result.stdout[:500]}"
+                f"**Error:** {escaped_stderr}\n\n"
+                f"**Output:** {escaped_stdout}"
             )
 
             await safe_reply_text(error_msg, parse_mode='Markdown')
 
     except Exception as e:
-        error_msg = f"❌ Error running perfect demo: {str(e)}"
+        error_msg = f"❌ Error running perfect demo: {escape_markdown(str(e))}"
         logger.error(f"run_automated_demo exception: {e}")
         try:
             if update and (update.callback_query or update.message):

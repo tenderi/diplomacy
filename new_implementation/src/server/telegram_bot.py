@@ -530,7 +530,15 @@ def main():
 
     def start_notify_server():
         """Start the notification API server in a separate thread."""
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+        try:
+            uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+        except OSError as e:
+            if e.errno == 98:  # Address already in use
+                logger.warning(f"Port 8081 already in use, notification server not started: {e}")
+                logger.info("Notification endpoint may be available on main API server")
+            else:
+                logger.error(f"Failed to start notification server: {e}")
+                raise
 
     if bot_only:
         # BOT_ONLY mode: Run telegram bot + notification API (main API runs separately)
@@ -545,15 +553,20 @@ def main():
         # Start telegram bot polling - this will block
         app.run_polling()
     else:
-        # Legacy/standalone mode: Use thread-based approach to avoid event loop conflicts
-        print("Starting in standalone mode with thread-based approach")
-
-        # Start notification server in background thread
-        notify_thread = threading.Thread(target=start_notify_server, daemon=True)
-        notify_thread.start()
-
-        # Wait a bit for the server to start
-        time.sleep(2)
+        # When BOT_ONLY=false, main API is running separately
+        # Only start notification server if explicitly requested
+        start_notify = os.environ.get("START_NOTIFY_SERVER", "false").lower() == "true"
+        
+        if start_notify:
+            print("Starting in standalone mode with notification server")
+            # Start notification server in background thread
+            notify_thread = threading.Thread(target=start_notify_server, daemon=True)
+            notify_thread.start()
+            # Wait a bit for the server to start
+            time.sleep(2)
+        else:
+            print("Starting in standalone mode (notification server disabled - main API handles notifications)")
+            logger.info("Notification server not started (main API should handle /notify endpoint)")
 
         # Start telegram bot polling in main thread - this will block
         print("Starting Telegram bot polling...")
