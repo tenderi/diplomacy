@@ -4,7 +4,7 @@
 
 This document contains actionable implementation tasks and fixes for the Diplomacy game engine.
 
-**Last Updated**: 2025-01-28
+**Last Updated**: 2025-01-29
 
 **Status**: ✅ All Priority 1 and Priority 2 tasks completed. Codebase is production-ready with enhanced test coverage and code quality improvements.
 
@@ -78,6 +78,15 @@ The standard-v2 map is fully implemented as a selectable alternative to the stan
 ---
 
 ## Recent Implementation History
+
+### ✅ Completed: Telegram Bot Event Loop Handling (v2.4.1)
+**Completed**: 2025-01-29
+
+- Added robust event loop handling in `telegram_bot.py` to prevent service restart issues
+- Implemented `run_bot()` function with proper asyncio event loop management
+- Handles closed event loops during service restart gracefully
+- Uses `close_loop=False` to prevent shutdown issues
+- Improves reliability when restarting the Telegram bot service in production
 
 ### ✅ Completed: Code Cleanup and Quality Improvements (v2.2.0)
 **Completed**: 2025-01-28
