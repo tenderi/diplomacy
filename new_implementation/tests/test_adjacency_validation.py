@@ -159,6 +159,7 @@ def test_all_known_non_adjacent_pairs():
         ("MOS", "LON"),
         ("STP", "NAP"),
         ("ANK", "EDI"),
+        ("CLY", "IRI"),  # CLY does NOT border IRI (corrected from hardcoded error)
     ]
     
     for prov1, prov2 in non_adjacent_pairs:
@@ -168,4 +169,74 @@ def test_all_known_non_adjacent_pairs():
         if p1 and p2:
             assert prov2 not in p1.adjacent, f"{prov1} should NOT be adjacent to {prov2}"
             assert prov1 not in p2.adjacent, f"{prov2} should NOT be adjacent to {prov1}"
+
+
+def test_cly_adjacencies_from_standard_map():
+    """Test that CLY has correct adjacencies as defined in standard.map."""
+    game = Game('standard')
+    cly = game.map.provinces.get('CLY')
+    
+    assert cly is not None, "CLY province not found"
+    
+    # CLY should border: EDI, LVP, NAO, NWG (from standard.map line 146)
+    expected_adjacents = {"EDI", "LVP", "NAO", "NWG"}
+    actual_adjacents = set(cly.adjacent)
+    
+    assert actual_adjacents == expected_adjacents, \
+        f"CLY should border {expected_adjacents}, but got {actual_adjacents}"
+    
+    # CLY should NOT border IRI (this was incorrectly in hardcoded data)
+    assert "IRI" not in cly.adjacent, "CLY should NOT border IRI"
+
+
+def test_iri_adjacencies_from_standard_map():
+    """Test that IRI has correct adjacencies as defined in standard.map."""
+    game = Game('standard')
+    iri = game.map.provinces.get('IRI')
+    
+    assert iri is not None, "IRI province not found"
+    
+    # IRI should border: ENG, LVP, MAO, NAO, WAL (from standard.map line 159)
+    expected_adjacents = {"ENG", "LVP", "MAO", "NAO", "WAL"}
+    actual_adjacents = set(iri.adjacent)
+    
+    assert actual_adjacents == expected_adjacents, \
+        f"IRI should border {expected_adjacents}, but got {actual_adjacents}"
+    
+    # IRI should NOT border CLY (this was incorrectly in hardcoded data)
+    assert "CLY" not in iri.adjacent, "IRI should NOT border CLY"
+
+
+def test_map_parsed_from_standard_map_file():
+    """Test that the map is being parsed from standard.map file, not hardcoded."""
+    game = Game('standard')
+    
+    # Verify that CLY does NOT border IRI (this would be wrong in old hardcoded data)
+    cly = game.map.provinces.get('CLY')
+    iri = game.map.provinces.get('IRI')
+    
+    assert cly is not None, "CLY province not found"
+    assert iri is not None, "IRI province not found"
+    
+    # If map was parsed correctly from standard.map, CLY should not border IRI
+    assert "IRI" not in cly.adjacent, \
+        "Map appears to be using hardcoded data (CLY borders IRI). Should use standard.map instead."
+    assert "CLY" not in iri.adjacent, \
+        "Map appears to be using hardcoded data (IRI borders CLY). Should use standard.map instead."
+
+
+def test_all_adjacencies_bidirectional():
+    """Test that ALL adjacencies in the map are bidirectional."""
+    game = Game('standard')
+    
+    issues = []
+    for prov_name, province in game.map.provinces.items():
+        for adj in province.adjacent:
+            if adj in game.map.provinces:
+                adj_province = game.map.provinces[adj]
+                if prov_name not in adj_province.adjacent:
+                    issues.append(f"{prov_name} borders {adj}, but {adj} does not border {prov_name}")
+    
+    assert len(issues) == 0, \
+        f"Found {len(issues)} bidirectional adjacency issues:\n" + "\n".join(issues[:10])
 

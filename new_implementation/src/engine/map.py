@@ -1,7 +1,7 @@
 """
 Map representation for Diplomacy.
 - Represents provinces, supply centers, adjacency, and coasts.
-- Loads map data (for now, hardcoded for classic map; later, can load from file).
+- Loads map data from standard.map file as the single source of truth.
 - Includes comprehensive map caching for performance optimization.
 """
 
@@ -251,21 +251,58 @@ class Map:
                         self.provinces[adj].add_adjacent(name)
 
     def _init_classic_map(self) -> None:
-        # Always use the hardcoded standard map for reliability
-        self._init_hardcoded_standard_map()
+        """Initialize standard map by parsing standard.map file as the single source of truth."""
+        # Use standard.map as the authoritative source for adjacencies
+        map_dir = os.path.join(os.path.dirname(__file__), '../../maps')
+        map_file = os.path.join(map_dir, 'standard.map')
+        
+        if not os.path.isfile(map_file):
+            raise FileNotFoundError(
+                f"standard.map not found at {map_file}. "
+                f"This file is required as the single source of truth for province adjacencies."
+            )
+        
+        try:
+            self._parse_map_file(map_file)
+            self.logger.info(f"Successfully loaded standard map from {map_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to parse standard.map: {e}")
+            raise RuntimeError(
+                f"Failed to parse standard.map at {map_file}. "
+                f"This file is required and must be valid. Error: {e}"
+            ) from e
 
     def _parse_map_file(self, map_file_path: str) -> None:
-        """Parse a .map file from the old implementation."""
+        """
+        Parse a .map file as the single source of truth for province adjacencies.
+        
+        Handles:
+        - Province types from LAND/COAST/WATER prefixes
+        - Case-insensitive province names (normalizes to uppercase)
+        - Multi-coast provinces (BUL/EC, BUL/SC, STP/NC, STP/SC, SPA/NC, SPA/SC)
+        - Supply centers from power definitions
+        - Bidirectional adjacencies
+        """
+        from .province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
+        
         with open(map_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
+
+        # Get province type mappings for validation
+        water_provinces = set(get_sea_provinces())
+        coastal_provinces = set(get_coastal_provinces())
+        land_provinces = set(get_land_provinces())
 
         # Parse supply centers from the power definitions
         supply_centers: set[str] = set()
         lines = content.split('\n')
         for line in lines:
             line = line.strip()
-            if line and not line.startswith('//') and '(' in line and ')' in line:
-                # This is a power definition line like "AUSTRIA     (AUSTRIAN)     BUD TRI VIE"
+            # Skip comments and empty lines
+            if not line or line.startswith('#'):
+                continue
+            # Parse power definition lines like "AUSTRIA     (AUSTRIAN)     BUD TRI VIE"
+            if '(' in line and ')' in line and not line.startswith('LAND') and not line.startswith('COAST') and not line.startswith('WATER'):
                 if line.count('(') == 1 and line.count(')') == 1:
                     parts = line.split(')')
                     if len(parts) == 2:
@@ -275,144 +312,112 @@ class Map:
                             # Normalize supply center names to uppercase
                             supply_centers.update([center.upper() for center in centers])
 
-        # Parse adjacencies
+        # Parse adjacencies and province types
         adjacencies: dict[str, list[str]] = {}
+        province_types: dict[str, str] = {}  # Map province name to type: 'land', 'coastal', 'sea'
+        province_prefixes: dict[str, str] = {}  # Track LAND/COAST/WATER prefix for each province
+        
         for line in lines:
             line = line.strip()
+            # Skip comments and empty lines
+            if not line or line.startswith('#'):
+                continue
+                
             if line.startswith('LAND ') or line.startswith('COAST ') or line.startswith('WATER '):
-                # Parse adjacency line like "LAND     SIL        ABUTS    BER BOH GAL MUN PRU WAR"
+                # Parse adjacency line like "COAST    CLY        ABUTS    EDI LVP NAO NWG"
                 parts = line.split()
                 if len(parts) >= 4 and parts[2] == 'ABUTS':
-                    province = parts[1].upper()  # Normalize to uppercase
-                    adjacent_provinces = [adj.upper() for adj in parts[3:]]  # Normalize to uppercase
-                    adjacencies[province] = adjacent_provinces
+                    prefix = parts[0].upper()  # LAND, COAST, or WATER
+                    province_raw = parts[1]  # Keep original case for multi-coast handling
+                    province = province_raw.upper()  # Normalize to uppercase for key
+                    
+                    # Determine province type from prefix
+                    if prefix == 'LAND':
+                        province_types[province] = 'land'
+                    elif prefix == 'COAST':
+                        province_types[province] = 'coastal'
+                    elif prefix == 'WATER':
+                        province_types[province] = 'sea'
+                    
+                    province_prefixes[province] = prefix
+                    
+                    # Parse adjacent provinces (normalize to uppercase, handle case variations)
+                    adjacent_provinces = []
+                    for adj in parts[3:]:
+                        adj_upper = adj.upper()
+                        # Handle multi-coast provinces in adjacency list (e.g., "lvp", "edi")
+                        adjacent_provinces.append(adj_upper)
+                    
+                    # Store adjacencies (handle both specific coast and base province entries)
+                    if province not in adjacencies:
+                        adjacencies[province] = []
+                    adjacencies[province].extend(adjacent_provinces)
 
-        # Create provinces
-        for province in adjacencies:
+        # Create provinces with correct types
+        for province, adj_list in adjacencies.items():
+            # Determine if this is a supply center
             is_supply_center = province in supply_centers
-            self.provinces[province] = Province(province, is_supply_center=is_supply_center)
+            
+            # Get province type (default to 'land' if not specified)
+            prov_type = province_types.get(province, 'land')
+            
+            # Validate province type against mapping (for consistency check)
+            if prov_type == 'sea' and province not in water_provinces:
+                self.logger.warning(f"Province {province} marked as sea in map file but not in water_provinces mapping")
+            elif prov_type == 'coastal' and province not in coastal_provinces:
+                self.logger.warning(f"Province {province} marked as coastal in map file but not in coastal_provinces mapping")
+            elif prov_type == 'land' and province not in land_provinces and province not in coastal_provinces:
+                # Some provinces might be in both, which is fine
+                pass
+            
+            # Create province with correct type
+            self.provinces[province] = Province(province, is_supply_center=is_supply_center, type_=prov_type)
             if is_supply_center:
                 self.supply_centers.add(province)
+        
+        # Create bidirectional adjacencies
         for province, adjacent_list in adjacencies.items():
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_adjacents = []
             for adj in adjacent_list:
+                if adj not in seen and adj in self.provinces:
+                    seen.add(adj)
+                    unique_adjacents.append(adj)
+            
+            # Set adjacencies (bidirectional)
+            for adj in unique_adjacents:
                 if adj in self.provinces:
                     self.provinces[province].add_adjacent(adj)
                     self.provinces[adj].add_adjacent(province)
-
-    def _init_hardcoded_standard_map(self) -> None:
-        """Fallback hardcoded standard map data using province mapping."""
-        from .province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
         
-        # Get province types from the mapping system
-        water_provinces = set(get_sea_provinces())
-        coastal_provinces = set(get_coastal_provinces())
-        land_provinces = set(get_land_provinces())
-        province_data = [
-            # Power home centers
-            ("BUD", True, ["GAL", "RUM", "SER", "TRI", "VIE"]),
-            ("TRI", True, ["ADR", "ALB", "BUD", "TYR", "VEN", "VIE"]),
-            ("VIE", True, ["BOH", "BUD", "GAL", "TRI", "TYR"]),
-            ("EDI", True, ["CLY", "NTH", "YOR"]),
-            ("LON", True, ["ENG", "NTH", "WAL", "YOR"]),
-            ("LVP", True, ["CLY", "IRI", "NAO", "WAL", "YOR"]),
-            ("BRE", True, ["ENG", "GAS", "MAO", "PAR", "PIC"]),
-            ("MAR", True, ["BUR", "GAS", "GOL", "PIE", "SPA"]),
-            ("PAR", True, ["BRE", "BUR", "GAS", "PIC"]),
-            ("BER", True, ["BAL", "KIE", "MUN", "PRU", "SIL"]),
-            ("KIE", True, ["BAL", "BER", "DEN", "HEL", "HOL", "MUN", "RUH"]),
-            ("MUN", True, ["BER", "BOH", "BUR", "KIE", "RUH", "SIL", "TYR"]),
-            ("NAP", True, ["APU", "ION", "ROM", "TYS"]),
-            ("ROM", True, ["APU", "NAP", "TUS", "TYS", "VEN"]),
-            ("VEN", True, ["ADR", "APU", "PIE", "ROM", "TRI", "TUS", "TYR"]),
-            ("MOS", True, ["LVN", "SEV", "STP", "UKR", "WAR"]),
-            ("SEV", True, ["ARM", "BLA", "MOS", "RUM", "UKR"]),
-            ("STP", True, ["BAR", "BOT", "FIN", "LVN", "MOS", "NWY"]),
-            ("WAR", True, ["GAL", "LVN", "MOS", "PRU", "SIL", "UKR"]),
-            ("ANK", True, ["ARM", "BLA", "CON", "SMY"]),
-            ("CON", True, ["AEG", "ANK", "BLA", "BUL", "SMY"]),
-            ("SMY", True, ["AEG", "ANK", "CON", "EAS", "SYR"]),
-            # Non-supply center provinces
-            ("ADR", False, ["ALB", "APU", "ION", "TRI", "VEN"]),
-            ("AEG", False, ["BUL", "CON", "EAS", "GRE", "ION", "SMY"]),
-            ("ALB", False, ["ADR", "GRE", "ION", "SER", "TRI"]),
-            ("APU", False, ["ADR", "ION", "NAP", "ROM", "VEN"]),
-            ("ARM", False, ["ANK", "BLA", "SEV", "SMY", "SYR"]),
-            ("BAL", False, ["BER", "BOT", "DEN", "KIE", "LVN", "PRU", "SWE"]),
-            ("BAR", False, ["NWY", "STP"]),
-            ("BLA", False, ["ANK", "ARM", "BUL", "CON", "RUM", "SEV"]),
-            ("BOH", False, ["GAL", "MUN", "SIL", "TYR", "VIE"]),
-            ("BOT", False, ["BAL", "FIN", "LVN", "STP", "SWE"]),
-            ("BUL", False, ["AEG", "BLA", "CON", "GRE", "RUM", "SER"]),
-            ("BUR", False, ["BEL", "GAS", "MAR", "MUN", "PAR", "PIC", "RUH"]),
-            ("CLY", False, ["EDI", "IRI", "LVP", "NAO", "NWG"]),
-            ("DEN", False, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
-            ("EAS", False, ["AEG", "ION", "SMY", "SYR"]),
-            ("ENG", False, ["BRE", "IRI", "LON", "MAO", "NTH", "PIC", "WAL"]),
-            ("FIN", False, ["BOT", "NWY", "STP", "SWE"]),
-            ("GAL", False, ["BOH", "BUD", "RUM", "SIL", "UKR", "VIE", "WAR"]),
-            ("GAS", False, ["BRE", "BUR", "MAR", "PAR", "SPA"]),
-            ("GOL", False, ["MAR", "PIE", "SPA", "TUS", "TYS", "WES"]),
-            ("GRE", False, ["AEG", "ALB", "BUL", "ION", "SER"]),
-            ("HEL", False, ["DEN", "HOL", "KIE", "NTH"]),
-            ("ION", False, ["ADR", "AEG", "ALB", "APU", "EAS", "GRE", "NAP", "TUN", "TYS"]),
-            ("IRI", False, ["CLY", "ENG", "LVP", "MAO", "NAO", "WAL"]),
-            ("LVN", False, ["BAL", "BOT", "MOS", "PRU", "STP", "WAR"]),
-            ("MAO", False, ["BRE", "ENG", "IRI", "NAO", "POR", "SPA", "WES"]),
-            ("NAO", False, ["CLY", "IRI", "LVP", "MAO", "NWG"]),
-            ("NTH", False, ["DEN", "EDI", "ENG", "HEL", "HOL", "LON", "NWY", "SKA", "YOR"]),
-            ("NWG", False, ["BAR", "CLY", "NAO", "NWY", "STP"]),
-            ("NWY", False, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
-            ("PIC", False, ["BEL", "BRE", "BUR", "ENG", "PAR"]),
-            ("PIE", False, ["GOL", "MAR", "TUS", "TYR", "VEN"]),
-            ("PRU", False, ["BAL", "BER", "LVN", "SIL", "WAR"]),
-            ("RUH", False, ["BEL", "BUR", "HOL", "KIE", "MUN"]),
-            ("RUM", False, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
-            ("SER", False, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
-            ("SIL", False, ["BER", "BOH", "GAL", "MUN", "PRU", "WAR"]),
-            ("SKA", False, ["DEN", "NTH", "NWY", "SWE"]),
-            ("SYR", False, ["ARM", "EAS", "SMY"]),
-            ("TUS", False, ["GOL", "PIE", "ROM", "TYS", "VEN"]),
-            ("TYR", False, ["BOH", "MUN", "PIE", "TRI", "VEN", "VIE"]),
-            ("TYS", False, ["GOL", "ION", "NAP", "ROM", "TUN", "TUS", "WES"]),
-            ("UKR", False, ["GAL", "MOS", "RUM", "SEV", "WAR"]),
-            ("WAL", False, ["ENG", "IRI", "LON", "LVP", "YOR"]),
-            ("WES", False, ["GOL", "MAO", "NAF", "SPA", "TUN", "TYS"]),
-            ("YOR", False, ["EDI", "LON", "LVP", "NTH", "WAL"]),
-            # Neutral supply centers
-            ("BEL", True, ["BUR", "HOL", "PIC", "RUH"]),
-            ("DEN", True, ["BAL", "HEL", "KIE", "NTH", "SKA", "SWE"]),
-            ("GRE", True, ["AEG", "ALB", "BUL", "ION", "SER"]),
-            ("HOL", True, ["BEL", "HEL", "KIE", "NTH", "RUH"]),
-            ("NWY", True, ["BAR", "FIN", "NTH", "NWG", "SKA", "STP", "SWE"]),
-            ("POR", True, ["MAO", "SPA"]),
-            ("RUM", True, ["BLA", "BUD", "BUL", "GAL", "SEV", "SER", "UKR"]),
-            ("SER", True, ["ALB", "BUD", "BUL", "GRE", "RUM", "TRI"]),
-            ("SPA", True, ["GAS", "GOL", "MAO", "MAR", "POR", "WES"]),
-            ("SWE", True, ["BAL", "BOT", "DEN", "FIN", "NWY", "SKA"]),
-            ("TUN", True, ["ION", "NAF", "TYS", "WES"]),
-        ]
+        # Validation: Check bidirectional consistency
+        self._validate_adjacencies()
 
-        # Create provinces
-        for name, is_sc, adjacents in province_data:
-            if name in water_provinces:
-                type_ = 'sea'  # Sea provinces should be 'sea', not 'water'
-            elif name in coastal_provinces:
-                type_ = 'coastal'
-            elif name in land_provinces:
-                type_ = 'land'
-            else:
-                # Default to land if not found in mapping
-                type_ = 'land'
-            self.provinces[name] = Province(name, is_supply_center=is_sc, type_=type_)
-            if is_sc:
-                self.supply_centers.add(name)
-
-        # Set up adjacencies (ensure bidirectional)
-        for name, _, adjacents in province_data:
-            for adj in adjacents:
+    def _validate_adjacencies(self) -> None:
+        """Validate that adjacencies are bidirectional and complete."""
+        issues = []
+        
+        # Check bidirectional consistency: if A borders B, B should border A
+        for prov_name, province in self.provinces.items():
+            for adj in province.adjacent:
                 if adj in self.provinces:
-                    self.provinces[name].add_adjacent(adj)
-                    self.provinces[adj].add_adjacent(name)
+                    adj_province = self.provinces[adj]
+                    if prov_name not in adj_province.adjacent:
+                        issues.append(f"Adjacency inconsistency: {prov_name} borders {adj}, but {adj} does not border {prov_name}")
+        
+        if issues:
+            self.logger.warning(f"Found {len(issues)} adjacency inconsistencies:")
+            for issue in issues[:10]:  # Limit to first 10
+                self.logger.warning(f"  {issue}")
+            if len(issues) > 10:
+                self.logger.warning(f"  ... and {len(issues) - 10} more")
+        
+        # Check that all provinces have at least one adjacency (except possibly impassable)
+        for prov_name, province in self.provinces.items():
+            if len(province.adjacent) == 0:
+                self.logger.warning(f"Province {prov_name} has no adjacencies")
+    
 
     @staticmethod
     def _resolve_svg_path(map_name: str = 'standard') -> str:
@@ -1995,36 +2000,15 @@ class Map:
                     Map._draw_convoy_order(draw, convoyed_army_province, target, 
                                          convoy_chain, convoy_color, status, coords)
                 elif order_type == "retreat":
-                    # For retreat orders, find the dislodged unit's actual position
+                    # For retreat orders, ALWAYS use the dislodged unit's offset position
+                    # Retreat orders are only for dislodged units, so they should always be offset
                     dislodged_unit_position = None
-                    if units:
-                        # Look for dislodged unit in the power's units
-                        # The order unit is like "A VEN", but the dislodged unit is "A DISLODGED_VEN"
-                        power_units = units.get(power, [])
-                        for unit_str in power_units:
-                            # Check if this is the dislodged unit we're looking for
-                            # unit_str format: "A DISLODGED_VEN" or "F DISLODGED_BEL"
-                            # order unit format: "A VEN"
-                            if "DISLODGED_" in unit_str:
-                                # Extract province from dislodged unit
-                                parts = unit_str.split()
-                                if len(parts) >= 2:
-                                    dislodged_province = parts[1].replace("DISLODGED_", "")
-                                    # Check if this matches the order's unit province
-                                    if dislodged_province == unit_province:
-                                        # Found dislodged unit - get its offset position
-                                        if unit_province in coords:
-                                            base_x, base_y = coords[unit_province]
-                                            unit_specs = _viz_config.get_unit_specs()
-                                            dislodged_offset = unit_specs.get("dislodged_offset", [20, 20])
-                                            dislodged_unit_position = (base_x + dislodged_offset[0], base_y + dislodged_offset[1])
-                                            logger.debug(f"Found dislodged unit {unit_str} at offset position {dislodged_unit_position}")
-                                            break
-                    
-                    if dislodged_unit_position is None and unit_province in coords:
-                        # Fallback: use province center if dislodged unit not found
-                        logger.warning(f"Retreat order for {unit} but dislodged unit not found in {power} units: {power_units if units else 'no units dict'}")
-                        dislodged_unit_position = None  # Will use province center
+                    if unit_province in coords:
+                        base_x, base_y = coords[unit_province]
+                        unit_specs = _viz_config.get_unit_specs()
+                        dislodged_offset = unit_specs.get("dislodged_offset", [20, 20])
+                        # Always calculate offset position for retreat orders (dislodged units are always offset)
+                        dislodged_unit_position = (base_x + dislodged_offset[0], base_y + dislodged_offset[1])
                     
                     Map._draw_retreat_order(draw, unit_province, target, color, status, coords, dislodged_unit_position)
                 elif order_type == "build":
@@ -2385,16 +2369,20 @@ class Map:
         Draw retreat order per spec section 3.4.6.
         
         Dotted arrow, red if invalid retreat. Uses unified arrow function.
-        If dislodged_unit_position is provided, uses that instead of province center.
+        Retreat orders ALWAYS start from dislodged unit position (offset from province center).
         """
         if to_province not in coords:
             return
         
-        # Use dislodged unit's offset position if available, otherwise use province center
+        # Retreat orders are always for dislodged units, so always use offset position
         if dislodged_unit_position:
             from_coord = dislodged_unit_position
         elif from_province in coords:
-            from_coord = coords[from_province]
+            # Fallback: calculate offset position if not provided
+            base_x, base_y = coords[from_province]
+            unit_specs = _viz_config.get_unit_specs()
+            dislodged_offset = unit_specs.get("dislodged_offset", [20, 20])
+            from_coord = (base_x + dislodged_offset[0], base_y + dislodged_offset[1])
         else:
             return  # Can't draw without starting position
             
