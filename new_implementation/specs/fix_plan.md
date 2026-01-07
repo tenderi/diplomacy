@@ -79,6 +79,25 @@ The standard-v2 map is fully implemented as a selectable alternative to the stan
 
 ## Recent Implementation History
 
+### ✅ Completed: Demo Perfect Game Mechanics Enhancement (v2.4.2)
+**Completed**: 2025-01-29
+
+Enhanced `demo_perfect_game.py` to demonstrate all game engine mechanics:
+- **Standoff**: Spring 1901 - Russia F SEV vs Turkey F ANK at BLA (1v1 bounce)
+- **2-1 Battle**: Fall 1901 - Austria A TYR with F TRI support takes VEN from Italy
+- **Support (move)**: Fall 1901 - F TRI S A TYR - VEN
+- **Support Cut**: Fall 1901 - Germany A SIL - GAL cuts Russia's support
+- **Beleaguered Garrison**: Fall 1901 - Austria A RUM survives attacks from Russia and Turkey
+- **Dislodgement**: Fall 1901 - Italy A VEN dislodged by Austria
+- **Retreat**: Fall 1901 - Retreat phase demonstration
+- **Build**: Fall 1901 - France, Austria, Russia build new units
+- **Destroy**: Fall 1901 - Italy must disband (more units than supply centers)
+- **Convoy**: Spring 1902 - England convoys A CLY to BEL via F NTH
+- **Mutual Move Prevention**: Fall 1902 - Austria A RUM and Russia A UKR swap attempt (both bounce)
+- **Self-Dislodgement Prohibition**: Fall 1902 - Germany cannot dislodge own A KIE
+
+30 maps generated covering all phases with enhanced scenario descriptions.
+
 ### ✅ Completed: Telegram Bot Event Loop Handling (v2.4.1)
 **Completed**: 2025-01-29
 
