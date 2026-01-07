@@ -4,6 +4,7 @@ Telegram Diplomacy Bot - Main entry point
 This module provides the main entry point for the Telegram bot.
 All command handlers are organized in the telegram_bot package.
 """
+import asyncio
 import logging
 import os
 import threading
@@ -540,6 +541,49 @@ def main():
                 logger.error(f"Failed to start notification server: {e}")
                 raise
 
+    def run_bot():
+        """Run the telegram bot with proper error handling."""
+        # Ensure we have a fresh event loop before starting
+        # This prevents issues when restarting the service where a closed loop might exist
+        # run_polling() will create its own loop, but it fails if a closed loop is already set
+        try:
+            # Check if there's a running loop (shouldn't be in this context)
+            asyncio.get_running_loop()
+            logger.warning("Event loop is already running, this shouldn't happen")
+        except RuntimeError:
+            # No running loop, which is expected. Check if there's a closed loop set
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    logger.info("Found closed event loop, replacing with a fresh one")
+                    asyncio.set_event_loop(asyncio.new_event_loop())
+            except RuntimeError:
+                # No event loop is set, which is fine - run_polling() will create one
+                pass
+        
+        try:
+            # Use close_loop=False to prevent event loop closure issues during shutdown
+            app.run_polling(close_loop=False)
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                logger.warning("Event loop was closed during shutdown, attempting to recover")
+                # Try to create a fresh loop and retry once
+                try:
+                    logger.info("Creating a fresh event loop and retrying")
+                    asyncio.set_event_loop(asyncio.new_event_loop())
+                    app.run_polling(close_loop=False)
+                except Exception as retry_e:
+                    logger.error(f"Failed to recover after event loop closure: {retry_e}")
+                    return
+            else:
+                logger.error(f"RuntimeError during bot execution: {e}")
+                raise
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by keyboard interrupt")
+        except Exception as e:
+            logger.error(f"Unexpected error during bot execution: {e}")
+            raise
+
     if bot_only:
         # BOT_ONLY mode: Run telegram bot + notification API (main API runs separately)
         print("Starting in BOT_ONLY mode")
@@ -551,7 +595,7 @@ def main():
         time.sleep(2)
 
         # Start telegram bot polling - this will block
-        app.run_polling()
+        run_bot()
     else:
         # When BOT_ONLY=false, main API is running separately
         # Only start notification server if explicitly requested
@@ -570,7 +614,7 @@ def main():
 
         # Start telegram bot polling in main thread - this will block
         print("Starting Telegram bot polling...")
-        app.run_polling()
+        run_bot()
 
 
 if __name__ == "__main__":
