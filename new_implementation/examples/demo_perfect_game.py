@@ -443,32 +443,84 @@ class PerfectDemoGame:
                 if "CLY" in england_armies:
                     army_province = "CLY"
                 
-                # Find a fleet that can convoy (prefer NTH, ENG, then any fleet in northern waters)
-                fleet_province = None
+                # Find fleets that can convoy from CLY
+                # CLY borders: EDI, LVP, NAO, NWG (NOT IRI - corrected from standard.map)
+                # For CLY -> BEL convoy, we need a valid convoy chain:
+                #   - CLY borders: EDI, LVP, NAO, NWG
+                #   - NAO borders: CLY, IRI, LVP, MAO, NWG
+                #   - MAO borders: BRE, ENG, GAS, IRI, NAO, POR, SPA/NC, SPA/SC, WES
+                #   - ENG borders: BEL, BRE, IRI, LON, MAO, NTH, PIC, WAL
+                # Valid chain: CLY -> NAO -> MAO -> ENG -> BEL
+                # Or: CLY -> NAO -> IRI -> ENG -> BEL
+                
+                # Fleets that border CLY (can start the convoy)
+                cly_bordering_fleets = ["NAO", "NWG"]  # Sea spaces that border CLY (NOT IRI)
+                cly_bordering_coastal = ["EDI", "LVP"]  # Coastal provinces that border CLY
+                
+                # Find available fleets that can border CLY
+                fleet_near_cly = None  # Fleet in NAO, NWG, EDI, or LVP
+                fleet_mao = None
+                fleet_eng = None
+                
                 for fleet in england_fleets:
-                    if fleet in ["NTH", "ENG"]:
-                        fleet_province = fleet
-                        break
-                if not fleet_province:
-                    # Try other northern fleets
+                    if fleet in cly_bordering_fleets:
+                        fleet_near_cly = fleet
+                    elif fleet in cly_bordering_coastal:
+                        # Fleet in EDI or LVP can also work if we have another fleet
+                        if not fleet_near_cly:
+                            fleet_near_cly = fleet
+                    elif fleet == "MAO":
+                        fleet_mao = fleet
+                    elif fleet == "ENG":
+                        fleet_eng = fleet
+                
+                # Build convoy chain: prefer NAO -> MAO -> ENG for CLY -> BEL
+                convoying_fleets = []
+                if fleet_near_cly == "NAO":
+                    # NAO can connect to MAO or IRI, then to ENG
+                    convoying_fleets.append("NAO")
+                    if fleet_mao:
+                        convoying_fleets.append("MAO")
+                    elif "IRI" in england_fleets:
+                        convoying_fleets.append("IRI")
+                    if fleet_eng:
+                        convoying_fleets.append("ENG")
+                elif fleet_near_cly:
+                    # Other fleet near CLY (NWG, EDI, or LVP)
+                    convoying_fleets.append(fleet_near_cly)
+                    # Try to find connecting fleets
+                    if "NAO" in england_fleets:
+                        convoying_fleets.append("NAO")
+                    if fleet_mao:
+                        convoying_fleets.append("MAO")
+                    elif "IRI" in england_fleets:
+                        convoying_fleets.append("IRI")
+                    if fleet_eng:
+                        convoying_fleets.append("ENG")
+                elif fleet_eng and len(england_fleets) >= 2:
+                    # No fleet near CLY, but we have ENG - try to find a connecting fleet
+                    convoying_fleets = [fleet_eng]
                     for fleet in england_fleets:
-                        if fleet in ["YOR", "LON", "EDI", "CLY"]:
-                            fleet_province = fleet
+                        if fleet != "ENG" and fleet in ["NAO", "MAO", "IRI"]:
+                            convoying_fleets.insert(0, fleet)  # Put connecting fleet first
                             break
-                if not fleet_province and england_fleets:
-                    # Use any available fleet
-                    fleet_province = england_fleets[0]
+                else:
+                    # Fallback: use available fleets (may not be valid, but will be caught by validation)
+                    convoying_fleets = england_fleets[:2] if len(england_fleets) >= 2 else england_fleets
+                
+                # For single-fleet convoy compatibility, also set fleet_province
+                fleet_province = convoying_fleets[0] if convoying_fleets else None
                 
                 # Adjust convoy orders if army or fleet positions differ
-                if army_province and fleet_province:
+                if army_province and convoying_fleets:
                     adjusted_orders = list(scenario.orders.get("ENGLAND", []))
                     new_orders = []
                     
                     # Build convoy order list first to check for convoying fleets
                     convoy_orders = [o for o in adjusted_orders if "C" in o]
                     
-                    # Determine which fleet is actually convoying - use actual fleet position, not convoy order text
-                    convoying_fleet = fleet_province  # The actual fleet that will convoy
+                    # Determine which fleets are actually convoying
+                    convoying_fleet = convoying_fleets[0]  # For single-fleet compatibility
                     
                     for order in adjusted_orders:
                         original_order = order
@@ -508,10 +560,10 @@ class PerfectDemoGame:
                         
                         # Handle convoy move order (army moving)
                         if f"A {army_province}" in order and "C" not in order and "-" in order:
-                            # This is the convoyed move - keep it as is
+                            # This is the convoyed move - keep it as is (don't skip)
                             new_orders.append(order)
                         elif "C A" in order:
-                            # This is the convoy order - will be added separately, skip here
+                            # This is the convoy order - will be added separately, skip here to avoid duplication
                             continue
                         else:
                             new_orders.append(order)
@@ -520,33 +572,164 @@ class PerfectDemoGame:
                             print(f"    🔄 Adjusted order: {original_order} -> {order}")
                     
                     # Add convoy orders separately (but don't duplicate the army move order)
+                    # Build convoy orders from actual fleet positions
+                    convoy_orders_added = set()
+                    for convoying_fleet_prov in convoying_fleets:
+                        convoy_order = f"F {convoying_fleet_prov} C A {army_province} - BEL"
+                        if convoy_order not in convoy_orders_added:
+                            new_orders.append(convoy_order)
+                            convoy_orders_added.add(convoy_order)
+                    
+                    # Also handle any existing convoy orders in the scenario (for adjustment)
                     for order in convoy_orders:
                         original_order = order
+                        # Adjust fleet references in existing convoy orders
+                        if "F NAO" in order:
+                            if "NAO" in convoying_fleets:
+                                order = order.replace("F NAO", f"F NAO")
+                            elif convoying_fleets:
+                                order = order.replace("F NAO", f"F {convoying_fleets[0]}")
+                        if "F MAO" in order:
+                            if "MAO" in convoying_fleets:
+                                order = order.replace("F MAO", f"F MAO")
+                            elif convoying_fleets:
+                                order = order.replace("F MAO", f"F {convoying_fleets[0]}")
                         if "F NTH" in order:
-                            order = order.replace("F NTH", f"F {fleet_province}")
+                            if "NTH" in convoying_fleets:
+                                order = order.replace("F NTH", f"F NTH")
+                            elif convoying_fleets:
+                                order = order.replace("F NTH", f"F {convoying_fleets[0]}")
                         if "F ENG" in order:
-                            order = order.replace("F ENG", f"F {fleet_province}")
+                            if fleet_eng:
+                                order = order.replace("F ENG", f"F {fleet_eng}")
+                            elif convoying_fleets:
+                                order = order.replace("F ENG", f"F {convoying_fleets[0]}")
                         if f"A {army_province}" not in order:
                             if "A CLY" in order:
                                 order = order.replace("A CLY", f"A {army_province}")
                             if "A LVP" in order:
                                 order = order.replace("A LVP", f"A {army_province}")
-                        # Only add convoy order if it's not already in new_orders
-                        # Also check that we're not duplicating the army move order
-                        army_move_order = f"A {army_province} - BEL"
-                        if order not in new_orders and order != army_move_order:
-                            new_orders.append(order)
-                            if order != original_order:
-                                print(f"    🔄 Adjusted order: {original_order} -> {order}")
+                        # Only add if not already added
+                        if order not in new_orders and order not in convoy_orders_added:
+                            army_move_order = f"A {army_province} - BEL"
+                            if order != army_move_order:
+                                new_orders.append(order)
+                                convoy_orders_added.add(order)
+                                if order != original_order:
+                                    print(f"    🔄 Adjusted order: {original_order} -> {order}")
                     
                     if new_orders != adjusted_orders:
                         scenario.orders["ENGLAND"] = new_orders
-                        print(f"  🔄 Adjusted England orders: army in {army_province}, fleet in {fleet_province}")
+                        print(f"  🔄 Adjusted England Spring 1902 convoy: army in {army_province}, fleets {', '.join(convoying_fleets)}")
                 else:
                     print(f"  ⚠️ Warning: Cannot adjust England convoy orders - missing units")
                     print(f"    Armies: {england_armies}, Fleets: {england_fleets}")
         
-        # Adjust Fall 1902 orders - handle self-dislodgement scenario dynamically (AFTER all other adjustments)
+        # Adjust Fall 1902 orders for England convoy (multi-fleet convoy: F NTH and F ENG)
+        if scenario.year == 1902 and scenario.season == "Autumn" and scenario.phase == "Movement":
+            england_units = units.get("ENGLAND", [])
+            
+            # Build a map of all England units
+            england_armies = []
+            england_fleets = []
+            for unit_str in england_units:
+                parts = unit_str.split()
+                if len(parts) >= 2:
+                    unit_type = parts[0]
+                    province = parts[1].replace("DISLODGED_", "")
+                    if unit_type == "A":
+                        england_armies.append(province)
+                    elif unit_type == "F":
+                        england_fleets.append(province)
+            
+            # Adjust convoy orders if we have the necessary units
+            if "ENGLAND" in scenario.orders and england_armies and len(england_fleets) >= 2:
+                # Find army for convoy (prefer EDI, then any army)
+                army_province = england_armies[0]
+                if "EDI" in england_armies:
+                    army_province = "EDI"
+                elif "CLY" in england_armies:
+                    army_province = "CLY"
+                
+                # Find fleets for convoy (need F NTH and F ENG, or adjust to available fleets)
+                fleet_nth = None
+                fleet_eng = None
+                for fleet in england_fleets:
+                    if fleet == "NTH":
+                        fleet_nth = fleet
+                    elif fleet == "ENG":
+                        fleet_eng = fleet
+                
+                # If we don't have exact fleets, use first two available
+                if not fleet_nth and england_fleets:
+                    fleet_nth = england_fleets[0]
+                if not fleet_eng and len(england_fleets) > 1:
+                    fleet_eng = england_fleets[1]
+                elif not fleet_eng and len(england_fleets) > 0:
+                    fleet_eng = england_fleets[0]  # Use same fleet if only one available
+                
+                if army_province and fleet_nth and fleet_eng:
+                    adjusted_orders = list(scenario.orders.get("ENGLAND", []))
+                    new_orders = []
+                    
+                    # Find the army move order and convoy orders
+                    army_move_order = None
+                    convoy_orders_found = []
+                    processed_orders = set()
+                    
+                    # First, find the army move order
+                    for order in adjusted_orders:
+                        if "A EDI" in order and "-" in order and "C" not in order and "BRE" in order:
+                            army_move_order = order
+                            processed_orders.add(order)
+                            break
+                    
+                    # Find all convoy orders
+                    for order in adjusted_orders:
+                        if "C A" in order and ("EDI" in order or "BRE" in order):
+                            convoy_orders_found.append(order)
+                            processed_orders.add(order)
+                    
+                    # Add the adjusted army move order
+                    if army_move_order:
+                        # Replace EDI with actual army province, but keep BRE as target
+                        adjusted_army_move = army_move_order.replace("A EDI", f"A {army_province}")
+                        new_orders.append(adjusted_army_move)
+                    elif convoy_orders_found:
+                        # If no explicit army move order, create one from the convoy orders
+                        # Extract target from first convoy order
+                        first_convoy = convoy_orders_found[0]
+                        if "BRE" in first_convoy:
+                            new_orders.append(f"A {army_province} - BRE")
+                    
+                    # Adjust and add convoy orders
+                    for order in convoy_orders_found:
+                        adjusted_convoy = order
+                        # Adjust fleet references
+                        if "F NTH" in adjusted_convoy:
+                            adjusted_convoy = adjusted_convoy.replace("F NTH", f"F {fleet_nth}")
+                        if "F ENG" in adjusted_convoy:
+                            adjusted_convoy = adjusted_convoy.replace("F ENG", f"F {fleet_eng}")
+                        # Adjust army reference in convoy order
+                        if "A EDI" in adjusted_convoy:
+                            adjusted_convoy = adjusted_convoy.replace("A EDI", f"A {army_province}")
+                        new_orders.append(adjusted_convoy)
+                    
+                    # Add any other orders (holds, etc.) that weren't processed
+                    # But skip hold orders for the convoyed army (it's moving, not holding)
+                    for order in adjusted_orders:
+                        if order not in processed_orders:
+                            # Skip hold orders for the army that's being convoyed
+                            if order.endswith(" H") and f"A {army_province} H" in order:
+                                continue  # Skip hold order for convoyed army
+                            new_orders.append(order)
+                    
+                    scenario.orders["ENGLAND"] = new_orders
+                    if new_orders != adjusted_orders:
+                        print(f"  🔄 Adjusted England Autumn 1902 convoy: army in {army_province}, fleets {fleet_nth} and {fleet_eng}")
+                        print(f"     Orders: {new_orders}")
+        
+        # Adjust Fall 1902 orders - handle self-dislodgement scenario dynamically (AFTER convoy adjustment)
         if scenario.year == 1902 and scenario.season == "Autumn" and scenario.phase == "Movement":
             # Fix Germany self-dislodgement scenario - check if A BER exists, if not use available unit
             if "GERMANY" in scenario.orders:
@@ -643,7 +826,7 @@ class PerfectDemoGame:
             orders={
                 # 2-1 BATTLE: Austria attacks VEN with support (strength 2) vs Italy hold alone (strength 1)
                 "AUSTRIA": ["A TYR - VEN", "A RUM H", "F TRI S A TYR - VEN"],
-                "ENGLAND": ["F ENG H", "F NTH H", "A CLY H"],
+                "ENGLAND": ["F ENG - MAO", "F NTH H", "A CLY H"],  # Move F ENG to MAO for Spring 1902 convoy chain
                 "FRANCE": ["A BUR - BEL", "A PIE H", "F MAO H"],
                 # SUPPORT CUT: Germany A SIL - GAL cuts Russia's support for A UKR - RUM
                 "GERMANY": ["A SIL - GAL", "A KIE H", "F HOL H"],
@@ -717,14 +900,16 @@ class PerfectDemoGame:
         # Note: After Fall 1901, England's army is in CLY (not LVP), and fleet positions may vary
         # Based on Fall 1901 outcomes: France takes BEL, England's F ENG is dislodged from BEL
         # England should have F NTH and A CLY after retreat phase
-        # This scenario demonstrates CONVOY: England convoys A CLY to BEL using F NTH
+        # This scenario demonstrates CONVOY: England convoys A CLY to BEL
+        # CLY borders: EDI, LVP, NAO, NWG (NOT IRI)
+        # Valid convoy chain: CLY -> NAO -> MAO -> ENG -> BEL
         # Orders will be dynamically adjusted based on actual unit positions
         self.scenarios.append(ScenarioData(
             year=1902,
             season="Spring",
             phase="Movement",
             orders={
-                "ENGLAND": ["A CLY - BEL", "F NTH C A CLY - BEL", "F ENG H"],  # Convoy: A CLY via F NTH to BEL
+                "ENGLAND": ["A CLY - BEL", "F NAO C A CLY - BEL", "F MAO C A CLY - BEL", "F ENG C A CLY - BEL"],  # Convoy: A CLY via F NAO, F MAO, and F ENG to BEL
                 "FRANCE": ["A BEL H", "A PIE H", "F MAO H", "A MAR H"],  # Simplified - will be adjusted
                 "GERMANY": ["A BER H", "A SIL H", "F KIE H"],  # Simplified - will be adjusted (no A KIE or A BEL)
                 "AUSTRIA": ["A VEN H", "A RUM H", "F TRI H", "A BUD H"],  # Simplified - will be adjusted (no A TYR)
@@ -732,7 +917,7 @@ class PerfectDemoGame:
                 "RUSSIA": ["A UKR H", "A GAL H", "F SEV H", "F BOT H", "A MOS H"],  # Simplified - will be adjusted
                 "TURKEY": ["A BUL H", "A ARM H", "F ANK H"]  # Simplified - will be adjusted
             },
-            description="Demonstrates convoy orders: A CLY is convoyed to BEL by F NTH."
+            description="Demonstrates convoy orders: A CLY is convoyed to BEL by F NAO, F MAO, and F ENG (multi-fleet convoy)."
         ))
         
         # Spring 1902 Retreat (if dislodgements occur)
@@ -750,7 +935,7 @@ class PerfectDemoGame:
         ))
         
         # Fall 1902 Movement
-        # DEMONSTRATES: MUTUAL MOVE PREVENTION (swap fails), SELF-DISLODGEMENT PROHIBITION
+        # DEMONSTRATES: CONVOY (multi-fleet), MUTUAL MOVE PREVENTION (swap fails), SELF-DISLODGEMENT PROHIBITION
         # Note: Orders will be dynamically adjusted based on actual unit positions
         # After Fall 1901 + Spring 1902: 
         #   Germany has A KIE, A SIL, F HOL
@@ -761,7 +946,8 @@ class PerfectDemoGame:
             season="Autumn",
             phase="Movement",
             orders={
-                "ENGLAND": ["A CLY H", "F NTH H", "F ENG H"],  # Hold positions
+                # CONVOY: England convoys A EDI to BRE using F NTH and F ENG (multi-fleet convoy)
+                "ENGLAND": ["A EDI - BRE", "F NTH C A EDI - BRE", "F ENG C A EDI - BRE"],
                 "FRANCE": ["A BEL H", "A PIE H", "F MAO H", "A MAR H"],  # Hold positions
                 # SELF-DISLODGEMENT PROHIBITION: Germany tries to dislodge own unit
                 # A BER attacks KIE with F HOL support, but A KIE is German - move fails
@@ -775,9 +961,9 @@ class PerfectDemoGame:
                 "RUSSIA": ["A UKR - RUM", "A GAL H", "F SEV H", "F BOT H", "A MOS H"],
                 "TURKEY": ["A BUL H", "A ARM H", "F ANK H"]  # Hold positions
             },
-            description="MUTUAL MOVE PREVENTION: Austria A RUM and Russia A UKR try to swap positions - both bounce (units cannot exchange positions directly). SELF-DISLODGEMENT PROHIBITION: Germany A SIL cannot dislodge own A KIE even with F HOL support.",
+            description="CONVOY: England convoys A EDI to BRE using F NTH and F ENG (multi-fleet convoy). MUTUAL MOVE PREVENTION: Austria A RUM and Russia A UKR try to swap positions - both bounce. SELF-DISLODGEMENT PROHIBITION: Germany A BER cannot dislodge own A KIE even with F HOL support.",
             expected_outcomes={
-                "mechanics_shown": ["MUTUAL_MOVE_PREVENTION", "SELF_DISLODGEMENT_PROHIBITION"],
+                "mechanics_shown": ["CONVOY", "MUTUAL_MOVE_PREVENTION", "SELF_DISLODGEMENT_PROHIBITION"],
                 "swap_fails": ["AUSTRIA A RUM - UKR", "RUSSIA A UKR - RUM"],  # Both bounce (can't swap directly)
                 "self_dislodge_fails": "GERMANY A BER - KIE"  # Cannot dislodge own A KIE
             }
@@ -907,6 +1093,16 @@ class PerfectDemoGame:
             scenario = self.scenarios[scenario_index]
             # Adjust scenario orders based on actual game state if needed
             scenario = self.adjust_scenario_for_state(scenario)
+            
+            # Check if we should stop: if it's Spring 1902 or later and Movement phase has no orders after adjustment
+            # This means there's no more meaningful gameplay to demonstrate
+            if scenario.phase == "Movement" and scenario.year >= 1902 and scenario.season == "Spring":
+                has_any_orders = any(orders for orders in scenario.orders.values())
+                if not has_any_orders:
+                    print(f"\n⏹️ No movement orders for {scenario.season} {scenario.year} Movement phase - stopping demo game")
+                    print("✅ Demo game completed!")
+                    return
+            
             print(f"\n📅 {scenario.season} {scenario.year} - {scenario.phase}")
             print("-" * 50)
             print(f"📖 {scenario.description}")
@@ -986,11 +1182,12 @@ class PerfectDemoGame:
                     scenario_index += 1
                     continue
             
-            # Skip retreat phases if no dislodgements occurred (only for scenarios explicitly marked as Retreat)
-            # No maps generated for skipped scenarios
-            if scenario.skip_if_no_dislodgements and scenario.phase == "Retreat":
+            # Generate retreat orders for all Retreat phases
+            if scenario.phase == "Retreat":
+                # Check if there are dislodgements
                 has_dislodgements = self.check_for_dislodgements(game_state)
-                if not has_dislodgements:
+                
+                if scenario.skip_if_no_dislodgements and not has_dislodgements:
                     print(f"  ⏭️ Skipping {scenario.phase} phase - no dislodgements occurred (no maps generated)")
                     # Still process the phase to advance game state
                     if not self.process_phase():
@@ -1001,6 +1198,10 @@ class PerfectDemoGame:
                 else:
                     # Generate retreat orders dynamically based on actual dislodged units
                     scenario.orders = self.generate_retreat_orders_for_dislodged(game_state)
+                    if scenario.orders:
+                        print(f"  📋 Generated retreat orders: {scenario.orders}")
+                    else:
+                        print(f"  ⚠️ No retreat orders generated (no dislodged units found)")
             
             # At this point, we know the scenario will be processed - generate maps
             # Generate filename with chronological ordering (year_season_phase_state)
@@ -1019,6 +1220,15 @@ class PerfectDemoGame:
             # Submit hardcoded orders
             # Skip empty orders (like retreat phases with no dislodged units or build phases with no builds)
             has_any_orders = any(orders for orders in scenario.orders.values())
+            
+            # Check if we should stop: if it's Spring 1902 or later and Movement phase has no orders after adjustment
+            # This means there's no more meaningful gameplay to demonstrate
+            if scenario.phase == "Movement" and scenario.year >= 1902 and scenario.season == "Spring":
+                if not has_any_orders:
+                    print(f"  ⏹️ No movement orders for {scenario.season} {scenario.year} Movement phase - stopping demo game")
+                    print("  ✅ Demo game completed!")
+                    return
+            
             if has_any_orders:
                 orders_submitted = self.submit_orders(scenario.orders)
                 if not orders_submitted:
@@ -1193,12 +1403,25 @@ class PerfectDemoGame:
                             retreat_options = self._get_common_retreat_options(original_province)
                         
                         # Check if any retreat option is free (not occupied)
-                        # This is simplified - in reality we'd check game_state for occupied provinces
-                        if retreat_options:
-                            # Use first available retreat option
+                        # Get all occupied provinces from game state
+                        occupied_provinces = set()
+                        for power_units_list in units.values():
+                            for unit_str in power_units_list:
+                                parts = unit_str.split()
+                                if len(parts) >= 2:
+                                    province = parts[1].replace("DISLODGED_", "")
+                                    occupied_provinces.add(province)
+                        
+                        # Find first available retreat option (not occupied)
+                        retreat_province = None
+                        for option in retreat_options:
+                            if option not in occupied_provinces:
+                                retreat_province = option
+                                break
+                        
+                        if retreat_province:
                             # Use original province name (without DISLODGED_ prefix) for retreat order
                             # The _find_unit method will handle matching dislodged units
-                            retreat_province = retreat_options[0]
                             power_retreat_orders.append(f"{unit_type} {original_province} R {retreat_province}")
                         else:
                             # No valid retreat - unit must be destroyed
@@ -1455,8 +1678,17 @@ class PerfectDemoGame:
             traceback.print_exc()
             # Don't re-raise - allow demo to continue even if map generation fails
     
-    def _convert_order_to_visualization_format(self, order_text: str, power_name: str) -> Optional[Dict[str, Any]]:
-        """Convert order text string to visualization dictionary format."""
+    def _convert_order_to_visualization_format(self, order_text: str, power_name: str, convoy_info: Dict[str, List[str]] = None) -> Optional[Dict[str, Any]]:
+        """Convert order text string to visualization dictionary format.
+        
+        Args:
+            order_text: Order text (e.g., "A EDI - BRE" or "F NTH C A EDI - BRE")
+            power_name: Power name
+            convoy_info: Dictionary mapping army move orders to list of convoying fleet provinces
+        """
+        if convoy_info is None:
+            convoy_info = {}
+        
         try:
             parts = order_text.split()
             if len(parts) < 2:
@@ -1505,8 +1737,20 @@ class PerfectDemoGame:
             
             # Handle movement orders (A PAR - BUR)
             if len(parts) >= 4 and parts[2] == "-":
-                # Check for convoy notation
-                if len(parts) > 4 and parts[4].upper() == "VIA" and parts[5].upper() == "CONVOY":
+                army_move_key = f"{parts[0]} {parts[1]} - {parts[3]}"
+                # Check if this move is convoyed
+                convoy_chain = convoy_info.get(army_move_key, [])
+                if convoy_chain:
+                    return {
+                        "type": "move",
+                        "unit": f"{parts[0]} {parts[1]}",
+                        "target": parts[3],
+                        "via": "convoy",
+                        "convoy_chain": convoy_chain,
+                        "status": "pending"
+                    }
+                # Check for convoy notation in order text
+                elif len(parts) > 4 and parts[4].upper() == "VIA" and parts[5].upper() == "CONVOY":
                     return {
                         "type": "move",
                         "unit": f"{parts[0]} {parts[1]}",
@@ -1542,11 +1786,24 @@ class PerfectDemoGame:
             
             # Handle convoy orders (F ENG C A PAR - BUR)
             if len(parts) >= 6 and parts[2].upper() == "C":
+                fleet_province = parts[1]
+                army_type = parts[3]
+                army_province = parts[4]
+                target = parts[6] if len(parts) > 6 else parts[5] if len(parts) > 5 else None
+                
+                # Build convoy chain from convoy_info
+                convoy_key = f"{army_type} {army_province} - {target}"
+                convoy_chain = convoy_info.get(convoy_key, [])
+                if not convoy_chain:
+                    # Fallback: just use this fleet
+                    convoy_chain = [fleet_province]
+                
                 return {
                     "type": "convoy",
                     "unit": f"{parts[0]} {parts[1]}",
-                    "target": parts[-1] if len(parts) > 3 else None,
-                    "via": [],  # Would need to parse convoy chain
+                    "convoyed_army_province": army_province,
+                    "target": target,
+                    "convoy_chain": convoy_chain,
                     "status": "pending"
                 }
             
@@ -1560,11 +1817,30 @@ class PerfectDemoGame:
         """Generate PNG map showing submitted orders."""
         try:
             # Convert orders to visualization format
+            # First pass: collect convoy orders to build convoy chains
+            convoy_info = {}  # power -> {army_move: [fleet_provinces]}
+            for power_name, power_orders in orders.items():
+                convoy_info[power_name] = {}
+                for order_text in power_orders:
+                    parts = order_text.split()
+                    # Check if this is a convoy order: "F NTH C A EDI - BRE"
+                    if len(parts) >= 6 and parts[2].upper() == "C":
+                        fleet_province = parts[1]
+                        army_type = parts[3]
+                        army_province = parts[4]
+                        target = parts[6] if len(parts) > 6 else parts[5] if len(parts) > 5 else None
+                        if target:
+                            convoy_key = f"{army_type} {army_province} - {target}"
+                            if convoy_key not in convoy_info[power_name]:
+                                convoy_info[power_name][convoy_key] = []
+                            convoy_info[power_name][convoy_key].append(fleet_province)
+            
+            # Second pass: convert orders to visualization format
             viz_orders = {}
             for power_name, power_orders in orders.items():
                 viz_orders[power_name] = []
                 for order_text in power_orders:
-                    viz_order = self._convert_order_to_visualization_format(order_text, power_name)
+                    viz_order = self._convert_order_to_visualization_format(order_text, power_name, convoy_info.get(power_name, {}))
                     if viz_order:
                         viz_orders[power_name].append(viz_order)
             
