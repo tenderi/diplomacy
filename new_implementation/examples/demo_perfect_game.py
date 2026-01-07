@@ -462,6 +462,7 @@ class PerfectDemoGame:
     def load_scenarios(self) -> None:
         """Load all hardcoded scenario data."""
         # Spring 1901 Movement
+        # DEMONSTRATES: Move orders, Hold orders, STANDOFF (RUS F SEV vs TUR F ANK at BLA)
         self.scenarios.append(ScenarioData(
             year=1901,
             season="Spring",
@@ -475,28 +476,45 @@ class PerfectDemoGame:
                 "RUSSIA": ["A MOS - UKR", "A WAR - GAL", "F SEV - BLA", "F STP - BOT"],
                 "TURKEY": ["A CON - BUL", "A SMY - ARM", "F ANK - BLA"]
             },
-            description="Initial positioning phase. All powers expand into adjacent territories."
+            description="Initial positioning. STANDOFF: Russia F SEV and Turkey F ANK both target BLA - neither moves (1v1 standoff).",
+            expected_outcomes={
+                "standoff_at_bla": True,  # Both F SEV and F ANK bounce
+                "mechanics_shown": ["MOVE", "HOLD", "STANDOFF"]
+            }
         ))
         
         # Fall 1901 Movement
+        # DEMONSTRATES: 2-1 BATTLE, SUPPORT (move), SUPPORT CUT, DISLODGEMENT, BELEAGUERED GARRISON
         # Note: Orders adjusted based on actual unit positions after Spring 1901
-        # After Spring 1901: GERMANY has A BER, A SIL, F KIE (not A HOL)
-        # After Spring 1901: Russia moved F SEV - BLA, Turkey moved F ANK - BLA
-        # If there was a conflict, only one has F BLA. Need dynamic adjustment.
+        # After Spring 1901: GERMANY has A KIE, A SIL, F HOL (units moved from starting positions)
+        # Spring 1901 standoff: Russia F SEV and Turkey F ANK both bounced at BLA
         self.scenarios.append(ScenarioData(
             year=1901,
             season="Autumn",
             phase="Movement",
             orders={
+                # 2-1 BATTLE: Austria attacks VEN with support (strength 2) vs Italy hold alone (strength 1)
                 "AUSTRIA": ["A TYR - VEN", "A RUM H", "F TRI S A TYR - VEN"],
-                "ENGLAND": ["F ENG H", "F NTH H", "A CLY H"],  # Can't move F ENG to BEL (not adjacent)
-                "FRANCE": ["A BUR - BEL", "A PIE H", "F MAO H"],  # F MAO cannot support BEL (not adjacent), so just hold
-                "GERMANY": ["A SIL - GAL", "A BER H", "F KIE S A SIL - GAL"],  # Germany doesn't have A HOL, use A BER
-                "ITALY": ["A VEN H", "A TUS S A VEN", "F ION - ADR"],  # Support hold: remove H, use A TUS instead of A APU
-                "RUSSIA": ["A UKR - RUM", "A GAL S A UKR - RUM", "F SEV H", "F BOT H"],  # Check if F SEV is in BLA or SEV
-                "TURKEY": ["A BUL - RUM", "A ARM - SEV", "F ANK H"]  # Check if F ANK is in BLA or ANK
+                "ENGLAND": ["F ENG H", "F NTH H", "A CLY H"],
+                "FRANCE": ["A BUR - BEL", "A PIE H", "F MAO H"],
+                # SUPPORT CUT: Germany A SIL - GAL cuts Russia's support for A UKR - RUM
+                "GERMANY": ["A SIL - GAL", "A KIE H", "F HOL H"],
+                # Italy: A VEN holds ALONE (no support) - will be dislodged by 2-1 attack
+                # A TUS moves to ROM (to leave VEN unsupported), F ION moves to ADR
+                "ITALY": ["A VEN H", "A TUS - ROM", "F ION - ADR"],
+                # BELEAGUERED GARRISON at RUM: Russia and Turkey both attack RUM, Austria holds
+                # Russia A UKR - RUM (strength 1, support cut by Germany A SIL - GAL)
+                # Turkey A BUL - RUM (strength 1)
+                # Austria A RUM H (survives - attackers stand each other off)
+                "RUSSIA": ["A UKR - RUM", "A GAL S A UKR - RUM", "F SEV H", "F BOT H"],
+                "TURKEY": ["A BUL - RUM", "A ARM - SEV", "F ANK H"]
             },
-            description="Demonstrates 2-1 battles, support cuts, and creates dislodgements for retreat phase."
+            description="2-1 BATTLE: Austria takes VEN (strength 2 vs 1). SUPPORT CUT: Germany cuts Russia's support. BELEAGUERED GARRISON: Austria A RUM survives attacks from Russia and Turkey (both bounce).",
+            expected_outcomes={
+                "mechanics_shown": ["2-1_BATTLE", "SUPPORT_MOVE", "SUPPORT_CUT", "DISLODGEMENT", "BELEAGUERED_GARRISON"],
+                "dislodged": ["ITALY A VEN"],  # Italy's A VEN is dislodged by Austria
+                "beleaguered_garrison": "AUSTRIA A RUM"  # Austria A RUM survives 2 attacks
+            }
         ))
         
         # Fall 1901 Retreat
@@ -517,26 +535,33 @@ class PerfectDemoGame:
         ))
         
         # Fall 1901 Builds
+        # DEMONSTRATES: BUILD orders, DESTROY orders
+        # Italy lost VEN to Austria, so Italy has 3 units but only 2 supply centers - must DESTROY
         self.scenarios.append(ScenarioData(
             year=1901,
             season="Autumn",
             phase="Builds",
             orders={
-                "FRANCE": ["BUILD A MAR"],
-                "AUSTRIA": ["BUILD A BUD"],
-                "RUSSIA": ["BUILD A MOS"],
+                # BUILD: Powers that gained supply centers build new units
+                "FRANCE": ["BUILD A MAR"],  # France gained BEL, can build
+                "AUSTRIA": ["BUILD A BUD"],  # Austria gained VEN, can build
+                "RUSSIA": ["BUILD A MOS"],  # Russia gained... let's say they expanded
+                # DESTROY: Italy lost VEN, has 3 units but only 2 SCs (ROM, NAP)
+                # Italy must destroy one unit - choosing A APU (retreated from VEN)
+                "ITALY": ["DESTROY A APU"],
                 "ENGLAND": [],
                 "GERMANY": [],
-                "ITALY": [],
                 "TURKEY": []
             },
-            description="Build phase after Fall turn. Powers that gained supply centers build new units.",
+            description="BUILD phase: France, Austria, Russia build new units. DESTROY: Italy lost VEN, must disband one unit (A APU).",
             expected_outcomes={
+                "mechanics_shown": ["BUILD", "DESTROY"],
                 "supply_centers": {
                     "BEL": "FRANCE",  # France gained Belgium
                     "VEN": "AUSTRIA",  # Austria gained Venice
-                    "RUM": "AUSTRIA"   # Austria held Romania (3-way battle: AUSTRIA hold vs RUSSIA move with support vs TURKEY move)
-                }
+                    "RUM": "AUSTRIA"   # Austria held Romania (beleaguered garrison)
+                },
+                "italy_destroys": "A APU"  # Italy must disband
             }
         ))
         
@@ -577,21 +602,36 @@ class PerfectDemoGame:
         ))
         
         # Fall 1902 Movement
+        # DEMONSTRATES: MUTUAL MOVE PREVENTION (swap fails), SELF-DISLODGEMENT PROHIBITION
         # Note: Orders will be dynamically adjusted based on actual unit positions
+        # After Fall 1901 + Spring 1902: 
+        #   Germany has A KIE, A SIL, F HOL
+        #   Austria has A VEN, A RUM, F TRI, A BUD
+        #   Russia has A UKR, A GAL, F SEV, F BOT, A MOS
         self.scenarios.append(ScenarioData(
             year=1902,
             season="Autumn",
             phase="Movement",
             orders={
-                "ENGLAND": ["A BEL H", "F NTH H", "F ENG H"],  # Will be adjusted based on actual positions
-                "FRANCE": ["A BUR H", "A TYS H", "F MAO H", "A MAR H"],  # Will be adjusted
-                "GERMANY": ["A BER H", "A SIL H", "F KIE H"],  # Will be adjusted
-                "AUSTRIA": ["A VEN H", "A RUM H", "F ADR H", "A BUD H"],  # Will be adjusted
-                "ITALY": ["A TUS H", "F ADR H"],  # Will be adjusted - may have dislodged units
-                "RUSSIA": ["A UKR H", "A GAL H", "F SEV H", "F BOT H", "A MOS H"],  # Will be adjusted
-                "TURKEY": ["A BUL H", "A ARM H", "F ANK H"]  # Will be adjusted
+                "ENGLAND": ["A CLY H", "F NTH H", "F ENG H"],  # Hold positions
+                "FRANCE": ["A BEL H", "A PIE H", "F MAO H", "A MAR H"],  # Hold positions
+                # SELF-DISLODGEMENT PROHIBITION: Germany tries to dislodge own unit
+                # A SIL attacks KIE with F HOL support, but A KIE is German - move fails
+                "GERMANY": ["A SIL - KIE", "F HOL S A SIL - KIE", "A KIE H"],
+                # MUTUAL MOVE PREVENTION (SWAP): Austria A RUM and Russia A UKR try to swap
+                # Two units from different powers try to exchange positions - both bounce
+                "AUSTRIA": ["A VEN H", "A RUM - UKR", "F TRI H", "A BUD H"],
+                "ITALY": ["A ROM H", "F ADR H"],  # Hold positions
+                # Russia tries to swap with Austria at UKR/RUM
+                "RUSSIA": ["A UKR - RUM", "A GAL H", "F SEV H", "F BOT H", "A MOS H"],
+                "TURKEY": ["A BUL H", "A ARM H", "F ANK H"]  # Hold positions
             },
-            description="Demonstrates complex conflicts, support combinations, and final positioning."
+            description="MUTUAL MOVE PREVENTION: Austria A RUM and Russia A UKR try to swap positions - both bounce (units cannot exchange positions directly). SELF-DISLODGEMENT PROHIBITION: Germany A SIL cannot dislodge own A KIE even with F HOL support.",
+            expected_outcomes={
+                "mechanics_shown": ["MUTUAL_MOVE_PREVENTION", "SELF_DISLODGEMENT_PROHIBITION"],
+                "swap_fails": ["AUSTRIA A RUM - UKR", "RUSSIA A UKR - RUM"],  # Both bounce (can't swap directly)
+                "self_dislodge_fails": "GERMANY A SIL - KIE"  # Cannot dislodge own A KIE
+            }
         ))
         
         # Fall 1902 Retreat (if dislodgements occur)
