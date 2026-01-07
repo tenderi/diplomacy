@@ -440,8 +440,16 @@ class OrderParser:
     def _find_unit(self, unit_type: str, province: str, power_state: PowerState) -> Unit:
         """Find unit in power's units"""
         for unit in power_state.units:
-            if unit.unit_type == unit_type and unit.province == province:
-                return unit
+            if unit.unit_type == unit_type:
+                # Check exact match first
+                if unit.province == province:
+                    return unit
+                # Check if unit is dislodged and province matches (e.g., "DISLODGED_VEN" matches "VEN")
+                if unit.province.startswith("DISLODGED_") and unit.province.replace("DISLODGED_", "") == province:
+                    return unit
+                # Also check reverse: if looking for "DISLODGED_VEN" and unit has "VEN" (shouldn't happen but be safe)
+                if province.startswith("DISLODGED_") and unit.province == province.replace("DISLODGED_", ""):
+                    return unit
         
         raise OrderValidationError(f"Unit {unit_type} {province} not found for power {power_state.power_name}")
     

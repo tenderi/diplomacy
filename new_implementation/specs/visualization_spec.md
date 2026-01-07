@@ -154,35 +154,35 @@ This section provides comprehensive visual specifications for all markers used i
 
 #### Standard Unit Marker (Army/Fleet)
 **Shape**: Circle
-**Size**: 20-25 pixels diameter
+**Size**: 22 pixels diameter
 **Fill Color**: Power color (see section 3.1 for power colors)
 **Border**: 
-  - Width: 2-3 pixels
+  - Width: 4 pixels
   - Color: Black (`#000000`)
   - Style: Solid
 **Label**:
   - Text: "A" for Army, "F" for Fleet
   - Font: Sans-serif, bold
-  - Font size: 10-12 points
+  - Font size: 11 points
   - Color: White or black (contrasting with power color)
   - Position: Centered within circle
 **Position**: Province center coordinates (from SVG path data)
 
 #### Dislodged Unit Marker
 **Shape**: Circle (same as standard unit)
-**Size**: 20-25 pixels diameter
+**Size**: 22 pixels diameter
 **Fill Color**: Power color (same as standard unit)
 **Border**:
-  - Width: 3-4 pixels
+  - Width: 5 pixels
   - Color: Red (`#FF0000` or `#DC143C`)
   - Style: Solid, thicker than standard
 **Label**: Same as standard unit ("A" or "F")
 **Dislodged Indicator**:
   - Shape: Small circle or square
-  - Size: 8-10 pixels
+  - Size: 9 pixels
   - Color: Red (`#FF0000`)
-  - Label: "D" (white text, 8-10 point font)
-  - Position: Top-right corner of unit circle (offset by 5-7 pixels)
+  - Label: "D" (white text, 9 point font)
+  - Position: Top-right corner of unit circle (offset by 6 pixels)
 **Position**: Offset from province center by (+20, +20) pixels
 **Visibility**: Only shown during Resolution and Retreat phases
 
@@ -191,48 +191,49 @@ This section provides comprehensive visual specifications for all markers used i
 #### Movement Arrow
 **Shape**: Straight line with arrowhead
 **Line**:
-  - Width: 3-4 pixels
+  - Width: 6 pixels (primary line width)
   - Color: Power color of moving unit
   - Style: Solid
   - Start: Origin province center
   - End: Destination province center
 **Arrowhead**:
   - Shape: Triangular arrowhead
-  - Size: 12-15 pixels (base width)
+  - Size: 18 pixels height, 22 pixels base width
   - Color: Same as line (power color)
   - Position: At destination province center
   - Fill: Solid (same color as line)
 **Status Indicators** (on Resolution maps):
   - **Success**: Green checkmark (✓) at arrow tip
-    - Size: 12-15 pixels
+    - Size: 16 pixels
     - Color: Green (`#00FF00` or `#32CD32`)
     - Position: Overlapping arrowhead
+    - Line width: 4 pixels
   - **Failure**: Red X (✗) at arrow tip
-    - Size: 12-15 pixels
+    - Size: 16 pixels
     - Color: Red (`#FF0000`)
     - Position: Overlapping arrowhead
-    - Line width: 2-3 pixels
+    - Line width: 4 pixels
   - **Bounce**: Curved arrow showing return path
     - Style: Dashed or dotted
     - Color: Orange or yellow (`#FFA500` or `#FFD700`)
-    - Width: 2-3 pixels
+    - Width: 4 pixels (secondary line width)
     - Path: Destination → Origin (curved)
 
 ### 3.4.3 Hold Order Markers
 
 #### Hold Indicator
 **Shape**: Circle or dashed border around unit
-**Size**: 30-35 pixels diameter (larger than unit circle)
+**Size**: 32 pixels diameter (larger than unit circle)
 **Border**:
-  - Width: 2-3 pixels
+  - Width: 4 pixels
   - Color: Power color of holding unit
   - Style: Dashed or dotted
-  - Dash pattern: 4-5 pixels dash, 2-3 pixels gap
+  - Dash pattern: 8 pixels dash, 4 pixels gap
 **Position**: Centered on unit (unit circle inside hold indicator)
 **Label** (optional):
   - Text: "H"
   - Font: Sans-serif, regular
-  - Font size: 8-10 points
+  - Font size: 9 points
   - Color: Power color
   - Position: Below or to the side of unit marker
 
@@ -241,35 +242,35 @@ This section provides comprehensive visual specifications for all markers used i
 #### Defensive Support (Hold Support)
 **Support Line**:
   - Shape: Straight dashed line
-  - Width: 2-3 pixels
+  - Width: 4 pixels (secondary line width)
   - Color: Light green (`#90EE90`)
   - Style: Dashed
-  - Dash pattern: 3-4 pixels dash, 2-3 pixels gap
+  - Dash pattern: 8 pixels dash, 4 pixels gap
   - Start: Supporting unit center
   - End: Defended unit center
 **Defended Unit Circle**:
   - Shape: Circle around defended unit
-  - Size: 30-35 pixels diameter
+  - Size: 32 pixels diameter
   - Border:
-    - Width: 3-4 pixels
+    - Width: 5 pixels
     - Color: Supporting unit's power color (not light green)
     - Style: Solid
   - Position: Centered on defended unit
 **Support Cut Indicator** (if support is cut):
   - Shape: Red X (✗) across support line
-  - Size: 15-18 pixels
+  - Size: 16 pixels
   - Color: Red (`#FF0000`)
-  - Line width: 3-4 pixels
+  - Line width: 4 pixels
   - Position: Center of support line
 
 #### Offensive Support (Move Support)
 **Support Arrow**:
   - Shape: Dashed arrow path with two segments
   - Path: Supporting unit → Supported unit's province → Attack target
-  - Width: 2-3 pixels
+  - Width: 4 pixels (secondary line width)
   - Color: Light pink (`#FFB6C1`) or sky blue (`#87CEEB`)
   - Style: Dashed
-  - Dash pattern: 3-4 pixels dash, 2-3 pixels gap
+  - Dash pattern: 8 pixels dash, 4 pixels gap
   - Arrowhead: At attack target (same style as movement arrow)
 **Support Cut Indicator** (if support is cut):
   - Same as defensive support: Red X across support line
@@ -285,19 +286,19 @@ This section provides comprehensive visual specifications for all markers used i
   - End: Destination province center
   - Style: Curved (bezier curve) to show flow
 **Line**:
-  - Width: 2-3 pixels
+  - Width: 4 pixels (secondary line width)
   - Color: Gold (`#FFD700`) or dark orange (`#FF8C00`)
   - Style: Solid (distinct from support dashed lines)
 **Arrowhead**:
   - Shape: Triangular arrowhead
-  - Size: 12-15 pixels
+  - Size: 18 pixels height, 22 pixels base width
   - Color: Same as line (gold/orange)
   - Position: At destination province center
 **Convoying Fleet Markers**:
   - Shape: Circle around convoying fleet
-  - Size: 28-32 pixels diameter
+  - Size: 30 pixels diameter
   - Border:
-    - Width: 2-3 pixels
+    - Width: 4 pixels
     - Color: Gold (`#FFD700`) or dark orange (`#FF8C00`)
     - Style: Solid or dashed
   - Position: Centered on convoying fleet unit
@@ -449,12 +450,58 @@ Markers are drawn in the following order (bottom to top) to ensure clarity:
 10. **Conflict markers** (battles, standoffs)
 11. **Status indicators** (checkmarks, X marks)
 12. **Phase information overlay** (text in corner)
+13. **Legend** (bottom-left corner)
 
 This layering ensures that:
 - Movement arrows (primary actions) remain clearly visible
 - Support and convoy indicators provide context without obscuring primary actions
 - Unit markers are always visible
 - Status indicators appear on top for immediate feedback
+- Legend provides context without obscuring map content
+
+### 3.4.12 Map Legend
+
+Each generated map includes a context-aware legend that explains the symbols and colors used on that specific map type.
+
+#### Legend Configuration
+**Position**: Bottom-left corner (configurable)
+**Background**: Semi-transparent white (`rgba(255, 255, 255, 200)`)
+**Border**:
+  - Width: 2 pixels
+  - Color: Black (`#000000`)
+**Padding**: 15 pixels internal padding
+**Item Spacing**: 8 pixels between legend items
+
+#### Legend Content by Map Type
+
+**Orders Maps** (Movement Phase):
+- Move arrow (solid line with arrowhead)
+- Hold indicator (dashed circle)
+- Support line (dashed green line)
+- Convoy route (solid gold line)
+- Power color indicators for active powers
+
+**Resolution Maps**:
+- Success indicator (green checkmark)
+- Failed indicator (red X)
+- Bounced indicator (orange X)
+- Dislodged unit marker (red-bordered circle)
+- Support cut indicator (line with X through it)
+- Power color indicators for active powers
+
+**Build/Adjustment Maps**:
+- Build marker (green circle with plus)
+- Destroy marker (red circle with X)
+- Power color indicators for active powers
+
+**Initial/Final State Maps**:
+- Power color indicators only (for identifying unit ownership)
+
+#### Legend Symbol Specifications
+**Symbol Size**: 20 pixels
+**Title Font**: 14 points, bold
+**Item Font**: 11 points, regular
+**Symbol-to-Text Gap**: 10 pixels
 
 ---
 
@@ -468,21 +515,22 @@ This layering ensures that:
 1. **Single Source of Truth**: All visual parameters (sizes, colors, styles) should be defined in one configuration file
 2. **Common Variables**: Use shared variables for common elements:
    - **Arrow Specifications**: All arrows (movement, retreat, support, convoy) should use the same base shape and size, differing only in color and line style (solid/dashed/dotted)
-   - **Arrowhead Size**: Single variable for all arrowheads (12-15 pixels)
-   - **Line Widths**: Common variables for different line types (e.g., `line_width_primary`, `line_width_secondary`)
+   - **Arrowhead Size**: Single variable for all arrowheads (18 pixels height, 22 pixels base width)
+   - **Line Widths**: Common variables for different line types (`line_width_primary`: 6px, `line_width_secondary`: 4px)
    - **Unit Marker Size**: Single variable for all unit markers (standard and dislodged)
    - **Circle Sizes**: Common variables for different circle types (hold indicators, support circles, convoy markers)
 3. **Color Palette**: Define all colors in a central palette with semantic names (e.g., `color_success`, `color_failure`, `color_convoy`, `power_colors`)
 4. **Style Patterns**: Define dash/dot patterns as reusable templates
+5. **Legend Configuration**: Enable/disable legend, customize position, colors, and sizes
 
-**Configuration File Structure** (example):
+**Configuration File Structure** (current values):
 ```json
 {
   "arrows": {
-    "arrowhead_size": 12,
-    "arrowhead_base_width": 15,
-    "line_width_primary": 3,
-    "line_width_secondary": 2,
+    "arrowhead_size": 18,
+    "arrowhead_base_width": 22,
+    "line_width_primary": 6,
+    "line_width_secondary": 4,
     "shape": "triangular"
   },
   "colors": {
@@ -499,14 +547,26 @@ This layering ensures that:
   },
   "units": {
     "diameter": 22,
-    "border_width": 2,
-    "dislodged_border_width": 3,
+    "border_width": 4,
+    "dislodged_border_width": 5,
     "dislodged_offset": [20, 20]
   },
   "line_styles": {
     "solid": {},
-    "dashed": {"dash": 4, "gap": 2},
-    "dotted": {"dot": 2, "gap": 2}
+    "dashed": {"dash": 8, "gap": 4},
+    "dotted": {"dot": 4, "gap": 4}
+  },
+  "legend": {
+    "enabled": true,
+    "position": "bottom-left",
+    "padding": 15,
+    "item_spacing": 8,
+    "background_color": [255, 255, 255, 200],
+    "border_color": [0, 0, 0, 255],
+    "border_width": 2,
+    "title_font_size": 14,
+    "item_font_size": 11,
+    "symbol_size": 20
   }
 }
 ```

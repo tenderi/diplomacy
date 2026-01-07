@@ -8,8 +8,9 @@ Map representation for Diplomacy.
 from typing import Dict, List, Set, Optional, Tuple, Any
 import os
 import json
+import math
 import xml.etree.ElementTree as ET
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageChops
 import cairosvg  # type: ignore
 from io import BytesIO
 import hashlib
@@ -580,6 +581,11 @@ class Map:
             current_phase: Current game phase (for future use)
             color_only_supply_centers: If True, only color supply center provinces
             supply_centers_set: Set of supply center province names (required if color_only_supply_centers is True)
+        
+        Note:
+            This function processes SVG paths with IDs starting with '_' (preferred) and without '_' (fallback).
+            Known limitation: MAO, NAO, NWG, and TYS do not have path elements in the SVG file and cannot be colored.
+            These provinces will be logged as warnings but will not cause errors.
         """
         try:
             # Use cached SVG data instead of parsing again
@@ -599,11 +605,26 @@ class Map:
                 all_paths = root.findall('.//path[@id]')
             
             # Find SVG paths for provinces (these are the actual province shapes)
+            # Some provinces have paths with underscore prefix (_province), some without (province)
+            # We prioritize underscore paths but also include non-underscore paths as fallback
             province_paths = []
+            province_paths_by_id = {}  # Map normalized ID to path element (to avoid duplicates)
+            
             for path in all_paths:
                 province_id = path.get('id')
-                if province_id and province_id.startswith('_'):
-                    province_paths.append(path)
+                if province_id:
+                    normalized_id = province_id.lstrip('_').upper()
+                    # Prioritize paths with underscore prefix, but also track non-underscore paths
+                    if province_id.startswith('_'):
+                        # Path with underscore - preferred
+                        if normalized_id not in province_paths_by_id:
+                            province_paths_by_id[normalized_id] = path
+                            province_paths.append(path)
+                    else:
+                        # Path without underscore - use as fallback if no underscore version exists
+                        if normalized_id not in province_paths_by_id:
+                            province_paths_by_id[normalized_id] = path
+                            province_paths.append(path)
             
             # Create a map of province names to power colors
             province_power_map = {}
@@ -638,6 +659,9 @@ class Map:
                 province_power_map = {prov: color for prov, color in province_power_map.items() 
                                     if prov in supply_centers_set}
             
+            # Track which provinces from province_power_map were found in SVG
+            colored_provinces = set()
+            
             # Color each province based on power control using SVG paths
             for path_elem in province_paths:
                 province_id = path_elem.get('id')
@@ -646,6 +670,8 @@ class Map:
                     normalized_id = province_id.lstrip('_').upper()
                     
                     if normalized_id in province_power_map:
+                        colored_provinces.add(normalized_id)
+                        
                         # If color_only_supply_centers is enabled, skip non-supply-center provinces
                         if color_only_supply_centers:
                             if supply_centers_set and normalized_id not in supply_centers_set:
@@ -657,21 +683,42 @@ class Map:
                         # Convert color to RGB for proper transparency
                         rgb_color = Map._hex_to_rgb(power_color)
                         
-                        # Determine opacity based on province type
-                        base_opacity = 90  # 90/255 ≈ 0.35 (35% opacity)
-                        if normalized_id in Map.WATER_PROVINCES:
-                            # Decrease opacity by 40% for water provinces (40% of base opacity)
-                            opacity = max(0, int(base_opacity * 0.60))  # 60% of base opacity = 40% reduction
-                        else:
-                            opacity = base_opacity
-                        
-                        transparent_color = (*rgb_color, opacity)
-                        
-                        # Parse and fill the SVG path with correct coordinate alignment
+                        # Parse the SVG path to extract polygon points
                         path_data = path_elem.get('d')
                         if path_data:
-                            # Apply correct transform to align SVG paths with jdipNS coordinates
-                            Map._fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 169)
+                            # Extract polygon points from path data
+                            polygon_points = Map._extract_polygon_points_from_path(path_data, 195, 170)
+                            
+                            if normalized_id in Map.WATER_PROVINCES:
+                                # Use hatched pattern for ocean provinces
+                                # Pattern color: power color at 50% opacity for visibility
+                                pattern_opacity = 120  # 120/255 ≈ 47% opacity
+                                pattern_color = (*rgb_color, pattern_opacity)
+                                
+                                # Draw ocean pattern
+                                if polygon_points and len(polygon_points) >= 3:
+                                    Map._draw_ocean_pattern(overlay, polygon_points, pattern_color, spacing=10, angle=45, line_width=1)
+                            else:
+                                # Use solid fill for land provinces
+                                base_opacity = 90  # 90/255 ≈ 0.35 (35% opacity)
+                                transparent_color = (*rgb_color, base_opacity)
+                                
+                                # Apply correct transform to align SVG paths with jdipNS coordinates
+                                Map._fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 170)
+            
+            # Log warning for provinces in province_power_map but not found in SVG paths
+            missing_provinces = set(province_power_map.keys()) - colored_provinces
+            if missing_provinces:
+                # Known missing provinces: MAO, NAO, NWG, TYS (these don't have path elements in the SVG file)
+                known_missing = {"MAO", "NAO", "NWG", "TYS"}
+                unknown_missing = missing_provinces - known_missing
+                
+                if unknown_missing:
+                    logger.warning(f"Provinces in province_power_map but missing SVG paths (unexpected): {sorted(unknown_missing)}")
+                
+                if missing_provinces & known_missing:
+                    logger.debug(f"Provinces missing SVG paths (known limitation): {sorted(missing_provinces & known_missing)}. "
+                               f"These provinces (MAO, NAO, NWG, TYS) exist in the game but have no path elements in the SVG file.")
             
             # Composite the overlay onto the background image using proper alpha compositing
             bg_image.paste(overlay, (0, 0), overlay)
@@ -752,9 +799,8 @@ class Map:
                         path_data = path_elem.get('d')
                         if path_data:
                             # Apply correct transform to align SVG paths with jdipNS coordinates
-                            # Based on investigation: average offset is (-251.2, -174.2)
-                            # Fine-tuned: X offset 195, Y offset 169 (reduced by 5 as it was too far down)
-                            Map._fill_svg_path_with_transform(draw, path_data, solid_color, power_color, 195, 169)
+                            # SVG MapLayer has transform="translate(-195 -170)", so we compensate
+                            Map._fill_svg_path_with_transform(draw, path_data, solid_color, power_color, 195, 170)
                             
                             # Add province name label to the colored area
                             if normalized_id in jdip_coords:
@@ -785,55 +831,202 @@ class Map:
             # Fallback: continue without province coloring
     
     @staticmethod
-    def _fill_svg_path_with_transform(draw, path_data, fill_color, stroke_color, offset_x, offset_y):
-        """Fill an SVG path with coordinate transform to compensate for SVG group transforms."""
+    def _extract_polygon_points_from_path(path_data, offset_x, offset_y):
+        """Extract polygon points from SVG path data with coordinate transform.
+        
+        Handles M (moveto), L (lineto), C (cubic Bezier), and Z (close) commands.
+        Bezier curves are sampled at multiple points for accurate boundary representation.
+        
+        Returns:
+            List of (x, y) tuples, or None if parsing fails
+        """
+        def cubic_bezier_point(p0, p1, p2, p3, t):
+            """Calculate point on cubic Bezier curve at parameter t (0 to 1)."""
+            mt = 1 - t
+            return (
+                mt**3 * p0[0] + 3*mt**2*t * p1[0] + 3*mt*t**2 * p2[0] + t**3 * p3[0],
+                mt**3 * p0[1] + 3*mt**2*t * p1[1] + 3*mt*t**2 * p2[1] + t**3 * p3[1]
+            )
+        
         try:
-            # Parse the path data to extract coordinates
-            commands = []
+            import re
+            points = []
             current_x, current_y = 0, 0
+            start_x, start_y = 0, 0
             
             # Split path data into commands
-            import re
             path_commands = re.findall(r'([MLHVCSQTAZmlhvcsqtaz])\s*([^MLHVCSQTAZmlhvcsqtaz]*)', path_data)
             
             for cmd, params in path_commands:
-                cmd = cmd.upper()
-                if cmd == 'M':  # Move to
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 2:
-                        current_x, current_y = float(coords[0]), float(coords[1])
-                        commands.append(('M', current_x, current_y))
-                elif cmd == 'L':  # Line to
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 2:
-                        current_x, current_y = float(coords[0]), float(coords[1])
-                        commands.append(('L', current_x, current_y))
-                elif cmd == 'C':  # Cubic Bezier curve
-                    coords = re.findall(r'(-?\d+\.?\d*)', params)
-                    if len(coords) >= 6:  # C x1 y1 x2 y2 x y
-                        # For simplicity, we'll use the end point of the curve
-                        current_x, current_y = float(coords[4]), float(coords[5])
-                        commands.append(('L', current_x, current_y))
-                elif cmd == 'Z':  # Close path
-                    commands.append(('Z',))
-            
-            # Apply inverse transform to compensate for SVG group transform
-            if len(commands) > 2:
-                points = []
-                for cmd in commands:
-                    if cmd[0] in ['M', 'L']:
-                        # Apply inverse transform: subtract the offset to compensate for translate(-195 -170)
-                        x = cmd[1] - offset_x
-                        y = cmd[2] - offset_y
-                        points.append((x, y))
+                coords = re.findall(r'(-?\d+\.?\d*)', params)
+                coords = [float(c) for c in coords]
                 
-                if len(points) > 2:
-                    # Draw the filled polygon with transformed coordinates
-                    draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
+                if cmd == 'M':  # Absolute moveto
+                    if len(coords) >= 2:
+                        current_x, current_y = coords[0], coords[1]
+                        start_x, start_y = current_x, current_y
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'm':  # Relative moveto
+                    if len(coords) >= 2:
+                        current_x += coords[0]
+                        current_y += coords[1]
+                        start_x, start_y = current_x, current_y
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'L':  # Absolute lineto
+                    if len(coords) >= 2:
+                        current_x, current_y = coords[0], coords[1]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'l':  # Relative lineto
+                    if len(coords) >= 2:
+                        current_x += coords[0]
+                        current_y += coords[1]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'H':  # Absolute horizontal lineto
+                    if len(coords) >= 1:
+                        current_x = coords[0]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'h':  # Relative horizontal lineto
+                    if len(coords) >= 1:
+                        current_x += coords[0]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'V':  # Absolute vertical lineto
+                    if len(coords) >= 1:
+                        current_y = coords[0]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'v':  # Relative vertical lineto
+                    if len(coords) >= 1:
+                        current_y += coords[0]
+                        points.append((current_x - offset_x, current_y - offset_y))
+                elif cmd == 'C':  # Absolute cubic Bezier
+                    # Process all sets of 6 coordinates (multiple curves can be chained)
+                    for i in range(0, len(coords) - 5, 6):
+                        p0 = (current_x, current_y)
+                        p1 = (coords[i], coords[i+1])
+                        p2 = (coords[i+2], coords[i+3])
+                        p3 = (coords[i+4], coords[i+5])
+                        # Sample 8 points along the curve for smooth approximation
+                        for t in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]:
+                            bx, by = cubic_bezier_point(p0, p1, p2, p3, t)
+                            points.append((bx - offset_x, by - offset_y))
+                        current_x, current_y = p3[0], p3[1]
+                elif cmd == 'c':  # Relative cubic Bezier
+                    for i in range(0, len(coords) - 5, 6):
+                        p0 = (current_x, current_y)
+                        p1 = (current_x + coords[i], current_y + coords[i+1])
+                        p2 = (current_x + coords[i+2], current_y + coords[i+3])
+                        p3 = (current_x + coords[i+4], current_y + coords[i+5])
+                        for t in [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]:
+                            bx, by = cubic_bezier_point(p0, p1, p2, p3, t)
+                            points.append((bx - offset_x, by - offset_y))
+                        current_x, current_y = p3[0], p3[1]
+                elif cmd in ['Z', 'z']:  # Close path
+                    if start_x != current_x or start_y != current_y:
+                        points.append((start_x - offset_x, start_y - offset_y))
+            
+            if len(points) > 2:
+                return points
+            return None
+                    
+        except Exception as e:
+            logger.warning(f"Could not extract polygon points from path: {e}")
+            return None
+
+    @staticmethod
+    def _fill_svg_path_with_transform(draw, path_data, fill_color, stroke_color, offset_x, offset_y):
+        """Fill an SVG path with coordinate transform to compensate for SVG group transforms."""
+        try:
+            # Extract polygon points
+            points = Map._extract_polygon_points_from_path(path_data, offset_x, offset_y)
+            
+            if points and len(points) > 2:
+                # Draw the filled polygon with transformed coordinates
+                draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
                     
         except Exception as e:
             logger.warning(f"Could not fill SVG path with transform: {e}")
             # Fallback: continue without path filling
+
+    @staticmethod
+    def _draw_ocean_pattern(overlay_image, polygon_points, pattern_color, spacing=10, angle=45, line_width=1):
+        """Draw hatched/striped pattern for ocean provinces, clipped to polygon shape.
+        
+        Args:
+            overlay_image: PIL Image object (RGBA mode) to draw on
+            polygon_points: List of (x, y) tuples defining the polygon
+            pattern_color: RGBA color tuple for the pattern lines
+            spacing: Distance between pattern lines in pixels
+            angle: Angle of pattern lines in degrees (45 = diagonal)
+            line_width: Width of pattern lines in pixels
+        """
+        if len(polygon_points) < 3:
+            return  # Need at least 3 points for a polygon
+        
+        try:
+            # Calculate bounding box of the polygon
+            x_coords = [p[0] for p in polygon_points]
+            y_coords = [p[1] for p in polygon_points]
+            min_x, max_x = min(x_coords), max(x_coords)
+            min_y, max_y = min(y_coords), max(y_coords)
+            
+            # Create a mask from the polygon for clipping
+            mask = Image.new('L', overlay_image.size, 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.polygon(polygon_points, fill=255)
+            
+            # Create a temporary image for the pattern (fully transparent)
+            pattern_img = Image.new('RGBA', overlay_image.size, (0, 0, 0, 0))
+            pattern_draw = ImageDraw.Draw(pattern_img)
+            
+            # Convert angle to radians
+            angle_rad = math.radians(angle)
+            cos_a = math.cos(angle_rad)
+            sin_a = math.sin(angle_rad)
+            
+            # Calculate the diagonal length of the bounding box
+            width = max_x - min_x
+            height = max_y - min_y
+            diagonal = math.sqrt(width * width + height * height)
+            
+            # Calculate number of lines needed
+            num_lines = int(diagonal / spacing) + 2
+            
+            # Draw diagonal lines across the bounding box
+            center_x = (min_x + max_x) / 2
+            center_y = (min_y + max_y) / 2
+            
+            for i in range(-num_lines, num_lines + 1):
+                # Calculate line offset
+                offset = i * spacing
+                
+                # Calculate line endpoints
+                # For 45-degree diagonal, we move perpendicular to the line direction
+                perp_x = -sin_a * offset
+                perp_y = cos_a * offset
+                
+                # Line extends from one corner to the opposite corner
+                # We extend it well beyond the bounding box
+                line_length = diagonal * 1.5
+                start_x = center_x + perp_x - cos_a * line_length / 2
+                start_y = center_y + perp_y - sin_a * line_length / 2
+                end_x = center_x + perp_x + cos_a * line_length / 2
+                end_y = center_y + perp_y + sin_a * line_length / 2
+                
+                # Draw line on pattern image (lines have their own alpha from pattern_color)
+                pattern_draw.line([(start_x, start_y), (end_x, end_y)], fill=pattern_color, width=line_width)
+            
+            # Apply mask to pattern image alpha channel to clip to polygon
+            # This ensures only the polygon area shows the pattern, and transparent areas stay transparent
+            pattern_alpha = pattern_img.split()[3]  # Get alpha channel
+            # Multiply pattern alpha by mask: areas outside polygon become 0, areas inside keep pattern alpha
+            masked_alpha = ImageChops.multiply(pattern_alpha, mask.convert('L'))
+            pattern_img.putalpha(masked_alpha)
+            
+            # Composite pattern onto overlay - transparent areas remain transparent
+            overlay_image.paste(pattern_img, (0, 0), pattern_img)
+                
+        except Exception as e:
+            logger.warning(f"Could not draw ocean pattern: {e}")
+            # Fallback: continue without pattern
 
     @staticmethod
     def _fill_svg_path_direct(draw, path_data, fill_color, stroke_color):
@@ -1108,14 +1301,35 @@ class Map:
                 unit_diameter = unit_specs["diameter"]
                 r = unit_diameter // 2  # Radius from diameter
                 
+                # Convert color to RGB tuple
+                rgb_color = Map._convert_color_to_rgb(color)
+                if isinstance(rgb_color, str):
+                    from PIL import ImageColor
+                    try:
+                        rgb_color = ImageColor.getrgb(rgb_color)
+                    except ValueError:
+                        rgb_color = (128, 128, 128)  # Fallback to gray
+                
+                outline_color = (0, 0, 0)  # Black outline
+                failure_color = Map._convert_color_to_rgb(_viz_config.get_color("failure"))
+                if isinstance(failure_color, str):
+                    from PIL import ImageColor
+                    try:
+                        failure_color = ImageColor.getrgb(failure_color)
+                    except ValueError:
+                        failure_color = (255, 0, 0)  # Fallback to red
+                
                 if is_dislodged:
                     # Dislodged unit: offset position, red border, "D" marker
                     dislodged_offset = unit_specs["dislodged_offset"]
                     x += dislodged_offset[0]
                     y += dislodged_offset[1]
-                    dislodged_border_width = unit_specs["dislodged_border_width"]
-                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, 
-                               outline=_viz_config.get_color("failure"), width=dislodged_border_width)
+                    
+                    # Draw icon with red outline for dislodged units
+                    if unit_type == "A":
+                        Map._draw_army_icon(draw, (x, y), rgb_color, failure_color, unit_diameter, bg)
+                    else:  # F
+                        Map._draw_fleet_icon(draw, (x, y), rgb_color, failure_color, unit_diameter, bg)
                     
                     # Add "D" marker in top-right corner
                     dislodged_indicator_size = unit_specs["dislodged_indicator_size"]
@@ -1126,33 +1340,28 @@ class Map:
                     indicator_r = dislodged_indicator_size // 2
                     draw.ellipse((indicator_x - indicator_r, indicator_y - indicator_r,
                                 indicator_x + indicator_r, indicator_y + indicator_r),
-                               fill=_viz_config.get_color("failure"), 
-                               outline=_viz_config.get_color("failure"))
+                               fill=failure_color, 
+                               outline=failure_color)
                     # Draw "D" text
                     dislodged_font = Map._get_cached_font(dislodged_indicator_size)
                     draw.text((indicator_x - indicator_r//2, indicator_y - indicator_r//2), "D", 
                             fill="white", font=dislodged_font)
                 else:
-                    # Standard unit: black border
-                    border_width = unit_specs["border_width"]
-                    draw.ellipse((x - r, y - r, x + r, y + r), fill=color, 
-                               outline="black", width=border_width)
-                
-                # Draw unit type letter using config font size
-                text = unit_type
-                font_specs = _viz_config.get_font_specs()
-                unit_label_font = Map._get_cached_font(font_specs["unit_label_size"])
-                bbox = draw.textbbox((0, 0), text, font=unit_label_font)
-                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                # Use contrasting color (white or black based on power color brightness)
-                text_color = "white"  # Default to white, could be made smarter
-                draw.text((x - w/2, y - h/2), text, fill=text_color, font=unit_label_font)
+                    # Standard unit: black outline
+                    if unit_type == "A":
+                        Map._draw_army_icon(draw, (x, y), rgb_color, outline_color, unit_diameter, bg)
+                    else:  # F
+                        Map._draw_fleet_icon(draw, (x, y), rgb_color, outline_color, unit_diameter, bg)
         
         # 5. Add phase information to bottom right corner
         if phase_info:
             Map._draw_phase_info(draw, phase_info, bg.size)
         
-        # 6. Save or return PNG
+        # 6. Add legend showing power colors
+        active_powers = list(units.keys())
+        Map._draw_legend(bg, "initial", active_powers)
+        
+        # 7. Save or return PNG
         if isinstance(output_path, str) and output_path:
             try:
                 import os
@@ -1271,7 +1480,11 @@ class Map:
         power_colors = _get_power_colors_dict()
         
         # Draw order visualizations
-        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units)
+        
+        # Add orders legend
+        active_powers = list(units.keys())
+        Map._draw_legend(bg, "orders", active_powers)
         
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
@@ -1380,7 +1593,7 @@ class Map:
         power_colors = _get_power_colors_dict()
         
         # Draw order visualizations with status indicators
-        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors)
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units)
         
         # Draw conflict markers
         conflicts = resolution_data.get("conflicts", [])
@@ -1395,6 +1608,10 @@ class Map:
                 Map._draw_conflict_marker(draw, province, strengths, result, coords)
         
         # Note: Dislodged units are already drawn by render_board_png with offset and D marker
+        
+        # Add resolution legend
+        active_powers = list(units.keys())
+        Map._draw_legend(bg, "resolution", active_powers)
         
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
@@ -1452,6 +1669,10 @@ class Map:
         
         # Draw moves visualization
         Map._draw_moves_visualization(draw, moves, coords, power_colors)
+        
+        # Add orders legend (moves are a type of order)
+        active_powers = list(units.keys())
+        Map._draw_legend(bg, "orders", active_powers)
         
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
@@ -1517,24 +1738,48 @@ class Map:
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
-        # Draw arrow line
-        draw.line([from_x, from_y, to_x, to_y], fill=color, width=3)
+        # Get line width from config
+        arrow_specs = _viz_config.get_arrow_specs()
+        line_width = arrow_specs["line_width_primary"]
+        arrowhead_size = arrow_specs["arrowhead_size"]
+        outline_width = arrow_specs.get("outline_width", 2)
         
-        # Draw arrowhead
         import math
         angle = math.atan2(to_y - from_y, to_x - from_x)
-        arrow_length = 15
+        
+        # Offset target by 4 pixels to prevent collisions
+        collision_offset = 4
+        actual_tip_x = to_x - collision_offset * math.cos(angle)
+        actual_tip_y = to_y - collision_offset * math.sin(angle)
+        
+        arrow_length = arrowhead_size
         arrow_angle = math.pi / 6  # 30 degrees
         
         # Calculate arrowhead points
-        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
-        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
-        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
-        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
+        head_x1 = actual_tip_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = actual_tip_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = actual_tip_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = actual_tip_y - arrow_length * math.sin(angle + arrow_angle)
         
-        # Draw arrowhead
-        draw.line([to_x, to_y, head_x1, head_y1], fill=color, width=3)
-        draw.line([to_x, to_y, head_x2, head_y2], fill=color, width=3)
+        # Calculate arrowhead base center (where line should end)
+        base_center_x = (head_x1 + head_x2) / 2
+        base_center_y = (head_y1 + head_y2) / 2
+        
+        # Calculate outline arrowhead (slightly larger)
+        outline_head_x1 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle - arrow_angle)
+        outline_head_y1 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle - arrow_angle)
+        outline_head_x2 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle + arrow_angle)
+        outline_head_y2 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle + arrow_angle)
+        
+        # Draw black outline first
+        outline_color = (0, 0, 0)
+        total_width = line_width + outline_width * 2
+        draw.line([from_x, from_y, base_center_x, base_center_y], fill=outline_color, width=total_width)
+        draw.polygon([actual_tip_x, actual_tip_y, outline_head_x1, outline_head_y1, outline_head_x2, outline_head_y2], fill=outline_color)
+        
+        # Draw colored arrow on top
+        draw.line([from_x, from_y, base_center_x, base_center_y], fill=color, width=line_width)
+        draw.polygon([actual_tip_x, actual_tip_y, head_x1, head_y1, head_x2, head_y2], fill=color)
 
     @staticmethod
     def _draw_support_arrow(draw, supporter_coord, supported_from_coord, supported_to_coord, color):
@@ -1542,6 +1787,10 @@ class Map:
         supp_x, supp_y = supporter_coord
         from_x, from_y = supported_from_coord
         to_x, to_y = supported_to_coord
+        
+        # Get line width from config
+        arrow_specs = _viz_config.get_arrow_specs()
+        line_width = arrow_specs["line_width_secondary"]
         
         # Draw curved support line
         mid_x = (supp_x + from_x) / 2
@@ -1563,7 +1812,7 @@ class Map:
             x2 = (1-t2)**2 * supp_x + 2*(1-t2)*t2 * control_x + t2**2 * from_x
             y2 = (1-t2)**2 * supp_y + 2*(1-t2)*t2 * control_y + t2**2 * from_y
             
-            draw.line([x1, y1, x2, y2], fill=color, width=2)
+            draw.line([x1, y1, x2, y2], fill=color, width=line_width)
         
         # Draw "S" indicator
         draw.text((mid_x, mid_y), "S", fill=color, font=ImageFont.load_default())
@@ -1574,8 +1823,12 @@ class Map:
         supp_x, supp_y = supporter_coord
         supped_x, supped_y = supported_coord
         
+        # Get line width from config
+        arrow_specs = _viz_config.get_arrow_specs()
+        line_width = arrow_specs["line_width_secondary"]
+        
         # Draw straight support line
-        draw.line([supp_x, supp_y, supped_x, supped_y], fill=color, width=2)
+        draw.line([supp_x, supp_y, supped_x, supped_y], fill=color, width=line_width)
         
         # Draw "S" indicator at midpoint
         mid_x = (supp_x + supped_x) / 2
@@ -1653,7 +1906,7 @@ class Map:
             logger.warning(f"Could not preload starting positions map: {e}")
     
     @staticmethod
-    def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict):
+    def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict, units: dict = None):
         """
         Draw comprehensive order visualization based on orders dictionary format.
         
@@ -1664,6 +1917,7 @@ class Map:
             orders: Dictionary of power -> list of order dictionaries
             coords: Dictionary of province -> (x, y) coordinates
             power_colors: Dictionary of power -> color
+            units: Dictionary of power -> list of units (for finding dislodged unit positions)
         """
         # Separate orders by type for proper layering
         hold_orders = []
@@ -1741,7 +1995,38 @@ class Map:
                     Map._draw_convoy_order(draw, convoyed_army_province, target, 
                                          convoy_chain, convoy_color, status, coords)
                 elif order_type == "retreat":
-                    Map._draw_retreat_order(draw, unit_province, target, color, status, coords)
+                    # For retreat orders, find the dislodged unit's actual position
+                    dislodged_unit_position = None
+                    if units:
+                        # Look for dislodged unit in the power's units
+                        # The order unit is like "A VEN", but the dislodged unit is "A DISLODGED_VEN"
+                        power_units = units.get(power, [])
+                        for unit_str in power_units:
+                            # Check if this is the dislodged unit we're looking for
+                            # unit_str format: "A DISLODGED_VEN" or "F DISLODGED_BEL"
+                            # order unit format: "A VEN"
+                            if "DISLODGED_" in unit_str:
+                                # Extract province from dislodged unit
+                                parts = unit_str.split()
+                                if len(parts) >= 2:
+                                    dislodged_province = parts[1].replace("DISLODGED_", "")
+                                    # Check if this matches the order's unit province
+                                    if dislodged_province == unit_province:
+                                        # Found dislodged unit - get its offset position
+                                        if unit_province in coords:
+                                            base_x, base_y = coords[unit_province]
+                                            unit_specs = _viz_config.get_unit_specs()
+                                            dislodged_offset = unit_specs.get("dislodged_offset", [20, 20])
+                                            dislodged_unit_position = (base_x + dislodged_offset[0], base_y + dislodged_offset[1])
+                                            logger.debug(f"Found dislodged unit {unit_str} at offset position {dislodged_unit_position}")
+                                            break
+                    
+                    if dislodged_unit_position is None and unit_province in coords:
+                        # Fallback: use province center if dislodged unit not found
+                        logger.warning(f"Retreat order for {unit} but dislodged unit not found in {power} units: {power_units if units else 'no units dict'}")
+                        dislodged_unit_position = None  # Will use province center
+                    
+                    Map._draw_retreat_order(draw, unit_province, target, color, status, coords, dislodged_unit_position)
                 elif order_type == "build":
                     Map._draw_build_order(draw, target, color, status, coords)
                 elif order_type == "destroy":
@@ -1881,19 +2166,24 @@ class Map:
         from_coord = coords[from_province]
         to_coord = coords[to_province]
         
+        # Get config values
+        arrow_specs = _viz_config.get_arrow_specs()
+        primary_width = arrow_specs["line_width_primary"]
+        secondary_width = arrow_specs["line_width_secondary"]
+        
         # Choose arrow style based on status
         if status == "success" or status == "pending":
-            Map._draw_arrow(draw, from_coord, to_coord, color, width=3, style="solid")
+            Map._draw_arrow(draw, from_coord, to_coord, color, width=primary_width, style="solid")
             # Add success checkmark at arrow tip
             if status == "success":
                 Map._draw_checkmark(draw, to_coord, "green")
         elif status == "failed":
-            Map._draw_arrow(draw, from_coord, to_coord, "red", width=2, style="dashed")
+            Map._draw_arrow(draw, from_coord, to_coord, "red", width=secondary_width, style="dashed")
             # Add failure X at arrow tip
             Map._draw_status_x(draw, to_coord, "red")
         elif status == "bounced":
             # Draw curved return arrow for bounce
-            Map._draw_bounce_arrow(draw, from_coord, to_coord, "orange", width=2)
+            Map._draw_bounce_arrow(draw, from_coord, to_coord, "orange", width=secondary_width)
             # Add bounce indicator at destination
             Map._draw_status_x(draw, to_coord, "orange")
 
@@ -2090,16 +2380,24 @@ class Map:
                  fill=rgb_white, width=x_line_width)
     
     @staticmethod
-    def _draw_retreat_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict):
+    def _draw_retreat_order(draw, from_province: str, to_province: str, color: str, status: str, coords: dict, dislodged_unit_position: tuple = None):
         """
         Draw retreat order per spec section 3.4.6.
         
         Dotted arrow, red if invalid retreat. Uses unified arrow function.
+        If dislodged_unit_position is provided, uses that instead of province center.
         """
-        if from_province not in coords or to_province not in coords:
+        if to_province not in coords:
             return
+        
+        # Use dislodged unit's offset position if available, otherwise use province center
+        if dislodged_unit_position:
+            from_coord = dislodged_unit_position
+        elif from_province in coords:
+            from_coord = coords[from_province]
+        else:
+            return  # Can't draw without starting position
             
-        from_coord = coords[from_province]
         to_coord = coords[to_province]
         
         # Use dotted line style for retreat, red if invalid
@@ -2180,6 +2478,13 @@ class Map:
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
+        # Get config for outline
+        arrow_specs = _viz_config.get_arrow_specs()
+        outline_width = arrow_specs.get("outline_width", 2)
+        arrowhead_size = arrow_specs["arrowhead_size"]
+        outline_color = (0, 0, 0)  # Black
+        total_width = width + outline_width * 2
+        
         # Calculate midpoint
         mid_x = (from_x + to_x) / 2
         mid_y = (from_y + to_y) / 2
@@ -2202,19 +2507,45 @@ class Map:
             y = (1-t)**2 * from_y + 2*(1-t)*t * control_y + t**2 * to_y
             points.append((x, y))
         
-        # Draw the curve
+        # Offset target by 4 pixels to prevent collisions
+        collision_offset = 4
+        angle_to_dest = math.atan2(to_y - points[-2][1], to_x - points[-2][0])
+        actual_tip_x = to_x - collision_offset * math.cos(angle_to_dest)
+        actual_tip_y = to_y - collision_offset * math.sin(angle_to_dest)
+        
+        arrow_length = arrowhead_size
+        arrow_angle = math.pi / 6
+        head_x1 = actual_tip_x - arrow_length * math.cos(angle_to_dest - arrow_angle)
+        head_y1 = actual_tip_y - arrow_length * math.sin(angle_to_dest - arrow_angle)
+        head_x2 = actual_tip_x - arrow_length * math.cos(angle_to_dest + arrow_angle)
+        head_y2 = actual_tip_y - arrow_length * math.sin(angle_to_dest + arrow_angle)
+        
+        # Calculate arrowhead base center (where curve should end)
+        base_center_x = (head_x1 + head_x2) / 2
+        base_center_y = (head_y1 + head_y2) / 2
+        
+        # Calculate outline arrowhead (slightly larger)
+        outline_head_x1 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle_to_dest - arrow_angle)
+        outline_head_y1 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle_to_dest - arrow_angle)
+        outline_head_x2 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle_to_dest + arrow_angle)
+        outline_head_y2 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle_to_dest + arrow_angle)
+        
+        # Adjust last point to end at arrowhead base
+        points[-1] = (base_center_x, base_center_y)
+        
+        # Draw outline curve
+        for i in range(len(points) - 1):
+            draw.line([points[i], points[i+1]], fill=outline_color, width=total_width)
+        
+        # Draw outline arrowhead (slightly larger)
+        draw.polygon([actual_tip_x, actual_tip_y, outline_head_x1, outline_head_y1, outline_head_x2, outline_head_y2], fill=outline_color)
+        
+        # Draw colored curve on top
         for i in range(len(points) - 1):
             draw.line([points[i], points[i+1]], fill=color, width=width)
         
-        # Draw arrowhead at destination (pointing back)
-        angle_to_dest = math.atan2(to_y - control_y, to_x - control_x)
-        arrow_length = 12
-        arrow_angle = math.pi / 6
-        head_x1 = to_x - arrow_length * math.cos(angle_to_dest - arrow_angle)
-        head_y1 = to_y - arrow_length * math.sin(angle_to_dest - arrow_angle)
-        head_x2 = to_x - arrow_length * math.cos(angle_to_dest + arrow_angle)
-        head_y2 = to_y - arrow_length * math.sin(angle_to_dest + arrow_angle)
-        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+        # Draw colored arrowhead on top
+        draw.polygon([actual_tip_x, actual_tip_y, head_x1, head_y1, head_x2, head_y2], fill=color)
     
     @staticmethod
     def _draw_dotted_arrow(draw, from_coord: tuple, to_coord: tuple, color: str, width: int = 2):
@@ -2222,33 +2553,70 @@ class Map:
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
-        # Draw dotted line
+        # Get config for outline
+        arrow_specs = _viz_config.get_arrow_specs()
+        outline_width = arrow_specs.get("outline_width", 2)
+        arrowhead_size = arrow_specs["arrowhead_size"]
+        outline_color = (0, 0, 0)  # Black
+        total_width = width + outline_width * 2
+        
+        # Calculate arrowhead first
         import math
-        length = math.sqrt((to_x - from_x)**2 + (to_y - from_y)**2)
+        angle = math.atan2(to_y - from_y, to_x - from_x)
+        
+        # Offset target by 4 pixels to prevent collisions
+        collision_offset = 4
+        actual_tip_x = to_x - collision_offset * math.cos(angle)
+        actual_tip_y = to_y - collision_offset * math.sin(angle)
+        
+        arrow_length = arrowhead_size
+        arrow_angle = math.pi / 6
+        head_x1 = actual_tip_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = actual_tip_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = actual_tip_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = actual_tip_y - arrow_length * math.sin(angle + arrow_angle)
+        
+        # Calculate arrowhead base center (where line should end)
+        base_center_x = (head_x1 + head_x2) / 2
+        base_center_y = (head_y1 + head_y2) / 2
+        
+        # Calculate outline arrowhead (slightly larger)
+        outline_head_x1 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle - arrow_angle)
+        outline_head_y1 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle - arrow_angle)
+        outline_head_x2 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle + arrow_angle)
+        outline_head_y2 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle + arrow_angle)
+        
+        # Draw dotted line ending at arrowhead base
+        length = math.sqrt((base_center_x - from_x)**2 + (base_center_y - from_y)**2)
         if length == 0:
             return
         
         dot_spacing = 8
         num_dots = int(length / dot_spacing)
-        dx = (to_x - from_x) / num_dots if num_dots > 0 else 0
-        dy = (to_y - from_y) / num_dots if num_dots > 0 else 0
+        dx = (base_center_x - from_x) / num_dots if num_dots > 0 else 0
+        dy = (base_center_y - from_y) / num_dots if num_dots > 0 else 0
         
+        # Draw outline dots
         for i in range(0, num_dots, 2):
             x1 = from_x + i * dx
             y1 = from_y + i * dy
-            x2 = from_x + (i + 1) * dx if i + 1 < num_dots else to_x
-            y2 = from_y + (i + 1) * dy if i + 1 < num_dots else to_y
+            x2 = from_x + (i + 1) * dx if i + 1 < num_dots else base_center_x
+            y2 = from_y + (i + 1) * dy if i + 1 < num_dots else base_center_y
+            draw.line([x1, y1, x2, y2], fill=outline_color, width=total_width)
+        
+        # Draw outline arrowhead (slightly larger)
+        draw.polygon([actual_tip_x, actual_tip_y, outline_head_x1, outline_head_y1, outline_head_x2, outline_head_y2], fill=outline_color)
+        
+        # Draw colored dots on top
+        for i in range(0, num_dots, 2):
+            x1 = from_x + i * dx
+            y1 = from_y + i * dy
+            x2 = from_x + (i + 1) * dx if i + 1 < num_dots else base_center_x
+            y2 = from_y + (i + 1) * dy if i + 1 < num_dots else base_center_y
             draw.line([x1, y1, x2, y2], fill=color, width=width)
         
-        # Draw arrowhead
-        angle = math.atan2(to_y - from_y, to_x - from_x)
-        arrow_length = 12
-        arrow_angle = math.pi / 6
-        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
-        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
-        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
-        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
-        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=color)
+        # Draw colored arrowhead on top
+        draw.polygon([actual_tip_x, actual_tip_y, head_x1, head_y1, head_x2, head_y2], fill=color)
     
     @staticmethod
     def _draw_success_checkmark(draw, coord: tuple, color: Optional[str] = None):
@@ -2356,6 +2724,7 @@ class Map:
         line_width = width if width is not None else arrow_specs["line_width_primary"]
         arrowhead_size = arrow_specs["arrowhead_size"]
         arrowhead_base_width = arrow_specs["arrowhead_base_width"]
+        outline_width = arrow_specs.get("outline_width", 2)  # Default 2px black outline
         
         # Convert color to RGB if needed
         rgb_color = Map._convert_color_to_rgb(color)
@@ -2363,42 +2732,80 @@ class Map:
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
-        # Draw arrow line based on style
-        if style == "dashed":
-            line_style = _viz_config.get_line_style("dashed")
-            Map._draw_dashed_line(draw, from_x, from_y, to_x, to_y, rgb_color, line_width, 
-                                dash=line_style.get("dash", 4), gap=line_style.get("gap", 2))
-        elif style == "dotted":
-            line_style = _viz_config.get_line_style("dotted")
-            Map._draw_dotted_line(draw, from_x, from_y, to_x, to_y, rgb_color, line_width,
-                                 dot=line_style.get("dot", 2), gap=line_style.get("gap", 2))
-        else:  # solid
-            draw.line([from_x, from_y, to_x, to_y], fill=rgb_color, width=line_width)
-        
-        # Draw arrowhead using config size
+        # Offset target by 4 pixels to prevent collisions when multiple arrows point to same region
+        collision_offset = 4
         import math
         angle = math.atan2(to_y - from_y, to_x - from_x)
+        # Move target back by collision_offset pixels
+        actual_tip_x = to_x - collision_offset * math.cos(angle)
+        actual_tip_y = to_y - collision_offset * math.sin(angle)
+        
+        # Calculate arrowhead points first (needed for both outline and fill)
         arrow_length = arrowhead_size
         arrow_angle = math.pi / 6  # 30 degrees (triangular shape)
         
-        # Calculate arrowhead points
-        head_x1 = to_x - arrow_length * math.cos(angle - arrow_angle)
-        head_y1 = to_y - arrow_length * math.sin(angle - arrow_angle)
-        head_x2 = to_x - arrow_length * math.cos(angle + arrow_angle)
-        head_y2 = to_y - arrow_length * math.sin(angle + arrow_angle)
+        # Arrowhead tip is at actual_tip (4px before destination)
+        # Arrowhead base extends backwards from tip
+        head_x1 = actual_tip_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = actual_tip_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = actual_tip_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = actual_tip_y - arrow_length * math.sin(angle + arrow_angle)
         
-        # Draw arrowhead
-        draw.polygon([to_x, to_y, head_x1, head_y1, head_x2, head_y2], fill=rgb_color)
+        # Calculate arrowhead base center (where line should end)
+        base_center_x = (head_x1 + head_x2) / 2
+        base_center_y = (head_y1 + head_y2) / 2
         
-        # Draw status indicators if provided
+        # Draw black outline first (wider line + outlined arrowhead)
+        outline_color = (0, 0, 0)  # Black
+        total_width = line_width + outline_width * 2
+        
+        # Calculate outline arrowhead (slightly larger for outline effect)
+        outline_head_x1 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle - arrow_angle)
+        outline_head_y1 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle - arrow_angle)
+        outline_head_x2 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle + arrow_angle)
+        outline_head_y2 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle + arrow_angle)
+        
+        if style == "solid":
+            # Draw outline line ending at arrowhead base
+            draw.line([from_x, from_y, base_center_x, base_center_y], fill=outline_color, width=total_width)
+        elif style == "dashed":
+            line_style = _viz_config.get_line_style("dashed")
+            Map._draw_dashed_line(draw, from_x, from_y, base_center_x, base_center_y, outline_color, total_width, 
+                                dash=line_style.get("dash", 4), gap=line_style.get("gap", 2))
+        elif style == "dotted":
+            line_style = _viz_config.get_line_style("dotted")
+            Map._draw_dotted_line(draw, from_x, from_y, base_center_x, base_center_y, outline_color, total_width,
+                                 dot=line_style.get("dot", 2), gap=line_style.get("gap", 2))
+        
+        # Draw outline arrowhead (slightly larger to create outline effect)
+        draw.polygon([actual_tip_x, actual_tip_y, outline_head_x1, outline_head_y1, outline_head_x2, outline_head_y2], fill=outline_color)
+        
+        # Now draw the colored arrow on top
+        if style == "dashed":
+            line_style = _viz_config.get_line_style("dashed")
+            Map._draw_dashed_line(draw, from_x, from_y, base_center_x, base_center_y, rgb_color, line_width, 
+                                dash=line_style.get("dash", 4), gap=line_style.get("gap", 2))
+        elif style == "dotted":
+            line_style = _viz_config.get_line_style("dotted")
+            Map._draw_dotted_line(draw, from_x, from_y, base_center_x, base_center_y, rgb_color, line_width,
+                                 dot=line_style.get("dot", 2), gap=line_style.get("gap", 2))
+        else:  # solid
+            # Draw colored line ending at arrowhead base
+            draw.line([from_x, from_y, base_center_x, base_center_y], fill=rgb_color, width=line_width)
+        
+        # Draw colored arrowhead on top
+        draw.polygon([actual_tip_x, actual_tip_y, head_x1, head_y1, head_x2, head_y2], fill=rgb_color)
+        
+        # Draw status indicators if provided (use actual tip position)
+        actual_tip_coord = (actual_tip_x, actual_tip_y)
         if status == "success":
-            Map._draw_success_checkmark(draw, to_coord)
+            Map._draw_success_checkmark(draw, actual_tip_coord)
         elif status == "failure":
-            Map._draw_failure_x(draw, to_coord)
+            Map._draw_failure_x(draw, actual_tip_coord)
         elif status == "bounce":
             # Draw bounce indicator (curved return arrow)
             bounce_color = _viz_config.get_color("failure")  # Use failure color for bounce
-            Map._draw_bounce_arrow(draw, to_coord, from_coord, bounce_color, arrow_specs["line_width_secondary"])
+            Map._draw_bounce_arrow(draw, actual_tip_coord, from_coord, bounce_color, arrow_specs["line_width_secondary"])
 
     @staticmethod
     def _draw_circle(draw, coord: tuple, color: str, width: int = 2, style: str = "solid"):
@@ -2453,6 +2860,13 @@ class Map:
         from_x, from_y = from_coord
         to_x, to_y = to_coord
         
+        # Get config for outline
+        arrow_specs = _viz_config.get_arrow_specs()
+        outline_width = arrow_specs.get("outline_width", 2)
+        arrowhead_size = arrow_specs["arrowhead_size"]
+        outline_color = (0, 0, 0)  # Black
+        total_width = width + outline_width * 2
+        
         # Calculate control point for curve
         mid_x = (from_x + to_x) / 2
         mid_y = (from_y + to_y) / 2
@@ -2466,23 +2880,63 @@ class Map:
         control_x = mid_x + offset * math.cos(perp_angle)
         control_y = mid_y + offset * math.sin(perp_angle)
         
-        # Draw curved line using quadratic bezier
+        # Offset target by 4 pixels to prevent collisions
+        collision_offset = 4
+        actual_tip_x = to_x - collision_offset * math.cos(angle)
+        actual_tip_y = to_y - collision_offset * math.sin(angle)
+        
+        # Calculate arrowhead position
+        arrow_length = arrowhead_size
+        arrow_angle = math.pi / 6
+        head_x1 = actual_tip_x - arrow_length * math.cos(angle - arrow_angle)
+        head_y1 = actual_tip_y - arrow_length * math.sin(angle - arrow_angle)
+        head_x2 = actual_tip_x - arrow_length * math.cos(angle + arrow_angle)
+        head_y2 = actual_tip_y - arrow_length * math.sin(angle + arrow_angle)
+        
+        # Calculate arrowhead base center (where curve should end)
+        base_center_x = (head_x1 + head_x2) / 2
+        base_center_y = (head_y1 + head_y2) / 2
+        
+        # Calculate outline arrowhead (slightly larger)
+        outline_head_x1 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle - arrow_angle)
+        outline_head_y1 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle - arrow_angle)
+        outline_head_x2 = actual_tip_x - (arrow_length + outline_width) * math.cos(angle + arrow_angle)
+        outline_head_y2 = actual_tip_y - (arrow_length + outline_width) * math.sin(angle + arrow_angle)
+        
+        # Draw outline curved line using quadratic bezier, ending at arrowhead base
         steps = 20
         for i in range(steps):
             t1 = i / steps
             t2 = (i + 1) / steps
             
-            x1 = (1-t1)**2 * from_x + 2*(1-t1)*t1 * control_x + t1**2 * to_x
-            y1 = (1-t1)**2 * from_y + 2*(1-t1)*t1 * control_y + t1**2 * to_y
-            x2 = (1-t2)**2 * from_x + 2*(1-t2)*t2 * control_x + t2**2 * to_x
-            y2 = (1-t2)**2 * from_y + 2*(1-t2)*t2 * control_y + t2**2 * to_y
+            x1 = (1-t1)**2 * from_x + 2*(1-t1)*t1 * control_x + t1**2 * base_center_x
+            y1 = (1-t1)**2 * from_y + 2*(1-t1)*t1 * control_y + t1**2 * base_center_y
+            x2 = (1-t2)**2 * from_x + 2*(1-t2)*t2 * control_x + t2**2 * base_center_x
+            y2 = (1-t2)**2 * from_y + 2*(1-t2)*t2 * control_y + t2**2 * base_center_y
+            
+            if style == "dashed" and i % 2 == 0:
+                continue
+            draw.line([x1, y1, x2, y2], fill=outline_color, width=total_width)
+        
+        # Draw outline arrowhead (slightly larger)
+        draw.polygon([actual_tip_x, actual_tip_y, outline_head_x1, outline_head_y1, outline_head_x2, outline_head_y2], fill=outline_color)
+        
+        # Draw colored curved line on top
+        for i in range(steps):
+            t1 = i / steps
+            t2 = (i + 1) / steps
+            
+            x1 = (1-t1)**2 * from_x + 2*(1-t1)*t1 * control_x + t1**2 * base_center_x
+            y1 = (1-t1)**2 * from_y + 2*(1-t1)*t1 * control_y + t1**2 * base_center_y
+            x2 = (1-t2)**2 * from_x + 2*(1-t2)*t2 * control_x + t2**2 * base_center_x
+            y2 = (1-t2)**2 * from_y + 2*(1-t2)*t2 * control_y + t2**2 * base_center_y
             
             if style == "dashed" and i % 2 == 0:
                 continue
             draw.line([x1, y1, x2, y2], fill=color, width=width)
         
-        # Draw arrowhead at destination
-        Map._draw_arrow(draw, (control_x, control_y), to_coord, color, width, style)
+        # Draw colored arrowhead on top
+        draw.polygon([actual_tip_x, actual_tip_y, head_x1, head_y1, head_x2, head_y2], fill=color)
 
     @staticmethod
     def _draw_dashed_line(draw, x1: int, y1: int, x2: int, y2: int, color: str, width: int, dash: int = 4, gap: int = 2):
@@ -2580,3 +3034,592 @@ class Map:
                 "brown": "#d4a574",
             }
             return light_colors.get(color.lower(), color)
+
+    @staticmethod
+    def _draw_legend(image: Image.Image, map_type: str, active_powers: List[str] = None) -> None:
+        """
+        Draw a context-aware legend on the map image.
+        
+        Args:
+            image: PIL Image to draw on
+            map_type: Type of map - "orders", "resolution", "initial", "final", "builds"
+            active_powers: List of active power names to show in legend
+        """
+        if not _viz_config.is_legend_enabled():
+            return
+        
+        legend_specs = _viz_config.get_legend_specs()
+        arrow_specs = _viz_config.get_arrow_specs()
+        marker_specs = _viz_config.get_marker_specs()
+        
+        padding = legend_specs["padding"]
+        item_spacing = legend_specs["item_spacing"]
+        symbol_size = legend_specs["symbol_size"]
+        title_font_size = legend_specs["title_font_size"]
+        item_font_size = legend_specs["item_font_size"]
+        
+        # Determine legend items based on map type
+        legend_items = []
+        
+        if map_type == "orders":
+            legend_items = [
+                ("move", "Move"),
+                ("hold", "Hold"),
+                ("support", "Support"),
+                ("convoy", "Convoy"),
+            ]
+        elif map_type == "resolution":
+            legend_items = [
+                ("success", "Success"),
+                ("failed", "Failed"),
+                ("bounce", "Bounced"),
+                ("dislodged", "Dislodged"),
+                ("cut", "Support Cut"),
+            ]
+        elif map_type == "builds":
+            legend_items = [
+                ("build", "Build"),
+                ("destroy", "Destroy"),
+            ]
+        elif map_type in ["initial", "final"]:
+            # Just show power colors for initial/final maps
+            legend_items = []
+        
+        # Add power colors if active_powers provided
+        power_items = []
+        if active_powers:
+            for power in sorted(active_powers):
+                power_items.append(("power", power))
+        
+        # Calculate legend dimensions
+        total_items = len(legend_items) + len(power_items)
+        if total_items == 0:
+            return
+        
+        # Estimate text width (approximate)
+        max_text_width = 100  # Default
+        for _, label in legend_items + power_items:
+            max_text_width = max(max_text_width, len(label) * 8)
+        
+        legend_width = padding * 2 + symbol_size + 10 + max_text_width
+        item_height = max(symbol_size, 18) + item_spacing
+        
+        # Add title height if we have legend items
+        title_height = title_font_size + 10 if legend_items else 0
+        
+        # Add separator height if we have both legend items and power items
+        separator_height = 15 if legend_items and power_items else 0
+        
+        legend_height = padding * 2 + title_height + (len(legend_items) * item_height) + separator_height + (len(power_items) * item_height)
+        
+        # Position legend (bottom-left by default)
+        position = legend_specs.get("position", "bottom-left")
+        if position == "bottom-left":
+            legend_x = 20
+            legend_y = image.height - legend_height - 20
+        elif position == "bottom-right":
+            legend_x = image.width - legend_width - 20
+            legend_y = image.height - legend_height - 20
+        elif position == "top-left":
+            legend_x = 20
+            legend_y = 20
+        else:  # top-right
+            legend_x = image.width - legend_width - 20
+            legend_y = 20
+        
+        # Create overlay for legend with transparency
+        overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        
+        # Draw legend background
+        bg_color = tuple(legend_specs["background_color"])
+        border_color = tuple(legend_specs["border_color"])
+        border_width = legend_specs["border_width"]
+        
+        overlay_draw.rectangle(
+            [legend_x, legend_y, legend_x + legend_width, legend_y + legend_height],
+            fill=bg_color,
+            outline=border_color[:3],
+            width=border_width
+        )
+        
+        # Draw legend title if we have legend items
+        current_y = legend_y + padding
+        if legend_items:
+            title_text = {
+                "orders": "Orders",
+                "resolution": "Results",
+                "builds": "Adjustments",
+            }.get(map_type, "Legend")
+            
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", title_font_size)
+            except (IOError, OSError):
+                font = ImageFont.load_default()
+            
+            overlay_draw.text(
+                (legend_x + padding, current_y),
+                title_text,
+                fill=(0, 0, 0, 255),
+                font=font
+            )
+            current_y += title_font_size + 10
+        
+        # Draw legend items
+        try:
+            item_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", item_font_size)
+        except (IOError, OSError):
+            item_font = ImageFont.load_default()
+        
+        symbol_x = legend_x + padding
+        text_x = symbol_x + symbol_size + 10
+        
+        for item_type, label in legend_items:
+            symbol_center_y = current_y + symbol_size // 2
+            
+            # Draw the symbol based on type
+            if item_type == "move":
+                # Draw a small arrow
+                arrow_start = (symbol_x, symbol_center_y)
+                arrow_end = (symbol_x + symbol_size, symbol_center_y)
+                Map._draw_mini_arrow(overlay_draw, arrow_start, arrow_end, (0, 0, 0), "solid")
+            elif item_type == "hold":
+                # Draw a dashed circle
+                r = symbol_size // 3
+                overlay_draw.ellipse(
+                    [symbol_x + symbol_size//2 - r, symbol_center_y - r, 
+                     symbol_x + symbol_size//2 + r, symbol_center_y + r],
+                    outline=(100, 100, 100, 255),
+                    width=2
+                )
+            elif item_type == "support":
+                # Draw a dashed line with green tint
+                Map._draw_mini_arrow(overlay_draw, 
+                    (symbol_x, symbol_center_y), 
+                    (symbol_x + symbol_size, symbol_center_y), 
+                    (144, 238, 144), "dashed")
+            elif item_type == "convoy":
+                # Draw golden curved line
+                Map._draw_mini_arrow(overlay_draw,
+                    (symbol_x, symbol_center_y),
+                    (symbol_x + symbol_size, symbol_center_y),
+                    (255, 215, 0), "solid")
+            elif item_type == "success":
+                # Draw checkmark
+                Map._draw_mini_checkmark(overlay_draw, 
+                    (symbol_x + symbol_size//2, symbol_center_y), (0, 200, 0))
+            elif item_type == "failed":
+                # Draw X
+                Map._draw_mini_x(overlay_draw,
+                    (symbol_x + symbol_size//2, symbol_center_y), (255, 0, 0))
+            elif item_type == "bounce":
+                # Draw orange X
+                Map._draw_mini_x(overlay_draw,
+                    (symbol_x + symbol_size//2, symbol_center_y), (255, 165, 0))
+            elif item_type == "dislodged":
+                # Draw red-bordered circle
+                r = symbol_size // 3
+                overlay_draw.ellipse(
+                    [symbol_x + symbol_size//2 - r, symbol_center_y - r,
+                     symbol_x + symbol_size//2 + r, symbol_center_y + r],
+                    fill=(200, 200, 200, 255),
+                    outline=(255, 0, 0, 255),
+                    width=3
+                )
+            elif item_type == "cut":
+                # Draw support line with X through it
+                Map._draw_mini_arrow(overlay_draw,
+                    (symbol_x, symbol_center_y),
+                    (symbol_x + symbol_size, symbol_center_y),
+                    (144, 238, 144), "dashed")
+                Map._draw_mini_x(overlay_draw,
+                    (symbol_x + symbol_size//2, symbol_center_y), (255, 0, 0), size=6)
+            elif item_type == "build":
+                # Draw green circle with plus
+                r = symbol_size // 3
+                cx, cy = symbol_x + symbol_size//2, symbol_center_y
+                overlay_draw.ellipse(
+                    [cx - r, cy - r, cx + r, cy + r],
+                    fill=(0, 200, 0, 255),
+                    outline=(0, 100, 0, 255),
+                    width=2
+                )
+                overlay_draw.line([cx - r + 3, cy, cx + r - 3, cy], fill=(255, 255, 255), width=2)
+                overlay_draw.line([cx, cy - r + 3, cx, cy + r - 3], fill=(255, 255, 255), width=2)
+            elif item_type == "destroy":
+                # Draw red circle with X
+                r = symbol_size // 3
+                cx, cy = symbol_x + symbol_size//2, symbol_center_y
+                overlay_draw.ellipse(
+                    [cx - r, cy - r, cx + r, cy + r],
+                    fill=(200, 0, 0, 255),
+                    outline=(100, 0, 0, 255),
+                    width=2
+                )
+                Map._draw_mini_x(overlay_draw, (cx, cy), (255, 255, 255), size=r-2)
+            
+            # Draw label
+            overlay_draw.text(
+                (text_x, current_y + (symbol_size - item_font_size) // 2),
+                label,
+                fill=(0, 0, 0, 255),
+                font=item_font
+            )
+            
+            current_y += item_height
+        
+        # Draw separator line if we have both sections
+        if legend_items and power_items:
+            current_y += 5
+            overlay_draw.line(
+                [legend_x + padding, current_y, legend_x + legend_width - padding, current_y],
+                fill=(150, 150, 150, 255),
+                width=1
+            )
+            current_y += 10
+        
+        # Draw power color items
+        for item_type, power in power_items:
+            symbol_center_y = current_y + symbol_size // 2
+            
+            # Draw power color box
+            power_color = _viz_config.get_power_color(power)
+            rgb_color = Map._convert_color_to_rgb(power_color)
+            # Ensure rgb_color is a tuple, not a string
+            if isinstance(rgb_color, str):
+                # Convert named color to RGB using PIL
+                from PIL import ImageColor
+                try:
+                    rgb_color = ImageColor.getrgb(rgb_color)
+                except ValueError:
+                    rgb_color = (128, 128, 128)  # Fallback to gray
+            r = symbol_size // 3
+            cx, cy = symbol_x + symbol_size//2, symbol_center_y
+            overlay_draw.ellipse(
+                [cx - r, cy - r, cx + r, cy + r],
+                fill=rgb_color + (255,),
+                outline=(0, 0, 0, 255),
+                width=2
+            )
+            
+            # Draw power name
+            overlay_draw.text(
+                (text_x, current_y + (symbol_size - item_font_size) // 2),
+                power.title(),
+                fill=(0, 0, 0, 255),
+                font=item_font
+            )
+            
+            current_y += item_height
+        
+        # Composite overlay onto image
+        if image.mode == 'RGBA':
+            image.alpha_composite(overlay)
+        else:
+            # Convert to RGBA, composite, convert back
+            image_rgba = image.convert('RGBA')
+            image_rgba.alpha_composite(overlay)
+            # Paste back (for RGB images)
+            image.paste(image_rgba.convert('RGB'))
+
+    @staticmethod
+    def _draw_mini_arrow(draw, start: tuple, end: tuple, color: tuple, style: str = "solid"):
+        """Draw a small arrow for legend."""
+        x1, y1 = start
+        x2, y2 = end
+        
+        if style == "dashed":
+            # Draw dashed line
+            for i in range(0, int(x2 - x1), 6):
+                draw.line([x1 + i, y1, x1 + i + 3, y2], fill=color + (255,), width=2)
+        else:
+            draw.line([x1, y1, x2, y2], fill=color + (255,), width=2)
+        
+        # Draw arrowhead
+        arrow_size = 5
+        draw.polygon([
+            (x2, y2),
+            (x2 - arrow_size, y2 - arrow_size//2),
+            (x2 - arrow_size, y2 + arrow_size//2)
+        ], fill=color + (255,))
+
+    @staticmethod
+    def _draw_mini_checkmark(draw, center: tuple, color: tuple):
+        """Draw a small checkmark for legend."""
+        x, y = center
+        size = 8
+        points = [
+            (x - size, y),
+            (x - size//3, y + size//2),
+            (x + size, y - size//2)
+        ]
+        draw.line([points[0], points[1], points[2]], fill=color + (255,), width=3)
+
+    @staticmethod
+    def _draw_mini_x(draw, center: tuple, color: tuple, size: int = 8):
+        """Draw a small X for legend."""
+        x, y = center
+        draw.line([x - size, y - size, x + size, y + size], fill=color + (255,), width=3)
+        draw.line([x - size, y + size, x + size, y - size], fill=color + (255,), width=3)
+
+    @staticmethod
+    def _load_and_process_icon(icon_path: str, fill_color: tuple, outline_color: tuple, size: int) -> Optional[Image.Image]:
+        """
+        Load an icon PNG file, replace white pixels with fill_color, add outline, and scale to size.
+        
+        Args:
+            icon_path: Path to the icon PNG file
+            fill_color: RGB tuple for the icon color
+            outline_color: RGB tuple for the outline
+            size: Target size (diameter) for the icon
+            
+        Returns:
+            Processed PIL Image, or None if file not found
+        """
+        if not os.path.exists(icon_path):
+            logger.warning(f"Icon file not found: {icon_path}")
+            return None
+        
+        try:
+            # Load the icon image
+            icon_img = Image.open(icon_path).convert("RGBA")
+            original_size = icon_img.size
+            
+            # Create a new image with the same size for processing
+            processed = Image.new("RGBA", original_size, (0, 0, 0, 0))
+            pixels = icon_img.load()
+            processed_pixels = processed.load()
+            
+            # Replace white/light pixels with fill_color, preserve transparency
+            # White is approximately (255, 255, 255) or close to it
+            white_threshold = 200  # Consider pixels brighter than this as "white"
+            for y in range(original_size[1]):
+                for x in range(original_size[0]):
+                    r, g, b, a = pixels[x, y]
+                    if a > 0:  # Not fully transparent
+                        # Check if pixel is white/light
+                        if r >= white_threshold and g >= white_threshold and b >= white_threshold:
+                            # Replace with fill_color, preserve original alpha
+                            processed_pixels[x, y] = (*fill_color, a)
+                        else:
+                            # Keep original pixel (for any non-white details)
+                            processed_pixels[x, y] = (r, g, b, a)
+            
+            # Add outline using a simple expansion approach
+            outline_width = 2
+            # Create a slightly larger canvas
+            canvas_size = (original_size[0] + outline_width * 2, original_size[1] + outline_width * 2)
+            outlined = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
+            
+            # Extract alpha channel as mask
+            alpha_channel = processed.split()[3]
+            
+            # Create outline by drawing the icon slightly larger with outline_color
+            # Simple approach: paste the icon multiple times at offsets to create outline
+            outline_offsets = [(-outline_width, -outline_width), (-outline_width, 0), (-outline_width, outline_width),
+                               (0, -outline_width), (0, outline_width),
+                               (outline_width, -outline_width), (outline_width, 0), (outline_width, outline_width)]
+            
+            # Create outline version (colored with outline_color)
+            outline_base = Image.new("RGBA", original_size, (0, 0, 0, 0))
+            outline_pixels = outline_base.load()
+            alpha_pixels = alpha_channel.load()
+            for y in range(original_size[1]):
+                for x in range(original_size[0]):
+                    if alpha_pixels[x, y] > 0:
+                        outline_pixels[x, y] = (*outline_color, alpha_pixels[x, y])
+            
+            # Paste outline versions at offsets
+            for dx, dy in outline_offsets:
+                outlined.paste(outline_base, (outline_width + dx, outline_width + dy), outline_base)
+            
+            # Paste the colored icon on top (centered)
+            outlined.paste(processed, (outline_width, outline_width), processed)
+            
+            # Scale to target size (maintaining aspect ratio)
+            # Scale to fit within the diameter
+            scale_factor = size / max(canvas_size)
+            new_size = (int(canvas_size[0] * scale_factor), int(canvas_size[1] * scale_factor))
+            scaled = outlined.resize(new_size, Image.Resampling.LANCZOS)
+            
+            return scaled
+            
+        except Exception as e:
+            logger.error(f"Error loading icon {icon_path}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+    
+    @staticmethod
+    def _draw_army_icon(draw, center: tuple, fill_color: tuple, outline_color: tuple, size: int, base_image: Optional[Image.Image] = None):
+        """
+        Draw an army icon from PNG file with background circle for visibility.
+        
+        Args:
+            draw: ImageDraw object
+            center: (x, y) center coordinates
+            fill_color: RGB tuple for fill
+            outline_color: RGB tuple for outline
+            size: Icon size (diameter)
+            base_image: Optional PIL Image object to paste onto (if None, tries to get from draw.im)
+        """
+        x, y = center
+        r = size // 2
+        
+        # Get config for background circle
+        unit_specs = _viz_config.get_unit_specs()
+        use_background = unit_specs.get("background_circle", True)
+        bg_color = tuple(unit_specs.get("background_circle_color", [255, 255, 255, 230]))
+        
+        # Draw background circle for contrast
+        if use_background:
+            bg_r = r + 2  # Slightly larger than icon
+            draw.ellipse([x - bg_r, y - bg_r, x + bg_r, y + bg_r], 
+                        fill=bg_color, outline=outline_color, width=3)
+        
+        # Find icon file path (relative to project root)
+        # map.py is at: new_implementation/src/engine/map.py
+        # icons are at: new_implementation/icons/army.png
+        current_file = os.path.abspath(__file__)
+        # Go up from src/engine/map.py to src, then to new_implementation, then to icons
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        icon_path = os.path.join(project_root, "icons", "army.png")
+        
+        # Load and process the icon
+        icon_img = Map._load_and_process_icon(icon_path, fill_color, outline_color, size)
+        
+        if icon_img:
+            # Get the underlying image from the draw object or use provided base_image
+            try:
+                if base_image is None:
+                    base_image = draw.im
+                    # Try to convert ImagingCore to Image if needed
+                    if not isinstance(base_image, Image.Image):
+                        # For ImagingCore, we need to work with it differently
+                        # Get the image from the draw's underlying object
+                        try:
+                            # Try accessing through the image that created the draw
+                            base_image = getattr(draw, '_image', None) or draw.im
+                        except:
+                            pass
+                
+                # Ensure base_image is a proper PIL Image
+                if not isinstance(base_image, Image.Image):
+                    logger.warning(f"base_image is not a PIL Image: {type(base_image)}, falling back")
+                    draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
+                    return
+                
+                icon_width, icon_height = icon_img.size
+                paste_x = int(round(x - icon_width // 2))
+                paste_y = int(round(y - icon_height // 2))
+                
+                # Ensure coordinates are within image bounds
+                img_width, img_height = base_image.size
+                paste_x = max(0, min(paste_x, img_width - icon_width))
+                paste_y = max(0, min(paste_y, img_height - icon_height))
+                
+                # Paste the icon with alpha compositing
+                if icon_img.mode == 'RGBA':
+                    # Extract alpha channel for mask
+                    alpha = icon_img.split()[3]
+                    base_image.paste(icon_img, (paste_x, paste_y), alpha)
+                else:
+                    base_image.paste(icon_img, (paste_x, paste_y))
+                    
+            except (AttributeError, Exception) as e:
+                logger.warning(f"Could not paste icon image: {e}, falling back to programmatic drawing")
+                import traceback
+                logger.debug(traceback.format_exc())
+                # Fallback: draw a simple circle as placeholder
+                draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
+        else:
+            # Fallback: draw a simple circle as placeholder
+            logger.warning(f"Icon not loaded from {icon_path}")
+            draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
+
+    @staticmethod
+    def _draw_fleet_icon(draw, center: tuple, fill_color: tuple, outline_color: tuple, size: int, base_image: Optional[Image.Image] = None):
+        """
+        Draw a fleet icon from PNG file with background circle for visibility.
+        
+        Args:
+            draw: ImageDraw object
+            center: (x, y) center coordinates
+            fill_color: RGB tuple for fill
+            outline_color: RGB tuple for outline
+            size: Icon size (diameter)
+            base_image: Optional PIL Image object to paste onto (if None, tries to get from draw.im)
+        """
+        x, y = center
+        r = size // 2
+        
+        # Get config for background circle
+        unit_specs = _viz_config.get_unit_specs()
+        use_background = unit_specs.get("background_circle", True)
+        bg_color = tuple(unit_specs.get("background_circle_color", [255, 255, 255, 230]))
+        
+        # Draw background circle for contrast
+        if use_background:
+            bg_r = r + 2  # Slightly larger than icon
+            draw.ellipse([x - bg_r, y - bg_r, x + bg_r, y + bg_r], 
+                        fill=bg_color, outline=outline_color, width=3)
+        
+        # Find icon file path (relative to project root)
+        # map.py is at: new_implementation/src/engine/map.py
+        # icons are at: new_implementation/icons/ship.png
+        current_file = os.path.abspath(__file__)
+        # Go up from src/engine/map.py to src, then to new_implementation, then to icons
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        icon_path = os.path.join(project_root, "icons", "ship.png")
+        
+        # Load and process the icon
+        icon_img = Map._load_and_process_icon(icon_path, fill_color, outline_color, size)
+        
+        if icon_img:
+            # Get the underlying image from the draw object or use provided base_image
+            try:
+                if base_image is None:
+                    base_image = draw.im
+                    # Try to convert ImagingCore to Image if needed
+                    if not isinstance(base_image, Image.Image):
+                        # For ImagingCore, we need to work with it differently
+                        # Get the image from the draw's underlying object
+                        try:
+                            # Try accessing through the image that created the draw
+                            base_image = getattr(draw, '_image', None) or draw.im
+                        except:
+                            pass
+                
+                # Ensure base_image is a proper PIL Image
+                if not isinstance(base_image, Image.Image):
+                    logger.warning(f"base_image is not a PIL Image: {type(base_image)}, falling back")
+                    draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
+                    return
+                
+                icon_width, icon_height = icon_img.size
+                paste_x = int(round(x - icon_width // 2))
+                paste_y = int(round(y - icon_height // 2))
+                
+                # Ensure coordinates are within image bounds
+                img_width, img_height = base_image.size
+                paste_x = max(0, min(paste_x, img_width - icon_width))
+                paste_y = max(0, min(paste_y, img_height - icon_height))
+                
+                # Paste the icon with alpha compositing
+                if icon_img.mode == 'RGBA':
+                    # Extract alpha channel for mask
+                    alpha = icon_img.split()[3]
+                    base_image.paste(icon_img, (paste_x, paste_y), alpha)
+                else:
+                    base_image.paste(icon_img, (paste_x, paste_y))
+                    
+            except (AttributeError, Exception) as e:
+                logger.warning(f"Could not paste icon image: {e}, falling back to programmatic drawing")
+                import traceback
+                logger.debug(traceback.format_exc())
+                # Fallback: draw a simple circle as placeholder
+                draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
+        else:
+            # Fallback: draw a simple circle as placeholder
+            logger.warning(f"Icon not loaded from {icon_path}")
+            draw.ellipse([x - r, y - r, x + r, y + r], fill=fill_color, outline=outline_color, width=2)
