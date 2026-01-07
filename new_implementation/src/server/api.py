@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
 # TestClient doesn't always trigger lifespan, so initialize here as well
 _initialize_database_schema()
 
-app = FastAPI(title="Diplomacy Server API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Diplomacy Server API", version="2.0.1", lifespan=lifespan)
 
 # Register all route modules
 app.include_router(games.router)

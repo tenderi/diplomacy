@@ -1,9 +1,10 @@
 {
   "arrows": {
-    "arrowhead_size": 12,
-    "arrowhead_base_width": 15,
-    "line_width_primary": 3,
-    "line_width_secondary": 2,
+    "arrowhead_size": 18,
+    "arrowhead_base_width": 22,
+    "line_width_primary": 8,
+    "line_width_secondary": 4,
+    "outline_width": 2,
     "shape": "triangular"
   },
   "colors": {
@@ -23,42 +24,44 @@
     }
   },
   "units": {
-    "diameter": 22,
-    "border_width": 2,
-    "dislodged_border_width": 3,
+    "diameter": 32,
+    "border_width": 4,
+    "dislodged_border_width": 5,
     "dislodged_offset": [20, 20],
     "label_font_size": 11,
     "dislodged_indicator_size": 9,
-    "dislodged_indicator_offset": [6, 6]
+    "dislodged_indicator_offset": [6, 6],
+    "background_circle": true,
+    "background_circle_color": [255, 255, 255, 230]
   },
   "line_styles": {
     "solid": {},
     "dashed": {
-      "dash": 4,
-      "gap": 2
+      "dash": 8,
+      "gap": 4
     },
     "dotted": {
-      "dot": 2,
-      "gap": 2
+      "dot": 4,
+      "gap": 4
     }
   },
   "markers": {
     "hold_indicator_diameter": 32,
-    "hold_indicator_border_width": 2,
+    "hold_indicator_border_width": 4,
     "support_circle_diameter": 32,
-    "support_circle_border_width": 3,
+    "support_circle_border_width": 5,
     "convoy_fleet_marker_diameter": 30,
-    "convoy_fleet_marker_border_width": 2,
+    "convoy_fleet_marker_border_width": 4,
     "build_marker_diameter": 18,
-    "build_marker_border_width": 2,
+    "build_marker_border_width": 4,
     "destroy_marker_diameter": 18,
-    "destroy_marker_border_width": 2,
+    "destroy_marker_border_width": 4,
     "battle_indicator_size": 22,
-    "battle_indicator_border_width": 2,
+    "battle_indicator_border_width": 4,
     "standoff_indicator_size": 20,
-    "standoff_indicator_border_width": 2,
-    "status_indicator_size": 13,
-    "status_indicator_line_width": 2
+    "standoff_indicator_border_width": 4,
+    "status_indicator_size": 16,
+    "status_indicator_line_width": 4
   },
   "fonts": {
     "unit_label_size": 11,
@@ -66,6 +69,17 @@
     "phase_overlay_size": 16,
     "conflict_label_size": 11,
     "standoff_label_size": 9
+  },
+  "legend": {
+    "enabled": true,
+    "position": "bottom-left",
+    "padding": 15,
+    "item_spacing": 8,
+    "background_color": [255, 255, 255, 200],
+    "border_color": [0, 0, 0, 255],
+    "border_width": 2,
+    "title_font_size": 14,
+    "item_font_size": 11,
+    "symbol_size": 20
   }
 }
-

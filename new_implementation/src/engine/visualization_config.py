@@ -22,13 +22,13 @@ class VisualizationConfig:
     Provides methods to access all visualization parameters.
     """
     
-    # Default configuration matching spec section 3.4
+    # Default configuration matching spec section 3.4 (with doubled line widths for clarity)
     DEFAULT_CONFIG = {
         "arrows": {
-            "arrowhead_size": 12,
-            "arrowhead_base_width": 15,
-            "line_width_primary": 3,
-            "line_width_secondary": 2,
+            "arrowhead_size": 18,
+            "arrowhead_base_width": 22,
+            "line_width_primary": 6,
+            "line_width_secondary": 4,
             "shape": "triangular"
         },
         "colors": {
@@ -48,36 +48,38 @@ class VisualizationConfig:
             }
         },
         "units": {
-            "diameter": 22,
-            "border_width": 2,
-            "dislodged_border_width": 3,
+            "diameter": 32,
+            "border_width": 4,
+            "dislodged_border_width": 5,
             "dislodged_offset": [20, 20],
             "label_font_size": 11,
             "dislodged_indicator_size": 9,
-            "dislodged_indicator_offset": [6, 6]
+            "dislodged_indicator_offset": [6, 6],
+            "background_circle": True,
+            "background_circle_color": [255, 255, 255, 230]
         },
         "line_styles": {
             "solid": {},
-            "dashed": {"dash": 4, "gap": 2},
-            "dotted": {"dot": 2, "gap": 2}
+            "dashed": {"dash": 8, "gap": 4},
+            "dotted": {"dot": 4, "gap": 4}
         },
         "markers": {
             "hold_indicator_diameter": 32,
-            "hold_indicator_border_width": 2,
+            "hold_indicator_border_width": 4,
             "support_circle_diameter": 32,
-            "support_circle_border_width": 3,
+            "support_circle_border_width": 5,
             "convoy_fleet_marker_diameter": 30,
-            "convoy_fleet_marker_border_width": 2,
+            "convoy_fleet_marker_border_width": 4,
             "build_marker_diameter": 18,
-            "build_marker_border_width": 2,
+            "build_marker_border_width": 4,
             "destroy_marker_diameter": 18,
-            "destroy_marker_border_width": 2,
+            "destroy_marker_border_width": 4,
             "battle_indicator_size": 22,
-            "battle_indicator_border_width": 2,
+            "battle_indicator_border_width": 4,
             "standoff_indicator_size": 20,
-            "standoff_indicator_border_width": 2,
-            "status_indicator_size": 13,
-            "status_indicator_line_width": 2
+            "standoff_indicator_border_width": 4,
+            "status_indicator_size": 16,
+            "status_indicator_line_width": 4
         },
         "fonts": {
             "unit_label_size": 11,
@@ -85,6 +87,18 @@ class VisualizationConfig:
             "phase_overlay_size": 16,
             "conflict_label_size": 11,
             "standoff_label_size": 9
+        },
+        "legend": {
+            "enabled": True,
+            "position": "bottom-left",
+            "padding": 15,
+            "item_spacing": 8,
+            "background_color": [255, 255, 255, 200],
+            "border_color": [0, 0, 0, 255],
+            "border_width": 2,
+            "title_font_size": 14,
+            "item_font_size": 11,
+            "symbol_size": 20
         }
     }
     
@@ -187,6 +201,26 @@ class VisualizationConfig:
     def get_font_specs(self) -> Dict[str, Any]:
         """Return font configuration."""
         return self.config["fonts"].copy()
+    
+    def get_legend_specs(self) -> Dict[str, Any]:
+        """Return legend configuration."""
+        return self.config.get("legend", {
+            "enabled": True,
+            "position": "bottom-left",
+            "padding": 15,
+            "item_spacing": 8,
+            "background_color": [255, 255, 255, 200],
+            "border_color": [0, 0, 0, 255],
+            "border_width": 2,
+            "title_font_size": 14,
+            "item_font_size": 11,
+            "symbol_size": 20
+        }).copy()
+    
+    def is_legend_enabled(self) -> bool:
+        """Check if legend is enabled."""
+        legend = self.config.get("legend", {})
+        return legend.get("enabled", True)
 
 
 # Global singleton instance
@@ -203,5 +237,18 @@ def get_config() -> VisualizationConfig:
     global _config_instance
     if _config_instance is None:
         _config_instance = VisualizationConfig()
+    return _config_instance
+
+
+def reload_config() -> VisualizationConfig:
+    """
+    Force reload the configuration from file.
+    Useful after config changes or for testing.
+    
+    Returns:
+        New VisualizationConfig instance
+    """
+    global _config_instance
+    _config_instance = VisualizationConfig()
     return _config_instance
 

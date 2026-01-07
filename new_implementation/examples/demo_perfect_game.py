@@ -223,6 +223,76 @@ class PerfectDemoGame:
                     new_orders.append(order)
                 scenario.orders["TURKEY"] = new_orders
         
+        # Adjust Fall 1901 Builds - handle DESTROY orders dynamically
+        if scenario.year == 1901 and scenario.season == "Autumn" and scenario.phase == "Builds":
+            # For DESTROY orders, dynamically determine which unit to destroy based on actual game state
+            for power_name in scenario.orders:
+                power_orders = list(scenario.orders[power_name])
+                power_units = units.get(power_name, [])
+                
+                # Check if there's a DESTROY order
+                destroy_orders = [o for o in power_orders if o.startswith("DESTROY")]
+                if destroy_orders:
+                    # Get actual units (excluding dislodged)
+                    actual_units = [u for u in power_units if "DISLODGED_" not in u]
+                    
+                    # For each DESTROY order, find the unit to destroy
+                    new_orders = []
+                    for order in power_orders:
+                        if order.startswith("DESTROY"):
+                            # Parse DESTROY order: "DESTROY A APU"
+                            parts = order.split()
+                            if len(parts) >= 3:
+                                target_unit_type = parts[1]
+                                target_province = parts[2]
+                                
+                                # Check if target unit exists
+                                target_unit_str = f"{target_unit_type} {target_province}"
+                                unit_exists = any(target_unit_str in u for u in actual_units)
+                                
+                                if not unit_exists:
+                                    # Unit doesn't exist - find an alternative unit to destroy
+                                    destroy_unit = None
+                                    # Prefer destroying armies over fleets, and non-home SC units
+                                    for unit_str in actual_units:
+                                        if unit_str.startswith(target_unit_type + " "):
+                                            province = unit_str.split()[1]
+                                            # Prefer non-home SC provinces
+                                            if power_name == "ITALY" and province not in ["ROM", "NAP", "VEN"]:
+                                                destroy_unit = unit_str
+                                                break
+                                    
+                                    # If no suitable unit found, use first unit of target type
+                                    if not destroy_unit:
+                                        for unit_str in actual_units:
+                                            if unit_str.startswith(target_unit_type + " "):
+                                                destroy_unit = unit_str
+                                                break
+                                    
+                                    # If still no unit of target type, use first available unit
+                                    if not destroy_unit and actual_units:
+                                        destroy_unit = actual_units[0]
+                                    
+                                    # Replace DESTROY order with correct unit
+                                    if destroy_unit:
+                                        parts = destroy_unit.split()
+                                        if len(parts) >= 2:
+                                            new_order = f"DESTROY {parts[0]} {parts[1]}"
+                                            new_orders.append(new_order)
+                                            print(f"  🔄 Adjusted {power_name} DESTROY order: {order} -> {new_order}")
+                                        else:
+                                            new_orders.append(order)  # Keep original if can't parse
+                                    else:
+                                        # No units to destroy - remove DESTROY order
+                                        print(f"  ⚠️ No units available to destroy for {power_name}, removing DESTROY order")
+                                else:
+                                    # Unit exists, keep original order
+                                    new_orders.append(order)
+                        else:
+                            new_orders.append(order)
+                    
+                    scenario.orders[power_name] = new_orders
+        
         # Adjust Fall 1902 orders based on actual unit positions (similar to Spring 1902)
         if scenario.year == 1902 and scenario.season == "Autumn" and scenario.phase == "Movement":
             # Generate valid orders for all actual units - ensure every unit has exactly one order
@@ -232,6 +302,7 @@ class PerfectDemoGame:
                 
                 new_orders = []
                 used_provinces = set()
+                used_orders = set()  # Track which orders from power_orders have been used
                 
                 # Generate orders for each actual unit
                 for unit_str in power_units:
@@ -244,6 +315,8 @@ class PerfectDemoGame:
                             # Try to find matching order from hardcoded list
                             order_found = False
                             for order in power_orders:
+                                if order in used_orders:
+                                    continue
                                 order_parts = order.split()
                                 if len(order_parts) >= 2:
                                     if order_parts[0] == unit_type and order_parts[1] == province:
@@ -253,6 +326,7 @@ class PerfectDemoGame:
                                             if " S " in order and order.endswith(" H"):
                                                 order = order[:-2]
                                             new_orders.append(order)
+                                            used_orders.add(order)
                                             used_provinces.add(province)
                                             order_found = True
                                             break
@@ -261,6 +335,17 @@ class PerfectDemoGame:
                             if not order_found and province not in used_provinces:
                                 new_orders.append(f"{unit_type} {province} H")
                                 used_provinces.add(province)
+                
+                # Add any remaining orders that weren't matched to units (e.g., support orders)
+                for order in power_orders:
+                    if order not in used_orders:
+                        # Check if this is a support order or other order that doesn't match a unit directly
+                        order_parts = order.split()
+                        if len(order_parts) >= 2:
+                            # Support orders, convoy orders, etc. should be preserved
+                            if " S " in order or " C " in order:
+                                new_orders.append(order)
+                                used_orders.add(order)
                 
                 scenario.orders[power_name] = new_orders
         
@@ -382,14 +467,23 @@ class PerfectDemoGame:
                     # Build convoy order list first to check for convoying fleets
                     convoy_orders = [o for o in adjusted_orders if "C" in o]
                     
+                    # Determine which fleet is actually convoying - use actual fleet position, not convoy order text
+                    convoying_fleet = fleet_province  # The actual fleet that will convoy
+                    
                     for order in adjusted_orders:
                         original_order = order
                         # Skip if already processed as convoy
                         if order in convoy_orders:
                             continue
                             
-                        # If this is a simple hold, keep it
+                        # Check if this is a hold order for the convoying fleet - skip it
                         if order.endswith(" H") and len(order.split()) == 3:
+                            order_parts = order.split()
+                            if len(order_parts) >= 2 and order_parts[0] == "F":
+                                fleet_in_order = order_parts[1]
+                                # If this fleet is the one convoying, skip the hold order
+                                if fleet_in_order == convoying_fleet or (convoying_fleet and fleet_in_order in [convoying_fleet, "NTH", "ENG"] and convoying_fleet in ["NTH", "ENG"]):
+                                    continue  # Skip hold order for convoying fleet
                             new_orders.append(order)
                             continue
                         
@@ -397,8 +491,8 @@ class PerfectDemoGame:
                         if "S F" in order:
                             # Check if any fleet in this order is convoying
                             fleet_is_convoying = False
-                            for fleet_prov in [fleet_province, "NTH", "ENG"]:
-                                if fleet_prov in order and any(fleet_prov in co and "C" in co for co in convoy_orders):
+                            for fleet_prov in [fleet_province, convoying_fleet, "NTH", "ENG"]:
+                                if fleet_prov and fleet_prov in order and any(fleet_prov in co and "C" in co for co in convoy_orders):
                                     fleet_is_convoying = True
                                     break
                             
@@ -415,25 +509,17 @@ class PerfectDemoGame:
                         # Handle convoy move order (army moving)
                         if f"A {army_province}" in order and "C" not in order and "-" in order:
                             # This is the convoyed move - keep it as is
-                            pass
+                            new_orders.append(order)
                         elif "C A" in order:
-                            # This is the convoy order - add it
-                            if "F NTH" in order:
-                                order = order.replace("F NTH", f"F {fleet_province}")
-                            if "F ENG" in order:
-                                order = order.replace("F ENG", f"F {fleet_province}")
-                            if f"A {army_province}" not in order:
-                                if "A CLY" in order:
-                                    order = order.replace("A CLY", f"A {army_province}")
-                                if "A LVP" in order:
-                                    order = order.replace("A LVP", f"A {army_province}")
-                        
-                        new_orders.append(order)
+                            # This is the convoy order - will be added separately, skip here
+                            continue
+                        else:
+                            new_orders.append(order)
                         
                         if order != original_order:
                             print(f"    🔄 Adjusted order: {original_order} -> {order}")
                     
-                    # Add convoy orders separately
+                    # Add convoy orders separately (but don't duplicate the army move order)
                     for order in convoy_orders:
                         original_order = order
                         if "F NTH" in order:
@@ -445,7 +531,10 @@ class PerfectDemoGame:
                                 order = order.replace("A CLY", f"A {army_province}")
                             if "A LVP" in order:
                                 order = order.replace("A LVP", f"A {army_province}")
-                        if order not in new_orders:
+                        # Only add convoy order if it's not already in new_orders
+                        # Also check that we're not duplicating the army move order
+                        army_move_order = f"A {army_province} - BEL"
+                        if order not in new_orders and order != army_move_order:
                             new_orders.append(order)
                             if order != original_order:
                                 print(f"    🔄 Adjusted order: {original_order} -> {order}")
@@ -456,6 +545,65 @@ class PerfectDemoGame:
                 else:
                     print(f"  ⚠️ Warning: Cannot adjust England convoy orders - missing units")
                     print(f"    Armies: {england_armies}, Fleets: {england_fleets}")
+        
+        # Adjust Fall 1902 orders - handle self-dislodgement scenario dynamically (AFTER all other adjustments)
+        if scenario.year == 1902 and scenario.season == "Autumn" and scenario.phase == "Movement":
+            # Fix Germany self-dislodgement scenario - check if A BER exists, if not use available unit
+            if "GERMANY" in scenario.orders:
+                german_orders = list(scenario.orders["GERMANY"])
+                german_units = units.get("GERMANY", [])
+                
+                # Check if self-dislodgement scenario is present (any attack on KIE, including in support orders)
+                has_self_dislodge = any(" - KIE" in o for o in german_orders)
+                if has_self_dislodge:
+                    # Find a unit that can attack KIE (must be adjacent to KIE)
+                    # KIE is adjacent to: BER, MUN, RUH, HOL, DEN, HEL, BAL
+                    kie_adjacent = ["BER", "MUN", "RUH"]
+                    attacker_prov = None
+                    for adj_prov in kie_adjacent:
+                        unit_str = f"A {adj_prov}"
+                        if any(unit_str in u for u in german_units):
+                            attacker_prov = adj_prov
+                            break
+                    
+                    if attacker_prov:
+                        # Replace any references to non-existent attackers with the actual attacker
+                        new_orders = []
+                        for order in german_orders:
+                            original_order = order
+                            # Replace any mention of A BER - KIE, A MUN - KIE, or A SIL - KIE with the actual attacker
+                            # This handles both attack orders and support orders
+                            if "A BER - KIE" in order:
+                                order = order.replace("A BER - KIE", f"A {attacker_prov} - KIE")
+                            if "A MUN - KIE" in order:
+                                order = order.replace("A MUN - KIE", f"A {attacker_prov} - KIE")
+                            if "A SIL - KIE" in order:
+                                order = order.replace("A SIL - KIE", f"A {attacker_prov} - KIE")
+                            new_orders.append(order)
+                            if order != original_order:
+                                print(f"    🔄 Adjusted order: {original_order} -> {order}")
+                        scenario.orders["GERMANY"] = new_orders
+                        print(f"  🔄 Adjusted Germany self-dislodgement scenario to use A {attacker_prov}")
+                    else:
+                        # No suitable attacker found - remove self-dislodgement scenario orders
+                        # Replace attack on KIE with hold, and remove support orders referencing non-existent units
+                        new_orders = []
+                        for order in german_orders:
+                            # Skip orders that reference non-existent units attacking KIE
+                            if " - KIE" in order and ("A BER" in order or "A MUN" in order or "A SIL" in order):
+                                # Check if the unit in this order actually exists
+                                order_parts = order.split()
+                                if len(order_parts) >= 2:
+                                    unit_ref = f"{order_parts[0]} {order_parts[1]}"
+                                    if unit_ref.startswith("A ") and unit_ref.split()[1] in ["BER", "MUN"]:
+                                        # This references a non-existent unit - skip it
+                                        continue
+                                    elif "S A BER - KIE" in order or "S A MUN - KIE" in order:
+                                        # Support order for non-existent unit - skip it
+                                        continue
+                            new_orders.append(order)
+                        scenario.orders["GERMANY"] = new_orders
+                        print(f"  ⚠️ Germany self-dislodgement scenario skipped - no suitable attacker unit available")
         
         return scenario
     
@@ -616,8 +764,9 @@ class PerfectDemoGame:
                 "ENGLAND": ["A CLY H", "F NTH H", "F ENG H"],  # Hold positions
                 "FRANCE": ["A BEL H", "A PIE H", "F MAO H", "A MAR H"],  # Hold positions
                 # SELF-DISLODGEMENT PROHIBITION: Germany tries to dislodge own unit
-                # A SIL attacks KIE with F HOL support, but A KIE is German - move fails
-                "GERMANY": ["A SIL - KIE", "F HOL S A SIL - KIE", "A KIE H"],
+                # A BER attacks KIE with F HOL support, but A KIE is German - move fails
+                # Note: BER is adjacent to KIE (SIL is not, and MUN may not exist)
+                "GERMANY": ["A BER - KIE", "F HOL S A BER - KIE", "A KIE H"],
                 # MUTUAL MOVE PREVENTION (SWAP): Austria A RUM and Russia A UKR try to swap
                 # Two units from different powers try to exchange positions - both bounce
                 "AUSTRIA": ["A VEN H", "A RUM - UKR", "F TRI H", "A BUD H"],
@@ -630,7 +779,7 @@ class PerfectDemoGame:
             expected_outcomes={
                 "mechanics_shown": ["MUTUAL_MOVE_PREVENTION", "SELF_DISLODGEMENT_PROHIBITION"],
                 "swap_fails": ["AUSTRIA A RUM - UKR", "RUSSIA A UKR - RUM"],  # Both bounce (can't swap directly)
-                "self_dislodge_fails": "GERMANY A SIL - KIE"  # Cannot dislodge own A KIE
+                "self_dislodge_fails": "GERMANY A BER - KIE"  # Cannot dislodge own A KIE
             }
         ))
         
@@ -1047,10 +1196,13 @@ class PerfectDemoGame:
                         # This is simplified - in reality we'd check game_state for occupied provinces
                         if retreat_options:
                             # Use first available retreat option
+                            # Use original province name (without DISLODGED_ prefix) for retreat order
+                            # The _find_unit method will handle matching dislodged units
                             retreat_province = retreat_options[0]
                             power_retreat_orders.append(f"{unit_type} {original_province} R {retreat_province}")
                         else:
                             # No valid retreat - unit must be destroyed
+                            # Use original province name (without DISLODGED_ prefix) for destroy order
                             power_retreat_orders.append(f"DESTROY {unit_type} {original_province}")
             
             if power_retreat_orders:
