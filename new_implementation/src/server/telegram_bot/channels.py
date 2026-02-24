@@ -26,6 +26,31 @@ def set_telegram_bot(bot: Bot) -> None:
     _telegram_bot = bot
 
 
+def _log_analytics_event(
+    game_id: str,
+    channel_id: str,
+    event_type: str,
+    event_subtype: Optional[str] = None,
+    user_id: Optional[int] = None,
+    power: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> None:
+    """Helper function to log analytics events."""
+    try:
+        from ...api.shared import db_service
+        db_service.log_channel_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type=event_type,
+            event_subtype=event_subtype,
+            user_id=user_id,
+            power=power,
+            metadata=metadata
+        )
+    except Exception as e:
+        logger.debug(f"Failed to log analytics event: {e}")
+
+
 def post_map_to_channel(channel_id: str, game_id: str, map_path: str) -> Optional[int]:
     """
     Post a map image to a Telegram channel.
@@ -61,6 +86,16 @@ def post_map_to_channel(channel_id: str, game_id: str, map_path: str) -> Optiona
         )
         
         logger.info(f"Posted map to channel {channel_id} for game {game_id}")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='map',
+            metadata={'message_id': message.message_id, 'map_path': map_path}
+        )
+        
         return message.message_id
         
     except TelegramError as e:
@@ -121,6 +156,18 @@ def post_broadcast_to_channel(
         posted_message = _telegram_bot.send_message(**message_params)
         
         logger.info(f"Posted broadcast to channel {channel_id} for game {game_id} (message_id: {posted_message.message_id})")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='broadcast',
+            user_id=None,  # Could extract from power if needed
+            power=power,
+            metadata={'message_id': posted_message.message_id, 'thread_id': reply_to_message_id}
+        )
+        
         return posted_message.message_id
         
     except TelegramError as e:
@@ -256,6 +303,17 @@ def post_proposal_with_voting(
         )
         
         logger.info(f"Posted proposal with voting to channel {channel_id} for game {game_id}")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='proposal',
+            power=power,
+            metadata={'message_id': posted_message.message_id, 'proposal_title': proposal_title}
+        )
+        
         return posted_message.message_id
         
     except TelegramError as e:
@@ -514,6 +572,16 @@ def post_notification_to_channel(
         )
         
         logger.info(f"Posted {notification_type} notification to channel {channel_id} for game {game_id}")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='notification',
+            metadata={'message_id': posted_message.message_id, 'notification_type': notification_type}
+        )
+        
         return posted_message.message_id
         
     except TelegramError as e:
@@ -723,6 +791,16 @@ def post_player_dashboard_to_channel(
         )
         
         logger.info(f"Posted player dashboard to channel {channel_id} for game {game_id}")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='dashboard',
+            metadata={'message_id': posted_message.message_id}
+        )
+        
         return posted_message.message_id
         
     except TelegramError as e:
@@ -969,6 +1047,16 @@ def post_battle_results_to_channel(
         )
         
         logger.info(f"Posted battle results to channel {channel_id} for game {game_id}")
+        
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='battle_results',
+            metadata={'message_id': posted_message.message_id}
+        )
+        
         return posted_message.message_id
         
     except TelegramError as e:

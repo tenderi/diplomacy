@@ -932,6 +932,230 @@ class DatabaseService:
             session.query(GameModel).delete()
             session.commit()
 
+    # --- Channel Analytics ---
+    def log_channel_analytics_event(
+        self,
+        game_id: str | int,
+        channel_id: str,
+        event_type: str,
+        event_subtype: Optional[str] = None,
+        user_id: Optional[int] = None,
+        power: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Log an analytics event for channel engagement tracking.
+        
+        Args:
+            game_id: Game ID (string or int)
+            channel_id: Telegram channel ID
+            event_type: Type of event ('message_posted', 'player_activity', 'order_submitted', 'vote_cast', 'message_read')
+            event_subtype: Optional subtype ('map', 'broadcast', 'battle_results', 'dashboard', 'notification')
+            user_id: Optional user ID who triggered the event
+            power: Optional power associated with the event
+            metadata: Optional additional event data (message_id, response_time, etc.)
+        """
+        from .database import ChannelAnalyticsModel
+        
+        with self.session_factory() as session:
+            # Get game model to ensure it exists
+            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
+            if not game_model:
+                self.logger.warning(f"Cannot log analytics: game {game_id} not found")
+                return
+            
+            analytics_event = ChannelAnalyticsModel(
+                game_id=game_model.id,
+                channel_id=channel_id,
+                event_type=event_type,
+                event_subtype=event_subtype,
+                user_id=user_id,
+                power=power,
+                metadata=metadata or {}
+            )
+            
+            session.add(analytics_event)
+            session.commit()
+
+    def get_channel_analytics(
+        self,
+        game_id: str | int,
+        channel_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get analytics events for a game/channel.
+        
+        Args:
+            game_id: Game ID (string or int)
+            channel_id: Optional channel ID filter
+            event_type: Optional event type filter
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            
+        Returns:
+            List of analytics event dictionaries
+        """
+        from .database import ChannelAnalyticsModel
+        
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
+            if not game_model:
+                return []
+            
+            query = session.query(ChannelAnalyticsModel).filter(
+                ChannelAnalyticsModel.game_id == game_model.id
+            )
+            
+            if channel_id:
+                query = query.filter(ChannelAnalyticsModel.channel_id == channel_id)
+            if event_type:
+                query = query.filter(ChannelAnalyticsModel.event_type == event_type)
+            if start_date:
+                query = query.filter(ChannelAnalyticsModel.created_at >= start_date)
+            if end_date:
+                query = query.filter(ChannelAnalyticsModel.created_at <= end_date)
+            
+            events = query.order_by(ChannelAnalyticsModel.created_at.desc()).all()
+            
+            return [
+                {
+                    "id": event.id,
+                    "game_id": str(game_id),
+                    "channel_id": event.channel_id,
+                    "event_type": event.event_type,
+                    "event_subtype": event.event_subtype,
+                    "user_id": event.user_id,
+                    "power": event.power,
+                    "metadata": event.metadata or {},
+                    "created_at": event.created_at.isoformat() if event.created_at else None
+                }
+                for event in events
+            ]
+
+    def get_channel_analytics_summary(
+        self,
+        game_id: str | int,
+        channel_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """
+        Get aggregated analytics summary for a game/channel.
+        
+        Args:
+            game_id: Game ID (string or int)
+            channel_id: Optional channel ID filter
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            
+        Returns:
+            Dictionary with aggregated metrics
+        """
+        from .database import ChannelAnalyticsModel
+        from sqlalchemy import func
+        
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
+            if not game_model:
+                return {
+                    "total_events": 0,
+                    "events_by_type": {},
+                    "events_by_subtype": {},
+                    "unique_users": 0,
+                    "message_count": 0,
+                    "player_activity_count": 0
+                }
+            
+            query = session.query(ChannelAnalyticsModel).filter(
+                ChannelAnalyticsModel.game_id == game_model.id
+            )
+            
+            if channel_id:
+                query = query.filter(ChannelAnalyticsModel.channel_id == channel_id)
+            if start_date:
+                query = query.filter(ChannelAnalyticsModel.created_at >= start_date)
+            if end_date:
+                query = query.filter(ChannelAnalyticsModel.created_at <= end_date)
+            
+            # Total events
+            total_events = query.count()
+            
+            # Events by type
+            events_by_type = {}
+            type_counts = session.query(
+                ChannelAnalyticsModel.event_type,
+                func.count(ChannelAnalyticsModel.id).label('count')
+            ).filter(
+                ChannelAnalyticsModel.game_id == game_model.id
+            )
+            if channel_id:
+                type_counts = type_counts.filter(ChannelAnalyticsModel.channel_id == channel_id)
+            if start_date:
+                type_counts = type_counts.filter(ChannelAnalyticsModel.created_at >= start_date)
+            if end_date:
+                type_counts = type_counts.filter(ChannelAnalyticsModel.created_at <= end_date)
+            type_counts = type_counts.group_by(ChannelAnalyticsModel.event_type).all()
+            
+            for event_type, count in type_counts:
+                events_by_type[event_type] = count
+            
+            # Events by subtype
+            events_by_subtype = {}
+            subtype_counts = session.query(
+                ChannelAnalyticsModel.event_subtype,
+                func.count(ChannelAnalyticsModel.id).label('count')
+            ).filter(
+                ChannelAnalyticsModel.game_id == game_model.id,
+                ChannelAnalyticsModel.event_subtype.isnot(None)
+            )
+            if channel_id:
+                subtype_counts = subtype_counts.filter(ChannelAnalyticsModel.channel_id == channel_id)
+            if start_date:
+                subtype_counts = subtype_counts.filter(ChannelAnalyticsModel.created_at >= start_date)
+            if end_date:
+                subtype_counts = subtype_counts.filter(ChannelAnalyticsModel.created_at <= end_date)
+            subtype_counts = subtype_counts.group_by(ChannelAnalyticsModel.event_subtype).all()
+            
+            for event_subtype, count in subtype_counts:
+                events_by_subtype[event_subtype] = count
+            
+            # Unique users
+            unique_users = session.query(
+                func.count(func.distinct(ChannelAnalyticsModel.user_id))
+            ).filter(
+                ChannelAnalyticsModel.game_id == game_model.id,
+                ChannelAnalyticsModel.user_id.isnot(None)
+            )
+            if channel_id:
+                unique_users = unique_users.filter(ChannelAnalyticsModel.channel_id == channel_id)
+            if start_date:
+                unique_users = unique_users.filter(ChannelAnalyticsModel.created_at >= start_date)
+            if end_date:
+                unique_users = unique_users.filter(ChannelAnalyticsModel.created_at <= end_date)
+            unique_users_count = unique_users.scalar() or 0
+            
+            # Message count (message_posted events)
+            message_count = query.filter(
+                ChannelAnalyticsModel.event_type == 'message_posted'
+            ).count()
+            
+            # Player activity count
+            player_activity_count = query.filter(
+                ChannelAnalyticsModel.event_type == 'player_activity'
+            ).count()
+            
+            return {
+                "total_events": total_events,
+                "events_by_type": events_by_type,
+                "events_by_subtype": events_by_subtype,
+                "unique_users": unique_users_count,
+                "message_count": message_count,
+                "player_activity_count": player_activity_count
+            }
+
     # --- Misc helpers --- 
     def execute_query(self, sql: str) -> None:
         """Execute a raw SQL query. Used for health checks."""
