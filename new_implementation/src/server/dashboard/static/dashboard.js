@@ -65,6 +65,10 @@ function setupEventListeners() {
         currentPage++;
         loadTableData(currentTable, currentPage);
     });
+    
+    // Analytics controls
+    document.getElementById('loadAnalytics').addEventListener('click', loadAnalytics);
+    document.getElementById('refreshAnalytics').addEventListener('click', loadAnalytics);
 }
 
 async function loadInitialData() {
@@ -331,6 +335,97 @@ function stopAutoRefresh() {
         clearInterval(refreshInterval);
         refreshInterval = null;
     }
+}
+
+// Analytics Functions
+async function loadAnalytics() {
+    const gameId = document.getElementById('analyticsGameId').value;
+    if (!gameId) {
+        document.getElementById('analyticsContainer').innerHTML = 
+            '<p class="error-message">Please enter a game ID</p>';
+        return;
+    }
+    
+    try {
+        const container = document.getElementById('analyticsContainer');
+        container.innerHTML = '<div class="loading">Loading analytics...</div>';
+        
+        // Load summary and engagement metrics
+        const [summaryRes, engagementRes] = await Promise.all([
+            fetch(`/games/${gameId}/channel/analytics/summary`),
+            fetch(`/games/${gameId}/channel/analytics/engagement`)
+        ]);
+        
+        if (!summaryRes.ok || !engagementRes.ok) {
+            throw new Error('Failed to load analytics');
+        }
+        
+        const summary = await summaryRes.json();
+        const engagement = await engagementRes.json();
+        
+        displayAnalytics(summary.summary, engagement.metrics);
+    } catch (error) {
+        console.error('Failed to load analytics:', error);
+        document.getElementById('analyticsContainer').innerHTML = 
+            `<div class="error-message">Failed to load analytics: ${error.message}</div>`;
+    }
+}
+
+function displayAnalytics(summary, metrics) {
+    const container = document.getElementById('analyticsContainer');
+    
+    let html = '<div class="analytics-grid">';
+    
+    // Summary Cards
+    html += '<div class="analytics-card">';
+    html += '<h3>Overview</h3>';
+    html += `<p><strong>Total Events:</strong> ${summary.total_events || 0}</p>`;
+    html += `<p><strong>Messages Posted:</strong> ${summary.message_count || 0}</p>`;
+    html += `<p><strong>Player Activities:</strong> ${summary.player_activity_count || 0}</p>`;
+    html += `<p><strong>Unique Users:</strong> ${summary.unique_users || 0}</p>`;
+    html += '</div>';
+    
+    // Engagement Metrics
+    html += '<div class="analytics-card">';
+    html += '<h3>Engagement</h3>';
+    if (metrics.messages_per_day !== null) {
+        html += `<p><strong>Messages/Day:</strong> ${metrics.messages_per_day}</p>`;
+    }
+    if (metrics.engagement_rate !== null) {
+        html += `<p><strong>Engagement Rate:</strong> ${metrics.engagement_rate}%</p>`;
+    }
+    html += '</div>';
+    
+    // Events by Type
+    html += '<div class="analytics-card">';
+    html += '<h3>Events by Type</h3>';
+    if (summary.events_by_type && Object.keys(summary.events_by_type).length > 0) {
+        html += '<ul>';
+        for (const [type, count] of Object.entries(summary.events_by_type)) {
+            html += `<li>${type}: ${count}</li>`;
+        }
+        html += '</ul>';
+    } else {
+        html += '<p>No events recorded</p>';
+    }
+    html += '</div>';
+    
+    // Events by Subtype
+    html += '<div class="analytics-card">';
+    html += '<h3>Events by Subtype</h3>';
+    if (summary.events_by_subtype && Object.keys(summary.events_by_subtype).length > 0) {
+        html += '<ul>';
+        for (const [subtype, count] of Object.entries(summary.events_by_subtype)) {
+            html += `<li>${subtype}: ${count}</li>`;
+        }
+        html += '</ul>';
+    } else {
+        html += '<p>No subtype events recorded</p>';
+    }
+    html += '</div>';
+    
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 // Expose restartService to global scope for onclick handlers

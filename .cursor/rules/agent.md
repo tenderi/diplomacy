@@ -1,67 +1,73 @@
-# Clarifications and Best Practices (added July 2025)
-
-**Map File Backup Policy**: When modifying map files (standard.svg, svg.dtd), ALWAYS create timestamped backups before making changes: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix the original files directly to avoid breaking references. All map processing should work with the original standard.svg and svg.dtd files as the source of truth. **CRITICAL**: NEVER change the file path references in code - always overwrite the original standard.svg file, never create new file names like standard_fixed.svg or standard_cleaned.svg for production use.
-
-**Remote Service Deployment**: CRITICAL - The Diplomacy services run on a remote instance, not locally. When debugging button issues or API calls, remember that local curl tests to localhost:8000 will fail because the actual server is deployed elsewhere. The Telegram bot connects to the remote API server, not a local one. This explains why "View Map" and "Submit Orders" buttons appeared non-functional - they were making API calls to the remote server which was working correctly.
-
-- **Documentation Updates**: Always update `@fix_plan.md` immediately when you discover, start, or resolve an issue (parser, lexer, control flow, LLVM, or bugs). Remove completed items regularly. Update `@AGENT.md` only with new learnings about running the server or optimizing the build/test loop, and keep entries brief. Do NOT use these files for status reports.
-
-- **Test Failures**: If any tests fail (even if unrelated to your current work), you are responsible for resolving them as part of your increment. Do not leave failing tests unresolved.
-
-- **Single Source of Truth**: Avoid migrations or adapters. Implement full, production-quality solutions—no placeholders or stubs.
-
-- **Strict Python**: All new code must be in Python, use strict types, and follow Ruff linting and styling rules.
-
+---
+alwaysApply: true
+description: Core development rules and best practices for Diplomacy implementation
 ---
 
-0a. study /new_implementation/specs/* to learn about the compiler specifications
+# Development Rules and Best Practices
 
-0b. The source code is in /new_implementation/src/
+For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
-0c. study fix_plan.md.
+## Critical Policies
 
-0d. study diplomacy_rules.md so you can understand rules of the game.
+**Map File Backup Policy**: When modifying map files ([standard.svg](mdc:new_implementation/maps/standard.svg), [svg.dtd](mdc:new_implementation/maps/svg.dtd)), ALWAYS create timestamped backups: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix original files directly—never change file path references in code. **CRITICAL**: Always overwrite original files, never create new names like `standard_fixed.svg` for production.
 
-1. Your task is to implement missing server functionality and produce an working server in python language
+**Remote Service Deployment**: CRITICAL - Services run on a remote instance, not locally. Local curl tests to `localhost:8000` will fail. The Telegram bot connects to the remote API server. When debugging button/API issues, remember the server is deployed elsewhere.
 
-2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard. The tests are defined in /new_implementation/testing_and_validation.md.
+**Never Modify Old Implementation**: NEVER make modifications to [/old_implementation/](mdc:old_implementation/). Work only in [/new_implementation/](mdc:new_implementation/).
 
-3. When the tests pass update the @fix_plan.md`, then add changed code and @fix_plan.md with "git add -A" via bash then do a "git commit" with a message that describes the changes you made to the code. After the commit do a "git push" to push the changes to the remote repository.
+## Code Quality Standards
 
-4. Ask as little confirmations as you can. Just keep working.
+- **Python Only**: All code must be Python with strict type hints
+- **Ruff Compliance**: Code must pass Ruff linting and formatting
+- **Full Implementations**: NO placeholders, stubs, or minimal implementations—implement fully
+- **Single Source of Truth**: Avoid migrations/adapters. Implement production-quality solutions directly
+- **No Backwards Compatibility**: Breaking changes are acceptable; database can be dropped if needed
 
-5. Always keep requirements.txt up to date.
+## Development Workflow
 
-6. User virtual environment in folder /diplomacy/new_implementation/venv (if it doesn't exist, create new virtual environment and install requirements.txt from new_implementation/requirements.txt)
+### Before Starting
+1. Study [specs/](mdc:new_implementation/specs/) to understand specifications
+2. Review [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) for current priorities
+3. Understand game rules: [diplomacy_rules.md](mdc:new_implementation/specs/diplomacy_rules.md)
+4. Source code location: [src/](mdc:new_implementation/src/)
 
-7. Don't maintain backwards compatibility - breaking changes are ok, we can drop the database if necessary.
+### Implementation Process
+1. Implement missing server functionality in Python
+2. Run tests after every change: [tests/](mdc:new_implementation/tests/)
+3. Fix ALL test failures (even unrelated ones)
+4. Update [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when starting/resolving issues
+5. Keep [requirements.txt](mdc:new_implementation/requirements.txt) updated
 
-999. Important: When authoring documentation (ie. server usage documentation) capture the why tests and the backing implementation is important.
+### Testing Requirements
+- Test specifications: [testing_and_validation.md](mdc:new_implementation/specs/testing_and_validation.md)
+- Tests located in [tests/](mdc:new_implementation/tests/) next to source code
+- Start with testing primitives when implementing new features
+- All tests must pass before committing
 
-9999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
+## Git Workflow
 
-999999. As soon as there are no build or test errors create a git tag. Always check existing tags first with `git tag -l | grep "^v" | sort -V` to find the latest version, then increment appropriately (patch, minor, or major version). Use the 'v' prefix for version tags (e.g., v1.0.2, not 0.0.2).
+1. Update [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when tests pass
+2. Stage changes: `git add -A`
+3. Commit with descriptive message describing changes
+4. Push: `git push`
+5. Create version tag when all tests pass: `git tag -l | grep "^v" | sort -V` (use 'v' prefix, e.g., v1.0.2)
 
-999999999. You may add extra logging if required to be able to debug the issues.
+## Documentation Standards
 
-9999999999. ALWAYS KEEP @fix_plan.md up to do date with your learnings by using a subagent. Especially after wrapping up/finishing your turn.
+- **fix_plan.md**: Update immediately when discovering, starting, or resolving issues. Remove completed items regularly. Keep up-to-date with learnings.
+- **AGENT.md** (this file): Only brief operational learnings (e.g., correct commands after trial/error). NO status reports.
+- **Documentation**: Capture "why" tests and implementation matter, not just "what"
+- **Module READMEs**: Each module folder should have a README.md documenting the code library
 
-99999999999. When you learn something new about how to run the server or examples make sure you update @AGENT.md but keep it brief. For example if you run commands multiple times before learning the correct command then that file should be updated.
+## Environment Setup
 
-999999999999. IMPORTANT DO NOT IGNORE: The libray should be authored in python. Use strict types. Use Ruff linting rules and styling.
+- Use virtual environment: `new_implementation/venv`
+- Create if missing: `python3 -m venv new_implementation/venv`
+- Install dependencies: `pip install -r new_implementation/requirements.txt`
 
-99999999999999. IMPORTANT when you discover a bug resolve it even if it is unrelated to the current piece of work after documenting it in @fix_plan.md
+## Operational Guidelines
 
-9999999999999999. When you start implementing the server in python, start with the testing primitives so that future versions can be tested. NEVER MAKE ANY MODIFICATIONS TO THE FOLDER /old_implementation/, ONLY WORK IN THE FOLDER /new_implementation/
-
-99999999999999999. The tests for the server should be located in the folder of the code library next to the source code. Ensure you document the code library with a README.md in the same folder as the source code.
-
-9999999999999999999. Keep AGENT.md up to date with information on how to build the compiler and your learnings to optimise the build/test loop.
-
-999999999999999999999. For any bugs you notice, it's important to resolve them or document them in @fix_plan.md to be resolved.
-
-99999999999999999999999999. When @fix_plan.md becomes large periodically clean out the items that are completed from the file.
-
-9999999999999999999999999999. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
-
-9999999999999999999999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @AGENT.md
+- Ask minimal confirmations—keep working autonomously
+- Add logging when needed for debugging
+- When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:new_implementation/specs/fix_plan.md)
+- Periodically clean completed items from [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when it becomes large
