@@ -413,6 +413,7 @@ class Game:
         
         # Third pass: Add implicit hold orders for units that are supporting but don't have explicit hold orders
         # A unit that is supporting is effectively holding in its own province for conflict resolution
+        # UNLESS support is cut (another unit is attacking the supporting unit's province)
         for power_name, power in self.game_state.powers.items():
             for supporting_unit in power.units:
                 unit_key = (supporting_unit.power, supporting_unit.unit_type, supporting_unit.province)
@@ -427,8 +428,16 @@ class Game:
                             has_explicit_hold = True
                             break
                 
-                # If no explicit hold order, add implicit hold for conflict resolution
-                if not has_explicit_hold:
+                # Check if support is cut (another unit is attacking this province)
+                support_is_cut = False
+                if unit_province in move_strengths:
+                    for unit, strength, order in move_strengths[unit_province]:
+                        if unit != supporting_unit:  # Another unit is attacking
+                            support_is_cut = True
+                            break
+                
+                # If no explicit hold order and support is not cut, add implicit hold for conflict resolution
+                if not has_explicit_hold and not support_is_cut:
                     if unit_province not in move_strengths:
                         move_strengths[unit_province] = []
                     # Create a temporary hold order for conflict resolution
@@ -579,7 +588,10 @@ class Game:
                             # Check if this support is for this specific unit
                             if isinstance(order, MoveOrder):
                                 # For move support: supported_unit must match the moving unit
-                                if (support_order.supported_action == "move" and
+                                # Treat '-' as equivalent to "move" when supported_target is present
+                                is_move_support = (support_order.supported_action == "move" or 
+                                                  (support_order.supported_action == "-" and support_order.supported_target))
+                                if (is_move_support and
                                     supported_unit.unit_type == unit.unit_type and
                                     supported_unit.province == unit.province and
                                     supported_unit.power == unit.power):
@@ -713,8 +725,13 @@ class Game:
                             
                             if unit_matches:
                                 # Verify support action matches order type
-                                if ((support_order.supported_action == "move" and isinstance(order, MoveOrder)) or
-                                    (support_order.supported_action == "hold" and isinstance(order, HoldOrder))):
+                                # Treat '-' as equivalent to "move" when supported_target is present
+                                is_move_support = (support_order.supported_action == "move" or 
+                                                  (support_order.supported_action == "-" and support_order.supported_target))
+                                is_hold_support = (support_order.supported_action == "hold")
+                                
+                                if ((is_move_support and isinstance(order, MoveOrder)) or
+                                    (is_hold_support and isinstance(order, HoldOrder))):
                                     # This support is for this unit
                                     unit_key = f"{unit.unit_type} {unit.province}"
                                     if unit_key in total_strengths:

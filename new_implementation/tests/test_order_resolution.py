@@ -189,11 +189,11 @@ class TestOrderResolution:
         army_paris = Unit(unit_type='A', province='PAR', power='FRANCE')
         army_marseille = Unit(unit_type='A', province='MAR', power='FRANCE')
         army_munich = Unit(unit_type='A', province='MUN', power='GERMANY')
-        army_rome = Unit(unit_type='A', province='ROM', power='ITALY')
+        army_piedmont = Unit(unit_type='A', province='PIE', power='ITALY')  # PIE is adjacent to MAR
         
         game.game_state.powers['FRANCE'].units.extend([army_paris, army_marseille])
         game.game_state.powers['GERMANY'].units.append(army_munich)
-        game.game_state.powers['ITALY'].units.append(army_rome)
+        game.game_state.powers['ITALY'].units.append(army_piedmont)
         
         # French army moves to Burgundy with support from Marseille
         move_france = MoveOrder(
@@ -220,10 +220,10 @@ class TestOrderResolution:
             status=OrderStatus.PENDING
         )
         
-        # Italian army attacks Marseille (cutting support)
+        # Italian army attacks Marseille (cutting support) - PIE is adjacent to MAR
         move_italy = MoveOrder(
             power='ITALY',
-            unit=army_rome,
+            unit=army_piedmont,
             target_province='MAR',
             status=OrderStatus.PENDING
         )
@@ -238,7 +238,7 @@ class TestOrderResolution:
         # Italian move to Marseille should succeed (cutting support)
         marseille_moves = [m for m in results["moves"] if m["to"] == "MAR"]
         assert len(marseille_moves) == 1
-        assert marseille_moves[0]["unit"] == "A ROM"
+        assert marseille_moves[0]["unit"] == "A PIE"
         
         # German move to Burgundy should succeed (French support was cut)
         burgundy_moves = [m for m in results["moves"] if m["to"] == "BUR"]

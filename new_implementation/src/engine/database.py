@@ -311,7 +311,7 @@ class ChannelAnalyticsModel(Base):
     event_subtype = Column(String(50), nullable=True)  # 'map', 'broadcast', 'battle_results', 'dashboard', 'notification'
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # User who triggered the event
     power = Column(String(20), nullable=True)  # Power associated with the event
-    metadata = Column(JSON, nullable=True)  # Additional event data (message_id, response_time, etc.)
+    event_data = Column(JSON, nullable=True)  # Additional event data (message_id, response_time, etc.)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Indexes for efficient querying

@@ -971,7 +971,7 @@ class DatabaseService:
                 event_subtype=event_subtype,
                 user_id=user_id,
                 power=power,
-                metadata=metadata or {}
+                event_data=metadata or {}
             )
             
             session.add(analytics_event)
@@ -1029,7 +1029,7 @@ class DatabaseService:
                     "event_subtype": event.event_subtype,
                     "user_id": event.user_id,
                     "power": event.power,
-                    "metadata": event.metadata or {},
+                    "event_data": event.event_data or {},
                     "created_at": event.created_at.isoformat() if event.created_at else None
                 }
                 for event in events

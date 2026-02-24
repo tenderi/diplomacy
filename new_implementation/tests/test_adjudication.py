@@ -167,12 +167,12 @@ def test_complex_convoy_disruption():
     game.add_player("FRANCE")
     game.add_player("ITALY")
     from engine.data_models import Unit
-    game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='SPA', power='FRANCE'), Unit(unit_type='F', province='GOL', power='FRANCE'), Unit(unit_type='F', province='TYS', power='FRANCE')]
+    game.game_state.powers["FRANCE"].units = [Unit(unit_type='A', province='SPA', power='FRANCE'), Unit(unit_type='F', province='LYO', power='FRANCE'), Unit(unit_type='F', province='TYS', power='FRANCE')]
     game.game_state.powers["ITALY"].units = [Unit(unit_type='F', province='ION', power='ITALY'), Unit(unit_type='F', province='TUN', power='ITALY')]
     # France tries to convoy army, but one convoying fleet is attacked
     game.set_orders("FRANCE", [
         "FRANCE A SPA - NAP",
-        "FRANCE F GOL C A SPA - NAP",
+        "FRANCE F LYO C A SPA - NAP",
         "FRANCE F TYS C A SPA - NAP"
     ])
     game.set_orders("ITALY", [
@@ -183,7 +183,7 @@ def test_complex_convoy_disruption():
 
     # Fleet should be dislodged, convoy should fail
     assert any(unit.province == 'SPA' for unit in game.game_state.powers["FRANCE"].units)   # Army stays (convoy failed)
-    assert any(unit.province == 'GOL' for unit in game.game_state.powers["FRANCE"].units)   # Fleet stays
+    assert any(unit.province == 'LYO' for unit in game.game_state.powers["FRANCE"].units)   # Fleet stays
     assert not any(unit.province == 'TYS' for unit in game.game_state.powers["FRANCE"].units)  # Fleet dislodged
     assert any(unit.province == 'TYS' for unit in game.game_state.powers["ITALY"].units)    # Italian fleet moved in
     assert not any(unit.province == 'ION' for unit in game.game_state.powers["ITALY"].units)  # Italian fleet moved out
