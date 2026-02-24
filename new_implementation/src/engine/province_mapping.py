@@ -18,11 +18,13 @@ PROVINCE_MAPPING = {
     "BOT": ("Gulf of Bothnia", "sea"),
     "EAS": ("Eastern Mediterranean", "sea"),
     "ENG": ("English Channel", "sea"),
-    "GOL": ("Gulf of Lyon", "sea"),
+    "LYO": ("Gulf of Lyon", "sea"),  # Map uses LYO as canonical name
     "HEL": ("Helgoland Bight", "sea"),
     "ION": ("Ionian Sea", "sea"),
     "IRI": ("Irish Sea", "sea"),
     "MAO": ("Mid-Atlantic Ocean", "sea"),
+    "MAO": ("Mid-Atlantic Ocean", "sea"),
+    "NAF": ("North Africa", "coastal"),  # Missing from mapping
     "NAO": ("North Atlantic Ocean", "sea"),
     "NTH": ("North Sea", "sea"),
     "NWG": ("Norwegian Sea", "sea"),
@@ -133,10 +135,10 @@ ALTERNATIVE_MAPPING = {
     "channel": "ENG",
     "ech": "ENG",
     
-    # Gulf of Lyon
-    "lyo": "GOL",
-    "gulfofl": "GOL",
-    "lyon": "GOL",
+    # Gulf of Lyon (map uses LYO as canonical, GOL is alternative)
+    "gol": "LYO",
+    "gulfofl": "LYO",
+    "lyon": "LYO",
     
     # Helgoland Bight
     "helgoland": "HEL",

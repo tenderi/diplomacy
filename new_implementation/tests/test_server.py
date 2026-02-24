@@ -182,6 +182,8 @@ def test_adjudication_results_in_state():
     client = TestClient(app)
     # Create a game and register a user
     resp = client.post("/games/create", json={"map_name": "standard"})
+    assert resp.status_code == 200, f"Create game failed: {resp.json()}"
+    assert "game_id" in resp.json(), f"Response missing game_id: {resp.json()}"
     game_id = int(resp.json()["game_id"])
     # Use persistent_register which actually creates the user in the database
     client.post("/users/persistent_register", json={"telegram_id": "u1", "full_name": "User1"})

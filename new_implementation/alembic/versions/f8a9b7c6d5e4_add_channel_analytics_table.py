@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column('event_subtype', sa.String(50), nullable=True),
         sa.Column('user_id', sa.Integer(), nullable=True),
         sa.Column('power', sa.String(20), nullable=True),
-        sa.Column('metadata', JSON, nullable=True),
+        sa.Column('event_data', JSON, nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
         sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['user_id'], ['users.id']),

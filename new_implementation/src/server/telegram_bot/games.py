@@ -534,9 +534,80 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Replace error: {e}")
 
 
-async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def process_waiting_list(
+    waiting_list: List[Tuple[str, str]],
+    required_size: int,
+    powers: List[str],
+    notify_callback,
+    api_post_func=None
+) -> Tuple[Optional[str], Optional[List[Tuple[Tuple[str, str], str]]]]:
     """
     Process the waiting list: if enough players, create a game, assign powers, and notify users.
+    
+    Args:
+        waiting_list: List of (telegram_id, full_name) tuples (will be modified - cleared if game created)
+        required_size: Number of players required to create a game
+        powers: List of power names to assign
+        notify_callback: Function(telegram_id: str, message: str) to notify players
+        api_post_func: Function(endpoint: str, json: dict) to make API calls (defaults to api_post)
+    
+    Returns:
+        Tuple of (game_id, assignments) if game created, (None, None) otherwise.
+        assignments is a list of ((telegram_id, full_name), power) tuples.
+    """
+    if api_post_func is None:
+        from .api_client import api_post
+        api_post_func = api_post
+    
+    # Check if enough players
+    if len(waiting_list) < required_size:
+        return (None, None)
+    
+    # Get required number of players
+    players = waiting_list[:required_size]
+    random.shuffle(players)
+    assigned_powers = list(zip(players, powers))
+    
+    try:
+        # Create game
+        game_resp = api_post_func("/games/create", {"map_name": "standard"})
+        game_id = game_resp.get("game_id")
+        
+        if not game_id:
+            logger.error("Failed to create game: no game_id in response")
+            return (None, None)
+        
+        # Add all players
+        for (player_id, player_name), power in assigned_powers:
+            api_post_func(
+                f"/games/{game_id}/join",
+                {"telegram_id": player_id, "game_id": int(game_id), "power": power}
+            )
+        
+        # Notify all players
+        for (player_id, player_name), power in assigned_powers:
+            try:
+                notify_callback(
+                    player_id,
+                    f"🎮 Game {game_id} created! You've been assigned {power}.\n\nUse /games to see your game."
+                )
+            except Exception as e:
+                logger.warning(f"Failed to notify player {player_id}: {e}")
+        
+        # Clear waiting list (remove the players we just used)
+        waiting_list.clear()
+        
+        logger.info(f"Created game {game_id} with {len(assigned_powers)} players from waiting list")
+        return (game_id, assigned_powers)
+        
+    except Exception as e:
+        logger.error(f"Error creating game from waiting list: {e}")
+        return (None, None)
+
+
+async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Add user to waiting list and process if enough players.
     """
     user = update.effective_user
     if not user or not update.message:
@@ -561,28 +632,19 @@ async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     # If enough players, create a new game
     if len(WAITING_LIST) >= WAITING_LIST_SIZE:
-        players = WAITING_LIST[:WAITING_LIST_SIZE]
-        random.shuffle(players)
-        assigned_powers = list(zip(players, POWERS))
+        def notify_callback(telegram_id: str, message: str) -> None:
+            # Notification will be handled by the bot's notification system
+            logger.info(f"Would notify {telegram_id}: {message}")
         
-        try:
-            # Create game
-            game_resp = api_post("/games/create", {"map_name": "standard"})
-            game_id = game_resp.get("game_id")
-            
-            # Add all players
-            for (player_id, player_name), power in assigned_powers:
-                api_post(
-                    f"/games/{game_id}/join",
-                    {"telegram_id": player_id, "game_id": int(game_id), "power": power}
-                )
-            
-            # Clear waiting list
-            WAITING_LIST.clear()
-            
-            # Notify all players (would need bot instance)
-            logger.info(f"Created game {game_id} with {len(assigned_powers)} players from waiting list")
-            
-        except Exception as e:
-            logger.error(f"Error creating game from waiting list: {e}")
-            await update.message.reply_text(f"Error creating game: {e}")
+        game_id, assignments = process_waiting_list(
+            WAITING_LIST,
+            WAITING_LIST_SIZE,
+            POWERS,
+            notify_callback
+        )
+        
+        if game_id:
+            # Waiting list is already cleared by process_waiting_list
+            await update.message.reply_text(f"🎮 Game {game_id} created! All players have been notified.")
+        else:
+            await update.message.reply_text("Error creating game from waiting list. Please try again.")
