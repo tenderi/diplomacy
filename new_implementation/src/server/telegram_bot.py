@@ -43,6 +43,7 @@ from server.telegram_bot.admin import start_demo_game, run_automated_demo, debug
 from server.telegram_bot.notifications import fastapi_app, notify
 from server.telegram_bot.channel_commands import link_channel, unlink_channel, channel_info, channel_settings
 from server.telegram_bot.channels import set_telegram_bot
+from server.telegram_bot.link_account import link_account
 
 logger = logging.getLogger("diplomacy.telegram_bot.main")
 
@@ -483,6 +484,7 @@ def main():
     app.add_handler(CommandHandler("help", show_help))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("examples", examples))
+    app.add_handler(CommandHandler("link", link_account))
     app.add_handler(CommandHandler("link_channel", link_channel))
     app.add_handler(CommandHandler("unlink_channel", unlink_channel))
     app.add_handler(CommandHandler("channel_info", channel_info))

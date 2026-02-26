@@ -25,7 +25,7 @@ from .db_config import SQLALCHEMY_DATABASE_URL
 from .api.shared import deadline_scheduler, db_service
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, health
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, health, auth
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -156,6 +156,7 @@ app.include_router(admin.router)
 app.include_router(dashboard.router)
 app.include_router(channels.router, tags=["channels"])
 app.include_router(health.router, tags=["health"])
+app.include_router(auth.router)
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")
@@ -198,6 +199,12 @@ _static_dir = _dashboard_dir / "static"
 # Mount static files if directory exists
 if _static_dir.exists():
     app.mount("/dashboard/static", StaticFiles(directory=str(_static_dir)), name="dashboard-static")
+
+# --- Player app (browser client) - serve built frontend at /app ---
+# api.py lives in new_implementation/src/server/; frontend is new_implementation/frontend/
+_frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/app", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
 
 @app.get("/", response_class=HTMLResponse)
 def root() -> HTMLResponse:

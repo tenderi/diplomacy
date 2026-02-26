@@ -176,6 +176,16 @@ def standard_game():
 
 
 @pytest.fixture
+def game_state_from_standard_map():
+    """GameState from Game('standard') with real map adjacency (FRANCE + GERMANY only).
+    Use when testing real situations: adjacency and units come from the loaded map."""
+    game = Game('standard')
+    game.add_player('FRANCE')
+    game.add_player('GERMANY')
+    return game.game_state
+
+
+@pytest.fixture
 def mid_game_state():
     """Create a mid-game state with units and orders."""
     from datetime import datetime
@@ -345,7 +355,7 @@ def mock_map():
         "BAL": Mock(type="sea", is_supply_center=False)
     }
     
-    # Mock adjacency data
+    # Mock adjacency data (bot/UI tests; optionally use real map adjacencies for consistency)
     mock_map.get_adjacency = Mock(return_value=["BUR", "PIC"])
     mock_map.get_coast_adjacency = Mock(return_value=["ENG"])
     

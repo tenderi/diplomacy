@@ -11,6 +11,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from src.engine.map import Map
+from src.engine.game import Game
+from src.engine.data_models import Unit
 
 
 def test_orders_map_generation():
@@ -288,6 +290,49 @@ def test_status_indicators():
     assert os.path.exists(output_path)
     
     print(f"✅ Status indicators map generated: {output_path}")
+
+
+def test_visualization_from_real_adjudication():
+    """Real situation: Game('standard'), valid orders, process_turn, then render from resulting state."""
+    game = Game("standard")
+    game.add_player("FRANCE")
+    game.add_player("GERMANY")
+    game.game_state.powers["FRANCE"].units = [Unit(unit_type="A", province="PAR", power="FRANCE")]
+    game.game_state.powers["GERMANY"].units = [Unit(unit_type="A", province="BUR", power="GERMANY")]
+    game.set_orders("FRANCE", ["FRANCE A PAR - BUR"])
+    game.set_orders("GERMANY", ["GERMANY A BUR - PAR"])
+    game.process_turn()
+    # Build units dict from game state (real outcome)
+    units = {}
+    for power_name, power in game.game_state.powers.items():
+        for u in power.units:
+            units[f"{u.unit_type} {u.province}"] = power_name
+    phase_info = {
+        "turn": game.turn,
+        "year": game.year,
+        "season": game.season,
+        "phase": game.phase,
+        "phase_code": game.phase_code,
+    }
+    supply_center_control = {}
+    for power_name, power in game.game_state.powers.items():
+        for sc in power.controlled_supply_centers:
+            supply_center_control[sc] = power_name
+    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
+    if not os.path.exists(svg_path):
+        pytest.skip(f"SVG map not found at {svg_path}")
+    test_maps_dir = os.path.join(BASE_DIR, "test_maps")
+    os.makedirs(test_maps_dir, exist_ok=True)
+    output_path = os.path.join(test_maps_dir, "test_real_scenario_standoff.png")
+    img_bytes = Map.render_board_png(
+        svg_path, units, output_path=output_path,
+        phase_info=phase_info, supply_center_control=supply_center_control,
+    )
+    assert img_bytes is not None
+    assert len(img_bytes) > 0
+    assert os.path.exists(output_path)
+    assert any(u.province == "PAR" for u in game.game_state.powers["FRANCE"].units)
+    assert any(u.province == "BUR" for u in game.game_state.powers["GERMANY"].units)
 
 
 if __name__ == "__main__":

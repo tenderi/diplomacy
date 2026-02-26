@@ -33,6 +33,10 @@ coverage>=7.11.0,<8.0.0
 # Timezone handling
 pytz>=2024.2
 
+# Auth (JWT + password hashing)
+PyJWT>=2.9.0,<3.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+
 # Additional utilities
 python-multipart>=0.0.17  # For FastAPI file uploads
 python-dotenv>=1.0.1     # For environment variable management

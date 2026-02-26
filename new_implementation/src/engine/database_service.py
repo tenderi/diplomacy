@@ -6,14 +6,14 @@ to ensure proper data integrity and consistency.
 """
 
 from typing import List, Optional, Dict, Any, Tuple, Iterable
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 import logging
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
-    TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel,
+    TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel,
     get_session_factory, unit_to_dict, dict_to_unit, order_to_dict, dict_to_order
 )
 from .data_models import (
@@ -588,6 +588,67 @@ class DatabaseService:
             session.commit()
             session.refresh(user)
             return user
+
+    def get_user_by_email(self, email: str) -> Optional[UserModel]:
+        with self.session_factory() as session:
+            return session.query(UserModel).filter_by(email=email.strip().lower()).first()
+
+    def create_user_with_password(
+        self,
+        email: str,
+        password_hash: str,
+        full_name: Optional[str] = None,
+    ) -> UserModel:
+        with self.session_factory() as session:
+            user = UserModel(
+                email=email.strip().lower(),
+                password_hash=password_hash,
+                full_name=full_name or email.split("@")[0],
+                telegram_id=None,
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            return user
+
+    def set_user_telegram_id(self, user_id: int, telegram_id: str) -> None:
+        with self.session_factory() as session:
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            user.telegram_id = str(telegram_id)
+            session.commit()
+
+    def create_link_code(self, user_id: int, ttl_minutes: int = 10) -> Tuple[str, datetime]:
+        import secrets
+        with self.session_factory() as session:
+            code = "".join(secrets.choice("0123456789") for _ in range(6))
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            link_code = LinkCodeModel(
+                user_id=user_id,
+                code=code,
+                expires_at=expires_at,
+            )
+            session.add(link_code)
+            session.commit()
+            return code, expires_at
+
+    def consume_link_code(self, code: str) -> Optional[int]:
+        with self.session_factory() as session:
+            now = datetime.now(timezone.utc)
+            link_code = (
+                session.query(LinkCodeModel)
+                .filter_by(code=code.strip())
+                .filter(LinkCodeModel.expires_at > now)
+                .first()
+            )
+            if not link_code:
+                return None
+            user_id = link_code.user_id
+            session.delete(link_code)
+            session.commit()
+            return user_id
 
     def get_user_count(self) -> int:
         with self.session_factory() as session:

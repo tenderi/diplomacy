@@ -46,11 +46,13 @@ class GameModel(Base):
 
 
 class UserModel(Base):
-    """Users table (for Telegram integration)"""
+    """Users table (browser + Telegram). At least one of email or telegram_id must be set."""
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), unique=True, nullable=True)  # For browser login
+    password_hash = Column(String(255), nullable=True)  # For browser login
+    telegram_id = Column(String(255), unique=True, nullable=True)  # For Telegram; null until linked from web
     full_name = Column(String(255), nullable=False)
     username = Column(String(255))
     is_active = Column(Boolean, default=True)
@@ -61,6 +63,21 @@ class UserModel(Base):
     players = relationship("PlayerModel", back_populates="user")
     messages_sent = relationship("MessageModel", foreign_keys="MessageModel.sender_user_id", back_populates="sender")
     messages_received = relationship("MessageModel", foreign_keys="MessageModel.recipient_user_id", back_populates="recipient")
+    link_codes = relationship("LinkCodeModel", back_populates="user", cascade="all, delete-orphan")
+
+
+class LinkCodeModel(Base):
+    """One-time codes for linking Telegram to a browser account."""
+    __tablename__ = 'link_codes'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    code = Column(String(32), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("UserModel", back_populates="link_codes")
 
 
 class PlayerModel(Base):

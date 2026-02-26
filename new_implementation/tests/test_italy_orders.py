@@ -50,9 +50,9 @@ def test_italy_orders_specifically():
     game.set_orders('ITALY', ['A ROM S A VEN', 'A VEN S A ROM', 'F NAP - ROM'])
     print(f"  ITALY: A ROM S A VEN, A VEN S A ROM, F NAP - ROM")
     
-    # Austria orders
-    game.set_orders('AUSTRIA', ['A VIE H', 'A BUD S A VIE - GAL', 'F TRI - SER'])
-    print(f"  AUSTRIA: A VIE H, A BUD S A VIE - GAL, F TRI - SER")
+    # Austria orders (F TRI - ALB is valid; F TRI - SER would be fleet to land)
+    game.set_orders('AUSTRIA', ['A VIE H', 'A BUD S A VIE - GAL', 'F TRI - ALB'])
+    print(f"  AUSTRIA: A VIE H, A BUD S A VIE - GAL, F TRI - ALB")
     
     # Turkey orders
     game.set_orders('TURKEY', ['A CON - BUL', 'A SMY - ARM', 'F ANK - SMY'])

@@ -11,7 +11,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script is at new_implementation/infra/scripts/run_tests.sh; project root is new_implementation
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_DIR="$PROJECT_ROOT/tests"
 COVERAGE_DIR="$PROJECT_ROOT/htmlcov"
 COVERAGE_XML="$PROJECT_ROOT/coverage.xml"
@@ -117,6 +118,11 @@ fi
 
 # Add test directory
 PYTEST_CMD="$PYTEST_CMD $TEST_DIR"
+
+# Add coverage when available (run from project root so htmlcov is in PROJECT_ROOT)
+if [[ "$HAS_COVERAGE" == true ]]; then
+    PYTEST_CMD="$PYTEST_CMD --cov=src --cov-report=term-missing --cov-report=html:htmlcov"
+fi
 
 echo -e "${BLUE}📁 Test directory:${NC} $TEST_DIR"
 echo -e "${BLUE}📊 Coverage report:${NC} $COVERAGE_DIR"
@@ -287,6 +293,8 @@ fi
 # Execute the command with proper environment inheritance
 # Ensure PYTHONPATH and database URL are available to pytest
 export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
+# Run pytest from project root so coverage and paths resolve correctly
+cd "$PROJECT_ROOT"
 # Force schema check one more time right before pytest (in case of any race conditions)
 if [[ -n "$SQLALCHEMY_DATABASE_URL" ]] || [[ -n "$DIPLOMACY_DATABASE_URL" ]]; then
     db_url_final="${SQLALCHEMY_DATABASE_URL:-${DIPLOMACY_DATABASE_URL}}"

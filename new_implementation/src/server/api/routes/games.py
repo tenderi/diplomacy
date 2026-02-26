@@ -4,12 +4,14 @@ Game management API routes.
 This module contains all endpoints related to game creation, state management,
 player management (join/quit/replace), deadlines, snapshots, and history.
 """
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone, timedelta
 
 import requests
+from fastapi.security import HTTPAuthorizationCredentials
+from .auth import resolve_user_or_telegram, http_bearer
 from ..shared import (
     db_service, server, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
     _state_to_spec_dict, _get_power_for_unit, notify_players
@@ -35,16 +37,16 @@ class SetDeadlineRequest(BaseModel):
     deadline: Optional[datetime]
 
 class JoinGameRequest(BaseModel):
-    telegram_id: str
+    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     game_id: int
     power: str
 
 class QuitGameRequest(BaseModel):
-    telegram_id: str
+    telegram_id: Optional[str] = None
     game_id: int
 
 class ReplacePlayerRequest(BaseModel):
-    telegram_id: str
+    telegram_id: Optional[str] = None
     power: str
 
 class MarkInactiveRequest(BaseModel):
@@ -372,11 +374,13 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/join")
-def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
+def join_game(
+    game_id: int,
+    req: JoinGameRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     try:
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         # Check if already joined
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
@@ -395,26 +399,28 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         result = server.process_command(f"ADD_PLAYER {str(game_id)} {req.power}")
         if result.get("status") != "ok":
             raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-        # Notification logic
+        # Notification logic (only if user has telegram_id)
+        telegram_id_val = getattr(user, "telegram_id", None)
         try:
-            try:
-                telegram_id_int = int(req.telegram_id)
-                requests.post(
-                    NOTIFY_URL,
-                    json={"telegram_id": telegram_id_int, "message": f"You have joined game {game_id} as {req.power}."},
-                    timeout=2,
-                )
-            except (ValueError, TypeError):
-                pass
+            if telegram_id_val:
+                try:
+                    telegram_id_int = int(telegram_id_val)
+                    requests.post(
+                        NOTIFY_URL,
+                        json={"telegram_id": telegram_id_int, "message": f"You have joined game {game_id} as {req.power}."},
+                        timeout=2,
+                    )
+                except (ValueError, TypeError):
+                    pass
         except Exception as e:
-            scheduler_logger.error(f"Failed to notify joining player {req.telegram_id}: {e}")
+            scheduler_logger.error(f"Failed to notify joining player: {e}")
         # Get player model for return value
         player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         player_id = player_model.id if player_model else user.id
         try:
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
-                notify_players(int(game.id), f"Player {user.full_name or req.telegram_id} has joined game {game_id} as {req.power}.")  # type: ignore
+                notify_players(int(game.id), f"Player {user.full_name or telegram_id_val or 'Player'} has joined game {game_id} as {req.power}.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # Game start notification
@@ -434,11 +440,13 @@ def join_game(game_id: int, req: JoinGameRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/quit")
-def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
+def quit_game(
+    game_id: int,
+    req: QuitGameRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     try:
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             return {"status": "not_in_game"}
@@ -449,26 +457,29 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
             setattr(player, 'is_active', False)  # type: ignore
             db_service.update_player_is_active(int(player.id), False)  # type: ignore
             db_service.commit()
-            # Invalidate cache for user games - use endpoint pattern matching
-            invalidate_cache(f"users/{req.telegram_id}")
+            telegram_id_val = getattr(user, "telegram_id", None)
+            if telegram_id_val:
+                invalidate_cache(f"users/{telegram_id_val}")
         except Exception:
             pass
-        # Notification logic
+        # Notification logic (only if user has telegram_id)
         try:
-            try:
-                telegram_id_int = int(req.telegram_id)
-                requests.post(
-                    NOTIFY_URL,
-                    json={"telegram_id": telegram_id_int, "message": f"You have quit game {game_id}."},
-                    timeout=2,
-                )
-            except (ValueError, TypeError):
-                pass
+            telegram_id_val = getattr(user, "telegram_id", None)
+            if telegram_id_val:
+                try:
+                    telegram_id_int = int(telegram_id_val)
+                    requests.post(
+                        NOTIFY_URL,
+                        json={"telegram_id": telegram_id_int, "message": f"You have quit game {game_id}."},
+                        timeout=2,
+                    )
+                except (ValueError, TypeError):
+                    pass
         except Exception as e:
-            scheduler_logger.error(f"Failed to notify quitting player {req.telegram_id}: {e}")
+            scheduler_logger.error(f"Failed to notify quitting player: {e}")
         try:
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-            notify_players(game_id, f"Player {user.full_name or req.telegram_id} has left game {game_id} (power {power_name}).")
+            notify_players(game_id, f"Player {user.full_name or getattr(user, 'telegram_id', None) or 'Player'} has left game {game_id} (power {power_name}).")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
@@ -476,12 +487,14 @@ def quit_game(game_id: int, req: QuitGameRequest) -> Dict[str, Any]:
         return {"status": "ok", "detail": str(e)}
 
 @router.post("/games/{game_id}/replace")
-def replace_player(game_id: int, req: ReplacePlayerRequest) -> Dict[str, Any]:
+def replace_player(
+    game_id: int,
+    req: ReplacePlayerRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
     try:
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         # Find the player slot for this power
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if player is None:
@@ -659,45 +672,91 @@ def _generate_movement_orders(game: Any, game_state: Any, unit: Unit, power: str
     hold_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} H"
     orders.append(hold_order)
     
-    # 2. Move orders to adjacent valid provinces
+    am = getattr(game_state, "allowed_moves", None)
+    
+    # 2. Move orders: direct targets (and optionally convoy targets for armies)
     if unit.province in game_state.map_data.provinces:
         current_province = game_state.map_data.provinces[unit.province]
         
-        for adjacent_prov in current_province.adjacent_provinces:
-            if adjacent_prov in game_state.map_data.provinces:
-                target_province = game_state.map_data.provinces[adjacent_prov]
-                
-                # Check if unit can move to this province type
-                if unit.can_move_to_province_type(target_province.province_type):
-                    # Check if province is occupied
+        if am is not None:
+            direct_targets = am.get_direct_targets(unit.province, unit.unit_type, unit.coast)
+            for adjacent_prov in direct_targets:
+                if adjacent_prov not in game_state.map_data.provinces:
+                    continue
+                is_occupied = any(
+                    u.province == adjacent_prov
+                    for power_state in game_state.powers.values()
+                    for u in power_state.units
+                )
+                if not is_occupied:
+                    move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
+                    orders.append(move_order)
+            # Army convoy moves: add move orders to convoy-reachable coastal (if unoccupied)
+            if unit.unit_type == "A" and current_province.province_type == "coastal":
+                for target in am.get_convoy_targets(unit.province):
+                    if target == unit.province:
+                        continue
+                    if target not in game_state.map_data.provinces:
+                        continue
                     is_occupied = any(
-                        u.province == adjacent_prov 
-                        for power_state in game_state.powers.values() 
+                        u.province == target
+                        for power_state in game_state.powers.values()
                         for u in power_state.units
                     )
-                    
                     if not is_occupied:
-                        move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
-                        orders.append(move_order)
+                        move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {target}"
+                        if move_order not in orders:
+                            orders.append(move_order)
+        else:
+            for adjacent_prov in current_province.adjacent_provinces:
+                if adjacent_prov in game_state.map_data.provinces:
+                    target_province = game_state.map_data.provinces[adjacent_prov]
+                    if unit.can_move_to_province_type(target_province.province_type):
+                        is_occupied = any(
+                            u.province == adjacent_prov
+                            for power_state in game_state.powers.values()
+                            for u in power_state.units
+                        )
+                        if not is_occupied:
+                            move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
+                            orders.append(move_order)
     
-    # 3. Support orders (simplified - support any adjacent move)
-    for adjacent_prov in current_province.adjacent_provinces if unit.province in game_state.map_data.provinces else []:
-        support_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} S {unit.unit_type} {adjacent_prov} - {adjacent_prov}"
-        orders.append(support_order)
+    # 3. Support orders (support any adjacent move)
+    if unit.province in game_state.map_data.provinces:
+        current_province = game_state.map_data.provinces[unit.province]
+        support_targets = (
+            am.get_direct_targets(unit.province, unit.unit_type, unit.coast)
+            if am is not None
+            else [p for p in current_province.adjacent_provinces if p in game_state.map_data.provinces and unit.can_move_to_province_type(game_state.map_data.provinces[p].province_type)]
+        )
+        for adjacent_prov in support_targets:
+            support_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} S {unit.unit_type} {adjacent_prov} - {adjacent_prov}"
+            orders.append(support_order)
     
-    # 4. Convoy orders (for fleets)
+    # 4. Convoy orders (for fleets in sea)
     if unit.unit_type == "F" and unit.province in game_state.map_data.provinces:
         current_prov = game_state.map_data.provinces[unit.province]
         if current_prov.province_type == "sea":
-            # Find armies that could be convoyed
-            for other_power, other_power_state in game_state.powers.items():
-                for other_unit in other_power_state.units:
-                    if other_unit.unit_type == "A" and other_unit.province in current_prov.adjacent_provinces:
-                        # Can convoy to any coastal province
-                        for target in game_state.map_data.provinces.values():
-                            if target.province_type == "coastal" and target.name != other_unit.province:
-                                convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target.name}"
-                                orders.append(convoy_order)
+            if am is not None:
+                for other_power, other_power_state in game_state.powers.items():
+                    for other_unit in other_power_state.units:
+                        if other_unit.unit_type != "A":
+                            continue
+                        if other_unit.province not in current_prov.adjacent_provinces:
+                            continue
+                        for target in am.get_convoy_targets(other_unit.province):
+                            if target == other_unit.province:
+                                continue
+                            convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target}"
+                            orders.append(convoy_order)
+            else:
+                for other_power, other_power_state in game_state.powers.items():
+                    for other_unit in other_power_state.units:
+                        if other_unit.unit_type == "A" and other_unit.province in current_prov.adjacent_provinces:
+                            for target in game_state.map_data.provinces.values():
+                                if target.province_type == "coastal" and target.name != other_unit.province:
+                                    convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target.name}"
+                                    orders.append(convoy_order)
     
     return orders
 

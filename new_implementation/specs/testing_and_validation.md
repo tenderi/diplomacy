@@ -170,9 +170,21 @@ pytest -m "unit or integration"
 ```
 
 ### With Coverage
+
+Run tests with coverage from the project root (`new_implementation/`):
+
 ```bash
-pytest --cov=src/engine --cov=src/server --cov-report=html
+cd new_implementation
+pytest tests/ --cov=src --cov-report=term-missing --cov-report=html:htmlcov
 ```
+
+Then open `htmlcov/index.html` for line-by-line coverage. Alternatively use the test runner with coverage (requires `pytest-cov`):
+
+```bash
+./infra/scripts/run_tests.sh   # uses coverage if pytest-cov is installed
+```
+
+**Real-situation tests**: When testing adjacency, valid moves, or support/convoy logic, use `Game('standard')` (or state derived from it) so adjacency comes from the loaded map, not hand-built data.
 
 ## Test Configuration
 
@@ -218,6 +230,8 @@ pytest --cov=src/engine --cov=src/server --cov-report=html
 - Terminal: `--cov-report=term-missing`
 - HTML: `--cov-report=html:htmlcov`
 - XML: `--cov-report=xml` (for CI/CD)
+
+To enforce a minimum coverage in CI, uncomment the coverage lines in `pytest.ini` (e.g. `--cov=src`, `--cov-report=term-missing`, `--cov-report=html:htmlcov`, `--cov-fail-under=85`) once the baseline is acceptable.
 
 ## Test Coverage Gaps and Improvements
 

@@ -67,6 +67,7 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
 ## Operational Guidelines
 
+- **Work as independently as possible**: This project is used to test AI-driven development. Prefer making decisions, implementing fully, and fixing issues without asking for confirmation. Only ask when requirements are ambiguous or a critical choice has no clear default.
 - Ask minimal confirmations—keep working autonomously
 - Add logging when needed for debugging
 - When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:new_implementation/specs/fix_plan.md)
