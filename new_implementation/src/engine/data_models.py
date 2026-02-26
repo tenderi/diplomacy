@@ -200,6 +200,25 @@ class MoveOrder(Order):
             pass
         
         # Check adjacency - moves must be to adjacent provinces unless convoyed
+        am = getattr(game_state, "allowed_moves", None)
+        if am is not None:
+            # Use precomputed allowed moves when available
+            if am.is_direct_move_allowed(
+                self.unit.province, self.target_province, self.unit.unit_type, getattr(self.unit, "coast", None)
+            ):
+                return True, ""
+            # Army convoy: only coastal->coastal is allowed by map
+            if (
+                self.unit.unit_type == "A"
+                and current_province.province_type == "coastal"
+                and target_province_obj.province_type == "coastal"
+                and am.is_convoy_reachable(self.unit.province, self.target_province)
+            ):
+                if self._is_potentially_convoyed(game_state):
+                    return True, ""
+                return False, f"{self.unit} cannot move to non-adjacent province {self.target_province} (convoy possible but no matching convoy orders)"
+            return False, f"{self.unit} cannot move to non-adjacent province {self.target_province}"
+        # Fallback: original adjacency + convoy check
         if current_province.adjacent_provinces:
             # For multi-coast provinces, check coast-specific adjacency
             if current_province.is_multi_coast_province() and hasattr(self.unit, 'coast') and self.unit.coast:
@@ -293,24 +312,25 @@ class SupportOrder(Order):
             return False, f"Supporting unit {self.unit} province {self.unit.province} not found in map"
         
         if self.supported_action == "move" and self.supported_target:
-            # Move support: supporting unit must be adjacent to the destination
+            # Move support: supporting unit must be adjacent to the destination OR to the province the supported unit is moving from
             target_province = game_state.map_data.provinces.get(self.supported_target)
             if not target_province:
                 return False, f"Target province {self.supported_target} not found"
             
-            # Check if supporting unit can reach the target (adjacent or coast-accessible for fleets)
+            origin_province = game_state.map_data.provinces.get(self.supported_unit.province)
+            adjacent_to_dest = supporting_province.is_adjacent_to(self.supported_target)
+            adjacent_to_origin = origin_province and supporting_province.is_adjacent_to(self.supported_unit.province)
+            
             if supporting_province.province_type == "sea":
-                # Sea fleets can support coastal provinces they're adjacent to
-                if not (target_province.province_type == "coastal" and target_province.is_adjacent_to(self.unit.province)):
+                # Sea fleets can support into coastal they're adjacent to, or from coastal they're adjacent to
+                if target_province.province_type == "coastal" and supporting_province.is_adjacent_to(self.supported_target):
+                    pass  # valid
+                elif origin_province and origin_province.province_type == "coastal" and supporting_province.is_adjacent_to(self.supported_unit.province):
+                    pass  # valid
+                else:
                     return False, f"Fleet {self.unit} in sea province cannot support attack on {target_province.province_type} province {self.supported_target}"
-            elif supporting_province.province_type == "coastal":
-                # Coastal units can support if they're adjacent
-                if not supporting_province.is_adjacent_to(self.supported_target):
-                    return False, f"{self.unit} cannot support attack on non-adjacent province {self.supported_target}"
-            else:
-                # Land armies can support if they're adjacent
-                if not supporting_province.is_adjacent_to(self.supported_target):
-                    return False, f"{self.unit} cannot support attack on non-adjacent province {self.supported_target}"
+            elif not (adjacent_to_dest or adjacent_to_origin):
+                return False, f"{self.unit} cannot support attack on non-adjacent province {self.supported_target}"
         elif self.supported_action == "hold":
             # Hold support: supporting unit must be adjacent to the province being held
             supported_province = game_state.map_data.provinces.get(self.supported_unit.province)
@@ -586,6 +606,9 @@ class GameState:
     order_history: List[Dict[str, List[Order]]] = field(default_factory=list)  # Historical orders
     map_snapshots: List[MapSnapshot] = field(default_factory=list)
     
+    # Precomputed allowed moves (built from map; optional for backward compatibility)
+    allowed_moves: Optional[Any] = None
+    
     def get_all_units(self) -> List[Unit]:
         """Get all units from all powers"""
         all_units = []
@@ -726,10 +749,14 @@ class GameState:
         return len(errors) == 0, errors
     
     def _validate_convoy_restrictions(self) -> List[str]:
-        """Validate that convoying fleets cannot perform other orders"""
+        """Validate that all parts of a convoy chain perform only the convoy action.
+
+        Every fleet that issues a convoy order is part of a convoy chain. Such fleets
+        cannot perform any other action (no move, hold, or support) in the same phase.
+        """
         errors = []
         
-        # Track convoy orders per fleet
+        # Track convoy orders per fleet (power, province, unit_type) -> list of ConvoyOrders
         convoy_orders_per_fleet: Dict[Tuple[str, str, str], List[ConvoyOrder]] = {}
         
         for power_name, orders in self.orders.items():
@@ -740,19 +767,18 @@ class GameState:
                         convoy_orders_per_fleet[fleet_key] = []
                     convoy_orders_per_fleet[fleet_key].append(order)
         
-        # Check for multiple convoy orders per fleet
+        # Each fleet may only convoy one army (one convoy order per fleet)
         for fleet_key, convoy_orders in convoy_orders_per_fleet.items():
             if len(convoy_orders) > 1:
                 power_name, province, unit_type = fleet_key
                 errors.append(f"{power_name} fleet {unit_type} {province}: Fleet cannot convoy multiple armies")
         
-        # Check if any convoying fleet has other orders
+        # Every convoying fleet must not have any other order (move, hold, support)
         for power_name, orders in self.orders.items():
             for order in orders:
                 if isinstance(order, ConvoyOrder):
                     continue  # Skip convoy orders themselves
                 
-                # Check if this order is for a convoying fleet
                 fleet_key = (power_name, order.unit.province, order.unit.unit_type)
                 if fleet_key in convoy_orders_per_fleet:
                     errors.append(f"{power_name} order {order}: Convoying fleet {order.unit} cannot perform other orders")

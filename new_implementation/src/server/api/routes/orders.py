@@ -3,11 +3,13 @@ Order management API routes.
 
 This module contains all endpoints related to order submission, retrieval, and history.
 """
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import requests
 
+from .auth import resolve_user_or_telegram, http_bearer
 from ..shared import (
     db_service, server, logger, scheduler_logger, NOTIFY_URL,
     _state_to_spec_dict
@@ -24,7 +26,7 @@ class SetOrdersRequest(BaseModel):
     game_id: str
     power: str
     orders: list[str]
-    telegram_id: str
+    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
 
 def _order_model_to_text(order_model) -> str:
     """Convert OrderModel back to order text string."""
@@ -53,19 +55,21 @@ def _order_model_to_text(order_model) -> str:
 
 # --- Order Endpoints ---
 @router.post("/games/set_orders")
-def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
-    """Submit orders for a power in a game. Only the assigned user (by telegram_id) can submit orders for their power.
+def set_orders(
+    req: SetOrdersRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Submit orders for a power in a game. Only the assigned user (Bearer or telegram_id) can submit orders.
     Returns per-order validation results. 403 if unauthorized, 404 if player not found.
     """
     results = []
     try:
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         # game_id can be string, method handles conversion
         player = db_service.get_player_by_game_id_and_power(game_id=req.game_id, power=req.power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
-        # Authorization check: Only assigned user can submit orders
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None or int(player.user_id) != int(user.id):  # type: ignore
+        if int(player.user_id) != int(user.id):  # type: ignore
             raise HTTPException(status_code=403, detail="You are not authorized to submit orders for this power.")
         # Get game by game_id string (not numeric id) for other operations
         game = db_service.get_game_by_game_id(str(req.game_id))
@@ -111,10 +115,10 @@ def set_orders(req: SetOrdersRequest) -> Dict[str, Any]:
                         user_id = getattr(player, "user_id", None)
                         if player is not None and user_id is not None:
                             user = db_service.get_user_by_id(user_id)
-                            telegram_id = getattr(user, "telegram_id", None) if user is not None else None
-                            if telegram_id is not None:
+                            telegram_id_val = getattr(user, "telegram_id", None) if user is not None else None
+                            if telegram_id_val is not None:
                                 try:
-                                    telegram_id_int = int(telegram_id)
+                                    telegram_id_int = int(telegram_id_val)
                                     requests.post(
                                         NOTIFY_URL,
                                         json={"telegram_id": telegram_id_int, "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {e}"},
@@ -216,15 +220,19 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/orders/{power}/clear")
-def clear_orders_for_power(game_id: int, power: str, telegram_id: str = Body(...)) -> Dict[str, str]:
-    """Clear orders for a power. Only the assigned user can clear orders for their power."""
+def clear_orders_for_power(
+    game_id: int,
+    power: str,
+    telegram_id: Optional[str] = Body(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, str]:
+    """Clear orders for a power. Only the assigned user (Bearer or telegram_id) can clear orders."""
     try:
-        # Authorization check
+        user = resolve_user_or_telegram(credentials, telegram_id)
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
-        user = db_service.get_user_by_telegram_id(telegram_id)
-        if user is None or int(player.user_id) != int(user.id):  # type: ignore
+        if int(player.user_id) != int(user.id):  # type: ignore
             raise HTTPException(status_code=403, detail="You are not authorized to clear orders for this power.")
         
         # Clear orders in database

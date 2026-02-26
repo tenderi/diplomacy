@@ -1,6 +1,7 @@
 from typing import Dict, List, Any, Optional, Tuple
 from .map import Map
 from .order_parser import OrderParser
+from .allowed_moves import build_allowed_moves
 from .data_models import (
     Order, GameState, PowerState, Unit, MapData, Province, OrderType, OrderStatus, GameStatus,
     MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
@@ -72,6 +73,8 @@ class Game:
             starting_positions={}  # Will be populated when powers are added
         )
         
+        allowed_moves = build_allowed_moves(self.map, self.map_name)
+        
         return GameState(
             game_id="demo",
             map_name=self.map_name,
@@ -85,7 +88,8 @@ class Game:
             orders={},
             status=GameStatus.ACTIVE,
             created_at=datetime.now(),
-            updated_at=datetime.now()
+            updated_at=datetime.now(),
+            allowed_moves=allowed_moves,
         )
 
     def add_player(self, power_name: str) -> None:
@@ -278,6 +282,9 @@ class Game:
                 original_provinces[id(unit)] = unit.province
         
         # First pass: Detect convoyed moves and convoy orders
+        # Convoy flow: (1) Unit orders move area1 -> area2; (2) allowed_moves says reachable;
+        # (3) engine checks actual convoy route (fleet chain) for strength; (4) if any convoying
+        # fleet is dislodged in resolution, convoyed move is cancelled and unit stays (see below).
         convoy_orders = {}  # (convoyed_unit_type, convoyed_unit_province, convoyed_target) -> convoy_order
         convoyed_moves = {}  # (unit_type, unit_province, target) -> convoy_order
         
@@ -338,8 +345,7 @@ class Game:
                     # Check if this move is convoyed
                     move_key = (order.unit.unit_type, order.unit.province, order.target_province)
                     if move_key in convoyed_moves:
-                        order.is_convoyed = True
-                        # Collect all convoy orders for this move
+                        # Collect all convoy orders for this move (only fleets that actually convoy this move)
                         convoy_route: List[str] = []
                         for power_name_check, orders_check in self.game_state.orders.items():
                             for convoy_order in orders_check:
@@ -348,12 +354,16 @@ class Game:
                                         convoy_order.convoyed_unit.province == order.unit.province and
                                         convoy_order.convoyed_target == order.target_province):
                                         convoy_route.append(convoy_order.unit.province)
-                        order.convoy_route = convoy_route
-                        
-                        # Calculate convoy strength
-                        convoy_strength = self._calculate_convoy_strength(order)
-                        if convoy_strength > 0:
-                            strength += convoy_strength
+                        # Only treat as convoyed if the convoy route forms a connected chain embark -> seas -> landing
+                        if self._convoy_route_forms_path(order.unit.province, order.target_province, convoy_route):
+                            order.convoy_route = convoy_route
+                            order.is_convoyed = True
+                            convoy_strength = self._calculate_convoy_strength(order)
+                            if convoy_strength > 0:
+                                strength += convoy_strength
+                        else:
+                            order.convoy_route = []
+                            order.is_convoyed = False
                     
                     move_strengths[target].append((order.unit, strength, order))
                     
@@ -874,7 +884,8 @@ class Game:
                                 "failure_reason": "bounced"
                             })
         
-        # Final convoy disruption check: Mark convoyed moves as failed if convoying fleets were dislodged
+        # Final convoy disruption check: if any convoying fleet was dislodged, cancel the
+        # convoyed move and move unit A back to its start (step 4 of convoy flow).
         convoy_disrupted_moves = []
         for move_result in results["moves"]:
             if move_result["success"]:
@@ -975,9 +986,31 @@ class Game:
         
         return convoy_strength
 
+    def _convoy_route_forms_path(self, embark: str, landing: str, convoy_route: List[str]) -> bool:
+        """Return True iff there is a path from embark to landing using only embark, landing, and convoy_route provinces (map adjacency)."""
+        if not convoy_route:
+            return False
+        provinces = self.game_state.map_data.provinces
+        if embark not in provinces or landing not in provinces:
+            return False
+        allowed = {embark, landing} | set(convoy_route)
+        seen = {embark}
+        q = deque([embark])
+        while q:
+            cur = q.popleft()
+            if cur == landing:
+                return True
+            prov = provinces.get(cur)
+            if not prov:
+                continue
+            for a in getattr(prov, "adjacent_provinces", []):
+                if a in allowed and a not in seen:
+                    seen.add(a)
+                    q.append(a)
+        return False
+
     def _is_valid_convoy_path(self, convoy_order: ConvoyOrder, move_order: MoveOrder) -> bool:
-        """Check if a convoy path is valid."""
-        # Use the comprehensive convoy route validation from ConvoyOrder
+        """Check if a single convoy order is valid (fleet adjacent to both embark and landing)."""
         convoy_validation_error = convoy_order._validate_convoy_route(self.game_state)
         return convoy_validation_error is None
 

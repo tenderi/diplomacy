@@ -2,6 +2,7 @@
 Tests for advanced order adjudication and turn processing in Diplomacy.
 Covers support cut, standoffs, convoyed moves, and dislodgement.
 """
+import pytest
 from engine.game import Game
 
 def test_support_cut():
@@ -231,16 +232,38 @@ def test_army_and_fleet_invalid_moves():
     from engine.data_models import Unit
     # Army in LON, Fleet in NTH
     game.game_state.powers["ENGLAND"].units = [Unit(unit_type='A', province='LON', power='ENGLAND'), Unit(unit_type='F', province='NTH', power='ENGLAND')]
-    # Try to move army to NTH (ocean), and fleet to LON (land)
-    game.set_orders("ENGLAND", [
-        "ENGLAND A LON - NTH",
-        "ENGLAND F NTH - LON"
-    ])
-    game.process_turn()
-    # Both units should remain in place
+    # Try to move army to NTH (ocean), and fleet to LON (land) - validation should reject these
+    try:
+        game.set_orders("ENGLAND", [
+            "ENGLAND A LON - NTH",
+            "ENGLAND F NTH - LON"
+        ])
+    except ValueError:
+        pass  # Expected: validation rejects invalid orders
+    else:
+        game.process_turn()
+    # Both units should remain in place (either orders were rejected or processing left them in place)
     assert any(unit.province == 'LON' for unit in game.game_state.powers["ENGLAND"].units)
     assert any(unit.province == 'NTH' for unit in game.game_state.powers["ENGLAND"].units)
     assert len(game.game_state.powers["ENGLAND"].units) == 2
+
+def test_convoying_fleet_cannot_perform_other_actions():
+    """Test that every fleet in a convoy chain must only convoy; they cannot move, hold, or support."""
+    game = Game('standard')
+    game.add_player("ENGLAND")
+    from engine.data_models import Unit
+    game.game_state.powers["ENGLAND"].units = [
+        Unit(unit_type='A', province='LON', power='ENGLAND'),
+        Unit(unit_type='F', province='NTH', power='ENGLAND'),
+    ]
+    # F NTH must convoy only; ordering it to also move should be rejected
+    with pytest.raises(ValueError, match="cannot perform other orders"):
+        game.set_orders("ENGLAND", [
+            "ENGLAND A LON - HOL",
+            "ENGLAND F NTH C A LON - HOL",
+            "ENGLAND F NTH - ENG",  # convoying fleet cannot also move
+        ])
+
 
 def test_self_dislodgement_prohibited():
     """Test that a power cannot dislodge its own unit (self-dislodgement prohibited)."""

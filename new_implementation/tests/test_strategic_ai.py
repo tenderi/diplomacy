@@ -483,3 +483,17 @@ class TestStrategicAIIntegration:
             elif isinstance(order, ConvoyOrder):
                 assert order.convoyed_unit is not None
                 assert order.convoyed_target is not None
+
+    def test_ai_generated_orders_valid_on_standard_map(self, ai, standard_game):
+        """AI-generated orders for FRANCE must validate against real map (adjacency, units)."""
+        game_state = standard_game.game_state
+        assert "FRANCE" in game_state.powers
+        orders = ai.generate_orders(game_state, "FRANCE")
+        if not orders:
+            return  # AI may return no orders in some configs
+        game_state.orders["FRANCE"] = orders
+        for p in game_state.orders:
+            if p != "FRANCE":
+                game_state.orders[p] = []
+        valid, errors = game_state.validate_orders_for_phase()
+        assert valid, f"AI-generated orders should be valid on standard map: {errors}"

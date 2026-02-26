@@ -3,10 +3,12 @@ User management API routes.
 
 This module contains all endpoints related to user registration and session management.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 
+from .auth import get_current_user, get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..shared import db_service
 from ...response_cache import cached_response
 
@@ -76,32 +78,40 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _user_games_response(user: Any) -> Dict[str, Any]:  # noqa: ANN401
+    """Build games list for a user (shared by get_user_games and get_me_games)."""
+    players = db_service.get_players_by_user_id(int(user.id))  # type: ignore
+    games = []
+    for player in players:
+        game = db_service.get_game_by_id(int(player.game_id))  # type: ignore
+        if game:
+            games.append({
+                "game_id": getattr(game, 'id', None),
+                "map_name": game.map_name,
+                "power": player.power_name,
+                "current_turn": getattr(game, 'current_turn', 0),
+                "status": getattr(game, 'status', "active")
+            })
+    return {"games": games}
+
+
+@router.get("/users/me/games")
+def get_me_games(current_user: Any = Depends(get_current_user)) -> Dict[str, Any]:
+    """Get current user's games (requires Bearer token). Used by browser client."""
+    return _user_games_response(current_user)
+
+
 @router.get("/users/{telegram_id}/games")
 @cached_response(ttl=60, key_params=["telegram_id"])
 def get_user_games(telegram_id: str) -> Dict[str, Any]:
-    """Get all games a user is participating in (only active players)."""
+    """Get all games a user is participating in (only active players). Uses telegram_id (Telegram bot)."""
     try:
         user = db_service.get_user_by_telegram_id(telegram_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
-        
-        # Get all players for this user (already filtered by is_active=True and user_id)
-        players = db_service.get_players_by_user_id(int(user.id))  # type: ignore
-        
-        games = []
-        for player in players:
-            # get_players_by_user_id already filters by is_active=True and user_id, so all returned players are active
-            game = db_service.get_game_by_id(int(player.game_id))  # type: ignore
-            if game:
-                games.append({
-                    "game_id": getattr(game, 'id', None),
-                    "map_name": game.map_name,
-                    "power": player.power_name,
-                    "current_turn": getattr(game, 'current_turn', 0),
-                    "status": getattr(game, 'status', "active")
-                })
-        
-        return {"games": games}
+        return _user_games_response(user)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -3,11 +3,13 @@ Messaging API routes.
 
 This module contains all endpoints related to private and broadcast messaging between players.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import requests
 
+from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
 from ..shared import db_service, scheduler_logger, NOTIFY_URL, notify_players
 from engine.database import MessageModel
 
@@ -15,21 +17,23 @@ router = APIRouter()
 
 # --- Request Models ---
 class SendMessageRequest(BaseModel):
-    telegram_id: str
+    telegram_id: Optional[str] = None
     recipient_power: Optional[str] = None
     text: str
 
 class SendBroadcastRequest(BaseModel):
-    telegram_id: str
+    telegram_id: Optional[str] = None
     text: str
 
 # --- Message Endpoints ---
 @router.post("/games/{game_id}/message")
-def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any]:
+def send_private_message(
+    game_id: int,
+    req: SendMessageRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     try:
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="Sender user not found")
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         # Validate sender is in the game
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
@@ -52,7 +56,7 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
                         telegram_id_int = int(recipient_telegram_id)
                         requests.post(
                             NOTIFY_URL,
-                            json={"telegram_id": telegram_id_int, "message": f"New private message in game {game_id} from {user.full_name or user.telegram_id}: {req.text}"},
+                            json={"telegram_id": telegram_id_int, "message": f"New private message in game {game_id} from {user.full_name or getattr(user, 'telegram_id', None)}: {req.text}"},
                             timeout=2,
                         )
                     except (ValueError, TypeError):
@@ -64,11 +68,13 @@ def send_private_message(game_id: int, req: SendMessageRequest) -> Dict[str, Any
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/broadcast")
-def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str, Any]:
+def send_broadcast_message(
+    game_id: int,
+    req: SendBroadcastRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     try:
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="Sender user not found")
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         # Validate sender is in the game
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
@@ -76,7 +82,7 @@ def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str,
         msg = db_service.create_message(game_id=game_id, sender_user_id=int(user.id), recipient_power=None, text=req.text)  # type: ignore
         # Broadcast message notification
         try:
-            notify_players(game_id, f"Broadcast in game {game_id} from {user.full_name or user.telegram_id}: {req.text}")
+            notify_players(game_id, f"Broadcast in game {game_id} from {user.full_name or getattr(user, 'telegram_id', None)}: {req.text}")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify broadcast message: {e}")
         
@@ -101,10 +107,14 @@ def send_broadcast_message(game_id: int, req: SendBroadcastRequest) -> Dict[str,
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/games/{game_id}/messages")
-def get_game_messages(game_id: int, telegram_id: Optional[str] = None) -> Dict[str, Any]:
+def get_game_messages(
+    game_id: int,
+    telegram_id: Optional[str] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
     try:
-        user = None
-        if telegram_id:
+        user = get_current_user_optional(credentials)
+        if user is None and telegram_id:
             user = db_service.get_user_by_telegram_id(telegram_id)
         # Retrieve all messages for the game, filter private messages to only those sent to or from the user
         query = db_service.get_messages_by_game_id(game_id)

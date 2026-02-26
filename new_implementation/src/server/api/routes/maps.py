@@ -3,16 +3,60 @@ Map generation API routes.
 
 This module contains all endpoints related to map image generation for game states.
 """
-from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
 import os
 from datetime import datetime
+from typing import Dict, Any
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 from ..shared import db_service, server
 from engine.map import Map
 from engine.data_models import MoveOrder, SupportOrder
 
 router = APIRouter()
+
+
+def _svg_path_for_map_name(map_name: str) -> str:
+    if map_name == "standard-v2":
+        base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+        svg_path = os.path.join(base_dir, "v2.svg")
+        if not os.path.exists(svg_path):
+            svg_path = base_path
+        return svg_path
+    return os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+
+
+@router.get("/games/{game_id}/map", response_class=Response)
+def get_game_map_png(game_id: str) -> Response:
+    """Return current game state as a PNG map. Uses DB state only (no server.games required)."""
+    state = db_service.get_game_state(game_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    units: Dict[str, str] = {}
+    for power_name, power in state.powers.items():
+        for unit in power.units:
+            units[f"{unit.unit_type} {unit.province}"] = power_name
+    phase_info = {
+        "turn": state.current_turn,
+        "year": state.current_year,
+        "season": state.current_season,
+        "phase": state.current_phase,
+        "phase_code": state.phase_code,
+    }
+    supply_center_control: Dict[str, str] = {}
+    for power_name, power in state.powers.items():
+        for sc in power.controlled_supply_centers:
+            supply_center_control[sc] = power_name
+    svg_path = _svg_path_for_map_name(state.map_name)
+    try:
+        img_bytes = Map.render_board_png(
+            svg_path, units, phase_info=phase_info, supply_center_control=supply_center_control
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
 
 @router.post("/games/{game_id}/generate_map")
 def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
