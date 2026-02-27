@@ -4,10 +4,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { apiJson } from '../api/client'
 
 export default function LinkTelegram() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [code, setCode] = useState<string | null>(null)
   const [expiresIn, setExpiresIn] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [unlinkLoading, setUnlinkLoading] = useState(false)
   const [error, setError] = useState('')
 
   async function generateCode() {
@@ -27,12 +28,36 @@ export default function LinkTelegram() {
     }
   }
 
+  async function unlinkTelegram() {
+    setError('')
+    setUnlinkLoading(true)
+    try {
+      await apiJson<{ status: string; message: string }>('/auth/me/unlink_telegram', { method: 'POST' })
+      await refreshUser()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unlink')
+    } finally {
+      setUnlinkLoading(false)
+    }
+  }
+
   if (user?.telegram_linked) {
     return (
       <div style={{ padding: 24, maxWidth: 500, margin: '0 auto' }}>
         <h1>Link Telegram</h1>
         <p>Your account is already linked to Telegram.</p>
-        <Link to="/">Back to home</Link>
+        <button
+          type="button"
+          onClick={unlinkTelegram}
+          disabled={unlinkLoading}
+          style={{ padding: '8px 16px', marginTop: 8, marginRight: 8 }}
+        >
+          {unlinkLoading ? 'Unlinking...' : 'Unlink Telegram'}
+        </button>
+        {error && <p style={{ color: 'red', marginTop: 12 }}>{error}</p>}
+        <p style={{ marginTop: 16 }}>
+          <Link to="/">Back to home</Link>
+        </p>
       </div>
     )
   }

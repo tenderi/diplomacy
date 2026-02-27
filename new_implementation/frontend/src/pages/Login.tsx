@@ -54,6 +54,9 @@ export default function Login() {
         </button>
       </form>
       <p style={{ marginTop: 12 }}>
+        <Link to="/forgot-password">Forgot password?</Link>
+      </p>
+      <p style={{ marginTop: 8 }}>
         No account? <Link to="/register">Register</Link>
       </p>
     </div>

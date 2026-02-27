@@ -80,6 +80,20 @@ class LinkCodeModel(Base):
     user = relationship("UserModel", back_populates="link_codes")
 
 
+class PasswordResetTokenModel(Base):
+    """One-time tokens for password reset (forgot password flow)."""
+    __tablename__ = 'password_reset_tokens'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    token = Column(String(64), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("UserModel", backref="password_reset_tokens")
+
+
 class PlayerModel(Base):
     """Players/Powers table"""
     __tablename__ = 'players'

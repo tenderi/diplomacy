@@ -5,7 +5,7 @@ This module contains all endpoints related to user registration and session mana
 """
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
 from .auth import get_current_user, get_current_user_optional, resolve_user_or_telegram, http_bearer
@@ -23,6 +23,13 @@ class RegisterUserRequest(BaseModel):
 class RegisterPersistentUserRequest(BaseModel):
     telegram_id: str
     full_name: Optional[str] = None
+
+    @field_validator("telegram_id")
+    @classmethod
+    def telegram_id_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("telegram_id is required and cannot be empty or whitespace")
+        return v.strip()
 
 class UserSession(BaseModel):
     telegram_id: str

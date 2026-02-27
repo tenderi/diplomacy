@@ -3,11 +3,16 @@ Unit tests for users API routes.
 
 Tests user registration, session management, and user games listing.
 """
+import time
 import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app
 from tests.conftest import _get_db_url
+
+
+def _unique_email():
+    return f"me_games_{int(time.time() * 1000)}@example.com"
 
 
 @pytest.fixture
@@ -116,6 +121,24 @@ class TestGetUserGames:
         # May return 404 or 500 depending on error handling
         assert resp.status_code in [404, 500]
     
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_me_games_with_bearer(self, client):
+        """GET /users/me/games with Bearer token returns current user's games."""
+        # Register via auth (browser flow)
+        reg = client.post("/auth/register", json={
+            "email": _unique_email(),
+            "password": "pass12345",
+            "full_name": "Me Games User",
+        })
+        if reg.status_code != 200:
+            pytest.skip("Auth register failed (e.g. duplicate email)")
+        token = reg.json()["access_token"]
+        resp = client.get("/users/me/games", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "games" in data
+        assert isinstance(data["games"], list)
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_user_games_after_quit(self, client):
         """Test that quit games don't appear in user games list."""

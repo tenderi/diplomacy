@@ -123,9 +123,16 @@ def get_game_messages(
             player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
             if player:
                 power = player.power_name
-                query = query.filter(MessageModel.recipient_power is None, MessageModel.recipient_power == power, MessageModel.sender_user_id == user.id)  # type: ignore
+                from sqlalchemy import or_
+                query = query.filter(
+                    or_(
+                        MessageModel.recipient_power.is_(None),
+                        MessageModel.recipient_power == power,
+                        MessageModel.sender_user_id == user.id,
+                    )
+                )
             else:
-                query = query.filter(MessageModel.recipient_power is None)  # Only broadcasts  # type: ignore
+                query = query.filter(MessageModel.recipient_power.is_(None))  # Only broadcasts
         messages = query.order_by(MessageModel.timestamp.asc()).all()
         result = [
             {

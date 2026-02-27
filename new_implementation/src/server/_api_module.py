@@ -10,8 +10,12 @@ Route modules are organized by functionality:
 - maps: Map image generation
 - admin: Administrative endpoints
 - dashboard: Dashboard API endpoints
+- auth: Register, login, JWT, link Telegram
+- health: Health check endpoints
 """
+import os
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Dict, Any
@@ -25,7 +29,7 @@ from .db_config import SQLALCHEMY_DATABASE_URL
 from .api.shared import deadline_scheduler, db_service
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, health, auth
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -144,7 +148,18 @@ async def lifespan(app: FastAPI):
 # TestClient doesn't always trigger lifespan, so initialize here as well
 _initialize_database_schema()
 
-app = FastAPI(title="Diplomacy Server API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Diplomacy Server API", version="3.0.0", lifespan=lifespan)
+
+# CORS
+_cors_origins = os.environ.get("DIPLOMACY_CORS_ORIGINS", "*").strip()
+_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] if _cors_origins != "*" else ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Register all route modules
 app.include_router(games.router)
@@ -155,6 +170,8 @@ app.include_router(maps.router)
 app.include_router(admin.router)
 app.include_router(dashboard.router)
 app.include_router(channels.router, tags=["channels"])
+app.include_router(health.router, tags=["health"])
+app.include_router(auth.router)
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

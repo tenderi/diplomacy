@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { apiJson } from '../api/client'
 
 type Game = { game_id: number; map_name: string; power: string; current_turn: number; status: string }
 type AllGame = { id: number; map_name: string; current_turn: number; status: string; player_count: number }
 
 export default function GameList() {
+  const navigate = useNavigate()
   const [myGames, setMyGames] = useState<Game[]>([])
   const [allGames, setAllGames] = useState<AllGame[]>([])
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
+  const load = () => {
     Promise.all([
       apiJson<{ games: Game[] }>('/users/me/games'),
       apiJson<{ games: AllGame[] }>('/games'),
@@ -18,10 +21,29 @@ export default function GameList() {
       .then(([me, all]) => {
         setMyGames(me.games || [])
         setAllGames(all.games || [])
+        setError('')
       })
-      .catch(() => {})
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function handleCreateGame() {
+    setCreating(true)
+    setError('')
+    try {
+      const res = await apiJson<{ game_id: string }>('/games/create', {
+        method: 'POST',
+        body: JSON.stringify({ map_name: 'standard' }),
+      })
+      navigate(`/games/${res.game_id}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Create failed')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   if (loading) return <div style={{ padding: 20 }}>Loading...</div>
 
@@ -29,6 +51,12 @@ export default function GameList() {
     <div style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
       <h1>Games</h1>
       <p><Link to="/">Home</Link></p>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <p>
+        <button type="button" onClick={handleCreateGame} disabled={creating}>
+          {creating ? 'Creating...' : 'Create new game'}
+        </button>
+      </p>
       <h2>My games</h2>
       {myGames.length === 0 ? (
         <p>You are not in any games.</p>
