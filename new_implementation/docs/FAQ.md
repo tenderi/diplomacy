@@ -5,6 +5,7 @@ Common questions and solutions for the Diplomacy Python Implementation.
 ## Table of Contents
 - [Installation & Setup](#installation--setup)
 - [Game Play](#game-play)
+- [Browser client](#browser-client)
 - [Telegram Bot](#telegram-bot)
 - [API & Server](#api--server)
 - [Database](#database)
@@ -73,6 +74,14 @@ For testing without a database, many tests will skip gracefully.
 - **CLI**: `SET_ORDERS <game_id> <power> <order>`
 
 **Example**: `/order 42 A PAR - BUR`
+
+---
+
+## Browser client
+
+### Q: Can I play in the browser instead of Telegram?
+
+**A**: Yes. Run the React web app (see [Browser client (web app)](./BROWSER_CLIENT.md)): register with email and password, then list games, view the map, and submit orders from the browser. You can link the same account to Telegram: in the app go to **Link Telegram**, generate a code, then in Telegram send `/link <code>`.
 
 ---
 

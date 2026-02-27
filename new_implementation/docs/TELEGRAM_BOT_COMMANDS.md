@@ -4,6 +4,7 @@ Complete reference for all Telegram bot commands available in the Diplomacy game
 
 ## Table of Contents
 - [Getting Started](#getting-started)
+- [Account Linking](#account-linking)
 - [Game Management](#game-management)
 - [Order Submission](#order-submission)
 - [Interactive Orders](#interactive-orders)
@@ -39,6 +40,33 @@ Register yourself as a user in the system. Required before joining games.
 → 🎉 Registration successful!
   Welcome John Doe (ID: 12345)
 ```
+
+---
+
+## Account Linking
+
+### `/link`
+Link this Telegram account to a browser account. Use this if you registered on the web (email + password) and want to use the same account from Telegram.
+
+**Usage**: `/link <code>`
+
+**How to get a code**: Open the game in your browser, go to **Link Telegram**, click **Generate link code**, then enter that code here.
+
+**Example**: `/link 123456`
+
+**Response (success)**:
+```
+✅ Telegram linked to your account.
+```
+
+**Response (invalid or expired code)**:
+```
+❌ Invalid or expired code. Get a new code from the web app (Link Telegram).
+```
+
+**Note**: If this Telegram is already linked to another account, you'll see an error. One Telegram account can only be linked to one browser account.
+
+**Unlinking**: To unlink Telegram from your account, open the browser app, go to **Link Telegram**, and click **Unlink Telegram**. You can link again later with a new code.
 
 ---
 

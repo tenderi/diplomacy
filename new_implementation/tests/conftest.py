@@ -56,6 +56,23 @@ def _ensure_db_schema():
                     missing_columns = [col for col in required_columns if col not in users_columns]
                     if missing_columns:
                         needs_column_update = True
+                    # Auth: users.email, link_codes, password_reset_tokens (run Alembic if missing)
+                    if 'email' not in users_columns or 'link_codes' not in tables or 'password_reset_tokens' not in tables:
+                        try:
+                            import alembic.config
+                            import alembic.command
+                            _tests_dir = os.path.dirname(os.path.abspath(__file__))
+                            _root = os.path.abspath(os.path.join(_tests_dir, ".."))
+                            _alembic_ini = os.path.join(_root, "alembic.ini")
+                            _cwd = os.getcwd()
+                            try:
+                                os.chdir(_root)
+                                alembic_cfg = alembic.config.Config(_alembic_ini)
+                                alembic.command.upgrade(alembic_cfg, "head")
+                            finally:
+                                os.chdir(_cwd)
+                        except Exception:
+                            pass  # tests may skip if auth schema missing
                 
                 if needs_schema_create or needs_column_update:
                     # Schema missing or incomplete, create/update it

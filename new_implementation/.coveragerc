@@ -40,6 +40,9 @@ exclude_lines =
     # Don't complain about abstract methods, they aren't run:
     @(abc\.)?abstractmethod
 
+    # Defensive optional dependency (tested by presence of bcrypt in env):
+    except ImportError
+
 # Minimum coverage threshold
 fail_under = 85
 

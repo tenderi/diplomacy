@@ -13,7 +13,7 @@ from sqlalchemy import text
 import logging
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
-    TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel,
+    TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     get_session_factory, unit_to_dict, dict_to_unit, order_to_dict, dict_to_order
 )
 from .data_models import (
@@ -620,6 +620,15 @@ class DatabaseService:
             user.telegram_id = str(telegram_id)
             session.commit()
 
+    def unlink_telegram(self, user_id: int) -> None:
+        """Clear telegram_id for the user (unlink Telegram account)."""
+        with self.session_factory() as session:
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            user.telegram_id = None
+            session.commit()
+
     def create_link_code(self, user_id: int, ttl_minutes: int = 10) -> Tuple[str, datetime]:
         import secrets
         with self.session_factory() as session:
@@ -649,6 +658,47 @@ class DatabaseService:
             session.delete(link_code)
             session.commit()
             return user_id
+
+    def create_password_reset_token(self, user_id: int, ttl_minutes: int = 60) -> str:
+        """Create a one-time password reset token. Returns the token string."""
+        import secrets
+        with self.session_factory() as session:
+            token = secrets.token_urlsafe(48)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            record = PasswordResetTokenModel(
+                user_id=user_id,
+                token=token,
+                expires_at=expires_at,
+            )
+            session.add(record)
+            session.commit()
+            return token
+
+    def consume_password_reset_token(self, token: str) -> Optional[int]:
+        """Validate token, delete it, return user_id or None."""
+        with self.session_factory() as session:
+            now = datetime.now(timezone.utc)
+            record = (
+                session.query(PasswordResetTokenModel)
+                .filter_by(token=token.strip())
+                .filter(PasswordResetTokenModel.expires_at > now)
+                .first()
+            )
+            if not record:
+                return None
+            user_id = record.user_id
+            session.delete(record)
+            session.commit()
+            return user_id
+
+    def set_user_password(self, user_id: int, password_hash: str) -> None:
+        """Update password_hash for the user."""
+        with self.session_factory() as session:
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            user.password_hash = password_hash
+            session.commit()
 
     def get_user_count(self) -> int:
         with self.session_factory() as session:

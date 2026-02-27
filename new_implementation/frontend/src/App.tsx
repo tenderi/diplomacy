@@ -3,6 +3,8 @@ import { useAuth } from './contexts/AuthContext'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import LinkTelegram from './pages/LinkTelegram'
 import GameList from './pages/GameList'
 import GameView from './pages/GameView'
@@ -20,6 +22,8 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         path="/link-telegram"
         element={

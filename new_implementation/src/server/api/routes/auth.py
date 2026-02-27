@@ -1,7 +1,7 @@
 """
 Auth routes: register, login, refresh, me, link_code, link_telegram.
 
-Uses JWT (PyJWT) for access/refresh tokens and passlib+bcrypt for passwords.
+Uses JWT (PyJWT) for access/refresh tokens and bcrypt for passwords.
 """
 import os
 import re
@@ -15,12 +15,12 @@ from pydantic import BaseModel, field_validator
 
 from ..shared import db_service
 
-# Password hashing
+# Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
-    from passlib.context import CryptContext
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-except ImportError:
-    pwd_context = None  # type: ignore
+    import bcrypt
+    _bcrypt_available = True
+except ImportError:  # pragma: no cover
+    _bcrypt_available = False
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,17 +72,43 @@ class LinkTelegramRequest(BaseModel):
     code: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def email_lower(cls, v: str) -> str:
+        return v.strip().lower() if v else v
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
 # --- Helpers ---
 def _hash_password(password: str) -> str:
-    if not pwd_context:
-        raise HTTPException(status_code=500, detail="Password hashing not available (install passlib[bcrypt])")
-    return pwd_context.hash(password)
+    if not _bcrypt_available:
+        raise HTTPException(status_code=500, detail="Password hashing not available (install bcrypt)")
+    raw = password.encode("utf-8")[:72]
+    hashed = bcrypt.hashpw(raw, bcrypt.gensalt())
+    return hashed.decode("ascii")
 
 
 def _verify_password(plain: str, hashed: str) -> bool:
-    if not pwd_context:
+    if not _bcrypt_available:
         return False
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("ascii"))
+    except Exception:
+        return False
 
 
 def _create_access_token(user_id: int) -> str:
@@ -171,8 +197,8 @@ def _user_response(user: Any) -> Dict[str, Any]:
 @router.post("/register")
 def register(req: RegisterRequest) -> Dict[str, Any]:
     """Register with email and password. Returns user and tokens."""
-    if not pwd_context:
-        raise HTTPException(status_code=500, detail="Auth not configured (passlib)")
+    if not _bcrypt_available:
+        raise HTTPException(status_code=500, detail="Auth not configured (bcrypt)")
     email = req.email.strip().lower()
     if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
         raise HTTPException(status_code=400, detail="Invalid email format")
@@ -268,6 +294,62 @@ def create_link_code(
         "expires_in_seconds": ttl_minutes * 60,
         "expires_at": expires_at.isoformat(),
     }
+
+
+@router.post("/me/unlink_telegram")
+def unlink_telegram(current_user: Any = Depends(get_current_user)) -> Dict[str, Any]:
+    """Unlink Telegram from the current account (requires Bearer token)."""
+    if not getattr(current_user, "telegram_id", None):
+        return {"status": "ok", "message": "No Telegram linked."}
+    db_service.unlink_telegram(current_user.id)
+    return {"status": "ok", "message": "Telegram unlinked."}
+
+
+# Forgot password: TTL for reset token (minutes)
+PASSWORD_RESET_TTL_MINUTES = 60
+
+
+def _send_password_reset_link(email: str, reset_link: str) -> None:
+    """Optional: send email or log. If DIPLOMACY_DEV_SHOW_RESET_LINK=1, link is logged for dev."""
+    import logging
+    logger = logging.getLogger("diplomacy.server.api.auth")
+    if os.environ.get("DIPLOMACY_DEV_SHOW_RESET_LINK"):
+        logger.info("Password reset link for %s: %s", email, reset_link)
+    else:
+        logger.info("Password reset requested for %s (link not logged; set DIPLOMACY_DEV_SHOW_RESET_LINK=1 for dev)", email)
+    # TODO: wire SMTP (e.g. DIPLOMACY_SMTP_*) to send email in production
+
+
+@router.post("/forgot_password")
+def forgot_password(req: ForgotPasswordRequest) -> Dict[str, Any]:
+    """Request a password reset. Always returns 200 to avoid email enumeration."""
+    email = req.email.strip().lower()
+    out: Dict[str, Any] = {"message": "If an account exists with this email, you will receive a reset link."}
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
+        return out
+    user = db_service.get_user_by_email(email)
+    if user and getattr(user, "password_hash", None):
+        token = db_service.create_password_reset_token(user.id, ttl_minutes=PASSWORD_RESET_TTL_MINUTES)
+        base_url = os.environ.get("DIPLOMACY_PASSWORD_RESET_BASE_URL", "").rstrip("/")
+        if base_url:
+            reset_link = f"{base_url}/reset-password?token={token}"
+            _send_password_reset_link(email, reset_link)
+            if os.environ.get("DIPLOMACY_DEV_SHOW_RESET_LINK"):
+                out["reset_link"] = reset_link  # For dev/frontend to show link when email not configured
+    return out
+
+
+@router.post("/reset_password")
+def reset_password(req: ResetPasswordRequest) -> Dict[str, Any]:
+    """Set new password using a reset token (from forgot_password flow)."""
+    if not _bcrypt_available:
+        raise HTTPException(status_code=500, detail="Password reset not available (install bcrypt)")
+    user_id = db_service.consume_password_reset_token(req.token)
+    if user_id is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+    password_hash = _hash_password(req.new_password)
+    db_service.set_user_password(user_id, password_hash)
+    return {"message": "Password has been reset. You can now log in."}
 
 
 @router.post("/telegram/link")
