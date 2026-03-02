@@ -242,9 +242,13 @@ class TestOrderHistoryPersistence:
         
         game_id = f"history_test_game_{int(time.time() * 1000)}"
         game_state = service.create_game(game_id, "standard")
+        # add_player expects numeric DB id, not game_id string
+        game_model = service.get_game_by_game_id(game_id)
+        assert game_model is not None
+        numeric_game_id = game_model.id
         
         # Add FRANCE player first (required for submitting orders)
-        service.add_player(game_id, "FRANCE", user_id=None)
+        service.add_player(numeric_game_id, "FRANCE", user_id=None)
         
         from engine.data_models import Unit, MoveOrder, OrderType
         
@@ -273,10 +277,6 @@ class TestOrderHistoryPersistence:
         service.submit_orders(game_id, "FRANCE", [order2])
         
         # Retrieve order history by getting player and then orders
-        # Get the game model by game_id string to access numeric id
-        game_model = service.get_game_by_game_id(game_id)
-        assert game_model is not None, "Game model should exist"
-        numeric_game_id = int(getattr(game_model, 'id', 0))
         assert numeric_game_id > 0, "Numeric game_id should be valid"
         
         # Get player for FRANCE using numeric game_id
@@ -303,40 +303,47 @@ class TestUserDataPersistence:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_user_registration_persists(self, temp_db):
         """Test that user registration persists."""
+        import time
         db_url = str(temp_db.url)
         service = DatabaseService(db_url)
+        telegram_id = f"persist_test_user_{int(time.time() * 1000)}"
         
         # Register user
-        user = service.create_user(telegram_id="persist_test_user", full_name="Test User")
+        user = service.create_user(telegram_id=telegram_id, full_name="Test User")
         assert user is not None
         
         # Retrieve user
-        retrieved = service.get_user_by_telegram_id("persist_test_user")
+        retrieved = service.get_user_by_telegram_id(telegram_id)
         assert retrieved is not None
-        assert retrieved.telegram_id == "persist_test_user"
+        assert retrieved.telegram_id == telegram_id
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_user_power_assignment_persists(self, temp_db):
         """Test that user power assignments persist."""
+        import time
         db_url = str(temp_db.url)
         service = DatabaseService(db_url)
+        telegram_id = f"assignment_test_user_{int(time.time() * 1000)}"
         
         # Create game and user
-        game_id = "assignment_test_game"
+        game_id = f"assignment_test_game_{int(time.time() * 1000)}"
         service.create_game(game_id, "standard")
-        user = service.create_user(telegram_id="assignment_test_user", full_name="Test User")
+        game_model = service.get_game_by_game_id(game_id)
+        assert game_model is not None
+        numeric_game_id = game_model.id
+        user = service.create_user(telegram_id=telegram_id, full_name="Test User")
         
-        # Assign power to user
+        # Assign power to user (create_player expects numeric game id)
         player = service.create_player(
-            game_id=game_id,
-            user_id=user.id,
-            power="FRANCE"
+            game_id=numeric_game_id,
+            power="FRANCE",
+            user_id=user.id
         )
         assert player is not None
-        assert player.power == "FRANCE"
+        assert player.power_name == "FRANCE"
         
         # Retrieve player
         retrieved = service.get_player_by_game_id_and_power(game_id, "FRANCE")
         assert retrieved is not None
-        assert retrieved.power == "FRANCE"
+        assert retrieved.power_name == "FRANCE"
         assert retrieved.user_id == user.id

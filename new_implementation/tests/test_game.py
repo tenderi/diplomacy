@@ -51,25 +51,27 @@ def test_victory_during_movement_phase():
     ]
     game.game_state.powers['FRANCE'].controlled_supply_centers = france_centers_17
     
-    # Place units
+    # Place units: France in BUR and MAR (both adjacent to MUN), Germany in MUN
     game.game_state.powers['FRANCE'].units = [
-        Unit(unit_type='A', province='PAR', power='FRANCE'),
-        Unit(unit_type='A', province='MUN', power='FRANCE')  # Will capture MUN
+        Unit(unit_type='A', province='BUR', power='FRANCE'),  # Attacks MUN
+        Unit(unit_type='A', province='MAR', power='FRANCE')   # Supports BUR - MUN (MAR adjacent to BUR)
     ]
     game.game_state.powers['GERMANY'].units = [
         Unit(unit_type='A', province='MUN', power='GERMANY')
     ]
     
-    # France attacks and captures MUN (18th supply center)
-    game.set_orders('FRANCE', ['FRANCE A PAR - MUN'])
+    # France 2 vs 1 captures MUN (18th supply center)
+    game.set_orders('FRANCE', ['FRANCE A BUR - MUN', 'FRANCE A MAR S A BUR - MUN'])
     game.set_orders('GERMANY', ['GERMANY A MUN H'])
     
     # Process movement phase
     game.process_turn()
     
-    # Update supply centers after movement
-    if any(unit.province == 'MUN' for unit in game.game_state.powers['FRANCE'].units):
-        game.game_state.powers['FRANCE'].controlled_supply_centers.add('MUN')
+    # Update supply centers after movement (controlled_supply_centers is a list)
+    france = game.game_state.powers['FRANCE']
+    if any(unit.province == 'MUN' for unit in france.units):
+        if 'MUN' not in france.controlled_supply_centers:
+            france.controlled_supply_centers.append('MUN')
         game._check_victory_condition()
     
     # Victory should be detected

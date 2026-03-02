@@ -229,25 +229,57 @@ class Game:
                     raise ValueError(f"Unit {parsed.unit_type} {parsed.unit_province} not found for power {power_name}")
                 raise ValueError(error_msg)
         
-        # Check for duplicate orders for the same unit
-        unit_orders = {}  # (unit_type, province) -> order
+        # Check for self-support (unit supporting its own move) before duplicate check
+        for order in new_orders:
+            if isinstance(order, SupportOrder):
+                # Check if the supporting unit is the same as the supported unit
+                if order.unit.province == order.supported_unit.province and order.unit.unit_type == order.supported_unit.unit_type:
+                    raise ValueError(f"Unit {order.unit.unit_type} {order.unit.province} cannot support its own move")
+        
+        # Check for duplicate orders for the same unit and convoy restrictions
+        unit_orders = {}  # (unit_type, province) -> list of orders
         for order in new_orders:
             if hasattr(order, 'unit') and order.unit:
                 unit_key = (order.unit.unit_type, order.unit.province)
-                if unit_key in unit_orders:
-                    raise ValueError(f"duplicate order for unit {order.unit.unit_type} {order.unit.province}")
-                unit_orders[unit_key] = order
+                if unit_key not in unit_orders:
+                    unit_orders[unit_key] = []
+                unit_orders[unit_key].append(order)
+        
+        # Validate unit orders
+        for unit_key, orders_list in unit_orders.items():
+            if len(orders_list) > 1:
+                # Check if unit has convoy order - convoying units cannot perform other actions
+                has_convoy = any(isinstance(o, ConvoyOrder) for o in orders_list)
+                if has_convoy:
+                    raise ValueError(f"Unit {unit_key[0]} {unit_key[1]} cannot perform other orders while convoying")
+                # Allow support + move (support will be cut during processing)
+                has_support = any(isinstance(o, SupportOrder) for o in orders_list)
+                has_move = any(isinstance(o, MoveOrder) for o in orders_list)
+                if has_support and has_move:
+                    # Unit supporting and moving - support will be cut, but order is valid
+                    continue
+                # Otherwise, it's a duplicate order
+                raise ValueError(f"duplicate order for unit {unit_key[0]} {unit_key[1]}")
         
         # Validate move to own occupied province (self-dislodgement prevention)
+        # Allow circular movements (units swapping positions) but prevent self-dislodgement
         for order in new_orders:
             if isinstance(order, MoveOrder):
                 # Check if target province is occupied by own unit
-                target_occupied = any(
-                    u.province == order.target_province and u.power == order.power
-                    for u in self.game_state.get_all_units()
+                target_unit = next(
+                    (u for u in self.game_state.get_all_units() 
+                     if u.province == order.target_province and u.power == order.power),
+                    None
                 )
-                if target_occupied:
-                    raise ValueError(f"Cannot move {order.unit.unit_type} {order.unit.province} to own occupied province {order.target_province}")
+                if target_unit:
+                    # Check if the target unit is also moving away (circular movement - allowed)
+                    target_unit_moving = any(
+                        isinstance(o, MoveOrder) and o.unit.province == target_unit.province
+                        for o in new_orders
+                    )
+                    if not target_unit_moving:
+                        # Self-dislodgement: target unit is not moving, so this move is invalid
+                        raise ValueError(f"Cannot move {order.unit.unit_type} {order.unit.province} to own occupied province {order.target_province}")
         
         # Validate retreat orders
         for order in new_orders:

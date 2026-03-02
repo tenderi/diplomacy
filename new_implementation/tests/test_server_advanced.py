@@ -429,8 +429,8 @@ def test_order_history_and_clearing():
     assert "A BUR - MUN" in history["1"]["FRANCE"]
     assert "A RUH - BUR" in history["1"]["GERMANY"]
 
-    # Clear FRANCE's orders for turn 1
-    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", content=f'"{france_telegram_id}"', headers={"Content-Type": "application/json"})
+    # Clear FRANCE's orders for turn 1 (body: JSON object with telegram_id)
+    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={"telegram_id": france_telegram_id})
     assert resp.status_code == 200
     # Check that FRANCE's orders for turn 1 are now empty
     resp = client.get(f"/games/{game_id}/orders/history")

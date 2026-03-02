@@ -274,11 +274,9 @@ def test_self_dislodgement_prohibited():
     # Place two French units in adjacent provinces
     game.game_state.powers['FRANCE'].units = [Unit(unit_type='A', province='PAR', power='FRANCE'), Unit(unit_type='A', province='BUR', power='FRANCE')]
     # Attempt to move A PAR to BUR, which is occupied by own unit
-    game.set_orders('FRANCE', ['A PAR - BUR'])
-    game.process_turn()
-    # Both units should remain in place (no self-dislodgement)
-    assert any(unit.province == 'PAR' for unit in game.game_state.powers["FRANCE"].units)
-    assert any(unit.province == 'BUR' for unit in game.game_state.powers["FRANCE"].units)
+    # This should be rejected during order setting (self-dislodgement prevention)
+    with pytest.raises(ValueError, match="own occupied province"):
+        game.set_orders('FRANCE', ['A PAR - BUR'])
 
 
 def test_self_support_invalid():
