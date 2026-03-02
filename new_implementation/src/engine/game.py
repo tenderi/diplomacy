@@ -1,6 +1,6 @@
 from typing import Dict, List, Any, Optional, Tuple
 from .map import Map
-from .order_parser import OrderParser
+from .order_parser import OrderParser, OrderValidationError, OrderParseError
 from .allowed_moves import build_allowed_moves
 from .data_models import (
     Order, GameState, PowerState, Unit, MapData, Province, OrderType, OrderStatus, GameStatus,
@@ -194,13 +194,135 @@ class Game:
         
         # Convert string orders to new order objects
         parser = OrderParser()
-        parsed_orders = parser.parse_orders(";".join(orders), power_name)
+        try:
+            parsed_orders = parser.parse_orders(";".join(orders), power_name)
+        except OrderParseError as e:
+            raise ValueError(f"Invalid order format: {str(e)}")
         # Build concrete Order objects from parsed forms
         power_state = self.game_state.powers[power_name]
         new_orders = []
         for parsed in parsed_orders:
-            order_obj = parser.create_order_from_parsed(parsed, self.game_state)
-            new_orders.append(order_obj)
+            try:
+                order_obj = parser.create_order_from_parsed(parsed, self.game_state)
+                if order_obj:
+                    # Validate unit belongs to power
+                    if hasattr(order_obj, 'unit') and order_obj.unit:
+                        if order_obj.unit.power != power_name:
+                            raise ValueError(f"Unit {order_obj.unit.unit_type} {order_obj.unit.province} does not belong to power {power_name}")
+                    new_orders.append(order_obj)
+                else:
+                    # If order_obj is None, it means creation failed
+                    raise ValueError(f"Failed to create order from: {parsed}")
+            except OrderValidationError as e:
+                # Convert OrderValidationError to ValueError for consistency
+                error_msg = str(e)
+                # Ensure error message matches test expectations
+                if "not found" in error_msg.lower() and "for power" in error_msg.lower():
+                    # Check if unit exists but belongs to different power
+                    unit_exists = any(
+                        u.unit_type == parsed.unit_type and u.province == parsed.unit_province
+                        for power_state in self.game_state.powers.values()
+                        for u in power_state.units
+                    )
+                    if unit_exists:
+                        raise ValueError(f"Unit {parsed.unit_type} {parsed.unit_province} does not belong to power {power_name}")
+                    raise ValueError(f"Unit {parsed.unit_type} {parsed.unit_province} not found for power {power_name}")
+                raise ValueError(error_msg)
+        
+        # Check for duplicate orders for the same unit
+        unit_orders = {}  # (unit_type, province) -> order
+        for order in new_orders:
+            if hasattr(order, 'unit') and order.unit:
+                unit_key = (order.unit.unit_type, order.unit.province)
+                if unit_key in unit_orders:
+                    raise ValueError(f"duplicate order for unit {order.unit.unit_type} {order.unit.province}")
+                unit_orders[unit_key] = order
+        
+        # Validate move to own occupied province (self-dislodgement prevention)
+        for order in new_orders:
+            if isinstance(order, MoveOrder):
+                # Check if target province is occupied by own unit
+                target_occupied = any(
+                    u.province == order.target_province and u.power == order.power
+                    for u in self.game_state.get_all_units()
+                )
+                if target_occupied:
+                    raise ValueError(f"Cannot move {order.unit.unit_type} {order.unit.province} to own occupied province {order.target_province}")
+        
+        # Validate retreat orders
+        for order in new_orders:
+            if isinstance(order, RetreatOrder):
+                # Check if unit is dislodged
+                if not order.unit.is_dislodged:
+                    raise ValueError(f"Retreat order for unit {order.unit.unit_type} {order.unit.province} that is not dislodged")
+                
+                # Check if retreat province is in retreat options
+                if order.retreat_province not in order.unit.retreat_options:
+                    raise ValueError(f"invalid retreat destination {order.retreat_province}")
+                
+                # Check if retreat province is occupied
+                retreat_province_occupied = any(
+                    u.province == order.retreat_province
+                    for u in self.game_state.get_all_units()
+                )
+                # Check if retreating to attacking province (dislodged_by) - check this before occupied
+                if hasattr(order.unit, 'dislodged_by') and order.unit.dislodged_by:
+                    attacking_province = order.unit.dislodged_by
+                    if order.retreat_province == attacking_province:
+                        raise ValueError(f"invalid retreat destination {order.retreat_province}: cannot retreat to attacking province")
+                
+                if retreat_province_occupied:
+                    raise ValueError(f"invalid retreat destination {order.retreat_province}: province is occupied")
+                
+                # Check if retreating to a province that was dislodged (check other dislodged units)
+                for other_power_name, other_power_state in self.game_state.powers.items():
+                    for other_unit in other_power_state.units:
+                        if other_unit.is_dislodged and other_unit.province.replace("DISLODGED_", "") == order.retreat_province:
+                            raise ValueError(f"invalid retreat destination {order.retreat_province}: province was dislodged")
+        
+        # Validate support orders
+        # Note: Support orders may support units from other powers, so we need to check
+        # both new_orders (current power) and existing orders in game_state (other powers)
+        all_current_orders = new_orders + [
+            o for power_orders in self.game_state.orders.values() for o in power_orders
+        ]
+        
+        for order in new_orders:
+            if isinstance(order, SupportOrder):
+                # Check if supporting a move, verify the move order exists
+                if order.supported_action == "move" and order.supported_target:
+                    # Find if there's a move order for the supported unit (check all orders)
+                    supported_unit_has_move = any(
+                        isinstance(o, MoveOrder) and 
+                        o.unit.unit_type == order.supported_unit.unit_type and
+                        o.unit.province == order.supported_unit.province and
+                        o.target_province == order.supported_target
+                        for o in all_current_orders
+                    )
+                    if not supported_unit_has_move:
+                        # Check if the unit has a hold order instead (invalid - can't support move for holding unit)
+                        supported_unit_has_hold = any(
+                            isinstance(o, HoldOrder) and 
+                            o.unit.unit_type == order.supported_unit.unit_type and
+                            o.unit.province == order.supported_unit.province
+                            for o in all_current_orders
+                        )
+                        if supported_unit_has_hold:
+                            raise ValueError(f"Cannot support move for holding unit {order.supported_unit.unit_type} {order.supported_unit.province}")
+                        # Don't raise error here - the move order might be in a different power's orders
+                        # This will be caught during actual adjudication
+                
+                # Check if supporting a hold, verify the unit is actually holding (has hold order or no move order)
+                if order.supported_action == "hold":
+                    # Check if supported unit has a move order (if so, can't support hold)
+                    supported_unit_has_move = any(
+                        isinstance(o, MoveOrder) and 
+                        o.unit.unit_type == order.supported_unit.unit_type and
+                        o.unit.province == order.supported_unit.province
+                        for o in all_current_orders
+                    )
+                    if supported_unit_has_move:
+                        raise ValueError(f"Cannot support hold for unit {order.supported_unit.unit_type} {order.supported_unit.province} that has a move order")
         
         # Ensure game state phase is up to date
         self.game_state.current_phase = self.phase
@@ -1052,10 +1174,14 @@ class Game:
             "disbands": []
         }
         
+        # Track which units have retreat orders
+        units_with_retreat_orders = set()
+        
         # Process retreat orders
         for power_name, orders in self.game_state.orders.items():
             for order in orders:
                 if isinstance(order, RetreatOrder):
+                    units_with_retreat_orders.add(id(order.unit))
                     # Validate retreat
                     if self._is_valid_retreat(order):
                         # Execute retreat
@@ -1093,6 +1219,24 @@ class Game:
                         # Remove unit from game
                         power = self.game_state.powers[power_name]
                         power.units = [u for u in power.units if u != order.unit]
+        
+        # Disband units with no retreat orders and no valid retreat options
+        for power_name, power_state in self.game_state.powers.items():
+            units_to_remove = []
+            for unit in power_state.units:
+                if unit.is_dislodged and id(unit) not in units_with_retreat_orders:
+                    # Unit has no retreat order - check if it has valid retreat options
+                    if not unit.retreat_options or len(unit.retreat_options) == 0:
+                        # No valid retreat options - disband
+                        units_to_remove.append(unit)
+                        results["disbands"].append({
+                            "unit": f"{unit.unit_type} {unit.province.replace('DISLODGED_', '')}",
+                            "reason": "no_retreat_options"
+                        })
+            
+            # Remove disbanded units
+            for unit in units_to_remove:
+                power_state.units.remove(unit)
         
         return results
 

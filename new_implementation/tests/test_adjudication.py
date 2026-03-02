@@ -279,3 +279,66 @@ def test_self_dislodgement_prohibited():
     # Both units should remain in place (no self-dislodgement)
     assert any(unit.province == 'PAR' for unit in game.game_state.powers["FRANCE"].units)
     assert any(unit.province == 'BUR' for unit in game.game_state.powers["FRANCE"].units)
+
+
+def test_self_support_invalid():
+    """Test that a unit cannot support its own move (self-support is invalid)."""
+    from engine.game import Game
+    from engine.data_models import Unit
+    game = Game('standard')
+    game.add_player('FRANCE')
+    
+    # Place unit
+    game.game_state.powers['FRANCE'].units = [
+        Unit(unit_type='A', province='PAR', power='FRANCE'),
+        Unit(unit_type='A', province='MAR', power='FRANCE')
+    ]
+    
+    # Attempt to support own move: A PAR - BUR with A PAR S A PAR - BUR
+    # This should be rejected during validation
+    with pytest.raises(ValueError, match="cannot support.*own"):
+        game.set_orders('FRANCE', [
+            'A PAR - BUR',
+            'A PAR S A PAR - BUR'  # Self-support - should be invalid
+        ])
+
+
+def test_support_cut_by_move():
+    """Test support being cut when supporting unit moves (not dislodged)."""
+    from engine.game import Game
+    from engine.data_models import Unit
+    game = Game('standard')
+    game.add_player("GERMANY")
+    game.add_player("RUSSIA")
+    
+    # Germany: A BER, A SIL (supporting)
+    # Russia: A PRU (defending), A WAR (will attack SIL)
+    game.game_state.powers["GERMANY"].units = [
+        Unit(unit_type='A', province='BER', power='GERMANY'),
+        Unit(unit_type='A', province='SIL', power='GERMANY')
+    ]
+    game.game_state.powers["RUSSIA"].units = [
+        Unit(unit_type='A', province='PRU', power='RUSSIA'),
+        Unit(unit_type='A', province='WAR', power='RUSSIA')
+    ]
+    
+    # Germany: A BER - PRU with support from A SIL
+    # But A SIL also moves to BOH (cutting its own support)
+    game.set_orders("GERMANY", [
+        "GERMANY A BER - PRU",
+        "GERMANY A SIL - BOH",  # Supporting unit moves, cutting support
+        "GERMANY A SIL S A BER - PRU"  # This support should be cut
+    ])
+    game.set_orders("RUSSIA", [
+        "RUSSIA A PRU H"  # Defends
+    ])
+    
+    game.process_turn()
+    
+    # Support should be cut because SIL moved, so attack on PRU should fail (strength 1 vs 1)
+    # Both units should bounce
+    assert any(unit.province == 'BER' for unit in game.game_state.powers["GERMANY"].units) or \
+           any(unit.province == 'PRU' for unit in game.game_state.powers["GERMANY"].units)
+    assert any(unit.province == 'PRU' for unit in game.game_state.powers["RUSSIA"].units)
+    # SIL should have moved to BOH
+    assert any(unit.province == 'BOH' for unit in game.game_state.powers["GERMANY"].units)

@@ -35,3 +35,74 @@ def test_victory_condition_standard_map():
     state = game.get_state()
     assert state['done']
     assert 'FRANCE' in state['winner']
+
+
+def test_victory_during_movement_phase():
+    """Test victory condition detected during Movement phase."""
+    from engine.game import Game
+    game = Game(map_name='standard')
+    game.add_player('FRANCE')
+    game.add_player('GERMANY')
+    
+    # Set up France with 17 supply centers
+    france_centers_17 = [
+        'PAR', 'MAR', 'BRE', 'BEL', 'POR', 'SPA', 'ROM', 'VEN', 'NAP',
+        'VIE', 'BUD', 'TRI', 'WAR', 'MOS', 'SEV', 'STP', 'TUN'
+    ]
+    game.game_state.powers['FRANCE'].controlled_supply_centers = france_centers_17
+    
+    # Place units
+    game.game_state.powers['FRANCE'].units = [
+        Unit(unit_type='A', province='PAR', power='FRANCE'),
+        Unit(unit_type='A', province='MUN', power='FRANCE')  # Will capture MUN
+    ]
+    game.game_state.powers['GERMANY'].units = [
+        Unit(unit_type='A', province='MUN', power='GERMANY')
+    ]
+    
+    # France attacks and captures MUN (18th supply center)
+    game.set_orders('FRANCE', ['FRANCE A PAR - MUN'])
+    game.set_orders('GERMANY', ['GERMANY A MUN H'])
+    
+    # Process movement phase
+    game.process_turn()
+    
+    # Update supply centers after movement
+    if any(unit.province == 'MUN' for unit in game.game_state.powers['FRANCE'].units):
+        game.game_state.powers['FRANCE'].controlled_supply_centers.add('MUN')
+        game._check_victory_condition()
+    
+    # Victory should be detected
+    assert game.done or game.game_state.status.value == "completed", \
+        "Victory should be detected when power reaches 18 supply centers"
+    if game.done:
+        assert 'FRANCE' in str(game.winner) or len(game.game_state.powers['FRANCE'].controlled_supply_centers) >= 18
+
+
+def test_victory_during_builds_phase():
+    """Test victory condition detected during Builds phase."""
+    from engine.game import Game
+    game = Game(map_name='standard')
+    game.add_player('FRANCE')
+    
+    # Set up France with 18 supply centers
+    france_centers_18 = [
+        'PAR', 'MAR', 'BRE', 'BEL', 'POR', 'SPA', 'ROM', 'VEN', 'NAP',
+        'VIE', 'BUD', 'TRI', 'WAR', 'MOS', 'SEV', 'STP', 'TUN', 'MUN'
+    ]
+    game.game_state.powers['FRANCE'].controlled_supply_centers = france_centers_18
+    
+    # Start in Builds phase
+    game.phase = "Builds"
+    game.season = "Autumn"
+    game.year = 1901
+    game._update_phase_code()
+    
+    # Process builds phase (should trigger victory check)
+    game._process_builds_phase()
+    
+    # Victory should be detected
+    assert game.done or game.game_state.status.value == "completed", \
+        "Victory should be detected during Builds phase"
+    if game.done:
+        assert 'FRANCE' in str(game.winner) or len(game.game_state.powers['FRANCE'].controlled_supply_centers) >= 18

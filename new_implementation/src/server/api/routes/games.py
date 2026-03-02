@@ -43,7 +43,7 @@ class JoinGameRequest(BaseModel):
 
 class QuitGameRequest(BaseModel):
     telegram_id: Optional[str] = None
-    game_id: int
+    power: Optional[str] = None  # Optional: if provided, must match user's power
 
 class ReplacePlayerRequest(BaseModel):
     telegram_id: Optional[str] = None
@@ -381,6 +381,10 @@ def join_game(
 ) -> Dict[str, Any]:
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id)
+        # Validate power name
+        valid_powers = {'ENGLAND', 'FRANCE', 'GERMANY', 'RUSSIA', 'TURKEY', 'AUSTRIA', 'ITALY'}
+        if req.power.upper() not in valid_powers:
+            raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
         # Check if already joined
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
@@ -388,7 +392,7 @@ def join_game(
         # Check if power is taken
         taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if taken:
-            raise HTTPException(status_code=400, detail="Power already taken")
+            raise HTTPException(status_code=409, detail="Power already taken")
         # Use add_player which creates the player in the database
         power_state = db_service.add_player(game_id=game_id, power_name=req.power, user_id=int(user.id))  # type: ignore
         # Add player to in-memory server
@@ -436,6 +440,8 @@ def join_game(
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
         return {"status": "ok", "player_id": player_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -447,9 +453,18 @@ def quit_game(
 ) -> Dict[str, Any]:
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id)
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
-        if player is None:
-            return {"status": "not_in_game"}
+        # If power is specified, check that user owns that power
+        if req.power:
+            player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
+            if player is None:
+                raise HTTPException(status_code=404, detail="Power not found in game")
+            if int(player.user_id) != int(user.id):  # type: ignore
+                raise HTTPException(status_code=403, detail="You are not authorized to quit this power.")
+        else:
+            # If no power specified, find player by user_id
+            player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+            if player is None:
+                raise HTTPException(status_code=404, detail="Player not found in game")
         # Unassign the user from the player slot
         try:
             db_service.delete_orders_by_player_id(int(player.id))  # type: ignore
@@ -483,8 +498,10 @@ def quit_game(
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"status": "ok", "detail": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/replace")
 def replace_player(

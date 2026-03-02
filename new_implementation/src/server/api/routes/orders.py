@@ -156,6 +156,8 @@ def set_orders(
             except Exception as e:
                 logger.debug(f"set_orders: failed to assign spec-shaped game.state: {e}")
         return {"results": results}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"set_orders: SQLAlchemyError: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -203,6 +205,8 @@ def get_order_history(game_id: str) -> Dict[str, Any]:
                 order_text = _order_model_to_text(order)
                 history.setdefault(turn, {}).setdefault(power, []).append(order_text)
         return {"game_id": game_id, "order_history": history}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -216,19 +220,24 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
         orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
         order_list = [order.order_text for order in orders]
         return {"power": power, "orders": order_list}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class ClearOrdersRequest(BaseModel):
+    telegram_id: Optional[str] = None
 
 @router.post("/games/{game_id}/orders/{power}/clear")
 def clear_orders_for_power(
     game_id: int,
     power: str,
-    telegram_id: Optional[str] = Body(None),
+    req: ClearOrdersRequest = Body(...),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, str]:
     """Clear orders for a power. Only the assigned user (Bearer or telegram_id) can clear orders."""
     try:
-        user = resolve_user_or_telegram(credentials, telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
@@ -245,6 +254,8 @@ def clear_orders_for_power(
                 game.game_state.orders[power] = []
         
         return {"status": "ok"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

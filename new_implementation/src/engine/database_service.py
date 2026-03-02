@@ -918,6 +918,14 @@ class DatabaseService:
             if not player:
                 return []
             return session.query(OrderModel).filter_by(game_id=player.game_id, power_name=player.power_name).all()
+    
+    def get_order_history(self, game_id: str | int) -> List[OrderModel]:
+        """Get all orders for a game across all turns."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
+            if not game_model:
+                return []
+            return session.query(OrderModel).filter_by(game_id=game_model.id).order_by(OrderModel.turn_number, OrderModel.power_name).all()
 
     def delete_orders_by_player_id(self, player_id: int) -> None:
         with self.session_factory() as session:

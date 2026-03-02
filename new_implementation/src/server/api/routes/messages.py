@@ -64,6 +64,8 @@ def send_private_message(
         except Exception as e:
             scheduler_logger.error(f"Failed to notify private message: {e}")
         return {"status": "ok", "message_id": msg.id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -103,6 +105,8 @@ def send_broadcast_message(
             logger.debug(f"Channel integration check failed for broadcast: {e}")
         
         return {"status": "ok", "message_id": msg.id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -145,6 +149,8 @@ def get_game_messages(
             for m in messages
         ]
         return {"messages": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
