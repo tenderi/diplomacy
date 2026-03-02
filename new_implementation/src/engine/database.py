@@ -32,6 +32,7 @@ class GameModel(Base):
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
+    observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -43,6 +44,7 @@ class GameModel(Base):
     turn_history = relationship("TurnHistoryModel", back_populates="game", cascade="all, delete-orphan")
     map_snapshots = relationship("MapSnapshotModel", back_populates="game", cascade="all, delete-orphan")
     messages = relationship("MessageModel", back_populates="game", cascade="all, delete-orphan")
+    spectators = relationship("SpectatorModel", back_populates="game", cascade="all, delete-orphan")
 
 
 class UserModel(Base):
@@ -62,7 +64,7 @@ class UserModel(Base):
     # Relationships
     players = relationship("PlayerModel", back_populates="user")
     messages_sent = relationship("MessageModel", foreign_keys="MessageModel.sender_user_id", back_populates="sender")
-    messages_received = relationship("MessageModel", foreign_keys="MessageModel.recipient_user_id", back_populates="recipient")
+    # Note: messages_received removed - recipient_user_id doesn't exist in database schema
     link_codes = relationship("LinkCodeModel", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -252,25 +254,20 @@ class MessageModel(Base):
     
     id = Column(Integer, primary_key=True)
     game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    sender_user_id = Column(Integer, ForeignKey('users.id'))
-    sender_power = Column(String(20))
-    recipient_user_id = Column(Integer, ForeignKey('users.id'))
-    recipient_power = Column(String(20))
-    message_type = Column(String(20), nullable=False)
-    content = Column(Text, nullable=False)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    sender_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    recipient_power = Column(String(20), nullable=True)
+    text = Column(Text, nullable=False)  # Actual column name is 'text', not 'content'
+    timestamp = Column(DateTime, nullable=False)  # Actual column name is 'timestamp', not 'created_at'
     
     # Constraints and indexes
     __table_args__ = (
-        CheckConstraint("message_type IN ('private', 'broadcast', 'system')", name='ck_message_type'),
         Index('ix_messages_game', 'game_id'),
     )
     
     # Relationships
     game = relationship("GameModel", back_populates="messages")
     sender = relationship("UserModel", foreign_keys=[sender_user_id], back_populates="messages_sent")
-    recipient = relationship("UserModel", foreign_keys=[recipient_user_id], back_populates="messages_received")
+    # Note: recipient_user_id doesn't exist in database schema, only recipient_power
 
 
 class ChannelMessageModel(Base):
@@ -354,6 +351,82 @@ class ChannelAnalyticsModel(Base):
     )
     
     # Relationships
+    game = relationship("GameModel")
+    user = relationship("UserModel")
+
+
+class TournamentModel(Base):
+    """Tournaments table (for bracket/tournament organization)."""
+    __tablename__ = 'tournaments'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    status = Column(String(20), nullable=False, default='pending')  # 'pending', 'active', 'completed', 'cancelled'
+    bracket_type = Column(String(50), nullable=True)  # 'single_elimination', 'double_elimination', 'round_robin'
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    games = relationship("TournamentGameModel", back_populates="tournament", cascade="all, delete-orphan")
+    players = relationship("TournamentPlayerModel", back_populates="tournament", cascade="all, delete-orphan")
+
+
+class TournamentGameModel(Base):
+    """Tournament games (links games to tournaments and rounds)."""
+    __tablename__ = 'tournament_games'
+
+    id = Column(Integer, primary_key=True)
+    tournament_id = Column(Integer, ForeignKey('tournaments.id', ondelete='CASCADE'), nullable=False)
+    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
+    round_number = Column(Integer, nullable=False, default=1)
+    bracket_position = Column(String(50), nullable=True)  # e.g. '1', '2', 'semifinal_1'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('tournament_id', 'game_id', name='uq_tournament_game'),
+        Index('ix_tournament_games_tournament', 'tournament_id'),
+    )
+
+    tournament = relationship("TournamentModel", back_populates="games")
+    game = relationship("GameModel")
+
+
+class TournamentPlayerModel(Base):
+    """Tournament players (participants with optional seed/rank)."""
+    __tablename__ = 'tournament_players'
+
+    id = Column(Integer, primary_key=True)
+    tournament_id = Column(Integer, ForeignKey('tournaments.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True)
+    seed = Column(Integer, nullable=True)
+    final_rank = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('tournament_id', 'user_id', name='uq_tournament_user'),
+        Index('ix_tournament_players_tournament', 'tournament_id'),
+    )
+
+    tournament = relationship("TournamentModel", back_populates="players")
+    user = relationship("UserModel")
+
+
+class SpectatorModel(Base):
+    """Spectators table: users who observe a game without playing."""
+    __tablename__ = 'spectators'
+
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('game_id', 'user_id', name='uq_spectator_game_user'),
+        Index('ix_spectators_game', 'game_id'),
+    )
+
     game = relationship("GameModel")
     user = relationship("UserModel")
 

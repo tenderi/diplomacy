@@ -211,6 +211,8 @@ class TestMessageAuthorization:
             "recipient_power": "GERMANY",
             "text": "Hello"
         })
+        if resp.status_code != 200:
+            print(f"Error response: {resp.json()}")
         assert resp.status_code == 200
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
@@ -294,12 +296,14 @@ class TestBearerTokenAuthorization:
     def test_bearer_token_authorization(self, client):
         """Test that Bearer token authentication works."""
         # Register user and get token
+        import time
+        unique_email = f"bearer_test_{int(time.time() * 1000)}@example.com"
         register_resp = client.post("/auth/register", json={
-            "email": "bearer_test@example.com",
+            "email": unique_email,
             "password": "testpass123",
             "full_name": "Bearer Test User"
         })
-        assert register_resp.status_code == 200
+        assert register_resp.status_code == 200, f"Registration failed: {register_resp.json()}"
         token = register_resp.json()["access_token"]
         
         # Create game

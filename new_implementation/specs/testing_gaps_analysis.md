@@ -271,10 +271,7 @@ This document identifies gaps between the testing strategy requirements and the 
 ### 12. API Routes - Channels
 
 #### Missing Tests:
-- ❌ **Channel Analytics**: Analytics endpoints (`get_channel_analytics`, `get_channel_analytics_summary`, etc.)
-  - **Status**: Not tested
-  - **Location**: `test_channel_*.py` files (extend existing)
-  - **Priority**: MEDIUM
+- ✅ **Channel Analytics**: Analytics endpoints (`get_channel_analytics`, `get_channel_analytics_summary`, engagement, players) — covered in `test_channel_analytics.py`
 
 - ✅ **Channel Battle Results**: Covered in `test_channel_battle_results.py`
 - ✅ **Channel Dashboard**: Covered in `test_channel_dashboard.py`

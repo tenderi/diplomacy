@@ -175,7 +175,7 @@ class TestClearOrders:
         client.post(f"/games/{game_id}/join", json={"telegram_id": "test_user6", "game_id": game_id, "power": "FRANCE"})
         
         # Clear orders
-        resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json="test_user6")
+        resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={"telegram_id": "test_user6"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -191,7 +191,7 @@ class TestClearOrders:
         client.post(f"/games/{game_id}/join", json={"telegram_id": "user7", "game_id": game_id, "power": "FRANCE"})
         
         # Try to clear orders as different user
-        resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json="user8")
+        resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={"telegram_id": "user8"})
         # May return 403 or 500 depending on error handling
         assert resp.status_code in [403, 500]
 
