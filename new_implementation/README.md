@@ -118,6 +118,7 @@ See [README_client.md](./src/README_client.md) for client usage examples.
 
 ## Documentation
 
+- **[Local Development & Running the Server](./docs/LOCAL_DEVELOPMENT.md)** - Full guide: install, database, env, run API/frontend/bots
 - **[Telegram Bot Commands](./docs/TELEGRAM_BOT_COMMANDS.md)** - Complete command reference
 - **[FAQ & Troubleshooting](./docs/FAQ.md)** - Common questions and solutions
 - **[Server API Documentation](./src/server/README.md)** - API endpoint reference

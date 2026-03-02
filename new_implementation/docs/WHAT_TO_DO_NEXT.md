@@ -60,6 +60,7 @@ CORS middleware is enabled in both `server/api.py` and `server/_api_module.py`. 
 
 ## Quick reference
 
+- **Run server locally**: See **[LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md)** for full install, DB, env, and run steps.
 - **Browser client**: `frontend/` — run with `npm run dev`; build with `npm run build` (served at `/app` when `frontend/dist` exists).
 - **Auth**: JWT in `Authorization: Bearer <access_token>`; refresh via `POST /auth/refresh`.
 - **Plan**: `specs/browser_client_plan.md`.
