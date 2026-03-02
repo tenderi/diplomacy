@@ -16,21 +16,28 @@ class TestPathResolution:
     
     def test_project_root_exists(self):
         """Verify project root directory exists."""
-        # Try to find project root from common locations
+        # Try to find project root: new_implementation (parent of tests/) or repo root
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent  # new_implementation
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            os.path.join(os.path.dirname(__file__), "..", ".."),
-            os.getcwd(),
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
+            Path(os.getcwd()),
         ]
         
         project_root = None
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                # Check for key indicators
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    project_root = root_path
-                    break
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                project_root = root_path
+                break
+            if (root_path / "new_implementation" / "src").exists():
+                project_root = root_path / "new_implementation"
+                break
         
         assert project_root is not None, "Project root directory not found"
         assert project_root.exists(), f"Project root does not exist: {project_root}"
@@ -94,19 +101,24 @@ class TestPathResolution:
         assert os.access(demo_script, os.R_OK), f"demo_perfect_game.py is not readable: {demo_script}"
     
     def _find_project_root(self) -> Path:
-        """Find project root directory."""
+        """Find project root directory (new_implementation or repo with new_implementation)."""
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            Path(__file__).parent.parent,
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
             Path(os.getcwd()),
         ]
-        
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    return root_path
-        
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                return root_path
+            if (root_path / "new_implementation" / "src").exists():
+                return root_path / "new_implementation"
         raise AssertionError("Could not find project root directory")
 
 
@@ -147,19 +159,24 @@ class TestFilePermissions:
             pytest.fail(f"Cannot write to test_maps directory: {e}")
     
     def _find_project_root(self) -> Path:
-        """Find project root directory."""
+        """Find project root directory (new_implementation or repo with new_implementation)."""
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            Path(__file__).parent.parent,
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
             Path(os.getcwd()),
         ]
-        
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    return root_path
-        
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                return root_path
+            if (root_path / "new_implementation" / "src").exists():
+                return root_path / "new_implementation"
         raise AssertionError("Could not find project root directory")
 
 
@@ -208,19 +225,24 @@ class TestDependencies:
             pytest.fail(f"Cannot import src modules: {e}")
     
     def _find_project_root(self) -> Path:
-        """Find project root directory."""
+        """Find project root directory (new_implementation or repo with new_implementation)."""
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            Path(__file__).parent.parent,
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
             Path(os.getcwd()),
         ]
-        
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    return root_path
-        
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                return root_path
+            if (root_path / "new_implementation" / "src").exists():
+                return root_path / "new_implementation"
         raise AssertionError("Could not find project root directory")
 
 
@@ -245,25 +267,32 @@ class TestConfiguration:
         
         map_path = os.environ.get("DIPLOMACY_MAP_PATH")
         if map_path:
-            assert Path(map_path).exists(), f"DIPLOMACY_MAP_PATH points to non-existent file: {map_path}"
+            path = Path(map_path)
+            if not path.is_absolute():
+                path = (project_root / map_path).resolve()
+            assert path.exists(), f"DIPLOMACY_MAP_PATH points to non-existent file: {map_path}"
         else:
-            # Use default location
             assert default_map.exists(), f"Default map file does not exist: {default_map}"
     
     def _find_project_root(self) -> Path:
-        """Find project root directory."""
+        """Find project root directory (new_implementation or repo with new_implementation)."""
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            Path(__file__).parent.parent,
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
             Path(os.getcwd()),
         ]
-        
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    return root_path
-        
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                return root_path
+            if (root_path / "new_implementation" / "src").exists():
+                return root_path / "new_implementation"
         raise AssertionError("Could not find project root directory")
 
 
@@ -296,18 +325,23 @@ class TestMapFiles:
             assert os.access(v2_svg, os.R_OK), f"v2.svg is not readable: {v2_svg}"
     
     def _find_project_root(self) -> Path:
-        """Find project root directory."""
+        """Find project root directory (new_implementation or repo with new_implementation)."""
+        tests_dir = Path(__file__).resolve().parent
+        impl_root = tests_dir.parent
+        repo_root = impl_root.parent
         possible_roots = [
-            "/opt/diplomacy",
-            Path(__file__).parent.parent,
+            impl_root,
+            Path("/opt/diplomacy"),
+            repo_root,
             Path(os.getcwd()),
         ]
-        
         for root in possible_roots:
             root_path = Path(root).resolve()
-            if root_path.exists() and root_path.is_dir():
-                if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
-                    return root_path
-        
+            if not root_path.exists() or not root_path.is_dir():
+                continue
+            if (root_path / "src").exists() or (root_path / "requirements.txt").exists():
+                return root_path
+            if (root_path / "new_implementation" / "src").exists():
+                return root_path / "new_implementation"
         raise AssertionError("Could not find project root directory")
 

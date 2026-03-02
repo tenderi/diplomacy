@@ -46,15 +46,14 @@ def test_standard_v2_map():
             "phase_code": "S1901M"
         }
         
-        # Use the resolved SVG path for standard-v2
-        base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
+        # Resolve maps dir: under new_implementation (parent of tests/)
+        impl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        maps_dir = os.path.join(impl_root, "maps")
+        base_path = os.environ.get("DIPLOMACY_MAP_PATH", os.path.join(maps_dir, "standard.svg"))
+        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else maps_dir
         svg_path = os.path.join(base_dir, "v2.svg")
-        
         if not os.path.exists(svg_path):
-            # Try relative path
-            svg_path = "maps/v2.svg"
-        
+            svg_path = os.path.join(impl_root, "maps", "v2.svg")
         if not os.path.exists(svg_path):
             raise FileNotFoundError(f"v2.svg not found at {svg_path}")
         

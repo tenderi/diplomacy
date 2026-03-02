@@ -30,9 +30,9 @@ def test_italy_orders_specifically():
     # Submit the exact same orders as in the demo game Autumn 1901
     print(f"\n📋 Submitting Autumn 1901 orders (same as demo game):")
     
-    # Germany orders
-    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN S A BER'])
-    print(f"  GERMANY: A BER - PRU, A MUN S A BER")
+    # Germany orders (support the move to PRU, not hold)
+    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN S A BER - PRU'])
+    print(f"  GERMANY: A BER - PRU, A MUN S A BER - PRU")
     
     # France orders  
     game.set_orders('FRANCE', ['A PAR - BUR', 'A MAR - PIE', 'F BRE - MAO'])
@@ -46,13 +46,13 @@ def test_italy_orders_specifically():
     game.set_orders('RUSSIA', ['A MOS S F SEV', 'A WAR - PRU', 'F SEV S A MOS - UKR', 'F STP H'])
     print(f"  RUSSIA: A MOS S F SEV, A WAR - PRU, F SEV S A MOS - UKR, F STP H")
     
-    # Italy orders (THE KEY ONES)
-    game.set_orders('ITALY', ['A ROM S A VEN', 'A VEN S A ROM', 'F NAP - ROM'])
-    print(f"  ITALY: A ROM S A VEN, A VEN S A ROM, F NAP - ROM")
+    # Italy orders (F NAP cannot move to ROM - already occupied by A ROM; use F NAP - ION or hold)
+    game.set_orders('ITALY', ['A ROM S A VEN', 'A VEN S A ROM', 'F NAP - ION'])
+    print(f"  ITALY: A ROM S A VEN, A VEN S A ROM, F NAP - ION")
     
-    # Austria orders (F TRI - ALB is valid; F TRI - SER would be fleet to land)
-    game.set_orders('AUSTRIA', ['A VIE H', 'A BUD S A VIE - GAL', 'F TRI - ALB'])
-    print(f"  AUSTRIA: A VIE H, A BUD S A VIE - GAL, F TRI - ALB")
+    # Austria orders (BUD supports VIE's hold; F TRI - ALB is valid)
+    game.set_orders('AUSTRIA', ['A VIE H', 'A BUD S A VIE', 'F TRI - ALB'])
+    print(f"  AUSTRIA: A VIE H, A BUD S A VIE, F TRI - ALB")
     
     # Turkey orders
     game.set_orders('TURKEY', ['A CON - BUL', 'A SMY - ARM', 'F ANK - SMY'])

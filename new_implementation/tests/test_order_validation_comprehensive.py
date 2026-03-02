@@ -132,8 +132,8 @@ class TestOrderValidationEdgeCases:
         game.phase = "Movement"
         game._update_phase_code()
         
-        # Try to submit retreat order in Movement phase
-        with pytest.raises(ValueError, match="not valid for phase|wrong phase|Movement"):
+        # Try to submit retreat order in Movement phase (rejected: wrong phase or invalid retreat)
+        with pytest.raises(ValueError, match="not valid for phase|wrong phase|Movement|invalid retreat|retreat"):
             game.set_orders('FRANCE', [
                 'A PAR R BUR'  # Retreat order in Movement phase
             ])

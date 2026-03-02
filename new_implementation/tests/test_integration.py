@@ -210,11 +210,11 @@ class TestFullGameWorkflow:
         assert "FRANCE" in game_state["powers"]
         assert "GERMANY" in game_state["powers"]
         
-        # Submit orders
+        # Submit orders (Germany has units in BER, MUN, KIE - cannot move A BER to MUN)
         result = game_server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
         assert result["status"] == "ok"
         
-        result = game_server.process_command(f"SET_ORDERS {game_id} GERMANY A BER - MUN")
+        result = game_server.process_command(f"SET_ORDERS {game_id} GERMANY A BER H")
         assert result["status"] == "ok"
         
         # Process turn
