@@ -10,6 +10,6 @@ This package contains route modules organized by functionality:
 - admin: Administrative endpoints
 - dashboard: Dashboard API endpoints
 """
-from . import games, orders, users, messages, maps, admin, dashboard, channels
+from . import games, orders, users, messages, maps, admin, dashboard, channels, tournaments
 
-__all__ = ["games", "orders", "users", "messages", "maps", "admin", "dashboard", "channels"]
+__all__ = ["games", "orders", "users", "messages", "maps", "admin", "dashboard", "channels", "tournaments"]

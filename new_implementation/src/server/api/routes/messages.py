@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import requests
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
-from ..shared import db_service, scheduler_logger, NOTIFY_URL, notify_players
+from ..shared import db_service, scheduler_logger, logger, NOTIFY_URL, notify_players
 from engine.database import MessageModel
 
 router = APIRouter()
@@ -28,23 +28,27 @@ class SendBroadcastRequest(BaseModel):
 # --- Message Endpoints ---
 @router.post("/games/{game_id}/message")
 def send_private_message(
-    game_id: int,
+    game_id: str,
     req: SendMessageRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id)
-        # Validate sender is in the game
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+        # Get game model to get numeric ID for database operations
+        game_model = db_service.get_game_by_game_id(str(game_id))
+        if not game_model:
+            raise HTTPException(status_code=404, detail="Game not found")
+        # Validate sender is in the game (use numeric game.id)
+        player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
         # Validate recipient power exists in game
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
             raise HTTPException(status_code=400, detail="Recipient power required for private message")
-        recipient_player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.recipient_power)
+        recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=req.recipient_power)
         if not recipient_player:
             raise HTTPException(status_code=404, detail="Recipient power not found in game")
-        msg = db_service.create_message(game_id=game_id, sender_user_id=int(user.id), recipient_power=req.recipient_power, text=req.text)  # type: ignore
+        msg = db_service.create_message(game_id=int(game_model.id), sender_user_id=int(user.id), recipient_power=req.recipient_power, text=req.text)  # type: ignore
         # Private message notification
         try:
             recipient_user_id = getattr(recipient_player, "user_id", None)
@@ -112,7 +116,7 @@ def send_broadcast_message(
 
 @router.get("/games/{game_id}/messages")
 def get_game_messages(
-    game_id: int,
+    game_id: str,
     telegram_id: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
@@ -120,11 +124,15 @@ def get_game_messages(
         user = get_current_user_optional(credentials)
         if user is None and telegram_id:
             user = db_service.get_user_by_telegram_id(telegram_id)
+        # Get game model to get numeric ID
+        game_model = db_service.get_game_by_game_id(str(game_id))
+        if not game_model:
+            raise HTTPException(status_code=404, detail="Game not found")
         # Retrieve all messages for the game, filter private messages to only those sent to or from the user
-        query = db_service.get_messages_by_game_id(game_id)
+        query = db_service.get_messages_by_game_id(int(game_model.id))
         if user:
             # Show broadcasts and private messages sent to or from this user
-            player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+            player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
             if player:
                 power = player.power_name
                 from sqlalchemy import or_
@@ -144,7 +152,7 @@ def get_game_messages(
                 "sender_user_id": m.sender_user_id,
                 "recipient_power": m.recipient_power,
                 "text": m.text,
-                "timestamp": m.timestamp.isoformat()
+                "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp)
             }
             for m in messages
         ]

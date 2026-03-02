@@ -52,6 +52,11 @@ class ReplacePlayerRequest(BaseModel):
 class MarkInactiveRequest(BaseModel):
     admin_token: str
 
+
+class SpectateRequest(BaseModel):
+    """Request for spectate endpoints (join/leave)."""
+    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+
 # --- Game Management Endpoints ---
 @router.post("/games/create")
 def create_game(req: CreateGameRequest) -> Dict[str, Any]:
@@ -372,6 +377,131 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/games/{game_id}/spectate")
+def spectate_join(
+    game_id: str,
+    req: SpectateRequest = Body(default_factory=SpectateRequest),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Join a game as spectator (non-player observer). Requires auth (Bearer or telegram_id)."""
+    try:
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        db_service.add_spectator(game_id=game_id, user_id=int(user.id))
+        return {"status": "ok", "message": f"Now spectating game {game_id}", "game_id": game_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error joining as spectator: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/games/{game_id}/spectate")
+def spectate_leave(
+    game_id: str,
+    req: SpectateRequest = Body(default_factory=SpectateRequest),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Stop spectating a game."""
+    try:
+        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        db_service.remove_spectator(game_id=game_id, user_id=int(user.id))
+        return {"status": "ok", "message": f"Stopped spectating game {game_id}", "game_id": game_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error leaving spectate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/games/{game_id}/spectators")
+def get_spectators(game_id: str) -> Dict[str, Any]:
+    """List spectators for a game."""
+    try:
+        spectators = db_service.get_spectators(game_id)
+        return {"status": "ok", "game_id": game_id, "spectators": spectators}
+    except Exception as e:
+        logger.exception(f"Error listing spectators: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/games/{game_id}/observer_state")
+@cached_response(ttl=30, key_params=["game_id"])
+def get_observer_state(game_id: str) -> Dict[str, Any]:
+    """
+    Get game state for observers: same as /state but with orders hidden
+    (pending orders, retreats, builds, destroys, order_history, adjudication_results).
+    """
+    # Reuse state fetch from get_game_state
+    game = None
+    if game_id in server.games:
+        game = server.games[game_id]
+        state = game.get_game_state()
+    else:
+        state = db_service.get_game_state(game_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail="Game not found")
+
+    from engine.database import unit_to_dict, order_to_dict
+    from ...models import PowerStateOut, UnitOut
+
+    supply_centers = {}
+    for p_name, p_state in state.powers.items():
+        for prov in p_state.controlled_supply_centers:
+            supply_centers[prov] = p_name
+
+    powers = {}
+    for power_name, ps in state.powers.items():
+        powers[power_name] = PowerStateOut(
+            power_name=ps.power_name,
+            user_id=ps.user_id,
+            is_active=ps.is_active,
+            is_eliminated=ps.is_eliminated,
+            home_supply_centers=ps.home_supply_centers,
+            controlled_supply_centers=ps.controlled_supply_centers,
+            units=[UnitOut(**unit_to_dict(u)) for u in ps.units],
+            orders_submitted=ps.orders_submitted,
+            last_order_time=ps.last_order_time.isoformat() if ps.last_order_time else None,
+            retreat_options=ps.retreat_options,
+            build_options=ps.build_options,
+            destroy_options=ps.destroy_options,
+        )
+
+    state_out = GameStateOut(
+        game_id=state.game_id,
+        map_name=state.map_name,
+        current_turn=state.current_turn,
+        current_year=state.current_year,
+        current_season=state.current_season,
+        current_phase=state.current_phase,
+        phase_code=state.phase_code,
+        status=state.status.value,
+        created_at=state.created_at.isoformat(),
+        updated_at=state.updated_at.isoformat(),
+        powers=powers,
+        units={p: [UnitOut(**unit_to_dict(u)) for u in ps.units] for p, ps in state.powers.items()},
+        supply_centers=supply_centers,
+        orders={},
+        pending_retreats={},
+        pending_builds={},
+        pending_destroys={},
+        order_history=[],
+        turn_history=[],
+        map_snapshots=[],
+    )
+    out = state_out.model_dump()
+    out["adjudication_results"] = {}
+    out.setdefault("year", None)
+    out.setdefault("phase", None)
+    out.setdefault("turn", None)
+    out.setdefault("done", False)
+    return out
+
 
 @router.post("/games/{game_id}/join")
 def join_game(

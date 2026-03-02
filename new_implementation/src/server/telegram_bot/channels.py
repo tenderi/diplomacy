@@ -219,7 +219,16 @@ def create_discussion_thread(
                 name=thread_title
             )
             logger.info(f"Created forum topic in channel {channel_id} for game {game_id}")
-            return topic_message.message_thread_id if hasattr(topic_message, 'message_thread_id') else None
+            thread_id = topic_message.message_thread_id if hasattr(topic_message, 'message_thread_id') else None
+            # Log analytics event
+            _log_analytics_event(
+                game_id=game_id,
+                channel_id=channel_id,
+                event_type='message_posted',
+                event_subtype='thread_created',
+                metadata={'topic': topic, 'phase': phase, 'thread_id': thread_id}
+            )
+            return thread_id
         except Exception:
             # If forum topics aren't supported, log and return None
             logger.debug(f"Channel {channel_id} does not support forum topics, using reply threading instead")
@@ -514,6 +523,16 @@ def post_timeline_update_to_channel(
         )
         
         logger.info(f"Posted timeline update to channel {channel_id} for game {game_id}")
+
+        # Log analytics event
+        _log_analytics_event(
+            game_id=game_id,
+            channel_id=channel_id,
+            event_type='message_posted',
+            event_subtype='timeline',
+            metadata={'message_id': posted_message.message_id}
+        )
+
         return posted_message.message_id
         
     except TelegramError as e:

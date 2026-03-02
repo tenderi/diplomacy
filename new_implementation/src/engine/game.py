@@ -544,15 +544,28 @@ class Game:
                     supporting_units.add((supporting_unit.power, supporting_unit.unit_type, supporting_unit.province))
                     is_support_cut = False
 
-                    # Check if any unit is moving to the supporting unit's province
+                    # Check if the supporting unit itself is moving (support cut by move)
+                    # If a unit moves, it cannot provide support
+                    supporting_unit_moving = False
                     for target_province, moves in move_strengths.items():
-                        if target_province == supporting_unit.province:
-                            for unit, strength, move_order in moves:
-                                if unit != supporting_unit:  # Not supporting itself
-                                    is_support_cut = True
-                                    break
-                            if is_support_cut:
+                        for unit, strength, move_order in moves:
+                            if unit == supporting_unit and isinstance(move_order, MoveOrder):
+                                supporting_unit_moving = True
+                                is_support_cut = True
                                 break
+                        if supporting_unit_moving:
+                            break
+
+                    # Check if any other unit is moving to the supporting unit's province (support cut by attack)
+                    if not is_support_cut:
+                        for target_province, moves in move_strengths.items():
+                            if target_province == supporting_unit.province:
+                                for unit, strength, move_order in moves:
+                                    if unit != supporting_unit:  # Not supporting itself
+                                        is_support_cut = True
+                                        break
+                                if is_support_cut:
+                                    break
 
                     if not is_support_cut:
                         # Support is not cut, determine target province and supported unit
