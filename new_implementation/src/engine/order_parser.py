@@ -59,6 +59,7 @@ class OrderParser:
         self.support_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+S\s+([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)(?:\s*-\s*([A-Z]{3}(?:/[A-Z]{2})?))?$', re.IGNORECASE)
         self.convoy_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+C\s+([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s*-\s*([A-Z]{3}(?:/[A-Z]{2})?)$', re.IGNORECASE)
         self.retreat_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+R\s+([A-Z]{3}(?:/[A-Z]{2})?)$', re.IGNORECASE)
+        self.disband_pattern = re.compile(r'^([AF])\s+([A-Z]{3}(?:/[A-Z]{2})?)\s+D$', re.IGNORECASE)  # A PAR D format for disband
         self.build_pattern = re.compile(r'^BUILD\s+([AF])\s+([A-Z]{3})(?:\s*/\s*([A-Z]{2}))?$', re.IGNORECASE)
         self.destroy_pattern = re.compile(r'^DESTROY\s+([AF])\s+([A-Z]{3})$', re.IGNORECASE)
         
@@ -120,6 +121,10 @@ class OrderParser:
             return parsed
             
         parsed = self._try_retreat_order(order_text, power)
+        if parsed:
+            return parsed
+        
+        parsed = self._try_disband_order(order_text, power)
         if parsed:
             return parsed
             
@@ -222,6 +227,22 @@ class OrderParser:
                 unit_type=unit_type.upper(),
                 unit_province=unit_province.upper(),
                 retreat_province=retreat_province.upper(),
+                raw_text=order_text
+            )
+        return None
+    
+    def _try_disband_order(self, order_text: str, power: str) -> Optional[ParsedOrder]:
+        """Try to parse as disband order (A PAR D format)"""
+        match = self.disband_pattern.match(order_text)
+        if match:
+            unit_type, unit_province = match.groups()
+            return ParsedOrder(
+                order_type=OrderType.DESTROY,  # Disband is treated as DESTROY in Retreat phase
+                power=power,
+                unit_type=unit_type.upper(),
+                unit_province=unit_province.upper(),
+                destroy_unit_type=unit_type.upper(),
+                destroy_unit_province=unit_province.upper(),
                 raw_text=order_text
             )
         return None
@@ -476,6 +497,7 @@ class OrderParser:
         order_lines = re.split(r'[;\n]', orders_text)
         
         parsed_orders = []
+        parse_errors = []
         for line in order_lines:
             line = line.strip()
             if line:
@@ -483,8 +505,12 @@ class OrderParser:
                     parsed = self.parse_order_text(line, power)
                     parsed_orders.append(parsed)
                 except OrderParseError as e:
-                    # Log error but continue with other orders
-                    print(f"Warning: Failed to parse order '{line}': {e}")
+                    # Collect parse errors to raise at the end
+                    parse_errors.append(f"Failed to parse order '{line}': {e}")
+        
+        # If any orders failed to parse, raise an error
+        if parse_errors:
+            raise OrderParseError("; ".join(parse_errors))
         
         return parsed_orders
     

@@ -133,6 +133,395 @@ Testing is critical for ensuring the correctness and reliability of the Diplomac
 - Tests for service file correctness
 - Tests for deployment script error handling
 
+## Core Behaviours to Test
+
+### Game Engine Core Behaviours
+
+#### 1. Order Adjudication (PRIORITY: CRITICAL - MUST-HAVE)
+- **Move Resolution**: Units move correctly, bounce on equal strength, dislodge on higher strength
+- **Support Calculation**: Support orders add strength correctly, support cutting works
+- **Convoy Resolution**: Convoy chains work correctly, convoy disruption prevents moves
+- **Self-Dislodgement Prevention**: Power cannot dislodge its own units (both units hold)
+- **Standoff Detection**: Equal strength attacks result in bounces
+- **Retreat Resolution**: Dislodged units retreat correctly or disband if no valid retreats
+- **Build/Destroy Logic**: Builds match supply center count, destroys match unit excess
+
+#### 2. Game State Management (PRIORITY: CRITICAL - MUST-HAVE)
+- **State Consistency**: Units, supply centers, and orders remain consistent
+- **Phase Transitions**: Movement → Retreat → Builds transitions correctly
+- **Turn Advancement**: Year/season increment correctly (Spring → Autumn → Spring+1)
+- **Victory Conditions**: Game ends when power controls 18+ supply centers
+- **Elimination**: Powers with no units/supply centers are marked eliminated
+
+#### 3. Order Validation (PRIORITY: CRITICAL - MUST-HAVE)
+- **Syntax Validation**: Orders parse correctly from text format
+- **Semantic Validation**: Orders are valid for current game state
+- **Phase Compatibility**: Order types match current phase (movement in Movement, retreats in Retreat, etc.)
+- **Power Ownership**: Orders can only be submitted for units owned by the power
+- **Adjacency Validation**: Moves respect province adjacencies and unit type constraints
+- **Coast Validation**: Fleet moves respect coast requirements for multi-coast provinces
+
+#### 4. Map and Province Logic (PRIORITY: HIGH - MUST-HAVE)
+- **Province Loading**: Map files load correctly with all provinces and adjacencies
+- **Adjacency Calculation**: Correct adjacencies for armies (land/coastal) and fleets (sea/coastal)
+- **Supply Center Tracking**: Supply center ownership updates correctly after moves
+- **Home Supply Centers**: Initial supply centers assigned correctly per power
+- **Multi-Coast Handling**: Multi-coast provinces (e.g., Spain, Bulgaria) handled correctly
+
+### Server/API Core Behaviours
+
+#### 5. Game Lifecycle Management (PRIORITY: CRITICAL - MUST-HAVE)
+- **Game Creation**: Games created with correct initial state
+- **Player Management**: Players can join/quit/replace powers correctly
+- **Order Submission**: Orders submitted via API persist correctly
+- **Turn Processing**: Turn processing advances game state correctly
+- **Game State Retrieval**: Game state returned accurately via API
+
+#### 6. Authorization and Security (PRIORITY: CRITICAL - MUST-HAVE)
+- **Power Ownership**: Users can only submit orders for their assigned power
+- **Authentication**: API endpoints require proper authentication where needed
+- **Authorization Checks**: 403 errors returned for unauthorized actions
+- **User Registration**: Users must register before joining games
+- **Session Management**: User sessions tracked correctly
+
+#### 7. Database Persistence (PRIORITY: HIGH - MUST-HAVE)
+- **Game State Persistence**: Game state saved and loaded correctly
+- **Order History**: Order history tracked across turns
+- **User Data**: User registration and power assignments persist
+- **Message History**: Messages stored and retrieved correctly
+- **Transaction Integrity**: Database transactions complete or rollback correctly
+
+### Telegram Bot Core Behaviours
+
+#### 8. Command Processing (PRIORITY: HIGH - MUST-HAVE)
+- **Command Parsing**: All bot commands parse correctly
+- **Interactive Orders**: `/selectunit` shows units and possible moves
+- **Order Submission**: Orders submitted via bot persist correctly
+- **Error Messages**: Clear error messages for invalid commands/orders
+- **Multi-Game Handling**: Bot handles users in multiple games correctly
+
+#### 9. User Interface (PRIORITY: MEDIUM - NICE-TO-HAVE)
+- **Button Callbacks**: Inline keyboard buttons work correctly
+- **Message Formatting**: Messages formatted clearly with emojis and structure
+- **Map Generation**: Map images generated and sent correctly
+- **Help Commands**: Help text accurate and helpful
+
+## Critical Use Cases and Edge Cases
+
+### Game Engine Edge Cases
+
+#### 1. Adjudication Edge Cases (PRIORITY: CRITICAL - MUST-HAVE)
+- **Circular Supports**: A supports B, B supports C, C supports A (all hold)
+- **Convoy Disruption**: Convoy disrupted by attack on convoying fleet
+- **Multiple Supports**: Unit receives support from multiple units
+- **Self-Support**: Unit supports its own move (invalid)
+- **Support Cut by Move**: Supporting unit moves, cutting its own support
+- **Convoy Chain Disruption**: One fleet in convoy chain attacked, entire chain fails
+- **Retreat to Dislodged Province**: Retreat to province that was dislodged (invalid)
+- **Retreat to Attacking Province**: Retreat to province of attacking unit (invalid)
+- **Build on Occupied Province**: Attempt to build where unit exists (invalid)
+- **Destroy Non-Existent Unit**: Attempt to destroy unit that doesn't exist (invalid)
+- **Build/Destroy Count Mismatch**: Build/destroy orders don't match supply center count
+
+#### 2. Phase Transition Edge Cases (PRIORITY: CRITICAL - MUST-HAVE)
+- **No Dislodgements**: Movement phase with no dislodgements → skip Retreat phase
+- **All Units Disband**: All dislodged units disband → skip Retreat phase
+- **Spring with Dislodgements**: Spring Movement → Retreat → Autumn Movement
+- **Autumn with Dislodgements**: Autumn Movement → Retreat → Builds
+- **Autumn without Dislodgements**: Autumn Movement → Builds (skip Retreat)
+- **Builds Phase**: After Builds → next Spring Movement, year increments
+- **First Turn**: S1901M (no previous state)
+- **Victory During Movement**: Power reaches 18 SCs during movement phase
+- **Victory During Builds**: Power reaches 18 SCs after builds
+
+#### 3. Order Validation Edge Cases (PRIORITY: HIGH - MUST-HAVE)
+- **Invalid Province Names**: Orders with non-existent provinces
+- **Wrong Unit Type**: Army order for fleet position or vice versa
+- **Coast Mismatch**: Fleet order without required coast specification
+- **Duplicate Orders**: Multiple orders for same unit
+- **Order for Non-Existent Unit**: Order for unit that doesn't exist
+- **Order for Wrong Power**: Order submitted for another power's unit
+- **Order in Wrong Phase**: Movement order in Retreat phase, etc.
+- **Convoy Order Without Convoy Path**: Convoy order where no path exists
+- **Support Order for Non-Move**: Support order for unit that's holding
+- **Move to Own Province**: Move to province already occupied by own unit
+
+#### 4. Map Edge Cases (PRIORITY: MEDIUM - NICE-TO-HAVE)
+- **Multi-Coast Provinces**: Spain (NC/SC), Bulgaria (EC/SC), St. Petersburg (NC/SC)
+- **Landlocked Provinces**: Provinces with no sea access
+- **Isolated Sea Provinces**: Sea provinces with limited connections
+- **Supply Center on Border**: Supply centers shared between powers initially
+- **Special Adjacencies**: Special cases like Kiel, Constantinople, etc.
+
+### Server/API Edge Cases
+
+#### 5. Game Management Edge Cases (PRIORITY: HIGH - MUST-HAVE)
+- **Game Not Found**: API calls for non-existent game ID
+- **Power Already Taken**: Attempt to join game with taken power
+- **Power Not Found**: Attempt to submit orders for non-existent power
+- **Game Already Started**: Attempt to join game that's already in progress
+- **User Already in Game**: Attempt to join game user is already in
+- **Replace Inactive Power**: Replace power that's inactive/vacated
+- **Process Turn Without Orders**: Process turn when no orders submitted
+- **Process Turn in Wrong Phase**: Attempt to process turn in Retreat/Builds phase
+
+#### 6. Order Submission Edge Cases (PRIORITY: HIGH - MUST-HAVE)
+- **Empty Order List**: Submit empty order list (should clear orders)
+- **Partial Order Submission**: Submit orders for some but not all units
+- **Order for Eliminated Power**: Submit orders for eliminated power
+- **Order After Turn Processed**: Submit orders after turn already processed
+- **Concurrent Order Submission**: Multiple users submit orders simultaneously
+- **Order Clear**: Clear orders and resubmit
+
+#### 7. Database Edge Cases (PRIORITY: MEDIUM - NICE-TO-HAVE)
+- **Database Connection Loss**: Handle database disconnection gracefully
+- **Concurrent Writes**: Multiple processes write to database simultaneously
+- **Transaction Rollback**: Failed transaction rolls back correctly
+- **Orphaned Records**: Clean up orphaned game/order records
+- **Database Migration**: Handle schema changes during runtime
+
+### Telegram Bot Edge Cases
+
+#### 8. Bot Command Edge Cases (PRIORITY: MEDIUM - NICE-TO-HAVE)
+- **User Not Registered**: Commands from unregistered users
+- **User in No Games**: Commands when user has no active games
+- **User in Multiple Games**: Commands when game_id ambiguous
+- **Invalid Game ID**: Commands with non-existent game ID
+- **Malformed Orders**: Orders with syntax errors
+- **Button Callback Timeout**: Callback queries that expire
+- **Concurrent Button Presses**: Multiple button presses simultaneously
+
+## Error Conditions
+
+### Game Engine Error Conditions
+
+#### 1. Validation Errors (PRIORITY: CRITICAL - MUST-HAVE)
+- **InvalidOrderError**: Order fails validation (syntax, semantics, phase)
+- **PowerNotFoundError**: Power doesn't exist in game
+- **UnitNotFoundError**: Unit doesn't exist for power
+- **ProvinceNotFoundError**: Province doesn't exist on map
+- **InvalidPhaseError**: Order type not valid for current phase
+- **InvalidMoveError**: Move violates adjacency or unit type rules
+- **InvalidRetreatError**: Retreat to invalid province
+- **InvalidBuildError**: Build violates rules (occupied, wrong count, etc.)
+- **InvalidDestroyError**: Destroy violates rules (unit doesn't exist, wrong count)
+
+#### 2. State Consistency Errors (PRIORITY: CRITICAL - MUST-HAVE)
+- **StateInconsistencyError**: Game state violates invariants (multiple units in province, etc.)
+- **PhaseMismatchError**: Phase doesn't match expected state
+- **SupplyCenterMismatchError**: Unit count doesn't match supply center count (outside Builds phase)
+- **OrderCountMismatchError**: Order count doesn't match unit count
+
+### Server/API Error Conditions
+
+#### 3. HTTP Error Responses (PRIORITY: CRITICAL - MUST-HAVE)
+- **400 Bad Request**: Invalid request format, missing required fields
+- **403 Forbidden**: User not authorized for action (wrong power, not in game)
+- **404 Not Found**: Game, power, user, or resource not found
+- **409 Conflict**: Resource conflict (power already taken, user already in game)
+- **500 Internal Server Error**: Unexpected server errors, database failures
+
+#### 4. API-Specific Errors (PRIORITY: HIGH - MUST-HAVE)
+- **GAME_NOT_FOUND**: Game ID doesn't exist
+- **POWER_NOT_FOUND**: Power doesn't exist in game
+- **POWER_ALREADY_EXISTS**: Power already assigned to user
+- **INVALID_ORDER**: Order fails validation
+- **MISSING_ARGUMENTS**: Required arguments missing from request
+- **UNAUTHORIZED**: User not authenticated or authorized
+- **INTERNAL_ERROR**: Unexpected server error
+
+### Telegram Bot Error Conditions
+
+#### 5. Bot-Specific Errors (PRIORITY: MEDIUM - NICE-TO-HAVE)
+- **UserNotRegisteredError**: User must register before using bot
+- **GameNotFoundError**: Game ID doesn't exist or user not in game
+- **PowerNotAssignedError**: User doesn't control any power in game
+- **OrderParseError**: Order text cannot be parsed
+- **OrderValidationError**: Order fails game validation
+- **APIError**: API server unavailable or returns error
+
+## State Transitions
+
+### Game Phase State Machine (PRIORITY: CRITICAL - MUST-HAVE)
+
+#### 1. Normal Phase Flow
+```
+S1901M (Spring Movement)
+  → [if dislodgements] S1901R (Spring Retreat)
+  → A1901M (Autumn Movement)
+  → [if dislodgements] A1901R (Autumn Retreat)
+  → A1901B (Autumn Builds)
+  → S1902M (Spring Movement, year increments)
+```
+
+#### 2. Phase Transition Conditions
+- **Movement → Retreat**: Only if units dislodged
+- **Movement → Movement**: Spring → Autumn (no dislodgements)
+- **Movement → Builds**: Autumn → Builds (no dislodgements)
+- **Retreat → Movement**: Spring Retreat → Autumn Movement
+- **Retreat → Builds**: Autumn Retreat → Builds
+- **Builds → Movement**: Always → next Spring Movement (year increments)
+
+#### 3. Game Status Transitions
+```
+FORMING → ACTIVE (when game starts)
+ACTIVE → PAUSED (admin action)
+PAUSED → ACTIVE (admin action)
+ACTIVE → COMPLETED (victory condition met)
+```
+
+#### 4. Power State Transitions
+```
+ACTIVE → INACTIVE (player quits, no orders)
+INACTIVE → ACTIVE (player replaces)
+ACTIVE → ELIMINATED (no units and no supply centers)
+```
+
+### Order State Transitions (PRIORITY: HIGH - MUST-HAVE)
+
+#### 5. Order Lifecycle
+```
+PENDING → SUBMITTED (when order submitted)
+SUBMITTED → SUCCESS (when order executes successfully)
+SUBMITTED → FAILED (when order fails validation)
+SUBMITTED → BOUNCED (when move bounces)
+```
+
+### Unit State Transitions (PRIORITY: CRITICAL - MUST-HAVE)
+
+#### 6. Unit Dislodgement Flow
+```
+NORMAL → DISLODGED (when attacked with higher strength)
+DISLODGED → RETREATING (retreat order submitted)
+RETREATING → NORMAL (retreat successful) OR ELIMINATED (retreat fails/disbands)
+```
+
+## Priority Ordering
+
+### Must-Have Tests (P0 - Critical)
+
+These tests are **essential** for the system to function correctly. All must pass before any release.
+
+1. **Order Adjudication Core Logic**
+   - Move resolution with strength calculation
+   - Support calculation and cutting
+   - Convoy resolution and disruption
+   - Self-dislodgement prevention
+   - Standoff detection
+
+2. **Game State Consistency**
+   - State validation (no duplicate units, correct counts)
+   - Phase transitions
+   - Turn/year advancement
+   - Victory condition detection
+
+3. **Order Validation**
+   - Syntax parsing
+   - Semantic validation
+   - Phase compatibility
+   - Power ownership
+
+4. **API Core Functionality**
+   - Game creation and management
+   - Order submission and retrieval
+   - Turn processing
+   - Authorization checks
+
+5. **State Transitions**
+   - All phase transitions
+   - Game status transitions
+   - Unit dislodgement flow
+
+### Should-Have Tests (P1 - High Priority)
+
+These tests are **important** for reliability and user experience. Should be implemented soon after P0.
+
+1. **Edge Cases in Adjudication**
+   - Circular supports
+   - Complex convoy chains
+   - Multiple simultaneous supports
+   - Retreat edge cases
+
+2. **Error Handling**
+   - All error conditions return correct HTTP status codes
+   - Error messages are clear and helpful
+   - Invalid inputs handled gracefully
+
+3. **Database Persistence**
+   - Game state persistence
+   - Order history tracking
+   - User data persistence
+   - Transaction integrity
+
+4. **Telegram Bot Core Commands**
+   - Command parsing
+   - Order submission via bot
+   - Interactive order selection
+   - Error message formatting
+
+### Nice-to-Have Tests (P2 - Medium Priority)
+
+These tests improve quality and maintainability but are not blocking for releases.
+
+1. **Performance Testing**
+   - Response time benchmarks
+   - Load testing with multiple concurrent users
+   - Database query performance
+
+2. **UI/UX Testing**
+   - Button callback handling
+   - Message formatting quality
+   - Map generation quality
+   - Help text accuracy
+
+3. **Advanced Edge Cases**
+   - Multi-coast province handling
+   - Special adjacency cases
+   - Complex game scenarios
+
+4. **Infrastructure Testing**
+   - Deployment script validation
+   - Systemd service configuration
+   - Nginx configuration
+
+### Future Enhancements (P3 - Low Priority)
+
+These are planned improvements that can be added over time.
+
+1. **Property-Based Testing**
+   - Hypothesis-based test generation
+   - Fuzz testing for order parsing
+
+2. **Visual Regression Testing**
+   - Map rendering comparison
+   - UI screenshot comparison
+
+3. **End-to-End Service Testing**
+   - Full systemd service startup
+   - Container-based testing
+   - Production-like environment testing
+
+## Test Implementation Priority
+
+### Phase 1: Critical Path (Week 1)
+- Order adjudication core logic
+- Game state consistency
+- Basic phase transitions
+- API core endpoints
+- Authorization checks
+
+### Phase 2: Reliability (Week 2-3)
+- Edge cases in adjudication
+- Error handling comprehensive coverage
+- Database persistence
+- Telegram bot core commands
+
+### Phase 3: Quality (Week 4+)
+- Performance testing
+- UI/UX testing
+- Advanced edge cases
+- Infrastructure testing
+
 ## Running Tests
 
 ### Quick Test Run (Unit Tests Only)

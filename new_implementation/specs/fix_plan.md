@@ -4,9 +4,11 @@
 
 This document contains actionable implementation tasks and fixes for the Diplomacy game engine.
 
-**Last Updated**: 2025-01-30
+**Last Updated**: 2025-03-02
 
 **Status**: ✅ All Priority 1 and Priority 2 tasks completed. Phase 2 Channel Integration complete. Codebase is production-ready with enhanced test coverage and code quality improvements.
+
+**New Test Suite Results** (2025-03-02): 56 failures, 145 passed, 2 errors identified. See "Test Failures from New Test Suite" section below for detailed issues to fix.
 
 ---
 
@@ -22,6 +24,153 @@ This document contains actionable implementation tasks and fixes for the Diploma
 ### Known Issues (Future Work)
 
 *No known issues at this time. All identified issues have been resolved.*
+
+### Test Failures from New Test Suite (2025-03-02)
+
+**Status**: 56 failures, 145 passed, 2 errors identified from new comprehensive test suite
+
+The following issues were discovered when running the newly created test files. These need to be addressed:
+
+#### Critical Issues (P0 - Must Fix)
+
+1. **HTTP Status Code Mismatches**
+   - **Issue**: API endpoints return 500 Internal Server Error instead of proper HTTP status codes (403, 404, 409)
+   - **Affected Tests**: 
+     - `test_authorization.py::test_user_cannot_submit_orders_for_other_power` (Expected 403, got 500)
+     - `test_authorization.py::test_unregistered_user_cannot_submit_orders` (Expected 403/404, got 500)
+     - `test_authorization.py::test_user_not_in_game_cannot_submit_orders` (Expected 404, got 500)
+     - `test_error_handling.py::test_403_forbidden_unauthorized_action` (Expected 403, got 500)
+     - `test_error_handling.py::test_404_not_found_power` (Expected 404, got 500)
+     - `test_error_handling.py::test_404_not_found_player` (Expected 404, got 500)
+     - `test_error_handling.py::test_409_conflict_power_taken` (Expected 400/409, got 500)
+   - **Fix**: Update API error handling to return correct HTTP status codes instead of wrapping in 500
+   - **Files**: `src/server/api/routes/orders.py`, `src/server/api/routes/games.py`, `src/server/api/routes/messages.py`
+
+2. **Order Validation Gaps**
+   - **Issue**: Several order validation scenarios don't raise errors as expected
+   - **Affected Tests**:
+     - `test_order_validation_comprehensive.py::test_duplicate_orders_same_unit` (Should reject duplicate orders)
+     - `test_order_validation_comprehensive.py::test_order_for_nonexistent_unit` (Should reject orders for non-existent units)
+     - `test_order_validation_comprehensive.py::test_support_order_for_holding_unit` (Should reject support for holding unit)
+     - `test_order_validation_comprehensive.py::test_move_to_own_province_occupied` (Should reject move to own occupied province)
+     - `test_order_validation_comprehensive.py::test_support_order_without_target_move` (Should reject support without target move)
+   - **Fix**: Add validation logic for these edge cases in order validation
+   - **Files**: `src/engine/game.py`, `src/engine/order_parser.py`
+
+3. **Retreat Validation Issues**
+   - **Issue**: Retreat validation doesn't properly reject invalid retreat destinations
+   - **Affected Tests**:
+     - `test_retreat_edge_cases.py::test_retreat_to_dislodged_province_invalid` (Should reject retreat to dislodged province)
+     - `test_retreat_edge_cases.py::test_retreat_to_attacking_province_invalid` (Error message format mismatch)
+     - `test_retreat_edge_cases.py::test_retreat_to_occupied_province_invalid` (Error message format mismatch)
+     - `test_retreat_edge_cases.py::test_no_valid_retreat_options_disband` (Units with no retreat options should be disbanded)
+   - **Fix**: Improve retreat validation and ensure units with no retreat options are automatically disbanded
+   - **Files**: `src/engine/game.py`, `src/engine/data_models.py` (RetreatOrder validation)
+
+4. **Circular Support Test Failures**
+   - **Issue**: Tests use invalid province adjacencies (e.g., A MAR - PAR, A MAR - VIE are not adjacent)
+   - **Affected Tests**:
+     - `test_circular_supports.py::test_three_way_circular_support`
+     - `test_circular_supports.py::test_four_way_circular_support`
+     - `test_circular_supports.py::test_circular_support_with_external_attack`
+   - **Fix**: Update tests to use valid province adjacencies from the standard map
+   - **Files**: `tests/test_circular_supports.py`
+
+#### High Priority Issues (P1 - Should Fix)
+
+5. **API Request Format Issues**
+   - **Issue**: Some API endpoints expect different request formats than tests provide
+   - **Affected Tests**:
+     - `test_authorization.py::test_user_can_clear_own_orders` (Expected 200, got 422 - request format issue)
+     - `test_authorization.py::test_user_cannot_clear_other_power_orders` (Expected 403, got 422 - request format issue)
+     - `test_authorization.py::test_user_can_quit_own_game` (Expected 200, got 422 - missing game_id in body)
+   - **Fix**: Update tests to match actual API request format, or update API to accept expected format
+   - **Files**: `tests/test_authorization.py`, `src/server/api/routes/orders.py`, `src/server/api/routes/games.py`
+
+6. **Database Service API Mismatches**
+   - **Issue**: DatabaseService methods have different signatures than tests expect
+   - **Affected Tests**:
+     - `test_database_persistence_edge_cases.py::test_concurrent_state_updates` (`update_game_state()` takes 2 args, not 3)
+     - `test_database_persistence_edge_cases.py::test_orphaned_records_prevention` (No `save_orders()` method)
+     - `test_database_persistence_edge_cases.py::test_order_history_persists_across_turns` (No `save_orders()` method)
+     - `test_performance.py::test_order_history_retrieval_performance` (No `save_orders()` method)
+   - **Fix**: Check actual DatabaseService API and update tests or add missing methods
+   - **Files**: `src/engine/database_service.py`, `tests/test_database_persistence_edge_cases.py`, `tests/test_performance.py`
+
+7. **Multi-Coast Province Implementation**
+   - **Issue**: Province class initialization and multi-coast methods have issues
+   - **Affected Tests**:
+     - `test_multi_coast_provinces.py::test_province_is_multi_coast` (Province.__init__() missing `is_home_supply_center` argument)
+     - `test_multi_coast_provinces.py::test_spain_north_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_spain_south_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_bulgaria_east_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_bulgaria_south_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_stp_north_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_stp_south_coast_adjacencies` (Same issue)
+     - `test_multi_coast_provinces.py::test_build_fleet_in_spain_with_coast` (`controlled_supply_centers` is list, not set)
+   - **Fix**: Update tests to use correct Province initialization, or fix Province class if needed
+   - **Files**: `tests/test_multi_coast_provinces.py`, `src/engine/data_models.py`
+
+8. **State Validation Issues**
+   - **Issue**: State validation is too strict or not working as expected
+   - **Affected Tests**:
+     - `test_state_validation.py::test_no_duplicate_units_in_province` (Fails due to unit/supply center count mismatch, not duplicate units)
+     - `test_state_validation.py::test_unit_belongs_to_correct_power` (Fails due to unit/supply center count mismatch)
+     - `test_state_validation.py::test_phase_code_matches_state` (Phase code generation doesn't match expected format)
+   - **Fix**: Review state validation logic and fix phase code generation
+   - **Files**: `src/engine/data_models.py` (GameState.validate_game_state), `src/engine/game.py` (_update_phase_code)
+
+9. **Multiple Support Test Failures**
+   - **Issue**: Tests use invalid province adjacencies
+   - **Affected Tests**:
+     - `test_multiple_supports.py::test_multiple_supports_with_one_cut` (A SIL - MAR not adjacent)
+     - `test_multiple_supports.py::test_multiple_supports_all_cut` (A SIL - MAR, A RUH - PIC not adjacent)
+     - `test_multiple_supports.py::test_support_vs_support_standoff` (A PAR - BEL not adjacent)
+     - `test_multiple_supports.py::test_support_cut_by_move` (Should raise ValueError but doesn't)
+   - **Fix**: Update tests to use valid adjacencies, or fix support cut by move validation
+   - **Files**: `tests/test_multiple_supports.py`, `src/engine/game.py`
+
+#### Medium Priority Issues (P2 - Nice to Fix)
+
+10. **Performance Test Issues**
+    - **Issue**: Some performance tests have setup or logic issues
+    - **Affected Tests**:
+      - `test_performance.py::test_turn_processing_performance` (Unit A LON not found for power ENGLAND)
+      - `test_performance.py::test_multiple_concurrent_game_creations` (Missing `client` fixture)
+      - `test_performance.py::test_multiple_concurrent_order_submissions` (Missing `client` fixture)
+    - **Fix**: Fix test setup and use correct unit names for powers
+    - **Files**: `tests/test_performance.py`
+
+11. **Map Supply Center Count**
+    - **Issue**: Standard map has 22 supply centers, not 34 as expected
+    - **Affected Tests**:
+      - `test_map_rendering_quality.py::test_map_supply_center_coverage` (Expected 34, got 22)
+    - **Fix**: Update test expectation or verify actual supply center count
+    - **Files**: `tests/test_map_rendering_quality.py`
+
+12. **Database Type Mismatches**
+    - **Issue**: Database expects integer game_id but tests pass string
+    - **Affected Tests**:
+      - `test_database_persistence_edge_cases.py::test_user_power_assignment_persists` (game_id type mismatch)
+    - **Fix**: Update test to use correct game_id type or fix database service to handle both
+    - **Files**: `tests/test_database_persistence_edge_cases.py`, `src/engine/database_service.py`
+
+13. **Error Handling Test Expectations**
+    - **Issue**: Some error handling tests have incorrect expectations
+    - **Affected Tests**:
+      - `test_error_handling.py::test_400_bad_request_missing_fields` (Expected 422, got 200 - FastAPI uses 422 for validation)
+      - `test_error_handling.py::test_invalid_power_name` (Expected 400/404, got 200 - invalid power names may be accepted)
+      - `test_error_handling.py::test_invalid_order_raises_value_error` (Should raise ValueError but doesn't)
+      - `test_error_handling.py::test_order_for_nonexistent_unit_raises_error` (Should raise ValueError but doesn't)
+    - **Fix**: Update test expectations to match actual behavior, or fix error handling
+    - **Files**: `tests/test_error_handling.py`, `src/engine/game.py`
+
+14. **Retreat Order Phase Compatibility**
+    - **Issue**: Retreat orders not recognized as valid in Retreat phase
+    - **Affected Tests**:
+      - `test_order_validation_comprehensive.py::test_all_order_types_in_correct_phases` (Retreat orders should be valid in Retreat phase)
+    - **Fix**: Fix phase compatibility check for retreat orders
+    - **Files**: `src/engine/data_models.py`, `src/engine/game.py`
 
 ---
 
