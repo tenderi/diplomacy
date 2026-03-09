@@ -19,6 +19,76 @@ Optional (for map image rendering and Telegram/Discord bots):
 
 ---
 
+## Installing prerequisites
+
+You can install everything with one script (Arch, Debian/Ubuntu, or macOS with Homebrew):
+
+```bash
+cd new_implementation
+./install_prerequisites.sh
+```
+
+Or install manually using the commands below for your OS.
+
+### Arch Linux
+
+```bash
+# Python (usually pre-installed; includes pip)
+sudo pacman -S python python-pip
+
+# PostgreSQL server and client
+sudo pacman -S postgresql
+
+# Node.js and npm (for the browser frontend)
+sudo pacman -S nodejs npm
+
+# Start PostgreSQL (enable on boot: sudo systemctl enable postgresql)
+sudo systemctl start postgresql
+```
+
+### Ubuntu / Debian
+
+```bash
+# Python and venv
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip python3-venv
+
+# PostgreSQL
+sudo apt-get install -y postgresql postgresql-client
+
+# Node.js 18+ and npm (NodeSource repo for current LTS)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+```
+
+### macOS (Homebrew)
+
+```bash
+# Python
+brew install python@3.12
+
+# PostgreSQL
+brew install postgresql@16
+brew services start postgresql@16
+
+# Node.js and npm
+brew install node@20
+```
+
+### Verify installations
+
+```bash
+python3 --version   # 3.8 or higher
+node --version      # v18 or higher (only needed for frontend)
+npm --version       # 9 or higher (only needed for frontend)
+psql --version      # PostgreSQL client (only needed if you use psql manually)
+```
+
+---
+
 ## 1. Clone and enter the project
 
 ```bash

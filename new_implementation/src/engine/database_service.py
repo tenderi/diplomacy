@@ -103,6 +103,26 @@ class DatabaseService:
             except Exception:
                 pass
     
+    # Standard starting units and home supply centers (same as _load_map_data)
+    _STARTING_UNITS = {
+        'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
+        'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
+        'GERMANY': ['A BER', 'A MUN', 'F KIE'],
+        'ITALY': ['A ROM', 'A VEN', 'F NAP'],
+        'AUSTRIA': ['A VIE', 'A BUD', 'F TRI'],
+        'RUSSIA': ['A MOS', 'A WAR', 'F SEV', 'F STP'],
+        'TURKEY': ['A CON', 'A SMY', 'F ANK'],
+    }
+    _HOME_SUPPLY_CENTERS = {
+        'ENGLAND': ['LON', 'EDI', 'LVP'],
+        'FRANCE': ['PAR', 'MAR', 'BRE'],
+        'GERMANY': ['BER', 'KIE', 'MUN'],
+        'ITALY': ['ROM', 'VEN', 'NAP'],
+        'AUSTRIA': ['VIE', 'BUD', 'TRI'],
+        'RUSSIA': ['MOS', 'WAR', 'SEV', 'STP'],
+        'TURKEY': ['CON', 'SMY', 'ANK'],
+    }
+
     def add_player(self, game_id: int, power_name: str, user_id: Optional[int] = None) -> PowerState:
         """
         Add a player to a game.
@@ -122,34 +142,74 @@ class DatabaseService:
             This method initializes the power with their home supply centers
             and starting units according to standard Diplomacy rules.
         """
+        pname = power_name.upper()
         with self.session_factory() as session:
             # Get game
             game_model = session.query(GameModel).filter_by(id=game_id).first()
             if not game_model:
                 raise ValueError(f"Game {game_id} not found")
             
-            # Create player record
+            map_name = getattr(game_model, 'map_name', 'standard') or 'standard'
+            home_scs = list(self._HOME_SUPPLY_CENTERS.get(pname, []))
+            starting_units_list = list(self._STARTING_UNITS.get(pname, [])) if map_name in ('standard', 'standard-v2', 'demo') else []
+            
+            # Create player record with home/controlled supply centers
             player_model = PlayerModel(
                 game_id=game_model.id,
                 power_name=power_name,
                 user_id=user_id,
-                is_active=True
+                is_active=True,
+                home_supply_centers=home_scs,
+                controlled_supply_centers=home_scs,
             )
             session.add(player_model)
+            session.flush()
+            
+            # Persist starting units and supply centers so map and get_game_state show them
+            unit_list: List[Unit] = []
+            for unit_str in starting_units_list:
+                utype, province = unit_str.split()
+                unit_model = UnitModel(
+                    game_id=game_model.id,
+                    power_name=power_name,
+                    unit_type=utype,
+                    province=province,
+                    is_dislodged=False,
+                    can_retreat=True,
+                    retreat_options=[],
+                )
+                session.add(unit_model)
+                unit_list.append(Unit(
+                    unit_type=utype,
+                    province=province,
+                    power=power_name,
+                    is_dislodged=False,
+                    can_retreat=True,
+                    retreat_options=[],
+                ))
+            
+            for province in home_scs:
+                sc = SupplyCenterModel(
+                    game_id=game_model.id,
+                    province=province,
+                    controlling_power=power_name,
+                    is_home_supply_center=True,
+                    home_power=power_name,
+                )
+                session.add(sc)
+            
             session.commit()
             
-            # Create power state
             power_state = PowerState(
                 power_name=power_name,
                 user_id=user_id,
                 is_active=True,
                 is_eliminated=False,
-                home_supply_centers=[],
-                controlled_supply_centers=[],
-                units=[],
+                home_supply_centers=home_scs,
+                controlled_supply_centers=home_scs,
+                units=unit_list,
                 orders_submitted=False
             )
-            
             return power_state
     
     def add_unit(self, game_id: str, power_name: str, unit: Unit) -> None:
