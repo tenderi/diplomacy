@@ -2,9 +2,14 @@
 Auth routes: register, login, refresh, me, link_code, link_telegram.
 
 Uses JWT (PyJWT) for access/refresh tokens and bcrypt for passwords.
+Password reset emails can be sent via SMTP when DIPLOMACY_SMTP_* env vars are set.
 """
+import logging
 import os
 import re
+import smtplib
+from email.mime.text import MIMEText
+from email.utils import formataddr
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional
 
@@ -308,21 +313,60 @@ def unlink_telegram(current_user: Any = Depends(get_current_user)) -> Dict[str, 
 # Forgot password: TTL for reset token (minutes)
 PASSWORD_RESET_TTL_MINUTES = 60
 
+_logger = logging.getLogger("diplomacy.server.api.auth")
+
+# SMTP env vars (optional): DIPLOMACY_SMTP_HOST, DIPLOMACY_SMTP_PORT, DIPLOMACY_SMTP_USER,
+# DIPLOMACY_SMTP_PASSWORD, DIPLOMACY_SMTP_FROM, DIPLOMACY_SMTP_USE_TLS
+
 
 def _send_password_reset_link(email: str, reset_link: str) -> None:
-    """Optional: send email or log. If DIPLOMACY_DEV_SHOW_RESET_LINK=1, link is logged for dev."""
-    import logging
-    logger = logging.getLogger("diplomacy.server.api.auth")
+    """Send reset link by email if SMTP is configured (DIPLOMACY_SMTP_HOST), otherwise log only."""
+    smtp_host = os.environ.get("DIPLOMACY_SMTP_HOST", "").strip()
+    if smtp_host:
+        try:
+            _send_password_reset_email_smtp(email, reset_link, smtp_host)
+            _logger.info("Password reset email sent to %s via SMTP", email)
+            return
+        except Exception as e:  # noqa: BLE001
+            _logger.warning("Failed to send password reset email to %s: %s", email, e)
     if os.environ.get("DIPLOMACY_DEV_SHOW_RESET_LINK"):
-        logger.info("Password reset link for %s: %s", email, reset_link)
+        _logger.info("Password reset link for %s: %s", email, reset_link)
     else:
-        logger.info("Password reset requested for %s (link not logged; set DIPLOMACY_DEV_SHOW_RESET_LINK=1 for dev)", email)
-    # TODO: wire SMTP (e.g. DIPLOMACY_SMTP_*) to send email in production
+        _logger.info(
+            "Password reset requested for %s (link not logged; set DIPLOMACY_DEV_SHOW_RESET_LINK=1 for dev)",
+            email,
+        )
+
+
+def _send_password_reset_email_smtp(recipient: str, reset_link: str, host: str) -> None:
+    """Send a single password-reset email via SMTP. Raises on failure."""
+    port = int(os.environ.get("DIPLOMACY_SMTP_PORT", "587"))
+    use_tls = os.environ.get("DIPLOMACY_SMTP_USE_TLS", "1").strip().lower() in ("1", "true", "yes")
+    user = os.environ.get("DIPLOMACY_SMTP_USER", "").strip()
+    password = os.environ.get("DIPLOMACY_SMTP_PASSWORD", "").strip()
+    from_addr = os.environ.get("DIPLOMACY_SMTP_FROM", user or "noreply@diplomacy").strip()
+    from_name = os.environ.get("DIPLOMACY_SMTP_FROM_NAME", "Diplomacy").strip()
+
+    subject = "Password reset - Diplomacy"
+    body = f"""You requested a password reset. Use this link to set a new password (valid for 1 hour):\n\n{reset_link}\n\nIf you did not request this, you can ignore this email."""
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((from_name, from_addr))
+    msg["To"] = recipient
+
+    with smtplib.SMTP(host, port, timeout=30) as smtp:
+        if use_tls:
+            smtp.starttls()
+        if user and password:
+            smtp.login(user, password)
+        smtp.sendmail(from_addr, [recipient], msg.as_string())
 
 
 @router.post("/forgot_password")
 def forgot_password(req: ForgotPasswordRequest) -> Dict[str, Any]:
-    """Request a password reset. Always returns 200 to avoid email enumeration."""
+    """Request a password reset. Always returns 200 to avoid email enumeration.
+    If DIPLOMACY_SMTP_HOST is set, sends the reset link by email; otherwise only logs.
+    Set DIPLOMACY_PASSWORD_RESET_BASE_URL for the link URL; DIPLOMACY_DEV_SHOW_RESET_LINK=1 returns the link in the response for dev."""
     email = req.email.strip().lower()
     out: Dict[str, Any] = {"message": "If an account exists with this email, you will receive a reset link."}
     if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
@@ -341,7 +385,7 @@ def forgot_password(req: ForgotPasswordRequest) -> Dict[str, Any]:
 
 @router.post("/reset_password")
 def reset_password(req: ResetPasswordRequest) -> Dict[str, Any]:
-    """Set new password using a reset token (from forgot_password flow)."""
+    """Set new password using a reset token (from forgot_password flow). Token is single-use and expires after PASSWORD_RESET_TTL_MINUTES (default 60)."""
     if not _bcrypt_available:
         raise HTTPException(status_code=500, detail="Password reset not available (install bcrypt)")
     user_id = db_service.consume_password_reset_token(req.token)

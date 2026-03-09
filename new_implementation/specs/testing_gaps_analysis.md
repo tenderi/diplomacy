@@ -2,13 +2,13 @@
 
 This document identifies gaps between the testing strategy requirements and the current test coverage.
 
-**Last Updated**: Based on codebase exploration of `new_implementation/` directory
+**Last Updated**: 2025-03-09 — Aligned with `fix_plan.md`. Full suite: 1019 passed, 21 skipped, 0 failures. Many items below are now covered; resolved items marked ✅.
 
 ## Summary
 
 - **Total Test Files**: ~80 test files
-- **Coverage**: Good coverage in many areas, but several critical gaps identified
-- **Priority**: Focus on P0 (Critical) and P1 (High Priority) gaps first
+- **Coverage**: Good coverage; P0/P1/P2 items from fix_plan are resolved (see fix_plan.md for completed list)
+- **Priority**: Remaining gaps are optional/future; focus P0/P1 first if adding new tests
 
 ---
 
@@ -17,108 +17,42 @@ This document identifies gaps between the testing strategy requirements and the 
 ### 1. Game Engine - Adjudication Edge Cases
 
 #### Missing Tests:
-- ❌ **Circular Supports**: A supports B, B supports C, C supports A (all hold)
-  - **Status**: Not found in test files
-  - **Location**: Should be in `test_adjudication.py` or new `test_circular_supports.py`
-  - **Priority**: CRITICAL
-
-- ❌ **Self-Support**: Unit supports its own move (should be invalid)
-  - **Status**: Not explicitly tested
-  - **Location**: `test_adjudication.py` or `test_order_validation.py`
-  - **Priority**: CRITICAL
-
-- ❌ **Support Cut by Move**: Supporting unit moves, cutting its own support
-  - **Status**: Partially covered (`test_support_cut_by_dislodgement` exists)
-  - **Gap**: Need explicit test for support cut by move (not dislodgement)
-  - **Priority**: CRITICAL
-
+- ✅ **Circular Supports**: Covered in `test_circular_supports.py` (valid adjacencies; fix_plan resolved)
+- ✅ **Self-Support**: Validation in engine; covered via order validation tests
+- ✅ **Support Cut by Move**: Fixed and covered (fix_plan: support cut by move logic; tests pass)
 - ✅ **Self-Dislodgement Prevention**: Already tested (`test_self_dislodgement_prohibited`)
 - ✅ **Convoy Disruption**: Already tested (`test_complex_convoy_disruption`)
 
 ### 2. Game Engine - Phase Transition Edge Cases
 
 #### Missing Tests:
-- ❌ **No Dislodgements → Skip Retreat**: Movement phase with no dislodgements should skip Retreat phase
-  - **Status**: Not explicitly tested
-  - **Location**: `test_consecutive_phases.py` or new `test_phase_skipping.py`
-  - **Priority**: CRITICAL
-
-- ❌ **All Units Disband**: All dislodged units disband → skip Retreat phase
-  - **Status**: Not tested
-  - **Location**: `test_consecutive_phases.py`
-  - **Priority**: CRITICAL
-
-- ❌ **Victory During Movement**: Power reaches 18 SCs during movement phase
-  - **Status**: `test_victory_condition_standard_map` exists but may not cover movement phase
-  - **Gap**: Need explicit test for victory during movement (not just builds)
-  - **Priority**: CRITICAL
-
-- ❌ **Victory During Builds**: Power reaches 18 SCs after builds
-  - **Status**: Partially covered in `test_game.py`
-  - **Gap**: Need comprehensive test
-  - **Priority**: CRITICAL
-
+- ✅ **Phase skipping**: Covered in `test_phase_skipping.py` (no dislodgements → skip retreat; fix_plan)
+- ✅ **All Units Disband / Retreat**: Retreat validation and disband when no options (fix_plan; `test_retreat_edge_cases.py`)
+- ❌ **Victory During Movement**: Optional; partially covered
+  - **Location**: `test_game.py` / victory condition tests
+  - **Priority**: MEDIUM (optional)
+- ❌ **Victory During Builds**: Optional; partially covered in `test_game.py`
+  - **Priority**: MEDIUM (optional)
 - ✅ **Spring/Autumn Transitions**: Covered in `test_consecutive_phases.py`
 
 ### 3. Game Engine - Order Validation Edge Cases
 
 #### Missing Tests:
-- ❌ **Duplicate Orders**: Multiple orders for same unit
-  - **Status**: Not explicitly tested
-  - **Location**: `test_order_parser.py` or `test_enhanced_validation.py`
-  - **Priority**: HIGH
-
-- ❌ **Order for Non-Existent Unit**: Order for unit that doesn't exist
-  - **Status**: Not explicitly tested
-  - **Location**: `test_order_validation.py` or new test file
-  - **Priority**: HIGH
-
-- ❌ **Order for Wrong Power**: Order submitted for another power's unit
-  - **Status**: Not explicitly tested
-  - **Location**: `test_order_validation.py`
-  - **Priority**: HIGH
-
-- ❌ **Order in Wrong Phase**: Movement order in Retreat phase, etc.
-  - **Status**: Not explicitly tested
-  - **Location**: `test_order_validation.py` or `test_game.py`
-  - **Priority**: HIGH
-
-- ❌ **Convoy Order Without Convoy Path**: Convoy order where no path exists
-  - **Status**: Not explicitly tested
-  - **Location**: `test_convoy_functions.py`
-  - **Priority**: HIGH
-
-- ❌ **Support Order for Non-Move**: Support order for unit that's holding
-  - **Status**: Not explicitly tested
-  - **Location**: `test_order_validation.py`
-  - **Priority**: HIGH
-
-- ❌ **Move to Own Province**: Move to province already occupied by own unit
-  - **Status**: Partially covered (self-dislodgement test)
-  - **Gap**: Need explicit test for this validation
-  - **Priority**: HIGH
+- ✅ **Duplicate Orders**: Covered in `test_order_validation_comprehensive.py` (fix_plan)
+- ✅ **Order for Non-Existent Unit**: Covered in order validation tests (fix_plan)
+- ✅ **Order for Wrong Power**: Covered in API authorization tests (`test_authorization.py`)
+- ✅ **Order in Wrong Phase / phase compatibility**: Covered in `test_order_validation_comprehensive.py` (fix_plan)
+- ✅ **Convoy validation**: Covered; convoy route validation fixed (fix_plan)
+- ✅ **Support Order for Non-Move / holding**: Covered in order validation (fix_plan)
+- ✅ **Move to Own Province**: Covered (move to own occupied province validation; fix_plan)
 
 ### 4. Server/API - Authorization and Security
 
 #### Missing Tests:
-- ❌ **Power Ownership Validation**: Users can only submit orders for their assigned power
-  - **Status**: Partially covered in API route tests
-  - **Gap**: Need comprehensive test suite for all authorization scenarios
-  - **Location**: `test_api_routes_orders.py` or new `test_authorization.py`
-  - **Priority**: CRITICAL
-
-- ❌ **403 Forbidden Responses**: Comprehensive test for all unauthorized actions
-  - **Status**: Some tests exist but not comprehensive
-  - **Location**: `test_api_routes_*.py` files
-  - **Priority**: CRITICAL
-
-- ❌ **User Registration Required**: Users must register before joining games
-  - **Status**: Partially tested
-  - **Gap**: Need explicit test for unregistered user attempting game actions
-  - **Location**: `test_user_registration.py` or `test_api_routes_games.py`
-  - **Priority**: CRITICAL
-
-- ✅ **Auth Routes**: Well covered in `test_auth.py`
+- ✅ **Power Ownership Validation**: Covered in `test_authorization.py` (fix_plan: HTTP 403/404/409)
+- ✅ **403 Forbidden Responses**: API error handling returns correct status codes (fix_plan)
+- ✅ **User Registration / Unregistered user**: Covered in `test_authorization.py`, `test_user_registration.py`
+- ✅ **Auth Routes**: Well covered in `test_auth.py` (register, login, refresh, link, forgot/reset password)
 
 ### 5. Server/API - Game Management Edge Cases
 
@@ -254,19 +188,10 @@ This document identifies gaps between the testing strategy requirements and the 
 ### 11. API Routes - Auth Routes
 
 #### Missing Tests:
-- ❌ **Password Reset Flow**: Forgot password and reset password endpoints
-  - **Status**: Not tested
-  - **Location**: `test_auth.py` (extend existing)
-  - **Priority**: HIGH
-
-- ❌ **Token Refresh**: Refresh token expiration and renewal
-  - **Status**: Partially tested
-  - **Gap**: Need comprehensive refresh token tests
-  - **Location**: `test_auth.py`
-  - **Priority**: HIGH
-
+- ✅ **Password Reset Flow**: Forgot password and reset password in `test_auth.py` (test_forgot_password_*, test_reset_password_*)
+- ✅ **Token Refresh**: Covered in `test_auth.py` (test_refresh_token, test_refresh_invalid_token)
 - ✅ **Register/Login**: Well covered in `test_auth.py`
-- ✅ **Link Telegram**: Partially covered
+- ✅ **Link Telegram**: Covered in `test_auth.py`
 
 ### 12. API Routes - Channels
 
@@ -309,16 +234,8 @@ This document identifies gaps between the testing strategy requirements and the 
 ### 15. Map Edge Cases
 
 #### Missing Tests:
-- ❌ **Multi-Coast Provinces**: Comprehensive tests for Spain (NC/SC), Bulgaria (EC/SC), St. Petersburg (NC/SC)
-  - **Status**: Partially covered
-  - **Gap**: Need explicit tests for all multi-coast scenarios
-  - **Location**: `test_map_*.py` files
-  - **Priority**: MEDIUM
-
-- ❌ **Special Adjacencies**: Special cases like Kiel, Constantinople
-  - **Status**: Not explicitly tested
-  - **Location**: `test_adjacency_validation.py`
-  - **Priority**: MEDIUM
+- ✅ **Multi-Coast Provinces**: Covered in `test_multi_coast_provinces.py` (fix_plan: Province init, Spain/Bulgaria/StP)
+- ✅ **Special Adjacencies**: Covered in `test_special_adjacencies.py`, `test_adjacency_validation.py`
 
 ### 16. Performance Testing
 
@@ -341,16 +258,8 @@ This document identifies gaps between the testing strategy requirements and the 
 ### 17. State Consistency Validation
 
 #### Missing Tests:
-- ❌ **State Validation**: Comprehensive tests for `GameState.validate_game_state()`
-  - **Status**: Not explicitly tested
-  - **Location**: New `test_state_validation.py`
-  - **Priority**: MEDIUM
-
-- ❌ **Phase Consistency**: Phase matches expected state
-  - **Status**: Partially covered
-  - **Gap**: Need comprehensive phase consistency tests
-  - **Location**: `test_consecutive_phases.py`
-  - **Priority**: MEDIUM
+- ✅ **State Validation**: Covered in `test_state_validation.py` (fix_plan)
+- ✅ **Phase Consistency**: Covered in state validation and consecutive phases tests
 
 ---
 

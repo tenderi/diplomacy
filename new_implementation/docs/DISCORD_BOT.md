@@ -1,5 +1,9 @@
 # Discord Bot
 
+**Out of scope**: The Discord bot is **not** part of the current product roadmap. Do not prioritize Discord work or add Discord features unless explicitly requested. The following is kept for reference only.
+
+---
+
 Optional Discord bot that uses the same Diplomacy backend API as the Telegram bot. It provides a minimal set of commands for listing games and viewing game status.
 
 ## Setup

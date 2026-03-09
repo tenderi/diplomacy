@@ -14,12 +14,26 @@ This document contains actionable implementation tasks and fixes for the Diploma
 
 ## Active Priorities
 
+### Password reset email via SMTP (Completed)
+- ✅ Wired SMTP in `auth.py`: when `DIPLOMACY_SMTP_HOST` is set, forgot-password sends reset links by email. Env vars: `DIPLOMACY_SMTP_HOST`, `DIPLOMACY_SMTP_PORT`, `DIPLOMACY_SMTP_USER`, `DIPLOMACY_SMTP_PASSWORD`, `DIPLOMACY_SMTP_FROM`, `DIPLOMACY_SMTP_FROM_NAME`, `DIPLOMACY_SMTP_USE_TLS`. Documented in `docs/LOCAL_DEVELOPMENT.md` and `docs/BROWSER_CLIENT.md`.
+
 ### Code Cleanup and Quality Improvements (Completed 2025-01-28)
 - ✅ Removed "minimal" implementation comments and improved documentation
 - ✅ Fixed hardcoded visualization color to use configuration system
 - ✅ Added comprehensive tests for convoy functions (`show_convoy_options`, `show_convoy_destinations`)
 - ✅ Verified visualization configuration system is fully utilized
 - ✅ Verified dashboard implementation is complete and tested
+
+### Out of scope (do not pursue unless explicitly requested)
+
+The following are **not** on the roadmap. Do not add or plan work for them unless the maintainer says otherwise:
+
+- **Tournament feature** (bracket management, tournament bot commands, etc.)
+- **Discord implementation** (Discord bot, Discord bridge, cross-platform Discord work)
+- **AI-powered analysis** (strategic insights, victory predictions, move recommendations)
+- **Observer / spectator mode** (spectator bot commands, observer features beyond existing API)
+
+Existing tournament/spectator/Discord code or APIs may remain in the codebase for reference or backward compatibility; no further development on these areas unless requested.
 
 ### Known Issues (Future Work)
 
@@ -219,11 +233,9 @@ These items are documented in specifications but are not currently prioritized:
 - ✅ Historical timeline visualization
 
 **Phase 3**: Planned for future development
-- Analytics and insights (channel engagement metrics, player interaction patterns)
-- Tournament integration (automated bracket management, tournament game linking)
-- Spectator features (non-player viewing, observer mode)
-- Cross-platform bridges (Discord integration, web dashboard)
-- AI-powered analysis (game analysis and strategic insights)
+- Analytics and insights (channel engagement metrics, player interaction patterns only)
+
+*Out of scope unless explicitly requested: tournament, spectator mode, Discord, AI-powered analysis (see "Out of scope" above).*
 
 **Reference**: See `specs/telegram_channel_integration.md` for details
 
@@ -369,11 +381,8 @@ Added missing bot commands from `telegram_bot_spec.md`:
 The codebase is production-ready with all planned features implemented. Code cleanup and quality improvements have been completed. Phase 2 Channel Integration is complete. Future development can focus on:
 
 1. **Phase 3 Channel Integration** (Optional enhancements)
-   - Analytics and insights (message counts, player activity tracking, engagement metrics)
-   - Tournament integration (automated bracket management)
-   - Spectator features (observer mode for non-players)
-   - Cross-platform bridges (Discord, web dashboard)
-   - AI-powered analysis (strategic insights and game analysis)
+   - Analytics and insights only (message counts, player activity tracking, engagement metrics)
+   - *Tournament, spectator, Discord, and AI-powered analysis are out of scope unless explicitly requested.*
 
 2. **Visualization enhancements** (Optional)
    - Interactive map features (clickable provinces, tooltips, zoom/pan)
@@ -422,67 +431,9 @@ The codebase is production-ready with all planned features implemented. Code cle
 - `src/server/telegram_bot/channels.py` - Add analytics tracking hooks
 - `src/server/dashboard/` - Add analytics visualization (optional)
 
-### Priority 2: Tournament Integration (Medium-term: 2-4 weeks) — ✅ CORE COMPLETE (2025-03-02)
-**Goal**: Support tournament-style game organization with brackets
+### Out of scope: Tournament, Spectator, Discord, AI-powered Analysis
 
-**Completed**:
-- **Database Schema**: `tournaments`, `tournament_games`, `tournament_players` tables (see `database.py`, migration `c3d4e5f6a7b8_add_tournament_tables.py`)
-- **DatabaseService**: `create_tournament`, `get_tournament`, `add_game_to_tournament`, `add_player_to_tournament`, `get_tournament_games`, `get_tournament_players`, `get_tournament_bracket`, `update_tournament_status`, `list_tournaments`
-- **API Endpoints**: `POST/GET /tournaments`, `GET /tournaments/{id}`, `GET /tournaments/{id}/bracket`, `POST /tournaments/{id}/games`, `GET /tournaments/{id}/games`, `POST /tournaments/{id}/players`, `GET /tournaments/{id}/players`, `PUT /tournaments/{id}/status`
-- **Tests**: `tests/test_tournaments_api.py` (8 tests, mocked db_service)
-
-**Remaining (optional)**:
-- `POST /tournaments/{id}/advance` - Advance winners to next round
-- **Bot Commands**: `/create_tournament`, `/tournament_info`, `/tournament_bracket`
-
-**Reference**: See `specs/telegram_channel_integration.md` section "Tournament Integration"
-
-### Priority 3: Spectator Features (Medium-term: 2-3 weeks) — ✅ CORE COMPLETE (2025-03-02)
-**Goal**: Allow non-players to observe games
-
-**Completed**:
-- **Database**: `spectators` table (game_id, user_id, joined_at); `games.observer_mode` column (migration `d4e5f6a7b8c9_add_spectators_and_observer_mode.py`)
-- **DatabaseService**: `add_spectator`, `remove_spectator`, `get_spectators`, `is_spectator`, `is_player_in_game`
-- **API**: `POST /games/{game_id}/spectate`, `DELETE /games/{game_id}/spectate`, `GET /games/{game_id}/spectators`, `GET /games/{game_id}/observer_state` (state with orders hidden)
-- **Tests**: `tests/test_spectators_api.py` (5 tests)
-
-**Remaining (optional)**:
-- **Bot Commands**: `/spectate <game_id>`, `/observer_map`
-
-**Reference**: See `specs/telegram_channel_integration.md` section "Spectator Features"
-
-### Priority 4: Cross-platform Bridges (Long-term: 1-2 months) — ✅ MINIMAL DISCORD BOT (2025-03-02)
-**Goal**: Integrate with other platforms (Discord, web)
-
-**Completed**:
-- **Discord bot (minimal)**: `src/server/discord_bot/` — uses same API as Telegram bot
-  - Commands: `!games`, `!status <game_id>`, `!help` (prefix configurable via `DIPLOMACY_DISCORD_PREFIX`)
-  - Config: `DIPLOMACY_DISCORD_BOT_TOKEN`, `DIPLOMACY_API_URL`
-  - Run: `PYTHONPATH=.:src python -m server.run_discord_bot` or `python src/server/run_discord_bot.py`
-  - Docs: `docs/DISCORD_BOT.md`; dependency: `discord.py` in requirements.txt
-
-**Remaining (optional)**:
-- Discord: full command parity with Telegram, bridge messages between Telegram and Discord channels
-- **Web Dashboard**: React/Vue frontend, WebSocket updates, interactive map, analytics (browser client already exists for gameplay)
-
-**Reference**: See `specs/telegram_channel_integration.md` section "Integration Possibilities"
-
-### Priority 5: AI-powered Analysis (Long-term: 2-3 months)
-**Goal**: Provide strategic insights and game analysis
-
-**Tasks**:
-1. **Analysis Engine**:
-   - Strategic position evaluation
-   - Alliance detection and prediction
-   - Victory probability calculations
-   - Move recommendation system
-
-2. **API Endpoints**:
-   - `GET /games/{game_id}/analysis` - Get strategic analysis
-   - `GET /games/{game_id}/analysis/predictions` - Victory predictions
-   - `GET /games/{game_id}/analysis/recommendations` - Move recommendations
-
-**Reference**: See `specs/telegram_channel_integration.md` section "AI-powered Analysis"
+**Tournament**, **spectator/observer mode**, **Discord integration**, and **AI-powered analysis** are **out of scope** for the current roadmap. Do not add or plan work for these unless explicitly requested by the maintainer. Existing code (e.g. tournament/spectator DB and APIs, minimal Discord bot) may remain for reference; no further development on these areas.
 
 ## Code Quality Status
 

@@ -15,6 +15,8 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
 **Never Modify Old Implementation**: NEVER make modifications to [/old_implementation/](mdc:old_implementation/). Work only in [/new_implementation/](mdc:new_implementation/).
 
+**Out-of-scope features**: Do not add or plan work for **tournament feature**, **Discord implementation**, **AI-powered analysis**, or **observer/spectator mode** unless the user explicitly requests it. These are documented as out of scope in [fix_plan.md](mdc:new_implementation/specs/fix_plan.md). Keep them omitted in docs and roadmap unless otherwise instructed.
+
 ## Code Quality Standards
 
 - **Python Only**: All code must be Python with strict type hints

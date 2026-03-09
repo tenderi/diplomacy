@@ -51,6 +51,16 @@ print(state)
 - `POST /games/{game_id}/orders/{power}/clear` — Clear orders for a power. (body: telegram_id as JSON string)
 - `GET /games/{game_id}/orders/history` — Get order history grouped by turn and power.
 
+### Auth (JWT + email/password)
+- `POST /auth/register` — Register with email and password. `{email, password, full_name?}` → access + refresh tokens.
+- `POST /auth/login` — Login. `{email, password}` or OAuth2 form → access + refresh tokens.
+- `POST /auth/refresh` — Refresh access token. `{refresh_token}`.
+- `GET /auth/me` — Current user (requires `Authorization: Bearer <access_token>`).
+- `POST /auth/me/unlink_telegram` — Unlink Telegram from account (Bearer).
+- `POST /auth/forgot_password` — Request password reset. `{email}`. Always 200 (no email enumeration). Sends reset link by email if `DIPLOMACY_SMTP_HOST` is set; see LOCAL_DEVELOPMENT.md for SMTP env vars.
+- `POST /auth/reset_password` — Set new password. `{token, new_password}` (token from forgot_password flow).
+- `POST /auth/telegram/link` — Link Telegram to account. `{telegram_id, code}` (no JWT; used by bot).
+
 ### User Management
 - `POST /users/persistent_register` — Register a user. `{telegram_id: str, full_name: str}`
 - `GET /users/{telegram_id}/games` — List all games a user is in.
@@ -75,9 +85,10 @@ print(state)
 - Standard HTTP status codes are used (e.g., 400, 403, 404, 500).
 
 ## Security & Authorization
-- Only the assigned user (by `telegram_id`) for a power can submit or clear orders, quit, or send messages as that power.
+- Only the assigned user (by `telegram_id` or by JWT for browser clients) for a power can submit or clear orders, quit, or send messages as that power.
 - Attempts to act for a power you do not control will return 403 Forbidden.
 - User registration and persistent mapping are required for all player actions.
+- Auth endpoints support both Bearer JWT (browser) and `telegram_id` in body (Telegram bot); see specs for dependency `get_current_user_or_telegram`.
 
 ## Example Usage (Python)
 ```python

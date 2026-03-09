@@ -34,7 +34,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the API so tha
 
 1. On the login page, click **Forgot password?**.
 2. Enter your email and submit. If an account exists, a reset link is generated (and optionally sent by email if you configure SMTP).
-3. For development: set `DIPLOMACY_PASSWORD_RESET_BASE_URL` (e.g. `http://localhost:5173`) and `DIPLOMACY_DEV_SHOW_RESET_LINK=1`; the reset link will appear on the confirmation page so you can copy it and open the reset-password form.
+3. For development: set `DIPLOMACY_PASSWORD_RESET_BASE_URL` (e.g. `http://localhost:5173`) and `DIPLOMACY_DEV_SHOW_RESET_LINK=1`; the reset link will appear on the confirmation page so you can copy it and open the reset-password form. For production, set `DIPLOMACY_SMTP_HOST` (and optionally `DIPLOMACY_SMTP_USER`, `DIPLOMACY_SMTP_PASSWORD`, etc.) so reset links are sent by email; see [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for all SMTP env vars.
 4. Set your new password; you can then log in with the new password.
 
 ## Troubleshooting: Register does nothing or shows error

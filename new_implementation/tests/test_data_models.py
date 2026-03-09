@@ -152,18 +152,22 @@ def test_database_operations():
     assert power_state.is_active == True
     assert power_state.is_eliminated == False
     
-    # Add a unit
-    unit = Unit(unit_type="A", province="PAR", power="FRANCE")
+    # Add a unit in a province that does not yet have one (create_game already has initial units e.g. A PAR)
+    unit = Unit(unit_type="A", province="BUR", power="FRANCE")
     db_service.add_unit(unique_game_id, "FRANCE", unit)
     
-    # Get game state
+    # Get game state (initial France units + the one we added)
     retrieved_state = db_service.get_game_state(unique_game_id)
     assert retrieved_state is not None
     assert retrieved_state.game_id == unique_game_id
     assert "FRANCE" in retrieved_state.powers
-    assert len(retrieved_state.powers["FRANCE"].units) == 1
-    assert retrieved_state.powers["FRANCE"].units[0].unit_type == "A"
-    assert retrieved_state.powers["FRANCE"].units[0].province == "PAR"
+    # Standard map gives France 3 starting units; we added one more
+    assert len(retrieved_state.powers["FRANCE"].units) >= 4
+    # Our added unit should be present
+    bur_units = [u for u in retrieved_state.powers["FRANCE"].units if u.province == "BUR"]
+    assert len(bur_units) == 1
+    assert bur_units[0].unit_type == "A"
+    assert bur_units[0].province == "BUR"
     
     print("✅ Database operations working correctly!")
 

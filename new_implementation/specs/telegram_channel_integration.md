@@ -355,19 +355,17 @@ GET /games/{game_id}/channel/analytics      # Get channel engagement data
 
 ## Future Enhancements
 
+**Out of scope** (do not pursue unless explicitly requested): Discord bridge, AI-powered analysis, tournament integration, spectator/observer mode. See `specs/fix_plan.md` "Out of scope".
+
 ### Integration Possibilities
 
 **External Services:**
-- Discord bridge for cross-platform play
 - Web dashboard for channel viewing
 - Mobile app push notifications
 - Email digest summaries
 - Calendar integration for deadlines
 
 **Advanced Features:**
-- AI-powered game analysis and insights
-- Automated tournament bracket management
-- Spectator mode for non-players
 - Live streaming integration
 - Replay system with timeline scrubbing
 
@@ -397,11 +395,9 @@ GET /games/{game_id}/channel/analytics      # Get channel engagement data
 5. Historical timeline
 
 ### Phase 3: Advanced Features
-1. Analytics and insights
-2. Tournament integration
-3. Spectator features
-4. Cross-platform bridges
-5. AI-powered analysis
+1. Analytics and insights only
+
+*Out of scope unless explicitly requested: tournament, spectator features, Discord/cross-platform bridges, AI-powered analysis.*
 
 ## Success Metrics
 

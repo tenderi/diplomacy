@@ -187,5 +187,6 @@ docker-compose up --build
 
 ## Next Steps
 - Improve documentation and code comments for new/changed endpoints and logic.
-- Implement observer mode (lowest priority).
 - Address any remaining enhancements or bugfixes.
+
+**Out of scope** unless explicitly requested: observer/spectator mode, tournament feature, Discord implementation, AI-powered analysis. See `specs/fix_plan.md` for the full list.
