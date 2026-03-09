@@ -27,7 +27,7 @@ class TestSendPrivateMessage:
         client.post("/users/persistent_register", json={"telegram_id": "sender1", "full_name": "Sender"})
         client.post("/users/persistent_register", json={"telegram_id": "recipient1", "full_name": "Recipient"})
         
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "sender1", "game_id": game_id, "power": "FRANCE"})
         client.post(f"/games/{game_id}/join", json={"telegram_id": "recipient1", "game_id": game_id, "power": "GERMANY"})
@@ -50,7 +50,7 @@ class TestSendPrivateMessage:
         """Test sending message when sender not in game."""
         client.post("/users/persistent_register", json={"telegram_id": "outsider", "full_name": "Outsider"})
         
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         resp = client.post(f"/games/{game_id}/message", json={
@@ -66,7 +66,7 @@ class TestSendPrivateMessage:
         """Test sending message without recipient."""
         client.post("/users/persistent_register", json={"telegram_id": "sender2", "full_name": "Sender"})
         
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "sender2", "game_id": game_id, "power": "FRANCE"})
         
@@ -89,7 +89,7 @@ class TestSendBroadcast:
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "broadcaster", "full_name": "Broadcaster"})
         
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "broadcaster", "game_id": game_id, "power": "FRANCE"})
         
@@ -116,7 +116,7 @@ class TestGetGameMessages:
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "msg_user", "full_name": "Message User"})
         
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "msg_user", "game_id": game_id, "power": "FRANCE"})
         
@@ -132,7 +132,7 @@ class TestGetGameMessages:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_messages_without_telegram_id(self, client):
         """Test getting messages without telegram_id (only broadcasts)."""
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         resp = client.get(f"/games/{game_id}/messages")

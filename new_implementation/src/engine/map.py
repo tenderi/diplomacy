@@ -202,10 +202,13 @@ from .visualization_config import get_config
 _viz_config = get_config()
 
 
+KNOWN_POWER_NAMES = frozenset({"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"})
+
+
 def _get_power_colors_dict() -> Dict[str, str]:
     """Get power colors dictionary from config."""
     power_colors = {}
-    for power in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]:
+    for power in KNOWN_POWER_NAMES:
         power_colors[power] = _viz_config.get_power_color(power)
     return power_colors
 
@@ -3073,11 +3076,12 @@ class Map:
             # Just show power colors for initial/final maps
             legend_items = []
         
-        # Add power colors if active_powers provided
+        # Add power colors if active_powers provided (only use known power names; ignore unit strings like "A BUD" if wrong format was passed)
         power_items = []
         if active_powers:
             for power in sorted(active_powers):
-                power_items.append(("power", power))
+                if power in KNOWN_POWER_NAMES:
+                    power_items.append(("power", power))
         
         # Calculate legend dimensions
         total_items = len(legend_items) + len(power_items)

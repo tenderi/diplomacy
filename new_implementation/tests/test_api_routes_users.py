@@ -149,7 +149,7 @@ class TestGetUserGames:
         })
         
         # Create and join game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={
             "telegram_id": "quit_user",

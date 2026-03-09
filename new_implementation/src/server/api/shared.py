@@ -20,6 +20,8 @@ from ..server import Server
 from ..models import GameStateOut, PowerStateOut, UnitOut
 from engine.data_models import GameState, Unit, GameStatus
 from ..response_cache import invalidate_cache
+from engine.game import Game
+from engine.allowed_moves import build_allowed_moves
 
 # Shared service instances
 db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)
@@ -46,6 +48,30 @@ ADMIN_TOKEN = os.environ.get("DIPLOMACY_ADMIN_TOKEN", "changeme")
 
 # Allowed services for dashboard (moved to dashboard.py route module)
 # ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
+
+
+def ensure_game_in_memory(game_id: str):
+    """If the game is not in server.games, load it from the database and register it. Returns the Game or None if not found in DB."""
+    game_id_str = str(game_id)
+    if game_id_str in server.games:
+        return server.games[game_id_str]
+    state = db_service.get_game_state(game_id_str)
+    if state is None:
+        return None
+    g = Game(map_name=state.map_name)
+    setattr(g, "game_id", game_id_str)
+    g.game_state = state
+    if state.allowed_moves is None and g.map is not None:
+        state.allowed_moves = build_allowed_moves(g.map, state.map_name)
+    g.turn = state.current_turn
+    g.year = state.current_year
+    g.season = state.current_season
+    g.phase = state.current_phase
+    g.phase_code = state.phase_code
+    g.done = state.status == GameStatus.COMPLETED
+    server.games[game_id_str] = g
+    logger.info("Restored game %s from database into memory for order submission", game_id_str)
+    return g
 
 
 def _state_to_spec_dict(state_obj: Any) -> Dict[str, Any]:

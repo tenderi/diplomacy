@@ -26,7 +26,7 @@ class TestSetOrders:
         """Test successful order submission."""
         # Setup: register user, create game, join
         client.post("/users/persistent_register", json={"telegram_id": "test_user", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -48,7 +48,7 @@ class TestSetOrders:
         # Setup: register user, create game, join as different power
         client.post("/users/persistent_register", json={"telegram_id": "user1", "full_name": "User1"})
         client.post("/users/persistent_register", json={"telegram_id": "user2", "full_name": "User2"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "user1", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -67,7 +67,7 @@ class TestSetOrders:
         """Test order submission with invalid order."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "test_user2", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user2", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -94,7 +94,7 @@ class TestGetOrders:
         """Test successful order retrieval."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "test_user3", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user3", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -118,7 +118,7 @@ class TestGetOrderHistory:
         """Test successful order history retrieval."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "test_user4", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user4", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -139,7 +139,7 @@ class TestGetOrdersForPower:
         """Test successful order retrieval for power."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "test_user5", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user5", "game_id": int(game_id), "power": "FRANCE"})
         
@@ -153,7 +153,7 @@ class TestGetOrdersForPower:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_for_power_not_found(self, client):
         """Test getting orders for non-existent power."""
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         resp = client.get(f"/games/{game_id}/orders/FRANCE")
@@ -170,7 +170,7 @@ class TestClearOrders:
         """Test successful order clearing."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "test_user6", "full_name": "Test"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "test_user6", "game_id": game_id, "power": "FRANCE"})
         
@@ -186,7 +186,7 @@ class TestClearOrders:
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "user7", "full_name": "User7"})
         client.post("/users/persistent_register", json={"telegram_id": "user8", "full_name": "User8"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "user7", "game_id": game_id, "power": "FRANCE"})
         

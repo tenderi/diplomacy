@@ -33,7 +33,7 @@ class TestAPIResponseTimes:
         """Test that game creation completes quickly."""
         start_time = time.time()
         
-        client.post("/games/create", json={"map_name": "standard"})
+        client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         
         duration = time.time() - start_time
         assert duration < 1.0, f"Game creation took {duration:.2f}s, should be < 1.0s"
@@ -42,7 +42,7 @@ class TestAPIResponseTimes:
     def test_game_state_retrieval_response_time(self, client):
         """Test that game state retrieval is fast."""
         # Create game first
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         start_time = time.time()
@@ -57,7 +57,7 @@ class TestAPIResponseTimes:
         """Test that order submission is fast."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "perf_user", "full_name": "Perf User"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "perf_user",
@@ -249,7 +249,7 @@ class TestLoadHandling:
         import concurrent.futures
         
         def create_game():
-            return client.post("/games/create", json={"map_name": "standard"})
+            return client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         
         start_time = time.time()
         
@@ -273,7 +273,7 @@ class TestLoadHandling:
         # Setup: create game and register users
         client.post("/users/persistent_register", json={"telegram_id": "load_user1", "full_name": "Load User 1"})
         client.post("/users/persistent_register", json={"telegram_id": "load_user2", "full_name": "Load User 2"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "load_user1",

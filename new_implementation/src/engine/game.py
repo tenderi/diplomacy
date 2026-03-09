@@ -417,8 +417,23 @@ class Game:
         
         return results
 
+    def _ensure_hold_orders_for_units_without_orders(self) -> None:
+        """For Movement phase: add implicit HoldOrder for any unit that has no order (e.g. unjoined powers)."""
+        for power_name, power in self.game_state.powers.items():
+            if power_name not in self.game_state.orders:
+                self.game_state.orders[power_name] = []
+            orders = self.game_state.orders[power_name]
+            ordered_unit_keys = set()
+            for order in orders:
+                if hasattr(order, "unit") and order.unit:
+                    ordered_unit_keys.add((order.unit.unit_type, order.unit.province))
+            for unit in power.units:
+                if (unit.unit_type, unit.province) not in ordered_unit_keys:
+                    self.game_state.orders[power_name].append(HoldOrder(power=power_name, unit=unit))
+
     def _process_movement_phase(self) -> Dict[str, Any]:
         """Process movement phase with full Diplomacy rules."""
+        self._ensure_hold_orders_for_units_without_orders()
         results: Dict[str, List[Any]] = {
             "moves": [],
             "dislodgements": [],
@@ -857,12 +872,21 @@ class Game:
                                 if unit_power_state and target_province not in unit_power_state.controlled_supply_centers:
                                     unit_power_state.controlled_supply_centers.append(target_province)
                             
-                            # Check if there's an enemy unit in the target province that needs to be dislodged
+                            # Check if there's an enemy unit that was originally in the target province (must use original positions: we already moved the winner into target_province)
                             for power_name, power in self.game_state.powers.items():
                                 for target_unit in power.units:
-                                    if target_unit.province == target_province and target_unit != unit:
+                                    was_in_target = original_provinces.get(id(target_unit), target_unit.province) == target_province
+                                    if was_in_target and target_unit != unit:
+                                        dislodged_from = original_provinces.get(id(target_unit), target_unit.province)
+                                        # Do not dislodge a unit that vacated the province (had a move order to a different province)
+                                        target_has_move_away = any(
+                                            isinstance(_o, MoveOrder) and _o.unit == target_unit and _o.target_province != target_province
+                                            for _orders in self.game_state.orders.values()
+                                            for _o in _orders
+                                        )
+                                        if target_has_move_away:
+                                            break
                                         # This unit is being dislodged
-                                        dislodged_from = target_unit.province
                                         target_unit.is_dislodged = True
                                         target_unit.province = f"DISLODGED_{dislodged_from}"
                                         target_unit.retreat_options = self._calculate_retreat_options(target_unit)
@@ -993,12 +1017,21 @@ class Game:
                                 if winner_power_state and target_province not in winner_power_state.controlled_supply_centers:
                                     winner_power_state.controlled_supply_centers.append(target_province)
                             
-                            # Dislodge other units that are currently in the target province
+                            # Dislodge units that were originally in the target province (use original positions: we already moved the winner into target_province)
                             for power_name, power in self.game_state.powers.items():
                                 for target_unit in power.units:
-                                    if target_unit.province == target_province and target_unit != winner_unit:
+                                    was_in_target = original_provinces.get(id(target_unit), target_unit.province) == target_province
+                                    if was_in_target and target_unit != winner_unit:
+                                        dislodged_from = original_provinces.get(id(target_unit), target_unit.province)
+                                        # Do not dislodge a unit that vacated the province (had a move order to a different province)
+                                        target_has_move_away = any(
+                                            isinstance(_o, MoveOrder) and _o.unit == target_unit and _o.target_province != target_province
+                                            for _orders in self.game_state.orders.values()
+                                            for _o in _orders
+                                        )
+                                        if target_has_move_away:
+                                            continue
                                         # This unit is being dislodged
-                                        dislodged_from = target_unit.province
                                         target_unit.is_dislodged = True
                                         target_unit.province = f"DISLODGED_{dislodged_from}"
                                         target_unit.retreat_options = self._calculate_retreat_options(target_unit)
@@ -1598,6 +1631,8 @@ class Game:
             information including units, orders, map data, and power states.
             Use this for applications that need access to the complete data model.
         """
+        self.game_state.current_phase = self.phase
+        self.game_state.phase_code = self.phase_code
         return self.game_state
 
     def is_game_done(self) -> bool:

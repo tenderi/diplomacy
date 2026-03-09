@@ -42,12 +42,15 @@ def send_private_message(
         player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
-        # Validate recipient power exists in game
+        # Validate recipient power exists in game and has a player assigned
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
             raise HTTPException(status_code=400, detail="Recipient power required for private message")
         recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=req.recipient_power)
         if not recipient_player:
-            raise HTTPException(status_code=404, detail="Recipient power not found in game")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot send a private message to {req.recipient_power}: no player is assigned to that power.",
+            )
         msg = db_service.create_message(game_id=int(game_model.id), sender_user_id=int(user.id), recipient_power=req.recipient_power, text=req.text)  # type: ignore
         # Private message notification
         try:

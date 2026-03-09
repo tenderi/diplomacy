@@ -177,7 +177,7 @@ Create `new_implementation/.env` (do not commit secrets):
 SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
 
 # Optional: JWT secret for auth (use a long random string in production)
-DIPLOMACY_JWT_SECRET=dev-secret-change-in-production
+DIPLOMACY_JWT_SECRET=dev-secret-change-in-production-32b
 
 # Optional: Telegram bot (only if you run the Telegram bot)
 # TELEGRAM_BOT_TOKEN=your-bot-token-from-BotFather
@@ -343,6 +343,8 @@ pytest tests/ --cov=src --cov-report=term-missing
 
 - **Auth (JWT) or CORS issues**  
   Set `DIPLOMACY_JWT_SECRET` and, if needed, `DIPLOMACY_CORS_ORIGINS` (e.g. `http://localhost:5173` for the Vite frontend).
+- **401 on /games/.../join or /auth/refresh**  
+  Usually means the access or refresh token is invalid or expired. If you changed `DIPLOMACY_JWT_SECRET`, all existing tokens are invalid—log in again. The frontend clears stored tokens when refresh returns 401, so you should be prompted to log in.
 
 - **Map images or rendering**  
   See [BROWSER_SETUP_INSTRUCTIONS.md](BROWSER_SETUP_INSTRUCTIONS.md) for Chrome/Chromium and Selenium.

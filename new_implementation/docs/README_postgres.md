@@ -50,6 +50,24 @@ alembic upgrade head
 
 This will apply all migrations and set up the schema.
 
+## 4. Game IDs (why they are 7000+ and how to reset)
+
+The **game number** you see (e.g. in the UI or API as `game_id`) is the database primary key `id` of the `games` table. When you create a game without passing a custom `game_id`, the backend sets `game_id = str(id)` after insert, so the displayed number is the auto-increment value.
+
+- **Why 7000+?** PostgreSQL’s sequence for `games.id` advances on every insert (including from tests, restarts, or previous data). So after many creates (or a restored DB), the next id can be 7000+.
+
+- **Make new games start from 1 (dev only):** Only do this when the `games` table is empty or you are okay with wiping it; otherwise you can get duplicate key errors.
+
+```sql
+-- Optional: clear all games (and dependent data) first
+TRUNCATE games CASCADE;
+
+-- Reset the sequence so the next game gets id = 1
+ALTER SEQUENCE games_id_seq RESTART WITH 1;
+```
+
+After this, the next game you create will have `game_id` "1", then "2", and so on.
+
 ---
 
 **Troubleshooting:**

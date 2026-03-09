@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { apiJson, API_BASE, clearTokens, getAccessToken, setTokens } from '../api/client'
+import { apiJson, API_BASE, clearTokens, getAccessToken, REFRESH_STORAGE_KEY, setTokens } from '../api/client'
 
 export type User = {
   id: number
@@ -20,8 +20,6 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null)
 
-const STORAGE_KEY = 'diplomacy_refresh'
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -37,7 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u)
     } catch {
       clearTokens()
-      localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(REFRESH_STORAGE_KEY)
       setUser(null)
     } finally {
       setLoading(false)
@@ -45,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const stored = localStorage.getItem(REFRESH_STORAGE_KEY)
     if (stored) {
       try {
         const { refresh_token } = JSON.parse(stored)
@@ -63,14 +61,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
             })
             .catch(() => {
-              localStorage.removeItem(STORAGE_KEY)
+              localStorage.removeItem(REFRESH_STORAGE_KEY)
               clearTokens()
             })
             .finally(() => setLoading(false))
           return
         }
       } catch {
-        localStorage.removeItem(STORAGE_KEY)
+        localStorage.removeItem(REFRESH_STORAGE_KEY)
       }
     }
     setLoading(false)
@@ -82,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { method: 'POST', body: JSON.stringify({ email, password }) }
     )
     setTokens(data.access_token, data.refresh_token)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
+    localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
     setUser(data.user)
   }, [])
 
@@ -92,13 +90,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { method: 'POST', body: JSON.stringify({ email, password, full_name: fullName || null }) }
     )
     setTokens(data.access_token, data.refresh_token)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
+    localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
     setUser(data.user)
   }, [])
 
   const logout = useCallback(() => {
     clearTokens()
-    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(REFRESH_STORAGE_KEY)
     setUser(null)
   }, [])
 

@@ -91,7 +91,7 @@ class TestDatabaseService:
         assert game_state.current_turn == 0
         assert game_state.current_year == 1901
         assert game_state.current_season == "Spring"
-        assert game_state.current_phase == "Movement"
+        assert game_state.current_phase == "Pregame"
         assert game_state.status == GameStatus.ACTIVE or game_state.status.value == "active"
     
     def test_create_game_with_existing_id(self, db_service):

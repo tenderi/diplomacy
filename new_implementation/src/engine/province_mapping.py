@@ -32,11 +32,7 @@ PROVINCE_MAPPING = {
     "TYS": ("Tyrrhenian Sea", "sea"),
     "WES": ("Western Mediterranean", "sea"),
     
-    # Land provinces
-    "ALB": ("Albania", "land"),
-    "ANK": ("Ankara", "land"),
-    "APU": ("Apulia", "land"),
-    "ARM": ("Armenia", "land"),
+    # Land provinces (inland only; coastal ones are below)
     "BOH": ("Bohemia", "land"),
     "BUD": ("Budapest", "land"),
     "BUR": ("Burgundy", "land"),
@@ -44,13 +40,16 @@ PROVINCE_MAPPING = {
     "MOS": ("Moscow", "land"),
     "MUN": ("Munich", "land"),
     "SIL": ("Silesia", "land"),
-    "SYR": ("Syria", "land"),
     "TYR": ("Tyrolia", "land"),
     "UKR": ("Ukraine", "land"),
     "VIE": ("Vienna", "land"),
     "WAR": ("Warsaw", "land"),
     
     # Coastal provinces (land provinces that fleets can enter)
+    "ALB": ("Albania", "coastal"),
+    "ANK": ("Ankara", "coastal"),
+    "APU": ("Apulia", "coastal"),
+    "ARM": ("Armenia", "coastal"),
     "BEL": ("Belgium", "coastal"),
     "BER": ("Berlin", "coastal"),
     "BRE": ("Brest", "coastal"),
@@ -90,6 +89,7 @@ PROVINCE_MAPPING = {
     "BUL/EC": ("Bulgaria East Coast", "coastal"),
     "BUL/SC": ("Bulgaria South Coast", "coastal"),
     "SWE": ("Sweden", "coastal"),
+    "SYR": ("Syria", "coastal"),
     "TRI": ("Trieste", "coastal"),
     "TUN": ("Tunis", "coastal"),
     "TUS": ("Tuscany", "coastal"),

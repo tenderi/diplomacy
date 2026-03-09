@@ -29,8 +29,8 @@ except ImportError:  # pragma: no cover
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# JWT config from env
-JWT_SECRET = os.environ.get("DIPLOMACY_JWT_SECRET", "dev-secret-change-in-production")
+# JWT config from env (min 32 bytes for HS256 per RFC 7518)
+JWT_SECRET = os.environ.get("DIPLOMACY_JWT_SECRET", "dev-secret-change-in-production-32b")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7

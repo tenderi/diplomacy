@@ -147,7 +147,7 @@ def test_replace_only_inactive_allowed_via_api():
     client.post("/users/persistent_register", json={"telegram_id": "u1", "full_name": "User1"})
     client.post("/users/persistent_register", json={"telegram_id": "u2", "full_name": "User2"})
     # Create game and add player (assign u1 to FRANCE)
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert resp.status_code == 200
     game_id = int(resp.json()["game_id"])
     join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
@@ -181,7 +181,7 @@ def test_adjudication_results_in_state():
         pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
     client = TestClient(app)
     # Create a game and register a user
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert resp.status_code == 200, f"Create game failed: {resp.json()}"
     assert "game_id" in resp.json(), f"Response missing game_id: {resp.json()}"
     game_id = int(resp.json()["game_id"])

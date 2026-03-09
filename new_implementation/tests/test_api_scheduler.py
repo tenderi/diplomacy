@@ -20,7 +20,7 @@ def test_scheduler_status():
 def test_deadline_endpoints():
     client = TestClient(app)
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert resp.status_code == 200
     game_id = resp.json()["game_id"]
     # Set a deadline
@@ -53,7 +53,7 @@ def test_deadline_past_on_startup(monkeypatch):
     """Test that a deadline in the past is processed immediately on app startup."""
     client = TestClient(app)
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game_id = resp.json()["game_id"]
     # Set a deadline in the past
     past_deadline = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
@@ -73,9 +73,9 @@ def test_overlapping_deadlines(monkeypatch):
     """Test that multiple games with overlapping deadlines are processed independently."""
     client = TestClient(app)
     # Create two games
-    resp1 = client.post("/games/create", json={"map_name": "standard"})
+    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game1_id = resp1.json()["game_id"]
-    resp2 = client.post("/games/create", json={"map_name": "standard"})
+    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game2_id = resp2.json()["game_id"]
     # Set deadlines a few seconds apart
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -100,7 +100,7 @@ def test_overlapping_deadlines(monkeypatch):
 def test_reminder_and_notification(monkeypatch):
     """Test that reminders and notifications are sent (mock notify_players)."""
     client = TestClient(app)
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game_id = resp.json()["game_id"]
     # Set a deadline 11 minutes from now (reminder should be sent at 10 min)
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -123,7 +123,7 @@ def test_reminder_and_notification(monkeypatch):
 def test_deadline_set_to_now(monkeypatch):
     """Test that a deadline set to now is processed immediately."""
     client = TestClient(app)
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game_id = resp.json()["game_id"]
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now})

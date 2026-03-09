@@ -389,7 +389,7 @@ def test_order_history_and_clearing():
     client.post("/users/persistent_register", json={"telegram_id": germany_telegram_id, "full_name": "Germany Player"})
 
     # Create game
-    resp = client.post("/games/create", json={"map_name": "standard"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert resp.status_code == 200
     game_id = str(resp.json()["game_id"])
 
@@ -451,8 +451,8 @@ def test_persistent_user_registration_and_multi_game():
     resp = client.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
     assert resp.status_code == 200
     # Create two games
-    resp1 = client.post("/games/create", json={"map_name": "standard"})
-    resp2 = client.post("/games/create", json={"map_name": "standard"})
+    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     game_id1 = resp1.json()["game_id"]
     game_id2 = resp2.json()["game_id"]
     # Join both games as different powers

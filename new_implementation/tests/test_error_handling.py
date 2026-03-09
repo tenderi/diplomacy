@@ -40,7 +40,7 @@ class TestHTTPStatusCodes:
         # Setup: two users, one tries to act for other's power
         client.post("/users/persistent_register", json={"telegram_id": "error_user1", "full_name": "Error User 1"})
         client.post("/users/persistent_register", json={"telegram_id": "error_user2", "full_name": "Error User 2"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "error_user1",
@@ -67,7 +67,7 @@ class TestHTTPStatusCodes:
     def test_404_not_found_power(self, client):
         """Test 404 Not Found for non-existent power."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user3", "full_name": "Error User 3"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to submit orders for non-existent power
@@ -83,7 +83,7 @@ class TestHTTPStatusCodes:
     def test_404_not_found_player(self, client):
         """Test 404 Not Found for non-existent player."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user4", "full_name": "Error User 4"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to submit orders without joining game
@@ -100,7 +100,7 @@ class TestHTTPStatusCodes:
         """Test 409 Conflict for power already taken."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user5", "full_name": "Error User 5"})
         client.post("/users/persistent_register", json={"telegram_id": "error_user6", "full_name": "Error User 6"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # User 5 joins as FRANCE
@@ -146,7 +146,7 @@ class TestErrorMessages:
         """Test error message for unauthorized action."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user7", "full_name": "Error User 7"})
         client.post("/users/persistent_register", json={"telegram_id": "error_user8", "full_name": "Error User 8"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "error_user7",
@@ -169,7 +169,7 @@ class TestErrorMessages:
     def test_error_message_invalid_order(self, client):
         """Test error message for invalid order."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user9", "full_name": "Error User 9"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "error_user9",
@@ -209,7 +209,7 @@ class TestInvalidInputHandling:
     def test_invalid_power_name(self, client):
         """Test handling of invalid power name."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user10", "full_name": "Error User 10"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to join with invalid power name
@@ -225,7 +225,7 @@ class TestInvalidInputHandling:
     def test_empty_orders_list(self, client):
         """Test handling of empty orders list."""
         client.post("/users/persistent_register", json={"telegram_id": "error_user11", "full_name": "Error User 11"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "error_user11",
