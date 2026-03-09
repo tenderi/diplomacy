@@ -26,8 +26,8 @@ class TestAdminDeleteGames:
     def test_delete_all_games_success(self, client):
         """Test successful deletion of all games."""
         # Create some games first
-        client.post("/games/create", json={"map_name": "standard"})
-        client.post("/games/create", json={"map_name": "standard"})
+        client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         
         # Delete all games
         resp = client.post("/admin/delete_all_games")
@@ -98,7 +98,7 @@ class TestAdminCacheManagement:
     def test_invalidate_game_cache(self, client):
         """Test invalidating cache for specific game."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Invalidate cache
@@ -157,7 +157,7 @@ class TestAdminMarkPlayerInactive:
         """Test successfully marking player inactive."""
         # Setup: register user and join game
         client.post("/users/persistent_register", json={"telegram_id": "inactive_user", "full_name": "Inactive"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "inactive_user", "game_id": game_id, "power": "FRANCE"})
         
@@ -170,7 +170,7 @@ class TestAdminMarkPlayerInactive:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_mark_player_inactive_invalid_token(self, client):
         """Test marking player inactive with invalid token."""
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         resp = client.post(f"/games/{game_id}/players/FRANCE/mark_inactive", json={"admin_token": "invalid"})

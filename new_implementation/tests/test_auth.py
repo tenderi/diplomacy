@@ -358,7 +358,7 @@ def test_join_with_bearer(client):
     token = reg.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    create = client.post("/games/create", json={"map_name": "standard"})
+    create = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert create.status_code == 200
     game_id = int(create.json()["game_id"])
 
@@ -418,7 +418,7 @@ def test_set_orders_with_bearer(client):
     token = reg.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    create = client.post("/games/create", json={"map_name": "standard"})
+    create = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
     assert create.status_code == 200
     game_id = create.json()["game_id"]
 

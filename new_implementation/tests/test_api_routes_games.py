@@ -33,7 +33,7 @@ class TestCreateGame:
     
     def test_create_game_success(self, client):
         """Test successful game creation."""
-        resp = client.post("/games/create", json={"map_name": "standard"})
+        resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         assert resp.status_code == 200
         data = resp.json()
         assert "game_id" in data
@@ -48,7 +48,7 @@ class TestCreateGame:
     
     def test_create_game_custom_map(self, client):
         """Test game creation with custom map."""
-        resp = client.post("/games/create", json={"map_name": "standard"})
+        resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         assert resp.status_code == 200
         data = resp.json()
         assert "game_id" in data
@@ -61,7 +61,7 @@ class TestAddPlayer:
     def test_add_player_success(self, client):
         """Test successful player addition."""
         # Create game first
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Add player - may fail if game not in memory
@@ -81,7 +81,7 @@ class TestGetGameState:
     def test_get_game_state_success(self, client):
         """Test successful game state retrieval."""
         # Create game first
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Get state
@@ -118,7 +118,7 @@ class TestGetPlayers:
     def test_get_players_success(self, client):
         """Test successful player listing."""
         # Create game and add player
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         
@@ -145,7 +145,7 @@ class TestJoinGame:
         client.post("/users/persistent_register", json={"telegram_id": "test123", "full_name": "Test User"})
         
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         # Join game
@@ -162,7 +162,7 @@ class TestJoinGame:
         client.post("/users/persistent_register", json={"telegram_id": "test456", "full_name": "Test User"})
         
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         # Join first time
@@ -182,7 +182,7 @@ class TestProcessTurn:
     def test_process_turn_success(self, client):
         """Test successful turn processing."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Process turn
@@ -205,7 +205,7 @@ class TestDeadlineEndpoints:
     def test_get_deadline(self, client):
         """Test getting game deadline."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Get deadline
@@ -219,7 +219,7 @@ class TestDeadlineEndpoints:
     def test_set_deadline(self, client):
         """Test setting game deadline."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Set deadline
@@ -239,7 +239,7 @@ class TestGameHistory:
     def test_get_game_history(self, client):
         """Test getting game history."""
         # Create game and process turn to create history
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         # Get history (may be empty if no turns processed)
@@ -256,7 +256,7 @@ class TestGameSnapshots:
     def test_save_snapshot(self, client):
         """Test saving game snapshot."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Save snapshot
@@ -268,7 +268,7 @@ class TestGameSnapshots:
     def test_get_snapshots(self, client):
         """Test getting game snapshots."""
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Get snapshots
@@ -286,7 +286,7 @@ class TestLegalOrders:
     def test_get_legal_orders_success(self, client):
         """Test getting legal orders for a unit."""
         # Create game and add player
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         
@@ -301,7 +301,7 @@ class TestLegalOrders:
     
     def test_get_legal_orders_invalid_format(self, client):
         """Test getting legal orders with invalid unit format."""
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/invalid")

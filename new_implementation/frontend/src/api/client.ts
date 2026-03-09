@@ -1,6 +1,9 @@
 // In dev, use /api so Vite proxies API only; SPA routes (/games/123) stay local and refresh works
 export const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '')
 
+/** localStorage key for refresh token (shared with AuthContext). */
+export const REFRESH_STORAGE_KEY = 'diplomacy_refresh'
+
 let accessToken: string | null = null
 let refreshToken: string | null = null
 
@@ -26,6 +29,15 @@ async function doRefresh(): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
+    if (res.status === 401) {
+      clearTokens()
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(REFRESH_STORAGE_KEY)
+      } catch {
+        // ignore
+      }
+      return false
+    }
     if (!res.ok) return false
     const data = await res.json()
     accessToken = data.access_token

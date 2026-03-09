@@ -12,7 +12,7 @@ import requests
 from .auth import resolve_user_or_telegram, http_bearer
 from ..shared import (
     db_service, server, logger, scheduler_logger, NOTIFY_URL,
-    _state_to_spec_dict
+    _state_to_spec_dict, ensure_game_in_memory
 )
 from engine.order_parser import OrderParser
 from engine.data_models import MoveOrder, SupportOrder
@@ -75,7 +75,9 @@ def set_orders(
         game = db_service.get_game_by_game_id(str(req.game_id))
         # Get current_turn directly from database with refresh to ensure we get the latest value
         turn = db_service.get_game_current_turn(str(req.game_id))
-        
+        # Ensure game is in memory (restore from DB if server was restarted)
+        if ensure_game_in_memory(str(req.game_id)) is None:
+            raise HTTPException(status_code=404, detail="Game not found")
         # Parse and validate orders using the engine; then persist via DAL
         parsed_orders: list[Any] = []
         if str(req.game_id) in server.games:
@@ -129,7 +131,8 @@ def set_orders(
                     except Exception as notify_err:
                         scheduler_logger.error(f"Failed to notify order error: {notify_err}")
         else:
-            raise HTTPException(status_code=404, detail="Game not loaded in memory for order parsing")
+            # Game not in DB or restore failed
+            raise HTTPException(status_code=404, detail="Game not found or could not be loaded for order parsing")
 
         # Persist orders for this power and turn via DAL
         if parsed_orders:
@@ -218,7 +221,7 @@ def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
         orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
-        order_list = [order.order_text for order in orders]
+        order_list = [_order_model_to_text(order) for order in orders]
         return {"power": power, "orders": order_list}
     except HTTPException:
         raise

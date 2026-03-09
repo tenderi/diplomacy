@@ -31,7 +31,7 @@ class DatabaseService:
         self.session_factory = get_session_factory(database_url)
         self.logger = logging.getLogger("diplomacy.engine.database_service")
     
-    def create_game(self, game_id: Optional[str] = None, map_name: str = 'standard') -> GameState:
+    def create_game(self, game_id: Optional[str] = None, map_name: str = 'standard', initial_phase: str = 'Pregame') -> GameState:
         """
         Create a new game in the database and return the persisted model.
 
@@ -56,14 +56,15 @@ class DatabaseService:
             # Create with provisional game_id; will normalize to numeric string id after insert
             # If game_id not provided, will be set after insert based on id
             temp_game_id = game_id or ""
+            phase_code = 'S1901M' if initial_phase == 'Movement' else 'Pregame'
             game_model = GameModel(
                 game_id=temp_game_id if temp_game_id else "0",  # Temporary value, will update
                 map_name=map_name,
                 current_turn=0,
                 current_year=1901,
                 current_season='Spring',
-                current_phase='Movement',
-                phase_code='S1901M',
+                current_phase=initial_phase if initial_phase in ('Pregame', 'Movement') else 'Pregame',
+                phase_code=phase_code,
                 status='active'
             )
             session.add(game_model)

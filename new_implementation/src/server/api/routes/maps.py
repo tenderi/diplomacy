@@ -10,7 +10,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from ..shared import db_service, server
+from ..shared import db_service, server, ensure_game_in_memory
 from engine.map import Map
 from engine.data_models import MoveOrder, SupportOrder
 
@@ -34,10 +34,10 @@ def get_game_map_png(game_id: str) -> Response:
     state = db_service.get_game_state(game_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    units: Dict[str, str] = {}
+    # Renderer expects { power_name: [ "A PAR", "F BRE", ... ], ... }
+    units: Dict[str, list] = {}
     for power_name, power in state.powers.items():
-        for unit in power.units:
-            units[f"{unit.unit_type} {unit.province}"] = power_name
+        units[power_name] = [f"{u.unit_type} {u.province}" for u in power.units]
     phase_info = {
         "turn": state.current_turn,
         "year": state.current_year,
@@ -61,10 +61,9 @@ def get_game_map_png(game_id: str) -> Response:
 @router.post("/games/{game_id}/generate_map")
 def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
     """Generate and save a map image for the current game state"""
-    if game_id not in server.games:
+    game = ensure_game_in_memory(game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = server.games[game_id]
     try:
         # Resolve SVG path based on game's map_name
         map_name = getattr(game, 'map_name', 'standard')
@@ -77,12 +76,11 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
         else:
             svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
         render_warnings: list[str] = []
-        # Create units dictionary safely
-        units = {}
+        # Create units dict: { power_name: [ "A PAR", "F BRE", ... ], ... } for render_board_png
+        units: Dict[str, list] = {}
         try:
             for power_name, power in game.game_state.powers.items():
-                for unit in power.units:
-                    units[f"{unit.unit_type} {unit.province}"] = power_name
+                units[power_name] = [f"{u.unit_type} {u.province}" for u in power.units]
         except Exception as e:
             render_warnings.append(f"units_build_failed: {e}")
             units = {}
@@ -142,10 +140,9 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
 @router.post("/games/{game_id}/generate_map/orders")
 def generate_orders_map(game_id: str) -> Dict[str, Any]:
     """Generate and return an orders map showing all submitted orders before adjudication."""
-    if game_id not in server.games:
+    game = ensure_game_in_memory(game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = server.games[game_id]
     try:
         # Resolve SVG path based on game's map_name
         map_name = getattr(game, 'map_name', 'standard')
@@ -235,10 +232,9 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
 @router.post("/games/{game_id}/generate_map/resolution")
 def generate_resolution_map(game_id: str) -> Dict[str, Any]:
     """Generate and return a resolution map showing order results, conflicts, and dislodgements."""
-    if game_id not in server.games:
+    game = ensure_game_in_memory(game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = server.games[game_id]
     try:
         # Resolve SVG path based on game's map_name
         map_name = getattr(game, 'map_name', 'standard')

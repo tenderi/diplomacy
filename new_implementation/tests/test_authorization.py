@@ -27,7 +27,7 @@ class TestOrderSubmissionAuthorization:
         """Test that user can submit orders for their assigned power."""
         # Setup: register user, create game, join
         client.post("/users/persistent_register", json={"telegram_id": "auth_user1", "full_name": "Auth User 1"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user1",
@@ -52,7 +52,7 @@ class TestOrderSubmissionAuthorization:
         # Setup: register two users, create game, join different powers
         client.post("/users/persistent_register", json={"telegram_id": "auth_user2", "full_name": "Auth User 2"})
         client.post("/users/persistent_register", json={"telegram_id": "auth_user3", "full_name": "Auth User 3"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user2",
@@ -80,7 +80,7 @@ class TestOrderSubmissionAuthorization:
     def test_unregistered_user_cannot_submit_orders(self, client):
         """Test that unregistered users cannot submit orders."""
         # Create game without joining
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to submit orders without being registered or in game
@@ -99,7 +99,7 @@ class TestOrderSubmissionAuthorization:
         """Test that users not in a game cannot submit orders for that game."""
         # Setup: register user, create game (but don't join)
         client.post("/users/persistent_register", json={"telegram_id": "auth_user4", "full_name": "Auth User 4"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to submit orders without joining game
@@ -124,7 +124,7 @@ class TestOrderClearAuthorization:
         """Test that user can clear orders for their assigned power."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "auth_user5", "full_name": "Auth User 5"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user5",
@@ -152,7 +152,7 @@ class TestOrderClearAuthorization:
         # Setup: two users, different powers
         client.post("/users/persistent_register", json={"telegram_id": "auth_user6", "full_name": "Auth User 6"})
         client.post("/users/persistent_register", json={"telegram_id": "auth_user7", "full_name": "Auth User 7"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user6",
@@ -192,7 +192,7 @@ class TestMessageAuthorization:
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "auth_user8", "full_name": "Auth User 8"})
         client.post("/users/persistent_register", json={"telegram_id": "auth_user9", "full_name": "Auth User 9"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user8",
@@ -220,7 +220,7 @@ class TestMessageAuthorization:
         """Test that users not in a game cannot send messages."""
         # Setup: register user, create game (but don't join)
         client.post("/users/persistent_register", json={"telegram_id": "auth_user10", "full_name": "Auth User 10"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Try to send message without being in game
@@ -243,7 +243,7 @@ class TestGameManagementAuthorization:
         """Test that users can quit games they're in."""
         # Setup
         client.post("/users/persistent_register", json={"telegram_id": "auth_user11", "full_name": "Auth User 11"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user11",
@@ -264,7 +264,7 @@ class TestGameManagementAuthorization:
         # Setup: two users
         client.post("/users/persistent_register", json={"telegram_id": "auth_user12", "full_name": "Auth User 12"})
         client.post("/users/persistent_register", json={"telegram_id": "auth_user13", "full_name": "Auth User 13"})
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user12",
@@ -307,7 +307,7 @@ class TestBearerTokenAuthorization:
         token = register_resp.json()["access_token"]
         
         # Create game
-        game_resp = client.post("/games/create", json={"map_name": "standard"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
         # Join game using Bearer token
@@ -332,7 +332,7 @@ class TestBearerTokenAuthorization:
         headers = {"Authorization": "Bearer invalid_token_12345"}
         
         # Try to access protected endpoint
-        resp = client.post("/games/create", json={"map_name": "standard"}, headers=headers)
+        resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
         # Create game might not require auth, so try a protected endpoint
         # Try to get user games (requires auth)
         resp = client.get("/users/me/games", headers=headers)
