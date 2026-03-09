@@ -44,8 +44,10 @@ CORS middleware is enabled in both `server/api.py` and `server/_api_module.py`. 
 
 ## 5. Later / from fix_plan.md
 
-- **Channel Phase 3**: Analytics, tournament integration, spectator mode, cross-platform (e.g. Discord).
+- **Channel Phase 3**: Analytics only (channel engagement metrics, player activity).
 - **Visualization**: Interactive map (clickable provinces, tooltips), more themes, analysis overlays.
+
+**Out of scope** (do not pursue unless explicitly requested): tournament feature, Discord implementation, AI-powered analysis, observer/spectator mode. See `specs/fix_plan.md` section "Out of scope".
 
 ---
 

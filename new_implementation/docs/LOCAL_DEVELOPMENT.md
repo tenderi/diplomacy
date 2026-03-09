@@ -11,11 +11,12 @@ This guide walks you through installing dependencies, configuring the database, 
 - **Node.js 18+** and **npm** (only if you want to run the browser frontend)
 - **Git** (to clone the repo)
 
-Optional (for map image rendering and Telegram/Discord bots):
+Optional (for map image rendering and Telegram bot):
 
 - **Chrome or Chromium** and **ChromeDriver** (see [BROWSER_SETUP_INSTRUCTIONS.md](BROWSER_SETUP_INSTRUCTIONS.md))
 - **Telegram Bot Token** (from [@BotFather](https://t.me/BotFather)) for the Telegram bot
-- **Discord Bot Token** for the Discord bot
+
+*Discord bot is out of scope for the current roadmap; see [DISCORD_BOT.md](DISCORD_BOT.md) for reference only if needed.*
 
 ---
 
@@ -195,11 +196,18 @@ The app loads `.env` via `python-dotenv` where used (e.g. tests, Alembic). For t
 | `SQLALCHEMY_DATABASE_URL` | PostgreSQL connection URL |
 | `DIPLOMACY_JWT_SECRET` | Secret for JWT auth (set in production) |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (for Telegram bot process) |
-| `DIPLOMACY_API_URL` | API base URL used by Telegram/Discord bots (default `http://localhost:8000`) |
+| `DIPLOMACY_API_URL` | API base URL used by Telegram bot (default `http://localhost:8000`) |
 | `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`) |
 | `DIPLOMACY_MAP_PATH` | Path to map SVG (default `maps/standard.svg`) |
 | `DIPLOMACY_DEV_SHOW_RESET_LINK` | Set to `1` to show password reset link in response (dev only) |
 | `DIPLOMACY_PASSWORD_RESET_BASE_URL` | Base URL for password reset links (e.g. `http://localhost:5173`) |
+| `DIPLOMACY_SMTP_HOST` | SMTP server hostname for sending password-reset emails (if set, forgot-password sends email) |
+| `DIPLOMACY_SMTP_PORT` | SMTP port (default `587`) |
+| `DIPLOMACY_SMTP_USE_TLS` | Set to `1`/`true` for STARTTLS (default `1`) |
+| `DIPLOMACY_SMTP_USER` | SMTP username (optional if server allows unauthenticated) |
+| `DIPLOMACY_SMTP_PASSWORD` | SMTP password (optional) |
+| `DIPLOMACY_SMTP_FROM` | From address for reset emails (default `noreply@diplomacy` or SMTP_USER) |
+| `DIPLOMACY_SMTP_FROM_NAME` | From display name (default `Diplomacy`) |
 
 ---
 
@@ -273,9 +281,11 @@ The bot talks to the API using `DIPLOMACY_API_URL` (default `http://localhost:80
 
 ---
 
-## 8. Run the Discord bot (optional)
+## 8. Run the Discord bot (optional, out of scope)
 
-If you use the Discord bot:
+**Note:** Discord is not part of the current roadmap. Do not prioritize it unless explicitly requested.
+
+If you need to run the existing Discord bot for reference:
 
 ```bash
 cd new_implementation
@@ -285,7 +295,7 @@ export PYTHONPATH=src
 python -m server.run_discord_bot
 ```
 
-See [DISCORD_BOT.md](DISCORD_BOT.md) for details.
+See [DISCORD_BOT.md](DISCORD_BOT.md) for details (reference only).
 
 ---
 
