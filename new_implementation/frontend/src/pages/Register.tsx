@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function Register() {
   const { register, user } = useAuth()
@@ -28,49 +32,48 @@ export default function Register() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-      <h1>Register</h1>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="email">Email</label>
-          <input
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-6">Register</h1>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
             id="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="password">Password (min 8)</label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="password">Password (min 8)</Label>
+          <Input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="fullName">Full name (optional)</label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="fullName">Full name (optional)</Label>
+          <Input
             id="fullName"
             type="text"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
-        <button type="submit" style={{ padding: '8px 16px' }}>
-          Register
-        </button>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Button type="submit">Register</Button>
       </form>
-      <p style={{ marginTop: 12 }}>
-        Already have an account? <Link to="/login">Login</Link>
+      <p className="mt-4 text-sm text-muted-foreground">
+        Already have an account? <Link to="/login" className="text-primary underline underline-offset-2">Login</Link>
       </p>
     </div>
   )

@@ -2,6 +2,8 @@
 
 React 18 + Vite + TypeScript SPA. Register/login with email and password, link Telegram via code, list games, view map.
 
+**UI stack:** Tailwind CSS + shadcn/ui. To add a new shadcn component: `npx shadcn@latest add <component>` (e.g. `npx shadcn@latest add dialog`).
+
 ## Dev
 
 ```bash

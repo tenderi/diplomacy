@@ -1,29 +1,40 @@
 import { Link } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
 
 export default function Home() {
   const { user, loading, logout } = useAuth()
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>
+  if (loading) return <div className="p-5">Loading...</div>
 
   return (
-    <div style={{ padding: 24, maxWidth: 600, margin: '0 auto' }}>
-      <h1>Diplomacy</h1>
+    <div className="max-w-2xl mx-auto">
+      <h1 className="text-2xl font-semibold mb-4">Diplomacy</h1>
       {user ? (
         <>
-          <p>Hello, {user.full_name || user.email || 'Player'}.</p>
-          <nav style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <Link to="/games">My games / All games</Link>
-            <Link to="/link-telegram">Link Telegram</Link>
-            <button type="button" onClick={logout}>
+          <p className="text-muted-foreground mb-4">
+            Hello, {user.full_name || user.email || 'Player'}.
+          </p>
+          <nav className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link to="/games">My games / All games</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/link-telegram">Link Telegram</Link>
+            </Button>
+            <Button variant="outline" onClick={logout}>
               Logout
-            </button>
+            </Button>
           </nav>
         </>
       ) : (
-        <nav style={{ display: 'flex', gap: 12 }}>
-          <Link to="/login">Login</Link>
-          <Link to="/register">Register</Link>
+        <nav className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link to="/login">Login</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/register">Register</Link>
+          </Button>
         </nav>
       )}
     </div>

@@ -52,8 +52,10 @@ def test_register_and_login(client):
     })
     assert reg.status_code == 200
     data = reg.json()
+    # Shape expected by browser frontend (AuthContext)
     assert "access_token" in data
     assert "refresh_token" in data
+    assert "user" in data
     assert data["user"]["email"] == email
     assert "password" not in str(data)
 
@@ -82,10 +84,19 @@ def test_register_invalid_email_format(client):
 
 
 def test_register_short_password(client):
-    """Register with password < 8 chars returns 422."""
+    """Register with password < 8 chars returns 422 with a readable detail (for frontend)."""
     _skip_if_no_db()
     resp = client.post("/auth/register", json={"email": _unique_email("short"), "password": "short"})
     assert resp.status_code == 422
+    data = resp.json()
+    detail = data.get("detail")
+    assert detail is not None
+    if isinstance(detail, list):
+        assert len(detail) >= 1
+        msg = detail[0].get("msg", "")
+        assert "8" in msg or "password" in msg.lower()
+    else:
+        assert "8" in str(detail) or "password" in str(detail).lower()
 
 
 def test_login_nonexistent_email(client):

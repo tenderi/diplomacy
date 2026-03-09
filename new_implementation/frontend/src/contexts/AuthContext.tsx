@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { apiJson, clearTokens, getAccessToken, setTokens } from '../api/client'
+import { apiJson, API_BASE, clearTokens, getAccessToken, setTokens } from '../api/client'
 
 export type User = {
   id: number
@@ -50,8 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { refresh_token } = JSON.parse(stored)
         if (refresh_token) {
-          const base = import.meta.env.VITE_API_URL || ''
-          fetch(`${base}/auth/refresh`, {
+          fetch(`${API_BASE}/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token }),

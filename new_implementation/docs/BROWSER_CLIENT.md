@@ -4,10 +4,10 @@ You can play Diplomacy in a browser: register with email and password, then opti
 
 ## Run locally
 
-**Backend** (from repo root):
+**Backend** (from repo root; API must listen on 8000 for Vite proxy):
 ```bash
 cd new_implementation && source venv/bin/activate
-uvicorn server.api:app --host 0.0.0.0 --port 8000
+PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000
 ```
 
 **Frontend** (separate terminal):
@@ -16,7 +16,7 @@ cd new_implementation/frontend
 npm install && npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/auth`, `/games`, `/users` to the API.
+Open http://localhost:5173. The Vite dev server proxies `/api` to the API so that app routes (e.g. `/games`, `/games/123`) are served by the frontend; **refresh and back/forward work correctly**. The frontend uses Tailwind CSS and shadcn/ui for the UI.
 
 ## First time: register
 
@@ -37,9 +37,16 @@ Open http://localhost:5173. The Vite dev server proxies `/auth`, `/games`, `/use
 3. For development: set `DIPLOMACY_PASSWORD_RESET_BASE_URL` (e.g. `http://localhost:5173`) and `DIPLOMACY_DEV_SHOW_RESET_LINK=1`; the reset link will appear on the confirmation page so you can copy it and open the reset-password form.
 4. Set your new password; you can then log in with the new password.
 
+## Troubleshooting: Register does nothing or shows error
+
+- **API must be running** and reachable. The Vite dev server proxies `/api` to `http://localhost:8000`. If your API runs on another port, set `VITE_API_URL=http://localhost:PORT` in `frontend/.env` and restart `npm run dev`.
+- **Database**: Registration uses the API database; ensure PostgreSQL is up and migrations are applied (`alembic upgrade head`).
+- **Error message**: The app now shows the API error message (e.g. "Password must be at least 8 characters", "Email already registered"). If you see "Server unavailable", the frontend could not reach the API.
+
 ## Production
 
 - Set `DIPLOMACY_JWT_SECRET` for the API.
-- Build the frontend: `cd frontend && npm run build`. The API serves `frontend/dist` at `/app` when present (e.g. open `https://your-api-host/app`).
+- Build the frontend: `cd frontend && npm run build`. The API can serve `frontend/dist` at `/app` when present (e.g. open `https://your-api-host/app`).
+- If you serve the built app from a static server (e.g. nginx, Netlify), configure **SPA fallback**: serve `index.html` for routes that do not match a file (so `/games/123` and refresh/back work). With Vite preview: `npm run preview` already does this.
 
 See `frontend/README.md` for more details.

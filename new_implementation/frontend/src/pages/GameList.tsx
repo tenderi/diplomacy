@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiJson } from '../api/client'
+import { toast } from 'sonner'
+import { apiJson } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 type Game = { game_id: number; map_name: string; power: string; current_turn: number; status: string }
 type AllGame = { id: number; map_name: string; current_turn: number; status: string; player_count: number }
@@ -37,6 +41,7 @@ export default function GameList() {
         method: 'POST',
         body: JSON.stringify({ map_name: 'standard' }),
       })
+      toast.success('Game created')
       navigate(`/games/${res.game_id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Create failed')
@@ -45,39 +50,57 @@ export default function GameList() {
     }
   }
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>
+  if (loading) return <div className="p-5">Loading...</div>
 
   return (
-    <div style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
-      <h1>Games</h1>
-      <p><Link to="/">Home</Link></p>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <p>
-        <button type="button" onClick={handleCreateGame} disabled={creating}>
-          {creating ? 'Creating...' : 'Create new game'}
-        </button>
+    <div className="max-w-3xl mx-auto">
+      <h1 className="text-2xl font-semibold mb-4">Games</h1>
+      <p className="mb-4">
+        <Link to="/" className="text-primary underline underline-offset-2">Home</Link>
       </p>
-      <h2>My games</h2>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <div className="mb-6">
+        <Button onClick={handleCreateGame} disabled={creating}>
+          {creating ? 'Creating...' : 'Create new game'}
+        </Button>
+      </div>
+      <h2 className="text-lg font-medium mb-2">My games</h2>
       {myGames.length === 0 ? (
-        <p>You are not in any games.</p>
+        <p className="text-muted-foreground mb-6">You are not in any games.</p>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <ul className="list-none p-0 space-y-2 mb-6">
           {myGames.map((g) => (
-            <li key={g.game_id} style={{ marginBottom: 8 }}>
-              <Link to={`/games/${g.game_id}`}>
-                Game {g.game_id} — {g.power} — turn {g.current_turn}
-              </Link>
+            <li key={g.game_id}>
+              <Card className="hover:bg-muted/50 transition-colors">
+                <CardHeader className="py-2">
+                  <CardTitle className="text-sm font-medium">
+                    <Link to={`/games/${g.game_id}`} className="text-primary underline underline-offset-2">
+                      Game {g.game_id} — {g.power} — turn {g.current_turn}
+                    </Link>
+                  </CardTitle>
+                </CardHeader>
+              </Card>
             </li>
           ))}
         </ul>
       )}
-      <h2>All games</h2>
-      <ul style={{ listStyle: 'none', padding: 0 }}>
+      <h2 className="text-lg font-medium mb-2">All games</h2>
+      <ul className="list-none p-0 space-y-2">
         {allGames.map((g) => (
-          <li key={g.id} style={{ marginBottom: 8 }}>
-            <Link to={`/games/${g.id}`}>
-              Game {g.id} — {g.map_name} — {g.player_count}/7 — turn {g.current_turn}
-            </Link>
+          <li key={g.id}>
+            <Card className="hover:bg-muted/50 transition-colors">
+              <CardHeader className="py-2">
+                <CardTitle className="text-sm font-medium">
+                  <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
+                    Game {g.id} — {g.map_name} — {g.player_count}/7 — turn {g.current_turn}
+                  </Link>
+                </CardTitle>
+              </CardHeader>
+            </Card>
           </li>
         ))}
       </ul>

@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
+import { AppLayout } from './components/AppLayout'
+import { Toaster } from './components/ui/sonner'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -11,13 +13,15 @@ import GameView from './pages/GameView'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>
+  if (loading) return <div className="p-5">Loading...</div>
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 
 export default function App() {
   return (
+  <>
+    <AppLayout>
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
@@ -50,5 +54,8 @@ export default function App() {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </AppLayout>
+    <Toaster richColors position="top-right" />
+  </>
   )
 }

@@ -10,10 +10,16 @@ This package contains route modules organized by functionality:
 - routes.maps - Map generation endpoints
 - routes.dashboard - Dashboard API endpoints
 
-The main FastAPI app is re-exported here for backward compatibility.
+The main FastAPI app is re-exported here for backward compatibility (lazy to avoid circular import).
 """
-# Import the main app from the parent module (renamed to avoid conflict)
-from .._api_module import app
 from .shared import deadline_scheduler, process_due_deadlines, ADMIN_TOKEN
 
 __all__ = ["app", "deadline_scheduler", "process_due_deadlines", "ADMIN_TOKEN"]
+
+
+def __getattr__(name: str):
+    """Lazy import of app to avoid circular import with _api_module."""
+    if name == "app":
+        from .._api_module import app
+        return app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

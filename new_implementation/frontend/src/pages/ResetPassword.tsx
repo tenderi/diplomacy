@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { apiJson } from '../api/client'
+import { apiJson } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams()
@@ -44,11 +48,11 @@ export default function ResetPassword() {
 
   if (done) {
     return (
-      <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-        <h1>Password reset</h1>
-        <p>Your password has been reset. Redirecting to login…</p>
-        <p style={{ marginTop: 12 }}>
-          <Link to="/login">Go to login</Link>
+      <div className="max-w-md mx-auto p-6">
+        <h1 className="text-2xl font-semibold mb-4">Password reset</h1>
+        <p className="text-muted-foreground mb-4">Your password has been reset. Redirecting to login…</p>
+        <p className="mt-4">
+          <Link to="/login" className="text-primary underline underline-offset-2">Go to login</Link>
         </p>
       </div>
     )
@@ -56,51 +60,55 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-        <h1>Invalid reset link</h1>
-        <p>This link is invalid or has expired. Request a new one from the login page.</p>
-        <p style={{ marginTop: 12 }}>
-          <Link to="/forgot-password">Forgot password</Link> · <Link to="/login">Login</Link>
+      <div className="max-w-md mx-auto p-6">
+        <h1 className="text-2xl font-semibold mb-4">Invalid reset link</h1>
+        <p className="text-muted-foreground mb-4">This link is invalid or has expired. Request a new one from the login page.</p>
+        <p className="mt-4 text-sm">
+          <Link to="/forgot-password" className="text-primary underline underline-offset-2">Forgot password</Link>
+          {' · '}
+          <Link to="/login" className="text-primary underline underline-offset-2">Login</Link>
         </p>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-      <h1>Set new password</h1>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="password">New password</label>
-          <input
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-4">Set new password</h1>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="password">New password</Label>
+          <Input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="confirm">Confirm password</label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="confirm">Confirm password</Label>
+          <Input
             id="confirm"
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             required
             minLength={8}
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
-        <button type="submit" disabled={loading} style={{ padding: '8px 16px' }}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Button type="submit" disabled={loading}>
           {loading ? 'Resetting…' : 'Reset password'}
-        </button>
+        </Button>
       </form>
-      <p style={{ marginTop: 12 }}>
-        <Link to="/login">Back to login</Link>
+      <p className="mt-4 text-sm text-muted-foreground">
+        <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
       </p>
     </div>
   )

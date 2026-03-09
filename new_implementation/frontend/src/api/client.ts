@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+// In dev, use /api so Vite proxies API only; SPA routes (/games/123) stay local and refresh works
+export const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '')
 
 let accessToken: string | null = null
 let refreshToken: string | null = null
@@ -57,6 +58,24 @@ export async function apiFetch(
   return res
 }
 
+/** Turn API error body into a single readable message (handles 422 validation and plain detail). */
+function errorDetailToMessage(text: string, status: number): string {
+  try {
+    const j = JSON.parse(text)
+    const detail = j.detail
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0]
+      return typeof first === 'object' && first?.msg != null ? first.msg : String(detail[0])
+    }
+    if (typeof detail === 'string') return detail
+    if (detail != null) return String(detail)
+  } catch {
+    // ignore
+  }
+  if (status === 0 || status >= 500) return 'Server unavailable. Is the API running?'
+  return text || 'Request failed'
+}
+
 export async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await apiFetch(path, {
     ...options,
@@ -64,14 +83,8 @@ export async function apiJson<T>(path: string, options: RequestInit = {}): Promi
   })
   if (!res.ok) {
     const text = await res.text()
-    let detail = text
-    try {
-      const j = JSON.parse(text)
-      detail = j.detail ?? text
-    } catch {
-      // ignore
-    }
-    throw new Error(detail)
+    const message = errorDetailToMessage(text, res.status)
+    throw new Error(message)
   }
   return res.json()
 }

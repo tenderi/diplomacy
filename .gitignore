@@ -147,3 +147,6 @@ terraform.tfvars.json
 
 # test outputs
 test_maps/
+
+# Node
+node_modules/

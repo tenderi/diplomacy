@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
-import { apiJson } from '../api/client'
+import { toast } from 'sonner'
+import { useAuth } from '@/contexts/AuthContext'
+import { apiJson } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Card, CardContent } from '@/components/ui/card'
 
 export default function LinkTelegram() {
   const { user, refreshUser } = useAuth()
@@ -21,6 +25,7 @@ export default function LinkTelegram() {
       )
       setCode(data.code)
       setExpiresIn(data.expires_in_seconds)
+      toast.success('Link code generated')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate code')
     } finally {
@@ -43,43 +48,50 @@ export default function LinkTelegram() {
 
   if (user?.telegram_linked) {
     return (
-      <div style={{ padding: 24, maxWidth: 500, margin: '0 auto' }}>
-        <h1>Link Telegram</h1>
-        <p>Your account is already linked to Telegram.</p>
-        <button
-          type="button"
-          onClick={unlinkTelegram}
-          disabled={unlinkLoading}
-          style={{ padding: '8px 16px', marginTop: 8, marginRight: 8 }}
-        >
+      <div className="max-w-xl mx-auto">
+        <h1 className="text-2xl font-semibold mb-4">Link Telegram</h1>
+        <p className="text-muted-foreground mb-4">Your account is already linked to Telegram.</p>
+        <Button onClick={unlinkTelegram} disabled={unlinkLoading} variant="outline" className="mr-2">
           {unlinkLoading ? 'Unlinking...' : 'Unlink Telegram'}
-        </button>
-        {error && <p style={{ color: 'red', marginTop: 12 }}>{error}</p>}
-        <p style={{ marginTop: 16 }}>
-          <Link to="/">Back to home</Link>
+        </Button>
+        {error && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <p className="mt-4">
+          <Link to="/" className="text-primary underline underline-offset-2">Back to home</Link>
         </p>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 500, margin: '0 auto' }}>
-      <h1>Link Telegram</h1>
-      <p>Generate a one-time code, then in Telegram send: <strong>/link &lt;code&gt;</strong></p>
-      <button type="button" onClick={generateCode} disabled={loading} style={{ padding: '8px 16px', marginBottom: 12 }}>
+    <div className="max-w-xl mx-auto">
+      <h1 className="text-2xl font-semibold mb-4">Link Telegram</h1>
+      <p className="text-muted-foreground mb-4">
+        Generate a one-time code, then in Telegram send: <strong>/link &lt;code&gt;</strong>
+      </p>
+      <Button onClick={generateCode} disabled={loading} className="mb-4">
         {loading ? 'Generating...' : 'Generate link code'}
-      </button>
-      {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
-      {code && (
-        <div style={{ background: '#f0f0f0', padding: 16, borderRadius: 8, marginTop: 12 }}>
-          <p style={{ margin: 0, fontSize: 24, letterSpacing: 4, fontFamily: 'monospace' }}>{code}</p>
-          <p style={{ margin: '8px 0 0', fontSize: 14, color: '#666' }}>
-            Valid for {Math.floor(expiresIn / 60)} minutes. In Telegram, send: <strong>/link {code}</strong>
-          </p>
-        </div>
+      </Button>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
-      <p style={{ marginTop: 16 }}>
-        <Link to="/">Back to home</Link>
+      {code && (
+        <Card className="mt-4 bg-muted/50">
+          <CardContent className="p-4">
+            <p className="text-2xl tracking-widest font-mono font-semibold">{code}</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Valid for {Math.floor(expiresIn / 60)} minutes. In Telegram, send: <strong>/link {code}</strong>
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      <p className="mt-4">
+        <Link to="/" className="text-primary underline underline-offset-2">Back to home</Link>
       </p>
     </div>
   )

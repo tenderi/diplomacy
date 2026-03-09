@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiJson } from '../api/client'
+import { apiJson } from '@/api/client'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('')
@@ -29,44 +33,49 @@ export default function ForgotPassword() {
 
   if (sent) {
     return (
-      <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-        <h1>Forgot password</h1>
-        <p>{resetLink ? 'In development mode, use this link to reset your password:' : 'If an account exists with this email, you will receive a reset link.'}</p>
+      <div className="max-w-md mx-auto p-6">
+        <h1 className="text-2xl font-semibold mb-4">Forgot password</h1>
+        <p className="text-muted-foreground mb-4">
+          {resetLink ? 'In development mode, use this link to reset your password:' : 'If an account exists with this email, you will receive a reset link.'}
+        </p>
         {resetLink && (
-          <p style={{ wordBreak: 'break-all', marginTop: 12 }}>
-            <a href={resetLink}>{resetLink}</a>
+          <p className="break-all mt-4">
+            <a href={resetLink} className="text-primary underline underline-offset-2">{resetLink}</a>
           </p>
         )}
-        <p style={{ marginTop: 16 }}>
-          <Link to="/login">Back to login</Link>
+        <p className="mt-4">
+          <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
         </p>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 400, margin: '0 auto' }}>
-      <h1>Forgot password</h1>
-      <p>Enter your email and we’ll send you a link to reset your password.</p>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label htmlFor="email">Email</label>
-          <input
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-4">Forgot password</h1>
+      <p className="text-muted-foreground mb-4">Enter your email and we'll send you a link to reset your password.</p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
             id="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            style={{ display: 'block', width: '100%', padding: 8 }}
           />
         </div>
-        {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
-        <button type="submit" disabled={loading} style={{ padding: '8px 16px' }}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Button type="submit" disabled={loading}>
           {loading ? 'Sending…' : 'Send reset link'}
-        </button>
+        </Button>
       </form>
-      <p style={{ marginTop: 12 }}>
-        <Link to="/login">Back to login</Link>
+      <p className="mt-4 text-sm text-muted-foreground">
+        <Link to="/login" className="text-primary underline underline-offset-2">Back to login</Link>
       </p>
     </div>
   )

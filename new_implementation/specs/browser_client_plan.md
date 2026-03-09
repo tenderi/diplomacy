@@ -56,7 +56,7 @@ GET /games/{game_id}/map.png — load state via get_game_state, build units/phas
 
 ## 6. Frontend
 
-React 18 + Vite + TypeScript, React Router 6, auth context, API client with Bearer + refresh. Pages: Register, Login, Link Telegram, Home, game list, lobby, game view (map, orders, messages). Forms: React Hook Form + Zod. UI: Tailwind; optionally shadcn/ui. Build served by FastAPI (e.g. /app).
+React 18 + Vite + TypeScript, React Router 6, auth context, API client with Bearer + refresh. Pages: Register, Login, Link Telegram, Home, game list, lobby, game view (map, orders, messages). Forms: React Hook Form + Zod. UI: Tailwind + shadcn/ui (see **frontend_ui_framework.md** for decision and rollout). Build served by FastAPI (e.g. /app).
 
 ---
 
