@@ -9,6 +9,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/test/**', '**/*.d.ts', '**/*.config.*'],
+    },
+  },
   server: {
     port: 5173,
     // Proxy only /api so that SPA routes (/games, /games/123, etc.) are served by Vite and refresh/back work
