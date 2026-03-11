@@ -71,7 +71,7 @@ export async function apiFetch(
 }
 
 /** Turn API error body into a single readable message (handles 422 validation and plain detail). */
-function errorDetailToMessage(text: string, status: number): string {
+export function errorDetailToMessage(text: string, status: number): string {
   try {
     const j = JSON.parse(text)
     const detail = j.detail
