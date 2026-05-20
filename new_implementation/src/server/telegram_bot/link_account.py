@@ -40,7 +40,7 @@ async def link_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             detail = str(e)
         if e.response is not None and e.response.status_code == 409:
-            await update.message.reply_text(f"❌ This Telegram is already linked to another account.")
+            await update.message.reply_text("❌ This Telegram is already linked to another account.")
         else:
             await update.message.reply_text(
                 f"❌ Invalid or expired code. Get a new code from the web app (Link Telegram).\nDetails: {detail}"

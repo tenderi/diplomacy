@@ -5,13 +5,11 @@ This module provides commands for linking games to Telegram channels,
 managing channel settings, and controlling channel integration.
 """
 import logging
-from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
-from .channels import set_telegram_bot
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
 
@@ -100,7 +98,6 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         
         # Unlink channel
-        from .api_client import api_delete
         import requests
         
         result = requests.delete(

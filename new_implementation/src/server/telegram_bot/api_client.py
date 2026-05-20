@@ -2,6 +2,7 @@
 API client utilities for communicating with the Diplomacy API server.
 """
 import logging
+import os
 import random
 import time
 import requests
@@ -9,6 +10,10 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .config import API_URL
+
+# BOT_SECRET is used to authenticate telegram_id-based requests to the API.
+# Must match DIPLOMACY_BOT_SECRET on the server.
+BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
 
 logger = logging.getLogger("diplomacy.telegram_bot.api_client")
 
@@ -51,16 +56,31 @@ def wait_for_api_health(max_attempts: int = 10, base_delay: float = 0.5) -> None
     )
 
 
+def _bot_headers() -> dict:
+    """Return X-Bot-Secret header when the secret is configured."""
+    if BOT_SECRET:
+        return {"X-Bot-Secret": BOT_SECRET}
+    return {}
+
+
 def api_post(endpoint: str, json_data: dict) -> dict:
-    """Make a POST request to the API."""
-    resp = requests.post(f"{API_URL}{endpoint}", json=json_data)
+    """Make a POST request to the API.
+
+    Sends X-Bot-Secret header for server-side auth on management endpoints.
+    If the payload includes a ``telegram_id`` field, ``bot_secret`` is also
+    injected into the body for telegram_id-based auth flows.
+    """
+    payload = dict(json_data)
+    if "telegram_id" in payload and BOT_SECRET:
+        payload.setdefault("bot_secret", BOT_SECRET)
+    resp = requests.post(f"{API_URL}{endpoint}", json=payload, headers=_bot_headers())
     resp.raise_for_status()
     return resp.json()
 
 
 def api_get(endpoint: str) -> dict:
     """Make a GET request to the API."""
-    resp = requests.get(f"{API_URL}{endpoint}")
+    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers())
     resp.raise_for_status()
     return resp.json()
 

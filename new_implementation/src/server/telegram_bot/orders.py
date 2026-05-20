@@ -2,9 +2,7 @@
 Order management commands for the Telegram bot.
 """
 import logging
-import asyncio
 import requests
-from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes

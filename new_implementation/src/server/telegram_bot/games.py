@@ -2,7 +2,6 @@
 Game management commands for the Telegram bot.
 """
 import logging
-import asyncio
 import random
 import requests
 from typing import List, Tuple, Optional
@@ -179,19 +178,19 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode='Markdown'
         )
 
-    except Exception as e:
+    except Exception:
         keyboard = [
             [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"⚠️ *Can't Load Your Games*\n\n"
-            f"🔧 Unable to retrieve your game status.\n"
-            f"This is usually temporary.\n\n"
-            f"💡 *Try:*\n"
-            f"🎲 Browse available games\n"
-            f"🏠 Return to main menu",
+            "⚠️ *Can't Load Your Games*\n\n"
+            "🔧 Unable to retrieve your game status.\n"
+            "This is usually temporary.\n\n"
+            "💡 *Try:*\n"
+            "🎲 Browse available games\n"
+            "🏠 Return to main menu",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -263,9 +262,9 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if orders_data:
                 submitted_powers = list(orders_data.get('orders', {}).keys())
                 if power in submitted_powers:
-                    status_text += f"\n✅ **Your orders:** Submitted"
+                    status_text += "\n✅ **Your orders:** Submitted"
                 else:
-                    status_text += f"\n⏳ **Your orders:** Not yet submitted"
+                    status_text += "\n⏳ **Your orders:** Not yet submitted"
             
             await update.message.reply_text(status_text, parse_mode='Markdown')
         else:
@@ -334,7 +333,7 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 game_id = str(user_games[0].get('game_id'))
             else:
                 await update.message.reply_text(
-                    f"Please specify a game ID:\n\n"
+                    "Please specify a game ID:\n\n"
                     + "\n".join([f"• `/players {g.get('game_id')}` - Game {g.get('game_id')} ({g.get('power')})" 
                                 for g in user_games]),
                     parse_mode='Markdown'

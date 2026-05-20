@@ -11,10 +11,11 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 from fastapi.security import HTTPAuthorizationCredentials
-from .auth import resolve_user_or_telegram, http_bearer
+from .auth import require_bot_or_user, resolve_user_or_telegram, http_bearer
 from ..shared import (
     db_service, server, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
-    _state_to_spec_dict, _get_power_for_unit, notify_players, ensure_game_in_memory
+    _state_to_spec_dict, notify_players, ensure_game_in_memory,
+    get_process_turn_lock,
 )
 from ...models import GameStateOut
 from engine.data_models import GameStatus, Unit
@@ -60,7 +61,10 @@ class SpectateRequest(BaseModel):
 
 # --- Game Management Endpoints ---
 @router.post("/games/create")
-def create_game(req: CreateGameRequest) -> Dict[str, Any]:
+def create_game(
+    req: CreateGameRequest,
+    _: None = Depends(require_bot_or_user),
+) -> Dict[str, Any]:
     """Create a new game and persist to the database, and register it in the in-memory server with the same game_id."""
     try:
         start_in_movement = req.initial_phase == "Movement"
@@ -86,7 +90,10 @@ def create_game(req: CreateGameRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/add_player")
-def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
+def add_player(
+    req: AddPlayerRequest,
+    _: None = Depends(require_bot_or_user),
+) -> Dict[str, Any]:
     """Add a player to a game."""
     try:
         # Add player to database
@@ -107,13 +114,20 @@ def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/process_turn")
-def process_turn(game_id: str) -> Dict[str, str]:
+async def process_turn(
+    game_id: str,
+    _: None = Depends(require_bot_or_user),
+) -> Dict[str, str]:
     """Advance the current phase for a game and update the database state."""
     g = ensure_game_in_memory(game_id)
     if g is not None and getattr(g, "phase", None) == "Pregame":
         raise HTTPException(status_code=400, detail="Game has not started. Wait for all powers to join and click Start game.")
-    # Ensure the in-memory engine processes the phase
-    result = server.process_command(f"PROCESS_TURN {game_id}")
+    # Use per-game lock to prevent concurrent PROCESS_TURN calls
+    lock = get_process_turn_lock(game_id)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
+    async with lock:
+        result = server.process_command(f"PROCESS_TURN {game_id}")
     if result.get("status") != "ok":
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
     
@@ -494,7 +508,7 @@ def get_observer_state(game_id: str) -> Dict[str, Any]:
         if state is None:
             raise HTTPException(status_code=404, detail="Game not found")
 
-    from engine.database import unit_to_dict, order_to_dict
+    from engine.database import unit_to_dict
     from ...models import PowerStateOut, UnitOut
 
     supply_centers = {}
@@ -751,7 +765,11 @@ def get_deadline(game_id: str) -> dict[str, Optional[str]]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/deadline")
-def set_deadline(game_id: str, req: SetDeadlineRequest) -> dict[str, Optional[str]]:
+def set_deadline(
+    game_id: str,
+    req: SetDeadlineRequest,
+    _: None = Depends(require_bot_or_user),
+) -> dict[str, Optional[str]]:
     """Set the deadline for a game."""
     try:
         game = db_service.get_game_by_game_id(game_id)

@@ -442,7 +442,11 @@ class Game:
             "conflicts": [],
             "dislodged_units": []
         }
-        
+
+        # Track provinces where a standoff occurred this turn (DATC 6.H: dislodged unit
+        # cannot retreat to a province where a standoff took place).
+        standoff_provinces: set = set()
+
         # Store original provinces before processing (needed for self-dislodgement checks)
         # Use id(unit) as key since Unit is not hashable
         original_provinces = {}
@@ -481,21 +485,46 @@ class Game:
                     target_province_obj = self.game_state.map_data.provinces.get(order.target_province)
                     
                     if current_province_obj and target_province_obj:
+                        # P0-004/P0-005: Terrain check — armies cannot enter sea provinces,
+                        # fleets cannot enter inland provinces.
+                        unit_type = order.unit.unit_type
+                        target_ptype = target_province_obj.province_type
+                        if unit_type == "A" and target_ptype == "sea":
+                            logger.warning(
+                                f"Invalid move rejected: army {order.unit} cannot enter sea province {order.target_province}"
+                            )
+                            continue  # Skip this move
+                        if unit_type == "F" and target_ptype == "land":
+                            logger.warning(
+                                f"Invalid move rejected: fleet {order.unit} cannot enter inland province {order.target_province}"
+                            )
+                            continue  # Skip this move
+
                         # Check if move is convoyed
                         move_key = (order.unit.unit_type, order.unit.province, order.target_province)
                         is_convoyed = move_key in convoyed_moves
-                        
+
                         # Validate adjacency (unless convoyed)
                         if not is_convoyed:
-                            # Check adjacency
-                            is_adjacent = current_province_obj.is_adjacent_to(order.target_province)
-                            
-                            # For multi-coast provinces, check coast-specific adjacency
-                            if not is_adjacent and current_province_obj.is_multi_coast_province():
-                                if hasattr(order.unit, 'coast') and order.unit.coast:
-                                    coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
-                                    is_adjacent = order.target_province in coast_adjacencies
-                            
+                            # P0-006: For fleets at multi-coast provinces, ALWAYS use the
+                            # coast-specific adjacency check (not the general one) because
+                            # general adjacency merges both coasts and produces false positives.
+                            if (order.unit.unit_type == "F"
+                                    and current_province_obj.is_multi_coast_province()
+                                    and hasattr(order.unit, 'coast') and order.unit.coast):
+                                coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
+                                is_adjacent = order.target_province in coast_adjacencies
+                            else:
+                                # Standard adjacency check
+                                is_adjacent = current_province_obj.is_adjacent_to(order.target_province)
+
+                                # For multi-coast provinces without a specified coast, fall back to
+                                # coast-specific check when general check fails.
+                                if not is_adjacent and current_province_obj.is_multi_coast_province():
+                                    if hasattr(order.unit, 'coast') and order.unit.coast:
+                                        coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
+                                        is_adjacent = order.target_province in coast_adjacencies
+
                             if not is_adjacent:
                                 # Invalid move - log warning and skip
                                 logger.warning(
@@ -554,6 +583,14 @@ class Game:
         for power_name, orders in self.game_state.orders.items():
             for order in orders:
                 if isinstance(order, SupportOrder):
+                    # Re-validate the support order against current game state before counting it
+                    support_valid, support_reason = order.validate(self.game_state)
+                    if not support_valid:
+                        logger.debug(
+                            f"Support order {order} rejected during processing: {support_reason}"
+                        )
+                        continue
+
                     # Check if supporting unit is dislodged
                     supporting_unit = order.unit
                     supporting_units.add((supporting_unit.power, supporting_unit.unit_type, supporting_unit.province))
@@ -658,7 +695,9 @@ class Game:
         
         # Process mutual moves first
         for unit1, strength1, order1, unit2, strength2, order2 in mutual_moves:
-            # Both units bounce (standoff)
+            # Both units bounce (standoff) — record the contested provinces
+            standoff_provinces.add(order1.target_province)
+            standoff_provinces.add(order2.target_province)
             results["moves"].append({
                 "unit": f"{unit1.unit_type} {unit1.province}",
                 "from": unit1.province,
@@ -859,19 +898,10 @@ class Game:
                                 "success": True
                             })
                             
-                            # Update supply center control if target is a supply center
-                            target_province_obj = self.game_state.map_data.provinces.get(target_province)
-                            if target_province_obj and target_province_obj.is_supply_center:
-                                # Remove control from previous owner (if any)
-                                for power_name, power_state in self.game_state.powers.items():
-                                    if target_province in power_state.controlled_supply_centers:
-                                        power_state.controlled_supply_centers.remove(target_province)
-                                        break
-                                # Assign control to unit's power
-                                unit_power_state = self.game_state.powers.get(unit.power)
-                                if unit_power_state and target_province not in unit_power_state.controlled_supply_centers:
-                                    unit_power_state.controlled_supply_centers.append(target_province)
-                            
+                            # Note: SC ownership is NOT updated here. Per Diplomacy rules,
+                            # supply center ownership is only determined at the end of Autumn
+                            # movement (after retreats), inside _update_supply_center_ownership().
+
                             # Check if there's an enemy unit that was originally in the target province (must use original positions: we already moved the winner into target_province)
                             for power_name, power in self.game_state.powers.items():
                                 for target_unit in power.units:
@@ -888,9 +918,14 @@ class Game:
                                             break
                                         # This unit is being dislodged
                                         target_unit.is_dislodged = True
+                                        target_unit.dislodged_by = old_province  # attacker's origin (DATC 6.H)
                                         target_unit.province = f"DISLODGED_{dislodged_from}"
-                                        target_unit.retreat_options = self._calculate_retreat_options(target_unit)
-                                        
+                                        target_unit.retreat_options = self._calculate_retreat_options(
+                                            target_unit,
+                                            attacker_origin=old_province,
+                                            standoff_provinces=standoff_provinces,
+                                        )
+
                                         results["dislodgements"].append({
                                             "unit": f"{target_unit.unit_type} {dislodged_from}",
                                             "dislodged_by": f"{unit.unit_type} {old_province}",
@@ -1004,19 +1039,10 @@ class Game:
                                 "success": True
                             })
                             
-                            # Update supply center control if target is a supply center
-                            target_province_obj = self.game_state.map_data.provinces.get(target_province)
-                            if target_province_obj and target_province_obj.is_supply_center:
-                                # Remove control from previous owner (if any)
-                                for power_name, power_state in self.game_state.powers.items():
-                                    if target_province in power_state.controlled_supply_centers:
-                                        power_state.controlled_supply_centers.remove(target_province)
-                                        break
-                                # Assign control to winner's power
-                                winner_power_state = self.game_state.powers.get(winner_unit.power)
-                                if winner_power_state and target_province not in winner_power_state.controlled_supply_centers:
-                                    winner_power_state.controlled_supply_centers.append(target_province)
-                            
+                            # Note: SC ownership is NOT updated here. Per Diplomacy rules,
+                            # supply center ownership is only determined at the end of Autumn
+                            # movement (after retreats), inside _update_supply_center_ownership().
+
                             # Dislodge units that were originally in the target province (use original positions: we already moved the winner into target_province)
                             for power_name, power in self.game_state.powers.items():
                                 for target_unit in power.units:
@@ -1033,9 +1059,14 @@ class Game:
                                             continue
                                         # This unit is being dislodged
                                         target_unit.is_dislodged = True
+                                        target_unit.dislodged_by = old_province  # attacker's origin (DATC 6.H)
                                         target_unit.province = f"DISLODGED_{dislodged_from}"
-                                        target_unit.retreat_options = self._calculate_retreat_options(target_unit)
-                                        
+                                        target_unit.retreat_options = self._calculate_retreat_options(
+                                            target_unit,
+                                            attacker_origin=old_province,
+                                            standoff_provinces=standoff_provinces,
+                                        )
+
                                         results["dislodgements"].append({
                                             "unit": f"{target_unit.unit_type} {dislodged_from}",
                                             "dislodged_by": f"{winner_unit.unit_type} {old_province}",
@@ -1062,6 +1093,8 @@ class Game:
                             })
                 else:
                     # Multiple winners - standoff, no move
+                    # Record this province as a standoff province (DATC 6.H)
+                    standoff_provinces.add(target_province)
                     # ALL units (both moving and holding) bounce - no one moves
                     for unit, strength, order in remaining_moves:
                         if isinstance(order, MoveOrder):
@@ -1214,22 +1247,44 @@ class Game:
         convoy_validation_error = convoy_order._validate_convoy_route(self.game_state)
         return convoy_validation_error is None
 
-    def _calculate_retreat_options(self, unit: Unit) -> List[str]:
-        """Calculate valid retreat options for a dislodged unit."""
+    def _calculate_retreat_options(
+        self,
+        unit: Unit,
+        attacker_origin: Optional[str] = None,
+        standoff_provinces: Optional[set] = None,
+    ) -> List[str]:
+        """Calculate valid retreat options for a dislodged unit.
+
+        Per DATC 6.H a dislodged unit may NOT retreat to:
+          1. The province the attacker came from (attacker_origin).
+          2. Any province where a standoff occurred this turn (standoff_provinces).
+          3. Any currently occupied province.
+        """
         retreat_options: List[str] = []
         current_province = unit.province.replace("DISLODGED_", "")
-        
+
+        if standoff_provinces is None:
+            standoff_provinces = set()
+
         # Get adjacent provinces
         province_data = self.game_state.map_data.provinces.get(current_province)
         if not province_data:
             return retreat_options
-        
+
         for province_name in province_data.adjacent_provinces:
+            # DATC 6.H rule 1: cannot retreat to the province the attacker came from
+            if attacker_origin and province_name == attacker_origin:
+                continue
+
+            # DATC 6.H rule 2: cannot retreat to a province where a standoff occurred
+            if province_name in standoff_provinces:
+                continue
+
             # Check if province is valid for this unit type
             target_province = self.game_state.map_data.provinces.get(province_name)
             if not target_province:
                 continue
-            
+
             # Check if province is occupied
             occupied = False
             for power_name, power in self.game_state.powers.items():
@@ -1239,10 +1294,10 @@ class Game:
                         break
                 if occupied:
                     break
-            
+
             if not occupied:
                 retreat_options.append(province_name)
-        
+
         return retreat_options
 
     def _process_retreat_phase(self) -> Dict[str, Any]:

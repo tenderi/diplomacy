@@ -3,7 +3,7 @@ Admin API routes.
 
 This module contains all administrative endpoints for managing games, users, caches, and system status.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
 import os
@@ -13,8 +13,15 @@ from ...response_cache import get_cache_stats, clear_response_cache, invalidate_
 
 router = APIRouter()
 
+
+def require_admin(x_admin_token: str = Header(...)) -> None:
+    """Dependency that requires a valid X-Admin-Token header."""
+    if x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+
+
 # --- Admin Endpoints ---
-@router.post("/admin/delete_all_games")
+@router.post("/admin/delete_all_games", dependencies=[Depends(require_admin)])
 def admin_delete_all_games() -> Dict[str, Any]:
     """Delete all games (admin only)"""
     try:
@@ -43,7 +50,7 @@ def admin_delete_all_games() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/games_count")
+@router.get("/admin/games_count", dependencies=[Depends(require_admin)])
 def admin_get_games_count() -> Dict[str, Any]:
     """Get count of active games (admin only)"""
     try:
@@ -52,7 +59,7 @@ def admin_get_games_count() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/users_count")
+@router.get("/admin/users_count", dependencies=[Depends(require_admin)])
 def admin_get_users_count() -> Dict[str, Any]:
     """Get count of registered users (admin only)"""
     try:
@@ -61,7 +68,7 @@ def admin_get_users_count() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/cleanup_old_maps")
+@router.post("/admin/cleanup_old_maps", dependencies=[Depends(require_admin)])
 def cleanup_old_maps() -> Dict[str, Any]:
     """Clean up map images older than 24 hours (admin only)"""
     try:
@@ -86,7 +93,7 @@ def cleanup_old_maps() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/map_cache_stats")
+@router.get("/admin/map_cache_stats", dependencies=[Depends(require_admin)])
 def get_map_cache_stats() -> Dict[str, Any]:
     """Get map cache statistics for monitoring."""
     try:
@@ -99,7 +106,7 @@ def get_map_cache_stats() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/clear_map_cache")
+@router.post("/admin/clear_map_cache", dependencies=[Depends(require_admin)])
 def clear_map_cache() -> Dict[str, Any]:
     """Clear all cached maps."""
     try:
@@ -112,7 +119,7 @@ def clear_map_cache() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/preload_maps")
+@router.post("/admin/preload_maps", dependencies=[Depends(require_admin)])
 def preload_common_maps() -> Dict[str, Any]:
     """Preload common map configurations for better performance."""
     try:
@@ -125,7 +132,7 @@ def preload_common_maps() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/connection_pool_status")
+@router.get("/admin/connection_pool_status", dependencies=[Depends(require_admin)])
 def get_connection_pool_status() -> Dict[str, Any]:
     """Get database connection pool status for monitoring."""
     try:
@@ -137,7 +144,7 @@ def get_connection_pool_status() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/connection_pool_reset")
+@router.post("/admin/connection_pool_reset", dependencies=[Depends(require_admin)])
 def reset_connection_pool() -> Dict[str, Any]:
     """Reset database connection pool (use with caution)."""
     try:
@@ -148,7 +155,7 @@ def reset_connection_pool() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/response_cache_stats")
+@router.get("/admin/response_cache_stats", dependencies=[Depends(require_admin)])
 def get_response_cache_stats() -> Dict[str, Any]:
     """Get response cache statistics for monitoring."""
     try:
@@ -161,7 +168,7 @@ def get_response_cache_stats() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/clear_response_cache")
+@router.post("/admin/clear_response_cache", dependencies=[Depends(require_admin)])
 def clear_response_cache_endpoint() -> Dict[str, Any]:
     """Clear all cached API responses."""
     try:
@@ -173,7 +180,7 @@ def clear_response_cache_endpoint() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/invalidate_cache/{game_id}")
+@router.post("/admin/invalidate_cache/{game_id}", dependencies=[Depends(require_admin)])
 def invalidate_game_cache(game_id: str) -> Dict[str, Any]:
     """Invalidate all cache entries for a specific game."""
     try:

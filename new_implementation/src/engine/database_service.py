@@ -692,10 +692,14 @@ class DatabaseService:
             user.telegram_id = None
             session.commit()
 
-    def create_link_code(self, user_id: int, ttl_minutes: int = 10) -> Tuple[str, datetime]:
-        import secrets
+    def create_link_code(
+        self, user_id: int, ttl_minutes: int = 10, code: Optional[str] = None
+    ) -> Tuple[str, datetime]:
+        import secrets as _secrets
         with self.session_factory() as session:
-            code = "".join(secrets.choice("0123456789") for _ in range(6))
+            if code is None:
+                # 6 bytes → 8 base64url chars (~48 bits entropy)
+                code = _secrets.token_urlsafe(6)
             expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
             link_code = LinkCodeModel(
                 user_id=user_id,

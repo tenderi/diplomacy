@@ -9,7 +9,7 @@ This module handles posting game content to Telegram channels:
 import logging
 import os
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from telegram import Bot
 from telegram.error import TelegramError
@@ -459,7 +459,7 @@ def format_historical_timeline(
             timeline_text += f"**{phase_label}:**\n"
             timeline_text += "\n".join(timeline_events) + "\n\n"
         else:
-            timeline_text += f"*No major events recorded yet.*\n\n"
+            timeline_text += "*No major events recorded yet.*\n\n"
         
         # Add current status summary
         timeline_text += "**Current Status:**\n"
