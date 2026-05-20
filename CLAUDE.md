@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow rule: always commit and push when work is done
+
+After completing any task (feature, fix, refactor, docs), always:
+1. Stage all changed and new files
+2. Commit with a message starting with the next version tag (e.g. `v2.6.5: ...`)
+3. Create a git tag matching the version (`git tag v2.6.5`)
+4. Push branch and tags: `git push origin main --tags`
+
+Check the latest tag with `git tag --sort=-v:refname | head -1` to determine the next patch version.
+
 ## Repository layout
 
 This repo contains two top-level Python codebases. Almost all work happens in `new_implementation/`.
