@@ -9,14 +9,12 @@ from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import requests
 
-from .auth import resolve_user_or_telegram, http_bearer
+from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..shared import (
     db_service, server, logger, scheduler_logger, NOTIFY_URL,
     _state_to_spec_dict, ensure_game_in_memory
 )
 from engine.order_parser import OrderParser
-from engine.data_models import MoveOrder, SupportOrder
-from ...response_cache import cached_response
 
 router = APIRouter()
 
@@ -166,14 +164,29 @@ def set_orders(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/games/{game_id}/orders")
-@cached_response(ttl=30, key_params=["game_id"])
-def get_orders(game_id: str) -> List[Dict[str, Any]]:
+def get_orders(
+    game_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> List[Dict[str, Any]]:
+    """Get current-turn orders. Authenticated users see only their own power's orders."""
     try:
+        user = get_current_user_optional(credentials)
         players = db_service.get_players_by_game_id(int(game_id))
         orders: List[Dict[str, Any]] = []
+        # Determine which players' orders this caller may see
+        if user is not None:
+            player_for_user = db_service.get_player_by_game_id_and_user_id(
+                game_id=int(game_id), user_id=int(user.id)
+            )
+            visible_powers = {player_for_user.power_name} if player_for_user else set()
+        else:
+            # Unauthenticated: no current-turn orders visible
+            visible_powers = set()
         for player in players:
-            player_orders = db_service.get_orders_by_player_id(int(player.id))  # type: ignore
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
+            if power_name not in visible_powers:
+                continue
+            player_orders = db_service.get_orders_by_player_id(int(player.id))  # type: ignore
             for order in player_orders:
                 unit_str = f"{order.unit_type} {order.unit_province}"
                 order_str = f"{power_name} {unit_str}"
@@ -214,12 +227,24 @@ def get_order_history(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/games/{game_id}/orders/{power}")
-def get_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
-    """Get current orders for a specific power in a game (current turn only)."""
+def get_orders_for_power(
+    game_id: str,
+    power: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Get current orders for a specific power in a game (current turn only).
+    Only the assigned user may view their own power's pending orders."""
     try:
+        user = get_current_user_optional(credentials)
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")
+        # Enforce: only the assigned user may read current-turn orders for a power
+        if user is None or int(getattr(player, "user_id", -1)) != int(user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="You are not authorized to view orders for this power.",
+            )
         orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
         order_list = [_order_model_to_text(order) for order in orders]
         return {"power": power, "orders": order_list}

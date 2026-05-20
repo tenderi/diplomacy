@@ -19,11 +19,11 @@ from telegram.ext import (
 )
 
 # Import directly from modules
-from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL, get_telegram_token
+from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import api_post, api_get, wait_for_api_health, _validate_api_url
 from server.telegram_bot.maps import (
-    get_cached_default_map, set_cached_default_map, generate_default_map,
-    send_default_map, send_game_map, send_demo_map, map_command, replay, refresh_map_cache
+    set_cached_default_map, generate_default_map,
+    send_default_map, send_game_map, map_command, replay, refresh_map_cache
 )
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
@@ -36,7 +36,7 @@ from server.telegram_bot.orders import (
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
 from server.telegram_bot.ui import (
-    show_main_menu, show_map_menu, show_help, show_admin_menu, refresh_keyboard, handle_menu_buttons,
+    show_main_menu, show_map_menu, show_help, refresh_keyboard, handle_menu_buttons,
     rules, examples
 )
 from server.telegram_bot.admin import start_demo_game, run_automated_demo, debug_command
@@ -418,7 +418,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         power = parts[3]
 
         try:
-            api_post(f"/games/set_orders", {
+            api_post("/games/set_orders", {
                 "game_id": game_id,
                 "power": power,
                 "orders": [],

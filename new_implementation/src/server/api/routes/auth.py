@@ -8,17 +8,19 @@ import logging
 import os
 import re
 import smtplib
+import time
+from collections import defaultdict
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
 
-from ..shared import db_service
+from ..shared import db_service, BOT_SECRET
 
 # Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
@@ -29,14 +31,34 @@ except ImportError:  # pragma: no cover
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+_startup_logger = logging.getLogger(__name__)
+
 # JWT config from env (min 32 bytes for HS256 per RFC 7518)
-JWT_SECRET = os.environ.get("DIPLOMACY_JWT_SECRET", "dev-secret-change-in-production-32b")
+_JWT_SECRET_DEFAULT = "dev-secret-change-in-production-32b"
+JWT_SECRET = os.environ.get("DIPLOMACY_JWT_SECRET", _JWT_SECRET_DEFAULT)
+if JWT_SECRET == _JWT_SECRET_DEFAULT:
+    _startup_logger.error(
+        "SECURITY: DIPLOMACY_JWT_SECRET is set to the default dev value. "
+        "Set it before deploying to production."
+    )
+    if os.environ.get("DIPLOMACY_ENVIRONMENT") == "production":
+        raise RuntimeError(
+            "DIPLOMACY_JWT_SECRET must be set to a strong secret in production. "
+            "Refusing to start with the default value."
+        )
+
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Optional Bearer (for routes that support both Bearer and body telegram_id)
 http_bearer = HTTPBearer(auto_error=False)
+
+# --- Rate limiting for /auth/telegram/link ---
+# Tracks (ip, telegram_id) -> list of timestamps of recent attempts
+_link_attempts: Dict[str, List[float]] = defaultdict(list)
+_LINK_RATE_LIMIT_MAX = 5
+_LINK_RATE_LIMIT_WINDOW = 600  # 10 minutes in seconds
 
 
 # --- Request/Response models ---
@@ -174,18 +196,45 @@ def get_current_user_optional(
 def resolve_user_or_telegram(
     credentials: Optional[HTTPAuthorizationCredentials],
     telegram_id: Optional[str],
+    bot_secret: Optional[str] = None,
 ) -> Any:
-    """Resolve to user from Bearer token or from telegram_id. Raises 401 if neither works."""
+    """Resolve to user from Bearer token or from telegram_id+bot_secret.
+
+    The telegram_id fallback requires a valid BOT_SECRET to prevent impersonation.
+    Raises 401 if neither Bearer token nor authenticated telegram_id resolves to a user.
+    """
     user = None
     if credentials:
         user_id = _decode_token(credentials.credentials, "access")
         if user_id is not None:
             user = db_service.get_user_by_id(user_id)
     if user is None and telegram_id:
+        if not BOT_SECRET or bot_secret != BOT_SECRET:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated: bot_secret required for telegram_id auth",
+            )
         user = db_service.get_user_by_telegram_id(telegram_id)
     if user is None or not getattr(user, "is_active", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
+
+
+def require_bot_or_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+) -> None:
+    """Dependency: require either a valid JWT Bearer token or a matching X-Bot-Secret header.
+
+    Used on endpoints called by both the browser frontend (Bearer) and the Telegram bot (X-Bot-Secret).
+    """
+    if credentials:
+        user_id = _decode_token(credentials.credentials, "access")
+        if user_id is not None:
+            return
+    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+        return
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
 def _user_response(user: Any) -> Dict[str, Any]:
@@ -291,7 +340,8 @@ def me(current_user: Any = Depends(get_current_user)) -> Dict[str, Any]:
 def create_link_code(
     current_user: Any = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Create a one-time code to link Telegram to this account. Code valid for 10 minutes."""
+    """Create a one-time code to link Telegram to this account. Code valid for 10 minutes.
+    Uses 8 URL-safe alphanumeric characters (~48 bits of entropy)."""
     ttl_minutes = 10
     code, expires_at = db_service.create_link_code(current_user.id, ttl_minutes=ttl_minutes)
     return {
@@ -396,9 +446,28 @@ def reset_password(req: ResetPasswordRequest) -> Dict[str, Any]:
     return {"message": "Password has been reset. You can now log in."}
 
 
+def _check_link_rate_limit(ip: str, telegram_id: str) -> None:
+    """Raise 429 if too many link attempts from this IP or telegram_id in the window."""
+    now = time.time()
+    window_start = now - _LINK_RATE_LIMIT_WINDOW
+    for key in (f"ip:{ip}", f"tid:{telegram_id}"):
+        # Purge old attempts
+        _link_attempts[key] = [t for t in _link_attempts[key] if t > window_start]
+        if len(_link_attempts[key]) >= _LINK_RATE_LIMIT_MAX:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many link attempts. Please wait 10 minutes before trying again.",
+            )
+    # Record this attempt
+    for key in (f"ip:{ip}", f"tid:{telegram_id}"):
+        _link_attempts[key].append(now)
+
+
 @router.post("/telegram/link")
-def link_telegram(req: LinkTelegramRequest) -> Dict[str, Any]:
+def link_telegram(req: LinkTelegramRequest, request: Request) -> Dict[str, Any]:
     """Link Telegram to an account using a code (called by Telegram bot when user sends /link <code>). No JWT."""
+    client_ip = request.client.host if request.client else "unknown"
+    _check_link_rate_limit(client_ip, req.telegram_id)
     user_id = db_service.consume_link_code(req.code)
     if user_id is None:
         raise HTTPException(status_code=400, detail="Invalid or expired code")

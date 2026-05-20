@@ -5,7 +5,7 @@ Endpoints for creating and managing tournaments, linking games, and viewing brac
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 from ..shared import db_service, logger

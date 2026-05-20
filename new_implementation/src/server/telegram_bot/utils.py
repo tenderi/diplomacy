@@ -1,7 +1,6 @@
 """
 Utility functions for Telegram bot, including Markdown escaping.
 """
-import re
 from typing import Union
 
 

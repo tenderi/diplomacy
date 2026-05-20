@@ -10,7 +10,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from ..shared import db_service, server, ensure_game_in_memory
+from ..shared import db_service, ensure_game_in_memory
 from engine.map import Map
 from engine.data_models import MoveOrder, SupportOrder
 

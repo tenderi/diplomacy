@@ -11,7 +11,6 @@ from .api_client import api_get
 from .games import register, games, show_available_games, wait
 from .orders import show_my_orders_menu
 from .messages import show_messages_menu
-from .maps import send_default_map
 
 logger = logging.getLogger("diplomacy.telegram_bot.ui")
 

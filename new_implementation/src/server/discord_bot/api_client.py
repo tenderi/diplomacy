@@ -3,7 +3,7 @@ API client for Discord bot - calls the same Diplomacy backend as the Telegram bo
 """
 import logging
 import requests
-from typing import Any, Optional
+from typing import Any
 
 from .config import API_URL
 

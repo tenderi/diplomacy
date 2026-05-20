@@ -6,11 +6,12 @@ This module handles Telegram channel integration for games:
 - Channel settings management
 - Automated content posting to channels
 """
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional
 from datetime import datetime
 
+from .auth import require_bot_or_user
 from ..shared import db_service, server, logger
 from ...response_cache import invalidate_cache
 
@@ -51,10 +52,14 @@ class ProposalRequest(BaseModel):
 
 
 @router.post("/games/{game_id}/channel/link")
-def link_channel_to_game(game_id: str, req: LinkChannelRequest) -> Dict[str, Any]:
+def link_channel_to_game(
+    game_id: str,
+    req: LinkChannelRequest,
+    _: None = Depends(require_bot_or_user),
+) -> Dict[str, Any]:
     """
     Link a Telegram channel to a game.
-    
+
     This enables automated posting of maps, broadcasts, and notifications to the channel.
     """
     try:
@@ -713,7 +718,6 @@ def get_channel_engagement_metrics(
     - end_date: Optional end date filter (ISO format)
     """
     try:
-        from datetime import timedelta
         
         # Get channel info if channel_id not provided
         if not channel_id:

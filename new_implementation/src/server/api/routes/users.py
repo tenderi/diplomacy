@@ -4,12 +4,11 @@ User management API routes.
 This module contains all endpoints related to user registration and session management.
 """
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
-from .auth import get_current_user, get_current_user_optional, resolve_user_or_telegram, http_bearer
-from ..shared import db_service
+from .auth import get_current_user
+from ..shared import db_service, BOT_SECRET
 from ...response_cache import cached_response
 
 router = APIRouter()
@@ -23,6 +22,7 @@ class RegisterUserRequest(BaseModel):
 class RegisterPersistentUserRequest(BaseModel):
     telegram_id: str
     full_name: Optional[str] = None
+    bot_secret: Optional[str] = None
 
     @field_validator("telegram_id")
     @classmethod
@@ -58,7 +58,10 @@ def get_user_session(telegram_id: str) -> UserSession:
 
 @router.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
-    """Register a user persistently in the database."""
+    """Register a user persistently in the database. Requires bot_secret (only the Telegram bot may call this)."""
+    if not BOT_SECRET or req.bot_secret != BOT_SECRET:
+        from fastapi import status
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         # Check if user already exists
         existing_user = db_service.get_user_by_telegram_id(req.telegram_id)

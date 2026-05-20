@@ -4,14 +4,20 @@ Dashboard API routes.
 This module contains endpoints for the admin dashboard, including service management,
 database inspection, and logging.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from typing import Dict, Any
 import subprocess
 import re
 from datetime import datetime
 from sqlalchemy import text
 
-from ..shared import db_service
+from ..shared import db_service, ADMIN_TOKEN
+
+
+def require_admin(x_admin_token: str = Header(...)) -> None:
+    """Dependency that requires a valid X-Admin-Token header."""
+    if x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
 
 router = APIRouter()
 
@@ -95,7 +101,7 @@ def get_services_status() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/dashboard/api/services/restart")
+@router.post("/dashboard/api/services/restart", dependencies=[Depends(require_admin)])
 def restart_service(req: Dict[str, str]) -> Dict[str, Any]:
     """Restart a systemd service."""
     service_name = req.get("service")

@@ -51,17 +51,17 @@ def test_victory_during_movement_phase():
     ]
     game.game_state.powers['FRANCE'].controlled_supply_centers = france_centers_17
     
-    # Place units: France in BUR and MAR (both adjacent to MUN), Germany in MUN
+    # Place units: France in BUR and RUH (RUH is adjacent to MUN destination), Germany in MUN
     game.game_state.powers['FRANCE'].units = [
         Unit(unit_type='A', province='BUR', power='FRANCE'),  # Attacks MUN
-        Unit(unit_type='A', province='MAR', power='FRANCE')   # Supports BUR - MUN (MAR adjacent to BUR)
+        Unit(unit_type='A', province='RUH', power='FRANCE')   # Supports BUR - MUN (RUH adjacent to MUN)
     ]
     game.game_state.powers['GERMANY'].units = [
         Unit(unit_type='A', province='MUN', power='GERMANY')
     ]
-    
+
     # France 2 vs 1 captures MUN (18th supply center)
-    game.set_orders('FRANCE', ['FRANCE A BUR - MUN', 'FRANCE A MAR S A BUR - MUN'])
+    game.set_orders('FRANCE', ['FRANCE A BUR - MUN', 'FRANCE A RUH S A BUR - MUN'])
     game.set_orders('GERMANY', ['GERMANY A MUN H'])
     
     # Process movement phase

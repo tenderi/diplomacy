@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import requests
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
-from ..shared import db_service, scheduler_logger, logger, NOTIFY_URL, notify_players
+from ..shared import db_service, scheduler_logger, logger, NOTIFY_URL, notify_players, BOT_SECRET
 from engine.database import MessageModel
 
 router = APIRouter()
@@ -121,11 +121,12 @@ def send_broadcast_message(
 def get_game_messages(
     game_id: str,
     telegram_id: Optional[str] = None,
+    bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
         user = get_current_user_optional(credentials)
-        if user is None and telegram_id:
+        if user is None and telegram_id and BOT_SECRET and bot_secret == BOT_SECRET:
             user = db_service.get_user_by_telegram_id(telegram_id)
         # Get game model to get numeric ID
         game_model = db_service.get_game_by_game_id(str(game_id))
@@ -148,6 +149,9 @@ def get_game_messages(
                 )
             else:
                 query = query.filter(MessageModel.recipient_power.is_(None))  # Only broadcasts
+        else:
+            # Unauthenticated: only return public broadcast messages (no private messages)
+            query = query.filter(MessageModel.recipient_power.is_(None))
         messages = query.order_by(MessageModel.timestamp.asc()).all()
         result = [
             {

@@ -11,15 +11,14 @@ import requests
 import pytz
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
-from fastapi import HTTPException
+
+_shared_logger = logging.getLogger(__name__)
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from engine.database_service import DatabaseService
 from engine.database import order_to_dict, unit_to_dict
 from ..server import Server
-from ..models import GameStateOut, PowerStateOut, UnitOut
-from engine.data_models import GameState, Unit, GameStatus
-from ..response_cache import invalidate_cache
+from engine.data_models import GameStatus
 from engine.game import Game
 from engine.allowed_moves import build_allowed_moves
 
@@ -44,7 +43,32 @@ NOTIFY_URL = os.environ.get("DIPLOMACY_NOTIFY_URL", "http://localhost:8081/notif
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
 
 # Admin token
-ADMIN_TOKEN = os.environ.get("DIPLOMACY_ADMIN_TOKEN", "changeme")
+_ADMIN_TOKEN_DEFAULT = "changeme"
+ADMIN_TOKEN = os.environ.get("DIPLOMACY_ADMIN_TOKEN", _ADMIN_TOKEN_DEFAULT)
+if ADMIN_TOKEN == _ADMIN_TOKEN_DEFAULT:
+    _shared_logger.error(
+        "SECURITY: DIPLOMACY_ADMIN_TOKEN is set to the default value 'changeme'. "
+        "Set it before deploying to production."
+    )
+    if os.environ.get("DIPLOMACY_ENVIRONMENT") == "production":
+        raise RuntimeError(
+            "DIPLOMACY_ADMIN_TOKEN must be set to a strong secret in production. "
+            "Refusing to start with the default value."
+        )
+
+# Bot secret: used to authenticate Telegram bot calls that use telegram_id instead of Bearer token
+BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
+
+# Per-game asyncio locks to prevent concurrent PROCESS_TURN calls
+_process_turn_locks: Dict[str, asyncio.Lock] = {}
+
+
+def get_process_turn_lock(game_id: str) -> asyncio.Lock:
+    """Return (creating if needed) the per-game asyncio Lock for PROCESS_TURN."""
+    if game_id not in _process_turn_locks:
+        _process_turn_locks[game_id] = asyncio.Lock()
+    return _process_turn_locks[game_id]
+
 
 # Allowed services for dashboard (moved to dashboard.py route module)
 # ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
@@ -76,7 +100,6 @@ def ensure_game_in_memory(game_id: str):
 
 def _state_to_spec_dict(state_obj: Any) -> Dict[str, Any]:
     """Serialize GameState dataclasses to spec-shaped JSON-serializable dict."""
-    from engine.database import order_to_dict, unit_to_dict
     
     supply_centers: dict[str, str] = {}
     for p_name, p_state in state_obj.powers.items():
@@ -190,9 +213,27 @@ def process_due_deadlines(now: datetime) -> None:
                             if not has_orders:
                                 setattr(player, 'is_active', False)  # type: ignore
                                 db_service.update_player_is_active(int(player.id), False)  # type: ignore
-                    # --- Process turn ---
+                    # --- Process turn (with per-game lock to prevent double-processing) ---
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
-                    server.process_command(f"PROCESS_TURN {game_id_str}")
+                    lock = get_process_turn_lock(game_id_str)
+                    if lock.locked():
+                        scheduler_logger.warning(
+                            "PROCESS_TURN for game %s already in progress (scheduler), skipping.",
+                            game_id_str,
+                        )
+                    else:
+                        import asyncio as _asyncio
+                        async def _run_locked(gid: str = game_id_str) -> None:
+                            async with get_process_turn_lock(gid):
+                                server.process_command(f"PROCESS_TURN {gid}")
+                        try:
+                            loop = _asyncio.get_event_loop()
+                            if loop.is_running():
+                                loop.create_task(_run_locked())
+                            else:
+                                server.process_command(f"PROCESS_TURN {game_id_str}")
+                        except RuntimeError:
+                            server.process_command(f"PROCESS_TURN {game_id_str}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db_service.update_game_deadline(game_id_val, None)
                     db_service.commit()  # type: ignore
@@ -218,7 +259,7 @@ def process_due_deadlines(now: datetime) -> None:
                                     game_id=game_id_str,
                                     notification_type="turn_start",
                                     title=f"Turn Processed - Game {game_id_str}",
-                                    message=f"The turn has been processed. New orders are due."
+                                    message="The turn has been processed. New orders are due."
                                 )
                         
                         # Post map
