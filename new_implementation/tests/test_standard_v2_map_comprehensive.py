@@ -101,7 +101,7 @@ class TestStandardV2CoordinateExtraction:
         assert os.path.exists(svg_path), f"SVG path {svg_path} should exist"
         
         # Test coordinate extraction
-        tree, coords = Map._get_cached_svg_data(svg_path)
+        tree, coords, _ = Map._get_cached_svg_data(svg_path)
         assert tree is not None, "SVG tree should be parsed"
         assert isinstance(coords, dict), "Coordinates should be a dictionary"
         assert len(coords) > 0, "Should extract coordinates for provinces"
@@ -117,7 +117,7 @@ class TestStandardV2CoordinateExtraction:
         from engine.map import Map
         
         svg_path = Map._resolve_svg_path("standard-v2")
-        tree, coords = Map._get_cached_svg_data(svg_path)
+        tree, coords, _ = Map._get_cached_svg_data(svg_path)
         
         # Check that coordinates are reasonable (within expected output dimensions)
         output_width = 1835.0
@@ -513,7 +513,7 @@ class TestStandardV2EdgeCases:
         
         svg_path = Map._resolve_svg_path("standard-v2")
         if os.path.exists(svg_path):
-            tree, coords = Map._get_cached_svg_data(svg_path)
+            tree, coords, _ = Map._get_cached_svg_data(svg_path)
             # Should handle missing or malformed text elements gracefully
             assert isinstance(coords, dict), "Should return dict even if extraction fails partially"
 
