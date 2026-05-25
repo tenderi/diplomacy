@@ -258,24 +258,28 @@ class TestLoadHandling:
     def test_multiple_concurrent_game_creations(self, client):
         """Test creating multiple games concurrently."""
         import concurrent.futures
-        headers = _make_auth_headers(client)
 
-        def create_game():
-            return client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-        
+        # Each thread needs its own TestClient (TestClient wraps requests.Session which is not thread-safe)
+        def create_game(idx):
+            c = TestClient(app)
+            email = f"perf_conc_{int(time.time() * 1000)}_{idx}@example.com"
+            reg = c.post("/auth/register", json={"email": email, "password": "testpass123"})
+            if reg.status_code != 200:
+                return reg
+            h = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+            return c.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=h)
+
         start_time = time.time()
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(create_game) for _ in range(10)]
+            futures = [executor.submit(create_game, i) for i in range(10)]
             results = [f.result() for f in concurrent.futures.as_completed(futures)]
-        
+
         duration = time.time() - start_time
-        
-        # Most should succeed (some may fail due to race conditions, which is acceptable)
+
         success_count = sum(1 for r in results if r.status_code == 200)
-        # Allow for some failures due to race conditions in concurrent game creation
         assert success_count >= 5, f"Expected at least 5 successful game creations, got {success_count}"
-        assert duration < 5.0, f"10 concurrent game creations took {duration:.2f}s, should be < 5.0s"
+        assert duration < 10.0, f"10 concurrent game creations took {duration:.2f}s, should be < 10.0s"
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_multiple_concurrent_order_submissions(self, client):
