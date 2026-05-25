@@ -11,12 +11,12 @@ import json
 from typing import Dict, Any
 
 # Add the project root to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # Load environment variables from .env file if it exists
 try:
 	from dotenv import load_dotenv
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	env_path = os.path.join(project_root, '.env')
 	if os.path.exists(env_path):
 		load_dotenv(env_path)
@@ -34,7 +34,7 @@ import pytest
 def _has_demo_map() -> bool:
 	"""Check if demo map file exists."""
 	import os
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	demo_map_path = os.path.join(project_root, 'maps', 'demo.json')
 	return os.path.exists(demo_map_path)
 

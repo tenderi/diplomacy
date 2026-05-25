@@ -19,8 +19,15 @@ def test_scheduler_status():
 
 def test_deadline_endpoints():
     client = TestClient(app)
+    # Register and get auth token
+    import time as _time
+    email = f"sched_{int(_time.time() * 1000)}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    if reg.status_code != 200:
+        pytest.skip("Database not available for scheduler test")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     assert resp.status_code == 200
     game_id = resp.json()["game_id"]
     # Set a deadline

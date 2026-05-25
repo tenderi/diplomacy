@@ -4,11 +4,11 @@
 
 This document contains actionable implementation tasks and fixes for the Diplomacy game engine.
 
-**Last Updated**: 2025-03-02
+**Last Updated**: 2026-05-25
 
 **Status**: ✅ All Priority 0, Priority 1, and Priority 2 tasks completed. Phase 2 Channel Integration complete. Codebase is production-ready with enhanced test coverage and code quality improvements.
 
-**New Test Suite Results** (2025-03-02): ✅ All test failures resolved. Comprehensive test suite now passing with improved validation, error handling, and edge case coverage.
+**New Test Suite Results** (2026-05-25): In-progress — database-enabled test session revealed auth failures caused by `bot_secret` requirement not being propagated through request models and test fixtures. Fixes applied across route handlers and test files (v2.6.8).
 
 ---
 

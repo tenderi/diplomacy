@@ -13,6 +13,8 @@ from server.api import app
 from server.api.shared import db_service, server
 from tests.conftest import _get_db_url
 
+BOT_SECRET = "test_bot_secret_for_tests"
+
 
 @pytest.fixture
 def client():
@@ -147,14 +149,14 @@ class TestJoinGame:
     def test_join_game_success(self, client):
         """Test successful game join."""
         # Register user first
-        client.post("/users/persistent_register", json={"telegram_id": "test123", "full_name": "Test User"})
+        client.post("/users/persistent_register", json={"telegram_id": "test123", "full_name": "Test User", "bot_secret": BOT_SECRET})
         
         # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         # Join game
-        resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "test123", "game_id": game_id, "power": "FRANCE"})
+        resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "test123", "bot_secret": BOT_SECRET, "game_id": game_id, "power": "FRANCE"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -164,18 +166,18 @@ class TestJoinGame:
     def test_join_game_already_joined(self, client):
         """Test joining game when already joined."""
         # Register user
-        client.post("/users/persistent_register", json={"telegram_id": "test456", "full_name": "Test User"})
+        client.post("/users/persistent_register", json={"telegram_id": "test456", "full_name": "Test User", "bot_secret": BOT_SECRET})
         
         # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = int(game_resp.json()["game_id"])
         
         # Join first time
-        resp1 = client.post(f"/games/{game_id}/join", json={"telegram_id": "test456", "game_id": game_id, "power": "FRANCE"})
+        resp1 = client.post(f"/games/{game_id}/join", json={"telegram_id": "test456", "bot_secret": BOT_SECRET, "game_id": game_id, "power": "FRANCE"})
         assert resp1.status_code == 200
-        
+
         # Join again
-        resp2 = client.post(f"/games/{game_id}/join", json={"telegram_id": "test456", "game_id": game_id, "power": "FRANCE"})
+        resp2 = client.post(f"/games/{game_id}/join", json={"telegram_id": "test456", "bot_secret": BOT_SECRET, "game_id": game_id, "power": "FRANCE"})
         assert resp2.status_code == 200
         assert resp2.json()["status"] == "already_joined"
 

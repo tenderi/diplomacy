@@ -16,14 +16,18 @@ from unittest.mock import Mock, MagicMock
 # MUST happen before any database imports
 try:
     from dotenv import load_dotenv
-    # Look for .env file in project root (one level up from tests)
-    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    # Look for .env file in new_implementation/ (one level up from tests)
+    project_root = os.path.join(os.path.dirname(__file__), '..')
     env_path = os.path.join(project_root, '.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
 except ImportError:
     # python-dotenv not installed, skip .env loading
     pass
+
+# Set a test bot secret so /users/persistent_register works in tests.
+# Uses setdefault so it doesn't override a value set in the real environment.
+os.environ.setdefault("DIPLOMACY_BOT_SECRET", "test_bot_secret_for_tests")
 
 # Initialize database schema BEFORE importing any database-dependent modules
 # This ensures schema exists before pytest imports test modules that might connect to DB
@@ -414,6 +418,51 @@ def cleanup_temp_files():
     for filepath in temp_files:
         if os.path.exists(filepath):
             os.remove(filepath)
+
+
+@pytest.fixture
+def api_client():
+    """Return a FastAPI TestClient for integration tests that need a running app."""
+    from fastapi.testclient import TestClient
+    from server.api import app
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_headers(api_client):
+    """Register a test user and return Bearer auth headers.
+
+    Use this fixture in tests that call endpoints protected by require_bot_or_user.
+    """
+    import time
+    email = f"testuser_{int(time.time() * 1000)}@example.com"
+    db_url = _get_db_url()
+    if not db_url:
+        pytest.skip("Database URL not configured")
+    reg = api_client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    assert reg.status_code == 200, f"Failed to register test user: {reg.text}"
+    token = reg.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def reset_telegram_link_rate_limiter():
+    """Clear the in-memory telegram link rate-limiter before each test.
+
+    The limiter is a module-level dict that accumulates across the test session
+    and causes 429s once 5 attempts have been recorded from the same IP.
+    """
+    try:
+        from server.api.routes.auth import _link_attempts
+        _link_attempts.clear()
+    except ImportError:
+        pass
+    yield
+    try:
+        from server.api.routes.auth import _link_attempts
+        _link_attempts.clear()
+    except ImportError:
+        pass
 
 
 # Markers for test categorization

@@ -25,6 +25,7 @@ class SetOrdersRequest(BaseModel):
     power: str
     orders: list[str]
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+    bot_secret: Optional[str] = None
 
 def _order_model_to_text(order_model) -> str:
     """Convert OrderModel back to order text string."""
@@ -62,7 +63,7 @@ def set_orders(
     """
     results = []
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # game_id can be string, method handles conversion
         player = db_service.get_player_by_game_id_and_power(game_id=req.game_id, power=req.power)
         if player is None:
@@ -254,6 +255,7 @@ def get_orders_for_power(
 
 class ClearOrdersRequest(BaseModel):
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
 
 @router.post("/games/{game_id}/orders/{power}/clear")
 def clear_orders_for_power(
@@ -264,7 +266,7 @@ def clear_orders_for_power(
 ) -> Dict[str, str]:
     """Clear orders for a power. Only the assigned user (Bearer or telegram_id) can clear orders."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found")

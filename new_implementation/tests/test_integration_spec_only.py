@@ -5,7 +5,7 @@ import pytest
 # Load environment variables from .env file if it exists
 try:
 	from dotenv import load_dotenv
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	env_path = os.path.join(project_root, '.env')
 	if os.path.exists(env_path):
 		load_dotenv(env_path)
@@ -33,14 +33,19 @@ def _has_db_url() -> bool:
 @pytest.mark.skipif(not _has_db_url(), reason="Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
 class TestSpecOnlyFlow:
 	def test_create_join_submit_process_state(self, client: TestClient):
+		import time as _t
+		_email = f"spec_flow_{int(_t.time()*1000)}@example.com"
+		_reg = client.post("/auth/register", json={"email": _email, "password": "testpass123"})
+		assert _reg.status_code == 200
+		_auth_headers = {"Authorization": f"Bearer {_reg.json()['access_token']}"}
 		# 1) Create game
-		resp = client.post("/games/create", json={"map_name": "standard"})
+		resp = client.post("/games/create", json={"map_name": "standard"}, headers=_auth_headers)
 		assert resp.status_code == 200
 		game_id = resp.json()["game_id"]
 		assert game_id
 		# 2) Register user and join as FRANCE
 		telegram_id = "999001"
-		reg = client.post("/users/persistent_register", json={"telegram_id": telegram_id, "full_name": "Tester"})
+		reg = client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": telegram_id, "full_name": "Tester"})
 		assert reg.status_code == 200, f"Registration failed: {reg.status_code} - {reg.json() if reg.text else 'No response'}"
 		join = client.post(f"/games/{game_id}/join", json={"telegram_id": telegram_id, "game_id": int(game_id), "power": "FRANCE"})
 		assert join.status_code == 200

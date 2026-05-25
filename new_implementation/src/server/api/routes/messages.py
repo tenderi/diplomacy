@@ -18,11 +18,13 @@ router = APIRouter()
 # --- Request Models ---
 class SendMessageRequest(BaseModel):
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
     recipient_power: Optional[str] = None
     text: str
 
 class SendBroadcastRequest(BaseModel):
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
     text: str
 
 # --- Message Endpoints ---
@@ -33,7 +35,7 @@ def send_private_message(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # Get game model to get numeric ID for database operations
         game_model = db_service.get_game_by_game_id(str(game_id))
         if not game_model:
@@ -83,7 +85,7 @@ def send_broadcast_message(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # Validate sender is in the game
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:

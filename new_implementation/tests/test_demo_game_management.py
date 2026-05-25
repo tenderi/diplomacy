@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 # Load environment variables from .env file if it exists
 try:
 	from dotenv import load_dotenv
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	env_path = os.path.join(project_root, '.env')
 	if os.path.exists(env_path):
 		load_dotenv(env_path)
@@ -32,7 +32,7 @@ from engine.database import Base, GameModel, UserModel, PlayerModel
 def _has_demo_map() -> bool:
 	"""Check if demo map file exists."""
 	import os
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	demo_map_path = os.path.join(project_root, 'maps', 'demo.json')
 	return os.path.exists(demo_map_path)
 

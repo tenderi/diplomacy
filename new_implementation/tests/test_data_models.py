@@ -133,7 +133,7 @@ def test_database_operations():
     import time
     import uuid
     unique_game_id = f"test_game_{uuid.uuid4().hex[:12]}"
-    game_state = db_service.create_game(unique_game_id, "standard")
+    game_state = db_service.create_game(unique_game_id, "standard", initial_phase="Movement")
     assert game_state.game_id == unique_game_id
     assert game_state.map_name == "standard"
     assert game_state.current_turn == 0

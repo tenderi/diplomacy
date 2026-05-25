@@ -12,52 +12,63 @@ from server.api import app
 from tests.conftest import _get_db_url
 
 
+BOT_SECRET = "test_bot_secret_for_tests"
+
+
 @pytest.fixture
 def client():
     """Create test client for API testing."""
     return TestClient(app)
 
 
+def _make_auth_headers(client):
+    """Register a temporary user and return Bearer auth headers."""
+    email = f"perf_{int(time.time() * 1000)}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    if reg.status_code != 200:
+        return {}
+    return {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+
 @pytest.mark.slow
 @pytest.mark.performance
 class TestAPIResponseTimes:
     """Test API endpoint response times."""
-    
+
     @pytest.fixture
     def client(self):
         """Create test client."""
         return TestClient(app)
-    
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_game_creation_response_time(self, client):
         """Test that game creation completes quickly."""
+        headers = _make_auth_headers(client)
         start_time = time.time()
-        
-        client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        
+
+        client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
+
         duration = time.time() - start_time
         assert duration < 1.0, f"Game creation took {duration:.2f}s, should be < 1.0s"
-    
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_game_state_retrieval_response_time(self, client):
         """Test that game state retrieval is fast."""
-        # Create game first
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        headers = _make_auth_headers(client)
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
         game_id = game_resp.json()["game_id"]
-        
+
         start_time = time.time()
-        
         client.get(f"/games/{game_id}/state")
-        
         duration = time.time() - start_time
         assert duration < 0.5, f"Game state retrieval took {duration:.2f}s, should be < 0.5s"
-    
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_order_submission_response_time(self, client):
         """Test that order submission is fast."""
-        # Setup
-        client.post("/users/persistent_register", json={"telegram_id": "perf_user", "full_name": "Perf User"})
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        headers = _make_auth_headers(client)
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "perf_user", "full_name": "Perf User"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "perf_user",
@@ -247,9 +258,10 @@ class TestLoadHandling:
     def test_multiple_concurrent_game_creations(self, client):
         """Test creating multiple games concurrently."""
         import concurrent.futures
-        
+        headers = _make_auth_headers(client)
+
         def create_game():
-            return client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+            return client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
         
         start_time = time.time()
         
@@ -271,9 +283,10 @@ class TestLoadHandling:
         import concurrent.futures
         
         # Setup: create game and register users
-        client.post("/users/persistent_register", json={"telegram_id": "load_user1", "full_name": "Load User 1"})
-        client.post("/users/persistent_register", json={"telegram_id": "load_user2", "full_name": "Load User 2"})
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        headers = _make_auth_headers(client)
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "load_user1", "full_name": "Load User 1"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "load_user2", "full_name": "Load User 2"})
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "load_user1",
