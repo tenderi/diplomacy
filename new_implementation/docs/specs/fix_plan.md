@@ -12,6 +12,125 @@ This document contains actionable implementation tasks and fixes for the Diploma
 
 ## Active Priorities
 
+### Standardize on Python 3.14 (Active — planned 2026-05-26)
+
+The project's Python version is declared nowhere except CI. Local dev runs on 3.14.5, CI runs on 3.13, docs claim "3.8+". Standardize on **Python 3.14**.
+
+#### Current discrepancy
+
+| Surface | Current | Target |
+|---|---|---|
+| Local venv | 3.14.5 (already correct) | 3.14 |
+| CI matrix | 3.13 | 3.14 |
+| CI security job | 3.13 | 3.14 |
+| `CODEBASE_OVERVIEW.md` | "Python 3.8+" (3 places) | "Python 3.14" |
+| `docs/LOCAL_DEVELOPMENT.md` | "3.8+", "3.10+ recommended", `python@3.12` | 3.14 |
+| `docs/FAQ.md` | "Python 3.8+" | "Python 3.14" |
+| `install_prerequisites.sh` | "Python 3.8+" fallback msg; generic `python` package | Explicit `python3.14` / `python@3.14` |
+| `pyproject.toml` | (does not exist) | `requires-python = ">=3.14,<3.15"` |
+| `.python-version` | (does not exist) | `3.14` |
+
+#### Tasks
+
+1. **Create `new_implementation/pyproject.toml`** declaring project metadata + Python version pin. Minimal content:
+   ```toml
+   [project]
+   name = "diplomacy"
+   version = "2.7.5"
+   requires-python = ">=3.14,<3.15"
+
+   [tool.ruff]
+   target-version = "py314"
+   line-length = 100
+   ```
+   Do **not** migrate `pytest.ini` content into `pyproject.toml` in this task — keep `pytest.ini` as-is (out of scope to consolidate tool configs).
+
+2. **Create `new_implementation/.python-version`** with single line: `3.14` (for pyenv / asdf users).
+
+3. **Update CI** at `new_implementation/.github/workflows/test.yml`:
+   - Line 14: `python-version: [3.13]` → `python-version: ['3.14']` (quote to prevent YAML float-parsing)
+   - Line 110: `python-version: '3.13'` → `python-version: '3.14'`
+   - Do **not** bump GitHub Actions versions in this task (separate cleanup; current uses `setup-python@v4`, `cache@v3`, `upload-artifact@v3`, `github-script@v6`, `codecov-action@v3`)
+
+4. **Update docs to say 3.14**:
+   - `CODEBASE_OVERVIEW.md` lines 4, 338, 450: `Python 3.8+` → `Python 3.14`
+   - `new_implementation/docs/LOCAL_DEVELOPMENT.md`:
+     - Line 9: `Python 3.8+ (3.10+ recommended)` → `Python 3.14`
+     - Line 72: `brew install python@3.12` → `brew install python@3.14`
+     - Line 85: `python3 --version   # 3.8 or higher` → `python3 --version   # 3.14.x`
+   - `new_implementation/docs/FAQ.md` line 26: `Python 3.8+` → `Python 3.14`
+   - `CLAUDE.md` setup snippet (Commands → Setup section): add a one-line note "Requires Python 3.14".
+
+5. **Update `install_prerequisites.sh`**:
+   - Arch (`install_arch`): `python python-pip` is fine — Arch core repo ships current Python (3.14.x at time of writing). Add a post-install version check: `python3 --version | grep -q 3.14 || echo "WARNING: expected python 3.14"`.
+   - Debian/Ubuntu (`install_debian`): replace `python3 python3-pip python3-venv` with `python3.14 python3.14-venv python3-pip`. **Note**: Debian/Ubuntu may require the deadsnakes PPA for python3.14 on older releases — add `sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get update -qq` before the install on Ubuntu. Test this branch manually before merging.
+   - macOS (`install_macos`): `brew install python` → `brew install python@3.14`; `brew upgrade python` → `brew upgrade python@3.14`.
+   - Line 72 fallback message: `Python 3.8+` → `Python 3.14`.
+   - Verify step (line 79): `python3 --version` → also accept `python3.14 --version` and warn if not 3.14.
+
+6. **Update `new_implementation/README.md`** "Quick start" snippet: `python3 -m venv venv` → `python3.14 -m venv venv` (or add a note "Python 3.14 required; see `pyproject.toml`").
+
+7. **Out of scope for this task** (call out in commit message):
+   - Bumping GitHub Actions versions (`setup-python@v4` → `v5`, etc.)
+   - Consolidating `pytest.ini` into `pyproject.toml`
+   - Adding `[build-system]` table (no build/wheel target right now)
+   - Migrating alembic / full ruff config into `pyproject.toml`
+   - Adding a Dockerfile — not currently tracked in the repo
+
+#### Files to modify
+
+New files:
+- `new_implementation/pyproject.toml`
+- `new_implementation/.python-version`
+
+Edits:
+- `new_implementation/.github/workflows/test.yml`
+- `CODEBASE_OVERVIEW.md`
+- `CLAUDE.md`
+- `new_implementation/README.md`
+- `new_implementation/docs/LOCAL_DEVELOPMENT.md`
+- `new_implementation/docs/FAQ.md`
+- `new_implementation/install_prerequisites.sh`
+
+#### Compatibility check (already verified — no code action needed)
+
+- All `requirements.txt` deps are working on 3.14.5 locally (1029 tests pass as of v2.7.5).
+- No `src/` or `tests/` imports of stdlib modules removed in 3.13 or 3.14 (grepped `imghdr`, `crypt`, `distutils`, `telnetlib`, `cgi`, `nntplib`).
+- `psycopg2-binary>=2.9.10` ships 3.14 wheels.
+- `cairosvg`, `Pillow>=11`, `numpy>=2`, `selenium>=4.34`, `python-telegram-bot>=22` all support 3.14.
+
+#### Verification
+
+```bash
+cd new_implementation
+source venv/bin/activate
+python --version            # expect 3.14.x
+ruff check src/             # expect: All checks passed!
+PYTHONPATH=src pytest tests/ -q
+# expect: 1029 passed, 20 skipped, 0 failures
+```
+
+For the CI bump, push to a feature branch first and confirm the `Test Suite` workflow turns green on 3.14 before merging.
+
+For `install_prerequisites.sh` (Debian/Ubuntu branch), do a dry-run on a fresh Ubuntu 24.04 VM/LXC to confirm the deadsnakes PPA flow works; capture the resulting `python3.14 --version` output in the commit message.
+
+#### Commit / tag
+
+Single commit on `main`, tag `v2.7.7` (v2.7.6 is the plan-addition commit):
+```
+v2.7.7: standardize on Python 3.14
+
+- Add pyproject.toml declaring requires-python = ">=3.14,<3.15"
+- Add .python-version (3.14)
+- CI: 3.13 → 3.14 in both test and security jobs
+- Docs: replace "Python 3.8+" with "Python 3.14" throughout
+- install_prerequisites.sh: pin python3.14 (deadsnakes PPA for Debian/Ubuntu)
+```
+
+Then `git tag v2.7.7 && git push origin main --tags`.
+
+---
+
 ### Map Test Coverage (Completed — 2026-05-25, v2.7.3)
 
 Audit of all 11 map-related test files revealed two issues:
