@@ -330,7 +330,7 @@ createdb diplomacy_db
 
 ## Getting More Help
 
-- **Documentation**: See `docs/` directory and `specs/` directory
+- **Documentation**: See `docs/` directory (specs live under `docs/specs/`)
 - **Logs**: Check server logs for detailed error messages
 - **Tests**: Run tests to verify functionality: `pytest tests/`
 - **GitHub Issues**: Report bugs or request features
@@ -363,5 +363,5 @@ If you're still experiencing issues:
 2. Verify all environment variables are set correctly
 3. Ensure all dependencies are installed
 4. Review the test suite to see expected behavior
-5. Check the [specs/](../specs/) directory for detailed specifications
+5. Check the [docs/specs/](./specs/) directory for detailed specifications
 
