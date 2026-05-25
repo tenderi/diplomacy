@@ -4,11 +4,15 @@ Tests for map rendering quality and edge cases.
 Tests map generation, visualization quality, and edge cases
 in map rendering.
 """
+import os
 import pytest
 from pathlib import Path
 from engine.game import Game
 from engine.map import Map
 from engine.data_models import Unit
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SVG_PATH = os.path.join(_BASE_DIR, "maps", "standard.svg")
 
 
 @pytest.mark.map
@@ -54,27 +58,39 @@ class TestMapRenderingEdgeCases:
     def test_map_with_no_units(self):
         """Test map rendering with no units."""
         game = Game('standard')
-        
+
         # Remove all units
         for power in game.game_state.powers.values():
             power.units = []
-        
+
         # Map should still render
         assert game.map is not None
         assert len(game.map.provinces) > 0
+        if os.path.exists(_SVG_PATH):
+            img_bytes = Map.render_board_png(_SVG_PATH, {})
+            assert img_bytes is not None
+            assert len(img_bytes) > 0
     
     def test_map_with_all_units(self):
         """Test map rendering with maximum units."""
         game = Game('standard')
-        
+
         # Add all 7 powers
         for power_name in ["FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY", "ENGLAND"]:
             game.add_player(power_name)
-        
+
         # Map should handle all units
         total_units = sum(len(p.units) for p in game.game_state.powers.values())
         assert total_units > 0
         assert game.map is not None
+        if os.path.exists(_SVG_PATH):
+            units: dict = {}
+            for power_name, power in game.game_state.powers.items():
+                for u in power.units:
+                    units.setdefault(power_name, []).append(f"{u.unit_type} {u.province}")
+            img_bytes = Map.render_board_png(_SVG_PATH, units)
+            assert img_bytes is not None
+            assert len(img_bytes) > 500_000
     
     def test_map_with_orders(self):
         """Test map rendering with orders displayed."""
@@ -150,12 +166,17 @@ class TestMapVisualizationQuality:
         """Test that units are placed correctly on map."""
         game = Game('standard')
         game.add_player("FRANCE")
-        
+
         # Units should be in valid provinces
         for unit in game.game_state.powers["FRANCE"].units:
             assert unit.province in game.map.get_locations() or \
                    unit.province in game.map.provinces, \
                    f"Unit province {unit.province} should be valid"
+        if os.path.exists(_SVG_PATH):
+            units = {"FRANCE": [f"{u.unit_type} {u.province}" for u in game.game_state.powers["FRANCE"].units]}
+            img_bytes = Map.render_board_png(_SVG_PATH, units)
+            assert img_bytes is not None
+            assert len(img_bytes) > 0
     
     def test_order_visualization(self):
         """Test that orders can be visualized on map."""
