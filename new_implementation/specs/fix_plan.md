@@ -10,7 +10,65 @@ This document contains actionable implementation tasks and fixes for the Diploma
 
 ## Active Priorities
 
-### Map Visualization Fixes (In Progress — 2026-05-25)
+### Map Test Coverage (Planned — 2026-05-25)
+
+Audit of all 11 map-related test files revealed two issues:
+
+**Bug**: `test_real_scenario_map.py` builds the `units` dict in the wrong format —
+`{"A PAR": "FRANCE"}` instead of `{"FRANCE": ["A PAR"]}`. All units are silently skipped
+by `render_board_png` (iterates chars of "FRANCE" as unit strings), so the test renders
+an empty map and still passes because it only checks `len(img_bytes) > 0`.
+
+**Coverage gap**: `test_map_rendering_quality.py` never calls any render function despite
+class names suggesting visual testing. Most "map" tests only check data structures.
+
+#### Tasks
+
+1. **Fix `test_real_scenario_map.py`**
+   - Replace inverted `units` dict construction (line 42):
+     `units[f"{u.unit_type} {u.province}"] = power_name` →
+     `units.setdefault(power_name, []).append(f"{u.unit_type} {u.province}")`
+   - Add `assert len(img_bytes) > 500_000` (map with 2 units + SC coloring is ~600–900 KB;
+     a blank map is ~300 KB — this catches future regressions where units silently disappear)
+
+2. **New file `tests/test_map_real_scenarios.py`** — 5 tests:
+   - `test_dislodged_unit_rendering` — regression test for v2.7.0 fix; verifies
+     `Map.get_dislodged_unit_coordinates` differs from `get_svg_province_coordinates` for PAR,
+     renders a map with `"A DISLODGED_PAR"`, checks PNG 1835×1360
+   - `test_full_7_power_initial_state` — all 7 powers + 22 starting units + SC control dict;
+     checks PNG dimensions and mode
+   - `test_supply_center_capture_rendering` — France captures MUN (no German unit); verifies
+     render with updated `supply_center_control` dict
+   - `test_real_adjudication_multiple_orders` — France A PAR→BUR + Germany A MUN→BUR (both
+     bounce); runs `game.process_turn()`, renders result, asserts correct unit positions
+   - `test_order_visualization_with_game_orders` — calls `render_board_png_with_orders` with
+     a move + support order for France; asserts PNG 1835×1360
+
+3. **Add rendering to `test_map_rendering_quality.py`**
+   - `TestMapRenderingEdgeCases.test_map_with_no_units` → add `render_board_png({})` call
+   - `TestMapRenderingEdgeCases.test_map_with_all_units` → build correct units dict, add render call
+   - `TestMapVisualizationQuality.test_unit_placement_on_map` → add render call with France units
+   - Leave `TestMapRenderingPerformance`, `TestMapFileHandling`, `TestMapGeneration` as-is
+
+#### Files to modify
+- `tests/test_real_scenario_map.py`
+- `tests/test_map_real_scenarios.py` (new)
+- `tests/test_map_rendering_quality.py`
+
+#### Leave alone
+- `test_order_visualization.py` — correct format, actually renders, fine
+- `test_api_routes_maps.py` — skipped tests require DB setup; keep skipped
+- `test_map_and_power.py`, `test_province_mapping.py` — correct scope
+
+#### Verification
+```bash
+PYTHONPATH=src pytest tests/test_real_scenario_map.py tests/test_map_real_scenarios.py -v
+PYTHONPATH=src pytest tests/ -q  # must be 0 failures
+```
+
+---
+
+### Map Visualization Fixes (Completed — 2026-05-25, v2.7.0)
 
 Six defects identified in `src/engine/map.py` via code audit. Implementation applies all fixes
 in the order listed below.
