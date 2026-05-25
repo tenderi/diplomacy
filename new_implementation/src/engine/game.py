@@ -3,7 +3,7 @@ from .map import Map
 from .order_parser import OrderParser, OrderValidationError, OrderParseError
 from .allowed_moves import build_allowed_moves
 from .data_models import (
-    Order, GameState, PowerState, Unit, MapData, Province, OrderType, OrderStatus, GameStatus,
+    Order, GameState, PowerState, Unit, MapData, Province, GameStatus,
     MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
 )
 import logging
@@ -199,7 +199,6 @@ class Game:
         except OrderParseError as e:
             raise ValueError(f"Invalid order format: {str(e)}")
         # Build concrete Order objects from parsed forms
-        power_state = self.game_state.powers[power_name]
         new_orders = []
         for parsed in parsed_orders:
             try:
@@ -423,12 +422,12 @@ class Game:
             if power_name not in self.game_state.orders:
                 self.game_state.orders[power_name] = []
             orders = self.game_state.orders[power_name]
-            ordered_unit_keys = set()
+            ordered_provinces = set()
             for order in orders:
                 if hasattr(order, "unit") and order.unit:
-                    ordered_unit_keys.add((order.unit.unit_type, order.unit.province))
+                    ordered_provinces.add(order.unit.province)
             for unit in power.units:
-                if (unit.unit_type, unit.province) not in ordered_unit_keys:
+                if unit.province not in ordered_provinces:
                     self.game_state.orders[power_name].append(HoldOrder(power=power_name, unit=unit))
 
     def _process_movement_phase(self) -> Dict[str, Any]:
@@ -1095,26 +1094,28 @@ class Game:
                     # Multiple winners - standoff, no move
                     # Record this province as a standoff province (DATC 6.H)
                     standoff_provinces.add(target_province)
-                    # ALL units (both moving and holding) bounce - no one moves
+                    # Units at max strength bounce each other; weaker units are defeated
                     for unit, strength, order in remaining_moves:
+                        unit_key = f"{unit.unit_type} {unit.province}"
+                        unit_total_strength = total_strengths.get(unit_key, strength)
+                        failure_reason = "bounced" if unit_total_strength >= max_strength else "defeated"
                         if isinstance(order, MoveOrder):
                             results["moves"].append({
-                                "unit": f"{unit.unit_type} {unit.province}",
+                                "unit": unit_key,
                                 "from": unit.province,
                                 "to": target_province,
-                                "strength": strength,
+                                "strength": unit_total_strength,
                                 "success": False,
-                                "failure_reason": "bounced"
+                                "failure_reason": failure_reason
                             })
                         elif isinstance(order, HoldOrder):
-                            # Hold order in standoff - unit remains in place
                             results["moves"].append({
-                                "unit": f"{unit.unit_type} {unit.province}",
+                                "unit": unit_key,
                                 "from": unit.province,
-                                "to": unit.province,  # No move
-                                "strength": strength,
+                                "to": unit.province,
+                                "strength": unit_total_strength,
                                 "success": False,
-                                "failure_reason": "bounced"
+                                "failure_reason": failure_reason
                             })
         
         # Final convoy disruption check: if any convoying fleet was dislodged, cancel the
@@ -1324,18 +1325,9 @@ class Game:
                         order.unit.is_dislodged = False
                         order.unit.retreat_options = []
                         
-                        # Update supply center control if retreat target is a supply center
-                        target_province_obj = self.game_state.map_data.provinces.get(retreat_province)
-                        if target_province_obj and target_province_obj.is_supply_center:
-                            # Remove control from previous owner (if any)
-                            for other_power_name, other_power_state in self.game_state.powers.items():
-                                if retreat_province in other_power_state.controlled_supply_centers:
-                                    other_power_state.controlled_supply_centers.remove(retreat_province)
-                                    break
-                            # Assign control to retreating unit's power
-                            retreating_power_state = self.game_state.powers.get(power_name)
-                            if retreating_power_state and retreat_province not in retreating_power_state.controlled_supply_centers:
-                                retreating_power_state.controlled_supply_centers.append(retreat_province)
+                        # SC ownership does NOT change during retreat phase.
+                        # Per Diplomacy rules, supply center control is only updated
+                        # at the end of Autumn (via _update_supply_center_ownership in builds phase).
                         
                         results["retreats"].append({
                             "unit": f"{order.unit.unit_type} {old_province}",

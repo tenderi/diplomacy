@@ -59,7 +59,6 @@ class OrderVisualizationService:
             if power_name not in game_state.powers:
                 continue
             
-            power_state = game_state.powers[power_name]
             power_orders = []
             
             for order in orders:
@@ -76,7 +75,7 @@ class OrderVisualizationService:
                     if viz_data:
                         power_orders.append(viz_data)
                     
-                except Exception as e:
+                except Exception:
                     continue
             
             if power_orders:

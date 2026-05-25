@@ -16,8 +16,11 @@ from tests.conftest import _get_db_url
 
 @pytest.fixture
 def client():
-    """Create test client."""
-    return TestClient(app)
+    """Create test client with bot/user auth bypassed (tests non-auth behavior)."""
+    from server.api.routes.auth import require_bot_or_user
+    app.dependency_overrides[require_bot_or_user] = lambda: None
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -30,7 +33,8 @@ def cleanup_games():
 @pytest.mark.unit
 class TestCreateGame:
     """Test game creation endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_create_game_success(self, client):
         """Test successful game creation."""
         resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
@@ -38,14 +42,16 @@ class TestCreateGame:
         data = resp.json()
         assert "game_id" in data
         assert isinstance(data["game_id"], str)
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_create_game_default_map(self, client):
         """Test game creation with default map."""
         resp = client.post("/games/create", json={})
         assert resp.status_code == 200
         data = resp.json()
         assert "game_id" in data
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_create_game_custom_map(self, client):
         """Test game creation with custom map."""
         resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
@@ -57,7 +63,8 @@ class TestCreateGame:
 @pytest.mark.unit
 class TestAddPlayer:
     """Test add player endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_add_player_success(self, client):
         """Test successful player addition."""
         # Create game first
@@ -77,21 +84,20 @@ class TestAddPlayer:
 @pytest.mark.unit
 class TestGetGameState:
     """Test get game state endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_state_success(self, client):
         """Test successful game state retrieval."""
-        # Create game first
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        
-        # Get state
         resp = client.get(f"/games/{game_id}/state")
         assert resp.status_code == 200
         data = resp.json()
         assert "game_id" in data
         assert "map_name" in data
         assert "powers" in data
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_state_not_found(self, client):
         """Test getting state for non-existent game."""
         resp = client.get("/games/nonexistent/state")
@@ -101,7 +107,8 @@ class TestGetGameState:
 @pytest.mark.unit
 class TestListGames:
     """Test list games endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_list_games_success(self, client):
         """Test successful game listing."""
         resp = client.get("/games")
@@ -114,15 +121,13 @@ class TestListGames:
 @pytest.mark.unit
 class TestGetPlayers:
     """Test get players endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_players_success(self, client):
         """Test successful player listing."""
-        # Create game and add player
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
-        
-        # Get players
         resp = client.get(f"/games/{game_id}/players")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
@@ -178,19 +183,18 @@ class TestJoinGame:
 @pytest.mark.unit
 class TestProcessTurn:
     """Test process turn endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_success(self, client):
         """Test successful turn processing."""
-        # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        
-        # Process turn
         resp = client.post(f"/games/{game_id}/process_turn")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_not_found(self, client):
         """Test processing turn for non-existent game."""
         resp = client.post("/games/nonexistent/process_turn")
@@ -282,31 +286,29 @@ class TestGameSnapshots:
 @pytest.mark.unit
 class TestLegalOrders:
     """Test legal orders endpoint."""
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_success(self, client):
         """Test getting legal orders for a unit."""
-        # Create game and add player
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
-        
-        # Get legal orders - may fail if game not in memory
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A PAR")
-        # May return 200 or 404 depending on game state
         assert resp.status_code in [200, 404]
         if resp.status_code == 200:
             data = resp.json()
             assert "orders" in data
             assert isinstance(data["orders"], list)
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_invalid_format(self, client):
         """Test getting legal orders with invalid unit format."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/invalid")
         assert resp.status_code == 400
-    
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_game_not_found(self, client):
         """Test getting legal orders for non-existent game."""
         resp = client.get("/games/nonexistent/legal_orders/FRANCE/A PAR")

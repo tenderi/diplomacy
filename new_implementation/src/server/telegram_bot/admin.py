@@ -330,10 +330,6 @@ async def run_automated_demo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 # Determine the relative path for the help message
                 script_rel_path = os.path.relpath(script_path, project_root) if script_path else "demo_perfect_game.py"
                 
-                # Check if maps_dir exists but is empty
-                maps_dir_exists = maps_dir and os.path.exists(maps_dir) if maps_dir else False
-                maps_dir_info = f"Maps directory: {maps_dir}" if maps_dir else "Maps directory: not found"
-                
                 # Check stdout/stderr for errors
                 stderr_output = result.stderr[-500:] if result.stderr else ""  # Last 500 chars
                 stdout_output = result.stdout[-500:] if result.stdout else ""  # Last 500 chars

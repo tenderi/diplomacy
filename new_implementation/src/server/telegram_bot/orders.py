@@ -436,7 +436,6 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         for unit in units:
             # unit format: "A BER" or "F KIE"
             unit_type = unit.split()[0]  # A or F
-            unit_location = unit.split()[1]  # BER, KIE, etc.
 
             # Create button text with emoji
             emoji = "🛡️" if unit_type == "A" else "🚢"

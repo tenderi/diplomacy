@@ -5,14 +5,13 @@ This module implements AI strategies that use the data_spec.md models exclusivel
 ensuring proper data integrity and demonstrating all Diplomacy mechanics.
 """
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 from dataclasses import dataclass
 import random
 import logging
 
 from .data_models import (
-    GameState, PowerState, Unit, Order, OrderType, OrderStatus,
-    MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
+    GameState, PowerState, Unit, Order, OrderType, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
 )
 from .order_parser import OrderParser
 
@@ -301,9 +300,6 @@ class StrategicAI:
     
     def _find_support_target(self, game_state: GameState, unit: Unit) -> Optional[Unit]:
         """Find a unit to support"""
-        # Get all units from the same power
-        power_units = game_state.get_power_units(unit.power)
-        
         # Filter out the current unit and find adjacent units
         adjacent_units = []
         if unit.province in game_state.map_data.provinces:

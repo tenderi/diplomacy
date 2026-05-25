@@ -23,7 +23,6 @@ PROVINCE_MAPPING = {
     "ION": ("Ionian Sea", "sea"),
     "IRI": ("Irish Sea", "sea"),
     "MAO": ("Mid-Atlantic Ocean", "sea"),
-    "MAO": ("Mid-Atlantic Ocean", "sea"),
     "NAF": ("North Africa", "coastal"),  # Missing from mapping
     "NAO": ("North Atlantic Ocean", "sea"),
     "NTH": ("North Sea", "sea"),

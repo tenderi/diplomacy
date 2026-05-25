@@ -192,12 +192,9 @@ class MoveOrder(Order):
         current_province = game_state.map_data.provinces[self.unit.province]
         target_province_obj = game_state.map_data.provinces[self.target_province]
         
-        # CRITICAL: Validate unit type vs target province type
-        # Note: For initial validation, we allow invalid unit-type moves as they will fail during processing
-        # This allows tests to submit invalid orders and verify they fail during execution
+        # Validate unit type vs target province type
         if not self.unit.can_move_to_province_type(target_province_obj.province_type):
-            # Allow invalid moves during initial validation - they will fail during order processing
-            pass
+            return False, f"{self.unit} cannot move to {target_province_obj.province_type} province {self.target_province}"
         
         # Check adjacency - moves must be to adjacent provinces unless convoyed
         am = getattr(game_state, "allowed_moves", None)
@@ -718,8 +715,6 @@ class GameState:
             if power_name not in self.powers:
                 errors.append(f"Orders for non-existent power: {power_name}")
                 continue
-            
-            power_state = self.powers[power_name]
             
             for order in orders:
                 # Validate order against game state

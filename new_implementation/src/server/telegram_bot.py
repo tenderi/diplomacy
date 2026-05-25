@@ -132,9 +132,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
             # Update message with vote count (simplified - will be enhanced with database)
             try:
-                # Get current message text
-                current_text = query.message.text if query.message else ""
-                
                 # Extract current vote counts if present
                 # For now, just acknowledge the vote
                 # Full implementation will track votes in database

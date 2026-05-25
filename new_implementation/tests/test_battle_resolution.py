@@ -71,20 +71,18 @@ def test_1v2_battle_stronger_wins():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
+    unit1 = Unit("A", "PAR", "FRANCE")
     unit2 = Unit("A", "BUR", "GERMANY")
-    unit3 = Unit("A", "MUN", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
-    game.game_state.powers["GERMANY"].units.append(unit2)
+    unit3 = Unit("A", "MAR", "GERMANY")  # MAR is adjacent to GAS
+    game.game_state.powers["FRANCE"].units = [unit1]
+    game.game_state.powers["GERMANY"].units = [unit2, unit3]
 
-    game.game_state.powers["GERMANY"].units.append(unit3)
-    
     move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
     move2 = MoveOrder(power="GERMANY", unit=unit2, target_province="GAS")
     support2 = SupportOrder(power="GERMANY", unit=unit3, supported_unit=unit2, supported_action="move", supported_target="GAS")
     game.game_state.orders["FRANCE"] = [move1]
     game.game_state.orders["GERMANY"] = [move2, support2]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
     successful = [m for m in moves if m.get("success") == True and m.get("to") == "GAS"]
@@ -98,24 +96,20 @@ def test_2v2_battle_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
+    unit1 = Unit("A", "PAR", "FRANCE")
+    unit2 = Unit("A", "BRE", "FRANCE")   # BRE adjacent to GAS
     unit3 = Unit("A", "BUR", "GERMANY")
-    unit4 = Unit("A", "MUN", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit4 = Unit("A", "MAR", "GERMANY")  # MAR adjacent to GAS
+    game.game_state.powers["FRANCE"].units = [unit1, unit2]
+    game.game_state.powers["GERMANY"].units = [unit3, unit4]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-
-    game.game_state.powers["GERMANY"].units.append(unit4)
-    
     move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
     support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
     move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="GAS")
     support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="GAS")
     game.game_state.orders["FRANCE"] = [move1, support1]
     game.game_state.orders["GERMANY"] = [move2, support2]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
     bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "GAS"]
@@ -159,74 +153,62 @@ def test_3v2_battle_stronger_wins():
 
 def test_2v3_battle_stronger_wins():
     """Test 2-3 battle: stronger side wins."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "BUR", "GERMANY")
-    unit4 = Unit("A", "MUN", "GERMANY")
-    unit5 = Unit("A", "RUH", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adjacent to BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adjacent to BUR
+    unit3 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adjacent to BUR
+    unit4 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adjacent to BUR
+    unit5 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adjacent to BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2]
+    game.game_state.powers["GERMANY"].units = [unit3, unit4, unit5]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-    
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="GAS")
-    support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit3, supported_action="move", supported_target="GAS")
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="BUR")
+    support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit3, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1]
     game.game_state.orders["GERMANY"] = [move2, support2, support3]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    successful = [m for m in moves if m.get("success") == True and m.get("to") == "GAS"]
+    successful = [m for m in moves if m.get("success") == True and m.get("to") == "BUR"]
     assert len(successful) == 1, f"Expected 1 successful move, got {len(successful)}"
-    assert "BUR" in successful[0].get("unit", ""), "GERMANY should win"
+    assert "MUN" in successful[0].get("unit", ""), "GERMANY should win"
 
 
 def test_3v3_battle_standoff():
     """Test 3-3 battle: standoff (equal strength)."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adj BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adj BUR
+    unit3 = Unit("A", "PIC", "FRANCE")  # France support; PIC adj BUR
+    unit4 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit5 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit6 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adj BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-
-    game.game_state.powers["GERMANY"].units.append(unit6)
-    
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="GAS")
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "GAS"]
+    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "BUR"]
     assert len(bounced) == 2, f"Expected 2 bounced moves, got {len(bounced)}"
 
 
@@ -275,45 +257,36 @@ def test_4v3_battle_stronger_wins():
 
 def test_3v4_battle_stronger_wins():
     """Test 3-4 battle: stronger side wins."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    unit7 = Unit("A", "KIE", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adj BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adj BUR
+    unit3 = Unit("A", "PIC", "FRANCE")  # France support; PIC adj BUR
+    unit4 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit5 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit6 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adj BUR
+    unit7 = Unit("A", "MAR", "GERMANY")  # Germany support; MAR adj BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6, unit7]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-
-    game.game_state.powers["GERMANY"].units.append(unit6)
-
-    game.game_state.powers["GERMANY"].units.append(unit7)
-    
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support5 = SupportOrder(power="GERMANY", unit=unit7, supported_unit=unit4, supported_action="move", supported_target="GAS")
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support5 = SupportOrder(power="GERMANY", unit=unit7, supported_unit=unit4, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4, support5]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    successful = [m for m in moves if m.get("success") == True and m.get("to") == "GAS"]
+    successful = [m for m in moves if m.get("success") == True and m.get("to") == "BUR"]
     assert len(successful) == 1, f"Expected 1 successful move, got {len(successful)}"
-    assert "BUR" in successful[0].get("unit", ""), "GERMANY should win"
+    assert "MUN" in successful[0].get("unit", ""), "GERMANY should win"
 
 
 # ==================== Support Order Scenarios ====================
@@ -388,24 +361,19 @@ def test_hold_2_support_vs_move_1_support_hold_wins():
 
 def test_move_2_support_vs_hold_1_support_move_wins():
     """Test move with 2 support vs hold with 1 support: move wins (3-2)."""
+    # VEN adjacencies (armies): PIE, TUS, TYR, TRI
     game = Game('standard')
     game.add_player("ITALY")
     game.add_player("AUSTRIA")
 
     unit1 = Unit("A", "VEN", "ITALY")
-    unit2 = Unit("A", "TUS", "ITALY")
+    unit2 = Unit("A", "TUS", "ITALY")   # TUS adjacent to VEN
     unit3 = Unit("A", "TYR", "AUSTRIA")
-    unit4 = Unit("A", "TRI", "AUSTRIA")
-    unit5 = Unit("A", "VIE", "AUSTRIA")
-    game.game_state.powers["ITALY"].units.append(unit1)
+    unit4 = Unit("A", "TRI", "AUSTRIA")  # TRI adjacent to VEN
+    unit5 = Unit("A", "PIE", "AUSTRIA")  # PIE adjacent to VEN (was VIE which is not)
+    game.game_state.powers["ITALY"].units = [unit1, unit2]
+    game.game_state.powers["AUSTRIA"].units = [unit3, unit4, unit5]
 
-    game.game_state.powers["ITALY"].units.append(unit2)
-    game.game_state.powers["AUSTRIA"].units.append(unit3)
-
-    game.game_state.powers["AUSTRIA"].units.append(unit4)
-
-    game.game_state.powers["AUSTRIA"].units.append(unit5)
-    
     hold1 = HoldOrder(power="ITALY", unit=unit1)
     support1 = SupportOrder(power="ITALY", unit=unit2, supported_unit=unit1, supported_action="hold")
     move1 = MoveOrder(power="AUSTRIA", unit=unit3, target_province="VEN")
@@ -413,7 +381,7 @@ def test_move_2_support_vs_hold_1_support_move_wins():
     support3 = SupportOrder(power="AUSTRIA", unit=unit5, supported_unit=unit3, supported_action="move", supported_target="VEN")
     game.game_state.orders["ITALY"] = [hold1, support1]
     game.game_state.orders["AUSTRIA"] = [move1, support2, support3]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
     successful = [m for m in moves if m.get("success") == True and m.get("to") == "VEN"]
@@ -427,24 +395,20 @@ def test_move_1_support_vs_move_1_support_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
+    unit1 = Unit("A", "PAR", "FRANCE")
+    unit2 = Unit("A", "BRE", "FRANCE")   # BRE adjacent to GAS
     unit3 = Unit("A", "BUR", "GERMANY")
-    unit4 = Unit("A", "MUN", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit4 = Unit("A", "MAR", "GERMANY")  # MAR adjacent to GAS (was MUN which is not)
+    game.game_state.powers["FRANCE"].units = [unit1, unit2]
+    game.game_state.powers["GERMANY"].units = [unit3, unit4]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-
-    game.game_state.powers["GERMANY"].units.append(unit4)
-    
     move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
     support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
     move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="GAS")
     support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="GAS")
     game.game_state.orders["FRANCE"] = [move1, support1]
     game.game_state.orders["GERMANY"] = [move2, support2]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
     bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "GAS"]
@@ -492,79 +456,63 @@ def test_move_2_support_vs_move_2_support_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "GERMANY")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adj BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adj BUR
+    unit3 = Unit("A", "PIC", "FRANCE")  # France support; PIC adj BUR
+    unit4 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit5 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit6 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adj BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-
-    game.game_state.powers["GERMANY"].units.append(unit6)
-    
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="GAS")
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "GAS"]
+    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "BUR"]
     assert len(bounced) == 2, f"Expected 2 bounced moves, got {len(bounced)}"
 
 
 def test_move_3_support_vs_move_2_support_stronger_wins():
     """Test move with 3 support vs move with 2 support: move with 3 support wins (4-3)."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "PIC", "FRANCE")
-    unit5 = Unit("A", "BUR", "GERMANY")
-    unit6 = Unit("A", "MUN", "GERMANY")
-    unit7 = Unit("A", "RUH", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adj BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adj BUR
+    unit3 = Unit("A", "PIC", "FRANCE")  # France support; PIC adj BUR
+    unit4 = Unit("A", "MAR", "FRANCE")  # France support; MAR adj BUR
+    unit5 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit6 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit7 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adj BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3, unit4]
+    game.game_state.powers["GERMANY"].units = [unit5, unit6, unit7]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-
-    game.game_state.powers["FRANCE"].units.append(unit4)
-    game.game_state.powers["GERMANY"].units.append(unit5)
-
-    game.game_state.powers["GERMANY"].units.append(unit6)
-
-    game.game_state.powers["GERMANY"].units.append(unit7)
-    
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support3 = SupportOrder(power="FRANCE", unit=unit4, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    move2 = MoveOrder(power="GERMANY", unit=unit5, target_province="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit5, supported_action="move", supported_target="GAS")
-    support5 = SupportOrder(power="GERMANY", unit=unit7, supported_unit=unit5, supported_action="move", supported_target="GAS")
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support3 = SupportOrder(power="FRANCE", unit=unit4, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    move2 = MoveOrder(power="GERMANY", unit=unit5, target_province="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit5, supported_action="move", supported_target="BUR")
+    support5 = SupportOrder(power="GERMANY", unit=unit7, supported_unit=unit5, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1, support2, support3]
     game.game_state.orders["GERMANY"] = [move2, support4, support5]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    successful = [m for m in moves if m.get("success") == True and m.get("to") == "GAS"]
+    successful = [m for m in moves if m.get("success") == True and m.get("to") == "BUR"]
     assert len(successful) == 1, f"Expected 1 successful move, got {len(successful)}"
-    assert "PAR" in successful[0].get("unit", ""), "FRANCE should win"
+    assert "GAS" in successful[0].get("unit", ""), "FRANCE should win"
 
 
 # ==================== Support Cut Scenarios ====================
@@ -670,31 +618,25 @@ def test_multiple_supports_one_cut():
     game.add_player("FRANCE")
 
     unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
+    unit2 = Unit("A", "BRE", "FRANCE")   # BRE adjacent to GAS
+    unit3 = Unit("A", "MAR", "FRANCE")   # MAR adjacent to GAS (was PIC which is not)
     unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "PIC", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit5 = Unit("A", "PIC", "GERMANY")  # PIC adjacent to BRE (can cut BRE support)
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-    
-    # France: A PAR -> GAS with 2 supports
+    # France: A PAR -> GAS with 2 supports (BRE and MAR, both adj GAS)
     move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
     support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
     support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    # Germany: A BUR -> GAS, A BEL -> BRE (cuts one support)
+    # Germany: A BUR -> GAS, A PIC -> BRE (cuts BRE support)
     move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
     move3 = MoveOrder(power="GERMANY", unit=unit5, target_province="BRE")
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, move3]
-    
+
     results = game._process_movement_phase()
-    # After one support cut: 2-1, FRANCE still wins
+    # After BRE support cut: MAR support still counts, 2-1, FRANCE wins
     moves = results.get("moves", [])
     successful = [m for m in moves if m.get("success") == True and m.get("to") == "GAS"]
     assert len(successful) == 1, f"Expected 1 successful move, got {len(successful)}"
@@ -892,6 +834,7 @@ def test_3_units_attacking_equal_strength_standoff():
 
 def test_3_units_2_equal_1_weaker():
     """Test 3 units attacking, 2 equal strength, 1 weaker: 2-way standoff, weaker fails."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("FRANCE")
     game.add_player("GERMANY")
@@ -899,44 +842,34 @@ def test_3_units_2_equal_1_weaker():
     game.add_player("GERMANY")
     game.add_player("ENGLAND")
 
-    unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "BUR", "GERMANY")
-    unit4 = Unit("A", "MUN", "GERMANY")
-    unit5 = Unit("A", "BEL", "ENGLAND")  # BEL is adjacent to PIC
-    game.game_state.powers["FRANCE"].units.append(unit1)
-    game.game_state.powers["FRANCE"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-    game.game_state.powers["ENGLAND"].units.append(unit5)
-    
-    # France: A PAR -> PIC with support (strength 2)
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="PIC")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="PIC")
-    # Germany: A BUR -> PIC with support (strength 2)
-    move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="PIC")
-    support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="PIC")
-    # England: A BEL -> PIC (strength 1) - BEL is adjacent to PIC
-    move3 = MoveOrder(power="ENGLAND", unit=unit5, target_province="PIC")
+    unit1 = Unit("A", "PAR", "FRANCE")   # France mover; PAR adj BUR
+    unit2 = Unit("A", "GAS", "FRANCE")   # France support; GAS adj BUR
+    unit3 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit4 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit5 = Unit("A", "BEL", "ENGLAND")  # England mover; BEL adj BUR (strength 1)
+    game.game_state.powers["FRANCE"].units = [unit1, unit2]
+    game.game_state.powers["GERMANY"].units = [unit3, unit4]
+    game.game_state.powers["ENGLAND"].units = [unit5]
+
+    # France: A PAR -> BUR with support (strength 2)
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    # Germany: A MUN -> BUR with support (strength 2)
+    move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="BUR")
+    support2 = SupportOrder(power="GERMANY", unit=unit4, supported_unit=unit3, supported_action="move", supported_target="BUR")
+    # England: A BEL -> BUR (strength 1)
+    move3 = MoveOrder(power="ENGLAND", unit=unit5, target_province="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1]
     game.game_state.orders["GERMANY"] = [move2, support2]
     game.game_state.orders["ENGLAND"] = [move3]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    # FRANCE and GERMANY should bounce (2-2 standoff), ENGLAND should fail
-    # Filter out hold actions
-    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "PIC" and m.get("action") != "hold"]
-    defeated = [m for m in moves if m.get("failure_reason") == "defeated" and m.get("to") == "PIC"]
-    # Note: If all 3 have equal strength (1-1-1), they all bounce. If FRANCE and GERMANY have support (2-2), they bounce and ENGLAND is defeated.
-    # The actual result depends on whether support is applied correctly
-    if len(bounced) == 3:
-        # All 3 bounced - this means they all had equal strength (support might not have been applied)
-        # This is still a valid outcome - all bounce in 3-way equal conflict
-        assert len(bounced) == 3, f"Expected 2-3 bounced moves, got {len(bounced)}"
-    else:
-        assert len(bounced) == 2, f"Expected 2 bounced moves (FRANCE and GERMANY), got {len(bounced)}"
-        assert len(defeated) == 1, f"Expected 1 defeated move (ENGLAND), got {len(defeated)}"
+    # FRANCE and GERMANY bounce (2-2 standoff), ENGLAND is defeated (1 < 2)
+    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "BUR"]
+    defeated = [m for m in moves if m.get("failure_reason") == "defeated" and m.get("to") == "BUR"]
+    assert len(bounced) == 2, f"Expected 2 bounced moves (FRANCE and GERMANY), got {len(bounced)}"
+    assert len(defeated) == 1, f"Expected 1 defeated move (ENGLAND), got {len(defeated)}"
 
 
 def test_2v3_battle_with_support():
@@ -983,41 +916,34 @@ def test_2v3_battle_with_support():
 
 def test_3v3_battle_equal_support_standoff():
     """Test 3v3 battle: 3 units vs 3 units with equal support = standoff."""
+    # Target BUR (adjacencies: PAR, PIC, BEL, RUH, MUN, TYR, MAR, GAS)
     game = Game('standard')
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit1 = Unit("A", "GAS", "FRANCE")  # France mover; GAS adj BUR
+    unit2 = Unit("A", "PAR", "FRANCE")  # France support; PAR adj BUR
+    unit3 = Unit("A", "PIC", "FRANCE")  # France support; PIC adj BUR
+    unit4 = Unit("A", "MUN", "GERMANY")  # Germany mover; MUN adj BUR
+    unit5 = Unit("A", "RUH", "GERMANY")  # Germany support; RUH adj BUR
+    unit6 = Unit("A", "BEL", "GERMANY")  # Germany support; BEL adj BUR
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6]
 
-    game.game_state.powers["FRANCE"].units.append(unit2)
-
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-
-    game.game_state.powers["GERMANY"].units.append(unit5)
-
-    game.game_state.powers["GERMANY"].units.append(unit6)
-    
-    # France: A PAR -> GAS with 2 supports (strength 3)
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    # Germany: A BUR -> GAS with 2 supports (strength 3)
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="GAS")
+    # France: A GAS -> BUR with 2 supports (strength 3)
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    # Germany: A MUN -> BUR with 2 supports (strength 3)
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4]
-    
+
     results = game._process_movement_phase()
     moves = results.get("moves", [])
-    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "GAS"]
+    bounced = [m for m in moves if m.get("failure_reason") == "bounced" and m.get("to") == "BUR"]
     assert len(bounced) == 2, f"Expected 2 bounced moves, got {len(bounced)}"
 
 

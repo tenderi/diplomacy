@@ -8,10 +8,8 @@ with proper foreign key relationships and data validation constraints.
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, Index, text, inspect
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy import JSON
 from datetime import datetime
-import json
 
 Base = declarative_base()
 
@@ -452,7 +450,7 @@ def create_database_schema(database_url: str):
                     conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT true"))
                     conn.execute(text("UPDATE users SET is_active = true WHERE is_active IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN is_active SET NOT NULL"))
-                except Exception as e:
+                except Exception:
                     # If column already exists or other error, continue
                     pass
             
@@ -567,7 +565,7 @@ def order_to_dict(order) -> dict:
 
 def dict_to_order(data: dict):
     """Convert dictionary to Order dataclass from JSON storage"""
-    from .data_models import Order, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderType, OrderStatus, Unit
+    from .data_models import Order, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderType, OrderStatus
     
     # Convert unit data
     unit = dict_to_unit(data["unit"])

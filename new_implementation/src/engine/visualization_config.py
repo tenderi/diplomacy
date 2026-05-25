@@ -9,7 +9,7 @@ use this configuration to ensure consistency and easy customization.
 import json
 import os
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger("diplomacy.engine.visualization_config")
 

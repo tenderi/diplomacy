@@ -149,7 +149,7 @@ async def process_turn(
                 logger.debug(f"process_turn: failed to assign spec-shaped game.state: {e}")
             # Save game state snapshot
             game_obj = server.games[game_id]
-            snapshot = db_service.create_game_snapshot(
+            db_service.create_game_snapshot(
                 game_id=int(getattr(game, 'id', 0)),
                 turn=game_obj.turn,
                 year=game_obj.year,
@@ -585,7 +585,7 @@ def join_game(
         if taken:
             raise HTTPException(status_code=409, detail="Power already taken")
         # Use add_player which creates the player in the database
-        power_state = db_service.add_player(game_id=game_id, power_name=req.power, user_id=int(user.id))  # type: ignore
+        db_service.add_player(game_id=game_id, power_name=req.power, user_id=int(user.id))  # type: ignore
         # Add player to in-memory server
         if str(game_id) not in server.games:
             g = Game()

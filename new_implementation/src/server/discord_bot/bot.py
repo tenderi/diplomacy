@@ -45,7 +45,6 @@ def create_bot() -> commands.Bot:
             lines = []
             for g in games_list[:15]:
                 gid = g.get("game_id") or g.get("id")
-                turn = g.get("current_turn", 0)
                 year = g.get("current_year", 1901)
                 season = g.get("current_season", "Spring")
                 phase = g.get("current_phase", "Movement")
