@@ -181,9 +181,6 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
         # Get map_name from game state
         map_name = game_state.get("map", "standard")
         
-        # Generate map with units
-        map_instance = Map(map_name)
-
         # Create units dictionary from game state
         units = {}
         if "units" in game_state:

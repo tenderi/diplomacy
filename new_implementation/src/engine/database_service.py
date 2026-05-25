@@ -5,10 +5,9 @@ This module provides database operations using the new data models and schema
 to ensure proper data integrity and consistency.
 """
 
-from typing import List, Optional, Dict, Any, Tuple, Iterable
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 import logging
 from .database import (
@@ -16,11 +15,11 @@ from .database import (
     TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
     SpectatorModel,
-    get_session_factory, unit_to_dict, dict_to_unit, order_to_dict, dict_to_order
+    get_session_factory, dict_to_order
 )
 from .data_models import (
-    GameState, PowerState, Unit, Order, OrderType, OrderStatus, GameStatus,
-    MapData, Province, TurnState, MapSnapshot
+    GameState, PowerState, Unit, Order, GameStatus,
+    MapData, Province
 )
 
 

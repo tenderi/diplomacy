@@ -690,7 +690,6 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
             if isinstance(power_state, dict):
                 orders_submitted = power_state.get("orders_submitted", False)
                 last_order_time = power_state.get("last_order_time")
-                is_active = power_state.get("is_active", True)
                 is_eliminated = power_state.get("is_eliminated", False)
                 
                 emoji = power_emoji.get(power_name, "")

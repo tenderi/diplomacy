@@ -80,7 +80,6 @@ def set_orders(
         parsed_orders: list[Any] = []
         if str(req.game_id) in server.games:
             game_obj = server.games[str(req.game_id)]
-            game_state = game_obj.get_game_state()
             for order in req.orders:
                 try:
                     parser = OrderParser()

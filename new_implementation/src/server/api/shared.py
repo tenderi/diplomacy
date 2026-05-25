@@ -12,8 +12,6 @@ import pytz
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
-_shared_logger = logging.getLogger(__name__)
-
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from engine.database_service import DatabaseService
 from engine.database import order_to_dict, unit_to_dict
@@ -21,6 +19,8 @@ from ..server import Server
 from engine.data_models import GameStatus
 from engine.game import Game
 from engine.allowed_moves import build_allowed_moves
+
+_shared_logger = logging.getLogger(__name__)
 
 # Shared service instances
 db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)

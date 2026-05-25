@@ -49,18 +49,16 @@ def test_2v2_battle_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
     game.add_player("GERMANY")
-    
-    # Create units
+
+    # Create units: BRE adj GAS, MAR adj GAS
     unit1 = Unit("A", "PAR", "FRANCE")
     unit2 = Unit("A", "BRE", "FRANCE")
     unit3 = Unit("A", "BUR", "GERMANY")
-    unit4 = Unit("A", "MUN", "GERMANY")
-    
-    game.game_state.powers["FRANCE"].units.append(unit1)
-    game.game_state.powers["FRANCE"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
-    
+    unit4 = Unit("A", "MAR", "GERMANY")
+
+    game.game_state.powers["FRANCE"].units = [unit1, unit2]
+    game.game_state.powers["GERMANY"].units = [unit3, unit4]
+
     # France: A PAR -> GAS, A BRE S A PAR -> GAS
     move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
     support1 = SupportOrder(
@@ -70,8 +68,8 @@ def test_2v2_battle_standoff():
         supported_action="move",
         supported_target="GAS"
     )
-    
-    # Germany: A BUR -> GAS, A MUN S A BUR -> GAS
+
+    # Germany: A BUR -> GAS, A MAR S A BUR -> GAS
     move2 = MoveOrder(power="GERMANY", unit=unit3, target_province="GAS")
     support2 = SupportOrder(
         power="GERMANY",
@@ -80,7 +78,7 @@ def test_2v2_battle_standoff():
         supported_action="move",
         supported_target="GAS"
     )
-    
+
     game.game_state.orders["FRANCE"] = [move1, support1]
     game.game_state.orders["GERMANY"] = [move2, support2]
     
@@ -104,37 +102,27 @@ def test_3v3_battle_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    # Create units with multiple supports
-    unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
+    # Target BUR: adj armies GAS, PAR, PIC, MUN, RUH, BEL, MAR, TYR
+    unit1 = Unit("A", "GAS", "FRANCE")
+    unit2 = Unit("A", "PAR", "FRANCE")
     unit3 = Unit("A", "PIC", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    unit4 = Unit("A", "MUN", "GERMANY")
+    unit5 = Unit("A", "RUH", "GERMANY")
+    unit6 = Unit("A", "BEL", "GERMANY")
 
-    
-    game.game_state.powers["FRANCE"].units.append(unit2)
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6]
 
-    
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
+    # France: A GAS -> BUR with 2 supports
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
 
-    game.game_state.powers["GERMANY"].units.append(unit5)
+    # Germany: A MUN -> BUR with 2 supports
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
 
-    game.game_state.powers["GERMANY"].units.append(unit6)
-    
-    # France: A PAR -> GAS with 2 supports
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="GAS")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="GAS")
-    
-    # Germany: A BUR -> GAS with 2 supports
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="GAS")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="GAS")
-    
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4]
     
@@ -229,37 +217,27 @@ def test_2_units_with_2_support_each_standoff():
     game.add_player("GERMANY")
     game.add_player("FRANCE")
 
-    # Create units
-    unit1 = Unit("A", "PAR", "FRANCE")
-    unit2 = Unit("A", "BRE", "FRANCE")
-    unit3 = Unit("A", "GAS", "FRANCE")
-    unit4 = Unit("A", "BUR", "GERMANY")
-    unit5 = Unit("A", "MUN", "GERMANY")
-    unit6 = Unit("A", "RUH", "GERMANY")
-    
-    game.game_state.powers["FRANCE"].units.append(unit1)
+    # Target BUR: adj armies GAS, PAR, PIC, MUN, RUH, BEL, MAR, TYR
+    unit1 = Unit("A", "GAS", "FRANCE")
+    unit2 = Unit("A", "PAR", "FRANCE")
+    unit3 = Unit("A", "PIC", "FRANCE")
+    unit4 = Unit("A", "MUN", "GERMANY")
+    unit5 = Unit("A", "RUH", "GERMANY")
+    unit6 = Unit("A", "BEL", "GERMANY")
 
-    
-    game.game_state.powers["FRANCE"].units.append(unit2)
+    game.game_state.powers["FRANCE"].units = [unit1, unit2, unit3]
+    game.game_state.powers["GERMANY"].units = [unit4, unit5, unit6]
 
-    
-    game.game_state.powers["FRANCE"].units.append(unit3)
-    game.game_state.powers["GERMANY"].units.append(unit4)
+    # France: A GAS -> BUR with 2 supports (strength 3)
+    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="BUR")
+    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="BUR")
+    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="BUR")
 
-    game.game_state.powers["GERMANY"].units.append(unit5)
+    # Germany: A MUN -> BUR with 2 supports (strength 3)
+    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="BUR")
+    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="BUR")
+    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="BUR")
 
-    game.game_state.powers["GERMANY"].units.append(unit6)
-    
-    # France: A PAR -> PIC with 2 supports (strength 3)
-    move1 = MoveOrder(power="FRANCE", unit=unit1, target_province="PIC")
-    support1 = SupportOrder(power="FRANCE", unit=unit2, supported_unit=unit1, supported_action="move", supported_target="PIC")
-    support2 = SupportOrder(power="FRANCE", unit=unit3, supported_unit=unit1, supported_action="move", supported_target="PIC")
-    
-    # Germany: A BUR -> PIC with 2 supports (strength 3)
-    move2 = MoveOrder(power="GERMANY", unit=unit4, target_province="PIC")
-    support3 = SupportOrder(power="GERMANY", unit=unit5, supported_unit=unit4, supported_action="move", supported_target="PIC")
-    support4 = SupportOrder(power="GERMANY", unit=unit6, supported_unit=unit4, supported_action="move", supported_target="PIC")
-    
     game.game_state.orders["FRANCE"] = [move1, support1, support2]
     game.game_state.orders["GERMANY"] = [move2, support3, support4]
     

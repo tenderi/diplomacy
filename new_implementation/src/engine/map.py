@@ -15,8 +15,8 @@ import cairosvg  # type: ignore
 from io import BytesIO
 import hashlib
 import time
-from functools import lru_cache
 import logging
+from .visualization_config import get_config
 
 # Module-level logger for static methods
 logger = logging.getLogger("diplomacy.engine.map")
@@ -194,9 +194,6 @@ _font_cache: Optional[ImageFont.ImageFont] = None
 
 # Global map cache instance
 _map_cache = MapCache()
-
-# Import visualization configuration
-from .visualization_config import get_config
 
 # Get global config instance
 _viz_config = get_config()
@@ -661,7 +658,7 @@ class Map:
                     try:
                         map_instance = Map("standard")
                         supply_centers_set = set(map_instance.get_supply_centers())
-                    except:
+                    except Exception:
                         supply_centers_set = set()  # Fallback: empty set
                 # Filter province_power_map to only include supply centers
                 province_power_map = {prov: color for prov, color in province_power_map.items() 
@@ -1260,16 +1257,13 @@ class Map:
         coords = Map.get_svg_province_coordinates(svg_path)
         # 3. Get power colors from config
         power_colors = _get_power_colors_dict()
-        # 4. Draw units with province coloring
-        font = Map._get_cached_font(30)  # Font size for army/fleet markers
-        
         # Get supply centers set if filtering is enabled
         supply_centers_set = None
         if color_only_supply_centers:
             try:
                 map_instance = Map("standard")
                 supply_centers_set = set(map_instance.get_supply_centers())
-            except:
+            except Exception:
                 supply_centers_set = set()
         
         # First pass: Color provinces based on power control using proper transparency
@@ -1710,8 +1704,6 @@ class Map:
             if len(parts) < 3:
                 continue
                 
-            unit = f"{parts[1]} {parts[2]}"  # e.g., "A PAR"
-            
             # Move orders (A PAR - BUR)
             if len(parts) >= 5 and parts[3] == "-":
                 from_prov = parts[2].upper()
@@ -1805,7 +1797,6 @@ class Map:
         mid_y = (supp_y + from_y) / 2
         
         # Draw curved line using quadratic bezier
-        import math
         control_x = mid_x + 20
         control_y = mid_y + 20
         
@@ -2416,7 +2407,6 @@ class Map:
         
         marker_specs = _viz_config.get_marker_specs()
         marker_size = marker_specs["battle_indicator_size"]
-        border_width = marker_specs["battle_indicator_border_width"]
         battle_color = _viz_config.get_color("failure")  # Red for battles
         
         # Draw conflict marker (star or special symbol)
@@ -2714,7 +2704,6 @@ class Map:
         arrow_specs = _viz_config.get_arrow_specs()
         line_width = width if width is not None else arrow_specs["line_width_primary"]
         arrowhead_size = arrow_specs["arrowhead_size"]
-        arrowhead_base_width = arrow_specs["arrowhead_base_width"]
         outline_width = arrow_specs.get("outline_width", 2)  # Default 2px black outline
         
         # Convert color to RGB if needed
@@ -2984,8 +2973,7 @@ class Map:
         import math
         num_segments = 24
         dash_length = 2
-        gap_length = 2
-        
+
         for i in range(0, num_segments, 2):
             start_angle = 2 * math.pi * i / num_segments
             end_angle = 2 * math.pi * (i + dash_length) / num_segments
@@ -3040,9 +3028,6 @@ class Map:
             return
         
         legend_specs = _viz_config.get_legend_specs()
-        arrow_specs = _viz_config.get_arrow_specs()
-        marker_specs = _viz_config.get_marker_specs()
-        
         padding = legend_specs["padding"]
         item_spacing = legend_specs["item_spacing"]
         symbol_size = legend_specs["symbol_size"]
@@ -3492,7 +3477,7 @@ class Map:
                         try:
                             # Try accessing through the image that created the draw
                             base_image = getattr(draw, '_image', None) or draw.im
-                        except:
+                        except Exception:
                             pass
                 
                 # Ensure base_image is a proper PIL Image
@@ -3579,7 +3564,7 @@ class Map:
                         try:
                             # Try accessing through the image that created the draw
                             base_image = getattr(draw, '_image', None) or draw.im
-                        except:
+                        except Exception:
                             pass
                 
                 # Ensure base_image is a proper PIL Image

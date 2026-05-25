@@ -3,7 +3,6 @@ Player (Power) management for Diplomacy using new data models.
 - Represents a player/power using the new PowerState data model.
 """
 from typing import List, Set, Optional
-from datetime import datetime
 from .data_models import PowerState, Unit
 
 

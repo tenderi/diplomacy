@@ -121,25 +121,40 @@ SessionLocal = None  # type: ignore
 
 
 def _get_db_url() -> str:
-    """Get database URL from environment variables or default config.
-    
-    Checks for SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL.
-    Falls back to default from server.db_config if not set.
-    Returns the URL if found, None otherwise.
+    """Get database URL if a reachable database is configured.
+
+    Checks SQLALCHEMY_DATABASE_URL / DIPLOMACY_DATABASE_URL env vars, then the
+    server.db_config default.  Unlike a simple URL check, this function also
+    verifies that a TCP connection to the database host:port is possible so
+    that @pytest.mark.skipif(not _get_db_url(), ...) skips correctly in
+    environments where PostgreSQL is not running.
     """
-    # First check environment variables
     db_url = os.environ.get("SQLALCHEMY_DATABASE_URL") or os.environ.get("DIPLOMACY_DATABASE_URL")
-    
-    # If not set, try to use default from db_config (but allow None for CI/skip scenarios)
+
     if not db_url:
         try:
             from server.db_config import SQLALCHEMY_DATABASE_URL as default_url
-            # Only use default if it's not the placeholder (contains actual connection info)
             if default_url and "localhost" in default_url:
                 db_url = default_url
         except ImportError:
             pass
-    
+
+    if not db_url:
+        return ""
+
+    # Verify the database is actually reachable before returning the URL.
+    import socket
+    try:
+        # Parse host and port from the URL (handles postgresql://user:pass@host:port/db)
+        from urllib.parse import urlparse
+        parsed = urlparse(db_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 5432
+        sock = socket.create_connection((host, port), timeout=1)
+        sock.close()
+    except (OSError, ValueError):
+        return ""
+
     return db_url
 
 

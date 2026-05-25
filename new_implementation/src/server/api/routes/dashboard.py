@@ -90,7 +90,7 @@ def _get_service_status(service_name: str) -> Dict[str, Any]:
 class RestartServiceRequest:
     service: str
 
-@router.get("/dashboard/api/services/status")
+@router.get("/dashboard/api/services/status", dependencies=[Depends(require_admin)])
 def get_services_status() -> Dict[str, Any]:
     """Get status of all managed services."""
     try:
@@ -140,7 +140,7 @@ def restart_service(req: Dict[str, str]) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dashboard/api/logs/{service}")
+@router.get("/dashboard/api/logs/{service}", dependencies=[Depends(require_admin)])
 def get_service_logs(service: str, lines: int = 100) -> Dict[str, Any]:
     """Get logs for a systemd service."""
     if service not in ALLOWED_SERVICES:
@@ -175,7 +175,7 @@ def get_service_logs(service: str, lines: int = 100) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dashboard/api/database/tables")
+@router.get("/dashboard/api/database/tables", dependencies=[Depends(require_admin)])
 def get_database_tables() -> Dict[str, Any]:
     """Get list of all database tables."""
     try:
@@ -196,7 +196,7 @@ def get_database_tables() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dashboard/api/database/table/{table_name}")
+@router.get("/dashboard/api/database/table/{table_name}", dependencies=[Depends(require_admin)])
 def get_table_data(table_name: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
     """Get data from a database table."""
     if table_name not in ALLOWED_TABLES:
@@ -265,7 +265,7 @@ def get_table_data(table_name: str, limit: int = 100, offset: int = 0) -> Dict[s
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dashboard/api/database/stats")
+@router.get("/dashboard/api/database/stats", dependencies=[Depends(require_admin)])
 def get_database_stats() -> Dict[str, Any]:
     """Get database statistics."""
     try:
