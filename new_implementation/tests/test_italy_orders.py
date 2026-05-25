@@ -30,9 +30,9 @@ def test_italy_orders_specifically():
     # Submit the exact same orders as in the demo game Autumn 1901
     print(f"\n📋 Submitting Autumn 1901 orders (same as demo game):")
     
-    # Germany orders (support the move to PRU, not hold)
-    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN S A BER - PRU'])
-    print(f"  GERMANY: A BER - PRU, A MUN S A BER - PRU")
+    # Germany orders (MUN is not adjacent to PRU so cannot support BER->PRU; hold instead)
+    game.set_orders('GERMANY', ['A BER - PRU', 'A MUN H'])
+    print(f"  GERMANY: A BER - PRU, A MUN H")
     
     # France orders  
     game.set_orders('FRANCE', ['A PAR - BUR', 'A MAR - PIE', 'F BRE - MAO'])

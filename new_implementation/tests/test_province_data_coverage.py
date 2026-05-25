@@ -128,8 +128,7 @@ class TestIllegalMovePrevention:
         """Verify that even if validation passes, illegal moves are rejected during processing."""
         game = Game('standard')
         game.add_player('FRANCE')
-        game.add_player('ITALY')
-        
+
         # Create units in non-adjacent provinces
         army_paris = Unit(unit_type='A', province='PAR', power='FRANCE')
         game.game_state.powers['FRANCE'].units = [army_paris]
