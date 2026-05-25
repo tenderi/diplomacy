@@ -290,11 +290,13 @@ class TestLoadHandling:
         game_id = game_resp.json()["game_id"]
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "load_user1",
+            "bot_secret": BOT_SECRET,
             "game_id": int(game_id),
             "power": "FRANCE"
         })
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "load_user2",
+            "bot_secret": BOT_SECRET,
             "game_id": int(game_id),
             "power": "GERMANY"
         })
@@ -304,7 +306,8 @@ class TestLoadHandling:
                 "game_id": game_id,
                 "power": power,
                 "orders": ["A PAR H"] if power == "FRANCE" else ["A BER H"],
-                "telegram_id": user_id
+                "telegram_id": user_id,
+                "bot_secret": BOT_SECRET,
             })
         
         start_time = time.time()
