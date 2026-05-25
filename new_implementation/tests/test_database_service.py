@@ -198,8 +198,8 @@ class TestDatabaseService:
         import uuid
         from engine.data_models import Unit
         unique_id = f"order_test_game_{uuid.uuid4().hex[:8]}"
-        # Create game first
-        created_game = db_service.create_game(unique_id, "standard")
+        # Create game in Movement phase so the phase filter matches submitted orders
+        created_game = db_service.create_game(unique_id, "standard", initial_phase="Movement")
         
         # Get the numeric game ID for add_player
         game_model = db_service.get_game_by_game_id(unique_id)

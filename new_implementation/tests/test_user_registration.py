@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
-    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    project_root = os.path.join(os.path.dirname(__file__), '..')
     env_path = os.path.join(project_root, '.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
@@ -49,7 +49,7 @@ class TestPersistentUserRegistration:
         """Test successful registration of a new user."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": self.unique_id, "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -62,7 +62,7 @@ class TestPersistentUserRegistration:
         """Test registration with only telegram_id (full_name optional)."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": self.unique_id}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id}
         )
         assert response.status_code == 200
         data = response.json()
@@ -74,7 +74,7 @@ class TestPersistentUserRegistration:
         # First registration
         response1 = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": self.unique_id, "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User"}
         )
         assert response1.status_code == 200
         user_id1 = response1.json()["user_id"]
@@ -82,7 +82,7 @@ class TestPersistentUserRegistration:
         # Second registration with same telegram_id (idempotent)
         response2 = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": self.unique_id, "full_name": "Test User Updated"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User Updated"}
         )
         assert response2.status_code == 200
         data = response2.json()
@@ -101,7 +101,7 @@ class TestPersistentUserRegistration:
         """Test registration fails with empty telegram_id."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": "", "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "", "full_name": "Test User"}
         )
         assert response.status_code in (400, 422)
         detail = str(response.json().get("detail", "")).lower()
@@ -111,7 +111,7 @@ class TestPersistentUserRegistration:
         """Test registration fails with whitespace-only telegram_id."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": "   ", "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "   ", "full_name": "Test User"}
         )
         assert response.status_code in (400, 422)
     
@@ -122,7 +122,7 @@ class TestPersistentUserRegistration:
             unique_id = f"{self.unique_id}_{i}"
             response = self.client.post(
                 "/users/persistent_register",
-                json={"telegram_id": unique_id, "full_name": f"User {i}"}
+                json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": unique_id, "full_name": f"User {i}"}
             )
             assert response.status_code == 200
             data = response.json()
@@ -136,7 +136,7 @@ class TestPersistentUserRegistration:
         """Test registration with special characters in full_name."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": self.unique_id, "full_name": "Test User with 'quotes' and émojis 🎮"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User with 'quotes' and émojis 🎮"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -147,7 +147,7 @@ class TestPersistentUserRegistration:
         numeric_id = f"{self.unique_id}_123456789"
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": numeric_id, "full_name": "Numeric User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": numeric_id, "full_name": "Numeric User"}
         )
         assert response.status_code == 200
         data = response.json()
@@ -159,7 +159,7 @@ class TestPersistentUserRegistration:
         long_id = f"{self.unique_id}_{'a' * 200}"[:255]
         response = self.client.post(
             "/users/persistent_register",
-            json={"telegram_id": long_id, "full_name": "Long ID User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": long_id, "full_name": "Long ID User"}
         )
         assert response.status_code == 200
         data = response.json()

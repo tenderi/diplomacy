@@ -129,7 +129,7 @@ def test_replace_only_inactive_allowed_via_api():
     # Load environment variables from .env file if it exists
     try:
         from dotenv import load_dotenv
-        project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+        project_root = os.path.join(os.path.dirname(__file__), '..')
         env_path = os.path.join(project_root, '.env')
         if os.path.exists(env_path):
             load_dotenv(env_path)
@@ -143,20 +143,24 @@ def test_replace_only_inactive_allowed_via_api():
     if not db_url:
         pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
     client = TestClient(app)
+    import time as _t
+    _email = f"replace_test_{int(_t.time()*1000)}@example.com"
+    _reg = client.post("/auth/register", json={"email": _email, "password": "testpass123"})
+    _auth_headers = {"Authorization": f"Bearer {_reg.json()['access_token']}"}
     # Register two users
-    client.post("/users/persistent_register", json={"telegram_id": "u1", "full_name": "User1"})
-    client.post("/users/persistent_register", json={"telegram_id": "u2", "full_name": "User2"})
+    client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "u1", "full_name": "User1"})
+    client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "u2", "full_name": "User2"})
     # Create game and add player (assign u1 to FRANCE)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers)
     assert resp.status_code == 200
     game_id = int(resp.json()["game_id"])
-    join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
+    join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "bot_secret": "test_bot_secret_for_tests", "game_id": game_id, "power": "FRANCE"})
     assert join_resp.status_code == 200
     # Mark player inactive (admin endpoint)
     inactive_resp = client.post(f"/games/{game_id}/players/FRANCE/mark_inactive", json={"admin_token": ADMIN_TOKEN})
     assert inactive_resp.status_code == 200
     # Now replace should succeed (assign u2)
-    replace_resp = client.post(f"/games/{game_id}/replace", json={"telegram_id": "u2", "power": "FRANCE"})
+    replace_resp = client.post(f"/games/{game_id}/replace", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "u2", "power": "FRANCE"})
     assert replace_resp.status_code == 200
 
 def test_adjudication_results_in_state():
@@ -167,7 +171,7 @@ def test_adjudication_results_in_state():
     # Load environment variables from .env file if it exists
     try:
         from dotenv import load_dotenv
-        project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+        project_root = os.path.join(os.path.dirname(__file__), '..')
         env_path = os.path.join(project_root, '.env')
         if os.path.exists(env_path):
             load_dotenv(env_path)
@@ -180,19 +184,23 @@ def test_adjudication_results_in_state():
     if not _get_db_url():
         pytest.skip("Database URL not configured. Set SQLALCHEMY_DATABASE_URL or DIPLOMACY_DATABASE_URL environment variable, or create a .env file in the project root.")
     client = TestClient(app)
+    import time as _t
+    _email2 = f"adjud_test_{int(_t.time()*1000)}@example.com"
+    _reg2 = client.post("/auth/register", json={"email": _email2, "password": "testpass123"})
+    _auth_headers2 = {"Authorization": f"Bearer {_reg2.json()['access_token']}"}
     # Create a game and register a user
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers2)
     assert resp.status_code == 200, f"Create game failed: {resp.json()}"
     assert "game_id" in resp.json(), f"Response missing game_id: {resp.json()}"
     game_id = int(resp.json()["game_id"])
     # Use persistent_register which actually creates the user in the database
-    client.post("/users/persistent_register", json={"telegram_id": "u1", "full_name": "User1"})
+    client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "u1", "full_name": "User1"})
     # Add player to the game (associate user with power)
-    join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "game_id": game_id, "power": "FRANCE"})
+    join_resp = client.post(f"/games/{game_id}/join", json={"telegram_id": "u1", "bot_secret": "test_bot_secret_for_tests", "game_id": game_id, "power": "FRANCE"})
     assert join_resp.status_code == 200, f"Join failed: {join_resp.json()}"
     # Submit a valid order and process the turn
     order = "FRANCE F BRE H"
-    set_orders_resp = client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1"})
+    set_orders_resp = client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1", "bot_secret": "test_bot_secret_for_tests"})
     assert set_orders_resp.status_code == 200, f"Set orders failed: {set_orders_resp.json()}"
     client.post(f"/games/{game_id}/process_turn")
     # Get the game state

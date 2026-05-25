@@ -40,15 +40,18 @@ class SetDeadlineRequest(BaseModel):
 
 class JoinGameRequest(BaseModel):
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+    bot_secret: Optional[str] = None
     game_id: int
     power: str
 
 class QuitGameRequest(BaseModel):
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
     power: Optional[str] = None  # Optional: if provided, must match user's power
 
 class ReplacePlayerRequest(BaseModel):
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
     power: str
 
 class MarkInactiveRequest(BaseModel):
@@ -58,6 +61,7 @@ class MarkInactiveRequest(BaseModel):
 class SpectateRequest(BaseModel):
     """Request for spectate endpoints (join/leave)."""
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+    bot_secret: Optional[str] = None
 
 # --- Game Management Endpoints ---
 @router.post("/games/create")
@@ -448,7 +452,7 @@ def spectate_join(
 ) -> Dict[str, Any]:
     """Join a game as spectator (non-player observer). Requires auth (Bearer or telegram_id)."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         db_service.add_spectator(game_id=game_id, user_id=int(user.id))
         return {"status": "ok", "message": f"Now spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
@@ -468,7 +472,7 @@ def spectate_leave(
 ) -> Dict[str, Any]:
     """Stop spectating a game."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         db_service.remove_spectator(game_id=game_id, user_id=int(user.id))
         return {"status": "ok", "message": f"Stopped spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
@@ -571,7 +575,7 @@ def join_game(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # Validate power name
         valid_powers = {'ENGLAND', 'FRANCE', 'GERMANY', 'RUSSIA', 'TURKEY', 'AUSTRIA', 'ITALY'}
         if req.power.upper() not in valid_powers:
@@ -645,7 +649,7 @@ def quit_game(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # If power is specified, check that user owns that power
         if req.power:
             player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
@@ -704,7 +708,7 @@ def replace_player(
 ) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # Find the player slot for this power
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if player is None:

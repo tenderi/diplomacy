@@ -40,6 +40,7 @@ class TestRegisterUser:
     def test_persistent_register_user(self, client):
         """Test persistent user registration."""
         resp = client.post("/users/persistent_register", json={
+            "bot_secret": "test_bot_secret_for_tests",
             "telegram_id": "persistent_user",
             "full_name": "Persistent User"
         })
@@ -53,13 +54,15 @@ class TestRegisterUser:
         """Test registering duplicate user."""
         # Register first time
         resp1 = client.post("/users/persistent_register", json={
+            "bot_secret": "test_bot_secret_for_tests",
             "telegram_id": "duplicate_user",
             "full_name": "Duplicate User"
         })
         assert resp1.status_code == 200
-        
+
         # Register again - may return "ok" or "already_registered" depending on implementation
         resp2 = client.post("/users/persistent_register", json={
+            "bot_secret": "test_bot_secret_for_tests",
             "telegram_id": "duplicate_user",
             "full_name": "Duplicate User"
         })
@@ -103,6 +106,7 @@ class TestGetUserGames:
         """Test successful user games retrieval."""
         # Register user
         client.post("/users/persistent_register", json={
+            "bot_secret": "test_bot_secret_for_tests",
             "telegram_id": "games_user",
             "full_name": "Games User"
         })
@@ -144,28 +148,35 @@ class TestGetUserGames:
         """Test that quit games don't appear in user games list."""
         # Register user
         client.post("/users/persistent_register", json={
+            "bot_secret": "test_bot_secret_for_tests",
             "telegram_id": "quit_user",
             "full_name": "Quit User"
         })
-        
-        # Create and join game
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+
+        # Create and join game (needs auth)
+        import time as _t
+        _email = f"quit_user_{int(_t.time()*1000)}@example.com"
+        _reg = client.post("/auth/register", json={"email": _email, "password": "testpass123"})
+        _headers = {"Authorization": f"Bearer {_reg.json()['access_token']}"}
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_headers)
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={
             "telegram_id": "quit_user",
+            "bot_secret": "test_bot_secret_for_tests",
             "game_id": game_id,
             "power": "FRANCE"
         })
-        
+
         # Verify game appears
         resp1 = client.get("/users/quit_user/games")
         assert resp1.status_code == 200
         games_before = resp1.json()["games"]
         assert any(g["game_id"] == game_id for g in games_before)
-        
+
         # Quit game
         client.post(f"/games/{game_id}/quit", json={
             "telegram_id": "quit_user",
+            "bot_secret": "test_bot_secret_for_tests",
             "game_id": game_id
         })
         

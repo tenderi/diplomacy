@@ -385,23 +385,27 @@ def test_order_history_and_clearing():
     # Register users
     france_telegram_id = "1001"
     germany_telegram_id = "1002"
-    client.post("/users/persistent_register", json={"telegram_id": france_telegram_id, "full_name": "France Player"})
-    client.post("/users/persistent_register", json={"telegram_id": germany_telegram_id, "full_name": "Germany Player"})
+    client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": france_telegram_id, "full_name": "France Player"})
+    client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": germany_telegram_id, "full_name": "Germany Player"})
 
+    import time as _t
+    _email = f"ord_hist_{int(_t.time()*1000)}@example.com"
+    _reg = client.post("/auth/register", json={"email": _email, "password": "testpass123"})
+    _auth_headers = {"Authorization": f"Bearer {_reg.json()['access_token']}"}
     # Create game
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers)
     assert resp.status_code == 200
     game_id = str(resp.json()["game_id"])
 
     # Join players
-    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": france_telegram_id, "game_id": int(game_id), "power": "FRANCE"})
+    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": france_telegram_id, "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id), "power": "FRANCE"})
     assert resp.status_code == 200
-    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": germany_telegram_id, "game_id": int(game_id), "power": "GERMANY"})
+    resp = client.post(f"/games/{game_id}/join", json={"telegram_id": germany_telegram_id, "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id), "power": "GERMANY"})
     assert resp.status_code == 200
 
     # Submit orders for turn 0
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": france_telegram_id})
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A MUN - RUH"], "telegram_id": germany_telegram_id})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": france_telegram_id, "bot_secret": "test_bot_secret_for_tests"})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A MUN - RUH"], "telegram_id": germany_telegram_id, "bot_secret": "test_bot_secret_for_tests"})
 
     # Check order history for turn 0
     resp = client.get(f"/games/{game_id}/orders/history")
@@ -418,8 +422,8 @@ def test_order_history_and_clearing():
     assert resp.status_code == 200
 
     # Submit new orders for turn 1
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A BUR - MUN"], "telegram_id": france_telegram_id})
-    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A RUH - BUR"], "telegram_id": germany_telegram_id})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A BUR - MUN"], "telegram_id": france_telegram_id, "bot_secret": "test_bot_secret_for_tests"})
+    client.post("/games/set_orders", json={"game_id": game_id, "power": "GERMANY", "orders": ["A RUH - BUR"], "telegram_id": germany_telegram_id, "bot_secret": "test_bot_secret_for_tests"})
 
     # Check order history for turn 1
     resp = client.get(f"/games/{game_id}/orders/history")
@@ -430,7 +434,7 @@ def test_order_history_and_clearing():
     assert "A RUH - BUR" in history["1"]["GERMANY"]
 
     # Clear FRANCE's orders for turn 1 (body: JSON object with telegram_id)
-    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={"telegram_id": france_telegram_id})
+    resp = client.post(f"/games/{game_id}/orders/FRANCE/clear", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": france_telegram_id, "bot_secret": "test_bot_secret_for_tests"})
     assert resp.status_code == 200
     # Check that FRANCE's orders for turn 1 are now empty
     resp = client.get(f"/games/{game_id}/orders/history")
@@ -447,18 +451,22 @@ def test_persistent_user_registration_and_multi_game():
     clear_response_cache()
     
     client = TestClient(app)
+    import time as _t
+    _email2 = f"multi_game_{int(_t.time()*1000)}@example.com"
+    _reg2 = client.post("/auth/register", json={"email": _email2, "password": "testpass123"})
+    _auth_headers2 = {"Authorization": f"Bearer {_reg2.json()['access_token']}"}
     # Register user
-    resp = client.post("/users/persistent_register", json={"telegram_id": "12345", "full_name": "Test User"})
+    resp = client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "12345", "full_name": "Test User"})
     assert resp.status_code == 200
     # Create two games
-    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers2)
+    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers2)
     game_id1 = resp1.json()["game_id"]
     game_id2 = resp2.json()["game_id"]
     # Join both games as different powers
-    resp = client.post(f"/games/{game_id1}/join", json={"telegram_id": "12345", "game_id": int(game_id1), "power": "FRANCE"})
+    resp = client.post(f"/games/{game_id1}/join", json={"telegram_id": "12345", "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id1), "power": "FRANCE"})
     assert resp.status_code == 200
-    resp = client.post(f"/games/{game_id2}/join", json={"telegram_id": "12345", "game_id": int(game_id2), "power": "GERMANY"})
+    resp = client.post(f"/games/{game_id2}/join", json={"telegram_id": "12345", "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id2), "power": "GERMANY"})
     assert resp.status_code == 200
     # List user games
     resp = client.get("/users/12345/games")
@@ -467,7 +475,7 @@ def test_persistent_user_registration_and_multi_game():
     assert any(str(g["game_id"]) == str(game_id1) and g["power"] == "FRANCE" for g in games)
     assert any(str(g["game_id"]) == str(game_id2) and g["power"] == "GERMANY" for g in games)
     # Quit one game
-    resp = client.post(f"/games/{game_id1}/quit", json={"telegram_id": "12345", "game_id": int(game_id1)})
+    resp = client.post(f"/games/{game_id1}/quit", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "12345", "game_id": int(game_id1)})
     assert resp.status_code == 200
     # List user games again
     resp = client.get("/users/12345/games")

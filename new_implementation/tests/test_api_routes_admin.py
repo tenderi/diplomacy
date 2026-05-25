@@ -169,7 +169,7 @@ class TestAdminMarkPlayerInactive:
         client.post("/users/persistent_register", json={"telegram_id": "inactive_user", "full_name": "Inactive", "bot_secret": BOT_SECRET or ""})
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=bot_headers)
         game_id = int(game_resp.json()["game_id"])
-        client.post(f"/games/{game_id}/join", json={"telegram_id": "inactive_user", "game_id": game_id, "power": "FRANCE"})
+        client.post(f"/games/{game_id}/join", json={"telegram_id": "inactive_user", "bot_secret": BOT_SECRET or "", "game_id": game_id, "power": "FRANCE"})
 
         resp = client.post(f"/games/{game_id}/players/FRANCE/mark_inactive", json={"admin_token": ADMIN_TOKEN})
         assert resp.status_code == 200

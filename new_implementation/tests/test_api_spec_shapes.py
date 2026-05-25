@@ -5,7 +5,7 @@ import pytest
 # Load environment variables from .env file if it exists
 try:
 	from dotenv import load_dotenv
-	project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+	project_root = os.path.join(os.path.dirname(__file__), '..')
 	env_path = os.path.join(project_root, '.env')
 	if os.path.exists(env_path):
 		load_dotenv(env_path)
