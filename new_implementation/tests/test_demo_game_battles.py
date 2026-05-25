@@ -311,14 +311,14 @@ def test_dislodged_units_handled_correctly():
 
     # Create a scenario where a unit is dislodged
     # Unit1 must be in GAS (the target) to be dislodged
+    # MAR is adjacent to GAS (MUN is not); use direct list assignment to avoid canonical units
     unit1 = Unit("A", "GAS", "FRANCE")
     unit2 = Unit("A", "BUR", "GERMANY")
-    unit3 = Unit("A", "MUN", "GERMANY")
-    
-    game.game_state.powers["FRANCE"].units.append(unit1)
-    game.game_state.powers["GERMANY"].units.append(unit2)
-    game.game_state.powers["GERMANY"].units.append(unit3)
-    
+    unit3 = Unit("A", "MAR", "GERMANY")  # MAR adj GAS; MUN is not
+
+    game.game_state.powers["FRANCE"].units = [unit1]
+    game.game_state.powers["GERMANY"].units = [unit2, unit3]
+
     # Germany attacks with support (2-1), should dislodge France
     move1 = MoveOrder(power="GERMANY", unit=unit2, target_province="GAS")
     support1 = SupportOrder(power="GERMANY", unit=unit3, supported_unit=unit2, supported_action="move", supported_target="GAS")
@@ -355,8 +355,7 @@ def test_unit_can_move_into_province_when_occupying_unit_moves_away():
     # Create army in BER
     army_ber = Unit("A", "BER", "GERMANY")
     
-    game.game_state.powers["GERMANY"].units.append(fleet_kie)
-    game.game_state.powers["GERMANY"].units.append(army_ber)
+    game.game_state.powers["GERMANY"].units = [fleet_kie, army_ber]
     
     # F KIE -> HOL
     move_fleet = MoveOrder(

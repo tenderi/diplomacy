@@ -119,12 +119,13 @@ class TestOrderResolution:
         results = game._process_movement_phase()
         
         # French move should win due to support (strength 2 vs 1)
-        successful_moves = [m for m in results["moves"] if m["success"] == True]
+        # Exclude implicit hold results (canonical units without explicit orders)
+        successful_moves = [m for m in results["moves"] if m["success"] == True and m.get("action") != "hold"]
         assert len(successful_moves) == 1
         assert successful_moves[0]["unit"] == "A PAR"
         assert successful_moves[0]["to"] == "BUR"
         assert successful_moves[0]["strength"] == 2
-        
+
         # German move should fail
         failed_moves = [m for m in results["moves"] if m["success"] == False]
         assert len(failed_moves) == 1
@@ -141,14 +142,13 @@ class TestOrderResolution:
         game.add_player('ENGLAND')
         game.add_player('FRANCE')
         
-        # Set up units
+        # Set up units (direct assignment avoids canonical units getting implicit holds)
         army_london = Unit(unit_type='A', province='LON', power='ENGLAND')
         fleet_english_channel = Unit(unit_type='F', province='ENG', power='ENGLAND')
-        army_paris = Unit(unit_type='A', province='PAR', power='FRANCE')
-        
-        game.game_state.powers['ENGLAND'].units.extend([army_london, fleet_english_channel])
-        game.game_state.powers['FRANCE'].units.append(army_paris)
-        
+
+        game.game_state.powers['ENGLAND'].units = [army_london, fleet_english_channel]
+        game.game_state.powers['FRANCE'].units = []
+
         # English army convoyed to Belgium
         move_england = MoveOrder(
             power='ENGLAND',
@@ -157,7 +157,7 @@ class TestOrderResolution:
             is_convoyed=True,
             status=OrderStatus.PENDING
         )
-        
+
         convoy_england = ConvoyOrder(
             power='ENGLAND',
             unit=fleet_english_channel,
@@ -165,13 +165,13 @@ class TestOrderResolution:
             convoyed_target='BEL',
             status=OrderStatus.PENDING
         )
-        
+
         game.game_state.orders['ENGLAND'] = [move_england, convoy_england]
         game.game_state.orders['FRANCE'] = []  # No French orders
-        
+
         # Process the movement phase
         results = game._process_movement_phase()
-        
+
         # English convoy should succeed
         assert len(results["moves"]) == 1
         assert results["moves"][0]["unit"] == "A LON"
@@ -257,9 +257,9 @@ class TestOrderResolution:
         game = Game('standard')
         game.add_player('FRANCE')
         
-        # Set up unit
+        # Set up unit (direct assignment avoids canonical A MAR and F BRE getting implicit holds)
         army_paris = Unit(unit_type='A', province='PAR', power='FRANCE')
-        game.game_state.powers['FRANCE'].units.append(army_paris)
+        game.game_state.powers['FRANCE'].units = [army_paris]
         
         # Hold order
         hold_order = HoldOrder(
