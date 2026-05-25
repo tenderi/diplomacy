@@ -189,11 +189,14 @@ class MapCache:
         }
 
 # Global SVG parsing cache
-_svg_cache: Dict[str, Tuple[ET.ElementTree, Dict[str, Tuple[float, float]]]] = {}
-_font_cache: Optional[ImageFont.ImageFont] = None
+_svg_cache: Dict[str, Tuple[ET.ElementTree, Dict[str, Tuple[float, float]], Dict[str, Tuple[float, float]]]] = {}
+_font_cache: Dict[int, ImageFont.ImageFont] = {}
 
 # Global map cache instance
 _map_cache = MapCache()
+
+# Icon processing cache: keyed by (path, fill_color, outline_color, size)
+_icon_cache: Dict[Tuple[str, Tuple[int, ...], Tuple[int, ...], int], "Image.Image"] = {}
 
 # Get global config instance
 _viz_config = get_config()
@@ -450,7 +453,7 @@ class Map:
         return svg_path
 
     @staticmethod
-    def _get_cached_svg_data(svg_path: str) -> Tuple[ET.ElementTree, Dict[str, Tuple[float, float]]]:
+    def _get_cached_svg_data(svg_path: str) -> Tuple[ET.ElementTree, Dict[str, Tuple[float, float]], Dict[str, Tuple[float, float]]]:
         """Get cached SVG data or parse and cache it."""
         global _svg_cache
         
@@ -479,6 +482,7 @@ class Map:
             # standard-v2 uses text elements with transform attributes instead of jdipNS:PROVINCE
             if 'v2.svg' in svg_path or 'standard-v2' in svg_path.lower():
                 coords = {}
+                dislodged_coords: Dict[str, Tuple[float, float]] = {}
                 import re
                 # Get viewBox to scale coordinates appropriately
                 viewbox = root.get('viewBox', '0 0 7016 4960')
@@ -489,15 +493,15 @@ class Map:
                 else:
                     svg_width = 7016.0
                     svg_height = 4960.0
-                
+
                 # Output dimensions for rendering (standard map size)
                 output_width = 1835.0
                 output_height = 1360.0
-                
+
                 # Scale factors
                 scale_x = output_width / svg_width
                 scale_y = output_height / svg_height
-                
+
                 # Parse text elements with transform="translate(x, y)" attributes
                 # Text content format: "FullNameABBREV" (e.g., "LondonLON", "EdinburghEDI")
                 for text_elem in root.findall('.//{http://www.w3.org/2000/svg}text'):
@@ -519,24 +523,26 @@ class Map:
                             if abbrev_match:
                                 abbrev = abbrev_match.group(1).upper()
                                 coords[abbrev] = (x_scaled, y_scaled)
-                
+
                 if not coords:
                     logger.warning(f"Failed to extract coordinates from v2 SVG at {svg_path}, using empty dict")
             else:
-                # Use jdipNS coordinates - these are the correct coordinate system
+                # Use jdipNS coordinates — these are the authoritative coordinate system
                 coords = {}
+                dislodged_coords = {}
                 ns = {'jdipNS': 'svg.dtd'}
-                
+
                 for prov in root.findall('.//jdipNS:PROVINCE', ns):
                     name = prov.attrib.get('name')
                     unit = prov.find('jdipNS:UNIT', ns)
                     if name and unit is not None:
-                        x = float(unit.attrib.get('x', '0'))
-                        y = float(unit.attrib.get('y', '0'))
-                        coords[name.upper()] = (x, y)
-            
+                        coords[name.upper()] = (float(unit.attrib.get('x', '0')), float(unit.attrib.get('y', '0')))
+                    dislodged = prov.find('jdipNS:DISLODGED_UNIT', ns)
+                    if name and dislodged is not None:
+                        dislodged_coords[name.upper()] = (float(dislodged.attrib.get('x', '0')), float(dislodged.attrib.get('y', '0')))
+
             # Cache the parsed data
-            _svg_cache[svg_path] = (tree, coords)
+            _svg_cache[svg_path] = (tree, coords, dislodged_coords)
         
         return _svg_cache[svg_path]
 
@@ -548,30 +554,25 @@ class Map:
         Uses jdipNS coordinates which are the correct coordinate system.
         Optimized with caching to avoid repeated parsing.
         """
-        _, coords = Map._get_cached_svg_data(svg_path)
+        _, coords, _ = Map._get_cached_svg_data(svg_path)
         return coords
+
+    @staticmethod
+    def get_dislodged_unit_coordinates(svg_path: str) -> Dict[str, Tuple[float, float]]:
+        """Return dislodged-unit pixel positions from SVG jdipNS:DISLODGED_UNIT elements."""
+        _, _, dislodged_coords = Map._get_cached_svg_data(svg_path)
+        return dislodged_coords
 
     @staticmethod
     def _get_cached_font(size: int) -> ImageFont.ImageFont:
         """Get cached font or load and cache it."""
         global _font_cache
-        
-        # For now, we'll cache one font size (30) which is most commonly used
-        # In the future, we could extend this to cache multiple sizes
-        if _font_cache is None:
+        if size not in _font_cache:
             try:
-                _font_cache = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+                _font_cache[size] = ImageFont.truetype("DejaVuSans-Bold.ttf", size)
             except Exception:
-                _font_cache = ImageFont.load_default()
-        
-        # Return cached font if size matches, otherwise load new one
-        if size == 30:
-            return _font_cache
-        else:
-            try:
-                return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-            except Exception:
-                return ImageFont.load_default()
+                _font_cache[size] = ImageFont.load_default()
+        return _font_cache[size]
 
     @staticmethod
     def _color_provinces_by_power_with_transparency(bg_image, units, power_colors, svg_path, supply_center_control=None, current_phase=None, color_only_supply_centers=False, supply_centers_set=None):
@@ -594,7 +595,7 @@ class Map:
         """
         try:
             # Use cached SVG data instead of parsing again
-            tree, jdip_coords = Map._get_cached_svg_data(svg_path)
+            tree, jdip_coords, _ = Map._get_cached_svg_data(svg_path)
             root = tree.getroot()
             
             # Create a separate transparent overlay layer
@@ -676,39 +677,22 @@ class Map:
                     
                     if normalized_id in province_power_map:
                         colored_provinces.add(normalized_id)
-                        
-                        # If color_only_supply_centers is enabled, skip non-supply-center provinces
-                        if color_only_supply_centers:
-                            if supply_centers_set and normalized_id not in supply_centers_set:
-                                continue
-                        
+
                         # Get the power color for this province
                         power_color = province_power_map[normalized_id]
                         
                         # Convert color to RGB for proper transparency
                         rgb_color = Map._hex_to_rgb(power_color)
                         
-                        # Parse the SVG path to extract polygon points
                         path_data = path_elem.get('d')
                         if path_data:
-                            # Extract polygon points from path data
-                            polygon_points = Map._extract_polygon_points_from_path(path_data, 195, 170)
-                            
                             if normalized_id in Map.WATER_PROVINCES:
-                                # Use hatched pattern for ocean provinces
-                                # Pattern color: power color at 50% opacity for visibility
-                                pattern_opacity = 120  # 120/255 ≈ 47% opacity
-                                pattern_color = (*rgb_color, pattern_opacity)
-                                
-                                # Draw ocean pattern
+                                polygon_points = Map._extract_polygon_points_from_path(path_data, 195, 170)
+                                pattern_color = (*rgb_color, 120)
                                 if polygon_points and len(polygon_points) >= 3:
                                     Map._draw_ocean_pattern(overlay, polygon_points, pattern_color, spacing=10, angle=45, line_width=1)
                             else:
-                                # Use solid fill for land provinces
-                                base_opacity = 90  # 90/255 ≈ 0.35 (35% opacity)
-                                transparent_color = (*rgb_color, base_opacity)
-                                
-                                # Apply correct transform to align SVG paths with jdipNS coordinates
+                                transparent_color = (*rgb_color, 90)
                                 Map._fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 170)
             
             # Log warning for provinces in province_power_map but not found in SVG paths
@@ -732,109 +716,6 @@ class Map:
             logger.warning(f"Could not parse SVG for province coloring: {e}")
             # Fallback: continue without province coloring
 
-    @staticmethod
-    def _color_provinces_by_power(draw, units, power_colors, svg_path):
-        """Color provinces based on power control by parsing SVG paths with correct coordinate alignment."""
-        try:
-            import xml.etree.ElementTree as ET
-            
-            # Parse the SVG file
-            tree = ET.parse(svg_path)
-            root = tree.getroot()
-            
-            # Define namespace for SVG elements
-            namespaces = {'svg': 'http://www.w3.org/2000/svg'}
-            
-            # Find all path elements with id attributes (these are provinces)
-            # Prioritize paths without underscores (actual province areas)
-            province_paths = []
-            
-            # First, get all paths
-            all_paths = root.findall('.//svg:path[@id]', namespaces)
-            if not all_paths:
-                all_paths = root.findall('.//path[@id]')
-            
-            # Get jdipNS coordinates for reference, but color actual SVG province paths
-            ns = {'jdipNS': 'svg.dtd'}
-            jdip_coords = {}
-            for prov in root.findall('.//jdipNS:PROVINCE', ns):
-                name = prov.attrib.get('name')
-                unit = prov.find('jdipNS:UNIT', ns)
-                if name and unit is not None:
-                    x = float(unit.attrib.get('x', '0'))
-                    y = float(unit.attrib.get('y', '0'))
-                    jdip_coords[name.upper()] = (x, y)
-            
-            # Find SVG paths for provinces (these are the actual province shapes)
-            province_paths = []
-            for path in all_paths:
-                province_id = path.get('id')
-                if province_id and province_id.startswith('_'):
-                    # Use paths with underscores - these are the actual province areas
-                    province_paths.append(path)
-            
-            # Create a map of province names to power colors
-            province_power_map = {}
-            for power, unit_list in units.items():
-                color = power_colors.get(power.upper(), "black")
-                for unit in unit_list:
-                    parts = unit.split()
-                    if len(parts) == 2:
-                        prov = parts[1].upper()
-                        province_power_map[prov] = color
-            
-            # Color each province based on power control using SVG paths
-            for path_elem in province_paths:
-                province_id = path_elem.get('id')
-                if province_id:
-                    # Remove underscore prefix and convert to uppercase
-                    normalized_id = province_id.lstrip('_').upper()
-                    
-                    if normalized_id in province_power_map:
-                        # Get the power color for this province
-                        power_color = province_power_map[normalized_id]
-                        
-                        # Convert color to RGB and apply 10% opacity by scaling RGB values
-                        # This avoids alpha transparency issues while keeping map details visible
-                        rgb_color = Map._hex_to_rgb(power_color)
-                        opacity_factor = 0.10  # 10% opacity - much lighter to preserve map details
-                        solid_color = tuple(int(c * opacity_factor) for c in rgb_color)
-                        
-                        # Parse and fill the SVG path with correct coordinate alignment
-                        path_data = path_elem.get('d')
-                        if path_data:
-                            # Apply correct transform to align SVG paths with jdipNS coordinates
-                            # SVG MapLayer has transform="translate(-195 -170)", so we compensate
-                            Map._fill_svg_path_with_transform(draw, path_data, solid_color, power_color, 195, 170)
-                            
-                            # Add province name label to the colored area
-                            if normalized_id in jdip_coords:
-                                x, y = jdip_coords[normalized_id]
-                                # Draw province name in white with black outline for visibility
-                                font = None
-                                try:
-                                    font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
-                                except Exception:
-                                    font = ImageFont.load_default()
-                                
-                                # Draw text with black outline
-                                text = normalized_id
-                                bbox = draw.textbbox((0, 0), text, font=font)
-                                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                                
-                                # Draw black outline
-                                for dx in [-1, 0, 1]:
-                                    for dy in [-1, 0, 1]:
-                                        if dx != 0 or dy != 0:
-                                            draw.text((x - w/2 + dx, y - h/2 + dy), text, fill="black", font=font)
-                                
-                                # Draw white text on top
-                                draw.text((x - w/2, y - h/2), text, fill="white", font=font)
-                    
-        except Exception as e:
-            logger.warning(f"Could not parse SVG for province coloring: {e}")
-            # Fallback: continue without province coloring
-    
     @staticmethod
     def _extract_polygon_points_from_path(path_data, offset_x, offset_y):
         """Extract polygon points from SVG path data with coordinate transform.
@@ -1255,6 +1136,7 @@ class Map:
         draw = ImageDraw.Draw(bg)
         # 2. Get province coordinates (cached)
         coords = Map.get_svg_province_coordinates(svg_path)
+        dislodged_coords = Map.get_dislodged_unit_coordinates(svg_path)
         # 3. Get power colors from config
         power_colors = _get_power_colors_dict()
         # Get supply centers set if filtering is enabled
@@ -1282,14 +1164,14 @@ class Map:
                 # Handle dislodged units
                 is_dislodged = prov.startswith("DISLODGED_")
                 if is_dislodged:
-                    # Extract original province name for coordinates
                     original_prov = prov.replace("DISLODGED_", "")
-                    if original_prov not in coords:
+                    if original_prov in dislodged_coords:
+                        x, y = dislodged_coords[original_prov]
+                    elif original_prov in coords:
+                        # Fallback for maps without DISLODGED_UNIT (e.g. v2 map)
+                        x, y = coords[original_prov]
+                    else:
                         continue
-                    x, y = coords[original_prov]
-                    # Offset dislodged unit position
-                    x += 20
-                    y += 20
                 else:
                     if prov not in coords:
                         continue
@@ -1322,11 +1204,6 @@ class Map:
                         failure_color = (255, 0, 0)  # Fallback to red
                 
                 if is_dislodged:
-                    # Dislodged unit: offset position, red border, "D" marker
-                    dislodged_offset = unit_specs["dislodged_offset"]
-                    x += dislodged_offset[0]
-                    y += dislodged_offset[1]
-                    
                     # Draw icon with red outline for dislodged units
                     if unit_type == "A":
                         Map._draw_army_icon(draw, (x, y), rgb_color, failure_color, unit_diameter, bg)
@@ -1477,17 +1354,18 @@ class Map:
         
         # Get province coordinates for order visualization
         coords = Map.get_svg_province_coordinates(svg_path)
-        
+        dislodged_coords = Map.get_dislodged_unit_coordinates(svg_path)
+
         # Get power colors from config
         power_colors = _get_power_colors_dict()
-        
+
         # Draw order visualizations
-        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units)
-        
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units, dislodged_coords)
+
         # Add orders legend
         active_powers = list(units.keys())
         Map._draw_legend(bg, "orders", active_powers)
-        
+
         # Save or return PNG
         if isinstance(output_path, str) and output_path:
             bg.save(output_path, format="PNG")
@@ -1590,13 +1468,14 @@ class Map:
         
         # Get province coordinates
         coords = Map.get_svg_province_coordinates(svg_path)
-        
+        dislodged_coords = Map.get_dislodged_unit_coordinates(svg_path)
+
         # Get power colors from config
         power_colors = _get_power_colors_dict()
-        
+
         # Draw order visualizations with status indicators
-        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units)
-        
+        Map._draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units, dislodged_coords)
+
         # Draw conflict markers
         conflicts = resolution_data.get("conflicts", [])
         for conflict in conflicts:
@@ -1905,18 +1784,19 @@ class Map:
             logger.warning(f"Could not preload starting positions map: {e}")
     
     @staticmethod
-    def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict, units: dict = None):
+    def _draw_comprehensive_order_visualization(draw, orders: dict, coords: dict, power_colors: dict, units: dict = None, dislodged_coords: Optional[Dict[str, Tuple[float, float]]] = None):
         """
         Draw comprehensive order visualization based on orders dictionary format.
-        
+
         Draws in proper visual layer order: hold → support → convoy → movement (primary actions on top)
-        
+
         Args:
             draw: PIL ImageDraw object
             orders: Dictionary of power -> list of order dictionaries
             coords: Dictionary of province -> (x, y) coordinates
             power_colors: Dictionary of power -> color
             units: Dictionary of power -> list of units (for finding dislodged unit positions)
+            dislodged_coords: Optional dict of province -> SVG DISLODGED_UNIT (x, y) coordinates
         """
         # Separate orders by type for proper layering
         hold_orders = []
@@ -1994,16 +1874,16 @@ class Map:
                     Map._draw_convoy_order(draw, convoyed_army_province, target, 
                                          convoy_chain, convoy_color, status, coords)
                 elif order_type == "retreat":
-                    # For retreat orders, ALWAYS use the dislodged unit's offset position
-                    # Retreat orders are only for dislodged units, so they should always be offset
                     dislodged_unit_position = None
-                    if unit_province in coords:
+                    if dislodged_coords and unit_province in dislodged_coords:
+                        dislodged_unit_position = dislodged_coords[unit_province]
+                    elif unit_province in coords:
+                        # Fallback for maps without DISLODGED_UNIT (e.g. v2 map)
                         base_x, base_y = coords[unit_province]
                         unit_specs = _viz_config.get_unit_specs()
-                        dislodged_offset = unit_specs.get("dislodged_offset", [20, 20])
-                        # Always calculate offset position for retreat orders (dislodged units are always offset)
-                        dislodged_unit_position = (base_x + dislodged_offset[0], base_y + dislodged_offset[1])
-                    
+                        offset = unit_specs.get("dislodged_offset", [20, 20])
+                        dislodged_unit_position = (base_x + offset[0], base_y + offset[1])
+
                     Map._draw_retreat_order(draw, unit_province, target, color, status, coords, dislodged_unit_position)
                 elif order_type == "build":
                     Map._draw_build_order(draw, target, color, status, coords)
@@ -3356,7 +3236,12 @@ class Map:
         if not os.path.exists(icon_path):
             logger.warning(f"Icon file not found: {icon_path}")
             return None
-        
+
+        cache_key = (icon_path, tuple(fill_color), tuple(outline_color), size)
+        global _icon_cache
+        if cache_key in _icon_cache:
+            return _icon_cache[cache_key]
+
         try:
             # Load the icon image
             icon_img = Image.open(icon_path).convert("RGBA")
@@ -3418,9 +3303,10 @@ class Map:
             scale_factor = size / max(canvas_size)
             new_size = (int(canvas_size[0] * scale_factor), int(canvas_size[1] * scale_factor))
             scaled = outlined.resize(new_size, Image.Resampling.LANCZOS)
-            
+
+            _icon_cache[cache_key] = scaled
             return scaled
-            
+
         except Exception as e:
             logger.error(f"Error loading icon {icon_path}: {e}")
             import traceback
