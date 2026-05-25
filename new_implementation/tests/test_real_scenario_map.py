@@ -35,11 +35,11 @@ def test_generated_map_from_real_adjudication():
     assert any(u.province == "PAR" for u in game.game_state.powers["FRANCE"].units)
     assert any(u.province == "BUR" for u in game.game_state.powers["GERMANY"].units)
 
-    # Build units dict for Map: "A PAR" -> "FRANCE", etc.
-    units = {}
+    # Build units dict for Map: {"FRANCE": ["A PAR"], ...}
+    units: dict = {}
     for power_name, power in game.game_state.powers.items():
         for u in power.units:
-            units[f"{u.unit_type} {u.province}"] = power_name
+            units.setdefault(power_name, []).append(f"{u.unit_type} {u.province}")
 
     phase_info = {
         "turn": game.turn,
@@ -69,5 +69,5 @@ def test_generated_map_from_real_adjudication():
         supply_center_control=supply_center_control,
     )
     assert img_bytes is not None
-    assert len(img_bytes) > 0
+    assert len(img_bytes) > 500_000  # blank map ~300 KB; 2 units + SC coloring ~600-900 KB
     assert os.path.exists(output_path)

@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
+import uuid
 from .database import (
     GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
     TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
@@ -53,11 +54,12 @@ class DatabaseService:
         session = self.session_factory()
         try:
             # Create with provisional game_id; will normalize to numeric string id after insert
-            # If game_id not provided, will be set after insert based on id
+            # If game_id not provided, will be set after insert based on id.
+            # Use a UUID placeholder so concurrent inserts don't collide on the unique constraint.
             temp_game_id = game_id or ""
             phase_code = 'S1901M' if initial_phase == 'Movement' else 'Pregame'
             game_model = GameModel(
-                game_id=temp_game_id if temp_game_id else "0",  # Temporary value, will update
+                game_id=temp_game_id if temp_game_id else f"tmp_{uuid.uuid4()}",  # Temporary value, will update
                 map_name=map_name,
                 current_turn=0,
                 current_year=1901,
@@ -77,7 +79,7 @@ class DatabaseService:
                     session.commit()
             else:
                 # Use numeric PK as game_id if not provided
-                if not game_model.game_id or game_model.game_id == "0":
+                if not game_model.game_id or game_model.game_id.startswith("tmp_"):
                     game_model.game_id = str(game_model.id)
                     session.commit()
             # Return spec GameState for compatibility with tests

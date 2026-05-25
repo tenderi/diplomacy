@@ -6,13 +6,13 @@ This document contains actionable implementation tasks and fixes for the Diploma
 
 **Last Updated**: 2026-05-25
 
-**Test Suite**: ✅ 1025 passing, 19 skipped, 0 failures (v2.7.2)
+**Test Suite**: ✅ 1029 passing, 20 skipped, 0 failures (v2.7.3)
 
 ---
 
 ## Active Priorities
 
-### Map Test Coverage (Planned — 2026-05-25)
+### Map Test Coverage (Completed — 2026-05-25, v2.7.3)
 
 Audit of all 11 map-related test files revealed two issues:
 
