@@ -39,7 +39,7 @@ class TestSpecOnlyFlow:
 		assert _reg.status_code == 200
 		_auth_headers = {"Authorization": f"Bearer {_reg.json()['access_token']}"}
 		# 1) Create game
-		resp = client.post("/games/create", json={"map_name": "standard"}, headers=_auth_headers)
+		resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=_auth_headers)
 		assert resp.status_code == 200
 		game_id = resp.json()["game_id"]
 		assert game_id
@@ -47,7 +47,7 @@ class TestSpecOnlyFlow:
 		telegram_id = "999001"
 		reg = client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": telegram_id, "full_name": "Tester"})
 		assert reg.status_code == 200, f"Registration failed: {reg.status_code} - {reg.json() if reg.text else 'No response'}"
-		join = client.post(f"/games/{game_id}/join", json={"telegram_id": telegram_id, "game_id": int(game_id), "power": "FRANCE"})
+		join = client.post(f"/games/{game_id}/join", json={"telegram_id": telegram_id, "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id), "power": "FRANCE"})
 		assert join.status_code == 200
 		# 3) Submit a simple hold order
 		orders = ["A PAR H"]
@@ -56,6 +56,7 @@ class TestSpecOnlyFlow:
 			"power": "FRANCE",
 			"orders": orders,
 			"telegram_id": telegram_id,
+			"bot_secret": "test_bot_secret_for_tests",
 		})
 		assert set_resp.status_code == 200, f"Set orders failed: {set_resp.status_code} - {set_resp.json() if set_resp.text else 'No response'}"
 		body = set_resp.json()
@@ -67,7 +68,7 @@ class TestSpecOnlyFlow:
 			# If results is empty, that might be acceptable - just log it
 			print(f"Warning: No results in response: {body}")
 		# 4) Process turn
-		proc = client.post(f"/games/{game_id}/process_turn")
+		proc = client.post(f"/games/{game_id}/process_turn", headers=_auth_headers)
 		assert proc.status_code == 200
 		# 5) Get state and ensure spec fields exist
 		state = client.get(f"/games/{game_id}/state")

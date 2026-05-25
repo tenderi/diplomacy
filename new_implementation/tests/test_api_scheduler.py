@@ -33,7 +33,7 @@ def test_deadline_endpoints():
     # Set a deadline
     import datetime
     deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).isoformat()
-    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": deadline})
+    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": deadline}, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
     # Get the deadline
