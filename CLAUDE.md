@@ -105,8 +105,8 @@ React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Proxies API calls to
 
 - **`PYTHONPATH=src` is required** to import `server.*` and `engine.*` from `new_implementation/`. Forgetting it produces `ModuleNotFoundError`. Tests handle this via `pytest.ini` (`pythonpath = . src`).
 - **Type hints are mandatory** on all new code. Ruff is in strict mode; CI fails on lint errors.
-- **Out of scope** unless explicitly requested by the maintainer (see `specs/fix_plan.md`): tournaments, Discord, observer/spectator mode, AI-powered analysis. Existing code in these areas (e.g. `tournaments.py`, `discord_bot/`, `run_discord_bot.py`) is kept for backward compatibility — don't extend it.
-- **Specs are load-bearing.** `specs/` holds the source of truth for rules and design (`diplomacy_rules.md`, `provinces_spec.md`, `data_spec.md`, `game_phases_design.md`, `architecture.md`). Update them when behavior changes; `documentation_plan.md` describes the doc workflow.
+- **Out of scope** unless explicitly requested by the maintainer (see `docs/specs/fix_plan.md`): tournaments, Discord, observer/spectator mode, AI-powered analysis. Existing code in these areas (e.g. `tournaments.py`, `discord_bot/`, `run_discord_bot.py`) is kept for backward compatibility — don't extend it.
+- **Specs are load-bearing.** `docs/specs/` holds the source of truth for rules and design (`diplomacy_rules.md`, `provinces_spec.md`, `data_spec.md`, `game_phases_design.md`, `architecture.md`). Update them when behavior changes.
 - **Game rule questions**: cross-check against `old_implementation/rules.pdf` (the official rulebook) and `old_implementation/diplomacy/engine/` (a battle-tested DATC implementation) before changing adjudication logic.
 - **Map rendering** requires CairoSVG and optionally Chrome/Selenium for some flows — see `docs/BROWSER_SETUP_INSTRUCTIONS.md`. Tests that need rendering are marked `@pytest.mark.map`.
 - **Schema changes**: update `src/engine/database.py`, add an Alembic revision under `alembic/versions/`, add the corresponding method(s) to `DatabaseService`. The schema autoupdater in `_api_module.py` is a safety net, not a substitute for migrations.

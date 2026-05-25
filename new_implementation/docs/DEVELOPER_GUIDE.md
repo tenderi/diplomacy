@@ -60,8 +60,7 @@ new_implementation/
 │   │   │   └── routes/  # API route modules
 │   │   └── telegram_bot/ # Telegram bot modules
 │   └── tests/           # Test suite
-├── specs/               # Specifications
-├── docs/                # Documentation
+├── docs/                # Documentation (includes specs/ subdirectory)
 └── requirements.txt     # Dependencies
 ```
 
@@ -116,9 +115,9 @@ ruff format src/
 
 ### 1. Plan the Feature
 
-- Review `specs/` for existing specifications
+- Review `docs/specs/` for existing specifications
 - Create or update specification if needed
-- Update `specs/fix_plan.md` with your feature
+- Update `docs/specs/fix_plan.md` with your feature
 
 ### 2. Implement Core Logic
 
@@ -349,8 +348,8 @@ logger.error("Error message")
 
 ## Additional Resources
 
-- [Architecture Spec](./architecture.md)
-- [Data Spec](./data_spec.md)
+- [Architecture Spec](./specs/architecture.md)
+- [Data Spec](./specs/data_spec.md)
 - [API Documentation](../src/server/README.md)
-- [Engine Documentation](../src/engine/README.md)
+- [Engine details — `CODEBASE_OVERVIEW.md` §3.1](../../CODEBASE_OVERVIEW.md)
 

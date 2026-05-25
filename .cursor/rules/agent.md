@@ -15,7 +15,7 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
 **Never Modify Old Implementation**: NEVER make modifications to [/old_implementation/](mdc:old_implementation/). Work only in [/new_implementation/](mdc:new_implementation/).
 
-**Out-of-scope features**: Do not add or plan work for **tournament feature**, **Discord implementation**, **AI-powered analysis**, or **observer/spectator mode** unless the user explicitly requests it. These are documented as out of scope in [fix_plan.md](mdc:new_implementation/specs/fix_plan.md). Keep them omitted in docs and roadmap unless otherwise instructed.
+**Out-of-scope features**: Do not add or plan work for **tournament feature**, **Discord implementation**, **AI-powered analysis**, or **observer/spectator mode** unless the user explicitly requests it. These are documented as out of scope in [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md). Keep them omitted in docs and roadmap unless otherwise instructed.
 
 ## Code Quality Standards
 
@@ -28,27 +28,27 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 ## Development Workflow
 
 ### Before Starting
-1. Study [specs/](mdc:new_implementation/specs/) to understand specifications
-2. Review [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) for current priorities
-3. Understand game rules: [diplomacy_rules.md](mdc:new_implementation/specs/diplomacy_rules.md)
+1. Study [specs/](mdc:new_implementation/docs/specs/) to understand specifications
+2. Review [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) for current priorities
+3. Understand game rules: [diplomacy_rules.md](mdc:new_implementation/docs/specs/diplomacy_rules.md)
 4. Source code location: [src/](mdc:new_implementation/src/)
 
 ### Implementation Process
 1. Implement missing server functionality in Python
 2. Run tests after every change: [tests/](mdc:new_implementation/tests/)
 3. Fix ALL test failures (even unrelated ones)
-4. Update [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when starting/resolving issues
+4. Update [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when starting/resolving issues
 5. Keep [requirements.txt](mdc:new_implementation/requirements.txt) updated
 
 ### Testing Requirements
-- Test specifications: [testing_and_validation.md](mdc:new_implementation/specs/testing_and_validation.md)
+- Test specifications: [testing_and_validation.md](mdc:new_implementation/docs/specs/testing_and_validation.md)
 - Tests located in [tests/](mdc:new_implementation/tests/) next to source code
 - Start with testing primitives when implementing new features
 - All tests must pass before committing
 
 ## Git Workflow
 
-1. Update [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when tests pass
+1. Update [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when tests pass
 2. Stage changes: `git add -A`
 3. Commit with descriptive message describing changes
 4. Push: `git push`
@@ -72,5 +72,5 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 - **Work as independently as possible**: This project is used to test AI-driven development. Prefer making decisions, implementing fully, and fixing issues without asking for confirmation. Only ask when requirements are ambiguous or a critical choice has no clear default.
 - Ask minimal confirmations—keep working autonomously
 - Add logging when needed for debugging
-- When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:new_implementation/specs/fix_plan.md)
-- Periodically clean completed items from [fix_plan.md](mdc:new_implementation/specs/fix_plan.md) when it becomes large
+- When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md)
+- Periodically clean completed items from [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when it becomes large

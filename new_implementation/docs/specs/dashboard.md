@@ -1,5 +1,7 @@
 # Telegram Bot Dashboard Implementation Plan
 
+> **Status: design doc, not implemented.** This file describes a proposed admin dashboard that has not been built. Kept for reference; not part of the current architecture.
+
 ## Overview
 
 Create a web dashboard accessible via the existing FastAPI application that provides monitoring and management capabilities for the telegram bot and related services. The dashboard will be a simple HTML/CSS/JavaScript application served at `/dashboard` with backend API endpoints for service management.

@@ -187,7 +187,7 @@ Tasks:
 
 ## Current Status
 
-**Test Suite**: 550+ passing, 35 skipped (database tests), 0 failures (as of v2.6.9)
+**Test Suite**: 1029 passing, 20 skipped, 0 failures (as of v2.7.3 — see header for the latest).
 
 **Feature Status**:
 - ✅ Core game engine

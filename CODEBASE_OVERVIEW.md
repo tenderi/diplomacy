@@ -58,11 +58,10 @@ diplomacy/
 │   │   └── client.py            # Minimal CLI client
 │   ├── tests/                   # ~80 test files
 │   ├── maps/                    # SVG maps + .map definition files
-│   ├── specs/                   # Design documents & specifications
 │   ├── examples/                # Demo scripts
 │   ├── infra/                   # Deployment scripts & Terraform
 │   ├── alembic/                 # Database migrations (14 versions)
-│   ├── docs/                    # User-facing docs
+│   ├── docs/                    # User-facing docs + specs/ subdirectory
 │   ├── icons/                   # Unit icon PNGs
 │   ├── requirements.txt
 │   ├── pytest.ini
@@ -293,22 +292,24 @@ The project supports Docker Compose deployment:
 
 ### 3.8 Specs & Documentation
 
-The `specs/` directory contains detailed design documents:
+The `docs/specs/` directory contains detailed design documents:
 
 | Spec | Description |
 |---|---|
 | `architecture.md` | System architecture overview |
-| `diplomacy_rules.md` / `diplomacy_rules_v2.md` | Complete Diplomacy rules reference |
+| `diplomacy_rules.md` | Complete Diplomacy rules reference |
 | `data_spec.md` | Data model specification (what `data_models.py` implements) |
 | `provinces_spec.md` | All 75 provinces with types, adjacencies, and multi-coast details |
 | `game_phases_design.md` | Phase state machine design |
 | `telegram_bot_spec.md` | Telegram bot command specification |
 | `telegram_channel_integration.md` | Channel integration design |
 | `visualization_spec.md` | Map rendering specification |
-| `dashboard.md` | Admin dashboard design |
+| `dashboard.md` | Admin dashboard design (aspirational, not implemented) |
 | `testing_and_validation.md` | Testing strategy |
-| `planning.md` / `fix_plan.md` / `documentation_plan.md` | Development planning docs |
+| `fix_plan.md` | Active development plan and current status |
 | `automated_demo_game_spec.md` | Demo game automation spec |
+| `browser_client_plan.md` | Browser client + auth design |
+| `frontend_ui_framework.md` | Tailwind + shadcn/ui rollout plan |
 
 User-facing docs in `docs/`:
 - `TELEGRAM_BOT_COMMANDS.md` — Complete command reference
