@@ -198,7 +198,7 @@ class TestDatabaseQueryPerformance:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_game_retrieval_performance(self, temp_db):
         """Test that game retrieval is fast."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Create multiple games with unique IDs
@@ -221,7 +221,7 @@ class TestDatabaseQueryPerformance:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_order_history_retrieval_performance(self, temp_db):
         """Test that order history retrieval is fast."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         import time

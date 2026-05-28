@@ -22,7 +22,7 @@ class TestTransactionRollback:
     def test_failed_transaction_rolls_back(self, temp_db):
         """Test that failed transactions roll back correctly."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Create a game
@@ -42,7 +42,7 @@ class TestTransactionRollback:
     def test_partial_transaction_rollback(self, temp_db):
         """Test that partial transactions roll back on error."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         game_id = f"partial_rollback_test_{int(time.time() * 1000)}"
@@ -73,7 +73,7 @@ class TestDatabaseConnectionResilience:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_connection_loss_handled_gracefully(self, temp_db):
         """Test that connection loss is handled gracefully."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Simulate connection loss
@@ -87,7 +87,7 @@ class TestDatabaseConnectionResilience:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_retry_on_transient_errors(self, temp_db):
         """Test retry logic on transient database errors."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Create game first
@@ -123,19 +123,21 @@ class TestConcurrentWrites:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_concurrent_game_creation(self, temp_db):
         """Test concurrent game creation (should handle gracefully)."""
-        db_url = str(temp_db.url)
+        import time
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service1 = DatabaseService(db_url)
         service2 = DatabaseService(db_url)
-        
-        game_id = "concurrent_test_game"
-        
+
+        # Unique game_id so reruns don't collide with leftover rows.
+        game_id = f"concurrent_test_game_{int(time.time() * 1000)}"
+
         # Both services try to create same game
         game1 = service1.create_game(game_id, "standard")
-        
+
         # Second creation should fail (duplicate)
         with pytest.raises((IntegrityError, Exception)):
             service2.create_game(game_id, "standard")
-        
+
         # First game should still exist
         retrieved = service1.get_game_by_game_id(game_id)
         assert retrieved is not None
@@ -144,7 +146,7 @@ class TestConcurrentWrites:
     def test_concurrent_state_updates(self, temp_db):
         """Test concurrent game state updates."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Use unique game_id to avoid conflicts
@@ -177,7 +179,7 @@ class TestDataIntegrity:
     def test_orphaned_records_prevention(self, temp_db):
         """Test that orphaned records are prevented."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         game_id = f"orphan_test_game_{int(time.time() * 1000)}"
@@ -210,7 +212,7 @@ class TestDataIntegrity:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_foreign_key_constraints(self, temp_db):
         """Test that foreign key constraints are enforced."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         # Try to create order for non-existent game
@@ -237,7 +239,7 @@ class TestOrderHistoryPersistence:
     def test_order_history_persists_across_turns(self, temp_db):
         """Test that order history is tracked across multiple turns."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         game_id = f"history_test_game_{int(time.time() * 1000)}"
@@ -304,7 +306,7 @@ class TestUserDataPersistence:
     def test_user_registration_persists(self, temp_db):
         """Test that user registration persists."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         telegram_id = f"persist_test_user_{int(time.time() * 1000)}"
         
@@ -321,7 +323,7 @@ class TestUserDataPersistence:
     def test_user_power_assignment_persists(self, temp_db):
         """Test that user power assignments persist."""
         import time
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         telegram_id = f"assignment_test_user_{int(time.time() * 1000)}"
         
