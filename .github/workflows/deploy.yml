@@ -1,0 +1,96 @@
+name: Deploy
+
+# Triggers only after Test Suite has finished on main. If the test
+# workflow concludes with anything other than "success", this workflow
+# also exits without deploying. This means a red-CI commit on main is
+# already protected (branch protection blocks the push), AND if some
+# future change ever bypasses that gate, we still won't deploy red code.
+on:
+  workflow_run:
+    workflows: ["Test Suite"]
+    branches: [main]
+    types: [completed]
+  # Manual override — useful for redeploying a known-good main without
+  # pushing a new commit.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (commit SHA or tag). Defaults to current main."
+        required: false
+        default: ""
+
+# OIDC requires id-token: write. Default permissions for everything else.
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    environment: production
+
+    steps:
+      - name: Resolve target ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            echo "sha=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=main" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Will deploy: $(grep '^sha=' "$GITHUB_OUTPUT" | cut -d= -f2)"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-actions-deploy
+
+      - name: Locate the diplomacy EC2 instance
+        id: instance
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=diplomacy" "Name=instance-state-name,Values=running" \
+            --query "Reservations[].Instances[0].InstanceId" --output text)
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "::error::No running instance tagged Name=diplomacy"
+            exit 1
+          fi
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+          echo "Found instance: $INSTANCE_ID"
+
+      - name: Trigger SSM deploy
+        id: ssm
+        run: |
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.instance.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${{ steps.ref.outputs.sha }}" \
+            --parameters "commands=['/opt/diplomacy/new_implementation/infra/scripts/deploy.sh ${{ steps.ref.outputs.sha }}']" \
+            --timeout-seconds 900 \
+            --query "Command.CommandId" --output text)
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM CommandId: $CMD_ID"
+
+      - name: Wait for SSM command to finish
+        run: |
+          aws ssm wait command-executed \
+            --command-id "${{ steps.ssm.outputs.command_id }}" \
+            --instance-id "${{ steps.instance.outputs.instance_id }}"
+
+      - name: Print deploy log
+        if: always()
+        run: |
+          aws ssm get-command-invocation \
+            --command-id "${{ steps.ssm.outputs.command_id }}" \
+            --instance-id "${{ steps.instance.outputs.instance_id }}" \
+            --query "{Status:Status, ExitCode:ResponseCode, Stdout:StandardOutputContent, Stderr:StandardErrorContent}" \
+            --output json
