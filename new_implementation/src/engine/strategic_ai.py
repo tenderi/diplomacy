@@ -210,16 +210,34 @@ class StrategicAI:
         )
     
     def _create_support_order(self, game_state: GameState, unit: Unit) -> Optional[SupportOrder]:
-        """Create a support order using proper data models"""
-        # Find a unit to support
+        """Create a support order using proper data models.
+
+        Per Diplomacy rules, a unit can only support a move into a province
+        it could itself move into — i.e. the supporter must be adjacent to
+        the destination AND its unit type must be able to enter that
+        province type. Without this check the AI occasionally emits
+        invalid supports like `F BRE S A PAR - BUR` (BRE is not adjacent
+        to BUR), which fail `validate_orders_for_phase`.
+        """
         supported_unit = self._find_support_target(game_state, unit)
         if not supported_unit:
             return None
-            
-        # Determine if supporting a move or hold
-        if random.random() < 0.5:  # 50% chance to support a move
+
+        if unit.province not in game_state.map_data.provinces:
+            return None
+        supporter_adjacent = set(game_state.map_data.provinces[unit.province].adjacent_provinces)
+
+        # Try support-move first when the dice say so.
+        if random.random() < 0.5:
             supported_target = self._find_move_target(game_state, supported_unit)
-            if supported_target:
+            if (
+                supported_target
+                and supported_target in supporter_adjacent
+                and supported_target in game_state.map_data.provinces
+                and unit.can_move_to_province_type(
+                    game_state.map_data.provinces[supported_target].province_type
+                )
+            ):
                 return SupportOrder(
                     power=unit.power,
                     unit=unit,
@@ -227,40 +245,52 @@ class StrategicAI:
                     phase=game_state.current_phase,
                     supported_unit=supported_unit,
                     supported_action="move",
-                    supported_target=supported_target
+                    supported_target=supported_target,
                 )
-        
-        # Support hold
+            # Fall through to support-hold if the supporter can't reach the destination.
+
+        # Support hold — supporter must be adjacent to the supported unit.
+        # _find_support_target already guarantees this, but keep the check explicit.
+        if supported_unit.province not in supporter_adjacent:
+            return None
         return SupportOrder(
             power=unit.power,
             unit=unit,
             order_type=OrderType.SUPPORT,
             phase=game_state.current_phase,
             supported_unit=supported_unit,
-            supported_action="hold"
+            supported_action="hold",
         )
     
     def _create_convoy_order(self, game_state: GameState, unit: Unit) -> Optional[ConvoyOrder]:
-        """Create a convoy order using proper data models"""
+        """Create a convoy order using proper data models.
+
+        Only sea fleets can convoy — a coastal fleet (e.g. F BRE) cannot
+        act as a convoy link. Without this guard the AI emits orders like
+        `F BRE C A MAR - ANK` which `validate_orders_for_phase` rejects.
+        """
         if unit.unit_type != "F":
             return None
-            
-        # Find an army to convoy
+
+        province = game_state.map_data.provinces.get(unit.province)
+        if province is None or province.province_type != "sea":
+            return None
+
         convoyed_unit = self._find_convoy_target(game_state, unit)
         if not convoyed_unit:
             return None
-            
+
         convoy_target = self._find_convoy_destination(game_state, convoyed_unit)
         if not convoy_target:
             return None
-            
+
         return ConvoyOrder(
             power=unit.power,
             unit=unit,
             order_type=OrderType.CONVOY,
             phase=game_state.current_phase,
             convoyed_unit=convoyed_unit,
-            convoyed_target=convoy_target
+            convoyed_target=convoy_target,
         )
     
     def _find_move_target(self, game_state: GameState, unit: Unit) -> Optional[str]:
