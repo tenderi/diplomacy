@@ -1,21 +1,24 @@
-# AWS region
-aws_region = "eu-west-1"
+# Copy this file to terraform.tfvars and fill in the values you want to
+# override from variables.tf defaults. terraform.tfvars is gitignored.
+#
+# Defaults that you almost certainly want to keep:
+#   aws_region          = "eu-north-1"
+#   instance_type       = "t3.micro"
+#   root_volume_size_gb = 10
+#   github_owner        = "tenderi"
+#   github_repo         = "diplomacy"
+#   budget_monthly_usd  = 5
 
-# Database configuration
-db_name = "diplomacy"
-db_username = "diplomacy"
-db_password = "diplomacy"
+# --- SSH access (optional) ---
+# If you want SSH alongside SSM, create a key pair in the AWS console
+# (or with `aws ec2 create-key-pair`) and set the name here. Leave both
+# unset to skip — Session Manager will still work.
+#
+# key_name         = "your-key-pair-name"
+# allowed_ssh_cidr = "203.0.113.42/32"  # YOUR public IP only
 
-# Telegram bot token (get from @BotFather)
-telegram_bot_token = "7844668717:AAGXwDgwEpwmUJWRxYmFcbNgYmVAv8jbFmY"
-
-# AWS EC2 Key Pair name (create this in AWS Console first)
-key_name = "helgeKeyPair"
-
-# SSH access restriction (replace with your public IP for security)
-allowed_ssh_cidr = "0.0.0.0/0"  # Change to "YOUR.PUBLIC.IP.ADDRESS/32"
-
-# Whether to use an Elastic IP (costs $3.65/month but provides static IP)
-use_elastic_ip = false 
-
-instance_type = t3.medium
+# --- Budget alerts (optional but recommended) ---
+# Leave empty to skip. With a value, AWS Budgets emails at 80% and 100% of
+# budget_monthly_usd.
+#
+# budget_alert_email = "you@example.com"

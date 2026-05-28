@@ -57,6 +57,45 @@ gh api --method POST repos/tenderi/diplomacy/branches/main/protection/enforce_ad
 
 Never disable protection itself — only `enforce_admins`.
 
+## Production infrastructure (AWS)
+
+Production runs on a single `t3.micro` EC2 in **eu-north-1**. The Terraform configuration is in [`new_implementation/infra/terraform/`](new_implementation/infra/terraform/); the bootstrap and operational walkthrough is in that directory's `README.md`.
+
+Topology summary:
+- One EC2 instance running nginx + uvicorn (FastAPI) + python-telegram-bot + postgresql-16
+- Ubuntu 24.04 LTS; Python 3.14 from the deadsnakes PPA
+- Secrets live in SSM Parameter Store as SecureStrings (`/diplomacy/*`) — **never in tfstate or the repo**
+- Terraform state in S3 with native lockfile (Terraform 1.10+, no DynamoDB)
+- Access: SSH (key pair, your IP only) **and** SSM Session Manager
+- No HTTPS yet (HTTP via Nginx on port 80)
+- Cost: ~$0 for 12-month free tier, ~$10/month after
+
+### Deploy from CI
+
+On every push to `main` that turns the `Test Suite` workflow green, [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs:
+
+1. Authenticates to AWS via GitHub OIDC (no static keys; the IAM role's trust policy is scoped to `repo:tenderi/diplomacy:ref:refs/heads/main`).
+2. Finds the EC2 instance by `Name=diplomacy` tag.
+3. Issues `aws ssm send-command` to invoke [`infra/scripts/deploy.sh`](new_implementation/infra/scripts/deploy.sh) on the instance with the commit SHA.
+4. On the instance: `git fetch && git reset --hard <sha>`, `pip install -r requirements.txt`, `alembic upgrade head`, `systemctl restart diplomacy-api diplomacy-bot`, then a `/health` smoke test.
+
+The deploy workflow only ever runs against `main`; PRs cannot trigger it. The IAM trust policy enforces that too — even if a workflow on another branch tried to assume the deploy role, AWS would reject it.
+
+### Secret rotation
+
+Secrets are not in the repo or tfstate. To rotate any of `/diplomacy/{telegram_bot_token,db_password,jwt_secret,admin_token,bot_secret}`:
+
+```bash
+aws ssm put-parameter --name /diplomacy/<key> --type SecureString \
+  --value '<new-value>' --overwrite --region eu-north-1
+aws ssm start-session --target $(terraform output -raw instance_id) --region eu-north-1
+# inside the session:
+sudo bash /opt/diplomacy/new_implementation/infra/scripts/refresh-env.sh
+sudo systemctl restart diplomacy-api diplomacy-bot
+```
+
+`refresh-env.sh` re-reads every `/diplomacy/*` parameter and rewrites `/opt/diplomacy/.env`. The same script runs during the initial EC2 bootstrap, so both code paths stay in sync.
+
 ## Repository layout
 
 This repo contains two top-level Python codebases. Almost all work happens in `new_implementation/`.
