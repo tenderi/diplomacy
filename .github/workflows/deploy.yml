@@ -48,7 +48,7 @@ jobs:
           echo "Will deploy: $(grep '^sha=' "$GITHUB_OUTPUT" | cut -d= -f2)"
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
