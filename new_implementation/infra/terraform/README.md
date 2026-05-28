@@ -1,197 +1,150 @@
-# Single EC2 Instance Deployment (Ubuntu 22.04)
+# Diplomacy infrastructure (single EC2, eu-north-1)
 
-This is the **cheapest possible** deployment option for the Diplomacy game server. Everything runs on a single `t3.micro` instance with **Ubuntu 22.04 LTS**:
+Cheapest viable production setup: one `t3.micro` EC2 in the default VPC running PostgreSQL + FastAPI + the Telegram bot. Free for 12 months on the AWS free tier, ~$10–15/month after.
 
-- **PostgreSQL database** (latest version, local)
-- **FastAPI server** (Python with latest packages)
-- **Telegram bot** (Python)
-- **Nginx reverse proxy**
-
-## Cost: ~$9/month or FREE (AWS Free Tier)
-
-- EC2 t3.micro: $8.50/month (**FREE** for first 12 months)
-- EBS 10GB: $1/month (**FREE** 30GB for first 12 months)
-- **Total: $9.50/month** or **FREE** with AWS Free Tier
+```
+┌─────────────────────── eu-north-1 ──────────────────────┐
+│                                                         │
+│  Default VPC (free)                                     │
+│  └─ Public subnet                                       │
+│     └─ Security group: 80 ← world, 22 ← your IP (opt)   │
+│        └─ EC2 t3.micro · Ubuntu 24.04 · 10 GB gp3       │
+│           ├─ nginx (port 80)                            │
+│           ├─ uvicorn  → server._api_module:app (8000)   │
+│           ├─ python -m server.telegram_bot              │
+│           └─ postgresql-16 (localhost only)             │
+│                                                         │
+│  SSM Parameter Store /diplomacy/*  (SecureString)       │
+│    ├─ telegram_bot_token                                │
+│    ├─ db_password           (auto-generated on first    │
+│    ├─ jwt_secret             boot if not set)           │
+│    ├─ admin_token                                       │
+│    └─ bot_secret                                        │
+│                                                         │
+│  IAM role  diplomacy-ec2          ← attached to EC2     │
+│  IAM role  diplomacy-github-actions-deploy ← OIDC,      │
+│             assumable from refs/heads/main, perms:      │
+│             ssm:SendCommand to the instance only        │
+└─────────────────────────────────────────────────────────┘
+```
 
 ## Prerequisites
 
-1. **AWS Account** with Free Tier eligibility (if you want free hosting)
-2. **AWS CLI** configured with your credentials
-3. **Terraform** installed (>= 1.3.0)
-4. **EC2 Key Pair** created in AWS Console
-5. **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
+- AWS account with permission to create IAM, EC2, SSM, S3, Budgets.
+- AWS CLI configured locally (`aws configure` or SSO profile).
+- Terraform **>= 1.10** (uses S3 native state locking — no DynamoDB).
 
-## Quick Start
+## One-time bootstrap
 
-### 1. Configure Variables
+The S3 backend bucket must exist before `terraform init`. Two commands:
+
 ```bash
-# Copy the example file
-cp terraform.tfvars.example terraform.tfvars
+aws s3api create-bucket \
+  --bucket diplomacy-tfstate-tenderi \
+  --region eu-north-1 \
+  --create-bucket-configuration LocationConstraint=eu-north-1
 
-# Edit with your values
-nano terraform.tfvars
+aws s3api put-bucket-versioning \
+  --bucket diplomacy-tfstate-tenderi \
+  --versioning-configuration Status=Enabled
 ```
 
-Required variables:
-- `telegram_bot_token`: Get from @BotFather on Telegram
-- `key_name`: Your EC2 Key Pair name (create in AWS Console)
-- `allowed_ssh_cidr`: Your public IP for SSH access (get from ipconfig.me)
+If you want a different bucket name, edit `versions.tf` before running these.
 
-### 2. Deploy Infrastructure
+## Put the secrets in SSM
+
+The terraform does **not** manage secret values — only the EC2 instance's permission to read them. Set them once before the first apply:
+
 ```bash
-# Initialize Terraform
+read -srp 'Telegram bot token: ' TOKEN && echo
+aws ssm put-parameter \
+  --name /diplomacy/telegram_bot_token \
+  --type SecureString --value "$TOKEN" \
+  --region eu-north-1
+
+# Optional — the bootstrap script will auto-generate db_password if missing,
+# but if you'd rather pick your own:
+aws ssm put-parameter --name /diplomacy/db_password \
+  --type SecureString --value "$(openssl rand -base64 32)" --region eu-north-1
+
+# Optional — only needed if you don't want the dev defaults from the source
+# code (those refuse to start a production server anyway).
+aws ssm put-parameter --name /diplomacy/jwt_secret \
+  --type SecureString --value "$(openssl rand -hex 32)" --region eu-north-1
+aws ssm put-parameter --name /diplomacy/admin_token \
+  --type SecureString --value "$(openssl rand -hex 32)" --region eu-north-1
+aws ssm put-parameter --name /diplomacy/bot_secret \
+  --type SecureString --value "$(openssl rand -hex 32)" --region eu-north-1
+```
+
+## First apply
+
+```bash
+cd new_implementation/infra/terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars to set (at minimum) budget_alert_email.
+
 terraform init
-
-# Plan the deployment
+terraform fmt -check
+terraform validate
 terraform plan
-
-# Deploy (takes ~5 minutes)
 terraform apply
 ```
 
-### 3. Deploy Application Code
-After Terraform completes, you'll get the instance IP. Deploy your code:
+First apply takes ~3 minutes for AWS resources, then the instance spends another ~5–8 minutes running user_data (apt install, pip install, alembic upgrade). Watch:
 
 ```bash
-# Get the instance IP from Terraform output
-INSTANCE_IP=$(terraform output -raw public_ip)
-
-# Copy your application code
-scp -i ~/.ssh/YOUR_KEY.pem -r ../../new_implementation ubuntu@$INSTANCE_IP:/tmp/
-
-# SSH to the instance
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP
-
-# On the instance, copy code to the application directory
-sudo cp -r /tmp/new_implementation/* /opt/diplomacy/new_implementation/
-sudo chown -R diplomacy:diplomacy /opt/diplomacy/new_implementation
-
-# Start the diplomacy service
-sudo systemctl start diplomacy
-
-# Check status
-sudo /opt/diplomacy/status.sh
+INSTANCE=$(terraform output -raw instance_id)
+aws ssm start-session --target "$INSTANCE" --region eu-north-1
+# inside the session:
+sudo tail -f /var/log/diplomacy-bootstrap.log
 ```
 
-### 4. Access Your Application
-- **API**: `http://YOUR_INSTANCE_IP:8000`
-- **Via Nginx**: `http://YOUR_INSTANCE_IP`
-- **Docs**: `http://YOUR_INSTANCE_IP:8000/docs`
-- **Dashboard**: `http://YOUR_INSTANCE_IP/dashboard` (deploy with `./deploy_dashboard.sh`)
+When bootstrap finishes, `curl http://$(terraform output -raw public_ip)/health` should return 200.
 
-## Management Commands
+## Wire up CI deploys
 
-### Check Status
+Take the OIDC role ARN from the apply output and set it as a repo variable:
+
 ```bash
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo /opt/diplomacy/status.sh"
+ROLE=$(terraform output -raw github_actions_deploy_role_arn)
+gh variable set AWS_DEPLOY_ROLE_ARN --body "$ROLE"
+gh variable set AWS_REGION --body "eu-north-1"
 ```
 
-### View Logs
-```bash
-# Application logs
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo journalctl -u diplomacy -f"
+From the next push to `main` that turns the **Test Suite** workflow green, the **Deploy** workflow will run and ship the commit via `aws ssm send-command`. No SSH key on the runner, no static AWS credentials.
 
-# Setup logs
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo tail -f /var/log/user-data.log"
-```
+## Day-to-day operations
 
-### Restart Services
-```bash
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo systemctl restart diplomacy"
-```
+| Task | Command |
+|---|---|
+| Open a shell on the instance | `aws ssm start-session --target $(terraform output -raw instance_id) --region eu-north-1` |
+| Deploy manually | GitHub Actions → Deploy → Run workflow, or `git push` to `main` |
+| Deploy a specific commit | Run-workflow with `ref: <sha-or-tag>` |
+| Tail logs | `journalctl -u diplomacy-api -f` / `journalctl -u diplomacy-bot -f` (in SSM session) |
+| Rotate Telegram token | `aws ssm put-parameter --name /diplomacy/telegram_bot_token --type SecureString --value '<new>' --overwrite`; then in SSM session: `sudo systemctl restart diplomacy-bot` |
+| Rotate DB password | put the new value in SSM, then re-run user_data: `sudo cloud-init clean && sudo reboot` (or run the relevant subset by hand) |
+| Stop the instance (save money) | `aws ec2 stop-instances --instance-ids $(terraform output -raw instance_id) --region eu-north-1` |
+| Resume | `aws ec2 start-instances ...` — public IP will change (no Elastic IP) |
+| Destroy everything | `terraform destroy` |
 
-### Update Application
-```bash
-# Use the built-in deployment script
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo -u diplomacy /opt/diplomacy/deploy.sh"
-```
+## Costs (eu-north-1, after the 12-month free tier)
 
-### Deploy Dashboard
-```bash
-# Deploy the dashboard (HTML, CSS, JS files)
-./deploy_dashboard.sh
-```
+| Resource | Monthly |
+|---|---|
+| 1× t3.micro EC2 (730 hrs) | ~$8.50 |
+| 10 GB gp3 EBS | ~$0.95 |
+| 100 GB outbound bandwidth | free tier, then $0.09/GB |
+| S3 state bucket | < $0.05 |
+| AWS Budgets | free |
+| **Estimated total** | **~$10** |
 
-The dashboard provides a web interface for monitoring and managing the bot:
-- **Service Status**: View and restart services
-- **Logs Viewer**: View real-time logs from both services
-- **Database Viewer**: Browse database tables and view statistics
+For the first 12 months: ~$0 if traffic stays under 100 GB outbound.
 
-Access the dashboard at: `http://YOUR_INSTANCE_IP/dashboard`
+## What's intentionally missing
 
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│           EC2 t3.micro                  │
-│  ┌───────────────────────────────────┐  │
-│  │         Nginx :80                 │  │ ← Optional proxy
-│  │    (proxies to :8000)            │  │
-│  └───────────────────────────────────┘  │
-│  ┌───────────────────────────────────┐  │
-│  │    FastAPI + Telegram Bot :8000  │  │ ← Your app
-│  └───────────────────────────────────┘  │
-│  ┌───────────────────────────────────┐  │
-│  │      PostgreSQL :5432             │  │ ← Local database
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
-              │
-    ┌─────────────────┐
-    │   Internet      │
-    └─────────────────┘
-```
-
-## Security Notes
-
-1. **Restrict SSH access**: Set `allowed_ssh_cidr` to your IP (`YOUR.IP.ADDRESS/32`)
-2. **Use strong passwords**: Change default database password
-3. **Keep updated**: Regularly update the instance (`sudo yum update -y`)
-4. **Consider SSL**: Add Let's Encrypt certificate for HTTPS
-
-## Troubleshooting
-
-### Instance won't start?
-```bash
-# Check user-data logs
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo cat /var/log/user-data.log"
-```
-
-### Database connection issues?
-```bash
-# Test database connection
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo -u diplomacy psql -h localhost -U diplomacy -d diplomacy -c 'SELECT version();'"
-```
-
-### Application won't start?
-```bash
-# Check application logs
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo journalctl -u diplomacy -n 50"
-
-# Check if all files are present
-ssh -i ~/.ssh/YOUR_KEY.pem ubuntu@$INSTANCE_IP "sudo ls -la /opt/diplomacy/new_implementation/src/"
-```
-
-## Scaling Up Later
-
-If your application grows, you can easily migrate to the full ECS setup:
-1. Take a database backup
-2. Deploy the full Terraform configuration
-3. Restore database to RDS
-4. Update DNS to point to the new load balancer
-
-## Cost Optimization Tips
-
-1. **Use Free Tier**: First 12 months are free
-2. **No Elastic IP**: Saves $3.65/month (IP changes on restart)
-3. **Stop when not needed**: Stop the instance when not in use
-4. **Monitor usage**: Use CloudWatch to track resource usage
-5. **Reserved Instances**: If running long-term, Reserved Instances save 75%
-
-## Cleanup
-
-To destroy all resources:
-```bash
-terraform destroy
-```
-
-**Note**: This will delete everything, including your database! 
+- **No Elastic IP** — saves $3.65/month. If you reboot or stop+start, the public IP changes. If/when you add a domain, point an A record at the EIP or use Route 53 with a small TTL.
+- **No HTTPS** — TLS deferred until you bring a domain. Add later with `certbot --nginx`.
+- **No RDS** — Postgres is on the EC2 box. RDS doubles the cost and adds free-tier accounting. Restore a recent EBS snapshot if you ever need DR.
+- **No autoscaling / load balancer** — solo instance is plenty for a turn-based game. Reach for ALB + ASG when you actually need multiple workers.
+- **No CloudWatch alarms beyond Budgets** — start simple. Add later when you have something to alarm on.

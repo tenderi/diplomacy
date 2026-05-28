@@ -1,0 +1,22 @@
+# Local state, in case backend block is ever commented out
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Variable files with secrets
+terraform.tfvars
+*.auto.tfvars
+
+# Provider plugins, modules, lockfiles unrelated to our own
+.terraform/
+.terraform.tfstate.lock.info
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
