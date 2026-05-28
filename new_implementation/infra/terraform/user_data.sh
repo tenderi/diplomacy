@@ -1,231 +1,141 @@
 #!/bin/bash
+# Bootstrap a fresh Ubuntu 24.04 EC2 instance for the Diplomacy server.
+# Runs once at instance launch. Idempotent — safe to re-run by `cloud-init clean`
+# then rebooting, or by manually invoking sections.
+#
+# Conventions:
+#   - All state on disk lives under /opt/diplomacy (a git checkout).
+#   - The `diplomacy` system user owns /opt/diplomacy and runs the services.
+#   - Python 3.14 comes from the deadsnakes PPA.
+#   - Postgres is whatever Ubuntu 24.04 ships (16.x). Migrations work on
+#     14, 15, 16 identically — CI runs 14, we accept the drift.
+#   - Secrets are read from SSM Parameter Store at /diplomacy/* — they
+#     must be set BEFORE the instance comes up:
+#       aws ssm put-parameter --name /diplomacy/telegram_bot_token \
+#         --type SecureString --value '...' --region ${aws_region}
+set -euo pipefail
 
-# User data script to set up Diplomacy app on Ubuntu 22.04 LTS
-# This script installs PostgreSQL, Python, and sets up the application
-
-set -e
-
-# Log all output
-exec > >(tee /var/log/user-data.log)
+exec > >(tee -a /var/log/diplomacy-bootstrap.log)
 exec 2>&1
+echo "=== Diplomacy bootstrap started $(date -Iseconds) ==="
 
-echo "=== Starting Diplomacy Server Setup on Ubuntu 22.04 ==="
-echo "Date: $(date)"
+AWS_REGION="${aws_region}"
+SSM_PREFIX="${ssm_prefix}"
+GITHUB_REPO="${github_repo}"
+APP_DIR="/opt/diplomacy"
+APP_USER="diplomacy"
 
-# Update system
-apt update && apt upgrade -y
+# --- 1. System packages ---
+echo "--- apt update + install base packages ---"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y software-properties-common ca-certificates curl gnupg unzip
+add-apt-repository -y ppa:deadsnakes/ppa
+apt-get update -qq
+apt-get install -y \
+  python3.14 python3.14-venv python3.14-dev \
+  postgresql postgresql-contrib \
+  build-essential libpq-dev libcairo2 libcairo2-dev pkg-config \
+  nginx git jq
 
-# Install required packages (much simpler on Ubuntu!)
-echo "Installing required packages..."
-apt install -y \
-    postgresql \
-    postgresql-contrib \
-    python3 \
-    python3-pip \
-    python3-venv \
-    git \
-    nginx \
-    curl \
-    unzip \
-    build-essential \
-    libpq-dev \
-    libcairo2-dev \
-    libgirepository1.0-dev \
-    pkg-config
+# AWS CLI v2 — the snap-installed v1 in the default AMI doesn't speak SSM
+# Parameter Store the same way.
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install --update
+rm -rf /tmp/awscliv2.zip /tmp/aws
 
-echo "✓ Packages installed successfully"
+# --- 2. Application user + clone ---
+echo "--- create diplomacy user and clone repo ---"
+id "$APP_USER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$APP_USER"
+mkdir -p "$APP_DIR"
+chown "$APP_USER:$APP_USER" "$APP_DIR"
 
-# PostgreSQL setup (dramatically simpler on Ubuntu!)
-echo "Setting up PostgreSQL..."
+if [ ! -d "$APP_DIR/.git" ]; then
+  sudo -u "$APP_USER" git clone "https://github.com/$GITHUB_REPO.git" "$APP_DIR"
+fi
+sudo -u "$APP_USER" git -C "$APP_DIR" fetch --tags
+sudo -u "$APP_USER" git -C "$APP_DIR" checkout main
 
-# Start and enable PostgreSQL service
-systemctl enable postgresql
-systemctl start postgresql
+# --- 3. Python venv with 3.14 ---
+echo "--- python venv + dependencies ---"
+sudo -u "$APP_USER" python3.14 -m venv "$APP_DIR/venv"
+sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --upgrade pip
+sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/new_implementation/requirements.txt"
 
-# Wait for PostgreSQL to be ready
-sleep 5
+# --- 4. PostgreSQL: database, user, tuning for 1 GB RAM ---
+echo "--- postgres setup ---"
+systemctl enable --now postgresql
 
-# Create database and user (simple on Ubuntu - postgres user exists by default)
-echo "Creating database and user..."
-sudo -u postgres createdb ${db_name} || echo "Database already exists"
-sudo -u postgres psql -c "CREATE USER ${db_username} WITH PASSWORD '${db_password}';" || echo "User already exists"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${db_name} TO ${db_username};" || true
-sudo -u postgres psql -c "ALTER USER ${db_username} CREATEDB;" || true
+# Read the db password from SSM. If absent, generate a fresh one and store it.
+if ! aws ssm get-parameter --name "$SSM_PREFIX/db_password" --with-decryption --region "$AWS_REGION" >/dev/null 2>&1; then
+  echo "  /diplomacy/db_password not in SSM — generating and storing"
+  GEN_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
+  aws ssm put-parameter --name "$SSM_PREFIX/db_password" --type SecureString \
+    --value "$GEN_PASS" --region "$AWS_REGION" >/dev/null
+fi
+DB_PASSWORD=$(aws ssm get-parameter --name "$SSM_PREFIX/db_password" --with-decryption --region "$AWS_REGION" --query 'Parameter.Value' --output text)
 
-echo "✓ Database setup complete"
+# Idempotent create: skip on duplicate.
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='diplomacy'" | grep -q 1 \
+  || sudo -u postgres psql -c "CREATE USER diplomacy WITH PASSWORD '$DB_PASSWORD';"
+# Always sync password (lets rotation happen by updating SSM + rebooting).
+sudo -u postgres psql -c "ALTER USER diplomacy WITH PASSWORD '$DB_PASSWORD';"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='diplomacy_db'" | grep -q 1 \
+  || sudo -u postgres createdb -O diplomacy diplomacy_db
 
-# Configure PostgreSQL for optimal performance on t3.micro
-echo "Optimizing PostgreSQL configuration..."
-PG_VERSION=$(sudo -u postgres psql -c "SHOW server_version;" -t | awk '{print $1}' | sed 's/\..*//') 
-PG_CONFIG_DIR="/etc/postgresql/$PG_VERSION/main"
+# Tune for t3.micro (1 GB RAM). Append once; subsequent runs are no-ops.
+PG_CONF=$(ls /etc/postgresql/*/main/postgresql.conf | head -1)
+if ! grep -q '# diplomacy-tuning' "$PG_CONF"; then
+  cat >>"$PG_CONF" <<'PGCONF'
 
-# Backup original config
-cp $PG_CONFIG_DIR/postgresql.conf $PG_CONFIG_DIR/postgresql.conf.backup
-
-# Add optimized settings
-cat >> $PG_CONFIG_DIR/postgresql.conf << EOF
-
-# Optimized settings for single-instance t3.micro deployment
-listen_addresses = 'localhost'
-port = 5432
-
-# Performance tuning for t3.micro (1GB RAM)
+# diplomacy-tuning: conservative settings for a 1 GB t3.micro hosting
+# Postgres + FastAPI + Telegram bot on the same box.
 shared_buffers = 128MB
-effective_cache_size = 768MB
+effective_cache_size = 512MB
 work_mem = 4MB
 maintenance_work_mem = 64MB
-max_connections = 20
-
-# Logging
-log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
-log_statement = 'all'
-logging_collector = on
-log_directory = 'log'
-log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
-EOF
-
-# Configure authentication (allow local md5 connections)
-PG_HBA_FILE="$PG_CONFIG_DIR/pg_hba.conf"
-cp $PG_HBA_FILE $PG_HBA_FILE.backup
-
-# Update pg_hba.conf for local connections with password authentication
-sed -i 's/local   all             all                                     peer/local   all             all                                     md5/' $PG_HBA_FILE
-
-# Restart PostgreSQL to apply changes
-systemctl restart postgresql
-sleep 5
-
-# Test PostgreSQL connection
-echo "Testing PostgreSQL setup..."
-if sudo -u postgres psql -c "SELECT version();" > /dev/null 2>&1; then
-    echo "✓ PostgreSQL is running and accessible"
-    sudo -u postgres psql -c "SELECT version();"
-else
-    echo "✗ PostgreSQL test failed"
-    exit 1
+max_connections = 25
+PGCONF
+  systemctl restart postgresql
 fi
 
-# Test database connection with the created user
-echo "Testing database connection with diplomacy user..."
-if PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Connection successful!' as status;" > /dev/null 2>&1; then
-    echo "✓ Database connection successful!"
-    PGPASSWORD='${db_password}' psql -h localhost -U ${db_username} -d ${db_name} -c "SELECT 'Connection successful!' as status;"
-else
-    echo "✗ Database connection failed!"
-    exit 1
+# --- 5. Swap (1 GB RAM is tight; without swap, map rendering OOMs) ---
+if ! swapon --show | grep -q '/swapfile'; then
+  echo "--- creating 2 GB swap file ---"
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo "/swapfile none swap sw 0 0" >>/etc/fstab
 fi
 
-# Create diplomacy user
-echo "Creating diplomacy application user..."
-useradd -m -s /bin/bash diplomacy || echo "User already exists"
+# --- 6. Environment file (read by systemd) ---
+# Delegated to refresh-env.sh, which is the same helper used for rotation
+# after bootstrap. Keeps both paths consistent.
+echo "--- write /opt/diplomacy/.env via refresh-env.sh ---"
+AWS_REGION="$AWS_REGION" bash "$APP_DIR/new_implementation/infra/scripts/refresh-env.sh"
 
-# Configure sudo access for diplomacy user to run systemctl commands (for dashboard)
-echo "Configuring sudo access for diplomacy user..."
-cat > /etc/sudoers.d/diplomacy-systemctl << 'SUDO_EOF'
-# Allow diplomacy user to run systemctl and journalctl commands for dashboard
-# Note: Each command must be on a separate line for proper sudoers syntax
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl status diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl start diplomacy
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl start diplomacy-bot
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop diplomacy
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop diplomacy-bot
-# Allow journalctl with various flags (wildcard must be at end)
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy *
-diplomacy ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u diplomacy-bot *
-SUDO_EOF
-chmod 0440 /etc/sudoers.d/diplomacy-systemctl
+# --- 7. Database migrations ---
+echo "--- alembic upgrade head ---"
+sudo -u "$APP_USER" bash -c "cd $APP_DIR/new_implementation && \
+  set -a && source $APP_DIR/.env && set +a && \
+  $APP_DIR/venv/bin/alembic upgrade head"
 
-# Configure sudo access for ubuntu user (used in deployment scripts)
-echo "Configuring sudo access for ubuntu user..."
-cat > /etc/sudoers.d/ubuntu-systemctl << 'SUDO_EOF'
-# Allow ubuntu user to run systemctl and journalctl commands (for deployment scripts)
-ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl status *
-ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
-ubuntu ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart *, /usr/bin/systemctl stop *, /usr/bin/systemctl start *
-ubuntu ALL=(ALL) NOPASSWD: /usr/bin/journalctl *
-ubuntu ALL=(ALL) NOPASSWD: /usr/bin/ss -tlnp
-SUDO_EOF
-chmod 0440 /etc/sudoers.d/ubuntu-systemctl
-echo "✓ Sudo access configured for diplomacy and ubuntu users"
-
-# Set up application directory
-echo "Setting up application directories..."
-mkdir -p /opt/diplomacy
-chown diplomacy:diplomacy /opt/diplomacy
-
-# Create application directory structure
-sudo -u diplomacy mkdir -p /opt/diplomacy/src
-sudo -u diplomacy mkdir -p /opt/diplomacy/maps
-
-# Create environment file
-echo "Creating environment file..."
-cat > /opt/diplomacy/.env << EOF
-db_username=${db_username}
-db_password=${db_password}
-db_host=localhost
-db_port=5432
-db_name=${db_name}
-TELEGRAM_BOT_TOKEN=${telegram_bot_token}
-SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://${db_username}:${db_password}@localhost:5432/${db_name}
-DIPLOMACY_API_URL=${diplomacy_api_url}
-BOT_ONLY=false
-PYTHONPATH=/opt/diplomacy/src
-PATH=/home/diplomacy/.local/bin:\$PATH
-EOF
-
-chown diplomacy:diplomacy /opt/diplomacy/.env
-
-# Create requirements.txt with latest versions (Ubuntu supports them!)
-echo "Creating requirements.txt with latest package versions..."
-cat > /opt/diplomacy/requirements.txt << EOF
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
-sqlalchemy==2.0.36
-psycopg2-binary==2.9.10
-alembic==1.14.0
-python-telegram-bot==21.10
-pydantic==2.10.3
-python-multipart==0.0.17
-jinja2==3.1.4
-pytz==2024.2
-python-dotenv==1.0.1
-httpx==0.28.1
-aiofiles==24.1.0
-Pillow>=11.0.0,<13.0.0
-EOF
-
-# Install Python dependencies (latest versions work on Ubuntu!)
-echo "Installing Python dependencies..."
-# Check pip version - --break-system-packages is only available in pip 23.0+
-# Try with the flag first, fallback if it fails
-if sudo -u diplomacy pip3 install --user --no-warn-script-location --break-system-packages -r /opt/diplomacy/requirements.txt 2>/dev/null; then
-    echo "Dependencies installed with --break-system-packages flag"
-else
-    echo "Installing without --break-system-packages flag (older pip version)"
-    sudo -u diplomacy pip3 install --user --no-warn-script-location -r /opt/diplomacy/requirements.txt
-fi
-
-echo "✓ Python dependencies installed successfully"
-
-# Create systemd service for the diplomacy app
-echo "Creating systemd service..."
-cat > /etc/systemd/system/diplomacy.service << EOF
+# --- 8. systemd units ---
+echo "--- systemd units ---"
+cat >/etc/systemd/system/diplomacy-api.service <<EOF
 [Unit]
-Description=Diplomacy Game Server
+Description=Diplomacy FastAPI server
 After=network.target postgresql.service
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=diplomacy
-WorkingDirectory=/opt/diplomacy
-EnvironmentFile=/opt/diplomacy/.env
-ExecStart=/home/diplomacy/.local/bin/uvicorn src.server.api:app --host 0.0.0.0 --port 8000
+User=$APP_USER
+WorkingDirectory=$APP_DIR/new_implementation
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$APP_DIR/venv/bin/uvicorn server._api_module:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 StandardOutput=journal
@@ -235,21 +145,20 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Create systemd service for the telegram bot
-cat > /etc/systemd/system/diplomacy-bot.service << EOF
+cat >/etc/systemd/system/diplomacy-bot.service <<EOF
 [Unit]
-Description=Diplomacy Telegram Bot
-After=network.target postgresql.service diplomacy.service
+Description=Diplomacy Telegram bot
+After=network.target postgresql.service diplomacy-api.service
 Requires=postgresql.service
 
 [Service]
 Type=simple
-User=diplomacy
-WorkingDirectory=/opt/diplomacy
-EnvironmentFile=/opt/diplomacy/.env
-ExecStart=/usr/bin/python3 /opt/diplomacy/src/server/run_telegram_bot.py
+User=$APP_USER
+WorkingDirectory=$APP_DIR/new_implementation
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$APP_DIR/venv/bin/python -m server.telegram_bot
 Restart=always
-RestartSec=3
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
@@ -257,188 +166,38 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Set up Nginx reverse proxy
-echo "Configuring Nginx reverse proxy..."
-cat > /etc/nginx/sites-available/diplomacy << EOF
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    
-    server_name _;
-    
-    # Increase buffer sizes for large requests
-    client_max_body_size 10M;
-    
-    # Dashboard route - explicit handling to ensure proper forwarding
-    location /dashboard {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        # Timeouts
-        proxy_connect_timeout       60s;
-        proxy_send_timeout          60s;
-        proxy_read_timeout          60s;
-        
-        # Ensure proper request forwarding
-        proxy_redirect off;
-        proxy_buffering off;
-    }
-    
-    # Dashboard static files
-    location /dashboard/static {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        
-        # Cache static files
-        proxy_cache_valid 200 1h;
-        expires 1h;
-        add_header Cache-Control "public, immutable";
-    }
-    
-    # Health check endpoint
-    location /health {
-        proxy_pass http://localhost:8000/health;
-        access_log off;
-    }
-    
-    # API endpoints
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        proxy_http_version 1.1;
-        proxy_connect_timeout       60s;
-        proxy_send_timeout          60s;
-        proxy_read_timeout          60s;
-        proxy_redirect off;
-    }
-    
-    # Default location - proxy everything else
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # WebSocket support
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        # Timeouts
-        proxy_connect_timeout       60s;
-        proxy_send_timeout          60s;
-        proxy_read_timeout          60s;
-        
-        # Ensure proper request forwarding
-        proxy_redirect off;
-        proxy_buffering off;
-    }
-}
-EOF
-
-# Enable the Nginx site
-rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/diplomacy /etc/nginx/sites-enabled/
-
-# Test Nginx configuration
-nginx -t
-
-# Run database migrations (only if alembic.ini exists - code may not be deployed yet)
-echo "Checking for database migrations..."
-cd /opt/diplomacy
-if [ -f "/opt/diplomacy/alembic.ini" ]; then
-    echo "Running database migrations..."
-    # Use python -m alembic which works regardless of PATH, or try full path
-    # alembic is installed via pip install --user, so it's in ~/.local/bin
-    # Using python -m is more reliable as it uses the installed package directly
-    sudo -u diplomacy bash -c 'export PATH=/home/diplomacy/.local/bin:$PATH && cd /opt/diplomacy && python3 -m alembic upgrade head' || \
-    sudo -u diplomacy bash -c 'cd /opt/diplomacy && /home/diplomacy/.local/bin/alembic upgrade head'
-    echo "✓ Database migrations completed"
-else
-    echo "⚠ Alembic config not found - migrations will run during code deployment"
-    echo "✓ Skipping migrations (will be handled by deploy script)"
-fi
-
-# Enable and start services
-echo "Enabling and starting services..."
 systemctl daemon-reload
-systemctl enable nginx
-systemctl enable diplomacy.service
-systemctl enable diplomacy-bot.service
+systemctl enable --now diplomacy-api.service
+systemctl enable --now diplomacy-bot.service
 
-# Start Nginx
-systemctl start nginx
+# --- 9. Nginx reverse proxy (port 80 → 127.0.0.1:8000) ---
+echo "--- nginx ---"
+cat >/etc/nginx/sites-available/diplomacy <<'NGINX'
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
 
-# Services will be started by deploy script after code is uploaded
+  client_max_body_size 10M;
 
-echo "Creating status script..."
-cat > /opt/diplomacy/status.sh << 'EOF'
-#!/bin/bash
-echo "=== Diplomacy Server Status ==="
-echo ""
-echo "📁 Directory Structure:"
-ls -la /opt/diplomacy/ | head -10
-echo ""
-echo "🐘 PostgreSQL Status:"
-sudo systemctl is-active postgresql 2>/dev/null || echo "Unable to check (requires sudo)"
-echo ""
-echo "🎯 Diplomacy API Status:"
-sudo systemctl is-active diplomacy 2>/dev/null || echo "Unable to check (requires sudo)"
-echo ""
-echo "🤖 Telegram Bot Status:"
-sudo systemctl is-active diplomacy-bot 2>/dev/null || echo "Unable to check (requires sudo)"
-echo ""
-echo "🌐 Network Status:"
-sudo ss -tlnp 2>/dev/null | grep ":8000\|:80\|:5432" || ss -tln | grep ":8000\|:80\|:5432" || echo "Unable to check network status"
-echo ""
-echo "💾 Disk Usage:"
-df -h /opt
-echo ""
-echo "🧠 Memory Usage:"
-free -h
-echo ""
-echo "📊 API Health Check:"
-curl -s http://localhost:8000/ 2>/dev/null | head -100 || echo "API not responding"
-echo ""
-echo "📋 Recent Logs:"
-echo "API Logs:"
-sudo journalctl -u diplomacy --no-pager -n 5 2>/dev/null | cat || echo "Unable to retrieve logs (requires sudo)"
-echo ""
-echo "Bot Logs:"
-sudo journalctl -u diplomacy-bot --no-pager -n 5 2>/dev/null | cat || echo "Unable to retrieve logs (requires sudo)"
-EOF
+  location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 60s;
+    proxy_buffering off;
+  }
+}
+NGINX
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/diplomacy /etc/nginx/sites-enabled/diplomacy
+nginx -t
+systemctl enable --now nginx
+systemctl reload nginx
 
-chmod +x /opt/diplomacy/status.sh
-chown diplomacy:diplomacy /opt/diplomacy/status.sh
-
-echo ""
-echo "=== Setup Complete! ==="
-echo "✓ Ubuntu 22.04 LTS system updated"
-echo "✓ PostgreSQL $(sudo -u postgres psql -c "SHOW server_version;" -t | awk '{print $1}') installed and configured"
-echo "✓ Python $(python3 --version) with latest packages installed"
-echo "✓ Nginx reverse proxy configured"
-echo "✓ Systemd services created"
-echo "✓ Application user and directories prepared"
-echo ""
-echo "Next steps:"
-echo "1. Upload application code to /opt/diplomacy/"
-echo "2. Run database migrations"
-echo "3. Start services: systemctl start diplomacy.service diplomacy-bot.service"
-echo ""
-echo "Use '/opt/diplomacy/status.sh' to check server status"
-echo "=== Setup Log Complete ===" 
+echo "=== Diplomacy bootstrap finished $(date -Iseconds) ==="
