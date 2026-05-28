@@ -1,349 +1,352 @@
 """
-Tests for deployment scripts and infrastructure configuration.
+Tests for deployment scripts and Terraform user_data.
 
-These tests verify that:
-- Deployment scripts generate correct configurations
-- Systemd service files are valid
-- Nginx configurations are correct
-- Environment variable setup works
+These tests verify the shape of the deployment artifacts:
+- user_data.sh declares both systemd units, the right Nginx config, etc.
+- deploy.sh and refresh-env.sh are syntactically valid and contain the
+  steps we expect.
+- The Terraform module pins the right versions and OIDC trust scope.
+
+These are intentionally string-presence checks. They don't replace real
+deploy-time verification (CI's `/health` probe in deploy.yml does that)
+but they catch coarse regressions like "someone removed the systemd unit
+for the bot" or "OIDC trust scope was widened to all branches".
 """
-import pytest
-import re
+from __future__ import annotations
+
 import os
-from pathlib import Path
+import re
 import subprocess
-import sys
+from pathlib import Path
+
+import pytest
+
+
+PROJECT_ROOT = Path(__file__).parent.parent
+INFRA = PROJECT_ROOT / "infra"
+TERRAFORM_DIR = INFRA / "terraform"
+SCRIPTS_DIR = INFRA / "scripts"
 
 
 @pytest.fixture
-def terraform_dir():
-    """Get the terraform directory"""
-    project_root = Path(__file__).parent.parent
-    return project_root / "infra" / "terraform"
+def user_data() -> str:
+    path = TERRAFORM_DIR / "user_data.sh"
+    if not path.exists():
+        pytest.skip(f"{path} not found")
+    return path.read_text()
 
 
 @pytest.fixture
-def user_data_path(terraform_dir):
-    """Get the user_data.sh file path"""
-    return terraform_dir / "user_data.sh"
+def deploy_script_path() -> Path:
+    return SCRIPTS_DIR / "deploy.sh"
 
 
-class TestSystemdServiceConfiguration:
-    """Test systemd service file generation"""
-    
-    def test_systemd_service_file_exists_in_user_data(self, user_data_path):
-        """Test that systemd service configuration is in user_data.sh"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Should contain systemd service configuration
-        assert '[Unit]' in content, "Systemd service [Unit] section not found"
-        assert '[Service]' in content, "Systemd service [Service] section not found"
-        assert '[Install]' in content, "Systemd service [Install] section not found"
-    
-    def test_diplomacy_service_has_correct_execstart(self, user_data_path):
-        """Test that diplomacy service ExecStart is correct"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Find the ExecStart line for diplomacy service
-        # Should use uvicorn to start the API
-        execstart_match = re.search(
-            r'ExecStart=([^\n]+)',
-            content
+@pytest.fixture
+def refresh_env_path() -> Path:
+    return SCRIPTS_DIR / "refresh-env.sh"
+
+
+# ---------------------------------------------------------------------------
+# user_data.sh
+# ---------------------------------------------------------------------------
+
+
+class TestSystemdUnitsInUserData:
+    """The bootstrap installs both diplomacy-api.service and diplomacy-bot.service."""
+
+    def test_api_service_block_exists(self, user_data: str) -> None:
+        assert "diplomacy-api.service" in user_data
+        assert "Description=Diplomacy FastAPI server" in user_data
+
+    def test_bot_service_block_exists(self, user_data: str) -> None:
+        assert "diplomacy-bot.service" in user_data
+        assert "Description=Diplomacy Telegram bot" in user_data
+
+    def test_api_service_runs_uvicorn(self, user_data: str) -> None:
+        match = re.search(
+            r"Description=Diplomacy FastAPI server.*?ExecStart=([^\n]+)",
+            user_data,
+            re.DOTALL,
         )
-        
-        if execstart_match:
-            execstart = execstart_match.group(1)
-            # Should use uvicorn or python3 with correct path
-            assert 'uvicorn' in execstart or 'python3' in execstart, \
-                f"ExecStart should use uvicorn or python3: {execstart}"
-            assert 'src.server.api' in execstart or 'api' in execstart, \
-                f"ExecStart should reference the API module: {execstart}"
-    
-    def test_telegram_bot_service_has_correct_execstart(self, user_data_path):
-        """Test that telegram bot service ExecStart is correct"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Find ExecStart for diplomacy-bot service
-        # Look for the section that defines diplomacy-bot.service
-        bot_service_match = re.search(
-            r'Description=Diplomacy Telegram Bot.*?ExecStart=([^\n]+)',
-            content,
-            re.DOTALL
+        assert match, "Could not find API service block"
+        execstart = match.group(1)
+        assert "uvicorn" in execstart, f"API ExecStart should use uvicorn: {execstart}"
+        assert "server._api_module:app" in execstart, (
+            f"API ExecStart should reference server._api_module:app: {execstart}"
         )
-        
-        if bot_service_match:
-            execstart = bot_service_match.group(1).strip()
-            
-            # Should use python3 or the wrapper script
-            assert 'python3' in execstart or 'run_telegram_bot.py' in execstart, \
-                f"ExecStart should use python3 or wrapper script: {execstart}"
-            
-            # Should not use -m src.server.telegram_bot (which doesn't work)
-            assert '-m src.server.telegram_bot' not in execstart, \
-                "ExecStart should not use -m src.server.telegram_bot (doesn't work)"
-            
-            # Should reference the correct path
-            assert 'telegram_bot' in execstart or 'run_telegram_bot' in execstart, \
-                f"ExecStart should reference telegram bot: {execstart}"
-    
-    def test_telegram_bot_service_has_environment_file(self, user_data_path):
-        """Test that telegram bot service has EnvironmentFile"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Find the diplomacy-bot service section
-        bot_section = re.search(
-            r'Description=Diplomacy Telegram Bot.*?\[Install\]',
-            content,
-            re.DOTALL
+
+    def test_bot_service_runs_python_module(self, user_data: str) -> None:
+        match = re.search(
+            r"Description=Diplomacy Telegram bot.*?ExecStart=([^\n]+)",
+            user_data,
+            re.DOTALL,
         )
-        
-        if bot_section:
-            section = bot_section.group(0)
-            # Should have EnvironmentFile
-            assert 'EnvironmentFile' in section, \
-                "Telegram bot service should have EnvironmentFile"
-            assert '/opt/diplomacy/.env' in section, \
-                "EnvironmentFile should point to /opt/diplomacy/.env"
-    
-    def test_services_have_correct_user(self, user_data_path):
-        """Test that services run as the correct user"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Both services should run as 'diplomacy' user
-        assert 'User=diplomacy' in content, \
-            "Services should run as 'diplomacy' user"
-    
-    def test_services_have_restart_policy(self, user_data_path):
-        """Test that services have restart policy"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Should have restart policy
-        assert 'Restart=' in content, \
-            "Services should have Restart policy"
-        assert 'RestartSec=' in content, \
-            "Services should have RestartSec"
+        assert match, "Could not find bot service block"
+        execstart = match.group(1)
+        assert "-m server.telegram_bot" in execstart, (
+            f"Bot ExecStart should run `python -m server.telegram_bot`: {execstart}"
+        )
+
+    def test_both_services_have_environment_file(self, user_data: str) -> None:
+        # Both [Service] sections should declare an EnvironmentFile pointing
+        # at the SSM-populated .env.
+        assert user_data.count("EnvironmentFile=$APP_DIR/.env") == 2, (
+            "Both services should set EnvironmentFile=$APP_DIR/.env"
+        )
+
+    def test_both_services_run_as_app_user(self, user_data: str) -> None:
+        # APP_USER is set to `diplomacy` at the top of user_data.sh — the
+        # systemd template stays in $APP_USER form so the value flows from
+        # one place.
+        assert user_data.count("User=$APP_USER") == 2, (
+            "Both services should run as the $APP_USER (diplomacy)"
+        )
+        assert 'APP_USER="diplomacy"' in user_data
+
+    def test_services_have_restart_policy(self, user_data: str) -> None:
+        assert user_data.count("Restart=always") == 2
+        # RestartSec values may differ between API (3s) and bot (5s).
+        assert user_data.count("RestartSec=") == 2
+
+
+# ---------------------------------------------------------------------------
+# Nginx reverse proxy
+# ---------------------------------------------------------------------------
 
 
 class TestNginxConfiguration:
-    """Test Nginx configuration"""
-    
-    def test_nginx_config_exists_in_user_data(self, user_data_path):
-        """Test that Nginx configuration is in user_data.sh"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Should contain Nginx server block
-        assert 'server {' in content, "Nginx server block not found"
-        assert 'listen 80' in content, "Nginx should listen on port 80"
-        assert 'proxy_pass' in content, "Nginx should have proxy_pass directives"
-    
-    def test_nginx_has_dashboard_location(self, user_data_path):
-        """Test that Nginx has explicit dashboard location"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Should have explicit /dashboard location
-        dashboard_match = re.search(
-            r'location /dashboard\s*\{[^}]*proxy_pass',
-            content,
-            re.DOTALL
+    """Nginx config baked into user_data.sh."""
+
+    def test_nginx_server_block_exists(self, user_data: str) -> None:
+        assert "server {" in user_data
+        assert "listen 80 default_server" in user_data
+
+    def test_nginx_proxies_to_local_api(self, user_data: str) -> None:
+        # Accept either explicit-loopback form. We use 127.0.0.1 to avoid
+        # DNS resolution edge cases on minimal Ubuntu images.
+        assert (
+            "proxy_pass http://127.0.0.1:8000" in user_data
+            or "proxy_pass http://localhost:8000" in user_data
+        ), "Nginx should proxy to the local uvicorn on port 8000"
+
+    def test_nginx_does_not_expose_dashboard(self, user_data: str) -> None:
+        # docs/specs/dashboard.md is design-only. The Nginx config should
+        # not pretend the dashboard exists.
+        assert "location /dashboard" not in user_data
+
+
+# ---------------------------------------------------------------------------
+# user_data.sh — overall shape
+# ---------------------------------------------------------------------------
+
+
+class TestUserDataScript:
+    def test_user_data_uses_deadsnakes_for_python_3_14(self, user_data: str) -> None:
+        assert "ppa:deadsnakes/ppa" in user_data
+        assert "python3.14" in user_data
+
+    def test_user_data_delegates_env_writing_to_refresh_script(
+        self, user_data: str
+    ) -> None:
+        # Single source of truth: bootstrap and rotation both go through
+        # refresh-env.sh.
+        assert "refresh-env.sh" in user_data
+
+    def test_user_data_syntax_valid(self) -> None:
+        path = TERRAFORM_DIR / "user_data.sh"
+        if not path.exists():
+            pytest.skip(f"{path} not found")
+        result = subprocess.run(
+            ["bash", "-n", str(path)], capture_output=True, text=True
         )
-        
-        assert dashboard_match is not None, \
-            "Nginx should have explicit /dashboard location block"
-    
-    def test_nginx_proxies_to_localhost_8000(self, user_data_path):
-        """Test that Nginx proxies to localhost:8000"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        content = user_data_path.read_text()
-        
-        # Should proxy to localhost:8000
-        assert 'proxy_pass http://localhost:8000' in content, \
-            "Nginx should proxy to http://localhost:8000"
+        assert result.returncode == 0, f"user_data.sh has syntax errors: {result.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# infra/scripts/deploy.sh — invoked by SSM send-command on every deploy
+# ---------------------------------------------------------------------------
 
 
 class TestDeployScript:
-    """Test deploy_app.sh script"""
-    
-    def test_deploy_script_exists(self, terraform_dir):
-        """Test that deploy_app.sh exists"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        assert deploy_script.is_file(), "deploy_app.sh should be a file"
-    
-    def test_deploy_script_is_executable(self, terraform_dir):
-        """Test that deploy_app.sh is executable"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        # Check if file has execute permission
-        assert os.access(deploy_script, os.X_OK), \
-            "deploy_app.sh should be executable"
-    
-    def test_deploy_script_has_shebang(self, terraform_dir):
-        """Test that deploy_app.sh has shebang"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        content = deploy_script.read_text()
-        assert content.startswith('#!/bin/bash'), \
-            "deploy_app.sh should start with #!/bin/bash"
-    
-    def test_deploy_script_fixes_telegram_bot_service(self, terraform_dir):
-        """Test that deploy_app.sh fixes telegram bot service configuration"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        content = deploy_script.read_text()
-        
-        # Should contain code that fixes telegram bot service
-        assert 'diplomacy-bot.service' in content, \
-            "deploy_app.sh should configure diplomacy-bot.service"
-        
-        # Should use the wrapper script or correct path
-        assert 'run_telegram_bot.py' in content or 'python3' in content, \
-            "deploy_app.sh should reference run_telegram_bot.py or python3"
-    
-    def test_deploy_script_fixes_nginx_config(self, terraform_dir):
-        """Test that deploy_app.sh fixes Nginx configuration"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        content = deploy_script.read_text()
-        
-        # Should contain Nginx configuration
-        assert 'nginx' in content.lower() or '/etc/nginx' in content, \
-            "deploy_app.sh should configure Nginx"
-        
-        # Should have dashboard location
-        assert 'location /dashboard' in content, \
-            "deploy_app.sh should configure /dashboard location"
-
-
-class TestWrapperScript:
-    """Test the run_telegram_bot.py wrapper script"""
-    
-    def test_wrapper_script_exists(self, terraform_dir):
-        """Test that run_telegram_bot.py exists"""
-        project_root = terraform_dir.parent
-        wrapper_script = project_root / "src" / "server" / "run_telegram_bot.py"
-        
-        if not wrapper_script.exists():
-            pytest.skip("run_telegram_bot.py not found")
-        
-        assert wrapper_script.is_file(), "run_telegram_bot.py should exist"
-    
-    def test_wrapper_script_has_shebang(self, terraform_dir):
-        """Test that wrapper script has shebang"""
-        project_root = terraform_dir.parent
-        wrapper_script = project_root / "src" / "server" / "run_telegram_bot.py"
-        
-        if not wrapper_script.exists():
-            pytest.skip("run_telegram_bot.py not found")
-        
-        content = wrapper_script.read_text()
-        assert content.startswith('#!/usr/bin/env python3') or content.startswith('#!/usr/bin/python3'), \
-            "run_telegram_bot.py should have Python shebang"
-    
-    def test_wrapper_script_sets_pythonpath(self, terraform_dir):
-        """Test that wrapper script sets PYTHONPATH correctly"""
-        project_root = terraform_dir.parent
-        wrapper_script = project_root / "src" / "server" / "run_telegram_bot.py"
-        
-        if not wrapper_script.exists():
-            pytest.skip("run_telegram_bot.py not found")
-        
-        content = wrapper_script.read_text()
-        
-        # Should add src directory to sys.path
-        assert 'sys.path.insert' in content or 'sys.path.append' in content, \
-            "Wrapper script should modify sys.path"
-        assert '/opt/diplomacy/src' in content or 'src_dir' in content, \
-            "Wrapper script should add src directory to path"
-    
-    def test_wrapper_script_imports_telegram_bot_package(self, terraform_dir):
-        """Test that wrapper script imports telegram_bot package correctly"""
-        project_root = terraform_dir.parent
-        wrapper_script = project_root / "src" / "server" / "run_telegram_bot.py"
-        
-        if not wrapper_script.exists():
-            pytest.skip("run_telegram_bot.py not found")
-        
-        content = wrapper_script.read_text()
-        
-        # Should import server.telegram_bot package first
-        assert 'server.telegram_bot' in content or 'importlib' in content, \
-            "Wrapper script should import telegram_bot package or use importlib"
-
-
-@pytest.mark.integration
-class TestDeploymentScriptExecution:
-    """Integration tests for deployment script execution"""
-    
-    def test_deploy_script_syntax_is_valid(self, terraform_dir):
-        """Test that deploy_app.sh has valid bash syntax"""
-        deploy_script = terraform_dir / "deploy_app.sh"
-        
-        if not deploy_script.exists():
-            pytest.skip("deploy_app.sh not found")
-        
-        # Check bash syntax
-        result = subprocess.run(
-            ['bash', '-n', str(deploy_script)],
-            capture_output=True,
-            text=True
+    def test_exists_and_executable(self, deploy_script_path: Path) -> None:
+        assert deploy_script_path.is_file(), f"{deploy_script_path} should exist"
+        assert os.access(deploy_script_path, os.X_OK), (
+            f"{deploy_script_path} should be executable"
         )
-        
-        assert result.returncode == 0, \
-            f"deploy_app.sh has syntax errors: {result.stderr}"
-    
-    def test_user_data_script_syntax_is_valid(self, user_data_path):
-        """Test that user_data.sh has valid bash syntax"""
-        if not user_data_path.exists():
-            pytest.skip("user_data.sh not found")
-        
-        # Check bash syntax
-        result = subprocess.run(
-            ['bash', '-n', str(user_data_path)],
-            capture_output=True,
-            text=True
-        )
-        
-        assert result.returncode == 0, \
-            f"user_data.sh has syntax errors: {result.stderr}"
 
+    def test_has_bash_shebang(self, deploy_script_path: Path) -> None:
+        assert deploy_script_path.read_text().startswith("#!/bin/bash")
+
+    def test_performs_git_reset_to_target_ref(self, deploy_script_path: Path) -> None:
+        content = deploy_script_path.read_text()
+        assert "git -C" in content and "fetch" in content
+        # Hard reset is intentional — we want to overwrite any drift on the
+        # instance, including local edits made via SSM session.
+        assert "reset --hard" in content
+
+    def test_runs_alembic_migration(self, deploy_script_path: Path) -> None:
+        content = deploy_script_path.read_text()
+        assert "alembic upgrade head" in content
+
+    def test_restarts_both_services(self, deploy_script_path: Path) -> None:
+        content = deploy_script_path.read_text()
+        assert "systemctl restart diplomacy-api.service" in content
+        assert "systemctl restart diplomacy-bot.service" in content
+
+    def test_syntax_valid(self, deploy_script_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", "-n", str(deploy_script_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"deploy.sh has syntax errors: {result.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# infra/scripts/refresh-env.sh — re-reads SSM and rewrites /opt/diplomacy/.env
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshEnvScript:
+    def test_exists_and_executable(self, refresh_env_path: Path) -> None:
+        assert refresh_env_path.is_file()
+        assert os.access(refresh_env_path, os.X_OK)
+
+    def test_reads_all_expected_ssm_keys(self, refresh_env_path: Path) -> None:
+        content = refresh_env_path.read_text()
+        expected_keys = [
+            "telegram_bot_token",
+            "db_password",
+            "jwt_secret",
+            "admin_token",
+            "bot_secret",
+        ]
+        for key in expected_keys:
+            assert key in content, f"refresh-env.sh should fetch {key} from SSM"
+
+    def test_writes_env_with_correct_keys(self, refresh_env_path: Path) -> None:
+        content = refresh_env_path.read_text()
+        # The env file must give the application what it needs.
+        for var in [
+            "SQLALCHEMY_DATABASE_URL",
+            "TELEGRAM_BOT_TOKEN",
+            "DIPLOMACY_JWT_SECRET",
+            "DIPLOMACY_ADMIN_TOKEN",
+            "DIPLOMACY_BOT_SECRET",
+            "PYTHONPATH",
+        ]:
+            assert var in content, f"refresh-env.sh should write {var} to .env"
+
+    def test_refuses_when_db_password_missing(self, refresh_env_path: Path) -> None:
+        # A missing db_password is unrecoverable — the env file would be
+        # broken. The script must bail loudly rather than write a half-broken
+        # .env.
+        content = refresh_env_path.read_text()
+        assert (
+            "ERROR" in content and "db_password" in content
+        ), "refresh-env.sh should refuse to write .env if db_password is missing"
+
+    def test_syntax_valid(self, refresh_env_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", "-n", str(refresh_env_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"refresh-env.sh has syntax errors: {result.stderr}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Terraform module — version pins and security-sensitive policy
+# ---------------------------------------------------------------------------
+
+
+class TestTerraformConfiguration:
+    def test_required_terraform_version_is_1_10_plus(self) -> None:
+        versions = (TERRAFORM_DIR / "versions.tf").read_text()
+        assert 'required_version = ">= 1.10' in versions, (
+            "Terraform pin should be >= 1.10 (for S3 native locking)"
+        )
+
+    def test_aws_provider_pinned_to_v6(self) -> None:
+        versions = (TERRAFORM_DIR / "versions.tf").read_text()
+        assert 'version = "~> 6.0"' in versions
+
+    def test_s3_backend_uses_native_lockfile(self) -> None:
+        versions = (TERRAFORM_DIR / "versions.tf").read_text()
+        assert "use_lockfile = true" in versions
+        assert "encrypt      = true" in versions, "Backend state should be encrypted"
+
+    def test_default_instance_type_is_free_tier(self) -> None:
+        variables = (TERRAFORM_DIR / "variables.tf").read_text()
+        # t3.micro is the free-tier and post-free-tier cheap default.
+        assert 'default     = "t3.micro"' in variables
+
+    def test_ami_filter_targets_ubuntu_24_04(self) -> None:
+        instance = (TERRAFORM_DIR / "instance.tf").read_text()
+        assert "ubuntu-noble-24.04-amd64-server" in instance
+
+    def test_imdsv2_required(self) -> None:
+        instance = (TERRAFORM_DIR / "instance.tf").read_text()
+        assert 'http_tokens                 = "required"' in instance, (
+            "Instance should require IMDSv2"
+        )
+
+    def test_oidc_trust_scoped_to_specific_repo_branches(self) -> None:
+        iam = (TERRAFORM_DIR / "iam.tf").read_text()
+        # The trust policy must not be wide-open. It should restrict to the
+        # specific repo:branch combinations declared in variables.
+        assert "github_deploy_branches" in iam
+        assert "refs/heads/" in iam
+        assert "token.actions.githubusercontent.com:sub" in iam
+
+    def test_oidc_audience_locked_to_sts(self) -> None:
+        iam = (TERRAFORM_DIR / "iam.tf").read_text()
+        assert "token.actions.githubusercontent.com:aud" in iam
+        assert '"sts.amazonaws.com"' in iam
+
+    def test_deploy_role_can_only_send_command_to_diplomacy_instance(self) -> None:
+        iam = (TERRAFORM_DIR / "iam.tf").read_text()
+        # The send-command action must be resource-scoped to the instance,
+        # not "*". Allowing "*" would let the deploy workflow target any
+        # EC2 instance in the account.
+        send_block = re.search(
+            r'sid\s*=\s*"SendCommandToDiplomacyInstance".*?resources\s*=\s*\[(.*?)\]',
+            iam,
+            re.DOTALL,
+        )
+        assert send_block, "Could not find SendCommandToDiplomacyInstance statement"
+        resources = send_block.group(1)
+        assert "aws_instance.diplomacy.arn" in resources
+        assert '"*"' not in resources, (
+            "ssm:SendCommand resource should not be '*' — scope it to the instance"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Deploy workflow
+# ---------------------------------------------------------------------------
+
+
+class TestDeployWorkflow:
+    @pytest.fixture
+    def deploy_yml(self) -> str:
+        path = PROJECT_ROOT.parent / ".github" / "workflows" / "deploy.yml"
+        if not path.exists():
+            pytest.skip(f"{path} not found")
+        return path.read_text()
+
+    def test_uses_oidc_id_token_permission(self, deploy_yml: str) -> None:
+        assert "id-token: write" in deploy_yml
+
+    def test_only_runs_after_test_suite_passes(self, deploy_yml: str) -> None:
+        assert 'workflows: ["Test Suite"]' in deploy_yml
+        assert "workflow_run.conclusion == 'success'" in deploy_yml
+
+    def test_invokes_deploy_script_with_target_sha(self, deploy_yml: str) -> None:
+        assert "/opt/diplomacy/new_implementation/infra/scripts/deploy.sh" in deploy_yml
+
+    def test_concurrency_prevents_overlap(self, deploy_yml: str) -> None:
+        assert "concurrency:" in deploy_yml
+        assert "deploy-prod" in deploy_yml
