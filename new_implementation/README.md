@@ -14,9 +14,11 @@ A modern, fully-tested Diplomacy board game server in Python. This project is de
 
 See **[docs/LOCAL_DEVELOPMENT.md](./docs/LOCAL_DEVELOPMENT.md)** for the full walkthrough (venv, PostgreSQL, env vars, API, frontend, Telegram bot, tests).
 
+Requires **Python 3.14** (pinned in [`pyproject.toml`](./pyproject.toml)).
+
 Minimum viable boot:
 ```bash
-python3 -m venv venv && source venv/bin/activate
+python3.14 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload
 ```

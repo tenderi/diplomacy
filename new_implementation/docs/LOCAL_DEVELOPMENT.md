@@ -6,7 +6,7 @@ This guide walks you through installing dependencies, configuring the database, 
 
 ## Prerequisites
 
-- **Python 3.8+** (3.10+ recommended)
+- **Python 3.14** (pinned via [`pyproject.toml`](../pyproject.toml))
 - **PostgreSQL** (for the API and most features)
 - **Node.js 18+** and **npm** (only if you want to run the browser frontend)
 - **Git** (to clone the repo)
@@ -50,9 +50,10 @@ sudo systemctl start postgresql
 ### Ubuntu / Debian
 
 ```bash
-# Python and venv
+# Python 3.14 (deadsnakes PPA on older Ubuntu releases)
+sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt-get update
-sudo apt-get install -y python3 python3-pip python3-venv
+sudo apt-get install -y python3.14 python3.14-venv python3-pip
 
 # PostgreSQL
 sudo apt-get install -y postgresql postgresql-client
@@ -69,7 +70,7 @@ sudo systemctl start postgresql
 
 ```bash
 # Python
-brew install python@3.12
+brew install python@3.14
 
 # PostgreSQL
 brew install postgresql@16
@@ -82,7 +83,7 @@ brew install node@20
 ### Verify installations
 
 ```bash
-python3 --version   # 3.8 or higher
+python3 --version   # 3.14.x
 node --version      # v18 or higher (only needed for frontend)
 npm --version       # 9 or higher (only needed for frontend)
 psql --version      # PostgreSQL client (only needed if you use psql manually)
