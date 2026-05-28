@@ -22,11 +22,11 @@ This repo contains two top-level Python codebases. Almost all work happens in `n
 
 ## Commands
 
-All commands run from `new_implementation/` with the venv active unless noted.
+All commands run from `new_implementation/` with the venv active unless noted. Requires Python 3.14 (pinned in `pyproject.toml`).
 
 ```bash
 # Setup (first time)
-python3 -m venv venv && source venv/bin/activate
+python3.14 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ./setup_database.sh                       # creates Postgres user/db and runs migrations
 

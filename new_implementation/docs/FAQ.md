@@ -23,7 +23,7 @@ Common questions and solutions for the Diplomacy Python Implementation.
 pip install -r requirements.txt
 ```
 
-Make sure you have Python 3.8+ installed.
+Make sure you have Python 3.14 installed.
 
 ---
 

@@ -30,10 +30,13 @@ install_arch() {
 }
 
 install_debian() {
+    echo "[Debian/Ubuntu] Adding deadsnakes PPA for Python 3.14..."
+    sudo apt-get install -y software-properties-common
+    sudo add-apt-repository -y ppa:deadsnakes/ppa
     echo "[Debian/Ubuntu] Updating package list (to get latest versions)..."
     sudo apt-get update -qq
     echo "[Debian/Ubuntu] Installing/upgrading packages to latest from repos..."
-    sudo apt-get install -y python3 python3-pip python3-venv postgresql postgresql-client
+    sudo apt-get install -y python3.14 python3.14-venv python3-pip postgresql postgresql-client
     # Node.js: use Node 24 from NodeSource if missing or outdated
     if ! command -v node &>/dev/null || [[ $(node -v | cut -d. -f1 | tr -d v) -lt 22 ]]; then
         echo "[Debian/Ubuntu] Adding NodeSource repo and installing Node.js 24..."
@@ -55,8 +58,8 @@ install_macos() {
     echo "[macOS] Updating Homebrew (to get latest formulae)..."
     brew update
     echo "[macOS] Installing/upgrading packages..."
-    brew install python postgresql@16 node
-    brew upgrade python postgresql@16 node 2>/dev/null || true
+    brew install python@3.14 postgresql@16 node
+    brew upgrade python@3.14 postgresql@16 node 2>/dev/null || true
     echo "[macOS] Starting PostgreSQL..."
     brew services start postgresql@16 2>/dev/null || true
 }
@@ -69,14 +72,19 @@ case "$OS" in
     debian) install_debian ;;
     macos)  install_macos ;;
     *)
-        echo "Unsupported OS. Install manually: Python 3.8+, PostgreSQL, Node.js 18+ and npm."
+        echo "Unsupported OS. Install manually: Python 3.14, PostgreSQL, Node.js 18+ and npm."
         exit 1
         ;;
 esac
 
 echo ""
 echo "=== Verifying installations ==="
-python3 --version  || echo "WARNING: python3 not in PATH"
+if command -v python3.14 &>/dev/null; then
+    python3.14 --version
+else
+    python3 --version || echo "WARNING: python3 not in PATH"
+fi
+python3 --version 2>/dev/null | grep -q "3\.14" || echo "WARNING: expected Python 3.14 — check installation"
 command -v pip3 &>/dev/null && pip3 --version || pip --version || echo "WARNING: pip not found"
 psql --version     || echo "WARNING: psql not in PATH (PostgreSQL client)"
 node --version     || echo "WARNING: node not in PATH"
@@ -84,7 +92,7 @@ npm --version      || echo "WARNING: npm not in PATH"
 echo ""
 echo "Done. Next steps:"
 echo "  1. Create DB user and database (see docs/LOCAL_DEVELOPMENT.md §3.2)"
-echo "  2. cd new_implementation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+echo "  2. cd new_implementation && python3.14 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
 echo "  3. alembic upgrade head"
 echo "  4. PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000"
 echo "  5. (optional) cd frontend && npm install && npm run dev  → http://localhost:5173"

@@ -75,8 +75,7 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
+# pyenv — .python-version is intentionally tracked (declares Python 3.14 target)
 
 # celery beat schedule file
 celerybeat-schedule

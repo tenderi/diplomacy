@@ -1,7 +1,7 @@
 # Diplomacy — Comprehensive Codebase Overview
 
 > **Version:** 2.0.0 (new implementation)
-> **Language:** Python 3.8+
+> **Language:** Python 3.14
 > **Total lines of Python:** ~46,000 (new implementation)
 
 ---
@@ -335,7 +335,7 @@ The `old_implementation/` directory contains the original open-source Diplomacy 
 | Bot protocol | DAIDE (full implementation) | DAIDE (simplified) + REST |
 | Maps | Multiple variants (15+ map files) | Standard + mini variant |
 | Package | pip-installable (`setup.py`) | Requirements-based |
-| Python | 3.5–3.7 | 3.8+ |
+| Python | 3.5–3.7 | 3.14 |
 
 The old implementation includes:
 - `diplomacy/engine/` — Original game engine (`game.py`, `map.py`, `power.py`, `message.py`, `renderer.py`)
@@ -447,7 +447,7 @@ D F BRE              # Destroy Fleet in Brest
 
 | Layer | Technology |
 |---|---|
-| **Language** | Python 3.8+ |
+| **Language** | Python 3.14 |
 | **Web Framework** | FastAPI + Uvicorn |
 | **Database** | PostgreSQL + SQLAlchemy 2.0 + Alembic |
 | **Telegram** | python-telegram-bot 22.x |
