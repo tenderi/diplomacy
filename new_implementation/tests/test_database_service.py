@@ -25,7 +25,7 @@ class TestDatabaseService:
     def db_service(self, temp_db):
         """Create DatabaseService instance with test database."""
         # Use PostgreSQL database URL directly
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         return DatabaseService(db_url)
     
     @pytest.fixture
@@ -74,7 +74,7 @@ class TestDatabaseService:
     
     def test_service_initialization(self, temp_db):
         """Test DatabaseService initialization."""
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         service = DatabaseService(db_url)
         
         assert service.session_factory is not None
@@ -346,7 +346,7 @@ class TestDatabaseServiceErrorHandling:
     def db_service(self, temp_db):
         """Create DatabaseService instance."""
         # Use PostgreSQL database URL directly
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         return DatabaseService(db_url)
     
     @pytest.fixture
@@ -481,7 +481,7 @@ class TestDatabaseServiceTransactionManagement:
     def db_service(self, temp_db):
         """Create DatabaseService instance."""
         # Use PostgreSQL database URL directly
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         return DatabaseService(db_url)
     
     def test_transaction_rollback_on_error(self, db_service):
@@ -646,7 +646,7 @@ class TestDatabaseServiceIntegration:
     def db_service(self, temp_db):
         """Create DatabaseService with real database."""
         # Use PostgreSQL database URL directly
-        db_url = str(temp_db.url)
+        db_url = temp_db.url.render_as_string(hide_password=False)
         return DatabaseService(db_url)
     
     def test_full_game_lifecycle(self, db_service):
