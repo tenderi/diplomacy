@@ -12,6 +12,51 @@ After completing any task (feature, fix, refactor, docs), always:
 
 Check the latest tag with `git tag --sort=-v:refname | head -1` to determine the next patch version.
 
+## Branch protection and CI gating
+
+`main` is protected. Direct pushes are allowed but **GitHub rejects any push that fails CI**:
+
+- Required status checks: `test`, `security` (defined in [`.github/workflows/test.yml`](.github/workflows/test.yml)). Both must pass before the commit is accepted on `main`.
+- Strict mode: pushes must be up to date with `main` (`git pull --rebase` if behind).
+- Admin enforcement is **on** — the maintainer cannot bypass without first temporarily disabling protection via `gh api`. This is intentional: it prevents accidental "I'll just push past it" red main.
+- Force pushes and branch deletion are blocked.
+- No required PR reviews (solo repo).
+
+### When to use a branch vs. direct push
+
+Direct push to `main` is fine for changes you're confident in and can validate locally — docs, README tweaks, comments, small refactors that don't touch DB/migrations/CI.
+
+Reach for a feature branch when CI is the validation gate — anything you can't fully verify locally:
+
+- Alembic migrations (CI runs against a fresh `postgres:14` container)
+- `requirements.txt` changes
+- Workflow / CI changes
+- Anything that previously surfaced regressions only on CI
+
+Branch workflow (single command pattern):
+```bash
+git checkout -b some-feature
+# work, commit, push
+git push -u origin some-feature
+# wait for CI to go green, then merge:
+git checkout main && git merge some-feature --no-ff -m "vX.Y.Z: ..." && git tag vX.Y.Z && git push origin main --tags
+git branch -D some-feature && git push origin --delete some-feature
+```
+
+### Bypassing protection (only when necessary)
+
+If you genuinely need to push past a CI failure (e.g. fixing CI itself when both jobs are broken), temporarily turn off admin enforcement:
+
+```bash
+# Disable
+gh api --method DELETE repos/tenderi/diplomacy/branches/main/protection/enforce_admins
+# ... push ...
+# Re-enable
+gh api --method POST repos/tenderi/diplomacy/branches/main/protection/enforce_admins
+```
+
+Never disable protection itself — only `enforce_admins`.
+
 ## Repository layout
 
 This repo contains two top-level Python codebases. Almost all work happens in `new_implementation/`.
