@@ -91,10 +91,16 @@ class StrategicAI:
                 order = self._create_convoy_order(game_state, unit)
             else:  # hold
                 order = self._create_hold_order(unit)
-                
-            if order:
-                orders.append(order)
-                
+
+            # Every non-dislodged unit must get *some* order. If the chosen
+            # action couldn't produce a valid one (e.g. support whose
+            # destination the supporter can't reach, or convoy from a
+            # coastal fleet), fall back to hold — always legal.
+            if order is None:
+                order = self._create_hold_order(unit)
+
+            orders.append(order)
+
         return orders
     
     def _generate_retreat_orders(self, game_state: GameState, power_state: PowerState) -> Sequence[Order]:

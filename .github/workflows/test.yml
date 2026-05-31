@@ -10,6 +10,13 @@ defaults:
   run:
     working-directory: new_implementation
 
+# Force Node 24 runtime on JS actions whose latest tag is still Node 20
+# (currently actions/upload-artifact). The forced default lands 2026-06-02;
+# this opts in early so the deprecation banner doesn't fire and any
+# incompatibility surfaces here, not on the day GitHub flips the switch.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
