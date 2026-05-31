@@ -2,13 +2,20 @@ name: Test Suite
 
 on:
   push:
-    branches: [main, develop, ci-pipeline-setup]
+    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
 defaults:
   run:
     working-directory: new_implementation
+
+# Force Node 24 runtime on JS actions whose latest tag is still Node 20
+# (currently actions/upload-artifact). The forced default lands 2026-06-02;
+# this opts in early so the deprecation banner doesn't fire and any
+# incompatibility surfaces here, not on the day GitHub flips the switch.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -30,10 +37,10 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.14'
           cache: pip
@@ -66,10 +73,10 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.14'
 
@@ -88,7 +95,7 @@ jobs:
 
       - name: Upload bandit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: bandit-report
           path: new_implementation/bandit-report.json
