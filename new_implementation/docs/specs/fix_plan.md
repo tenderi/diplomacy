@@ -13,8 +13,8 @@
 
 ## Status
 
-- **Phase:** M0 in progress — `engine-rewrite` branch created, deps/markers added.
-- **Next action:** M1 — `src/engine/types.py` + `src/engine/map_loader.py`.
+- **Phase:** M1 complete — pure `types.py` + `map_loader.py` landed, 31 tests green.
+- **Next action:** M2 — order grammar & parser (delegated to a Sonnet subagent).
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
@@ -136,17 +136,17 @@ Key decisions:
 
 ### M1 — Core types & map topology
 
-- [ ] `src/engine/types.py`: enums (`UnitKind`, `Season`, `PhaseType`, result codes) +
+- [x] `src/engine/types.py`: enums (`UnitKind`, `Season`, `PhaseType`, result codes) +
       frozen dataclasses (`Location`, `Unit`, all order variants, `GameState`,
       `Resolution`). Armies never carry coasts; fleets in split-coast provinces always do.
-- [ ] `src/engine/map_loader.py`: parse `maps/standard.map` into `MapData` — provinces,
+- [x] `src/engine/map_loader.py`: parse `maps/standard.map` into `MapData` — provinces,
       types (land/coast/water), adjacency with coast nodes first-class, supply centers,
       home centers, 1901 starting units. Query API: `adjacent(loc)`, `is_adjacent(a, b)`,
       `army_moves(province)`, `fleet_moves(location)`.
-- [ ] Tests: province/SC counts (75/34), adjacency symmetry, coast adjacency exactly
+- [x] Tests: province/SC counts (75/34), adjacency symmetry, coast adjacency exactly
       matching the `.map` file (BUL/EC↔{BLA,CON,RUM}, BUL/SC↔{AEG,CON,GRE}, SPA/NC,
       SPA/SC, STP/NC, STP/SC), correct 1901 starting position.
-- [ ] **Done when:** zero hardcoded topology in new code; map tests green.
+- [x] **Done when:** zero hardcoded topology in new code; map tests green.
 
 ### M2 — Order grammar & parser
 
