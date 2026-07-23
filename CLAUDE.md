@@ -74,7 +74,7 @@ Topology summary:
 
 On every push to `main` that turns the `Test Suite` workflow green, [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs:
 
-1. Authenticates to AWS via GitHub OIDC (no static keys; the IAM role's trust policy is scoped to `repo:tenderi/diplomacy:ref:refs/heads/main`).
+1. Authenticates to AWS via GitHub OIDC (no static keys; the IAM role's trust policy accepts only the subjects `repo:tenderi/diplomacy:ref:refs/heads/main` and `repo:tenderi/diplomacy:environment:production` — the latter is what GitHub actually sends because the workflow sets `environment: production`).
 2. Finds the EC2 instance by `Name=diplomacy` tag.
 3. Issues `aws ssm send-command` to invoke [`infra/scripts/deploy.sh`](new_implementation/infra/scripts/deploy.sh) on the instance with the commit SHA.
 4. On the instance: `git fetch && git reset --hard <sha>`, `pip install -r requirements.txt`, `alembic upgrade head`, `systemctl restart diplomacy-api diplomacy-bot`, then a `/health` smoke test.
