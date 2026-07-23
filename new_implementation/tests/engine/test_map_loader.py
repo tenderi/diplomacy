@@ -184,3 +184,27 @@ def test_no_fleet_edges_into_land(m):
     for loc, dests in m._fleet_adj.items():
         for d in dests:
             assert m.province_type(d.province) is not ProvinceType.LAND
+
+
+# -- aliases ----------------------------------------------------------------
+
+
+def test_every_alias_resolves_to_a_real_province(m):
+    # Regression: alias canonical must be the actual board node, not the first
+    # token on the alias line (Tyrolia's line lists `trl` first, node is TYR).
+    for spelling, canonical in m.aliases.items():
+        assert canonical in m.provinces, f"alias {spelling!r} -> {canonical!r} not a province"
+
+
+def test_tyrolia_alias_resolves_to_tyr(m):
+    assert m.aliases["tyr"] == "TYR"
+    assert m.aliases["tyl"] == "TYR"
+
+
+def test_impassable_switzerland_has_no_alias(m):
+    assert "swi" not in m.aliases
+
+
+def test_split_coast_aliases_map_to_base(m):
+    assert m.aliases["bul/ec"] == "BUL"
+    assert m.aliases["bul/sc"] == "BUL"

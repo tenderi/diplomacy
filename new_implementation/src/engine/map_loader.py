@@ -158,7 +158,7 @@ def load_map(path: str | Path) -> MapData:
     neutral_scs: set[str] = set()
     starting_units: set[Unit] = set()
     initial_ownership: dict[str, str] = {}
-    aliases: dict[str, str] = {}
+    alias_groups: list[list[str]] = []
     raw_entries: list[_RawEntry] = []
 
     current_power: Optional[str] = None
@@ -191,14 +191,15 @@ def load_map(path: str | Path) -> MapData:
             current_power = None
             continue
 
-        # Alias line: "Full Name = a b c"
+        # Alias line: "Full Name = a b c". The canonical code is resolved later
+        # (once the province set is known) to the spelling that names a real
+        # province — the first token is NOT reliably canonical (e.g. Tyrolia's
+        # line lists `trl` first, but the board node is `TYR`).
         if "=" in line:
             _, _, rhs = line.partition("=")
             spellings = rhs.split()
             if spellings:
-                canonical, _c = _split_token(spellings[0])
-                for spelling in spellings:
-                    aliases[spelling.lower()] = canonical
+                alias_groups.append(spellings)
             current_power = None
             continue
 
@@ -230,6 +231,23 @@ def load_map(path: str | Path) -> MapData:
     # Build the topology from the raw entries.
     # ------------------------------------------------------------------
     defined: set[str] = {e.base for e in raw_entries}
+
+    # Resolve each alias group to the province it actually names: the spelling
+    # whose base is a real (defined) province. Groups that name only impassable
+    # provinces (Switzerland) resolve to nothing and are dropped.
+    aliases: dict[str, str] = {}
+    for spellings in alias_groups:
+        canonical: Optional[str] = None
+        for spelling in spellings:
+            base, _c = _split_token(spelling)
+            if base in defined:
+                canonical = base
+                break
+        if canonical is None:
+            continue
+        for spelling in spellings:
+            aliases[spelling.lower()] = canonical
+
     province_types: dict[str, ProvinceType] = {}
     split_coasts: dict[str, list[str]] = {}
     army_entry: dict[str, _RawEntry] = {}  # base → its bare (coast-None) entry
