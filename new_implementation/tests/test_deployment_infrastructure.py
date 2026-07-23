@@ -293,12 +293,17 @@ class TestTerraformConfiguration:
             "Instance should require IMDSv2"
         )
 
-    def test_oidc_trust_scoped_to_specific_repo_branches(self) -> None:
+    def test_oidc_trust_scoped_to_specific_repo_branches_and_environments(
+        self,
+    ) -> None:
         iam = (TERRAFORM_DIR / "iam.tf").read_text()
-        # The trust policy must not be wide-open. It should restrict to the
-        # specific repo:branch combinations declared in variables.
+        # The trust policy must not be wide-open. GitHub's OIDC sub claim
+        # uses the branch form for plain workflows and the environment
+        # form when `environment:` is set, so both must be allowed.
         assert "github_deploy_branches" in iam
+        assert "github_deploy_environments" in iam
         assert "refs/heads/" in iam
+        assert ":environment:" in iam
         assert "token.actions.githubusercontent.com:sub" in iam
 
     def test_oidc_audience_locked_to_sts(self) -> None:

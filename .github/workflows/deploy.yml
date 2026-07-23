@@ -24,6 +24,11 @@ permissions:
   id-token: write
   contents: read
 
+# Force Node 24 runtime on JS actions whose Node 24 builds aren't out yet
+# (currently aws-actions/configure-aws-credentials). Mirrors test.yml.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: deploy-prod
   cancel-in-progress: false

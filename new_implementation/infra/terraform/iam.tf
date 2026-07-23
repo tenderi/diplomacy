@@ -83,10 +83,23 @@ data "aws_iam_policy_document" "github_actions_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        for branch in var.github_deploy_branches :
-        "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${branch}"
-      ]
+      # GitHub's OIDC `sub` claim depends on the workflow's context:
+      #   - workflows without `environment:`  → repo:OWNER/REPO:ref:refs/heads/BRANCH
+      #   - workflows with    `environment:X` → repo:OWNER/REPO:environment:X
+      # The Deploy workflow uses `environment: production`, so the
+      # environment form is what AWS actually sees. The branch form is
+      # kept for future workflows that may deploy without an environment
+      # (e.g. a fast hotfix path).
+      values = concat(
+        [
+          for branch in var.github_deploy_branches :
+          "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${branch}"
+        ],
+        [
+          for env in var.github_deploy_environments :
+          "repo:${var.github_owner}/${var.github_repo}:environment:${env}"
+        ],
+      )
     }
   }
 }

@@ -41,9 +41,15 @@ variable "github_repo" {
 }
 
 variable "github_deploy_branches" {
-  description = "List of branches whose pushes can assume the deploy role. Keep this small."
+  description = "List of branches whose pushes can assume the deploy role (used when a workflow does NOT set `environment:`). Keep this small."
   type        = list(string)
   default     = ["main"]
+}
+
+variable "github_deploy_environments" {
+  description = "List of GitHub Actions environments whose deploys can assume the deploy role. The Deploy workflow uses `environment: production`, so that name must be here."
+  type        = list(string)
+  default     = ["production"]
 }
 
 variable "budget_monthly_usd" {
