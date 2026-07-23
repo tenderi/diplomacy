@@ -13,11 +13,14 @@
 
 ## Status
 
-- **Phase:** Not started — plan approved 2026-07-23.
-- **Next action:** M0 — create `engine-rewrite` branch off `main`.
+- **Phase:** M0 in progress — `engine-rewrite` branch created, deps/markers added.
+- **Next action:** M1 — `src/engine/types.py` + `src/engine/map_loader.py`.
+- **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
+  Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
+  sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-23 (Claude Opus 4.8 — initial plan).
+- **Last updated:** 2026-07-23 (Claude Fable 5 — M0 setup).
 
 ## Goal
 
@@ -126,10 +129,10 @@ Key decisions:
 
 ### M0 — Setup
 
-- [ ] `git checkout main && git pull --rebase && git checkout -b engine-rewrite`
-- [ ] Add `hypothesis` to `requirements.txt` (test dep)
-- [ ] Add `datc` marker to `pytest.ini`
-- [ ] Update this file's Status block; commit
+- [x] `git checkout main && git pull --rebase && git checkout -b engine-rewrite`
+- [x] Add `hypothesis` to `requirements.txt` (test dep)
+- [x] Add `datc` marker to `pytest.ini`
+- [x] Update this file's Status block; commit
 
 ### M1 — Core types & map topology
 
