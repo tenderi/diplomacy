@@ -13,8 +13,10 @@
 
 ## Status
 
-- **Phase:** M1 complete — pure `types.py` + `map_loader.py` landed, 31 tests green.
-- **Next action:** M2 — order grammar & parser (delegated to a Sonnet subagent).
+- **Phase:** M2 complete — `orders/parser.py` + `orders/validation.py` landed (Sonnet
+  subagent, reviewed). 129 engine tests green. Fixed an M1 alias-resolution bug found
+  during review (Tyrolia `trl`/`tyr` → nonexistent `TRL`).
+- **Next action:** M3 — movement adjudicator (driver-owned; DATC test batches to Sonnet).
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
@@ -150,16 +152,20 @@ Key decisions:
 
 ### M2 — Order grammar & parser
 
-- [ ] `src/engine/orders/parser.py`: all order types; coast syntax (`F SPA/SC`,
+- [x] `src/engine/orders/parser.py`: all order types; coast syntax (`F SPA/SC`,
       `A LON - BEL VIA`, `F STP/NC - BAR`); build/disband/waive; optional power prefix;
       alias normalization folded in from `province_mapping.py` (one table); consistent
       province-token handling (kill the 3-char vs 3–10-char regex split).
-- [ ] Canonical `format(order)` for round-trip and display.
-- [ ] `src/engine/orders/validation.py`: the single validation path
+- [x] Canonical `format(order)` for round-trip and display. NOTE: non-Build orders store
+      only `Location`s (not the A/F letter), so `format_order` infers kind from coast
+      presence — round-trip-safe, but display of a fleet at a non-coast province prints
+      `A`. Revisit for human-facing display in M5/M6 (pass unit kind from state).
+- [x] `src/engine/orders/validation.py`: the single validation path
       `validate(order, state, map)` — used by server, adjudicator precheck, everything.
-- [ ] Tests: grammar matrix (order type × coast × alias × malformed), Hypothesis
+      Convoying fleet must be in a WATER space (tightened from the subagent's draft).
+- [x] Tests: grammar matrix (order type × coast × alias × malformed), Hypothesis
       round-trip `parse(format(o)) == o`, DATC 6.A/6.B validity subset.
-- [ ] **Done when:** coasted orders produce proper `Location`s; round-trip property green.
+- [x] **Done when:** coasted orders produce proper `Location`s; round-trip property green.
 
 ### M3 — Movement adjudicator  ← the heart, budget the most time
 
