@@ -54,7 +54,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff
+          # Pinned: unpinned ruff broke CI when a new release added default rules
+          # (2026-07-23). Keep in sync with the version used locally.
+          pip install ruff==0.15.12
 
       - name: Lint with ruff
         run: ruff check src/ --output-format=github
