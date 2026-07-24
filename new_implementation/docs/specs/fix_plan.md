@@ -13,12 +13,16 @@
 
 ## Status
 
-- **Phase:** M3 in progress — Kruijswijk resolver (`adjudicator/movement.py`) + DATC
-  harness landed; 14 hand-authored cases green (6.A basics + circular/head-to-head/
-  beleaguered/convoy mechanics). Full DATC 6.B–6.G authoring fanned out to 3 Sonnet
-  subagents (authoring only; resolver fixes are driver-owned).
-- **Next action:** triage subagent-reported DATC failures; fix resolver section by
-  section (6.B → 6.G) until ~124 cases green, then M4.
+- **Phase:** M3 in progress — resolver + DATC harness landed. Green: 6.A (8), 6.B (14),
+  6.C (7), 6.F (17/24), 6.G (16/18) + mechanics (6). 199 passed, 7 xfailed, ruff clean.
+  DATC authoring fanned out to 3 Sonnet subagents; resolver fixes driver-owned.
+  **7 xfail'd hard-tail cases** (documented in the test files): second-order convoy
+  paradoxes 6.F.16/17/18/23/24 (need iterative Szykman re-resolution — the single-pass
+  backup rule handles first-order only) and issue-4.A.7 convoy-adjacent variants 6.G.7/11.
+- **Pending:** 6.D (supports, 34) + 6.E (head-to-head/beleaguered, 15) — third Sonnet
+  subagent still authoring at last checkpoint; integrate + triage when it reports.
+- **Next action:** integrate 6.D/6.E, fix resolver for their failures; then revisit the
+  7 xfail'd cases (second-order paradox resolver upgrade) before declaring M3 done → M4.
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
