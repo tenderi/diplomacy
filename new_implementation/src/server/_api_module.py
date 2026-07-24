@@ -44,7 +44,7 @@ def _initialize_database_schema():
     - Logs errors but doesn't crash the server (endpoints will handle gracefully)
     """
     try:
-        from engine.database import create_database_schema
+        from persistence.database import create_database_schema
         from sqlalchemy import create_engine, inspect
         from sqlalchemy.exc import OperationalError, ProgrammingError
         
@@ -118,7 +118,7 @@ def _initialize_database_schema():
             logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
     except ImportError as import_error:
         logging.error(f"❌ Failed to import database modules: {import_error}")
-        logging.error("   Ensure engine.database module is available")
+        logging.error("   Ensure persistence.database module is available")
     except Exception as e:
         # If schema initialization fails, log but don't crash - let endpoints handle it gracefully
         logging.error(f"❌ Database schema initialization failed: {e}")

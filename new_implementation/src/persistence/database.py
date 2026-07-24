@@ -511,7 +511,7 @@ def unit_to_dict(unit) -> dict:
 
 def dict_to_unit(data: dict):
     """Convert dictionary to Unit dataclass from JSON storage"""
-    from .data_models import Unit
+    from engine.data_models import Unit
     return Unit(
         unit_type=data["unit_type"],
         province=data["province"],
@@ -565,7 +565,7 @@ def order_to_dict(order) -> dict:
 
 def dict_to_order(data: dict):
     """Convert dictionary to Order dataclass from JSON storage"""
-    from .data_models import Order, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderType, OrderStatus
+    from engine.data_models import Order, MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder, OrderType, OrderStatus
     
     # Convert unit data
     unit = dict_to_unit(data["unit"])

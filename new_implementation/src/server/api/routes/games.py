@@ -185,7 +185,7 @@ async def process_turn(
                 should_auto_post_notification, post_battle_results_to_channel
             )
             from .maps import generate_map_for_snapshot
-            from engine.database import order_to_dict
+            from persistence.database import order_to_dict
             
             channel_info = db_service.get_game_channel_info(game_id)
             if channel_info:
@@ -321,7 +321,7 @@ def get_game_state(game_id: str) -> GameStateOut:
     state = game.get_game_state()
     
     # Convert to GameStateOut model (complex conversion logic from original)
-    from engine.database import unit_to_dict, order_to_dict
+    from persistence.database import unit_to_dict, order_to_dict
     from ...models import PowerStateOut, UnitOut
     
     supply_centers: dict[str, str] = {}
@@ -512,7 +512,7 @@ def get_observer_state(game_id: str) -> Dict[str, Any]:
         if state is None:
             raise HTTPException(status_code=404, detail="Game not found")
 
-    from engine.database import unit_to_dict
+    from persistence.database import unit_to_dict
     from ...models import PowerStateOut, UnitOut
 
     supply_centers = {}
@@ -738,7 +738,7 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     if req.admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
     try:
-        from engine.database import PlayerModel
+        from persistence.database import PlayerModel
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if not player:
             raise HTTPException(status_code=404, detail="Player not found")

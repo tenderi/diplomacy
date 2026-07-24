@@ -19,7 +19,7 @@ from engine.data_models import (
     MapData, Province
 )
 from engine.order_parser import OrderParser, OrderParseError, OrderValidationError
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 
 
 def test_data_models():
@@ -120,7 +120,7 @@ def test_database_operations():
     database_url = "postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db"
     
     # Create schema first
-    from engine.database import create_database_schema
+    from persistence.database import create_database_schema
     engine = create_database_schema(database_url)
     
     # Create DatabaseService with the same engine

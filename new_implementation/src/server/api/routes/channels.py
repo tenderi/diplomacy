@@ -534,7 +534,7 @@ def post_battle_results(game_id: str) -> Dict[str, Any]:
     """Manually post formatted battle results to the linked channel."""
     try:
         from ...telegram_bot.channels import post_battle_results_to_channel
-        from engine.database import order_to_dict
+        from persistence.database import order_to_dict
         
         # Get channel info
         channel_info = db_service.get_game_channel_info(game_id)

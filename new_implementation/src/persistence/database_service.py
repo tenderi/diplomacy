@@ -18,7 +18,7 @@ from .database import (
     SpectatorModel,
     get_session_factory, dict_to_order
 )
-from .data_models import (
+from engine.data_models import (
     GameState, PowerState, Unit, Order, GameStatus,
     MapData, Province
 )
@@ -29,7 +29,7 @@ class DatabaseService:
     
     def __init__(self, database_url: str):
         self.session_factory = get_session_factory(database_url)
-        self.logger = logging.getLogger("diplomacy.engine.database_service")
+        self.logger = logging.getLogger("diplomacy.persistence.database_service")
     
     def create_game(self, game_id: Optional[str] = None, map_name: str = 'standard', initial_phase: str = 'Pregame') -> GameState:
         """
@@ -543,7 +543,7 @@ class DatabaseService:
     
     def _load_map_data(self, map_name: str) -> MapData:
         """Load map data from Map class"""
-        from .map import Map
+        from engine.map import Map
         
         # Load the map using the Map class
         map_instance = Map(map_name)

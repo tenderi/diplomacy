@@ -13,8 +13,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
-from engine.database_service import DatabaseService
-from engine.database import order_to_dict, unit_to_dict
+from persistence.database_service import DatabaseService
+from persistence.database import order_to_dict, unit_to_dict
 from ..server import Server
 from engine.data_models import GameStatus
 from engine.game import Game

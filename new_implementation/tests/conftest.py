@@ -80,7 +80,7 @@ def _ensure_db_schema():
                 
                 if needs_schema_create or needs_column_update:
                     # Schema missing or incomplete, create/update it
-                    from engine.database import create_database_schema
+                    from persistence.database import create_database_schema
                     schema_engine = create_database_schema(db_url)
                     schema_engine.dispose()
                     # Verify creation

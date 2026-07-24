@@ -17,8 +17,10 @@
   `serialization.py` (canonical JSON, round-trip property), `simple_ai.py` (dumb generator
   for all phases), and a 7-power self-play smoke test. New engine package is stdlib-only.
   **308 passed, 10 xfailed, ruff clean.**
-- **Next action:** M6 (integration — riskiest). Move `database.py`/`database_service.py`
-  → `src/persistence/`; split rendering out of `map.py` → `src/rendering/`; funnel server
+- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory); pre-M6 full-suite
+  baseline **1358 passed, 16 skipped, 10 xfailed**. **Slice 1 done:** persistence moved
+  `engine.database*` → `src/persistence/` (mechanical, suite still 1358 green).
+- **Next action:** continue M6. Split rendering out of `map.py` → `src/rendering/`; funnel server
   routes / DAIDE / bot / frontend through `engine/serialization.py`; Alembic migration to
   wipe stored game rows; **delete the old engine** (`game.py`, `data_models.py`,
   `order_parser*.py`, `allowed_moves.py`, `power.py`, old `map.py` topology half,
@@ -275,9 +277,13 @@ Key decisions:
 
 ### M6 — Integration (riskiest milestone — server reaches into engine internals today)
 
-- [ ] Move `src/engine/database.py` + `database_service.py` → `src/persistence/`; fix
+- [~] Move `src/engine/database.py` + `database_service.py` → `src/persistence/`; fix
       imports; drop `unit_to_dict`/`order_to_dict`/`dict_to_order` in favor of
-      `engine/serialization.py`.
+      `engine/serialization.py`. **Package MOVE done** (mechanical: 18 import sites +
+      alembic env + one mock-patch target repointed; the two modules' internal
+      `.data_models`/`.map` imports absolutised to `engine.*`; full suite green, 1358
+      passed). The **drop-helpers-for-serialization** half is deferred to the engine-swap
+      slice (it's entangled with rewiring the server onto the new engine's types).
 - [ ] Split rendering out of `src/engine/map.py` → `src/rendering/` (mechanical move,
       keep the render API); move `order_visualization.py` + `visualization_config.*` too.
 - [ ] Adapt server: `src/server/api/shared.py` (`_state_to_spec_dict`), all routes in

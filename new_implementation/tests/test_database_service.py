@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 from engine.data_models import (
     GameState, PowerState, Unit, Order, OrderType, OrderStatus, GameStatus,
     MapData, Province, TurnState, MapSnapshot
@@ -160,7 +160,7 @@ class TestDatabaseService:
         if game_model is None:
             # Fallback: query by game_id string
             with db_service.session_factory() as session:
-                from engine.database import GameModel
+                from persistence.database import GameModel
                 game_model = session.query(GameModel).filter_by(game_id=unique_id).first()
         
         # Add player first (required for get_game_state to load units)
@@ -251,7 +251,7 @@ class TestDatabaseService:
         if game_model is None:
             # Fallback: query by game_id string
             with db_service.session_factory() as session:
-                from engine.database import GameModel
+                from persistence.database import GameModel
                 game_model = session.query(GameModel).filter_by(game_id=unique_id).first()
         
         if game_model:
@@ -285,7 +285,7 @@ class TestDatabaseService:
         if game_model is None:
             # Fallback: query by game_id string
             with db_service.session_factory() as session:
-                from engine.database import GameModel
+                from persistence.database import GameModel
                 game_model = session.query(GameModel).filter_by(game_id=unique_id).first()
         
         if game_model:
@@ -316,7 +316,7 @@ class TestDatabaseService:
         if game_model is None:
             # Fallback: query by game_id string
             with db_service.session_factory() as session:
-                from engine.database import GameModel
+                from persistence.database import GameModel
                 game_model = session.query(GameModel).filter_by(game_id=unique_id).first()
         
         if game_model:
@@ -393,7 +393,7 @@ class TestDatabaseServiceErrorHandling:
             controlled_supply_centers=["PAR", "BRE"]
         )
     
-    @patch('src.engine.database_service.Session')
+    @patch('persistence.database_service.Session')
     def test_database_connection_error(self, mock_session, temp_db):
         """Test handling of database connection errors."""
         # The invalid URL will raise NoSuchModuleError when trying to create engine
