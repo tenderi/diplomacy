@@ -13,11 +13,16 @@
 
 ## Status
 
-- **Phase:** M4 in progress — both driver design decisions RESOLVED and implemented;
-  `retreats.py` + `adjustments.py` written and self-checked; DATC harness extended for
-  retreat/adjustment phases. **249 passed, 10 xfailed, ruff clean** (no regressions from
-  the `dislodged` data-model change). Next: author DATC 6.H/6.I/6.J (delegable to Sonnet)
-  then fix the resolver against any failures.
+- **Phase:** **M4 COMPLETE.** Both driver design decisions resolved & implemented
+  (`DislodgedUnit` data model; `retreats.py::compute_retreat_options` as the authoritative
+  post-resolution legality path). `retreats.py` + `adjustments.py` written; DATC 6.H (16),
+  6.I (7), 6.J (11) all green — authored by parallel Sonnet subagents, integrated with no
+  resolver fixes needed. New retreat property tests green. **285 passed, 10 xfailed, ruff
+  clean.**
+- **Next action:** M5 (orchestration & serialization) — `game.py` phase machine over
+  immutable snapshots (conditional retreat/adjustment phases, SC-ownership updates after
+  Fall, victory at 18, elimination), `serialization.py` canonical JSON + round-trip
+  property, port `strategic_ai.py` to the new types, 7-power self-play smoke test.
 - **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
   Passing: 6.A (8), 6.B (14/14), 6.C (7/7), 6.D (33/34), 6.E (13/15), 6.F (19/24),
   6.G (16/18) + mechanics (6). Resolver fixes driver-owned throughout.
@@ -41,7 +46,7 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M4 core: retreats + adjustments implemented).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M4 complete: retreats + adjustments + DATC 6.H/I/J).
 
 ## Goal
 
@@ -229,8 +234,15 @@ Key decisions:
 - [x] `adjudicator/adjustments.py`: entitlement = owned SCs − units; build validation
       (owned home SC, vacant, fleet coast required where split); explicit + implicit
       waives; civil-disorder auto-disband (distance rule above).
-- [ ] DATC cases: 6.H retreating (16), 6.I building (7), 6.J civil disorder (11).
-- [ ] **Done when:** full DATC suite 160/160 green.
+- [x] DATC cases: 6.H retreating (16), 6.I building (7), 6.J civil disorder (11) — all
+      34 green, authored by 3 parallel Sonnet subagents (distinct files, no adjudicator
+      edits), outcomes cross-checked vs the AGPL reference. No resolver fixes were needed:
+      the retreat/adjustment adjudicators conformed on first integration.
+- [x] **Done when:** full DATC suite green. **154 DATC cases authored; 144 green + the 10
+      documented M3 hard-tail xfails** (second-order convoy paradoxes 6.F.16/17/18/23/24,
+      convoy-adjacent 6.G.7/11, beleaguered self-dislodge 6.E.8/10, no-fleet-convoy 6.D.8).
+      Those 10 need the iterative-Szykman resolver upgrade and are explicitly out of M4
+      scope — do NOT un-xfail without it. 285 passed, 10 xfailed, ruff clean.
 
 ### M5 — Orchestration & serialization
 
