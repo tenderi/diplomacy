@@ -114,6 +114,16 @@ class _Resolver:
         # void: the unit holds, and the result is reported as VOID.
         self.void: set[str] = set()
 
+        # (origin, dest) pairs some fleet is ordered to convoy. A non-adjacent
+        # army move with no such pair has no possible carrier and is illegal —
+        # ignored (VOID), so the unit holds and can receive hold support
+        # (DATC 6.D.31/6.D.32).
+        self._convoy_pairs: set[tuple[str, str]] = {
+            (o.origin.province, o.dest.province)
+            for o in self.order_by_prov.values()
+            if isinstance(o, Convoy)
+        }
+
         # Build resolvable items keyed by province. A Move/Support/Convoy that is
         # not legal is treated as a hold (kept out of `items`) and marked void.
         self.items: dict[str, _Item] = {}
@@ -279,6 +289,9 @@ class _Resolver:
 
         hh = self._head_to_head_opponent(m)
         if hh is not None:
+            # A unit can never dislodge one of its own, even head-to-head.
+            if occ.power == m.power:
+                return False
             # Head-to-head: beat the opposing move's defend strength.
             if self._defend_strength(hh) >= attack:
                 return False
@@ -412,10 +425,59 @@ class _Resolver:
     # Support resolution
     # ------------------------------------------------------------------
 
+    def _support_is_void(self, s: Order) -> bool:
+        """A support is void (never given, reported VOID) if it is geometrically
+        illegal, refers to no real order, would help dislodge a *holding* unit of
+        the supporter's own power (6.D.10/12/13 — but a support of an attack on an
+        own unit that is itself ordered to move is fine and can serve other means,
+        6.E.12), or is a hold-support of a unit that is ordered to move (6.D.7/8/25).
+        """
+        assert isinstance(s, (SupportHold, SupportMove))
+        if not self._support_valid(s) or not self._support_has_target(s):
+            return True
+        if isinstance(s, SupportMove):
+            occ = self.unit_by_prov.get(s.dest.province)
+            if (
+                occ is not None
+                and occ.power == s.power
+                and not self._vacates(s.dest.province)
+            ):
+                # The own unit at the destination stays, so this support would
+                # help dislodge it: void — UNLESS that unit is itself ordered to
+                # move out AND the destination is contested by another attacker,
+                # the only case where the support serves a legitimate other
+                # purpose (6.E.12) rather than self-dislodgement (6.D.10/11/12/13,
+                # 6.E.2/3/6/7). A unit that actually vacates (circular movement,
+                # 6.C.2) is not being dislodged at all.
+                dst_item = self.items.get(s.dest.province)
+                occ_moving = dst_item is not None and isinstance(dst_item.order, Move)
+                if not (occ_moving and self._destination_contested_by_other(s)):
+                    return True
+        if isinstance(s, SupportHold):
+            # A unit ordered a *legal* move cannot receive hold support (6.D.7/8/25);
+            # an illegal/ignored move leaves the unit holding, so support is fine
+            # (6.D.28/29).
+            tgt_item = self.items.get(s.target.province)
+            if tgt_item is not None and isinstance(tgt_item.order, Move):
+                return True
+        return False
+
+    def _destination_contested_by_other(self, s: SupportMove) -> bool:
+        """True if another unit (not the supported mover) also attacks s's dest."""
+        for prov, item in self.items.items():
+            o = item.order
+            if (
+                isinstance(o, Move)
+                and o.dest.province == s.dest.province
+                and prov != s.origin.province
+            ):
+                return True
+        return False
+
     def _support_given(self, s: Order) -> bool:
         assert isinstance(s, (SupportHold, SupportMove))
         supp_prov = s.unit.province
-        if not self._support_valid(s):
+        if self._support_is_void(s):
             return False
 
         exempt = s.dest.province if isinstance(s, SupportMove) else None
@@ -431,6 +493,8 @@ class _Resolver:
                 continue
             if prov == supported_unit_prov:
                 continue  # the supported unit doesn't cut its own support
+            if o.power == s.power:
+                continue  # a unit cannot cut the support of its own country (6.D.20)
             if self._uses_convoy(o) and not self._convoy_path_works(o):
                 continue  # a disrupted convoy attack doesn't cut
             if prov == exempt:
@@ -471,6 +535,18 @@ class _Resolver:
     def _convoy_survives(self, c: Convoy) -> bool:
         return not self._is_dislodged(c.unit.province)
 
+    def _convoy_has_move(self, c: Convoy) -> bool:
+        """True if some legal Move order matches this convoy's army (origin→dest)."""
+        for item in self.items.values():
+            m = item.order
+            if (
+                isinstance(m, Move)
+                and m.unit.province == c.origin.province
+                and m.dest.province == c.dest.province
+            ):
+                return True
+        return False
+
     def _convoy_path_intact(self, c: Convoy) -> bool:
         """Does a working convoy path still exist for the army this fleet serves?
 
@@ -508,11 +584,16 @@ class _Resolver:
         if self.map.province_type(dst) is ProvinceType.WATER:
             return False
         if self._uses_convoy(m):
-            # Convoyed army move: endpoints must both be coastal land.
-            return (
+            # Convoyed army move: endpoints must both be coastal land, and — when
+            # the destination is not adjacent — some fleet must actually be
+            # ordered to convoy it, else the order is illegal/ignored (6.D.31/32).
+            if not (
                 self.map.province_type(dst) is ProvinceType.COAST
                 and self.map.province_type(m.unit.province) is ProvinceType.COAST
-            )
+            ):
+                return False
+            adjacent = dst in self.map.army_moves(m.unit.province)
+            return adjacent or (m.unit.province, dst) in self._convoy_pairs
         return dst in self.map.army_moves(m.unit.province)
 
     def _uses_convoy(self, m: Move) -> bool:
@@ -693,14 +774,16 @@ class _Resolver:
                 else:
                     code = ResultCode.BOUNCE
             elif isinstance(o, (SupportHold, SupportMove)):
-                if not self._support_valid(o) or not self._support_has_target(o):
-                    code = ResultCode.VOID  # illegal support, or supports no real order
+                if self._support_is_void(o):
+                    code = ResultCode.VOID
                 elif item.value:
                     code = ResultCode.OK
                 else:
                     code = ResultCode.CUT
             elif isinstance(o, Convoy):
-                if not item.value:
+                if not self._convoy_has_move(o):
+                    code = ResultCode.VOID  # no matching army move to convoy (6.D.27)
+                elif not item.value:
                     code = ResultCode.DISLODGED
                 elif self._convoy_path_intact(o):
                     code = ResultCode.OK
@@ -726,10 +809,10 @@ class _Resolver:
             o = self.order_by_prov[prov]
             dislodged = self._is_dislodged(prov)
             retreats = self._retreat_options(unit, prov) if dislodged else ()
-            if dislodged:
+            if prov in self.void:
+                code = ResultCode.VOID  # illegal order: report VOID even if dislodged
+            elif dislodged:
                 code = ResultCode.DISLODGED
-            elif prov in self.void:
-                code = ResultCode.VOID
             else:
                 code = ResultCode.OK
             results.append(
