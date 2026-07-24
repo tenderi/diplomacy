@@ -17,16 +17,16 @@
   `serialization.py` (canonical JSON, round-trip property), `simple_ai.py` (dumb generator
   for all phases), and a 7-power self-play smoke test. New engine package is stdlib-only.
   **308 passed, 10 xfailed, ruff clean.**
-- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory). Slice 1 (persistence
-  move) + slice 2 (delete dead power/strategic_ai + old-engine tests) done, green: **1275
-  passed, 16 skipped, 10 xfailed**.
-- **Next action:** the M6 **engine swap** — see the detailed target design in the M6 section
-  below. It is an all-or-nothing chunk (server rewire changes the API contract that ~50
-  tests + frontend + bot assert), so it lands as one focused effort, server-first then
-  delete old engine. Order: new persistence (`state_json`) + migration → Server/routes/new
-  API serializer → DAIDE/bot/frontend → delete old engine + rename orchestrator→game.py →
-  rendering split → port keeper tests → E2E. Local DB validates; still push via a branch so
-  CI's postgres:14 confirms.
+- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory). Green so far:
+  slice 1 (persistence move), slice 2 (dead-code delete), **checkpoint A** (new-engine
+  `GameService` over `state_json` + migration + tests). Suite **1280 passed, 16 skipped,
+  10 xfailed**. Decision recorded: **clean-break new API shape** (GameState-native).
+- **Next action:** **Checkpoint B** — the RED cutover. Rewire `Server`/`shared.py`/`games.py`
+  /`orders.py` onto `GameService` and the new view shape; then Checkpoint C deletes the old
+  engine + `data_models` and ports/deletes ~90 test files; then D (rendering split) and E
+  (frontend/bot/DAIDE + E2E). The suite is red from B until a large fraction of C lands —
+  commit WIP on the branch; only `main` gates on green CI. See the M6 checklist below for
+  the exact per-checkpoint steps.
 - **M4 COMPLETE.** `DislodgedUnit` data model; `retreats.py::compute_retreat_options`
   authoritative legality; `retreats.py` + `adjustments.py`; DATC 6.H/6.I/6.J all green.
 - **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
@@ -52,7 +52,7 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M6 slices 1–2: persistence move + dead-code deletion; engine-swap design recorded).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M6 checkpoint A: new-engine GameService over state_json, green; clean-break API decided).
 
 ## Goal
 
@@ -322,6 +322,24 @@ Key decisions:
       **drop-helpers-for-serialization** half is part of the engine-swap chunk below.
 - [x] **Slice 2:** delete genuinely-dead `power.py`/`strategic_ai.py` + old-engine-only
       tests (superseded by tests/engine + tests/datc). Suite 1275 green.
+- [x] **Checkpoint A (additive, green):** new-engine game service over state_json.
+      `games.state_json`/`pending_orders` columns + migration `a1b2c3d4e5f7` (wipes legacy
+      game data); `persistence/game_repo.py`; `server/game_service.py` (GameService:
+      create/submit/process/view over `orchestrator.Game` + serialization + parser/
+      validation); `tests/test_game_service.py` (5 passing incl. coasted fleet move). Suite
+      1280 green. **Decision: clean-break new API shape** (GameState-native — see the view
+      dict in `game_service.view`), not the legacy `powers` shape.
+- [ ] **Checkpoint B (begins the RED cutover):** rewire `Server` CLI, `api/shared.py`,
+      `api/routes/games.py` + `orders.py` onto `GameService`; return the new view shape.
+      Suite goes red here and cannot return to green until C's deletions + test ports land.
+- [ ] **Checkpoint C:** delete old engine (`game.py`, `data_models.py`, `order_parser.py`,
+      `order_parser_utils.py`, `allowed_moves.py`, `province_mapping.py`) + rename
+      `orchestrator.py`→`game.py`, `simple_ai.py`→`strategic_ai.py`(or keep). Delete the 54
+      old-engine-importing test files that test old internals; port genuine keepers
+      (battle/standoff/coast behavior → already covered by tests/datc; parser/map → tests/
+      engine). Rewrite the ~37 API/db tests to the new view shape.
+- [ ] **Checkpoint D:** rendering split (below). **Checkpoint E:** frontend types + bot
+      `api_client.py` + DAIDE to the new shape; E2E; docs.
 - [ ] Split rendering out of `src/engine/map.py` → `src/rendering/` (mechanical move,
       keep the render API); move `order_visualization.py` + `visualization_config.*` too.
 - [ ] Adapt server: `src/server/api/shared.py` (`_state_to_spec_dict`), all routes in
