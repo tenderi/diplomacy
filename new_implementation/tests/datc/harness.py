@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from engine.adjudicator.adjustments import adjudicate_adjustments
 from engine.adjudicator.movement import adjudicate_movement
+from engine.adjudicator.retreats import adjudicate_retreats
 from engine.map_loader import MapData, load_standard_map
 from engine.orders.parser import parse_order
 from engine.types import (
@@ -67,15 +69,26 @@ class Harness:
     map: MapData = field(default_factory=standard_map)
     year: int = 1901
     season: Season = Season.SPRING
+    phase_type: PhaseType = PhaseType.MOVEMENT
     _units: dict[Location, Unit] = field(default_factory=dict)
     _orders: list[Order] = field(default_factory=list)
+    _ownership: dict[str, str] = field(default_factory=dict)
+    _retreat_orders: list[Order] = field(default_factory=list)
     resolution: Resolution | None = None
     new_state: GameState | None = None
+    retreat_resolution: Resolution | None = None
+    retreat_state: GameState | None = None
 
     def units(self, power: str, *specs: str) -> "Harness":
         for spec in specs:
             u = parse_unit(power, spec)
             self._units[u.location] = u
+        return self
+
+    def owns(self, power: str, *provinces: str) -> "Harness":
+        """Record supply-center ownership (for adjustment-phase tests)."""
+        for p in provinces:
+            self._ownership[p.upper()] = power.upper()
         return self
 
     def orders(self, power: str, *order_strings: str) -> "Harness":
@@ -87,8 +100,9 @@ class Harness:
         return GameState(
             year=self.year,
             season=self.season,
-            phase_type=PhaseType.MOVEMENT,
+            phase_type=self.phase_type,
             units=frozenset(self._units.values()),
+            ownership=dict(self._ownership),
         )
 
     def adjudicate(self) -> Resolution:
@@ -96,6 +110,34 @@ class Harness:
             self.map, self.state(), list(self._orders)
         )
         return self.resolution
+
+    # -- retreat phase ----------------------------------------------------
+
+    def retreats(self, power: str, *order_strings: str) -> "Harness":
+        """Queue retreat/disband orders for the retreat phase."""
+        for s in order_strings:
+            self._retreat_orders.append(parse_order(s, power=power.upper(), map=self.map))
+        return self
+
+    def adjudicate_retreats(self) -> Resolution:
+        """Adjudicate the retreat phase against the post-movement state."""
+        assert self.new_state is not None, "call adjudicate() (movement) first"
+        self.retreat_resolution, self.retreat_state = adjudicate_retreats(
+            self.map, self.new_state, list(self._retreat_orders)
+        )
+        return self.retreat_resolution
+
+    def adjudicate_adjustments(self) -> Resolution:
+        """Adjudicate an adjustment phase from the harness's own state.
+
+        Use with ``phase_type=PhaseType.ADJUSTMENT``, ``units(...)``, ``owns(...)``
+        and ``orders(...)`` (build/disband/waive). Results land in
+        ``retreat_resolution``/``retreat_state`` for a uniform assertion surface.
+        """
+        self.retreat_resolution, self.retreat_state = adjudicate_adjustments(
+            self.map, self.state(), list(self._orders)
+        )
+        return self.retreat_resolution
 
     # -- lookups ----------------------------------------------------------
 
@@ -154,3 +196,57 @@ class Harness:
         assert self.new_state is not None
         u = self.new_state.unit_at(province.upper())
         return u.power if u else None
+
+    # -- retreat / adjustment assertions ----------------------------------
+
+    def _retreat_result_at(self, spec: str):
+        assert self.retreat_resolution is not None, (
+            "call adjudicate_retreats()/adjudicate_adjustments() first"
+        )
+        loc = self._loc(spec)
+        for r in self.retreat_resolution.results:
+            unit_loc = getattr(r.order, "unit", None) or getattr(r.order, "location", None)
+            if unit_loc == loc or (unit_loc and unit_loc.province == loc.province):
+                return r
+        raise AssertionError(f"no retreat/adjustment result for {spec!r} (loc {loc})")
+
+    def assert_retreat_ok(self, spec: str) -> None:
+        r = self._retreat_result_at(spec)
+        assert r.result is ResultCode.OK, f"{spec}: expected retreat OK, got {r.result.name}"
+
+    def assert_disbanded(self, spec: str) -> None:
+        r = self._retreat_result_at(spec)
+        assert r.result is ResultCode.DISBAND, (
+            f"{spec}: expected DISBAND, got {r.result.name}"
+        )
+
+    def assert_built(self, spec: str) -> None:
+        r = self._retreat_result_at(spec)
+        assert r.result is ResultCode.BUILD, f"{spec}: expected BUILD, got {r.result.name}"
+
+    def assert_result_post(self, spec: str, code: ResultCode) -> None:
+        r = self._retreat_result_at(spec)
+        assert r.result is code, f"{spec}: expected {code.name}, got {r.result.name}"
+
+    def dislodged_provinces(self) -> set[str]:
+        """Provinces holding a dislodged unit after movement adjudication."""
+        assert self.new_state is not None
+        return {du.province for du in self.new_state.dislodged}
+
+    def retreat_options_at(self, province: str) -> set[str]:
+        """The legal retreat destination provinces for the unit dislodged at ``province``."""
+        assert self.new_state is not None
+        du = self.new_state.dislodged_at(province.upper())
+        assert du is not None, f"no dislodged unit at {province}"
+        return {loc.province for loc in du.retreats}
+
+    def final_at(self, province: str) -> str | None:
+        """Power occupying ``province`` after the retreat/adjustment phase."""
+        assert self.retreat_state is not None
+        u = self.retreat_state.unit_at(province.upper())
+        return u.power if u else None
+
+    def unit_count(self, power: str) -> int:
+        """Number of units ``power`` has after the retreat/adjustment phase."""
+        assert self.retreat_state is not None
+        return len(self.retreat_state.units_of(power.upper()))

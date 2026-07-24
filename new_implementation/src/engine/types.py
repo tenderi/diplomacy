@@ -176,6 +176,49 @@ class Unit:
         return f"{self.kind.value} {self.location}"
 
 
+@dataclass(frozen=True)
+class DislodgedUnit:
+    """A unit dislodged this movement phase, awaiting a retreat order.
+
+    Carries everything the retreat phase needs so legality never has to be
+    recomputed from stale (pre-move) occupancy:
+
+    - ``unit`` — the dislodged unit, still recorded at the province it was
+      standing in when dislodged.
+    - ``attacker_origin`` — the province the *dislodging* attacker moved from,
+      which the unit may **not** retreat into (rulebook: you can't retreat the
+      way the attacker came). ``None`` when the attacker was convoyed — a
+      convoyed attacker crossed no shared border, so its origin does not block
+      the retreat (DATC 6.H).
+    - ``retreats`` — the precomputed legal retreat destinations, against
+      *post-resolution* occupancy, excluding contested (standoff) provinces and
+      ``attacker_origin``. Empty means the unit is trapped and must disband.
+    """
+
+    unit: Unit
+    attacker_origin: Optional[str] = None
+    retreats: tuple[Location, ...] = ()
+
+    @property
+    def location(self) -> Location:
+        return self.unit.location
+
+    @property
+    def province(self) -> str:
+        return self.unit.province
+
+    @property
+    def power(self) -> str:
+        return self.unit.power
+
+    @property
+    def kind(self) -> UnitKind:
+        return self.unit.kind
+
+    def __str__(self) -> str:
+        return f"{self.unit} (dislodged)"
+
+
 # ---------------------------------------------------------------------------
 # Orders
 # ---------------------------------------------------------------------------
@@ -356,9 +399,9 @@ class GameState:
 
     - ``units`` — every unit on the board.
     - ``ownership`` — supply-center province → owning power (only SCs appear).
-    - ``dislodged`` — units awaiting retreat orders, mapped to the province they
-      were dislodged *from's* attacker origin (so a retreat can't bounce back).
-      During non-retreat phases this is empty.
+    - ``dislodged`` — ``DislodgedUnit`` records awaiting retreat orders, each
+      carrying its attacker-origin and precomputed legal retreat set. Empty
+      during non-retreat phases.
     - ``contested`` — provinces that stood off this movement phase (no unit may
       retreat into them). Empty outside a retreat phase.
     """
@@ -368,7 +411,7 @@ class GameState:
     phase_type: PhaseType
     units: frozenset[Unit] = field(default_factory=frozenset)
     ownership: dict[str, str] = field(default_factory=dict)
-    dislodged: frozenset[Unit] = field(default_factory=frozenset)
+    dislodged: tuple[DislodgedUnit, ...] = ()
     contested: frozenset[str] = field(default_factory=frozenset)
     status: GameStatus = GameStatus.ACTIVE
 
@@ -396,3 +439,11 @@ class GameState:
 
     def centers_of(self, power: str) -> frozenset[str]:
         return frozenset(p for p, owner in self.ownership.items() if owner == power)
+
+    def dislodged_at(self, province: str) -> Optional[DislodgedUnit]:
+        """The ``DislodgedUnit`` recorded at ``province``, if any."""
+        province = province.upper()
+        for du in self.dislodged:
+            if du.province == province:
+                return du
+        return None

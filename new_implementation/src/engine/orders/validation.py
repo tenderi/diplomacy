@@ -18,6 +18,7 @@ from engine.types import (
     Build,
     Convoy,
     Disband,
+    DislodgedUnit,
     GameState,
     Hold,
     Location,
@@ -70,17 +71,20 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         return _validate_build(order, state, map)
 
     if isinstance(order, Retreat):
-        unit = _find_unit(order.unit, state.dislodged)
-        if unit is None:
+        du = state.dislodged_at(order.unit.province)
+        if du is None:
             return ValidationResult(False, f"no dislodged unit at {order.unit.province}")
-        ownership_error = _check_ownership(order, unit)
+        ownership_error = _check_ownership(order, du.unit)
         if ownership_error is not None:
             return ownership_error
-        return _validate_retreat(order, unit, map)
+        return _validate_retreat(order, du, map)
 
     if isinstance(order, Disband):
-        pool = state.dislodged if state.phase_type is PhaseType.RETREAT else state.units
-        unit = _find_unit(order.unit, pool)
+        if state.phase_type is PhaseType.RETREAT:
+            du = state.dislodged_at(order.unit.province)
+            unit = du.unit if du is not None else None
+        else:
+            unit = _find_unit(order.unit, state.units)
         if unit is None:
             return ValidationResult(False, f"no unit to disband at {order.unit.province}")
         ownership_error = _check_ownership(order, unit)
@@ -180,15 +184,26 @@ def _validate_convoy(order: Convoy, unit: Unit, map: MapData) -> ValidationResul
     return ValidationResult(True)
 
 
-def _validate_retreat(order: Retreat, unit: Unit, map: MapData) -> ValidationResult:
+def _validate_retreat(order: Retreat, du: DislodgedUnit, map: MapData) -> ValidationResult:
+    """Validate a retreat against the unit's precomputed legal destinations.
+
+    ``du.retreats`` already encodes adjacency, post-resolution occupancy, the
+    ``contested`` standoff set and the attacker-origin exclusion, so legality is
+    exact membership. Coast requirements at split-coast provinces are surfaced
+    with a clear message before the membership check.
+    """
     dest = order.dest
-    if not map.is_adjacent(unit.location, dest, unit.kind):
-        return ValidationResult(False, f"{dest} is not adjacent to {unit.location}")
+    unit = du.unit
     if unit.kind is UnitKind.FLEET and map.is_split_coast(dest.province) and dest.coast is None:
         return ValidationResult(
             False, f"fleet retreat into split-coast {dest.province} must name a coast"
         )
-    return ValidationResult(True)
+    for legal in du.retreats:
+        if legal.province != dest.province:
+            continue
+        if legal.coast is None or legal.coast == dest.coast:
+            return ValidationResult(True)
+    return ValidationResult(False, f"{dest} is not a legal retreat for {unit.location}")
 
 
 def _validate_build(order: Build, state: GameState, map: MapData) -> ValidationResult:

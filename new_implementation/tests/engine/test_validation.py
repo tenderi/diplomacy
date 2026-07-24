@@ -10,6 +10,7 @@ from engine.types import (
     Build,
     Convoy,
     Disband,
+    DislodgedUnit,
     GameState,
     Hold,
     Location,
@@ -32,14 +33,14 @@ def m():
     return load_standard_map()
 
 
-def _state(units, *, ownership=None, dislodged=frozenset(), phase_type=PhaseType.MOVEMENT):
+def _state(units, *, ownership=None, dislodged=(), phase_type=PhaseType.MOVEMENT):
     return GameState(
         1901,
         Season.SPRING,
         phase_type,
         units=frozenset(units),
         ownership=ownership or {},
-        dislodged=frozenset(dislodged),
+        dislodged=tuple(dislodged),
     )
 
 
@@ -167,9 +168,11 @@ class TestConvoy:
 
 class TestRetreat:
     def test_retreat_ok(self, m):
-        state = _state(
-            [], dislodged={Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}
+        du = DislodgedUnit(
+            Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+            retreats=(Location("BUR"), Location("GAS"), Location("PIC")),
         )
+        state = _state([], dislodged=[du])
         order = Retreat("FRANCE", Location("PAR"), Location("BUR"))
         assert validate(order, state, m).ok is True
 
@@ -180,9 +183,11 @@ class TestRetreat:
         assert result.ok is False
 
     def test_retreat_non_adjacent_rejected(self, m):
-        state = _state(
-            [], dislodged={Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}
+        du = DislodgedUnit(
+            Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+            retreats=(Location("BUR"), Location("GAS"), Location("PIC")),
         )
+        state = _state([], dislodged=[du])
         order = Retreat("FRANCE", Location("PAR"), Location("MOS"))
         result = validate(order, state, m)
         assert result.ok is False
@@ -190,9 +195,10 @@ class TestRetreat:
 
 class TestDisband:
     def test_disband_retreat_phase(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("PAR")))
         state = _state(
             [],
-            dislodged={Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))},
+            dislodged=[du],
             phase_type=PhaseType.RETREAT,
         )
         order = Disband("FRANCE", Location("PAR"))

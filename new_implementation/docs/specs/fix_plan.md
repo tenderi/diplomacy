@@ -13,8 +13,12 @@
 
 ## Status
 
-- **Phase:** M3 nearly complete — resolver + full DATC 6.A–6.G authored (all 3 Sonnet
-  subagents integrated) + hard-tail fixes. **245 passed, 10 xfailed, ruff clean.**
+- **Phase:** M4 in progress — both driver design decisions RESOLVED and implemented;
+  `retreats.py` + `adjustments.py` written and self-checked; DATC harness extended for
+  retreat/adjustment phases. **249 passed, 10 xfailed, ruff clean** (no regressions from
+  the `dislodged` data-model change). Next: author DATC 6.H/6.I/6.J (delegable to Sonnet)
+  then fix the resolver against any failures.
+- **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
   Passing: 6.A (8), 6.B (14/14), 6.C (7/7), 6.D (33/34), 6.E (13/15), 6.F (19/24),
   6.G (16/18) + mechanics (6). Resolver fixes driver-owned throughout.
 - **10 xfail'd hard-tail cases** (documented inline in the test files):
@@ -37,7 +41,7 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-23 (Claude Fable 5 — M0 setup).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M4 core: retreats + adjustments implemented).
 
 ## Goal
 
@@ -200,26 +204,29 @@ Key decisions:
 - [x] Hypothesis properties: shuffling order submission never changes results; ≤1 unit
       per province post-resolution; unit conservation; every dislodged unit has a
       computed legal retreat set.
-- [ ] **Done when:** DATC 6.A–6.G all green (~124 cases) + properties green.
+- [x] **Done when:** DATC 6.A–6.G all green (~124 cases) + properties green.
 
 ### M4 — Retreats & adjustments
 
-> **Design decisions needed first (driver, discovered during M3):**
-> 1. `GameState.dislodged` is currently a bare `frozenset[Unit]`, which loses the
->    attacker-origin per dislodged unit. Retreat legality needs it. Change the model so
->    each dislodged unit carries its attacker-origin province AND its precomputed legal
->    retreat set (e.g. a `DislodgedUnit(unit, from_attacker, retreats)` frozen dataclass,
->    or `dislodged: tuple[DislodgedUnit, ...]`). Update `types.py` + `movement.py.run()`.
-> 2. `movement._retreat_options` is a convenience only and is currently **wrong**: it
->    checks *pre-move* occupancy and does **not** exclude `contested` (standoff)
->    provinces. Retreat legality must be computed against *post-resolution* occupancy,
->    exclude the `contested` set, and exclude the dislodging attacker's origin. Make
->    `retreats.py` the authoritative path (or fix the movement convenience to match).
+> **Design decisions — RESOLVED (2026-07-24, driver):**
+> 1. **DONE.** Added `DislodgedUnit(unit, attacker_origin, retreats)` frozen dataclass in
+>    `types.py`; `GameState.dislodged` is now `tuple[DislodgedUnit, ...]` (was
+>    `frozenset[Unit]`). Each record carries its attacker-origin province and the
+>    precomputed legal retreat set. `movement.run()` builds these; `GameState.dislodged_at`
+>    looks one up. `attacker_origin` is `None` when the dislodging attack was convoyed (a
+>    convoyed attacker crosses no shared border, so its origin does not block the retreat).
+> 2. **DONE.** `retreats.py::compute_retreat_options` is the single authoritative legality
+>    path: it computes against *post-resolution* occupancy, excludes the `contested`
+>    standoff set and the (non-convoyed) attacker origin. `movement.run()` calls it to fill
+>    both `DislodgedUnit.retreats` and each `OrderResult.retreat_options`; the old
+>    `movement._retreat_options` is deleted. `orders/validation.py` validates a Retreat by
+>    exact membership in the precomputed set.
 
-- [ ] `adjudicator/retreats.py`: legal destinations exclude attacker's origin, standoff
+- [x] `adjudicator/retreats.py`: legal destinations exclude attacker's origin, standoff
       provinces, occupied provinces; **all** units retreating to the same province
-      disband; unordered dislodged units disband.
-- [ ] `adjudicator/adjustments.py`: entitlement = owned SCs − units; build validation
+      disband; unordered dislodged units disband. (`compute_retreat_options` +
+      `adjudicate_retreats`.)
+- [x] `adjudicator/adjustments.py`: entitlement = owned SCs − units; build validation
       (owned home SC, vacant, fleet coast required where split); explicit + implicit
       waives; civil-disorder auto-disband (distance rule above).
 - [ ] DATC cases: 6.H retreating (16), 6.I building (7), 6.J civil disorder (11).
