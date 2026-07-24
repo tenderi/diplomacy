@@ -7,7 +7,7 @@ import socket
 import threading
 from typing import Any, Optional
 from .db_config import SQLALCHEMY_DATABASE_URL
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 from engine.order_parser import OrderParser
 
 # Initialize a DAL instance for DAIDE operations

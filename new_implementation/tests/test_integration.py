@@ -19,7 +19,7 @@ from engine.data_models import (
     MapData, Province, GameStatus
 )
 from server.server import Server
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 from engine.order_parser import OrderParser
 from engine.strategic_ai import StrategicAI
 

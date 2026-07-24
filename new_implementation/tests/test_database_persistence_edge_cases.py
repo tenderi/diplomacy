@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch, MagicMock
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, OperationalError
 from sqlalchemy.orm import Session
 
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 from tests.conftest import _get_db_url
 
 

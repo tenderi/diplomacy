@@ -7,7 +7,7 @@ import pytest
 import time
 from fastapi.testclient import TestClient
 from engine.game import Game
-from engine.database_service import DatabaseService
+from persistence.database_service import DatabaseService
 from server.api import app
 from tests.conftest import _get_db_url
 
