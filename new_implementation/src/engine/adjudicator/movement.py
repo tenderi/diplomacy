@@ -519,9 +519,44 @@ class _Resolver:
         u = self.unit_by_prov.get(m.unit.province)
         if u is None or u.kind is UnitKind.FLEET:
             return False
+        if m.dest.province not in self.map.army_moves(m.unit.province):
+            return True  # non-adjacent army move must be convoyed
+        # Adjacent move. An explicit VIA is honoured only when a convoy is
+        # actually on offer; with no convoy ordered the army goes by land
+        # (DATC 6.G.8). Without VIA, convoy intent is inferred only for a swap
+        # backed by the army's own working convoy chain (DATC 6.G.1/5/6 vs the
+        # illegal-intent 6.G.7); a valid such convoy enters the paradox at 6.G.11.
         if m.via_convoy:
-            return True
-        return m.dest.province not in self.map.army_moves(m.unit.province)
+            # Explicit VIA: the mover consented, so any power's convoy chain
+            # carries it (DATC 6.G.10/6.G.14).
+            return self._has_convoy_order(m, same_power_only=False)
+        # No VIA: intent is inferred only for a swap over the army's OWN convoy —
+        # a foreign fleet cannot "kidnap" the army (DATC 6.G.2/6.G.4/6.G.7).
+        return self._has_convoy_order(m, same_power_only=True) and self._is_swap(m)
+
+    def _has_convoy_order(self, m: Move, *, same_power_only: bool) -> bool:
+        for item in self.items.values():
+            o = item.order
+            if not isinstance(o, Convoy):
+                continue
+            if same_power_only and o.power != m.power:
+                continue
+            if (
+                o.origin.province == m.unit.province
+                and o.dest.province == m.dest.province
+                and self.map.province_type(o.unit.province) is ProvinceType.WATER
+            ):
+                return True
+        return False
+
+    def _is_swap(self, m: Move) -> bool:
+        """True if the unit at m's destination is ordered to move to m's source."""
+        dst_item = self.items.get(m.dest.province)
+        return (
+            dst_item is not None
+            and isinstance(dst_item.order, Move)
+            and dst_item.order.dest.province == m.unit.province
+        )
 
     def _convoy_path_works(self, m: Move) -> bool:
         """BFS from src to dst over surviving convoying fleets for this move."""
