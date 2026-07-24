@@ -99,14 +99,19 @@ class TestMove:
         with pytest.raises(OrderParseError):
             parse_order("A PAR -", power="FRANCE", map=m)
 
-    def test_fleet_split_coast_dest_missing_coast_is_parser_ambiguous(self, m):
-        # STP is split-coast; a fleet destination there must name a coast.
-        with pytest.raises(OrderParseError):
-            parse_order("F BAR - STP", power="RUSSIA", map=m)
+    def test_fleet_split_coast_dest_missing_coast_parses_coastless(self, m):
+        # The parser is lenient: a fleet destination on a split-coast province
+        # with no coast parses to a coastless Location; the adjudicator infers
+        # the coast when unambiguous or voids the move when ambiguous (DATC 6.B).
+        o = parse_order("F BAR - STP", power="RUSSIA", map=m)
+        assert isinstance(o, Move)
+        assert o.dest == Location("STP", None)
 
-    def test_army_may_not_carry_coast(self, m):
-        with pytest.raises(OrderParseError):
-            parse_order("A SPA/SC - GAS", power="FRANCE", map=m)
+    def test_army_move_dest_coast_is_stripped(self, m):
+        # An army ignores a coast qualifier (DATC 6.B.12): it is dropped, not an error.
+        o = parse_order("A GAS - SPA/NC", power="FRANCE", map=m)
+        assert isinstance(o, Move)
+        assert o.dest == Location("SPA", None)
 
 
 class TestSupportHold:

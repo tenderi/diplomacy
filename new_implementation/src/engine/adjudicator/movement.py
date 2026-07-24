@@ -189,19 +189,29 @@ class _Resolver:
         return item.value
 
     def _backup_rule(self, cycle: list[str]) -> None:
-        """Break a dependency cycle. Szykman for convoy paradoxes; else circular."""
-        involves_convoy = False
-        for prov in cycle:
-            o = self.items[prov].order
-            if isinstance(o, Convoy):
-                involves_convoy = True
-            if isinstance(o, Move) and self._uses_convoy(o):
-                involves_convoy = True
+        """Break a dependency cycle.
+
+        A cycle is a *convoy paradox* only when a convoy's outcome is entangled
+        with a support cut — i.e. the cycle contains both a convoyed move (or a
+        Convoy order) AND a support. Then Szykman applies: the convoyed move(s)
+        fail. A cycle of moves alone — including armies swapping/rotating via
+        convoy with no contested support — is ordinary circular movement: every
+        move succeeds.
+        """
+        has_convoy = any(
+            isinstance(self.items[p].order, Convoy)
+            or (isinstance(self.items[p].order, Move) and self._uses_convoy(self.items[p].order))
+            for p in cycle
+        )
+        has_support = any(
+            isinstance(self.items[p].order, (SupportHold, SupportMove)) for p in cycle
+        )
+        is_paradox = has_convoy and has_support
 
         for prov in cycle:
             item = self.items[prov]
             o = item.order
-            if involves_convoy:
+            if is_paradox:
                 # Szykman: convoyed moves in the cycle fail; other orders in the
                 # cycle resolve as though those convoys never happened.
                 if isinstance(o, Move) and self._uses_convoy(o):
@@ -307,9 +317,35 @@ class _Resolver:
                 isinstance(o, SupportMove)
                 and o.origin.province == m.unit.province
                 and o.dest.province == m.dest.province
+                and self._coast_compatible(o.dest.coast, m.dest.coast)
             ):
                 out.append(o)
         return out
+
+    @staticmethod
+    def _coast_compatible(support_coast: Optional[str], move_coast: Optional[str]) -> bool:
+        """A support whose named dest coast contradicts the move's is void."""
+        if support_coast is None or move_coast is None:
+            return True
+        return support_coast == move_coast
+
+    def _support_has_target(self, s: Order) -> bool:
+        """True if the support refers to a real order/unit (else it is void)."""
+        if isinstance(s, SupportMove):
+            for item in self.items.values():
+                m = item.order
+                if (
+                    isinstance(m, Move)
+                    and m.unit.province == s.origin.province
+                    and m.dest.province == s.dest.province
+                    and self._coast_compatible(s.dest.coast, m.dest.coast)
+                ):
+                    return True
+            return False
+        if isinstance(s, SupportHold):
+            occ = self.unit_by_prov.get(s.target.province)
+            return occ is not None
+        return True
 
     def _supports_for_hold(self, prov: str) -> list[SupportHold]:
         out: list[SupportHold] = []
@@ -435,6 +471,22 @@ class _Resolver:
     def _convoy_survives(self, c: Convoy) -> bool:
         return not self._is_dislodged(c.unit.province)
 
+    def _convoy_path_intact(self, c: Convoy) -> bool:
+        """Does a working convoy path still exist for the army this fleet serves?
+
+        True even if the army merely bounced, as long as the fleet chain is whole;
+        False when the chain is broken by a dislodged sibling fleet.
+        """
+        for item in self.items.values():
+            m = item.order
+            if (
+                isinstance(m, Move)
+                and m.unit.province == c.origin.province
+                and m.dest.province == c.dest.province
+            ):
+                return self._convoy_path_works(m)
+        return False
+
     def _legal_move(self, m: Move, unit: Unit) -> bool:
         """Is ``m`` a legal move for ``unit`` (reachable destination)?"""
         dst = m.dest.province
@@ -481,6 +533,7 @@ class _Resolver:
                 isinstance(o, Convoy)
                 and o.origin.province == src
                 and o.dest.province == dst
+                and self.map.province_type(o.unit.province) is ProvinceType.WATER
             ):
                 if not self._is_dislodged(o.unit.province):
                     fleets[o.unit.province] = o.unit
@@ -605,9 +658,22 @@ class _Resolver:
                 else:
                     code = ResultCode.BOUNCE
             elif isinstance(o, (SupportHold, SupportMove)):
-                code = ResultCode.OK if item.value else ResultCode.CUT
+                if not self._support_valid(o) or not self._support_has_target(o):
+                    code = ResultCode.VOID  # illegal support, or supports no real order
+                elif item.value:
+                    code = ResultCode.OK
+                else:
+                    code = ResultCode.CUT
             elif isinstance(o, Convoy):
-                code = ResultCode.OK if item.value else ResultCode.DISLODGED
+                if not item.value:
+                    code = ResultCode.DISLODGED
+                elif self._convoy_path_intact(o):
+                    code = ResultCode.OK
+                else:
+                    # Fleet survived but its convoy chain is broken elsewhere
+                    # (a sibling fleet was dislodged): report NO_CONVOY. A merely
+                    # bounced army over an intact path stays OK.
+                    code = ResultCode.NO_CONVOY
             else:
                 code = ResultCode.OK
             retreats = (
@@ -683,10 +749,14 @@ def _move_dest_location(m: Move, unit: Unit, map: MapData) -> Location:
     """Resolve the destination Location a moving unit ends up at (coast-correct)."""
     if unit.kind is UnitKind.ARMY:
         return Location(m.dest.province, None)
-    # Fleet: keep an explicit coast, or infer the sole coast for split provinces.
+    # Fleet: keep an explicit coast, or infer the sole reachable coast when the
+    # order left it unspecified (legal only when unambiguous — see _legal_move).
     if m.dest.coast is not None:
         return m.dest
-    coasts = map.coasts_of(m.dest.province)
-    if len(coasts) == 1:
-        return Location(m.dest.province, coasts[0])
+    reachable = {
+        d.coast for d in map.fleet_moves(unit.location) if d.province == m.dest.province
+    }
+    reachable.discard(None)
+    if len(reachable) == 1:
+        return Location(m.dest.province, next(iter(reachable)))
     return Location(m.dest.province, None)

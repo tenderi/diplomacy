@@ -120,6 +120,20 @@ def _split_coast_token(token: str) -> tuple[str, str | None]:
     return name, coast
 
 
+def _require_build_coast(loc: Location, kind: UnitKind, map: MapData) -> None:
+    """A fleet build on a split-coast province must name a coast (no source unit
+    exists to infer it from, so an unspecified coast is irrecoverably ambiguous —
+    DATC 6.B.14)."""
+    if (
+        kind is UnitKind.FLEET
+        and loc.coast is None
+        and map.is_split_coast(loc.province)
+    ):
+        raise OrderParseError(
+            f"building a fleet at split-coast province {loc.province} must name a coast"
+        )
+
+
 def _parse_location(token: str, map: MapData, *, fleet: bool) -> Location:
     """Parse one province[/coast] token into a canonical ``Location``.
 
@@ -131,11 +145,15 @@ def _parse_location(token: str, map: MapData, *, fleet: bool) -> Location:
     canonical = _normalize_province(name, map)
     if coast is not None:
         if not fleet:
-            raise OrderParseError(f"an army location may not specify a coast: {token!r}")
-        if coast not in map.coasts_of(canonical):
-            raise OrderParseError(f"{canonical} has no coast {coast!r}")
-    elif fleet and map.is_split_coast(canonical):
-        raise OrderParseError(f"fleet order for split-coast province {canonical} must name a coast")
+            # An army ignores a coast qualifier (DATC 6.B.12).
+            coast = None
+        elif not map.is_split_coast(canonical):
+            # A coast on a single-coast province is meaningless; drop it.
+            coast = None
+        # Otherwise keep the coast as written. Whether it is actually a coast of
+        # the province, and whether it is reachable, is decided by the
+        # adjudicator/validation (one legality path) — a wrong or unspecified
+        # coast becomes a VOID move, not a parse error.
     return Location(canonical, coast)
 
 
@@ -172,6 +190,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
             raise OrderParseError("expected 'BUILD A/F PROVINCE'")
         kind = UnitKind.ARMY if rest[0] == "A" else UnitKind.FLEET
         loc = _parse_location(rest[1], map, fleet=kind is UnitKind.FLEET)
+        _require_build_coast(loc, kind, map)
         return Build(power, location=loc, kind=kind)
 
     # -- everything else starts with a unit: "A PAR ..." / "F BRE ..." -----
@@ -203,6 +222,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
     if verb in _BUILD_WORDS:
         if len(rest) != 1:
             raise OrderParseError(f"malformed build order: {text!r}")
+        _require_build_coast(unit_loc, kind, map)
         return Build(power, location=unit_loc, kind=kind)
 
     if verb in _RETREAT_WORDS:
