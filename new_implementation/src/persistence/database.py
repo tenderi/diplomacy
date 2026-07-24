@@ -27,6 +27,11 @@ class GameModel(Base):
     current_phase = Column(String(20), nullable=False, default='Movement')
     phase_code = Column(String(10), nullable=False, default='S1901M')
     status = Column(String(20), nullable=False, default='active')
+    # New engine (M6): the whole GameState serialized via engine.serialization, plus the
+    # submitted-but-not-yet-adjudicated orders keyed by power ({power: [order_str]}).
+    # These supersede the legacy relational units/orders/supply_centers storage.
+    state_json = Column(JSON, nullable=True)
+    pending_orders = Column(JSON, nullable=True)
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
