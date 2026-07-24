@@ -25,11 +25,11 @@
     from the used-for-other-means case 6.E.12 by the current support-void rule;
   - 6.D.8 — competing DATC reading of a no-fleet convoy move (this engine treats it as
     illegal/ignored, consistent with 6.D.28/29/31/32).
-- **Still pending in M3:** the M3 Hypothesis property tests (determinism under order
-  shuffling, ≤1 unit/province, unit conservation, legal retreat sets) are NOT yet written.
-- **Next action:** write the M3 Hypothesis properties; then either upgrade the resolver
-  for the 10 xfail'd cases or defer them (tracked here) and proceed to M4
-  (retreats & adjustments — delegable to Sonnet).
+- **M3 Hypothesis properties: DONE** (`tests/datc/test_properties.py`) — determinism
+  under order-shuffling (200 examples), ≤1 unit/province, unit conservation, retreat
+  sets. 249 passed, 10 xfailed, ruff clean.
+- **Next action:** M4 (retreats & adjustments — delegable to Sonnet). Optionally revisit
+  the 10 xfail'd movement cases with a second-order-paradox resolver upgrade first.
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
@@ -182,20 +182,20 @@ Key decisions:
 
 ### M3 — Movement adjudicator  ← the heart, budget the most time
 
-- [ ] `tests/datc/harness.py`: helpers `place_units / give_orders / adjudicate /
+- [x] `tests/datc/harness.py`: helpers `place_units / give_orders / adjudicate /
       assert_result / assert_dislodged` against the new engine API.
-- [ ] Write DATC cases from the DATC document (cross-check outcomes vs
+- [x] Write DATC cases from the DATC document (cross-check outcomes vs
       `old_implementation/diplomacy/tests/test_datc.py`; do not copy code), one test per
       case, named/tagged by DATC number, marker `datc`:
-  - [ ] 6.A basic checks (12)
-  - [ ] 6.B coastal issues (14)
-  - [ ] 6.C circular movement (7)
-  - [ ] 6.D supports & dislodges (34)
-  - [ ] 6.E head-to-head & beleaguered garrison (15)
-  - [ ] 6.F convoys incl. all paradoxes (24)
-  - [ ] 6.G convoy + move combinations (18)
-- [ ] `src/engine/adjudicator/movement.py`: fixed-point resolver per the design above.
-- [ ] Hypothesis properties: shuffling order submission never changes results; ≤1 unit
+  - [x] 6.A basic checks (12)
+  - [x] 6.B coastal issues (14)
+  - [x] 6.C circular movement (7)
+  - [x] 6.D supports & dislodges (34)
+  - [x] 6.E head-to-head & beleaguered garrison (15)
+  - [x] 6.F convoys incl. all paradoxes (24)
+  - [x] 6.G convoy + move combinations (18)
+- [x] `src/engine/adjudicator/movement.py`: fixed-point resolver per the design above.
+- [x] Hypothesis properties: shuffling order submission never changes results; ≤1 unit
       per province post-resolution; unit conservation; every dislodged unit has a
       computed legal retreat set.
 - [ ] **Done when:** DATC 6.A–6.G all green (~124 cases) + properties green.
