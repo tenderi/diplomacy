@@ -43,9 +43,11 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
+from engine.adjudicator.retreats import compute_retreat_options
 from engine.map_loader import MapData
 from engine.types import (
     Convoy,
+    DislodgedUnit,
     GameState,
     Hold,
     Location,
@@ -759,6 +761,19 @@ class _Resolver:
                 else:
                     surviving[prov] = unit
 
+        # Precompute each dislodged unit's attacker-origin and legal retreat set
+        # against POST-resolution occupancy (retreats.py is authoritative).
+        occupied = frozenset(surviving)
+        dislodged_info: dict[str, DislodgedUnit] = {}
+        for unit in dislodged_units:
+            attacker_origin = self._attacker_origin(unit.province)
+            retreats = compute_retreat_options(
+                self.map, unit, attacker_origin, occupied, contested
+            )
+            dislodged_info[unit.province] = DislodgedUnit(
+                unit=unit, attacker_origin=attacker_origin, retreats=retreats
+            )
+
         # Build per-order results.
         for prov, item in self.items.items():
             o = item.order
@@ -795,7 +810,7 @@ class _Resolver:
             else:
                 code = ResultCode.OK
             retreats = (
-                self._retreat_options(unit, prov) if dislodged else ()
+                dislodged_info[prov].retreats if dislodged and prov in dislodged_info else ()
             )
             results.append(
                 OrderResult(order=o, result=code, dislodged=dislodged, retreat_options=retreats)
@@ -808,7 +823,9 @@ class _Resolver:
                 continue
             o = self.order_by_prov[prov]
             dislodged = self._is_dislodged(prov)
-            retreats = self._retreat_options(unit, prov) if dislodged else ()
+            retreats = (
+                dislodged_info[prov].retreats if dislodged and prov in dislodged_info else ()
+            )
             if prov in self.void:
                 code = ResultCode.VOID  # illegal order: report VOID even if dislodged
             elif dislodged:
@@ -825,33 +842,25 @@ class _Resolver:
             phase_type=self.state.phase_type,
             units=frozenset(surviving.values()),
             ownership=dict(self.state.ownership),
-            dislodged=frozenset(dislodged_units),
+            dislodged=tuple(dislodged_info[p] for p in sorted(dislodged_info)),
             contested=frozenset(contested),
         )
         return Resolution(tuple(results)), new_state
 
-    def _retreat_options(self, unit: Unit, from_prov: str) -> tuple[Location, ...]:
-        """Legal retreat destinations: adjacent, empty, uncontested, not attacker origin."""
-        opts: list[Location] = []
-        # The attacker's origin (can't retreat back into it).
-        attacker_origins = {
-            p
-            for p, item in self.items.items()
-            if isinstance(item.order, Move)
-            and item.order.dest.province == from_prov
-            and item.value
-        }
-        if unit.kind is UnitKind.ARMY:
-            dests = [Location(p) for p in self.map.army_moves(from_prov)]
-        else:
-            dests = list(self.map.fleet_moves(unit.location))
-        for d in dests:
-            if d.province in attacker_origins:
-                continue
-            if self.unit_by_prov.get(d.province) is not None:
-                continue
-            opts.append(d)
-        return tuple(opts)
+    def _attacker_origin(self, prov: str) -> Optional[str]:
+        """Province the successful dislodging attacker of ``prov`` moved from.
+
+        ``None`` when the dislodging attack was convoyed — a convoyed attacker
+        crosses no shared border, so its origin does not block the retreat
+        (DATC 6.H). At most one attacker can succeed into a province.
+        """
+        for src, item in self.items.items():
+            o = item.order
+            if isinstance(o, Move) and o.dest.province == prov and item.value:
+                if self._uses_convoy(o):
+                    return None
+                return src
+        return None
 
 
 # ---------------------------------------------------------------------------
