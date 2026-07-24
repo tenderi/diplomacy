@@ -13,16 +13,20 @@
 
 ## Status
 
-- **Phase:** **M4 COMPLETE.** Both driver design decisions resolved & implemented
-  (`DislodgedUnit` data model; `retreats.py::compute_retreat_options` as the authoritative
-  post-resolution legality path). `retreats.py` + `adjustments.py` written; DATC 6.H (16),
-  6.I (7), 6.J (11) all green — authored by parallel Sonnet subagents, integrated with no
-  resolver fixes needed. New retreat property tests green. **285 passed, 10 xfailed, ruff
-  clean.**
-- **Next action:** M5 (orchestration & serialization) — `game.py` phase machine over
-  immutable snapshots (conditional retreat/adjustment phases, SC-ownership updates after
-  Fall, victory at 18, elimination), `serialization.py` canonical JSON + round-trip
-  property, port `strategic_ai.py` to the new types, 7-power self-play smoke test.
+- **Phase:** **M5 COMPLETE.** New phase machine `orchestrator.py` (→ `game.py` in M6),
+  `serialization.py` (canonical JSON, round-trip property), `simple_ai.py` (dumb generator
+  for all phases), and a 7-power self-play smoke test. New engine package is stdlib-only.
+  **308 passed, 10 xfailed, ruff clean.**
+- **Next action:** M6 (integration — riskiest). Move `database.py`/`database_service.py`
+  → `src/persistence/`; split rendering out of `map.py` → `src/rendering/`; funnel server
+  routes / DAIDE / bot / frontend through `engine/serialization.py`; Alembic migration to
+  wipe stored game rows; **delete the old engine** (`game.py`, `data_models.py`,
+  `order_parser*.py`, `allowed_moves.py`, `power.py`, old `map.py` topology half,
+  `strategic_ai.OrderGenerator`) and rename `orchestrator.py`→`game.py`,
+  `simple_ai.py`→ the AI surface; port keeper tests. Needs a DB + green CI — use a feature
+  branch per CLAUDE.md.
+- **M4 COMPLETE.** `DislodgedUnit` data model; `retreats.py::compute_retreat_options`
+  authoritative legality; `retreats.py` + `adjustments.py`; DATC 6.H/6.I/6.J all green.
 - **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
   Passing: 6.A (8), 6.B (14/14), 6.C (7/7), 6.D (33/34), 6.E (13/15), 6.F (19/24),
   6.G (16/18) + mechanics (6). Resolver fixes driver-owned throughout.
@@ -46,7 +50,7 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M4 complete: retreats + adjustments + DATC 6.H/I/J).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M5 complete: orchestrator + serialization + self-play).
 
 ## Goal
 
@@ -246,14 +250,28 @@ Key decisions:
 
 ### M5 — Orchestration & serialization
 
-- [ ] `src/engine/game.py`: phase machine, conditional retreat/adjustment phases, SC
-      ownership updates, victory at 18, elimination, snapshot history.
-- [ ] `src/engine/serialization.py`: canonical JSON for `GameState`/`Order`/`Resolution`;
-      Hypothesis round-trip test.
-- [ ] Port `strategic_ai.py` to the new types (keep it dumb; delete `OrderGenerator`).
-- [ ] Self-play smoke test: 7 AI powers × 10+ game-years; invariants asserted every
-      phase; no crash.
-- [ ] **Done when:** smoke + round-trip green; engine package imports nothing but stdlib.
+> **Naming decision (2026-07-24, driver):** the new phase machine is
+> `src/engine/orchestrator.py`, NOT `game.py` — the legacy `engine/game.py` still exists
+> and is imported by the server until M6 deletes it. Likewise the new dumb AI is
+> `src/engine/simple_ai.py` (not a rewrite of the old `strategic_ai.py`). **M6 renames
+> `orchestrator.py` → `game.py` and replaces `strategic_ai.py` with `simple_ai.py`** once
+> the old engine is gone.
+
+- [x] `src/engine/orchestrator.py` (→ `game.py` in M6): `Game` frozen snapshot + phase
+      machine — conditional retreat phase (only on dislodgement) & adjustment phase (only
+      when a power's unit/center counts differ), SC-ownership update after Fall, victory at
+      18, elimination query, snapshot history.
+- [x] `src/engine/serialization.py`: canonical JSON for `GameState`/`Order`/`Resolution`
+      (+ `DislodgedUnit`, `OrderResult`); Hypothesis order round-trip (300 ex) + explicit
+      state/resolution round-trips.
+- [x] Port the AI to the new types → `src/engine/simple_ai.py` (dumb heuristic generator
+      for all three phases). Old `strategic_ai.OrderGenerator` deletion deferred to M6.
+- [x] Self-play smoke test: 7 AI powers, runs to ≥1911 or an earlier 18-center win;
+      invariants (≤1 unit/province, unit cap, state+resolution round-trip) asserted every
+      phase; no crash. (`tests/engine/test_orchestrator.py::TestSelfPlaySmoke`.)
+- [x] **Done when:** smoke + round-trip green; engine package imports nothing but stdlib.
+      Verified: new modules import only `json`/`random`/`re` + engine internals. 308
+      passed, 10 xfailed, ruff clean.
 
 ### M6 — Integration (riskiest milestone — server reaches into engine internals today)
 
