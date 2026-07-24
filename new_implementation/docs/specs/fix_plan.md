@@ -28,8 +28,10 @@
 - **M3 Hypothesis properties: DONE** (`tests/datc/test_properties.py`) — determinism
   under order-shuffling (200 examples), ≤1 unit/province, unit conservation, retreat
   sets. 249 passed, 10 xfailed, ruff clean.
-- **Next action:** M4 (retreats & adjustments — delegable to Sonnet). Optionally revisit
-  the 10 xfail'd movement cases with a second-order-paradox resolver upgrade first.
+- **Next action:** M4 (retreats & adjustments). Resolve the two M4 design decisions below
+  (dislodged-unit data model + authoritative retreat legality) FIRST — these are driver
+  calls touching M1/M3; then the 6.H/6.I/6.J case authoring + adjustment rules are
+  delegable to Sonnet. Optionally revisit the 10 xfail'd movement cases first.
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
@@ -201,6 +203,18 @@ Key decisions:
 - [ ] **Done when:** DATC 6.A–6.G all green (~124 cases) + properties green.
 
 ### M4 — Retreats & adjustments
+
+> **Design decisions needed first (driver, discovered during M3):**
+> 1. `GameState.dislodged` is currently a bare `frozenset[Unit]`, which loses the
+>    attacker-origin per dislodged unit. Retreat legality needs it. Change the model so
+>    each dislodged unit carries its attacker-origin province AND its precomputed legal
+>    retreat set (e.g. a `DislodgedUnit(unit, from_attacker, retreats)` frozen dataclass,
+>    or `dislodged: tuple[DislodgedUnit, ...]`). Update `types.py` + `movement.py.run()`.
+> 2. `movement._retreat_options` is a convenience only and is currently **wrong**: it
+>    checks *pre-move* occupancy and does **not** exclude `contested` (standoff)
+>    provinces. Retreat legality must be computed against *post-resolution* occupancy,
+>    exclude the `contested` set, and exclude the dislodging attacker's origin. Make
+>    `retreats.py` the authoritative path (or fix the movement convenience to match).
 
 - [ ] `adjudicator/retreats.py`: legal destinations exclude attacker's origin, standoff
       provinces, occupied provinces; **all** units retreating to the same province
