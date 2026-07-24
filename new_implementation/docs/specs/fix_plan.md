@@ -13,10 +13,12 @@
 
 ## Status
 
-- **Phase:** M2 complete — `orders/parser.py` + `orders/validation.py` landed (Sonnet
-  subagent, reviewed). 129 engine tests green. Fixed an M1 alias-resolution bug found
-  during review (Tyrolia `trl`/`tyr` → nonexistent `TRL`).
-- **Next action:** M3 — movement adjudicator (driver-owned; DATC test batches to Sonnet).
+- **Phase:** M3 in progress — Kruijswijk resolver (`adjudicator/movement.py`) + DATC
+  harness landed; 14 hand-authored cases green (6.A basics + circular/head-to-head/
+  beleaguered/convoy mechanics). Full DATC 6.B–6.G authoring fanned out to 3 Sonnet
+  subagents (authoring only; resolver fixes are driver-owned).
+- **Next action:** triage subagent-reported DATC failures; fix resolver section by
+  section (6.B → 6.G) until ~124 cases green, then M4.
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
