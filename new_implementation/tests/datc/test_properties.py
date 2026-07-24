@@ -18,6 +18,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from engine.adjudicator.movement import adjudicate_movement
+from engine.adjudicator.retreats import adjudicate_retreats
 from engine.map_loader import load_standard_map
 from engine.types import (
     GameState,
@@ -26,6 +27,7 @@ from engine.types import (
     Move,
     PhaseType,
     ProvinceType,
+    Retreat,
     Season,
     Unit,
     UnitKind,
@@ -117,3 +119,37 @@ def test_dislodged_units_have_retreat_sets(seed, n):
             assert isinstance(r.retreat_options, tuple)
             for loc in r.retreat_options:
                 assert isinstance(loc, Location)
+
+
+@settings(max_examples=200, deadline=None)
+@given(seed=st.integers(min_value=0, max_value=10_000), n=st.integers(min_value=2, max_value=8))
+def test_retreat_options_are_legal(seed, n):
+    """Every computed retreat destination is adjacent, empty (post-move),
+    uncontested, and not the (non-convoyed) attacker's origin."""
+    units, orders = _random_army_position(seed, n)
+    _, new_state = adjudicate_movement(_MAP, _state(units), list(orders))
+    occupied = {u.province for u in new_state.units}
+    for du in new_state.dislodged:
+        for loc in du.retreats:
+            assert loc.province in _MAP.army_moves(du.province)
+            assert loc.province not in occupied
+            assert loc.province not in new_state.contested
+            assert loc.province != du.attacker_origin
+
+
+@settings(max_examples=200, deadline=None)
+@given(seed=st.integers(min_value=0, max_value=10_000), n=st.integers(min_value=2, max_value=8))
+def test_retreat_phase_leaves_a_consistent_board(seed, n):
+    """After resolving retreats (each unit to its first legal option), the board
+    holds at most one unit per province and no dislodged units remain."""
+    units, orders = _random_army_position(seed, n)
+    _, mstate = adjudicate_movement(_MAP, _state(units), list(orders))
+    retreat_orders: list = []
+    for du in mstate.dislodged:
+        if du.retreats:
+            dest = sorted(du.retreats)[0]
+            retreat_orders.append(Retreat(du.power, du.location, dest))
+    _, rstate = adjudicate_retreats(_MAP, mstate, retreat_orders)
+    provinces = [u.province for u in rstate.units]
+    assert len(provinces) == len(set(provinces))
+    assert rstate.dislodged == ()
