@@ -13,16 +13,23 @@
 
 ## Status
 
-- **Phase:** M3 in progress — resolver + DATC harness landed. Green: 6.A (8), 6.B (14),
-  6.C (7), 6.F (17/24), 6.G (16/18) + mechanics (6). 199 passed, 7 xfailed, ruff clean.
-  DATC authoring fanned out to 3 Sonnet subagents; resolver fixes driver-owned.
-  **7 xfail'd hard-tail cases** (documented in the test files): second-order convoy
-  paradoxes 6.F.16/17/18/23/24 (need iterative Szykman re-resolution — the single-pass
-  backup rule handles first-order only) and issue-4.A.7 convoy-adjacent variants 6.G.7/11.
-- **Pending:** 6.D (supports, 34) + 6.E (head-to-head/beleaguered, 15) — third Sonnet
-  subagent still authoring at last checkpoint; integrate + triage when it reports.
-- **Next action:** integrate 6.D/6.E, fix resolver for their failures; then revisit the
-  7 xfail'd cases (second-order paradox resolver upgrade) before declaring M3 done → M4.
+- **Phase:** M3 nearly complete — resolver + full DATC 6.A–6.G authored (all 3 Sonnet
+  subagents integrated) + hard-tail fixes. **245 passed, 10 xfailed, ruff clean.**
+  Passing: 6.A (8), 6.B (14/14), 6.C (7/7), 6.D (33/34), 6.E (13/15), 6.F (19/24),
+  6.G (16/18) + mechanics (6). Resolver fixes driver-owned throughout.
+- **10 xfail'd hard-tail cases** (documented inline in the test files):
+  - second-order convoy paradoxes 6.F.16/17/18/23/24 — need iterative Szykman
+    re-resolution; the single-pass backup rule handles first-order paradoxes only;
+  - issue-4.A.7 convoy-to-adjacent variants 6.G.7/11;
+  - beleaguered-garrison self-dislodgement variants 6.E.8/6.E.10 — not distinguished
+    from the used-for-other-means case 6.E.12 by the current support-void rule;
+  - 6.D.8 — competing DATC reading of a no-fleet convoy move (this engine treats it as
+    illegal/ignored, consistent with 6.D.28/29/31/32).
+- **Still pending in M3:** the M3 Hypothesis property tests (determinism under order
+  shuffling, ≤1 unit/province, unit conservation, legal retreat sets) are NOT yet written.
+- **Next action:** write the M3 Hypothesis properties; then either upgrade the resolver
+  for the 10 xfail'd cases or defer them (tracked here) and proceed to M4
+  (retreats & adjustments — delegable to Sonnet).
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
