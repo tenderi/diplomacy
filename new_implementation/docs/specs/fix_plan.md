@@ -17,16 +17,16 @@
   `serialization.py` (canonical JSON, round-trip property), `simple_ai.py` (dumb generator
   for all phases), and a 7-power self-play smoke test. New engine package is stdlib-only.
   **308 passed, 10 xfailed, ruff clean.**
-- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory); pre-M6 full-suite
-  baseline **1358 passed, 16 skipped, 10 xfailed**. **Slice 1 done:** persistence moved
-  `engine.database*` → `src/persistence/` (mechanical, suite still 1358 green).
-- **Next action:** continue M6. Split rendering out of `map.py` → `src/rendering/`; funnel server
-  routes / DAIDE / bot / frontend through `engine/serialization.py`; Alembic migration to
-  wipe stored game rows; **delete the old engine** (`game.py`, `data_models.py`,
-  `order_parser*.py`, `allowed_moves.py`, `power.py`, old `map.py` topology half,
-  `strategic_ai.OrderGenerator`) and rename `orchestrator.py`→`game.py`,
-  `simple_ai.py`→ the AI surface; port keeper tests. Needs a DB + green CI — use a feature
-  branch per CLAUDE.md.
+- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory). Slice 1 (persistence
+  move) + slice 2 (delete dead power/strategic_ai + old-engine tests) done, green: **1275
+  passed, 16 skipped, 10 xfailed**.
+- **Next action:** the M6 **engine swap** — see the detailed target design in the M6 section
+  below. It is an all-or-nothing chunk (server rewire changes the API contract that ~50
+  tests + frontend + bot assert), so it lands as one focused effort, server-first then
+  delete old engine. Order: new persistence (`state_json`) + migration → Server/routes/new
+  API serializer → DAIDE/bot/frontend → delete old engine + rename orchestrator→game.py →
+  rendering split → port keeper tests → E2E. Local DB validates; still push via a branch so
+  CI's postgres:14 confirms.
 - **M4 COMPLETE.** `DislodgedUnit` data model; `retreats.py::compute_retreat_options`
   authoritative legality; `retreats.py` + `adjustments.py`; DATC 6.H/6.I/6.J all green.
 - **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
@@ -52,7 +52,7 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M5 complete: orchestrator + serialization + self-play).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M6 slices 1–2: persistence move + dead-code deletion; engine-swap design recorded).
 
 ## Goal
 
@@ -277,13 +277,51 @@ Key decisions:
 
 ### M6 — Integration (riskiest milestone — server reaches into engine internals today)
 
+> **M6 progress (2026-07-24, Opus 4.8):** local Postgres up (see local-postgres memory);
+> pre-M6 baseline **1358 passed, 16 skipped, 10 xfailed**.
+> - **Slice 1 (done, green):** moved `engine.database*` → `src/persistence/` (mechanical).
+> - **Slice 2 (done, green):** deleted genuinely-dead `power.py` + `strategic_ai.py` (zero
+>   src usage) and their old-engine-only tests (`test_power`, `test_strategic_ai`,
+>   `test_map_and_power`, `test_integration`). Suite now **1275 passed**.
+>
+> **The remaining M6 is the ENGINE SWAP — an all-or-nothing chunk, NOT incrementally
+> green-able.** Rewiring the server onto the immutable new engine changes the API JSON
+> contract (`_state_to_spec_dict`'s `powers`/`units`/`supply_centers`/order shapes), which
+> ~50 test files + the React frontend + the bot all assert. Code + every asserting test
+> must land together or the suite is red. Do it as ONE focused branch, server-first, then
+> delete. Concrete target design:
+>
+> **Persistence (new).** A game row stores `state_json = serialization.state_to_dict(game.state)`
+> (the new `GameState`) + `map_name` + `status` + `deadline`; drop the relational
+> unit/order/power tables' state role and the `unit_to_dict/order_to_dict/dict_to_order`
+> helpers. Player→power assignments stay in `players` (not engine-coupled). Pending orders:
+> `{power: [order_dict]}` JSON per game, cleared on process-turn. Alembic migration wipes
+> all game rows (auth/users/channels kept).
+> **Adjudication flow.** CREATE→`Game.new_standard()`; SET_ORDERS→new `parser` + `validation`,
+> store per-power; PROCESS_TURN→load state, gather orders, `game.adjudicate(orders)`, store
+> next `state_json` + resolution, advance phase (retreat/adjustment auto-inserted by the
+> orchestrator); GET→new API serializer over `GameState`.
+> **New API serializer** (replaces `_state_to_spec_dict`): build the response from
+> `GameState` — `units` (by power), `ownership`/`supply_centers`, `dislodged` w/ retreats,
+> `contested`, `phase_name`, `status`, plus `players` (power→user). Pick the shape ONCE and
+> update `frontend/src` types, bot `api_client.py`, and all asserting tests in the same PR.
+> **Deletes** (after the swap compiles + tests ported): `engine/game.py`, `data_models.py`,
+> `order_parser.py`, `order_parser_utils.py`, `allowed_moves.py`, `province_mapping.py`
+> (fold any needed aliases into the new parser), old `map.py` topology half. Rename
+> `orchestrator.py`→`game.py`.
+> **Map/rendering.** `map.py` tangles topology (used only by the old engine) with the
+> SVG→PNG render pipeline (used by `maps.py`/bot). Split: move rendering → `src/rendering/`
+> keyed off `map_loader` topology + `GameState`; delete the old topology half. `maps.py`,
+> `admin.py`, bot `maps.py`/`orders.py` adapt to the new render entry point.
+
 - [~] Move `src/engine/database.py` + `database_service.py` → `src/persistence/`; fix
       imports; drop `unit_to_dict`/`order_to_dict`/`dict_to_order` in favor of
       `engine/serialization.py`. **Package MOVE done** (mechanical: 18 import sites +
       alembic env + one mock-patch target repointed; the two modules' internal
-      `.data_models`/`.map` imports absolutised to `engine.*`; full suite green, 1358
-      passed). The **drop-helpers-for-serialization** half is deferred to the engine-swap
-      slice (it's entangled with rewiring the server onto the new engine's types).
+      `.data_models`/`.map` imports absolutised to `engine.*`; full suite green). The
+      **drop-helpers-for-serialization** half is part of the engine-swap chunk below.
+- [x] **Slice 2:** delete genuinely-dead `power.py`/`strategic_ai.py` + old-engine-only
+      tests (superseded by tests/engine + tests/datc). Suite 1275 green.
 - [ ] Split rendering out of `src/engine/map.py` → `src/rendering/` (mechanical move,
       keep the render API); move `order_visualization.py` + `visualization_config.*` too.
 - [ ] Adapt server: `src/server/api/shared.py` (`_state_to_spec_dict`), all routes in
