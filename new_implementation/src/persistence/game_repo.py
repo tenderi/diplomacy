@@ -59,6 +59,15 @@ class GameRepo:
                 return None
             return dict(row.last_resolution)
 
+    def get_order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
+        """Per-turn submitted-order history ``{turn: {power: [order_str]}}`` (empty
+        before the first processed turn)."""
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None or not row.order_history:
+                return {}
+            return {k: dict(v) for k, v in dict(row.order_history).items()}
+
     def get_meta(self, game_id: str) -> Optional[dict[str, Any]]:
         with self._session_factory() as session:
             row = self._row(session, game_id)
@@ -128,9 +137,12 @@ class GameRepo:
         phase_code: str,
         status: str,
         last_resolution: Optional[dict[str, Any]] = None,
+        order_history_entry: Optional[dict[str, list[str]]] = None,
     ) -> None:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
-        adjudication ``last_resolution`` is stored for later resolution-map rendering."""
+        adjudication ``last_resolution`` is stored for later resolution-map rendering,
+        and ``order_history_entry`` (the just-adjudicated ``{power: [order_str]}``) is
+        appended to ``order_history`` under the turn number being left behind."""
         with self._session_factory() as session:
             row = self._row(session, game_id)
             if row is None:
@@ -140,6 +152,11 @@ class GameRepo:
             row.status = status
             if last_resolution is not None:
                 row.last_resolution = last_resolution
+            if order_history_entry:
+                turn_key = str(int(row.current_turn or 0))
+                history = dict(row.order_history or {})
+                history[turn_key] = order_history_entry
+                row.order_history = history
             row.current_turn = int(row.current_turn or 0) + 1
             row.current_year = state_json.get("year", row.current_year)
             row.current_season = str(state_json.get("season", "SPRING")).capitalize()

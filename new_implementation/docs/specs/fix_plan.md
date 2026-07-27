@@ -417,8 +417,12 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
          orders against the current units (`_humanize_orders`), so a fleet at a non-split
          province reads `F BRE H`, not `A BRE H`. Adjudication is unaffected (still uses the
          board unit). Tests: `TestOrderDisplay` in `tests/test_game_service.py`.
-   - [ ] **Per-turn order history** (optional): `/games/{id}/orders/history` returns `{}`
-         now (state is a single snapshot). If needed, derive it from `map_snapshots`.
+   - [x] **Per-turn order history** DONE (2026-07-27). `process_turn` now appends the
+         submitted orders (truthful A/F letters) to a new nullable `games.order_history`
+         JSON column (migration `c3d4e5f6a7b9`), keyed by turn: `{turn: {power: [order_str]}}`
+         — the exact shape the Telegram bot's Order-History button expects. `/orders/history`
+         returns it (empty until the first processed turn). Tests: `TestOrderHistory` in
+         `tests/test_game_service.py`.
 2. [ ] **CI coverage gates** (`.github/workflows/test.yml`). Today CI runs plain
       `pytest -q` (no coverage gate) + `ruff check src/`. **First measure**
       `pytest --cov=src --cov-report=term-missing` on a DB, then set realistic gates:

@@ -114,3 +114,32 @@ class TestOrderDisplay:
         service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
         v = service.view(gid)
         assert v["orders"]["FRANCE"] == ["A PAR - BUR"]
+
+
+class TestOrderHistory:
+    """process_turn accumulates submitted orders into a per-turn history."""
+
+    def test_history_empty_before_first_turn(self, service):
+        gid = _new_game(service)
+        assert service.order_history(gid) == {}
+
+    def test_history_accumulates_per_turn_with_truthful_letters(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "F BRE H"])
+        service.submit_orders(gid, "GERMANY", ["A MUN - RUH"])
+        service.process_turn(gid)  # records turn 0
+        service.submit_orders(gid, "FRANCE", ["A BUR - MAR"])
+        service.process_turn(gid)  # records turn 1
+
+        history = service.order_history(gid)
+        assert set(history.keys()) == {"0", "1"}
+        # Fleet at a non-split province is recorded as F, not A.
+        assert history["0"]["FRANCE"] == ["A PAR - BUR", "F BRE H"]
+        assert history["0"]["GERMANY"] == ["A MUN - RUH"]
+        assert history["1"]["FRANCE"] == ["A BUR - MAR"]
+
+    def test_history_skips_powers_with_no_orders(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
+        service.process_turn(gid)
+        assert list(service.order_history(gid)["0"].keys()) == ["FRANCE"]

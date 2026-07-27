@@ -129,6 +129,13 @@ class GameService:
 
         resolution, next_game = game.adjudicate(orders)
 
+        # Record the orders players actually submitted (with truthful A/F letters
+        # against the pre-adjudication board) before pending is cleared.
+        history_entry = {
+            power: strings for power, strings in
+            self._humanize_orders(pending, game.state).items() if strings
+        }
+
         resolution_dict = resolution_to_dict(resolution)
         self._repo.save_state(
             game_id,
@@ -136,6 +143,7 @@ class GameService:
             phase_code=next_game.state.phase_name,
             status=next_game.state.status.value.lower(),
             last_resolution=resolution_dict,
+            order_history_entry=history_entry,
         )
         self._repo.set_pending_orders(game_id, {})
         return {
@@ -222,6 +230,10 @@ class GameService:
     def last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
         """The most recent adjudication result (``resolution_to_dict``), or ``None``."""
         return self._repo.get_last_resolution(game_id)
+
+    def order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
+        """Per-turn submitted-order history ``{turn: {power: [order_str]}}``."""
+        return self._repo.get_order_history(game_id)
 
 
 # ---------------------------------------------------------------------------

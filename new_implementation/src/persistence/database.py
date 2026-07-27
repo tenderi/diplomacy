@@ -35,6 +35,10 @@ class GameModel(Base):
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)
+    # Per-turn history of the orders players submitted, {turn: {power: [order_str]}},
+    # appended each process_turn. Powers the /orders/history endpoint (state itself is
+    # a single snapshot and does not retain past orders).
+    order_history = Column(JSON, nullable=True)
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
