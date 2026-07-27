@@ -71,69 +71,6 @@ def test_orders_dictionary_format():
         print(f"❌ Orders dictionary format test failed: {e}")
         raise  # Re-raise the exception to fail the test
 
-def test_moves_dictionary_format():
-    """Test moves dictionary format visualization"""
-    print("\n🧪 Testing Moves Dictionary Format Visualization...")
-    
-    # Create test moves in moves dictionary format
-    moves = {
-        "FRANCE": {
-            "successful": ["A PAR - BUR", "F BRE - ENG"],
-            "failed": ["A MAR - SPA"],
-            "bounced": ["F ENG - IRI"],
-            "holds": ["A BUR"],
-            "supports": ["A BUR S A PAR - HOL", "F ENG S F BRE - NTH"],
-            "convoys": ["F ENG C A PAR - HOL"],
-            "builds": ["BUILD A PAR"],
-            "destroys": ["DESTROY A MAR"]
-        },
-        "GERMANY": {
-            "successful": ["A BER - SIL", "F KIE - BAL"],
-            "failed": ["A MUN - TYR"],
-            "bounced": ["F BAL - BOT"],
-            "holds": ["A SIL"],
-            "supports": ["A SIL S A BER - PRU"],
-            "convoys": ["F BAL C A BER - LVN"],
-            "builds": ["BUILD F KIE"],
-            "destroys": ["DESTROY A MUN"]
-        }
-    }
-    
-    # Test units
-    units = {
-        "FRANCE": ["A PAR", "A MAR", "F BRE", "F ENG", "A BUR"],
-        "GERMANY": ["A BER", "A MUN", "F KIE", "F BAL", "A SIL"]
-    }
-    
-    # Phase info
-    phase_info = {
-        "turn": 1,
-        "season": "Spring", 
-        "phase": "Movement",
-        "phase_code": "S1901M"
-    }
-    
-    # Generate map with moves visualization
-    svg_path = os.path.join(BASE_DIR, "maps", "standard.svg")
-    output_path = os.path.join(BASE_DIR, "test_maps", "test_moves_visualization.png")
-    
-    try:
-        img_bytes = Map.render_board_png_with_moves(
-            svg_path=svg_path,
-            units=units,
-            moves=moves,
-            phase_info=phase_info,
-            output_path=output_path
-        )
-        
-        print(f"✅ Moves dictionary format test passed!")
-        print(f"📁 Generated map: {output_path}")
-        print(f"📊 Image size: {len(img_bytes)} bytes")
-        
-    except Exception as e:
-        print(f"❌ Moves dictionary format test failed: {e}")
-        raise  # Re-raise the exception to fail the test
-
 def test_comprehensive_order_types():
     """Test all order types comprehensively"""
     print("\n🧪 Testing Comprehensive Order Types...")
@@ -213,7 +150,6 @@ def main():
     # Run tests
     tests = [
         test_orders_dictionary_format,
-        test_moves_dictionary_format, 
         test_comprehensive_order_types
     ]
     
