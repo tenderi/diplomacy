@@ -127,8 +127,8 @@ alembic revision -m "describe change"     # autogenerate is NOT used; write the 
 
 # Tests
 pytest tests/ -v                           # all tests
-pytest tests/test_game.py -v               # one file
-pytest tests/test_game.py::TestX::test_y   # one test
+pytest tests/test_game_service.py -v       # one file
+pytest tests/datc/ -v                       # DATC conformance suite (6.A–6.J)
 pytest tests/ -m unit                      # by marker: unit | integration | slow | database | telegram | channels | map | ai | deployment | infrastructure | performance
 pytest tests/ --cov=src --cov-report=term-missing
 
@@ -159,18 +159,25 @@ DAIDE clients ─┘         │                        ▲
 
 ### Game engine (`src/engine/`)
 
-The engine is **pure logic with no I/O or framework dependencies**. Everything passes through typed dataclasses defined in `data_models.py` (`Unit`, `Order` + subtypes, `GameState`, `PowerState`, `MapData`, plus `OrderType`/`OrderStatus`/`GameStatus` enums).
+Rewritten ground-up (see `docs/specs/fix_plan.md`). The engine is **pure rules-logic — no I/O, DB, rendering, or framework deps, stdlib only.** All values are **frozen, hashable dataclasses** in `types.py` (`Location(province, coast)`, `Unit`, the `Order` variants, `GameState`, `DislodgedUnit`, `Resolution`/`OrderResult`, plus `UnitKind`/`Season`/`PhaseType`/`ResultCode`/`GameStatus` enums). Adjudication is a **pure function** `(map, state, orders) -> (Resolution, new_state)`; history is a list of snapshots.
 
-- `game.py` — `Game` class. Drives the phase state machine `S1901M → F1901M → F1901R → W1901B → S1902M …`. The adjudicator computes strengths, resolves standoffs, cuts support, handles convoy disruption, and applies dislodgement. Multi-coast provinces (BUL, SPA, STP) have separate coast adjacencies for fleets — check `map.py` before assuming a province has a single adjacency list.
-- `map.py` — Loads `.map` files, exposes adjacency/topology, AND owns the SVG → PNG rendering pipeline (Pillow + CairoSVG). Map results are cached in-memory and on disk at `/tmp/diplomacy_map_cache`.
-- `order_parser.py` — Parses strings like `A PAR - BUR`, `F BRE S A PAR - BUR`, `F NTH C A LON - BEL`, `BUILD A PAR`, `D F BRE` into `Order` objects. Province normalization uses `province_mapping.py`.
-- `database.py` / `database_service.py` — SQLAlchemy models and the DAL. **All non-engine code should go through `DatabaseService`** rather than touching ORM models directly. Schema autoupdates on server startup; new columns can sometimes be added without an Alembic revision, but write one anyway for anything beyond a trivially nullable column.
-- `strategic_ai.py` — Order generator for automated demo games. Not a real AI; configurable heuristics only.
+- `game.py` — `Game` (frozen snapshot: map, state, history) + the phase machine `S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M`. Retreat phase only on dislodgement; adjustment only when a power's unit/center counts differ; SC ownership recomputed after Fall; victory at 18.
+- `map_loader.py` — parses `maps/standard.map` into `MapData` (topology only; coasts first-class). **The sole topology source** — no hardcoded adjacency tables. Multi-coast provinces (BUL, SPA, STP) have per-coast fleet adjacency; check here before assuming a single adjacency list.
+- `adjudicator/movement.py` — Kruijswijk fixed-point resolver. `retreats.py` — retreat legality (`compute_retreat_options`) + resolution. `adjustments.py` — builds/disbands/waives + civil-disorder distance rule.
+- `orders/parser.py` + `orders/validation.py` — one grammar, one validation path (coasts, VIA convoy, aliases).
+- `serialization.py` — canonical JSON for `GameState`/`Order`/`Resolution` (used by persistence + API). `simple_ai.py` — dumb heuristic order generator (demo/self-play). `province_mapping.py` — legacy alias tables, still used by the renderer.
+
+DATC conformance lives in `tests/datc/` (6.A–6.J); 10 hard-tail cases are documented xfails.
+
+### Persistence (`src/persistence/`) & rendering (`src/rendering/`)
+
+- `persistence/database.py` / `database_service.py` — SQLAlchemy models + the DAL. A game's state persists as **`games.state_json`** (a serialized `GameState`) plus **`games.pending_orders`**; `server/game_service.GameService` is the single entry point (create/submit/process/view over `engine.game.Game`). **Non-engine code goes through `GameService`/`DatabaseService`**, never ORM models directly.
+- `rendering/map.py` (+ `visualization_config.py`) — the SVG → PNG pipeline (Pillow + CairoSVG), fed text units from `GameService.view`. Cached in-memory and at `/tmp/diplomacy_map_cache`.
 
 ### Server (`src/server/`)
 
 FastAPI app assembled in `_api_module.py`:
-- Route modules live in `src/server/api/routes/` (`games`, `orders`, `users`, `auth`, `messages`, `maps`, `channels`, `admin`, `dashboard`, `health`, `tournaments`). `shared.py` holds the singleton `db_service`, the `_state_to_spec_dict` serializer, loggers, and the deadline scheduler background task.
+- Route modules live in `src/server/api/routes/` (`games`, `orders`, `users`, `auth`, `messages`, `maps`, `channels`, `admin`, `dashboard`, `health`, `tournaments`). `shared.py` holds the singletons `db_service` and `game_service` (the engine entry point), `game_view(game_id)`, loggers, and the deadline scheduler background task. Game endpoints return the GameState-native view shape (`units`/`units_by_power`/`ownership`/`phase`/`phase_type`/`players`/`dislodged`/`contested`/`orders`).
 - A separate `Server` class in `server.py` provides a text-command CLI surface (`CREATE_GAME`, `ADD_PLAYER`, ...). It's used by tests and DAIDE; the HTTP API does not depend on it.
 - `daide_protocol.py` runs a TCP server on port 8432 for DAIDE bots.
 - `response_cache.py` provides TTL+LRU caching used by expensive endpoints (map generation, game state).
@@ -193,4 +200,4 @@ React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Proxies API calls to
 - **Specs are load-bearing.** `docs/specs/` holds the source of truth for rules and design (`diplomacy_rules.md`, `provinces_spec.md`, `data_spec.md`, `game_phases_design.md`, `architecture.md`). Update them when behavior changes.
 - **Game rule questions**: cross-check against `old_implementation/rules.pdf` (the official rulebook) and `old_implementation/diplomacy/engine/` (a battle-tested DATC implementation) before changing adjudication logic.
 - **Map rendering** requires CairoSVG and optionally Chrome/Selenium for some flows — see `docs/BROWSER_SETUP_INSTRUCTIONS.md`. Tests that need rendering are marked `@pytest.mark.map`.
-- **Schema changes**: update `src/engine/database.py`, add an Alembic revision under `alembic/versions/`, add the corresponding method(s) to `DatabaseService`. The schema autoupdater in `_api_module.py` is a safety net, not a substitute for migrations.
+- **Schema changes**: update `src/persistence/database.py`, add an Alembic revision under `alembic/versions/`, add the corresponding method(s) to `DatabaseService`. The schema autoupdater in `_api_module.py` is a safety net, not a substitute for migrations.

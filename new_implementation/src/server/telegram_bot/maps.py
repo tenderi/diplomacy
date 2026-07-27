@@ -9,7 +9,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from engine.map import Map
+from rendering.map import Map
 from .api_client import api_get
 
 logger = logging.getLogger("diplomacy.telegram_bot.maps")

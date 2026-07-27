@@ -97,7 +97,9 @@ class TestGetGameState:
         data = resp.json()
         assert "game_id" in data
         assert "map_name" in data
-        assert "powers" in data
+        assert "units" in data
+        assert "ownership" in data
+        assert "phase" in data
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_state_not_found(self, client):
@@ -200,7 +202,7 @@ class TestProcessTurn:
     def test_process_turn_not_found(self, client):
         """Test processing turn for non-existent game."""
         resp = client.post("/games/nonexistent/process_turn")
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
 
 @pytest.mark.unit

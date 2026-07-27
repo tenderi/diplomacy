@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
-from engine.map import Map
+from rendering.map import Map
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 

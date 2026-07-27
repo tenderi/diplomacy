@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from server.api import app
-from engine.database import Base, GameModel, UserModel, PlayerModel
+from persistence.database import Base, GameModel, UserModel, PlayerModel
 import pytest
 
 

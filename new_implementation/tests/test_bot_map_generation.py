@@ -40,24 +40,25 @@ def test_bot_map_generation():
         
         # Generate map using the same code the bot uses
         print("🗺️ Generating map...")
-        from engine.map import Map
+        from rendering.map import Map
         
-        # Create units dictionary
-        units = {}
-        if "units" in game_state:
-            units = game_state["units"]
-        
+        # Build the renderer's {power: ["A PAR", "F KIE", ...]} from the new view.
+        units = {
+            power: [f"{u['kind']} {u['location'].split('/')[0]}" for u in ulist]
+            for power, ulist in game_state.get("units_by_power", {}).items()
+        }
+
         # Get phase information
         phase_info = {
             "year": str(game_state.get("year", 1901)),
-            "season": game_state.get("season", "Spring"),
-            "phase": game_state.get("phase", "Movement"),
-            "phase_code": game_state.get("phase_code", "S1901M")
+            "season": game_state.get("season", "SPRING"),
+            "phase": game_state.get("phase_type", "MOVEMENT"),
+            "phase_code": game_state.get("phase", "S1901M")
         }
-        
+
         # Generate map (same as bot)
         svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        img_bytes = Map.render_board_png_with_moves(svg_path, units, {}, phase_info=phase_info)
+        img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info)
         
         # Save the map to test_maps folder
         test_maps_dir = os.path.join(os.path.dirname(__file__), "test_maps")
