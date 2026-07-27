@@ -3,6 +3,13 @@
 # Script to run the telegram bot with enhanced logging
 set -e
 
+# Resolve new_implementation/ regardless of caller's cwd, so PYTHONPATH is
+# set consistently with the systemd unit (WorkingDirectory=new_implementation,
+# PYTHONPATH=<new_implementation>/src).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NEW_IMPL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export PYTHONPATH="$NEW_IMPL_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
 # Default log file
 LOG_FILE="${DIPLOMACY_LOG_FILE:-./bot.log}"
 LOG_LEVEL="${DIPLOMACY_LOG_LEVEL:-INFO}"
@@ -20,4 +27,4 @@ export DIPLOMACY_LOG_LEVEL="$LOG_LEVEL"
 
 # Run the bot with logging
 echo "🚀 Starting bot... (logs will appear below and in $LOG_FILE)"
-python3 -m src.server.telegram_bot 2>&1 | tee -a "$LOG_FILE" 
+python3 -m server.telegram_bot 2>&1 | tee -a "$LOG_FILE" 
