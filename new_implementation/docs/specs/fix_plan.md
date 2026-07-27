@@ -13,39 +13,54 @@
 
 ## Status
 
-- **Phase:** **M0–M6 COMPLETE; M7 IN PROGRESS.** All four M6 follow-ups done (M7 step 1),
-  CI coverage gates done (M7 step 2), ruff clean. **NEXT: M7 step 3 = Docs** (write
-  `adjudication.md`; update `architecture.md` / `data_spec.md` / `CODEBASE_OVERVIEW.md`),
-  then step 4 = merge to `main`, then step 5 = final. Not yet merged to `main`.
+- **Phase:** **M0–M7 step 3 COMPLETE.** M6 follow-ups (M7 step 1) and CI coverage gates
+  (M7 step 2) done; ruff clean. **M7 step 3 (Docs) DONE 2026-07-27**: wrote
+  `docs/specs/adjudication.md` (the Kruijswijk fixed-point algorithm — strength model,
+  support-cut exemptions, convoy paths, cycle-breaking/Szykman, retreats, civil disorder,
+  the 10 documented `xfail` gaps); rewrote `docs/specs/architecture.md` and
+  `docs/specs/data_spec.md` from their stale pre-rewrite drafts to the actual
+  `engine`/`persistence`/`rendering`/`server` layout and the `state_json`-based
+  persistence + API view shape; updated root `CODEBASE_OVERVIEW.md` (engine, server,
+  rendering, persistence, tests, data-flow diagram sections) to match. **NEXT: M7 step 4 =
+  merge `engine-rewrite` → `main`**, then step 5 = final status update.
 
 > ### ▶ RESUME HERE (fresh agent, start of session — handoff 2026-07-27, mid-M7)
-> 1. **Read this whole file**, then the M7 section (steps 1–2 are done; **start at step 3,
->    Docs**).
+> 1. **Read this whole file.** Steps 1–3 are done; **start at step 4, the merge to
+>    `main`.**
 > 2. **Bring up a DB before running tests** — a no-DB run silently skips ~all integration
->    tests and looks falsely green. See the `local-postgres-for-m6` memory for the no-sudo
->    recipe (the scratchpad `PGDATA` is ephemeral and may need re-`initdb` each session).
->    Then: `export SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`
->    and **`alembic upgrade head`** — this session added **two new migrations**; head is now
+>    tests and looks falsely green. This session's recipe (no prior `local-postgres-for-m6`
+>    memory was found — that note did not survive to this machine): system `postgresql`
+>    via `systemctl`, `psql` present; `.env` already had
+>    `SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`
+>    from a prior `setup_database.sh` run. Then **`alembic upgrade head`** — head is
 >    **`c3d4e5f6a7b9`** (`b2c3d4e5f6a8` last_resolution → `c3d4e5f6a7b9` order_history).
-> 3. **Current baseline to confirm before changing anything (with a DB):**
->    `PYTHONPATH=src python -m pytest tests/ -q` → **820 passed, 15 skipped, 10 xfailed**;
->    `ruff check src/` → clean. (Was 800 pre-M7; +20 from new overlay/service/history tests.)
->    **CI now also enforces coverage** — reproduce with `pytest tests/ --cov=src
->    --cov-report=term-missing` then `coverage report --include='src/engine/*'
->    --fail-under=92` and `coverage report --fail-under=57` (both pass locally: engine
->    92.91%, overall 58.66%).
+> 3. **Current baseline confirmed this session (with a DB, fresh venv + `pip install -r
+>    requirements.txt`):** `PYTHONPATH=src python -m pytest tests/ -q` → **820 passed, 15
+>    skipped, 10 xfailed** (matches the M7 step-2 handoff exactly — no drift).
+>    `ruff check src/` → clean, **but only with `ruff==0.15.12` pinned** (`main`'s
+>    `v2.7.14` pinned this after `engine-rewrite` branched off, because unpinned ruff
+>    picked up new default rules and produced 1000+ false errors on this branch's
+>    unpinned `pip install ruff`). **Pin ruff to 0.15.12 when merging** — either cherry-pick
+>    that pin from `main` into the CI workflow on this branch before merging, or let the
+>    merge commit bring `main`'s already-pinned `.github/workflows/test.yml` forward;
+>    confirm whichever `test.yml` ends up on `main` post-merge still pins it.
 > 4. **Frontend note (Node not installed system-wide on the dev boxes):** the M7.1a frontend
->    port is committed and was verified green (`npm run build` + `npm run test:run` 88/88)
->    using a **portable Node 22 unpacked into the scratchpad** (ephemeral — gone next
->    session; `frontend/node_modules` is gitignored). To re-verify the frontend you must
->    reinstall Node (e.g. download `node-v22.x-linux-x64.tar.xz`, add its `bin/` to PATH,
+>    port is committed and was verified green in a prior session (`npm run build` +
+>    `npm run test:run` 88/88) using a **portable Node 22 unpacked into the scratchpad**
+>    (ephemeral — gone next session; `frontend/node_modules` is gitignored). Not
+>    re-verified this session (docs-only work). To re-verify: reinstall Node (e.g.
+>    download `node-v22.x-linux-x64.tar.xz`, add its `bin/` to PATH,
 >    `cd frontend && npm install`). The Python CI does **not** build the frontend, so a
 >    frontend regression will not show as a red pytest.
-> 5. **Do M7 step 3 → 4 → 5 in order.** Work on `engine-rewrite`; merge to `main` is the
+> 5. **Do M7 step 4 → 5 in order.** Work on `engine-rewrite`; merge to `main` is the
 >    LAST step (CI on `main` runs `test` + `security` and rejects red pushes). Do **not**
->    build on `fix-oidc-trust`. **Note for the merge (step 4):** the two new migrations add
->    only nullable columns (no data wipe); the original `a1b2c3d4e5f7` still wipes game rows
->    in prod — call that out in the merge message as before.
+>    build on `fix-oidc-trust`. **Note for the merge:** the two M7-added migrations
+>    (`b2c3d4e5f6a8`, `c3d4e5f6a7b9`) add only nullable columns (no data wipe); the
+>    earlier M6 migration `a1b2c3d4e5f7` still wipes game rows in prod — call that out in
+>    the merge/commit message as planned. `main` has diverged since this branch was cut
+>    (at least the ruff-pin commit, `v2.7.14`, and possibly more — check `git log
+>    main..engine-rewrite` / `git log engine-rewrite..main` and rebase or merge-resolve
+>    accordingly rather than force-pushing).
 
 - **M6 COMPLETE (engine swapped, old engine deleted).** Server routes / CLI `Server` / DAIDE
   / persistence / rendering all go through `GameService` + the GameState-native API view;
@@ -75,11 +90,13 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-27 (Opus 4.8 — M7 steps 1–2 DONE: all 4 M6 follow-ups (frontend
-  port, order/resolution overlays, truthful A/F display, per-turn order history) + CI
-  coverage gates; 820 green + ruff clean. Two new nullable-column migrations
-  (`b2c3d4e5f6a8`, `c3d4e5f6a7b9`). Handoff mid-M7 to continue on another machine — **next
-  is M7 step 3, Docs.**).
+- **Last updated:** 2026-07-27 (Sonnet 5 — M7 step 3 DONE: `adjudication.md` written;
+  `architecture.md`/`data_spec.md`/`CODEBASE_OVERVIEW.md` rewritten from stale
+  pre-rewrite drafts to the actual post-M6 layout. Baseline reconfirmed on a fresh
+  machine (new venv + local Postgres): 820 passed, 15 skipped, 10 xfailed; ruff clean
+  with `ruff==0.15.12` pinned (unpinned ruff on this branch produces 1000+ false
+  positives — `main` pinned this in `v2.7.14` after `engine-rewrite` branched off; carry
+  the pin through the M7 step 4 merge). **Next is M7 step 4, merge to `main`.**).
 
 ## Goal
 
@@ -454,13 +471,19 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
       unit-tested). `.coveragerc` (`source = src`, `fail_under = 57`) and `pytest.ini` aligned
       and documented. Both gates verified green locally against a fresh-DB run.
 - [x] `ruff check src/` clean (keep it clean; CI enforces it).
-3. [ ] **Docs.** `CLAUDE.md` engine/persistence/rendering sections are ALREADY updated
-      (M6). Still to do: write `docs/specs/adjudication.md` (Kruijswijk fixed-point
-      algorithm, attack/defend/prevent/hold strengths, support-cut exemptions, cycle +
-      Szykman backup rule, retreat legality, civil-disorder distance rule — mine
-      `adjudicator/movement.py`, `retreats.py`, `adjustments.py` docstrings); update
-      `docs/specs/architecture.md`, `data_spec.md`, `CODEBASE_OVERVIEW.md` to the new
-      layout + the new API view shape.
+3. [x] **Docs.** DONE (2026-07-27). `CLAUDE.md` engine/persistence/rendering sections were
+      already updated (M6). This step: wrote `docs/specs/adjudication.md` (Kruijswijk
+      fixed-point algorithm, attack/defend/prevent/hold strengths, support-cut exemptions,
+      cycle + Szykman backup rule, convoy path/intent rules, retreat legality,
+      civil-disorder distance rule, and the 10 documented DATC `xfail` gaps — mined from
+      `adjudicator/movement.py`/`retreats.py`/`adjustments.py` docstrings); rewrote
+      `docs/specs/architecture.md` and `data_spec.md` (both were stale pre-rewrite
+      drafts — `data_spec.md` still described `data_models.py`/relational
+      units-orders-supply_centers tables that no longer back game state) to the actual
+      `engine`/`persistence`/`rendering`/`server` package layout, the `state_json`-based
+      persistence columns, and the `GameService.view` API shape; updated root
+      `CODEBASE_OVERVIEW.md` (engine/server/rendering/persistence/tests sections, the
+      architecture diagram, data-flow walkthrough, order examples) to match.
 4. [ ] **Merge `engine-rewrite` → `main`** per CLAUDE.md branch workflow (version bump +
       tag). `main` is protected and rejects red pushes; `test` + `security` must pass on
       CI's fresh DB. The deploy migration `a1b2c3d4e5f7` **wipes all game rows** in prod —

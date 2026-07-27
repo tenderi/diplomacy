@@ -1,563 +1,230 @@
-# Data Model Specification for Diplomacy Python Implementation
+# Data Model Specification
 
-## Purpose
-Defines the comprehensive data model for the Diplomacy game engine, including game state, units, orders, phases, and all related entities. This specification ensures data integrity and proper handling of all Diplomacy rules.
+> Reflects the post-rewrite (M0–M7) engine and persistence layout. Two layers, kept
+> deliberately separate — see [`architecture.md`](architecture.md):
+>
+> 1. **Engine value types** (`src/engine/types.py`) — pure, immutable, no persistence
+>    concerns. This is what adjudication actually operates on.
+> 2. **Persistence** (`src/persistence/`) — a game row stores the *serialized* engine
+>    `GameState` wholesale (`state_json`), not a normalized relational breakdown. A few
+>    peripheral tables (players, users, messages, channels, tournaments, ...) remain
+>    relational because they aren't engine-coupled.
+>
+> For the algorithm that produces these values, see [`adjudication.md`](adjudication.md).
 
-## Core Data Structures
+## 1. Engine value types (`src/engine/types.py`)
 
-### 1. Game State Model
+All frozen, hashable dataclasses; no dict-of-dicts, no mutation. Full definitions live in
+the source — this is the field-level reference.
 
-```python
-@dataclass
-class GameState:
-    """Complete game state representation"""
-    game_id: str
-    map_name: str
-    current_turn: int
-    current_year: int
-    current_season: str  # "Spring" or "Autumn"
-    current_phase: str   # "Movement", "Retreat", "Builds"
-    phase_code: str      # e.g., "S1901M", "A1901R", "A1901B"
-    status: str          # "active", "paused", "completed"
-    created_at: datetime
-    updated_at: datetime
-    
-    # Core game data
-    powers: Dict[str, PowerState]
-    units: Dict[str, List[Unit]]  # power -> units
-    supply_centers: Dict[str, str]  # province -> controlling_power
-    orders: Dict[str, List[Order]]  # power -> orders for current phase
-    pending_retreats: Dict[str, List[RetreatOrder]]  # power -> retreat orders
-    pending_builds: Dict[str, List[BuildOrder]]     # power -> build orders
-    pending_destroys: Dict[str, List[DestroyOrder]] # power -> destroy orders
-    
-    # Game history
-    turn_history: List[TurnState]
-    order_history: List[Dict[str, List[Order]]]  # Historical orders
-    map_snapshots: List[MapSnapshot]
-```
-
-### 2. Power State Model
+### `Location`
 
 ```python
-@dataclass
-class PowerState:
-    """Individual power (player) state"""
-    power_name: str
-    user_id: Optional[int]  # Telegram user ID if human player
-    is_active: bool
-    is_eliminated: bool
-    home_supply_centers: List[str]
-    controlled_supply_centers: List[str]
-    units: List[Unit]
-    orders_submitted: bool
-    last_order_time: Optional[datetime]
-    
-    # Phase-specific data
-    retreat_options: Dict[str, List[str]]  # unit -> valid retreat provinces
-    build_options: List[str]  # available build provinces
-    destroy_options: List[str]  # units that can be destroyed
+Location(province: str, coast: Optional[str] = None)
 ```
 
-### 3. Unit Model
+`province` is always uppercased on construction. `coast` is one of `NC`/`SC`/`EC`/`WC`
+(also uppercased) or `None`. Armies always have `coast=None`; fleets in split-coast
+provinces (`BUL`, `SPA`, `STP`) always name one. `str(loc)` renders the canonical text
+form: `"PAR"` or `"SPA/SC"` — this is also the JSON encoding (§4).
+
+### `Unit`
 
 ```python
-@dataclass
-class Unit:
-    """Individual unit representation"""
-    unit_type: str  # "A" (Army) or "F" (Fleet)
-    province: str
-    power: str
-    is_dislodged: bool = False
-    dislodged_by: Optional[str] = None  # province of attacking unit
-    can_retreat: bool = True
-    retreat_options: List[str] = field(default_factory=list)
-    
-    def __str__(self) -> str:
-        return f"{self.unit_type} {self.province}"
-    
-    def to_dict(self) -> Dict[str, Any]: 
-        return {
-            "unit_type": self.unit_type,
-            "province": self.province,
-            "power": self.power,
-            "is_dislodged": self.is_dislodged,
-            "dislodged_by": self.dislodged_by,
-            "can_retreat": self.can_retreat,
-            "retreat_options": self.retreat_options
-        }
+Unit(kind: UnitKind, power: str, location: Location)
 ```
 
-### 4. Order Models
+`kind` is `UnitKind.ARMY` (`"A"`) or `UnitKind.FLEET` (`"F"`). Raises if an army carries
+a coast. `.province` is a convenience property (`location.province`).
+
+### `DislodgedUnit`
 
 ```python
-@dataclass
-class Order:
-    """Base order class"""
-    power: str
-    unit: Unit
-    order_type: str  # "move", "hold", "support", "convoy", "retreat", "build", "destroy"
-    phase: str       # Phase when order is valid
-    status: str = "pending"  # "pending", "success", "failed", "bounced"
-    failure_reason: Optional[str] = None
-    
-    def validate(self, game_state: GameState) -> Tuple[bool, str]:
-        """Validate order against current game state"""
-        pass
-
-@dataclass
-class MoveOrder(Order):
-    """Movement order"""
-    target_province: str
-    is_convoyed: bool = False
-    convoy_route: List[str] = field(default_factory=list)
-    
-    def __str__(self) -> str:
-        return f"{self.unit} - {self.target_province}"
-
-@dataclass
-class HoldOrder(Order):
-    """Hold order"""
-    def __str__(self) -> str:
-        return f"{self.unit} H"
-
-@dataclass
-class SupportOrder(Order):
-    """Support order"""
-    supported_unit: Unit
-    supported_action: str  # "move" or "hold"
-    supported_target: Optional[str] = None  # For move support
-    
-    def __str__(self) -> str:
-        if self.supported_action == "move":
-            return f"{self.unit} S {self.supported_unit} - {self.supported_target}"
-        else:
-            return f"{self.unit} S {self.supported_unit}"
-
-@dataclass
-class ConvoyOrder(Order):
-    """Convoy order"""
-    convoyed_unit: Unit
-    convoyed_target: str
-    convoy_chain: List[str] = field(default_factory=list)
-    
-    def __str__(self) -> str:
-        return f"{self.unit} C {self.convoyed_unit} - {self.convoyed_target}"
-
-@dataclass
-class RetreatOrder(Order):
-    """Retreat order"""
-    retreat_province: str
-    
-    def __str__(self) -> str:
-        return f"{self.unit} R {self.retreat_province}"
-
-@dataclass
-class BuildOrder(Order):
-    """Build order"""
-    build_province: str
-    build_type: str  # "A" or "F"
-    build_coast: Optional[str] = None  # For multi-coast provinces
-    
-    def __str__(self) -> str:
-        coast_suffix = f"/{self.build_coast}" if self.build_coast else ""
-        return f"BUILD {self.build_type} {self.build_province}{coast_suffix}"
-
-@dataclass
-class DestroyOrder(Order):
-    """Destroy order"""
-    destroy_unit: Unit
-    
-    def __str__(self) -> str:
-        return f"DESTROY {self.destroy_unit}"
+DislodgedUnit(unit: Unit, attacker_origin: Optional[str] = None,
+              retreats: tuple[Location, ...] = ())
 ```
 
-### 5. Map and Province Models
+Carries everything the retreat phase needs precomputed: the province the dislodging
+attack came from (`None` if that attack was convoyed — no shared-border block applies),
+and the full legal retreat set already computed against post-resolution occupancy (see
+`adjudication.md` §8). Empty `retreats` means the unit is trapped and must disband.
+
+### Orders
+
+All orders share a `power: str` field and an `order_type: OrderType` property. One class
+per order kind (movement-phase: `Hold`, `Move`, `SupportHold`, `SupportMove`, `Convoy`;
+retreat-phase: `Retreat`, `Disband`; adjustment-phase: `Build`, `Disband` (shared),
+`Waive`):
+
+| Class | Fields | Example order text |
+|---|---|---|
+| `Hold` | `unit` | `A PAR H` |
+| `Move` | `unit`, `dest`, `via_convoy` | `A PAR - BUR`, `A LON - BEL VIA` |
+| `SupportHold` | `unit`, `target` | `F BRE S A PAR` |
+| `SupportMove` | `unit`, `origin`, `dest` | `F BRE S A PIC - BEL` |
+| `Convoy` | `unit`, `origin`, `dest` | `F NTH C A LON - BEL` |
+| `Retreat` | `unit`, `dest` | `A PAR R BUR` |
+| `Disband` | `unit` | `D A PAR` |
+| `Build` | `location`, `kind` | `BUILD A PAR`, `BUILD F STP/SC` |
+| `Waive` | — | `WAIVE` |
+
+All `Location`-typed fields, not strings — there is no separate "target province name"
+field to keep in sync with a `Location`. Grammar/parsing lives in `orders/parser.py`;
+legality (not just grammar) in `orders/validation.py`; adjudication semantics for each
+type in `adjudication.md`.
+
+### `OrderResult` / `Resolution`
 
 ```python
-@dataclass
-class Province:
-    """Individual province representation"""
-    name: str
-    province_type: str  # "land", "sea", "coastal"
-    is_supply_center: bool
-    is_home_supply_center: bool
-    home_power: Optional[str] = None
-    adjacent_provinces: List[str] = field(default_factory=list)
-    coastal_provinces: List[str] = field(default_factory=list)  # For fleets
-    coordinates: Tuple[int, int] = (0, 0)  # For map rendering
-    
-    def is_adjacent_to(self, other_province: str) -> bool:
-        return other_province in self.adjacent_provinces
-    
-    def can_fleet_move_to(self, other_province: str) -> bool:
-        """Check if fleet can move to another province"""
-        if other_province in self.adjacent_provinces:
-            return True
-        # Check coastal adjacency for fleets
-        return other_province in self.coastal_provinces
-
-@dataclass
-class MapData:
-    """Complete map representation"""
-    map_name: str
-    provinces: Dict[str, Province]
-    supply_centers: List[str]
-    home_supply_centers: Dict[str, List[str]]  # power -> provinces
-    starting_positions: Dict[str, List[Unit]]  # power -> starting units
+OrderResult(order: Order, result: ResultCode, dislodged: bool = False,
+            retreat_options: tuple[Location, ...] = ())
+Resolution(results: tuple[OrderResult, ...] = ())
 ```
 
-### 6. Turn and Phase Models
+`ResultCode`: `OK`, `BOUNCE`, `CUT`, `VOID`, `NO_CONVOY`, `DISLODGED`, `DISBAND`,
+`BUILD`, `WAIVE` — see `types.py`'s enum docstring for the precise meaning of each; the
+convoy-specific distinction between `VOID`/`DISLODGED`/`NO_CONVOY`/`OK` is covered in
+`adjudication.md` §6. `Resolution.for_unit(loc)` looks up the result for whichever order
+acted on the unit at `loc`.
+
+### `GameState`
 
 ```python
-@dataclass
-class TurnState:
-    """State of a single turn"""
-    turn_number: int
-    year: int
-    season: str
-    phase: str
-    phase_code: str
-    orders: Dict[str, List[Order]]
-    results: Dict[str, List[OrderResult]]
-    units_before: Dict[str, List[Unit]]
-    units_after: Dict[str, List[Unit]]
-    supply_centers_before: Dict[str, str]
-    supply_centers_after: Dict[str, str]
-    timestamp: datetime
-
-@dataclass
-class OrderResult:
-    """Result of order execution"""
-    order: Order
-    success: bool
-    failure_reason: Optional[str] = None
-    original_order_string: str  # Store original string for debugging
-    parsed_correctly: bool = True
-    parsing_error: Optional[str] = None
-    dislodged_units: List[Unit] = field(default_factory=list)
-    retreat_required: bool = False
-
-@dataclass
-class MapSnapshot:
-    """Snapshot of map state at specific point"""
-    turn_number: int
-    phase_code: str
-    units: Dict[str, List[Unit]]
-    supply_centers: Dict[str, str]
-    map_image_path: Optional[str] = None
-    created_at: datetime
+GameState(
+    year: int, season: Season, phase_type: PhaseType,
+    units: frozenset[Unit] = frozenset(),
+    ownership: dict[str, str] = {},       # supply-center province -> owning power
+    dislodged: tuple[DislodgedUnit, ...] = (),
+    contested: frozenset[str] = frozenset(),  # standoff provinces (retreat phase only)
+    status: GameStatus = GameStatus.ACTIVE,
+)
 ```
 
-## Database Schema
+An **immutable snapshot** of the whole game between phases — not a mutable "current
+state" object. `phase_name` derives the canonical code (`"S1901M"`, `"F1901R"`,
+`"W1901A"`) from `season`/`year`/`phase_type`. Helper queries: `units_of(power)`,
+`unit_at(province)`, `centers_of(power)`, `dislodged_at(province)`.
 
-### Core Tables
+`Game` (`src/engine/game.py`) wraps a `GameState` with its `map: MapData` and a `history`
+tuple of past snapshots; `Game.adjudicate(orders)` is the only way to advance it, and it
+returns a **new** `Game` plus the phase's `Resolution` — nothing mutates.
 
-```sql
--- Games table
-CREATE TABLE games (
-    id SERIAL PRIMARY KEY,
-    game_id VARCHAR(50) UNIQUE NOT NULL,
-    map_name VARCHAR(50) NOT NULL DEFAULT 'standard',
-    current_turn INTEGER NOT NULL DEFAULT 0,
-    current_year INTEGER NOT NULL DEFAULT 1901,
-    current_season VARCHAR(10) NOT NULL DEFAULT 'Spring',
-    current_phase VARCHAR(20) NOT NULL DEFAULT 'Movement',
-    phase_code VARCHAR(10) NOT NULL DEFAULT 'S1901M',
-    status VARCHAR(20) NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+## 2. Serialization (`src/engine/serialization.py`)
 
--- Players/Powers table
-CREATE TABLE players (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    power_name VARCHAR(20) NOT NULL,
-    user_id BIGINT,  -- Telegram user ID
-    is_active BOOLEAN DEFAULT true,
-    is_eliminated BOOLEAN DEFAULT false,
-    home_supply_centers TEXT[],  -- Array of province names
-    controlled_supply_centers TEXT[],  -- Array of province names
-    orders_submitted BOOLEAN DEFAULT false,
-    last_order_time TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(game_id, power_name)
-);
+The **one** place `GameState`/`Order`/`Resolution` cross the pure-engine boundary into
+JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-checked).
 
--- Units table
-CREATE TABLE units (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    power_name VARCHAR(20) NOT NULL,
-    unit_type CHAR(1) NOT NULL CHECK (unit_type IN ('A', 'F')),
-    province VARCHAR(20) NOT NULL,
-    is_dislodged BOOLEAN DEFAULT false,
-    dislodged_by VARCHAR(20),
-    can_retreat BOOLEAN DEFAULT true,
-    retreat_options TEXT[],  -- Array of province names
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(game_id, province)  -- Only one unit per province
-);
+- `Location` -> its canonical string (`location_to_str`/`location_from_str`): `"PAR"` or
+  `"SPA/SC"`.
+- Every enum -> its `.value` string.
+- `frozenset`/`tuple` fields (`units`, `contested`) -> JSON arrays (order doesn't matter
+  for round-trip equality — they decode back into sets).
+- `state_to_dict(state)` -> `{year, season, phase_type, units: [unit_dict...],
+  ownership: {province: power}, dislodged: [dislodged_dict...], contested: [province...],
+  status}`.
+- `order_to_dict(order)` -> `{type, power, ...order-specific Location strings...}` (see
+  the field table above — each order type serializes exactly its own fields).
+- `resolution_to_dict(resolution)` -> `{results: [{order, result, dislodged,
+  retreat_options}, ...]}`.
 
--- Orders table
-CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    power_name VARCHAR(20) NOT NULL,
-    order_type VARCHAR(20) NOT NULL,
-    unit_type CHAR(1) NOT NULL,
-    unit_province VARCHAR(20) NOT NULL,
-    target_province VARCHAR(20),
-    supported_unit_type CHAR(1),
-    supported_unit_province VARCHAR(20),
-    supported_target VARCHAR(20),
-    convoyed_unit_type CHAR(1),
-    convoyed_unit_province VARCHAR(20),
-    convoyed_target VARCHAR(20),
-    convoy_chain TEXT[],  -- Array of sea areas
-    build_type CHAR(1),
-    build_province VARCHAR(20),
-    build_coast VARCHAR(10),
-    destroy_unit_type CHAR(1),
-    destroy_unit_province VARCHAR(20),
-    status VARCHAR(20) DEFAULT 'pending',
-    failure_reason TEXT,
-    original_order_string TEXT,  -- Store original string for debugging
-    parsed_correctly BOOLEAN DEFAULT true,
-    parsing_error TEXT,
-    phase VARCHAR(20) NOT NULL,
-    turn_number INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+`to_json()`/`state_from_json()`/`order_from_json()`/`resolution_from_json()` are thin
+`json.dumps`/`json.loads` wrappers around the dict functions.
 
--- Order history table for complete audit trail
-CREATE TABLE order_history (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    turn_number INTEGER NOT NULL,
-    phase VARCHAR(20) NOT NULL,
-    power_name VARCHAR(20) NOT NULL,
-    submitted_string TEXT NOT NULL,  -- Original multi-order string
-    parsed_orders JSONB NOT NULL,    -- Array of parsed orders
-    parse_success BOOLEAN NOT NULL,
-    parse_errors TEXT[],
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+## 3. Persistence (`src/persistence/`)
 
--- Supply centers table
-CREATE TABLE supply_centers (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    province VARCHAR(20) NOT NULL,
-    controlling_power VARCHAR(20),
-    is_home_supply_center BOOLEAN DEFAULT false,
-    home_power VARCHAR(20),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(game_id, province)
-);
+### `games` table (`GameModel`, `src/persistence/database.py`)
 
--- Turn history table
-CREATE TABLE turn_history (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    turn_number INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    season VARCHAR(10) NOT NULL,
-    phase VARCHAR(20) NOT NULL,
-    phase_code VARCHAR(10) NOT NULL,
-    units_before JSONB,  -- Units state before turn
-    units_after JSONB,   -- Units state after turn
-    supply_centers_before JSONB,
-    supply_centers_after JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+The columns that matter for the new engine (M6 additions, all nullable so they layer
+onto the pre-existing row shape without a destructive migration for *these* columns —
+though the `state_json`/`pending_orders` migration `a1b2c3d4e5f7` itself **does** wipe
+stored game rows; see `fix_plan.md` M6):
 
--- Map snapshots table
-CREATE TABLE map_snapshots (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    turn_number INTEGER NOT NULL,
-    phase_code VARCHAR(10) NOT NULL,
-    units JSONB NOT NULL,
-    supply_centers JSONB NOT NULL,
-    map_image_path VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+| Column | Type | Written by | Meaning |
+|---|---|---|---|
+| `state_json` | JSON | `GameRepo.create` / `.save_state` | The serialized `GameState` — the authoritative source of truth for a game's board. |
+| `pending_orders` | JSON | `GameRepo.set_pending_orders` | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
+| `last_resolution` | JSON | `GameRepo.save_state` | The most recent `resolution_to_dict()` output — kept only so `/generate_map/resolution` can draw arrows for the turn just processed; not otherwise authoritative (superseded on the next `process_turn`). |
+| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`. |
 
--- Users table (for Telegram integration)
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    full_name VARCHAR(255) NOT NULL,
-    username VARCHAR(255),
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+Plus denormalized convenience columns kept in sync for code that doesn't want to parse
+`state_json` (deadline scheduler, game listings, channel posts): `map_name`,
+`current_turn`, `current_year`, `current_season`, `current_phase`, `phase_code`,
+`status`, `deadline`, `channel_id`, `channel_settings`, `observer_mode`, `created_at`,
+`updated_at`.
 
--- Messages table (for diplomatic communication)
-CREATE TABLE messages (
-    id SERIAL PRIMARY KEY,
-    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
-    sender_user_id BIGINT REFERENCES users(telegram_id),
-    sender_power VARCHAR(20),
-    recipient_user_id BIGINT REFERENCES users(telegram_id),
-    recipient_power VARCHAR(20),
-    message_type VARCHAR(20) NOT NULL,  -- 'private', 'broadcast', 'system'
-    content TEXT NOT NULL,
-    is_read BOOLEAN DEFAULT false,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+**Legacy relational columns/tables** — `units`, `orders`, `supply_centers` (as separate
+tables, still present in the schema) and the old per-game relational fields — predate the
+engine rewrite and are **no longer written or read** for game state; `state_json` fully
+supersedes them. They exist only because dropping them would be a separate, disruptive
+migration outside the rewrite's scope (`fix_plan.md` M6 explicitly deleted the *code*
+paths that wrote them — `unit_to_dict`/`order_to_dict`/`dict_to_order` — but left the
+tables themselves alone). Do not add new code that reads/writes them.
+
+### `players` table (`PlayerModel`)
+
+Unaffected by the engine rewrite — player-to-power assignment is not an engine concern.
+Key columns: `game_id` (FK), `power_name`, `user_id` (FK to `users`), `is_active`,
+`is_eliminated`. `GameRepo.players(game_id)` reads this into `{power: {user_id,
+is_active}}` for the API view (§4).
+
+### Other tables
+
+`users`, `link_codes`, `password_reset_tokens`, `messages`, `turn_history`,
+`map_snapshots`, tournament tables, channel-analytics tables — all unchanged by the
+engine rewrite; see `database.py` for the full model list. `DatabaseService`
+(`database_service.py`) remains the DAL for all of these; only game *state* itself was
+carved out into `GameRepo` + `GameService`.
+
+## 4. The HTTP API view shape
+
+`GameService.view(game_id)` (`src/server/game_service.py`) is the **single** place that
+builds the JSON a client sees for `GET /games/{id}/state` (and equivalent DAIDE/bot
+paths) — built directly from `GameState`, not from any legacy relational shape:
+
+```jsonc
+{
+  "game_id": "1",
+  "map_name": "standard",
+  "phase": "S1901M",                    // GameState.phase_name
+  "year": 1901,
+  "season": "SPRING",
+  "phase_type": "MOVEMENT",             // MOVEMENT | RETREAT | ADJUSTMENT
+  "status": "ACTIVE",                   // ACTIVE | COMPLETED
+  "units": [ {"kind": "F", "power": "FRANCE", "location": "BRE"}, ... ],
+  "units_by_power": { "FRANCE": [ ... ], ... },
+  "ownership": { "PAR": "FRANCE", ... },
+  "supply_centers": { "PAR": "FRANCE", ... },  // == ownership; kept as an alias for callers
+  "dislodged": [
+    {"unit": {...}, "attacker_origin": "BUR", "retreats": ["PIC", "GAS"]}
+  ],
+  "contested": ["BUR"],
+  "players": { "FRANCE": {"user_id": 42, "is_active": true}, ... },
+  "orders": { "FRANCE": ["F BRE H", "A PAR - BUR"], ... }  // pending, truthfully re-lettered
+}
 ```
 
-## Data Validation Rules
+`orders` is re-derived every call via `_humanize_orders`: stored pending-order strings
+are reparsed and reformatted against the *current* board so the A/F unit letter is always
+correct (a fleet at a non-split-coast province displays `F`, not the coast-inferred
+guess `format_order` would otherwise produce — see `orders/parser.py`'s `format_order`
+docstring). This is a display-only correction; adjudication always uses the actual board
+unit, never the letter in the order string.
 
-### 1. Unit Validation
-- Only one unit per province
-- Units must belong to valid powers
-- Unit types must be "A" (Army) or "F" (Fleet)
-- Provinces must exist in map data
-- Units cannot be in invalid provinces for their type
+Consumers of this exact shape: `frontend/src` (React SPA — `GameView.tsx` and friends),
+the Telegram bot's `api_client.py`, and `daide_protocol.py`. All three were ported in the
+same M6/M7 pass that introduced the shape — there is no legacy `powers`-keyed view left
+to support.
 
-### 2. Order Validation
-- Orders must be submitted by the power that owns the unit
-- Orders must be valid for the current phase
-- Move orders must target adjacent provinces
-- Support orders must support valid actions
-- Convoy orders must involve fleets and armies
-- Retreat orders must target valid retreat provinces
-- Build orders must be in unoccupied home supply centers
-- Destroy orders must target own units
+## 5. Validation
 
-### 3. Game State Validation
-- Supply center count must equal unit count for each power
-- No two units in same province
-- All units must belong to active powers
-- Phase transitions must follow Diplomacy rules
-- Turn numbers must be sequential
+Order legality (not grammar — grammar is `orders/parser.py`'s job) is centralized in
+`orders/validation.py`'s `validate(order, state, map) -> ValidationResult`, the **one**
+path used by `GameService.submit_orders` (pre-check before an order is accepted into
+`pending_orders`) and by `adjudicator/adjustments.py` (build legality). There is no
+second, divergent validation path anywhere in the codebase.
 
-### 4. Map Validation
-- All provinces must have valid adjacencies
-- Supply centers must be properly defined
-- Home supply centers must be assigned to powers
-- Starting positions must be valid
+## 6. Out of scope here
 
-## Data Access Patterns
-
-### 1. Game State Queries
-```python
-# Get current game state
-def get_game_state(game_id: str) -> GameState:
-    # Load game, players, units, orders, supply centers
-    pass
-
-# Get units for specific power
-def get_power_units(game_id: str, power: str) -> List[Unit]:
-    pass
-
-# Get orders for current phase
-def get_current_orders(game_id: str) -> Dict[str, List[Order]]:
-    pass
-```
-
-### 2. Order Management
-```python
-# Submit orders for power
-def submit_orders(game_id: str, power: str, orders: List[Order]) -> bool:
-    pass
-
-# Validate orders against game state
-def validate_orders(game_id: str, orders: List[Order]) -> List[Tuple[bool, str]]:
-    pass
-
-# Get order history
-def get_order_history(game_id: str, turn: int) -> Dict[str, List[Order]]:
-    pass
-```
-
-### 3. Turn Processing
-```python
-# Process movement phase
-def process_movement_phase(game_id: str) -> Dict[str, List[OrderResult]]:
-    pass
-
-# Process retreat phase
-def process_retreat_phase(game_id: str) -> Dict[str, List[OrderResult]]:
-    pass
-
-# Process builds phase
-def process_builds_phase(game_id: str) -> Dict[str, List[OrderResult]]:
-    pass
-```
-
-## Error Handling
-
-### 1. Data Integrity Errors
-- Duplicate units in same province
-- Invalid unit ownership
-- Invalid order submission
-- Phase mismatch errors
-
-### 2. Validation Errors
-- Invalid move targets
-- Invalid support targets
-- Invalid convoy routes
-- Invalid retreat destinations
-- Invalid build locations
-
-### 3. State Consistency Errors
-- Supply center count mismatch
-- Missing required orders
-- Invalid phase transitions
-- Orphaned units or orders
-
-## Performance Considerations
-
-### 1. Indexing Strategy
-- Index on game_id for all tables
-- Index on power_name for player-specific queries
-- Index on province for unit lookups
-- Index on turn_number for historical queries
-
-### 2. Caching Strategy
-- Cache current game state in memory
-- Cache map data (provinces, adjacencies)
-- Cache order validation results
-- Cache unit positions for quick lookups
-
-### 3. Query Optimization
-- Use batch operations for order submission
-- Minimize database round trips
-- Use JSONB for complex nested data
-- Implement connection pooling
-
-## Migration Strategy
-
-### Phase 1: Core Data Structures
-1. Implement basic GameState, Unit, Order classes
-2. Create database schema
-3. Implement basic CRUD operations
-4. Add data validation
-
-### Phase 2: Order Processing
-1. Implement order parsing and validation
-2. Add order execution logic
-3. Implement phase transitions
-4. Add order result tracking
-
-### Phase 3: Advanced Features
-1. Add turn history and snapshots
-2. Implement diplomatic messaging
-3. Add user management
-4. Implement map rendering integration
-
-### Phase 4: Optimization
-1. Add caching layer
-2. Optimize database queries
-3. Implement batch operations
-4. Add performance monitoring
-
----
-
-This data specification provides a comprehensive foundation for implementing a robust Diplomacy game engine with proper data integrity, validation, and performance characteristics.
+Full DB migration history: `alembic/versions/`. Route-by-route request/response Pydantic
+models: `src/server/models.py` and the route modules themselves. The adjudication
+algorithm that produces `Resolution`/next-`GameState`: `adjudication.md`.
