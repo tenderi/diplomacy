@@ -1,20 +1,33 @@
-"""
-Map generation API routes.
+"""Map generation API routes.
 
-This module contains all endpoints related to map image generation for game states.
+Renders game states to PNG. The SVG→PNG pipeline (``rendering.map.Map``) takes simple
+text units (``{power: ["A PAR", "F BRE", ...]}``) plus supply-center control, so it
+is fed directly from the new-engine ``GameService.view`` — no old data models.
+(The physical relocation of the renderer to ``src/rendering/`` is M6 checkpoint D;
+functionally it already runs on the new engine here.)
 """
 import os
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from ..shared import db_service, ensure_game_in_memory
-from engine.map import Map
-from engine.data_models import MoveOrder, SupportOrder
+from ..shared import db_service, game_service
+from rendering.map import Map
+from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
 
 router = APIRouter()
+
+
+def _kind_by_province(view: Dict[str, Any]) -> Dict[str, str]:
+    """province -> "A"/"F" for the current units, so overlay arrows label units
+    with their real type (cosmetic; placement uses the province only)."""
+    out: Dict[str, str] = {}
+    for units in view.get("units_by_power", {}).values():
+        for u in units:
+            out[u["location"].split("/")[0]] = u["kind"]
+    return out
 
 
 def _svg_path_for_map_name(map_name: str) -> str:
@@ -28,310 +41,161 @@ def _svg_path_for_map_name(map_name: str) -> str:
     return os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
 
 
+def _units_for_render(view: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Build the renderer's ``{power: ["A PAR", "F STP", ...]}`` (coast stripped)."""
+    out: Dict[str, List[str]] = {}
+    for power, units in view.get("units_by_power", {}).items():
+        out[power] = [f"{u['kind']} {u['location'].split('/')[0]}" for u in units]
+    return out
+
+
+def _phase_info(view: Dict[str, Any], turn: int) -> Dict[str, Any]:
+    return {
+        "turn": turn,
+        "year": view["year"],
+        "season": view["season"],
+        "phase": view["phase_type"],
+        "phase_code": view["phase"],
+    }
+
+
+def _turn_of(game_id: str) -> int:
+    row = db_service.get_game_by_game_id(game_id)
+    return int(getattr(row, "current_turn", 0) or 0) if row is not None else 0
+
+
 @router.get("/games/{game_id}/map", response_class=Response)
 def get_game_map_png(game_id: str) -> Response:
-    """Return current game state as a PNG map. Uses DB state only (no server.games required)."""
-    state = db_service.get_game_state(game_id)
-    if state is None:
+    """Return the current game state as a PNG map."""
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    # Renderer expects { power_name: [ "A PAR", "F BRE", ... ], ... }
-    units: Dict[str, list] = {}
-    for power_name, power in state.powers.items():
-        units[power_name] = [f"{u.unit_type} {u.province}" for u in power.units]
-    phase_info = {
-        "turn": state.current_turn,
-        "year": state.current_year,
-        "season": state.current_season,
-        "phase": state.current_phase,
-        "phase_code": state.phase_code,
-    }
-    supply_center_control: Dict[str, str] = {}
-    for power_name, power in state.powers.items():
-        for sc in power.controlled_supply_centers:
-            supply_center_control[sc] = power_name
-    svg_path = _svg_path_for_map_name(state.map_name)
+    svg_path = _svg_path_for_map_name(view["map_name"])
     try:
         img_bytes = Map.render_board_png(
-            svg_path, units, phase_info=phase_info, supply_center_control=supply_center_control
+            svg_path,
+            _units_for_render(view),
+            phase_info=_phase_info(view, _turn_of(game_id)),
+            supply_center_control=dict(view["ownership"]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
     return Response(content=img_bytes, media_type="image/png")
 
+
+def _render_and_save(
+    game_id: str,
+    view: Dict[str, Any],
+    suffix: str = "",
+    order_viz: Optional[Dict[str, Any]] = None,
+    resolution_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Render the current board and save it under ``/tmp/diplomacy_maps``.
+
+    When ``order_viz`` is given, move/support/convoy arrows are drawn over the board
+    (orders map). When ``resolution_data`` is also given, standoff/conflict markers
+    are drawn too (resolution map). On any render error, falls back to a plain board.
+    """
+    svg_path = _svg_path_for_map_name(view["map_name"])
+    units = _units_for_render(view)
+    phase_info = _phase_info(view, _turn_of(game_id))
+    scc = dict(view["ownership"])
+    render_warnings: List[str] = []
+    try:
+        if resolution_data is not None:
+            img_bytes = Map.render_board_png_resolution(
+                svg_path, units, order_viz or {}, resolution_data,
+                phase_info=phase_info, supply_center_control=scc,
+            )
+        elif order_viz is not None:
+            img_bytes = Map.render_board_png_orders(
+                svg_path, units, order_viz,
+                phase_info=phase_info, supply_center_control=scc,
+            )
+        else:
+            img_bytes = Map.render_board_png(
+                svg_path, units, phase_info=phase_info, supply_center_control=scc,
+            )
+    except Exception as e:
+        render_warnings.append(f"render_failed_primary: {e}")
+        img_bytes = Map.render_board_png(
+            svg_path, {}, phase_info={"year": None, "season": None, "phase": None, "phase_code": None},
+            supply_center_control=None,
+        )
+    os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
+    phase_code = view["phase"]
+    part = f"_{suffix}" if suffix else ""
+    map_path = f"/tmp/diplomacy_maps/game_{game_id}{part}_{phase_code}_{int(datetime.now().timestamp())}.png"
+    with open(map_path, "wb") as f:
+        f.write(img_bytes)
+    resp: Dict[str, Any] = {
+        "status": "ok",
+        "map_path": map_path,
+        "phase_code": phase_code,
+        "message": f"Map generated for {phase_code}",
+    }
+    if render_warnings:
+        resp["render_warnings"] = render_warnings
+    return resp
+
+
 @router.post("/games/{game_id}/generate_map")
 def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
-    """Generate and save a map image for the current game state"""
-    game = ensure_game_in_memory(game_id)
-    if game is None:
+    """Generate and save a map image for the current game state."""
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    resp = _render_and_save(game_id, view)
+    # Attach the image to the latest snapshot for this phase, if one exists.
     try:
-        # Resolve SVG path based on game's map_name
-        map_name = getattr(game, 'map_name', 'standard')
-        if map_name == 'standard-v2':
-            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
-            svg_path = os.path.join(base_dir, "v2.svg")
-            if not os.path.exists(svg_path):
-                svg_path = base_path
-        else:
-            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        render_warnings: list[str] = []
-        # Create units dict: { power_name: [ "A PAR", "F BRE", ... ], ... } for render_board_png
-        units: Dict[str, list] = {}
-        try:
-            for power_name, power in game.game_state.powers.items():
-                units[power_name] = [f"{u.unit_type} {u.province}" for u in power.units]
-        except Exception as e:
-            render_warnings.append(f"units_build_failed: {e}")
-            units = {}
-        # Get phase information
-        phase_info = {
-            "turn": game.turn,
-            "year": game.year,
-            "season": game.season,
-            "phase": game.phase,
-            "phase_code": game.phase_code
-        }
-        
-        # Get supply center control (includes both occupied and unoccupied controlled supply centers)
-        supply_center_control = {}
-        for power_name, power in game.game_state.powers.items():
-            for sc in power.controlled_supply_centers:
-                supply_center_control[sc] = power_name
-        
-        # Try rendering; on failure, fallback to empty-orders map
-        try:
-            img_bytes = Map.render_board_png(svg_path, units, phase_info=phase_info, supply_center_control=supply_center_control)
-        except Exception as e:
-            render_warnings.append(f"render_failed_primary: {e}")
-            img_bytes = Map.render_board_png(svg_path, {}, phase_info={"year": None, "season": None, "phase": None, "phase_code": None}, supply_center_control=None)
-        
-        # Save map image
-        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
-        map_filename = f"game_{game_id}_{game.phase_code}_{int(datetime.now().timestamp())}.png"
-        map_path = f"/tmp/diplomacy_maps/{map_filename}"
-        
-        with open(map_path, 'wb') as f:
-            f.write(img_bytes)
-        
-        # Update the latest snapshot with map path
-        latest_snapshot = db_service.get_latest_game_snapshot_by_game_id_and_phase_code(
-            game_id=int(game_id),
-            phase_code=game.phase_code
+        row = db_service.get_game_by_game_id(game_id)
+        latest = db_service.get_latest_game_snapshot_by_game_id_and_phase_code(
+            game_id=int(row.id), phase_code=view["phase"]
         )
-        
-        if latest_snapshot:
-            latest_snapshot.map_image_path = map_path  # type: ignore
-            db_service.update_game_snapshot_map_image_path(int(latest_snapshot.id), map_path)  # type: ignore
+        if latest:
+            db_service.update_game_snapshot_map_image_path(int(latest.id), resp["map_path"])
             db_service.commit()
-        
-        response: Dict[str, Any] = {
-            "status": "ok",
-            "map_path": map_path,
-            "phase_code": game.phase_code,
-            "message": f"Map generated for {game.phase_code}"
-        }
-        if render_warnings:
-            response["render_warnings"] = list(render_warnings)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        pass
+    return resp
+
 
 @router.post("/games/{game_id}/generate_map/orders")
 def generate_orders_map(game_id: str) -> Dict[str, Any]:
-    """Generate and return an orders map showing all submitted orders before adjudication."""
-    game = ensure_game_in_memory(game_id)
-    if game is None:
+    """Generate an orders map: the board plus arrows for the current pending orders.
+
+    Renders a plain board when no orders have been submitted yet.
+    """
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    try:
-        # Resolve SVG path based on game's map_name
-        map_name = getattr(game, 'map_name', 'standard')
-        if map_name == 'standard-v2':
-            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
-            svg_path = os.path.join(base_dir, "v2.svg")
-            if not os.path.exists(svg_path):
-                svg_path = base_path
-        else:
-            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        
-        # Get units
-        units = {}
-        for power_name, power in game.game_state.powers.items():
-            power_units = []
-            for unit in power.units:
-                power_units.append(f"{unit.unit_type} {unit.province}")
-            if power_units:
-                units[power_name] = power_units
-        
-        # Get orders in visualization format
-        orders = {}
-        for power_name, order_list in game.game_state.orders.items():
-            if order_list:
-                orders[power_name] = []
-                for order in order_list:
-                    # Convert Order object to visualization dict format
-                    order_dict = {
-                        "type": order.order_type.value.lower() if hasattr(order.order_type, 'value') else str(order.order_type).lower(),
-                        "unit": f"{order.unit.unit_type} {order.unit.province}",
-                        "status": "pending"
-                    }
-                    
-                    # Add order-specific fields
-                    if isinstance(order, MoveOrder) and hasattr(order, 'target_province') and order.target_province:
-                        order_dict["target"] = order.target_province
-                    if isinstance(order, SupportOrder):
-                        if hasattr(order, 'supported_unit') and order.supported_unit:
-                            order_dict["supporting"] = f"{order.supported_unit.unit_type} {order.supported_unit.province}"
-                            if hasattr(order, 'supported_target') and order.supported_target:
-                                order_dict["supporting"] += f" - {order.supported_target}"
-                    
-                    orders[power_name].append(order_dict)
-        
-        # Get phase information
-        phase_info = {
-            "turn": game.turn,
-            "year": game.year,
-            "season": game.season,
-            "phase": game.phase,
-            "phase_code": game.phase_code
-        }
-        
-        # Get supply center control
-        supply_center_control = {}
-        for power_name, power in game.game_state.powers.items():
-            for sc in power.controlled_supply_centers:
-                supply_center_control[sc] = power_name
-        
-        # Generate orders map
-        img_bytes = Map.render_board_png_orders(
-            svg_path, 
-            units, 
-            orders, 
-            phase_info=phase_info, 
-            supply_center_control=supply_center_control
-        )
-        
-        # Save to temp location
-        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
-        map_filename = f"game_{game_id}_orders_{game.phase_code}_{int(datetime.now().timestamp())}.png"
-        map_path = f"/tmp/diplomacy_maps/{map_filename}"
-        
-        with open(map_path, 'wb') as f:
-            f.write(img_bytes)
-        
-        return {
-            "status": "ok",
-            "map_path": map_path,
-            "phase_code": game.phase_code,
-            "message": f"Orders map generated for {game.phase_code}"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    order_viz = orders_by_power_to_viz(
+        game_service.pending_orders_parsed(game_id), _kind_by_province(view)
+    )
+    return _render_and_save(game_id, view, suffix="orders", order_viz=order_viz)
+
 
 @router.post("/games/{game_id}/generate_map/resolution")
 def generate_resolution_map(game_id: str) -> Dict[str, Any]:
-    """Generate and return a resolution map showing order results, conflicts, and dislodgements."""
-    game = ensure_game_in_memory(game_id)
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    try:
-        # Resolve SVG path based on game's map_name
-        map_name = getattr(game, 'map_name', 'standard')
-        if map_name == 'standard-v2':
-            base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-            base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
-            svg_path = os.path.join(base_dir, "v2.svg")
-            if not os.path.exists(svg_path):
-                svg_path = base_path
-        else:
-            svg_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        
-        # Get units
-        units = {}
-        for power_name, power in game.game_state.powers.items():
-            power_units = []
-            for unit in power.units:
-                power_units.append(f"{unit.unit_type} {unit.province}")
-            if power_units:
-                units[power_name] = power_units
-        
-        # Get moves (adjudication results) from order history
-        moves = {}
-        if hasattr(game, "game_state") and hasattr(game.game_state, "order_history"):
-            # Get moves from the last turn's order history
-            if game.game_state.order_history:
-                last_turn_orders = game.game_state.order_history[-1]
-                for power_name, order_list in last_turn_orders.items():
-                    if order_list:
-                        moves[power_name] = []
-                        for order in order_list:
-                            if hasattr(order, 'target_province') and order.target_province:
-                                moves[power_name].append({
-                                    "from": order.unit.province,
-                                    "to": order.target_province,
-                                    "status": "success" if hasattr(order, 'status') else "pending"
-                                })
-        
-        # Get phase information
-        phase_info = {
-            "turn": game.turn,
-            "year": game.year,
-            "season": game.season,
-            "phase": game.phase,
-            "phase_code": game.phase_code
-        }
-        
-        # Get supply center control
-        supply_center_control = {}
-        for power_name, power in game.game_state.powers.items():
-            for sc in power.controlled_supply_centers:
-                supply_center_control[sc] = power_name
-        
-        # Get orders for resolution visualization
-        orders = {}
-        for power_name, move_list in moves.items():
-            if move_list:
-                orders[power_name] = []
-                for move in move_list:
-                    orders[power_name].append({
-                        "type": "move",
-                        "unit": f"{move.get('unit_type', 'A')} {move.get('from', '')}",
-                        "target": move.get('to', ''),
-                        "status": move.get('status', 'success')
-                    })
-        
-        # Create resolution data (simplified - would need proper extraction)
-        resolution_data = {
-            "conflicts": [],
-            "dislodgements": [],
-            "order_results": {}
-        }
-        
-        # Generate resolution map
-        img_bytes = Map.render_board_png_resolution(
-            svg_path,
-            units,
-            orders,
-            resolution_data,
-            phase_info=phase_info,
-            supply_center_control=supply_center_control
-        )
-        
-        # Save to temp location
-        os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
-        map_filename = f"game_{game_id}_resolution_{game.phase_code}_{int(datetime.now().timestamp())}.png"
-        map_path = f"/tmp/diplomacy_maps/{map_filename}"
-        
-        with open(map_path, 'wb') as f:
-            f.write(img_bytes)
-        
-        return {
-            "status": "ok",
-            "map_path": map_path,
-            "phase_code": game.phase_code,
-            "message": f"Resolution map generated for {game.phase_code}"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Generate a resolution map: the board after the last processed turn, with each
+    adjudicated order's arrow coloured by its result plus standoff markers.
 
+    The resolution is stored at ``process_turn``; if none exists yet (no turn has been
+    processed), falls back to a plain board.
+    """
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    resolution = game_service.last_resolution(game_id)
+    if not resolution:
+        return _render_and_save(game_id, view, suffix="resolution")
+    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
+    resolution_data = {
+        "conflicts": [
+            {"province": prov, "result": "standoff"} for prov in view.get("contested", [])
+        ],
+    }
+    return _render_and_save(
+        game_id, view, suffix="resolution",
+        order_viz=order_viz, resolution_data=resolution_data,
+    )

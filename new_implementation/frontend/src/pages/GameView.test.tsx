@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, within, waitFor } from '@testing-library/react'
+import { render, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameView from './GameView'
@@ -21,20 +21,22 @@ const mockAuth = {
   refreshUser: vi.fn(),
 }
 
+const franceUnits = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
 const minimalGameState = {
-  current_year: 1901,
-  current_season: 'Spring',
-  current_phase: 'Movement',
-  current_turn: 1,
-  phase_code: 'S1901M',
-  powers: {
-    FRANCE: {
-      power_name: 'FRANCE',
-      units: [{ unit_type: 'A', province: 'PAR' }],
-      orders_submitted: false,
-      controlled_supply_centers: [],
-    },
-  },
+  game_id: '1',
+  map_name: 'standard',
+  phase: 'S1901M',
+  year: 1901,
+  season: 'SPRING',
+  phase_type: 'MOVEMENT',
+  status: 'ACTIVE',
+  units: franceUnits,
+  units_by_power: { FRANCE: franceUnits },
+  ownership: { PAR: 'FRANCE' },
+  supply_centers: { PAR: 'FRANCE' },
+  dislodged: [],
+  contested: [],
+  players: { FRANCE: { user_id: 1, is_active: true } },
   orders: {},
 }
 

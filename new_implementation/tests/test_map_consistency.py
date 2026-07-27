@@ -15,7 +15,7 @@ def test_map_generation_consistency():
     print("=" * 50)
     
     try:
-        from engine.map import Map
+        from rendering.map import Map
         
         # Test data
         units = {

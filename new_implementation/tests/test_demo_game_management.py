@@ -26,7 +26,7 @@ except ImportError:
 	pass
 
 from server.api import app
-from engine.database import Base, GameModel, UserModel, PlayerModel
+from persistence.database import Base, GameModel, UserModel, PlayerModel
 
 
 def _has_demo_map() -> bool:

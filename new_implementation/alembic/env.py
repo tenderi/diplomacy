@@ -57,7 +57,7 @@ if os.path.exists(src_dir):
 else:
     # Fallback: add base directory if src doesn't exist
     sys.path.insert(0, base_dir)
-from engine.database import Base  # type: ignore
+from persistence.database import Base  # type: ignore
 
 # Use the Base.metadata for autogenerate
 # target_metadata = None

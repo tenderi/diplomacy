@@ -13,17 +13,17 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
-from engine.database_service import DatabaseService
-from engine.database import order_to_dict, unit_to_dict
+from persistence.database_service import DatabaseService
+from persistence.game_repo import GameRepo
 from ..server import Server
-from engine.data_models import GameStatus
-from engine.game import Game
-from engine.allowed_moves import build_allowed_moves
+from ..game_service import GameService
 
 _shared_logger = logging.getLogger(__name__)
 
 # Shared service instances
 db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)
+# New engine: all game state/adjudication goes through GameService (over GameRepo).
+game_service = GameService(GameRepo(db_service.session_factory))
 server = Server()
 
 # Shared loggers
@@ -74,86 +74,9 @@ def get_process_turn_lock(game_id: str) -> asyncio.Lock:
 # ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
 
 
-def ensure_game_in_memory(game_id: str):
-    """If the game is not in server.games, load it from the database and register it. Returns the Game or None if not found in DB."""
-    game_id_str = str(game_id)
-    if game_id_str in server.games:
-        return server.games[game_id_str]
-    state = db_service.get_game_state(game_id_str)
-    if state is None:
-        return None
-    g = Game(map_name=state.map_name)
-    setattr(g, "game_id", game_id_str)
-    g.game_state = state
-    if state.allowed_moves is None and g.map is not None:
-        state.allowed_moves = build_allowed_moves(g.map, state.map_name)
-    g.turn = state.current_turn
-    g.year = state.current_year
-    g.season = state.current_season
-    g.phase = state.current_phase
-    g.phase_code = state.phase_code
-    g.done = state.status == GameStatus.COMPLETED
-    server.games[game_id_str] = g
-    logger.info("Restored game %s from database into memory for order submission", game_id_str)
-    return g
-
-
-def _state_to_spec_dict(state_obj: Any) -> Dict[str, Any]:
-    """Serialize GameState dataclasses to spec-shaped JSON-serializable dict."""
-    
-    supply_centers: dict[str, str] = {}
-    for p_name, p_state in state_obj.powers.items():
-        for prov in p_state.controlled_supply_centers:
-            supply_centers[prov] = p_name
-
-    powers: Dict[str, Any] = {}
-    for power_name, ps in state_obj.powers.items():
-        powers[power_name] = {
-            "power_name": ps.power_name,
-            "user_id": ps.user_id,
-            "is_active": ps.is_active,
-            "is_eliminated": ps.is_eliminated,
-            "home_supply_centers": ps.home_supply_centers,
-            "controlled_supply_centers": ps.controlled_supply_centers,
-            "units": [unit_to_dict(u) for u in ps.units],
-            "orders_submitted": ps.orders_submitted,
-            "last_order_time": ps.last_order_time.isoformat() if ps.last_order_time else None,
-            "retreat_options": ps.retreat_options,
-            "build_options": ps.build_options,
-            "destroy_options": ps.destroy_options,
-        }
-
-    return {
-        "game_id": state_obj.game_id,
-        "map_name": state_obj.map_name,
-        "current_turn": state_obj.current_turn,
-        "current_year": state_obj.current_year,
-        "current_season": state_obj.current_season,
-        "current_phase": state_obj.current_phase,
-        "phase_code": state_obj.phase_code,
-        "status": state_obj.status.value,
-        "created_at": state_obj.created_at.isoformat(),
-        "updated_at": state_obj.updated_at.isoformat(),
-        "powers": powers,
-        "units": {p: [unit_to_dict(u) for u in ps.units] for p, ps in state_obj.powers.items()},
-        "supply_centers": supply_centers,
-        "orders": {p: [order_to_dict(o) for o in orders] for p, orders in state_obj.orders.items()},
-        "pending_retreats": {p: [order_to_dict(o) for o in lst] for p, lst in state_obj.pending_retreats.items()},
-        "pending_builds": {p: [order_to_dict(o) for o in lst] for p, lst in state_obj.pending_builds.items()},
-        "pending_destroys": {p: [order_to_dict(o) for o in lst] for p, lst in state_obj.pending_destroys.items()},
-        "turn_history": [],
-        "order_history": state_obj.order_history,
-        "map_snapshots": [],
-    }
-
-
-def _get_power_for_unit(province: str, game) -> Optional[str]:
-    """Get the power that owns a unit in the given province."""
-    for power_name, power_state in game.game_state.powers.items():
-        for unit in power_state.units:
-            if unit.province == province:
-                return power_name
-    return None
+def game_view(game_id: str) -> Optional[Dict[str, Any]]:
+    """The new-engine, GameState-native API view of a game (or None if missing)."""
+    return game_service.view(str(game_id))
 
 
 def notify_players(game_id: int, message: str) -> None:
@@ -198,21 +121,6 @@ def process_due_deadlines(now: datetime) -> None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
-                    # --- Mark inactive players ---
-                    # Get current turn number from game state
-                    state_val = getattr(game, 'state', None)
-                    turn = 0
-                    if isinstance(state_val, dict):
-                        turn = state_val.get("turn", 0)
-                    # For each player, check if they submitted orders for this turn
-                    players = db_service.get_players_by_game_id(game_id_val)
-                    for player in players:
-                        # SQLAlchemy ORM: must use getattr for boolean columns
-                        if getattr(player, 'is_active', True) is True:  # type: ignore
-                            has_orders = db_service.check_if_player_has_orders_for_turn(int(player.id), turn)  # type: ignore
-                            if not has_orders:
-                                setattr(player, 'is_active', False)  # type: ignore
-                                db_service.update_player_is_active(int(player.id), False)  # type: ignore
                     # --- Process turn (with per-game lock to prevent double-processing) ---
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
                     lock = get_process_turn_lock(game_id_str)
@@ -222,18 +130,10 @@ def process_due_deadlines(now: datetime) -> None:
                             game_id_str,
                         )
                     else:
-                        import asyncio as _asyncio
-                        async def _run_locked(gid: str = game_id_str) -> None:
-                            async with get_process_turn_lock(gid):
-                                server.process_command(f"PROCESS_TURN {gid}")
                         try:
-                            loop = _asyncio.get_event_loop()
-                            if loop.is_running():
-                                loop.create_task(_run_locked())
-                            else:
-                                server.process_command(f"PROCESS_TURN {game_id_str}")
-                        except RuntimeError:
-                            server.process_command(f"PROCESS_TURN {game_id_str}")
+                            game_service.process_turn(game_id_str)
+                        except Exception as e:
+                            scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db_service.update_game_deadline(game_id_val, None)
                     db_service.commit()  # type: ignore
@@ -312,71 +212,6 @@ async def deadline_scheduler() -> None:
                             notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
                             scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                             reminder_sent[game_id_val] = True
-                            
-                            # Channel integration: Post player dashboard with reminder
-                            try:
-                                from ..telegram_bot.channels import (
-                                    should_auto_post_notification,
-                                    post_player_dashboard_to_channel
-                                )
-                                
-                                game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
-                                
-                                if should_auto_post_notification(game_id_str, "deadline"):
-                                    channel_info = db_service.get_game_channel_info(game_id_str)
-                                    if channel_info:
-                                        # Get game state
-                                        if game_id_str in server.games:
-                                            game_obj = server.games[game_id_str]
-                                            current_state = game_obj.get_game_state()
-                                            
-                                            # Get players data
-                                            players_data = None
-                                            try:
-                                                players_list = db_service.get_players_by_game_id(game_id_val)
-                                                players_data = []
-                                                for p in players_list:
-                                                    user = db_service.get_user_by_id(int(p.user_id)) if p.user_id else None
-                                                    players_data.append({
-                                                        "power": p.power_name,
-                                                        "user_id": p.user_id,
-                                                        "is_active": getattr(p, 'is_active', True),
-                                                        "telegram_id": getattr(user, 'telegram_id', None) if user else None,
-                                                        "full_name": getattr(user, 'full_name', None) if user else None,
-                                                    })
-                                            except Exception:
-                                                pass
-                                            
-                                            # Convert current state to dict
-                                            game_state_dict = {
-                                                "game_id": game_id_str,
-                                                "current_year": current_state.current_year,
-                                                "current_season": current_state.current_season,
-                                                "current_phase": current_state.current_phase,
-                                                "phase_code": current_state.phase_code,
-                                                "orders": {
-                                                    power: []
-                                                    for power in current_state.powers.keys()
-                                                },
-                                                "powers": {
-                                                    power: {
-                                                        "orders_submitted": power_state.orders_submitted,
-                                                        "last_order_time": power_state.last_order_time.isoformat() if power_state.last_order_time else None,
-                                                        "is_active": power_state.is_active,
-                                                        "is_eliminated": power_state.is_eliminated
-                                                    }
-                                                    for power, power_state in current_state.powers.items()
-                                                }
-                                            }
-                                            
-                                            post_player_dashboard_to_channel(
-                                                channel_id=channel_info.get("channel_id"),
-                                                game_id=game_id_str,
-                                                game_state=game_state_dict,
-                                                players_data=players_data
-                                            )
-                            except Exception as e:
-                                scheduler_logger.debug(f"Failed to post dashboard with reminder: {e}")
         except Exception as e:
             scheduler_logger.error(f"Error in deadline scheduler: {e}")
 
