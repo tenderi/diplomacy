@@ -765,8 +765,7 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Create helpful keyboard for users not in games
             keyboard = [
                 [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
-                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
-                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")]
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -774,8 +773,7 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "🎮 You're not currently in any games!\n\n"
                 "💡 *Get started:*\n"
                 "🎲 Browse games and pick one to join\n"
-                "⏳ Join the waiting list for auto-matching\n"
-                "🗺️ Check out the game board first",
+                "⏳ Join the waiting list for auto-matching",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )

@@ -21,10 +21,7 @@ from telegram.ext import (
 # Import directly from modules
 from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import api_post, api_get, wait_for_api_health, _validate_api_url
-from server.telegram_bot.maps import (
-    set_cached_default_map, generate_default_map,
-    send_default_map, send_game_map, map_command, replay, refresh_map_cache
-)
+from server.telegram_bot.maps import send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
     join, quit, replace, wait, status, players
@@ -97,10 +94,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         game_id = data.split("_")[2]
         await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...")
         await send_game_map(update, context, game_id)
-
-    elif data == "view_default_map":
-        await query.edit_message_text("🗺️ Generating standard Diplomacy map...")
-        await send_default_map(update, context)
 
     elif data == "start_demo_game":
         await query.edit_message_text("🎮 Starting demo game as Germany...")
@@ -456,7 +449,6 @@ def main():
     app.add_handler(CommandHandler("replay", replay))
     app.add_handler(CommandHandler("replace", replace))
     app.add_handler(CommandHandler("wait", wait))
-    app.add_handler(CommandHandler("refresh_map", refresh_map_cache))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("refresh", refresh_keyboard))
     app.add_handler(CommandHandler("help", show_help))
@@ -494,20 +486,6 @@ def main():
     # Also print to stdout for container logs
     print(f"🤖 BOT_ONLY environment variable: '{bot_only_raw}'")
     print(f"🤖 Detected bot_only mode: {bot_only}")
-
-    # Pre-generate the default map on startup (permanent cache) - optional
-    skip_pregen = os.environ.get("SKIP_MAP_PREGEN", "false").lower() == "true"
-    if skip_pregen:
-        logger.info("Skipping map pre-generation (SKIP_MAP_PREGEN=true)")
-    else:
-        logger.info("Pre-generating default map for permanent caching...")
-        try:
-            img_bytes = generate_default_map()
-            set_cached_default_map(img_bytes)
-            logger.info("Default map pre-generated and cached permanently")
-        except Exception as e:
-            logger.warning(f"Failed to pre-generate default map: {e}")
-            logger.info("Default map will be generated on first request")
 
     def start_notify_server():
         """Start the notification API server in a separate thread."""

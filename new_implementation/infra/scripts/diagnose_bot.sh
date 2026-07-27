@@ -80,9 +80,9 @@ fi
 # Check if bot script exists
 echo ""
 echo "6. Bot Script Check:"
-if [ -f "/opt/diplomacy/src/server/run_telegram_bot.py" ]; then
+if [ -f "/opt/diplomacy/new_implementation/src/server/run_telegram_bot.py" ]; then
     echo "   ✓ Bot script exists"
-    if [ -x "/opt/diplomacy/src/server/run_telegram_bot.py" ]; then
+    if [ -x "/opt/diplomacy/new_implementation/src/server/run_telegram_bot.py" ]; then
         echo "   ✓ Bot script is executable"
     else
         echo "   ⚠ Bot script is not executable"

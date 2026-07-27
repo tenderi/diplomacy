@@ -11,7 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ContextTypes
 
 from .api_client import api_post
-from .maps import send_demo_map
+from .maps import send_game_map
 from .utils import escape_markdown, safe_markdown_path
 
 logger = logging.getLogger("diplomacy.telegram_bot.admin")
@@ -66,7 +66,7 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             })
 
         # Generate the map with starting positions
-        await send_demo_map(update, context, game_id)
+        await send_game_map(update, context, game_id)
 
         # Show demo game controls
         keyboard = [
