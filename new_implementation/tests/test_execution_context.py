@@ -359,7 +359,81 @@ class TestServiceExecution:
             from server.telegram_bot.channels import set_telegram_bot
         except ImportError as e:
             pytest.fail(f"Import failed in service context: {e}")
-        
+
         # All imports should succeed
         assert True
+
+
+class TestTelegramBotMainEntryPoint:
+    """
+    Regression tests for the telegram_bot.py / telegram_bot/ package shadowing bug.
+
+    server/telegram_bot.py used to be shadowed by the server/telegram_bot/ package
+    (same name, package wins on import), which made `python -m server.telegram_bot`
+    - the production systemd ExecStart - fail with
+    "'server.telegram_bot' is a package and cannot be directly executed".
+    The fix moves the module's contents into server/telegram_bot/app.py and adds
+    server/telegram_bot/__main__.py so the package itself is directly runnable.
+    """
+
+    def test_dunder_main_module_is_importable(self, src_dir: Path) -> None:
+        """server.telegram_bot.__main__ must exist so `python -m server.telegram_bot` works."""
+        import sys
+        import importlib.util
+
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
+
+        spec = importlib.util.find_spec("server.telegram_bot.__main__")
+        assert spec is not None, (
+            "server.telegram_bot.__main__ not found - "
+            "`python -m server.telegram_bot` will fail to execute"
+        )
+
+    def test_python_dash_m_server_telegram_bot_smoke(self, project_root: Path, src_dir: Path) -> None:
+        """
+        `python -m server.telegram_bot` (the production ExecStart) must fail, if it fails
+        at all, because TELEGRAM_BOT_TOKEN is unset - never because of the package/module
+        shadowing bug this test guards against.
+        """
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(src_dir)
+        # Ensure the missing-token code path is what we exercise, not a real bot startup.
+        env.pop("TELEGRAM_BOT_TOKEN", None)
+
+        timed_out = False
+        stderr = ""
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "server.telegram_bot"],
+                cwd=str(project_root),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            stderr = result.stderr or ""
+        except subprocess.TimeoutExpired as exc:
+            # A timeout only counts as a test failure if it's masking the import bug;
+            # otherwise it's a separate (environment/network) concern outside this test's scope.
+            timed_out = True
+            raw_stderr = exc.stderr
+            if isinstance(raw_stderr, bytes):
+                stderr = raw_stderr.decode(errors="replace")
+            else:
+                stderr = raw_stderr or ""
+
+        assert "No module named" not in stderr, (
+            f"Shadowing bug regressed (module not found): {stderr}"
+        )
+        assert "cannot be directly executed" not in stderr, (
+            f"Shadowing bug regressed (package not directly executable): {stderr}"
+        )
+
+        if timed_out:
+            pytest.fail(
+                "`python -m server.telegram_bot` did not exit within the timeout, but no "
+                "import/shadowing error was seen either; investigate separately - "
+                f"stderr tail: {stderr[-2000:]}"
+            )
 
