@@ -67,3 +67,32 @@ class TestLifecycle:
     def test_load_missing_game_returns_none(self, service):
         assert service.load("does-not-exist") is None
         assert service.view("does-not-exist") is None
+
+
+class TestResolutionPersistence:
+    """process_turn stores the adjudication for later resolution-map rendering."""
+
+    def test_last_resolution_none_before_first_turn(self, service):
+        gid = _new_game(service)
+        assert service.last_resolution(gid) is None
+
+    def test_process_turn_persists_resolution(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
+        service.process_turn(gid)
+        res = service.last_resolution(gid)
+        assert res is not None
+        assert "results" in res and len(res["results"]) >= 1
+        # The stored resolution round-trips through serialization and names the move.
+        moves = [
+            r for r in res["results"]
+            if r["order"].get("type") == "MOVE" and r["order"].get("dest") == "BUR"
+        ]
+        assert moves and moves[0]["result"] == "OK"
+
+    def test_pending_orders_parsed_roundtrips(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "A MAR S A PAR - BUR"])
+        parsed = service.pending_orders_parsed(gid)
+        assert set(parsed.keys()) == {"FRANCE"}
+        assert len(parsed["FRANCE"]) == 2

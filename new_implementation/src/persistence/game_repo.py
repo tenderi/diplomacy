@@ -50,6 +50,15 @@ class GameRepo:
                 return {}
             return {k: list(v) for k, v in dict(row.pending_orders).items()}
 
+    def get_last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
+        """The most recent adjudication result, or ``None`` if the game has not yet
+        processed a turn."""
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None or not row.last_resolution:
+                return None
+            return dict(row.last_resolution)
+
     def get_meta(self, game_id: str) -> Optional[dict[str, Any]]:
         with self._session_factory() as session:
             row = self._row(session, game_id)
@@ -118,8 +127,10 @@ class GameRepo:
         *,
         phase_code: str,
         status: str,
+        last_resolution: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Persist the next ``GameState`` and bump the phase counter."""
+        """Persist the next ``GameState`` and bump the phase counter. When given, the
+        adjudication ``last_resolution`` is stored for later resolution-map rendering."""
         with self._session_factory() as session:
             row = self._row(session, game_id)
             if row is None:
@@ -127,6 +138,8 @@ class GameRepo:
             row.state_json = state_json
             row.phase_code = phase_code
             row.status = status
+            if last_resolution is not None:
+                row.last_resolution = last_resolution
             row.current_turn = int(row.current_turn or 0) + 1
             row.current_year = state_json.get("year", row.current_year)
             row.current_season = str(state_json.get("season", "SPRING")).capitalize()
