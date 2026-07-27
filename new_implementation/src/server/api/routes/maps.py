@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from ..shared import db_service, game_service
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
+from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
 
 router = APIRouter()
 
@@ -30,32 +31,35 @@ def _kind_by_province(view: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
-def _svg_path_for_map_name(map_name: str) -> str:
-    if map_name == "standard-v2":
-        base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
-        svg_path = os.path.join(base_dir, "v2.svg")
-        if not os.path.exists(svg_path):
-            svg_path = base_path
-        return svg_path
-    return os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
+_SEASON_BY_CODE = {"S": "SPRING", "F": "FALL", "W": "WINTER"}
+_PHASE_TYPE_BY_CODE = {"M": "MOVEMENT", "R": "RETREAT", "A": "ADJUSTMENT"}
 
 
-def _units_for_render(view: Dict[str, Any]) -> Dict[str, List[str]]:
-    """Build the renderer's ``{power: ["A PAR", "F STP", ...]}`` (coast stripped)."""
-    out: Dict[str, List[str]] = {}
-    for power, units in view.get("units_by_power", {}).items():
-        out[power] = [f"{u['kind']} {u['location'].split('/')[0]}" for u in units]
-    return out
+def _view_from_snapshot(map_name: str, snapshot: Any) -> Dict[str, Any]:
+    """Reconstruct a minimal view-shaped dict from a persisted ``MapSnapshotModel``.
 
-
-def _phase_info(view: Dict[str, Any], turn: int) -> Dict[str, Any]:
+    ``map_snapshots`` (written after every ``process_turn``, see ``routes/games.py``)
+    stores only ``units`` (the flat ``GameService.view()["units"]`` list),
+    ``supply_centers`` and ``phase_code`` — there are no ``year``/``season``/
+    ``phase_type`` columns, so they are decoded from the phase code (e.g.
+    ``"S1901M"``: season letter, year digits, phase-type letter). ``map_name``
+    doesn't vary across a game's turns, so it comes from the ``games`` row instead.
+    """
+    phase_code = str(snapshot.phase_code)
+    season = _SEASON_BY_CODE.get(phase_code[:1], "SPRING")
+    phase_type = _PHASE_TYPE_BY_CODE.get(phase_code[-1:], "MOVEMENT")
+    year = int(phase_code[1:-1])
+    units_by_power: Dict[str, List[Dict[str, Any]]] = {}
+    for u in snapshot.units or []:
+        units_by_power.setdefault(u["power"], []).append(u)
     return {
-        "turn": turn,
-        "year": view["year"],
-        "season": view["season"],
-        "phase": view["phase_type"],
-        "phase_code": view["phase"],
+        "map_name": map_name,
+        "year": year,
+        "season": season,
+        "phase_type": phase_type,
+        "phase": phase_code,
+        "units_by_power": units_by_power,
+        "ownership": dict(snapshot.supply_centers or {}),
     }
 
 
@@ -70,13 +74,43 @@ def get_game_map_png(game_id: str) -> Response:
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    svg_path = _svg_path_for_map_name(view["map_name"])
+    svg_path = svg_path_for_map_name(view["map_name"])
     try:
         img_bytes = Map.render_board_png(
             svg_path,
-            _units_for_render(view),
-            phase_info=_phase_info(view, _turn_of(game_id)),
+            units_for_render(view),
+            phase_info=phase_info(view, _turn_of(game_id)),
             supply_center_control=dict(view["ownership"]),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@router.get("/games/{game_id}/map/history/{turn}", response_class=Response)
+def get_game_map_history_png(game_id: str, turn: int) -> Response:
+    """Return the rendered PNG for a historical turn.
+
+    Historical state comes from ``map_snapshots`` (``MapSnapshotModel``), written
+    automatically after each ``process_turn`` and by the manual
+    ``POST /games/{game_id}/generate_map`` snapshot path (see ``routes/games.py``
+    and ``database_service.create_game_snapshot``). ``_view_from_snapshot`` bridges
+    that persisted shape back to the view shape the renderer helpers expect.
+    """
+    row = db_service.get_game_by_game_id(game_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="No map snapshot found for this turn.")
+    hist_view = _view_from_snapshot(str(row.map_name), snapshot)
+    svg_path = svg_path_for_map_name(hist_view["map_name"])
+    try:
+        img_bytes = Map.render_board_png(
+            svg_path,
+            units_for_render(hist_view),
+            phase_info=phase_info(hist_view, turn),
+            supply_center_control=dict(hist_view["ownership"]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
@@ -96,25 +130,25 @@ def _render_and_save(
     (orders map). When ``resolution_data`` is also given, standoff/conflict markers
     are drawn too (resolution map). On any render error, falls back to a plain board.
     """
-    svg_path = _svg_path_for_map_name(view["map_name"])
-    units = _units_for_render(view)
-    phase_info = _phase_info(view, _turn_of(game_id))
+    svg_path = svg_path_for_map_name(view["map_name"])
+    units = units_for_render(view)
+    phase_info_dict = phase_info(view, _turn_of(game_id))
     scc = dict(view["ownership"])
     render_warnings: List[str] = []
     try:
         if resolution_data is not None:
             img_bytes = Map.render_board_png_resolution(
                 svg_path, units, order_viz or {}, resolution_data,
-                phase_info=phase_info, supply_center_control=scc,
+                phase_info=phase_info_dict, supply_center_control=scc,
             )
         elif order_viz is not None:
             img_bytes = Map.render_board_png_orders(
                 svg_path, units, order_viz,
-                phase_info=phase_info, supply_center_control=scc,
+                phase_info=phase_info_dict, supply_center_control=scc,
             )
         else:
             img_bytes = Map.render_board_png(
-                svg_path, units, phase_info=phase_info, supply_center_control=scc,
+                svg_path, units, phase_info=phase_info_dict, supply_center_control=scc,
             )
     except Exception as e:
         render_warnings.append(f"render_failed_primary: {e}")
