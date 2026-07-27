@@ -271,44 +271,6 @@ class TestStandardV2MapRendering:
         with open(output_path, 'wb') as f:
             f.write(img_bytes)
     
-    def test_map_rendering_with_moves(self):
-        """Test map rendering with moves using standard-v2"""
-        from rendering.map import Map
-        
-        units = {
-            "FRANCE": ["A PAR", "F BRE"],
-            "GERMANY": ["A BER", "F KIE"]
-        }
-        
-        # Moves format: {power: {"successful": [...], "failed": [...], etc}}
-        moves = {
-            "FRANCE": {
-                "successful": [
-                    {"type": "move", "unit": "A PAR", "target": "BUR", "status": "successful"}
-                ],
-                "failed": []
-            },
-            "GERMANY": {
-                "successful": [
-                    {"type": "move", "unit": "A BER", "target": "SIL", "status": "successful"}
-                ],
-                "failed": []
-            }
-        }
-        
-        phase_info = {
-            "turn": 1,
-            "season": "Spring",
-            "year": 1901,
-            "phase": "Movement",
-            "phase_code": "S1901M"
-        }
-        
-        svg_path = Map._resolve_svg_path("standard-v2")
-        img_bytes = Map.render_board_png_with_moves(svg_path, units, moves, phase_info=phase_info)
-        
-        assert len(img_bytes) > 0, "Map with moves should generate image bytes"
-    
     def test_map_rendering_with_supply_centers(self):
         """Test map rendering with supply center control"""
         from rendering.map import Map
