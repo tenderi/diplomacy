@@ -84,3 +84,14 @@ def api_get(endpoint: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
+
+def api_get_bytes(endpoint: str) -> bytes:
+    """Make a GET request to the API and return the raw response body (e.g. a PNG).
+
+    Mirrors ``api_get``'s auth handling (``X-Bot-Secret`` header via
+    ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
+    """
+    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers())
+    resp.raise_for_status()
+    return resp.content
+

@@ -139,6 +139,67 @@ class TestGetOrderHistory:
 
 
 @pytest.mark.unit
+class TestGetOrdersTelegramAuth:
+    """`GET /games/{id}/orders` and `.../orders/{power}` via telegram_id+bot_secret query params."""
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_orders_via_telegram_id(self, client):
+        """The bot (no JWT) can read its own power's orders via telegram_id+bot_secret."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders1", "full_name": "Test"})
+        headers = _register_and_login(client, "ord_tg1")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        client.post("/games/set_orders", json={
+            "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
+            "telegram_id": "tg_orders1", "bot_secret": BOT_SECRET,
+        })
+
+        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders1", "bot_secret": BOT_SECRET})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert any(o["power"] == "FRANCE" for o in data)
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_orders_wrong_bot_secret_is_anonymous(self, client):
+        """A bad bot_secret must not resolve a user; falls back to the anonymous []."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders2", "full_name": "Test"})
+        headers = _register_and_login(client, "ord_tg2")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+
+        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders2", "bot_secret": "wrong"})
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_orders_for_power_via_telegram_id(self, client):
+        """The bot can read a named power's orders it owns via telegram_id+bot_secret."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders3", "full_name": "Test"})
+        headers = _register_and_login(client, "ord_tg3")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders3", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+
+        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders3", "bot_secret": BOT_SECRET})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["power"] == "FRANCE"
+        assert "orders" in data
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_orders_for_power_via_telegram_id_unauthorized(self, client):
+        """A different telegram user may not read a power they were not assigned."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4a", "full_name": "Owner"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4b", "full_name": "Other"})
+        headers = _register_and_login(client, "ord_tg4")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders4a", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+
+        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders4b", "bot_secret": BOT_SECRET})
+        assert resp.status_code == 403
+
+
+@pytest.mark.unit
 class TestGetOrdersForPower:
     """Test get orders for specific power endpoint."""
 
@@ -163,6 +224,18 @@ class TestGetOrdersForPower:
 
         resp = client.get(f"/games/{game_id}/orders/FRANCE")
         assert resp.status_code in [404, 500]
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_orders_for_power_still_rejects_wrong_bearer_user(self, client):
+        """A Bearer-authenticated user who does not hold the power still gets 403."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user_bearer_owner", "full_name": "Owner"})
+        owner_headers = _register_and_login(client, "ord_bearer_owner")
+        other_headers = _register_and_login(client, "ord_bearer_other")
+        game_id = _create_game(client, owner_headers)
+        client.post(f"/games/{int(game_id)}/join", json={"game_id": int(game_id), "power": "FRANCE"}, headers=owner_headers)
+
+        resp = client.get(f"/games/{game_id}/orders/FRANCE", headers=other_headers)
+        assert resp.status_code == 403
 
 
 @pytest.mark.unit
