@@ -13,13 +13,9 @@ import requests
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, http_bearer
 from ..shared import (
-    db_service, server, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
-    _state_to_spec_dict, notify_players, ensure_game_in_memory,
-    get_process_turn_lock,
+    db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
+    notify_players, get_process_turn_lock,
 )
-from ...models import GameStateOut
-from engine.data_models import GameStatus, Unit
-from engine.game import Game
 from ...response_cache import cached_response, invalidate_cache
 
 router = APIRouter()
@@ -64,337 +60,105 @@ class SpectateRequest(BaseModel):
     bot_secret: Optional[str] = None
 
 # --- Game Management Endpoints ---
+REQUIRED_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+
+
 @router.post("/games/create")
 def create_game(
     req: CreateGameRequest,
     _: None = Depends(require_bot_or_user),
 ) -> Dict[str, Any]:
-    """Create a new game and persist to the database, and register it in the in-memory server with the same game_id."""
+    """Create a new game. The new engine starts it immediately at S1901M with every
+    power's opening units; players then claim powers via add_player/join."""
     try:
-        start_in_movement = req.initial_phase == "Movement"
-        # Create the game in the database first (returns spec GameState)
-        game_state = db_service.create_game(map_name=req.map_name, initial_phase="Movement" if start_in_movement else "Pregame")
-        game_id = str(getattr(game_state, 'game_id', None) or "")
-        if not game_id:
-            raise RuntimeError("Failed to create game_id")
-        # Now create the game in the in-memory server with the same game_id
-        if game_id not in server.games:
-            g = Game(map_name=req.map_name)
-            setattr(g, "game_id", game_id)
-            g.game_state.game_id = game_id
-            if start_in_movement:
-                g.phase = "Movement"
-                g.phase_code = "S1901M"
-            else:
-                g.phase = "Pregame"
-                g.phase_code = "Pregame"
-            server.games[game_id] = g
+        game_id = game_service.create_game(map_name=req.map_name)
         return {"game_id": game_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/games/add_player")
 def add_player(
     req: AddPlayerRequest,
     _: None = Depends(require_bot_or_user),
 ) -> Dict[str, Any]:
-    """Add a player to a game."""
-    try:
-        # Add player to database
-        player = db_service.add_player(game_id=int(req.game_id), power_name=req.power)
-        player_id = getattr(player, 'id', None)
-        if player_id is None:
-            raise HTTPException(status_code=500, detail="Player ID not found after creation")
-        # Add player to in-memory server
-        if req.game_id not in server.games:
-            g = Game()
-            setattr(g, "game_id", req.game_id)
-            server.games[req.game_id] = g
-        result = server.process_command(f"ADD_PLAYER {req.game_id} {req.power}")
-        if result.get("status") != "ok":
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-        return {"status": "ok", "player_id": player_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Assign a power in a game to a player (power->user, in the players table)."""
+    row = db_service.get_game_by_game_id(str(req.game_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    power = req.power.upper()
+    if power not in REQUIRED_POWERS:
+        raise HTTPException(status_code=400, detail=f"Unknown power {req.power}")
+    taken = {p.power_name for p in db_service.get_players_by_game_id(int(row.id))}
+    if power in taken:
+        raise HTTPException(status_code=400, detail=f"Power {power} already taken")
+    player = db_service.create_player(int(row.id), power)
+    return {"status": "ok", "player_id": getattr(player, "id", None)}
+
 
 @router.post("/games/{game_id}/process_turn")
 async def process_turn(
     game_id: str,
     _: None = Depends(require_bot_or_user),
 ) -> Dict[str, str]:
-    """Advance the current phase for a game and update the database state."""
-    g = ensure_game_in_memory(game_id)
-    if g is not None and getattr(g, "phase", None) == "Pregame":
-        raise HTTPException(status_code=400, detail="Game has not started. Wait for all powers to join and click Start game.")
-    # Use per-game lock to prevent concurrent PROCESS_TURN calls
+    """Adjudicate all pending orders and advance the phase."""
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
     lock = get_process_turn_lock(game_id)
     if lock.locked():
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
     async with lock:
-        result = server.process_command(f"PROCESS_TURN {game_id}")
-    if result.get("status") != "ok":
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-    
-    # Invalidate cache for this game after processing turn
+        game_service.process_turn(game_id)
     invalidate_cache(f"games/{game_id}")
+
     try:
-        # Use get_game_by_game_id since game_id is a string
-        game = db_service.get_game_by_game_id(game_id)
-        if game is not None and game_id in server.games:
-            game_obj = server.games[game_id]
-            state_obj = game_obj.get_game_state()
-            # Update database with new game state (including updated unit positions)
-            state_obj.game_id = game_id
-            db_service.update_game_state(state_obj)
-            safe_state = _state_to_spec_dict(state_obj)
+        row = db_service.get_game_by_game_id(game_id)
+        view = game_service.view(game_id)
+        if row is not None and view is not None:
             try:
-                setattr(game, 'state', safe_state)
+                db_service.create_game_snapshot(
+                    game_id=int(row.id),
+                    turn=int(getattr(row, "current_turn", 0) or 0),
+                    year=view["year"],
+                    season=view["season"],
+                    phase=view["phase_type"],
+                    phase_code=view["phase"],
+                    game_state=view,
+                )
             except Exception as e:
-                logger.debug(f"process_turn: failed to assign spec-shaped game.state: {e}")
-            # Save game state snapshot
-            game_obj = server.games[game_id]
-            db_service.create_game_snapshot(
-                game_id=int(getattr(game, 'id', 0)),
-                turn=game_obj.turn,
-                year=game_obj.year,
-                season=game_obj.season,
-                phase=game_obj.phase,
-                phase_code=game_obj.phase_code,
-                game_state=safe_state
-            )
-            # Increment current_turn in database for order history tracking
-            db_service.increment_game_current_turn(game_id)
-            # Set new deadline if game is not done
-            if state_obj.status != GameStatus.COMPLETED:
-                setattr(game, 'deadline', datetime.now(timezone.utc) + timedelta(hours=24))
+                logger.debug(f"process_turn: snapshot failed: {e}")
+            if view["status"] != "COMPLETED":
+                db_service.update_game_deadline(int(row.id), datetime.now(timezone.utc) + timedelta(hours=24))
             else:
-                setattr(game, 'deadline', None)
-        # Game end notification
-        try:
-            if game is not None:
-                state_val = getattr(game, 'state', None)
-                if isinstance(state_val, dict) and state_val is not None and state_val.get("done"):
-                    notify_players(game.id, f"Game {game.id} has ended! Final state: {game.state}")  # type: ignore
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify game end: {e}")
-        
-        # Channel integration: Auto-post map and battle results after turn processing
-        try:
-            from ..telegram_bot.channels import (
-                should_auto_post_map, post_map_to_channel,
-                should_auto_post_notification, post_battle_results_to_channel
-            )
-            from .maps import generate_map_for_snapshot
-            from engine.database import order_to_dict
-            
-            channel_info = db_service.get_game_channel_info(game_id)
-            if channel_info:
-                # Get previous supply centers before processing (for comparison)
-                previous_supply_centers = {}
-                if game_id in server.games:
-                    prev_state = server.games[game_id].get_game_state()
-                    for power_name, power_state in prev_state.powers.items():
-                        previous_supply_centers[power_name] = list(power_state.controlled_supply_centers)
-                
-                # Get order history from the turn that was just processed
-                order_history = None
-                if game_id in server.games:
-                    game_obj = server.games[game_id]
-                    if hasattr(game_obj, "game_state") and hasattr(game_obj.game_state, "order_history"):
-                        # Get the last turn's orders (before they were cleared)
-                        last_turn_index = game_obj.turn - 1
-                        if last_turn_index >= 0 and last_turn_index < len(game_obj.game_state.order_history):
-                            order_history = {
-                                power: [order_to_dict(o) for o in orders]
-                                for power, orders in game_obj.game_state.order_history[last_turn_index].items()
-                            }
-                
-                # Auto-post map
-                if should_auto_post_map(game_id):
-                    try:
-                        result = generate_map_for_snapshot(game_id)
-                        map_path = result.get("map_path")
-                        if map_path:
-                            post_map_to_channel(
-                                channel_id=channel_info.get("channel_id"),
-                                game_id=game_id,
-                                map_path=map_path
-                            )
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-post map to channel for game {game_id}: {e}")
-                
-                # Auto-post battle results after Movement phase adjudication
-                if should_auto_post_notification(game_id, "adjudication"):
-                    try:
-                        # Get current game state as dict
-                        if game_id in server.games:
-                            game_obj = server.games[game_id]
-                            current_state = game_obj.get_game_state()
-                            
-                            # Convert to dict format
-                            game_state_dict = {
-                                "current_year": current_state.current_year,
-                                "current_season": current_state.current_season,
-                                "current_phase": current_state.current_phase,
-                                "phase_code": current_state.phase_code,
-                                "supply_centers": {
-                                    power: list(power_state.controlled_supply_centers)
-                                    for power, power_state in current_state.powers.items()
-                                },
-                                "units": {
-                                    power: [{"unit_type": u.unit_type, "province": u.province, 
-                                            "is_dislodged": u.is_dislodged, "dislodged_by": u.dislodged_by}
-                                           for u in power_state.units]
-                                    for power, power_state in current_state.powers.items()
-                                }
-                            }
-                            
-                            # Only post for Movement phase (when battles occur)
-                            if current_state.current_phase == "Movement" or current_state.current_phase == "Retreat":
-                                post_battle_results_to_channel(
-                                    channel_id=channel_info.get("channel_id"),
-                                    game_id=game_id,
-                                    game_state=game_state_dict,
-                                    order_history=order_history,
-                                    previous_supply_centers=previous_supply_centers
-                                )
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-post battle results to channel for game {game_id}: {e}")
-        except Exception as e:
-            logger.debug(f"Channel integration check failed for game {game_id}: {e}")
-        
-        return {"status": "ok"}
+                db_service.update_game_deadline(int(row.id), None)
+                try:
+                    notify_players(int(row.id), f"Game {game_id} has ended!")
+                except Exception as e:
+                    scheduler_logger.error(f"Failed to notify game end: {e}")
     except Exception as e:
-        import traceback
-        scheduler_logger.error(f"process_turn error: {str(e)}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-REQUIRED_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+        scheduler_logger.error(f"process_turn post-processing error: {e}")
+    return {"status": "ok"}
 
 
 @router.post("/games/{game_id}/start")
 def start_game(game_id: str) -> Dict[str, Any]:
-    """Start the game: transition from Pregame to first Movement phase. Any number of powers may be joined; unjoined powers get default units and take no orders."""
-    g = ensure_game_in_memory(game_id)
-    if g is None:
+    """No-op start: the new engine has no lobby/Pregame — a created game is already
+    at S1901M. Kept for API compatibility; returns the current opening phase."""
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    if getattr(g, "phase", None) != "Pregame":
-        raise HTTPException(status_code=400, detail="Game has already started.")
-    game_model = db_service.get_game_by_game_id(game_id)
-    if not game_model:
-        raise HTTPException(status_code=404, detail="Game not found")
-    players = db_service.get_players_by_game_id(int(game_model.id))  # type: ignore
-    if not players:
-        raise HTTPException(status_code=400, detail="At least one power must join before starting.")
-    joined_powers = {getattr(p, "power_name", None) for p in players if getattr(p, "power_name", None)}
-    missing_in_db = REQUIRED_POWERS - joined_powers
-    missing_in_memory = REQUIRED_POWERS - set(g.game_state.powers.keys())
-    for power_name in missing_in_memory:
-        g.add_player(power_name)
-    for power_name in missing_in_db:
-        try:
-            db_service.add_player(int(game_model.id), power_name, user_id=None)
-        except Exception:
-            pass
-    g.phase = "Movement"
-    g.phase_code = "S1901M"
-    state = g.get_game_state()
-    state.game_id = game_id
-    state.current_phase = "Movement"
-    state.phase_code = "S1901M"
-    db_service.update_game_state(state)
     invalidate_cache(f"games/{game_id}")
-    return {"status": "ok", "phase": "Movement", "phase_code": "S1901M"}
+    return {"status": "ok", "phase": "Movement", "phase_code": view["phase"]}
 
 
 @router.get("/games/{game_id}/state")
 @cached_response(ttl=30, key_params=["game_id"])
-def get_game_state(game_id: str) -> GameStateOut:
-    """
-    Get the current state of the game, including map, units, powers, phase, and adjudication results for the latest turn.
-    """
-    # If game doesn't exist in server.games, load it from database and register
-    game = ensure_game_in_memory(game_id)
-    if game is None:
+def get_game_state(game_id: str) -> Dict[str, Any]:
+    """Current game state in the new GameState-native shape (see GameService.view)."""
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    state = game.get_game_state()
-    
-    # Convert to GameStateOut model (complex conversion logic from original)
-    from engine.database import unit_to_dict, order_to_dict
-    from ...models import PowerStateOut, UnitOut
-    
-    supply_centers: dict[str, str] = {}
-    for p_name, p_state in state.powers.items():
-        for prov in p_state.controlled_supply_centers:
-            supply_centers[prov] = p_name
-
-    powers: Dict[str, PowerStateOut] = {}
-    for power_name, ps in state.powers.items():
-        powers[power_name] = PowerStateOut(
-            power_name=ps.power_name,
-            user_id=ps.user_id,
-            is_active=ps.is_active,
-            is_eliminated=ps.is_eliminated,
-            home_supply_centers=ps.home_supply_centers,
-            controlled_supply_centers=ps.controlled_supply_centers,
-            units=[UnitOut(**unit_to_dict(u)) for u in ps.units],
-            orders_submitted=ps.orders_submitted,
-            last_order_time=ps.last_order_time.isoformat() if ps.last_order_time else None,
-            retreat_options=ps.retreat_options,
-            build_options=ps.build_options,
-            destroy_options=ps.destroy_options,
-        )
-
-    state_out = GameStateOut(
-        game_id=state.game_id,
-        map_name=state.map_name,
-        current_turn=state.current_turn,
-        current_year=state.current_year,
-        current_season=state.current_season,
-        current_phase=state.current_phase,
-        phase_code=state.phase_code,
-        status=state.status.value,
-        created_at=state.created_at.isoformat(),
-        updated_at=state.updated_at.isoformat(),
-        powers=powers,
-        units={p: [UnitOut(**unit_to_dict(u)) for u in ps.units] for p, ps in state.powers.items()},
-        supply_centers=supply_centers,
-        orders={p: [order_to_dict(o) for o in orders] for p, orders in state.orders.items()},
-        pending_retreats={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_retreats.items()},
-        pending_builds={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_builds.items()},
-        pending_destroys={p: [order_to_dict(o) for o in lst] for p, lst in state.pending_destroys.items()},
-        order_history=[{p: [order_to_dict(o) for o in orders] for p, orders in turn_orders.items()} for turn_orders in state.order_history],
-        turn_history=[],
-        map_snapshots=[],
-    )
-    state_dict = state_out.model_dump()
-
-    # In-memory adjudication results if available
-    if game is not None and game_id in server.games:
-        last_turn = game.turn - 1
-        if hasattr(game, "game_state") and hasattr(game.game_state, "order_history") and last_turn < len(game.game_state.order_history):
-            state_dict["adjudication_results"] = game.game_state.order_history[last_turn] if last_turn >= 0 else {}
-        else:
-            state_dict["adjudication_results"] = {}
-    else:
-        state_dict["adjudication_results"] = {}
-    
-    # Final shape hardening
-    try:
-        state_dict.setdefault("year", None)
-        state_dict.setdefault("phase", None)
-        state_dict.setdefault("turn", None)
-        state_dict.setdefault("done", False)
-        state_dict.setdefault("powers", {})
-        state_dict.setdefault("units", {})
-        state_dict.setdefault("orders", {})
-        state_dict.setdefault("map_name", "standard")
-        state_dict.setdefault("phase_code", None)
-        state_dict.setdefault("adjudication_results", {})
-    except Exception:
-        pass
-    return state_out
+    return view
 
 @router.get("/games")
 def list_games() -> Dict[str, Any]:
@@ -502,70 +266,13 @@ def get_observer_state(game_id: str) -> Dict[str, Any]:
     Get game state for observers: same as /state but with orders hidden
     (pending orders, retreats, builds, destroys, order_history, adjudication_results).
     """
-    # Reuse state fetch from get_game_state
-    game = None
-    if game_id in server.games:
-        game = server.games[game_id]
-        state = game.get_game_state()
-    else:
-        state = db_service.get_game_state(game_id)
-        if state is None:
-            raise HTTPException(status_code=404, detail="Game not found")
-
-    from engine.database import unit_to_dict
-    from ...models import PowerStateOut, UnitOut
-
-    supply_centers = {}
-    for p_name, p_state in state.powers.items():
-        for prov in p_state.controlled_supply_centers:
-            supply_centers[prov] = p_name
-
-    powers = {}
-    for power_name, ps in state.powers.items():
-        powers[power_name] = PowerStateOut(
-            power_name=ps.power_name,
-            user_id=ps.user_id,
-            is_active=ps.is_active,
-            is_eliminated=ps.is_eliminated,
-            home_supply_centers=ps.home_supply_centers,
-            controlled_supply_centers=ps.controlled_supply_centers,
-            units=[UnitOut(**unit_to_dict(u)) for u in ps.units],
-            orders_submitted=ps.orders_submitted,
-            last_order_time=ps.last_order_time.isoformat() if ps.last_order_time else None,
-            retreat_options=ps.retreat_options,
-            build_options=ps.build_options,
-            destroy_options=ps.destroy_options,
-        )
-
-    state_out = GameStateOut(
-        game_id=state.game_id,
-        map_name=state.map_name,
-        current_turn=state.current_turn,
-        current_year=state.current_year,
-        current_season=state.current_season,
-        current_phase=state.current_phase,
-        phase_code=state.phase_code,
-        status=state.status.value,
-        created_at=state.created_at.isoformat(),
-        updated_at=state.updated_at.isoformat(),
-        powers=powers,
-        units={p: [UnitOut(**unit_to_dict(u)) for u in ps.units] for p, ps in state.powers.items()},
-        supply_centers=supply_centers,
-        orders={},
-        pending_retreats={},
-        pending_builds={},
-        pending_destroys={},
-        order_history=[],
-        turn_history=[],
-        map_snapshots=[],
-    )
-    out = state_out.model_dump()
-    out["adjudication_results"] = {}
-    out.setdefault("year", None)
-    out.setdefault("phase", None)
-    out.setdefault("turn", None)
-    out.setdefault("done", False)
-    return out
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    # Observers see the board but not submitted orders.
+    view = dict(view)
+    view["orders"] = {}
+    return view
 
 
 @router.post("/games/{game_id}/join")
@@ -588,17 +295,8 @@ def join_game(
         taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if taken:
             raise HTTPException(status_code=409, detail="Power already taken")
-        # Use add_player which creates the player in the database
-        db_service.add_player(game_id=game_id, power_name=req.power, user_id=int(user.id))  # type: ignore
-        # Add player to in-memory server
-        if str(game_id) not in server.games:
-            g = Game()
-            setattr(g, "game_id", str(game_id))
-            g.game_state.game_id = str(game_id)
-            server.games[str(game_id)] = g
-        result = server.process_command(f"ADD_PLAYER {str(game_id)} {req.power}")
-        if result.get("status") != "ok":
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+        # Assign the power to this user (players table only; state is engine-owned).
+        db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         try:
@@ -738,7 +436,7 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     if req.admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
     try:
-        from engine.database import PlayerModel
+        from persistence.database import PlayerModel
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if not player:
             raise HTTPException(status_code=404, detail="Player not found")
@@ -799,22 +497,22 @@ def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
 @router.post("/games/{game_id}/snapshot")
 def save_game_snapshot(game_id: str) -> Dict[str, Any]:
     """Save a snapshot of the current game state"""
-    game = ensure_game_in_memory(game_id)
-    if game is None:
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    row = db_service.get_game_by_game_id(game_id)
     try:
-        # Create snapshot (spec-shaped state)
-        state_safe = _state_to_spec_dict(game.get_game_state())
+        turn = int(getattr(row, "current_turn", 0) or 0)
         snapshot = db_service.create_game_snapshot(
-            game_id=int(game_id),
-            turn=game.turn,
-            year=game.year,
-            season=game.season,
-            phase=game.phase,
-            phase_code=game.phase_code,
-            game_state=state_safe
+            game_id=int(row.id),
+            turn=turn,
+            year=view["year"],
+            season=view["season"],
+            phase=view["phase_type"],
+            phase_code=view["phase"],
+            game_state=view,
         )
-        return {"status": "ok", "snapshot_id": snapshot.id, "turn": game.turn}
+        return {"status": "ok", "snapshot_id": snapshot.id, "turn": turn}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -848,12 +546,9 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
         snapshot = db_service.get_game_snapshot_by_id(snapshot_id)
         if not snapshot:
             raise HTTPException(status_code=404, detail="Snapshot not found")
-        # Restore game state from snapshot — ensure game is in memory
-        game = ensure_game_in_memory(game_id)
-        if game is None:
+        if not game_service.exists(game_id):
             raise HTTPException(status_code=404, detail="Game not found")
-        # Update game state from snapshot
-        # Note: This is a simplified restore - full restore would need to rebuild game object
+        # Note: simplified restore - full restore would rewrite games.state_json.
         return {"status": "ok", "message": "Snapshot restored (simplified implementation)"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -861,222 +556,46 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
 @router.get("/games/{game_id}/debug/unit_locations")
 def debug_unit_locations(game_id: str) -> Dict[str, Any]:
     """Get all unit locations in text format for debugging"""
-    game = ensure_game_in_memory(game_id)
-    if game is None:
+    view = game_service.view(game_id)
+    if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    unit_locations = {}
-    
-    for power_name, power in game.game_state.powers.items():
-        unit_locations[power_name] = [f"{unit.unit_type} {unit.province}" for unit in power.units]
-    
+    unit_locations: Dict[str, List[str]] = {}
+    for power, units in view["units_by_power"].items():
+        unit_locations[power] = [f"{u['kind']} {u['location']}" for u in units]
     return {
         "status": "ok",
         "game_id": game_id,
-        "turn": game.turn,
-        "phase": game.phase,
-        "unit_locations": unit_locations
+        "phase": view["phase"],
+        "unit_locations": unit_locations,
     }
 
-# Helper functions for legal orders (moved from main api.py)
-def _generate_movement_orders(game: Any, game_state: Any, unit: Unit, power: str) -> List[str]:
-    """Generate all legal movement phase orders for a unit."""
-    orders = []
-    
-    # 1. Hold order
-    coast_suffix = f"/{unit.coast}" if unit.coast else ""
-    hold_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} H"
-    orders.append(hold_order)
-    
-    am = getattr(game_state, "allowed_moves", None)
-    
-    # 2. Move orders: direct targets (and optionally convoy targets for armies)
-    if unit.province in game_state.map_data.provinces:
-        current_province = game_state.map_data.provinces[unit.province]
-        
-        if am is not None:
-            direct_targets = am.get_direct_targets(unit.province, unit.unit_type, unit.coast)
-            for adjacent_prov in direct_targets:
-                if adjacent_prov not in game_state.map_data.provinces:
-                    continue
-                move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
-                orders.append(move_order)
-            # Army convoy moves: add move orders to convoy-reachable coastal (vacated by other moves is resolved in adjudication)
-            if unit.unit_type == "A" and current_province.province_type == "coastal":
-                for target in am.get_convoy_targets(unit.province):
-                    if target == unit.province:
-                        continue
-                    if target not in game_state.map_data.provinces:
-                        continue
-                    move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {target}"
-                    if move_order not in orders:
-                        orders.append(move_order)
-        else:
-            for adjacent_prov in current_province.adjacent_provinces:
-                if adjacent_prov in game_state.map_data.provinces:
-                    target_province = game_state.map_data.provinces[adjacent_prov]
-                    if unit.can_move_to_province_type(target_province.province_type):
-                        move_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} - {adjacent_prov}"
-                        orders.append(move_order)
-    
-    # 3. Support orders (support any adjacent move)
-    if unit.province in game_state.map_data.provinces:
-        current_province = game_state.map_data.provinces[unit.province]
-        support_targets = (
-            am.get_direct_targets(unit.province, unit.unit_type, unit.coast)
-            if am is not None
-            else [p for p in current_province.adjacent_provinces if p in game_state.map_data.provinces and unit.can_move_to_province_type(game_state.map_data.provinces[p].province_type)]
-        )
-        for adjacent_prov in support_targets:
-            support_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} S {unit.unit_type} {adjacent_prov} - {adjacent_prov}"
-            orders.append(support_order)
-    
-    # 4. Convoy orders (for fleets in sea)
-    if unit.unit_type == "F" and unit.province in game_state.map_data.provinces:
-        current_prov = game_state.map_data.provinces[unit.province]
-        if current_prov.province_type == "sea":
-            if am is not None:
-                for other_power, other_power_state in game_state.powers.items():
-                    for other_unit in other_power_state.units:
-                        if other_unit.unit_type != "A":
-                            continue
-                        if other_unit.province not in current_prov.adjacent_provinces:
-                            continue
-                        for target in am.get_convoy_targets(other_unit.province):
-                            if target == other_unit.province:
-                                continue
-                            convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target}"
-                            orders.append(convoy_order)
-            else:
-                for other_power, other_power_state in game_state.powers.items():
-                    for other_unit in other_power_state.units:
-                        if other_unit.unit_type == "A" and other_unit.province in current_prov.adjacent_provinces:
-                            for target in game_state.map_data.provinces.values():
-                                if target.province_type == "coastal" and target.name != other_unit.province:
-                                    convoy_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} C {other_unit.unit_type} {other_unit.province} - {target.name}"
-                                    orders.append(convoy_order)
-    
-    return orders
-
-
-def _generate_retreat_orders(game_state: Any, unit: Unit, power: str) -> List[str]:
-    """Generate all legal retreat orders for a dislodged unit."""
-    orders = []
-    
-    if not unit.is_dislodged:
-        return orders
-    
-    # Use retreat options if available
-    if unit.retreat_options:
-        coast_suffix = f"/{unit.coast}" if unit.coast else ""
-        for retreat_prov in unit.retreat_options:
-            retreat_order = f"{power} {unit.unit_type} {unit.province}{coast_suffix} R {retreat_prov}"
-            orders.append(retreat_order)
-    else:
-        # Calculate retreat options if not already set
-        current_province_name = unit.province.replace("DISLODGED_", "")
-        current_province = game_state.map_data.provinces.get(current_province_name)
-        
-        if current_province:
-            for adjacent_prov in current_province.adjacent_provinces:
-                if adjacent_prov in game_state.map_data.provinces:
-                    target_province = game_state.map_data.provinces[adjacent_prov]
-                    
-                    if unit.can_move_to_province_type(target_province.province_type):
-                        is_occupied = any(
-                            u.province == adjacent_prov 
-                            for power_state in game_state.powers.values() 
-                            for u in power_state.units
-                        )
-                        
-                        if not is_occupied:
-                            coast_suffix = f"/{unit.coast}" if unit.coast else ""
-                            retreat_order = f"{power} {unit.unit_type} {current_province_name}{coast_suffix} R {adjacent_prov}"
-                            orders.append(retreat_order)
-    
-    return orders
-
-
-def _generate_build_orders(game_state: Any, power_state: Any, power: str) -> List[str]:
-    """Generate all legal build/destroy orders for a power in build phase."""
-    orders = []
-    
-    unit_count = len(power_state.units)
-    supply_center_count = len(power_state.controlled_supply_centers)
-    
-    # Build orders - if supply centers > units
-    if supply_center_count > unit_count:
-        build_count = supply_center_count - unit_count
-        home_centers = game_state.map_data.home_supply_centers.get(power, [])
-        occupied_provinces = {u.province for u in game_state.get_all_units()}
-        
-        for home_center in home_centers:
-            if home_center not in occupied_provinces and build_count > 0:
-                center_prov = game_state.map_data.provinces.get(home_center)
-                if center_prov:
-                    if center_prov.province_type == "coastal":
-                        build_army = f"{power} BUILD A {home_center}"
-                        build_fleet = f"{power} BUILD F {home_center}"
-                        orders.append(build_army)
-                        orders.append(build_fleet)
-                    else:
-                        build_army = f"{power} BUILD A {home_center}"
-                        orders.append(build_army)
-                    build_count -= 1
-    
-    # Destroy orders - if units > supply centers
-    elif unit_count > supply_center_count:
-        destroy_count = unit_count - supply_center_count
-        for unit in power_state.units[:destroy_count]:
-            destroy_order = f"{power} DESTROY {unit.unit_type} {unit.province}"
-            orders.append(destroy_order)
-    
-    return orders
 
 @router.get("/games/{game_id}/legal_orders/{power}/{unit}")
 def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
-    """
-    Get all valid order strings for the given unit and power in the current game state.
-    """
-    game = ensure_game_in_memory(game_id)
-    if game is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    game_state = game.get_game_state()
-    
-    # Parse unit string
-    unit_parts = unit.upper().strip().split()
-    if len(unit_parts) < 2:
-        raise HTTPException(status_code=400, detail=f"Invalid unit format: '{unit}'. Expected format: 'A PAR' or 'F BRE'")
-    
-    unit_type = unit_parts[0]
-    unit_province = unit_parts[1]
-    
-    if unit_type not in ["A", "F"]:
-        raise HTTPException(status_code=400, detail=f"Invalid unit type: '{unit_type}'. Must be 'A' (Army) or 'F' (Fleet)")
-    
-    # Find the unit
-    power_state = game_state.powers.get(power)
-    if not power_state:
-        raise HTTPException(status_code=404, detail=f"Power '{power}' not found in game")
-    
-    found_unit = None
-    for u in power_state.units:
-        if u.unit_type == unit_type and u.province == unit_province:
-            found_unit = u
-            break
-    
-    if not found_unit:
-        raise HTTPException(status_code=404, detail=f"Unit '{unit}' not found for power '{power}'")
-    
-    # Generate legal orders based on current phase
-    orders = []
-    current_phase = game_state.current_phase
-    
-    if current_phase == "Movement":
-        orders.extend(_generate_movement_orders(game, game_state, found_unit, power))
-    elif current_phase == "Retreat":
-        orders.extend(_generate_retreat_orders(game_state, found_unit, power))
-    elif current_phase in ["Builds", "Adjustment"]:
-        orders.extend(_generate_build_orders(game_state, power_state, power))
-    
-    return {"orders": orders}
+    """Legal order strings for a unit in the current phase (new engine).
 
+    Enumerates holds, adjacent moves and supports from the map topology; free-form
+    orders are still accepted and validated at submit time.
+    """
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    parts = unit.upper().strip().split()
+    if len(parts) < 2 or parts[0] not in ("A", "F"):
+        raise HTTPException(status_code=400, detail=f"Invalid unit format: '{unit}'")
+    kind, province = parts[0], parts[1].split("/")[0]
+    m = game_service.map
+    orders: List[str] = [f"{kind} {province} H"]
+    if kind == "A":
+        dests = sorted(m.army_moves(province))
+        for d in dests:
+            orders.append(f"{kind} {province} - {d}")
+        for d in dests:
+            orders.append(f"{kind} {province} S A {d}")
+    else:
+        dests = sorted({loc.province for floc in m.fleet_locations(province) for loc in m.fleet_moves(floc)})
+        for d in dests:
+            orders.append(f"{kind} {province} - {d}")
+        for d in dests:
+            orders.append(f"{kind} {province} S F {d}")
+    return {"orders": orders}

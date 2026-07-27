@@ -1,8 +1,12 @@
 # Diplomacy — Comprehensive Codebase Overview
 
-> **Version:** 2.0.0 (new implementation)
+> **Version:** 2.0.0 (new implementation, post engine-rewrite — see
+> `new_implementation/docs/specs/fix_plan.md` M0–M7)
 > **Language:** Python 3.14
-> **Total lines of Python:** ~46,000 (new implementation)
+> **Total lines of Python:** ~20,000 in `new_implementation/src/` (post-rewrite; the old
+> engine's ~2,300-line persistence layer and ~3,200-line rendering half of `map.py` moved
+> to `src/persistence/` and `src/rendering/`, and ~1,180 pre-rewrite bug-enshrining tests
+> were deleted along with the old engine)
 
 ---
 
@@ -14,8 +18,8 @@
    - [Game Engine (`src/engine/`)](#31-game-engine-srcengine)
    - [Server & API (`src/server/`)](#32-server--api-srcserver)
    - [Telegram Bot (`src/server/telegram_bot/`)](#33-telegram-bot-srcservertelegram_bot)
-   - [Maps & Visualization](#34-maps--visualization)
-   - [Database Layer](#35-database-layer)
+   - [Maps & Rendering (`src/rendering/`)](#34-maps--rendering)
+   - [Persistence Layer (`src/persistence/`)](#35-persistence-layer)
    - [Tests](#36-tests)
    - [Infrastructure & Deployment](#37-infrastructure--deployment)
    - [Specs & Documentation](#38-specs--documentation)
@@ -53,10 +57,13 @@ There are two top-level directories:
 diplomacy/
 ├── new_implementation/          # ← Active codebase (v2.0.0)
 │   ├── src/
-│   │   ├── engine/              # Core game logic
-│   │   ├── server/              # FastAPI server + Telegram bot
+│   │   ├── engine/              # PURE rules core — no I/O, DB, or rendering (stdlib only)
+│   │   ├── persistence/         # SQLAlchemy models + DAL (moved out of engine/ in M6)
+│   │   ├── rendering/           # SVG→PNG map rendering (moved out of engine/map.py in M6)
+│   │   ├── server/              # FastAPI server + Telegram bot + DAIDE + CLI Server
 │   │   └── client.py            # Minimal CLI client
-│   ├── tests/                   # ~80 test files
+│   ├── tests/                   # ~80 top-level files + tests/datc/ (154 DATC cases) +
+│   │                             #   tests/engine/ (engine-package unit tests)
 │   ├── maps/                    # SVG maps + .map definition files
 │   ├── examples/                # Demo scripts
 │   ├── infra/                   # Deployment scripts & Terraform
@@ -89,30 +96,46 @@ diplomacy/
 
 ### 3.1 Game Engine (`src/engine/`)
 
-The engine is the heart of the system. It implements all Diplomacy game rules without any I/O or framework dependencies.
+This is a **from-scratch rewrite** (`docs/specs/fix_plan.md` M0–M7, completed 2026-07-27)
+of the original engine, done because the original had order-dependent (non-simultaneous)
+adjudication, gave convoyed armies unearned attack strength, had no convoy-paradox
+handling, wrong support-cut exemptions, dead-on-arrival coast support, and unvalidated
+builds — see `fix_plan.md` §"Why a rewrite" for the itemized defects. The engine package
+is **pure**: `stdlib` only, no I/O, no DB, no rendering, no framework dependencies — a
+Hypothesis property enforces this isn't just aspirational. Full algorithm writeup:
+`docs/specs/adjudication.md`.
 
-| File | Lines | Purpose |
-|---|---|---|
-| `data_models.py` | ~900 | Core dataclasses: `Unit`, `Order`, `GameState`, `PowerState`, `MapData`, `Province`, `TurnState`, `MapSnapshot`. Enums: `OrderType`, `OrderStatus`, `GameStatus`. Order subtypes: `MoveOrder`, `HoldOrder`, `SupportOrder`, `ConvoyOrder`, `RetreatOrder`, `BuildOrder`, `DestroyOrder`. |
-| `game.py` | ~1,375 | `Game` class — main game controller. Manages turn processing, order validation, adjudication (move resolution with strength calculation, standoff detection, dislodgement, support cutting), retreat phases, and build/destroy phases. Tracks year/season/phase state machine (`S1901M` → `F1901M` → `F1901R` → `W1901B` → `S1902M` …). |
-| `map.py` | ~3,600 | `Map` class — loads map topology from `.map` files, manages provinces, adjacencies (including coast-specific adjacency for fleets), and supply centers. Includes `Province` class and `MapCache` class. Also contains the full **SVG rendering pipeline**: parses SVG map files, overlays unit icons (army/fleet PNGs), draws colored order arrows (moves, supports, convoys), and colors provinces by controlling power. Uses Pillow + CairoSVG. |
-| `power.py` | ~70 | `Power` class — represents one of the 7 great powers. Manages units (list of `Unit` objects), home supply centers, controlled supply centers, alive/eliminated status, and build/destroy needs. |
-| `order_parser.py` | ~520 | `OrderParser` class — parses human-readable order strings (e.g., `"A PAR - BUR"`, `"F BRE S A PAR - BUR"`, `"F NTH C A LON - BEL"`) into structured `ParsedOrder` / `Order` data model objects. Supports regex patterns for all order types. Includes validation against game state. |
-| `order_parser_utils.py` | — | Helper utilities for the order parser (province normalization, fuzzy matching). |
-| `order_visualization.py` | ~390 | `OrderVisualizationService` — creates structured visualization data from game state orders, ensuring correct order-to-unit mapping for the map renderer. |
-| `province_mapping.py` | ~365 | Province abbreviation → full name mapping (e.g., `"BUR"` → `"Burgundy"`). Covers all 75 provinces: 19 sea, ~20 inland, ~36 coastal. Includes reverse lookup and multi-coast info (Bulgaria, Spain, St. Petersburg). |
-| `database.py` | ~540 | SQLAlchemy ORM models: `GameModel`, `UserModel`, `PlayerModel`, `UnitModel`, `OrderModel`, `SupplyCenterModel`, `TurnHistoryModel`, `MapSnapshotModel`, `MessageModel`. Defines all table schemas, relationships, and indexes. Helper functions: `unit_to_dict`, `dict_to_unit`, `order_to_dict`, `dict_to_order`, `create_database_schema`. |
-| `database_service.py` | ~950 | `DatabaseService` class — the data access layer (DAL). Full CRUD for all entities: `create_game`, `add_player`, `set_orders`, `process_turn`, `get_game_state`, `get_user_by_telegram_id`, etc. Manages SQLAlchemy sessions and transactions. |
-| `strategic_ai.py` | ~530 | `StrategicAI` class — generates orders for automated demo games. Configurable aggression, support probability, convoy usage, etc. Produces proper `Order` objects for any game phase. |
-| `visualization_config.py` | — | Configuration for map visualization (colors, sizes, layout). |
-| `visualization_config.json` | — | JSON visualization config. |
+| File | Purpose |
+|---|---|
+| `types.py` | Frozen, hashable dataclasses: `Location` (province + optional coast), `Unit`, `DislodgedUnit`, one class per order kind (`Hold`, `Move`, `SupportHold`, `SupportMove`, `Convoy`, `Retreat`, `Disband`, `Build`, `Waive`), `OrderResult`, `Resolution`, `GameState`. Enums: `UnitKind`, `ProvinceType`, `Season`, `PhaseType`, `OrderType`, `ResultCode`, `GameStatus`. |
+| `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types (land/coast/water), coast-first-class adjacency, supply centers, home centers, 1901 starting units. Query API: `adjacent`, `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`. The `.map` file is the **sole** topology source — no hardcoded adjacency/coast tables anywhere in the engine. |
+| `orders/parser.py` | One grammar for every order type: coast syntax (`F SPA/SC`), `VIA` convoy, aliases, optional power prefix. `parse_order` / `format_order` round-trip (Hypothesis-checked). |
+| `orders/validation.py` | The single validation path, `validate(order, state, map)` — used by `GameService.submit_orders` and by build legality in `adjudicator/adjustments.py`. |
+| `adjudicator/movement.py` | The heart of the engine: a **Kruijswijk fixed-point resolver**. Per-order UNRESOLVED/GUESSING/RESOLVED state, recursive resolve with dependency-cycle detection, attack/defend/prevent/hold strengths with the correct support-cut exemptions, convoy paths over surviving fleets (BFS, multi-route support), and cycle-breaking: circular movement succeeds, convoy-entangled cycles apply the **Szykman rule**. Detailed walkthrough: `adjudication.md`. |
+| `adjudicator/retreats.py` | `compute_retreat_options` — the single authoritative retreat-legality function (post-resolution occupancy, excludes attacker origin + standoffs); `adjudicate_retreats` — the retreat phase, where simultaneous collisions into one province all disband. |
+| `adjudicator/adjustments.py` | Builds/disbands/waives/civil-disorder for the winter adjustment phase; civil-disorder auto-removal follows the rulebook distance rule (farthest from home first, fleet before army, alphabetical tiebreak). |
+| `game.py` | `Game` — a frozen snapshot (`map`, `state`, `history`) driving the phase state machine `S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M …`; retreat/adjustment phases inserted only when needed; SC ownership updates after Fall settles; victory at 18 centers. |
+| `serialization.py` | Canonical `GameState`/`Order`/`Resolution` ⇄ JSON — the **one** place this conversion happens; used by persistence, the HTTP API, and DAIDE. Round-trip is exact (Hypothesis-checked). |
+| `simple_ai.py` | A deliberately dumb heuristic order generator for automated/demo games (not a real AI — out of scope to make it stronger). |
+| `province_mapping.py` | The one pre-rewrite module kept as-is: abbreviation → full-name lookup used only for human-facing display (`src/rendering/map.py`, the bot's `orders.py`). Not used by adjudication, which reads province codes straight off `Location`/`MapData`. |
 
 #### Key Engine Concepts
 
-- **Turn Phases:** The game follows a strict state machine: `Movement → Retreat → Builds` for each season (Spring and Fall).
-- **Adjudication:** Move orders are resolved simultaneously. The engine calculates attack/defense strengths, handles standoffs (bounce), cuts to support, convoy disruption, and dislodgement.
-- **Multi-coast provinces:** Bulgaria (EC/SC), Spain (NC/SC), and St. Petersburg (NC/SC) have separate coast adjacencies for fleets.
-- **Victory condition:** A power controlling 18+ supply centers wins. Alternatively, a game ends when all remaining players agree to a draw.
+- **Turn Phases:** `S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M …` — retreat and
+  adjustment phases are inserted only when a dislodgement or a unit/center-count mismatch
+  actually requires them.
+- **Adjudication:** All movement-phase orders resolve simultaneously via mutual recursion
+  (Kruijswijk's algorithm), not a linear pass — this is what makes interdependent cases
+  (beleaguered garrison, head-to-head, circular movement, convoy paradoxes) resolve
+  correctly and order-independently. See `docs/specs/adjudication.md`.
+- **Multi-coast provinces:** Bulgaria (EC/SC), Spain (NC/SC), and St. Petersburg (NC/SC)
+  are first-class `Location(province, coast)` pairs read straight from `standard.map` —
+  no separate hardcoded coast tables.
+- **Victory condition:** A power controlling ≥18 supply centers wins, checked once per
+  year right after Fall ownership updates.
+- **Conformance:** 144/154 DATC cases green (`tests/datc/`), 10 documented `xfail`
+  hard-tail cases (second-order convoy paradoxes and a few rule-variant edge cases) —
+  see `adjudication.md` §11 for exactly which and why.
 
 ---
 
@@ -122,13 +145,14 @@ The server exposes the game engine over HTTP via **FastAPI** and also provides a
 
 | File / Module | Purpose |
 |---|---|
+| `game_service.py` | **The single entry point from server code into the engine.** `GameService` wraps `engine.game.Game` + `engine.serialization` + `orders/parser.py`/`orders/validation.py` over `GameRepo` persistence: `create_game`, `submit_orders`, `process_turn`, `view` (the GameState-native API response — see `docs/specs/data_spec.md` §4), `last_resolution`, `order_history`. Routes, the CLI `Server`, and DAIDE all go through this — none of them touch engine internals directly. |
 | `_api_module.py` / `api.py` | FastAPI application factory. Registers all route modules, initializes DB schema on startup, starts the deadline scheduler background task, mounts static files for the dashboard. |
-| `server.py` | `Server` class — CLI-oriented server that manages in-memory games dict. Processes text commands like `CREATE_GAME`, `ADD_PLAYER`, `SET_ORDERS`, `PROCESS_TURN`, `GET_GAME_STATE`. |
-| `models.py` | Pydantic response models: `GameStateOut`, `PowerStateOut`, `UnitOut`, `MapSnapshotOut`, `TurnStateOut`. Used for typed API responses. |
+| `server.py` | `Server` class — CLI-oriented server that manages in-memory games dict. Processes text commands like `CREATE_GAME`, `ADD_PLAYER`, `SET_ORDERS`, `PROCESS_TURN`, `GET_GAME_STATE`, all routed through `GameService`. |
+| `models.py` | Pydantic response models used for typed API responses. |
 | `errors.py` | `ServerError` / `ServerResponse` utility classes with standard error codes: `GAME_NOT_FOUND`, `POWER_NOT_FOUND`, `INVALID_ORDER`, etc. |
 | `db_config.py` | Reads `SQLALCHEMY_DATABASE_URL` from environment (defaults to local PostgreSQL). |
 | `response_cache.py` | In-memory response cache with TTL, LRU eviction, and invalidation. Used on expensive endpoints (map generation, game state). |
-| `daide_protocol.py` | `DAIDEServer` — TCP socket server implementing the DAIDE bot communication protocol. Listens on port 8432, parses DAIDE messages (`HLO`, `ORD`, `GOF`, etc.), maps them to engine operations. |
+| `daide_protocol.py` | `DAIDEServer` — TCP socket server implementing the DAIDE bot communication protocol. Listens on port 8432, parses DAIDE messages (`HLO`, `ORD`, `GOF`, etc.), maps them to `GameService` calls. |
 
 #### API Route Modules (`src/server/api/routes/`)
 
@@ -144,7 +168,7 @@ The server exposes the game engine over HTTP via **FastAPI** and also provides a
 | `dashboard.py` | `/dashboard/...` | Admin dashboard endpoints: service status (systemd), DB table inspection, logs. |
 | `health.py` | `/health`, `/health/environment` | Health check, detailed environment info (Python version, file system, DB connectivity). |
 
-`shared.py` holds singleton instances (`db_service`, `server`), loggers, notification helpers, and the `_state_to_spec_dict` serializer used across all routes.
+`shared.py` holds singleton instances (`db_service`, `game_service`, `server`), loggers, and notification helpers used across all routes.
 
 #### Deadline Scheduler
 
@@ -175,83 +199,99 @@ The main entry point (`telegram_bot.py`) wires up all command handlers and callb
 
 ---
 
-### 3.4 Maps & Visualization
+### 3.4 Maps & Rendering
+
+Topology (`src/engine/map_loader.py`) and rendering (`src/rendering/`) are separate
+packages since M6 — the pre-rewrite `engine/map.py` tangled ~400 lines of topology with
+~3,200 lines of SVG/PNG rendering; the split is mechanical (same render API, moved
+wholesale to `src/rendering/`).
 
 The `maps/` directory contains:
 
 | File | Description |
 |---|---|
-| `standard.map` | The canonical map definition file. Defines all 75 provinces, their abbreviations/aliases, 7 great powers with home supply centers and starting units, unowned supply centers, and full adjacency lists (including coast-specific adjacency). |
+| `standard.map` | The canonical, **sole** topology source. Defines all 75 provinces, their abbreviations/aliases, 7 great powers with home supply centers and starting units, unowned supply centers, and full adjacency lists (including coast-specific adjacency: `BUL/EC`, `BUL/SC`, `SPA/NC`, `SPA/SC`, `STP/NC`, `STP/SC`). `map_loader.py` is the only reader; `src/engine/` has no other adjacency/coast tables. |
 | `standard.svg` | The SVG vector map of Europe used for rendering. Province regions are identified by ID attributes matching abbreviations. |
 | `v2.svg` + `v2/` | An alternative "v2" map design with AI-generated assets. |
 | `mini_variant.json` | A smaller map variant for testing. |
 | `svg.dtd` | SVG DTD for validation. |
 
-**Rendering pipeline:**
-1. The `Map` class loads the SVG file
-2. Province regions are colored by controlling power (each power has a distinct color)
-3. Unit icons (army/fleet PNGs from `icons/`) are placed at province centroids
-4. Order arrows are drawn: green for moves, blue for supports, orange for convoys
-5. The SVG is rendered to PNG via CairoSVG + Pillow
-6. Results are cached via `MapCache` (in-memory + disk at `/tmp/diplomacy_map_cache`)
+`src/rendering/`:
+
+| File | Purpose |
+|---|---|
+| `map.py` | The renderer: loads the SVG, colors province regions by controlling power, places unit icons (army/fleet PNGs from `icons/`) from a `GameState`-derived view, and — when given order/resolution data — draws colored arrows (`render_board_png_orders` / `render_board_png_resolution`). Renders to PNG via CairoSVG + Pillow, cached in-memory and on disk at `/tmp/diplomacy_map_cache`. |
+| `order_overlay.py` | Adapts engine `Order`/`Resolution` objects into the renderer's arrow-primitive dict format — the M7 follow-up that reconnected the M6-stubbed order/resolution map endpoints. |
+| `visualization_config.py` / `.json` | Colors, sizes, layout config for rendering. |
 
 ---
 
-### 3.5 Database Layer
+### 3.5 Persistence Layer (`src/persistence/`)
 
-**PostgreSQL** is the production database, accessed via **SQLAlchemy** ORM.
+**PostgreSQL**, accessed via **SQLAlchemy** ORM. Game *state* itself is not a normalized
+relational breakdown — see `docs/specs/data_spec.md` for the full rationale and field
+list; this section is the summary.
 
-#### Tables (9 total)
+| File | Purpose |
+|---|---|
+| `database.py` | SQLAlchemy ORM models (`GameModel`, `UserModel`, `PlayerModel`, plus messaging/channel/tournament/spectator models). Moved here from `engine/database.py` in M6 (mechanical package move). |
+| `database_service.py` | `DatabaseService` — the DAL for everything **not** engine-coupled: users, players, messages, channels, tournaments, spectators. Game state itself is delegated to `game_repo.py` / `GameService` (§3.2). |
+| `game_repo.py` | `GameRepo` — the new-engine game-state repository: `state_json` (the serialized `GameState`), `pending_orders`, `last_resolution`, `order_history`. The **only** persistence path for game state; superseded the old `units`/`orders`/`supply_centers` relational tables (still present in the schema for historical reasons, no longer read or written — see `data_spec.md` §3). |
 
-| Table | Key Columns | Purpose |
-|---|---|---|
-| `games` | `game_id`, `map_name`, `current_turn`, `current_year`, `current_season`, `current_phase`, `phase_code`, `status`, `deadline`, `channel_id`, `channel_settings` | Game state and metadata |
-| `users` | `telegram_id`, `full_name`, `username`, `is_active` | Telegram users |
-| `players` | `game_id` (FK), `user_id` (FK), `power_name`, `is_active` | Player assignments to games |
-| `units` | `game_id` (FK), `power`, `unit_type`, `province`, `coast`, `is_dislodged` | Current unit positions |
-| `orders` | `game_id` (FK), `power`, `turn`, `order_type`, `unit_type`, `unit_province`, `target_province`, `status` | Submitted and resolved orders |
-| `supply_centers` | `game_id` (FK), `province`, `power` | Supply center ownership |
-| `turn_history` | `game_id` (FK), `turn_number`, `year`, `season`, `phase`, `orders_json`, `results_json` | Historical turn records |
-| `game_snapshots` | `game_id` (FK), `turn_number`, `phase_code`, `units_json`, `supply_centers_json`, `map_image_path` | Map snapshots per phase |
-| `messages` | `game_id` (FK), `sender_power`, `recipient_power`, `message_text`, `turn` | In-game messaging |
+#### `games` table — the columns that matter for the new engine
 
-#### Alembic Migrations (14 versions)
+| Column | Purpose |
+|---|---|
+| `state_json` | The serialized `GameState` — authoritative source of truth for the board. |
+| `pending_orders` | `{power: [order_str]}`, submitted but not yet adjudicated. |
+| `last_resolution` | Most recent `Resolution`, kept for resolution-map rendering. |
+| `order_history` | `{turn: {power: [order_str]}}`, appended every `process_turn`; powers `/orders/history`. |
 
-Located in `alembic/versions/`. Key migrations include:
-- Initial schema creation
-- Adding `deadline` column to games
-- Adding channel fields (`channel_id`, `channel_settings`) to games
-- Adding `username` column to users
-- Changing `telegram_id` to VARCHAR
-- Adding `is_active` to users
-- Adding game snapshots with phase tracking
-- Renaming `power` to `power_name` in players
-- Adding units and supply centers tables
+Plus denormalized convenience columns (`map_name`, `current_turn`, `phase_code`,
+`status`, `deadline`, `channel_id`, ...) kept in sync for code that doesn't want to parse
+`state_json`. Other tables (`users`, `players`, `messages`, `turn_history`,
+`map_snapshots`, tournament/channel-analytics tables) are unaffected by the engine
+rewrite.
+
+#### Alembic Migrations (26 versions)
+
+Located in `alembic/versions/`. The engine-rewrite additions, in order:
+- `a1b2c3d4e5f7` — adds `state_json`/`pending_orders` to `games`; **wipes stored game
+  rows** (users/auth kept — game data is explicitly disposable, this was authorized by
+  the maintainer as part of the rewrite).
+- `b2c3d4e5f6a8` — adds `games.last_resolution` (nullable) for resolution-map rendering.
+- `c3d4e5f6a7b9` — adds `games.order_history` (nullable) for the per-turn order-history
+  endpoint.
 
 ---
 
 ### 3.6 Tests
 
-**79 test files** covering all layers of the application:
+**820 passed, 15 skipped, 10 xfailed** (with a DB — see below) across `tests/` (~58
+top-level files), `tests/datc/` (154 DATC conformance cases), and `tests/engine/`
+(engine-package unit tests). CI enforces coverage: `--cov-fail-under=57` overall,
+`--include='src/engine/*' --fail-under=92` for the engine specifically.
 
-| Category | Example Files | What's Tested |
+| Category | Location | What's Tested |
 |---|---|---|
-| **Engine / Game Logic** | `test_game.py`, `test_game_module.py`, `test_adjudication.py`, `test_battle_resolution.py`, `test_standoff_detection.py`, `test_convoy_functions.py`, `test_consecutive_phases.py`, `test_supply_center_persistence.py` | Turn processing, order resolution, standoffs, convoys, retreats, builds, victory conditions |
-| **Order Parsing** | `test_order_parser.py`, `test_order_parser_utils.py`, `test_enhanced_validation.py` | Parsing all order formats, validation rules |
-| **Map** | `test_map_and_power.py`, `test_map_consistency.py`, `test_adjacency_validation.py`, `test_province_mapping.py` | Map loading, adjacency correctness, province mappings |
-| **Visualization** | `test_visualization.py`, `test_order_visualization.py`, `test_order_visualization_system.py`, `test_map_with_units.py`, `test_map_opacity_font.py`, `test_standard_v2_map.py` | Map rendering, order arrows, unit placement |
-| **API Routes** | `test_api_routes_games.py`, `test_api_routes_orders.py`, `test_api_routes_users.py`, `test_api_routes_messages.py`, `test_api_routes_maps.py`, `test_api_routes_admin.py`, `test_api_routes_dashboard.py`, `test_api_spec_shapes.py` | All REST endpoints, request/response shapes |
-| **Database** | `test_database_service.py`, `test_data_models.py` | CRUD operations, model integrity |
-| **Telegram Bot** | `test_telegram_bot.py`, `test_telegram_bot_enhanced.py`, `test_telegram_messages.py`, `test_telegram_waiting_list.py`, `test_bot_functions.py`, `test_bot_map_generation.py`, `test_interactive_orders.py`, `test_channel_*` | Bot commands, interactive order flow, channel integration |
-| **DAIDE Protocol** | `test_daide_protocol.py`, `test_daide_protocol_enhanced.py` | TCP protocol handling, message parsing |
-| **Server** | `test_server.py`, `test_server_advanced.py`, `test_client.py` | CLI server, command processing |
-| **Integration** | `test_integration.py`, `test_integration_spec_only.py`, `test_demo_integration.py` | End-to-end game flows |
-| **Demo** | `test_demo_game_battles.py`, `test_demo_game_management.py`, `test_demo_order_visualization.py`, `test_strategic_ai.py` | AI strategy, demo game scenarios |
-| **Infrastructure** | `test_deployment_infrastructure.py`, `test_remote_environment.py` | Deployment config, environment validation |
+| **DATC conformance** | `tests/datc/test_datc_6a_basic.py` … `test_datc_6j_civil_disorder.py`, `test_adjudicator_mechanics.py`, `test_properties.py`, `harness.py` | One test per official DATC case (6.A–6.J, ~154 cases), tagged with the `datc` marker; `test_properties.py` is Hypothesis-based (determinism under order-shuffling, unit conservation, ≤1 unit/province, retreat-set correctness). See `docs/specs/adjudication.md`. |
+| **Engine unit tests** | `tests/engine/test_types.py`, `test_map_loader.py`, `test_parser.py`, `test_validation.py`, `test_serialization.py`, `test_game.py` (incl. `TestSelfPlaySmoke`, a 7-AI-power multi-year run) | Value types, `.map` topology loading, order grammar round-trips, validation, JSON serialization round-trips, the phase machine. |
+| **Game service** | `test_game_service.py`, `test_order_overlay.py` | `GameService` (create/submit/process/view) over `GameRepo`; order/resolution map-overlay adapter. |
+| **API Routes** | `test_api_routes_games.py`, `test_api_routes_orders.py`, `test_api_routes_users.py`, `test_api_routes_messages.py`, `test_api_routes_maps.py`, `test_api_routes_admin.py`, `test_api_routes_dashboard.py`, `test_api_spec_shapes.py`, `test_api_games_list.py`, `test_api_parsing_simple.py`, `test_api_scheduler.py` | REST endpoints, request/response shapes against the GameState-native view. |
+| **Auth** | `test_auth.py`, `test_authorization.py`, `test_user_registration.py` | JWT + Telegram-id dual auth, per-power authorization checks. |
+| **Map rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_map_with_units.py`, `test_map_opacity_font.py`, `test_standard_v2_map.py`, `test_standard_v2_map_comprehensive.py`, `test_map_consistency.py`, `test_province_mapping.py` | Map rendering, order arrows, unit placement, province mapping. |
+| **Telegram Bot** | `test_telegram_bot.py`, `test_telegram_bot_enhanced.py`, `test_telegram_bot_edge_cases.py`, `test_telegram_messages.py`, `test_telegram_waiting_list.py`, `test_bot_functions.py`, `test_bot_map_generation.py`, `test_interactive_orders.py`, `test_interactive_orders_simple.py`, `test_channel_*` | Bot commands, interactive order flow, channel integration. |
+| **DAIDE Protocol** | `test_daide_protocol.py` | TCP protocol handling, message parsing over `GameService`. |
+| **Server / CLI** | `test_server.py`, `test_server_advanced.py`, `test_client.py`, `test_execution_context.py` | CLI `Server` text-command surface, command processing. |
+| **Other** | `test_errors.py`, `test_response_cache.py`, `test_tournaments_api.py`, `test_deployment_infrastructure.py`, `test_demo_game_management.py`, `test_demo_integration.py` | Error handling, response caching, tournament endpoints (legacy, out-of-scope for new work), deployment config, demo-game flows. |
 
-**Test fixtures** (`conftest.py`): Provides `standard_game`, `mid_game_state`, `mock_telegram_context`, `mock_telegram_update`, `sample_orders`, `temp_db`, `db_session` fixtures. Auto-initializes DB schema before test collection.
+**Test fixtures** (`conftest.py`): DB-backed fixtures auto-initialize schema before test
+collection. **DB-dependent tests silently skip without `SQLALCHEMY_DATABASE_URL`** set —
+a no-DB local run looks falsely green; bring up Postgres and `alembic upgrade head`
+first. CI always provides a fresh `postgres:14` container.
 
-Run with: `pytest tests/ -v` (from `new_implementation/`)
+Run with: `PYTHONPATH=src python -m pytest tests/ -v` (from `new_implementation/`, venv
+active, DB up).
 
 ---
 
@@ -296,9 +336,10 @@ The `docs/specs/` directory contains detailed design documents:
 
 | Spec | Description |
 |---|---|
-| `architecture.md` | System architecture overview |
-| `diplomacy_rules.md` | Complete Diplomacy rules reference |
-| `data_spec.md` | Data model specification (what `data_models.py` implements) |
+| `architecture.md` | System architecture: package boundaries (`engine`/`persistence`/`rendering`/`server`), state persistence, the API view shape. Post-rewrite. |
+| `adjudication.md` | **The Kruijswijk fixed-point adjudication algorithm** — strength model, support-cut exemptions, convoy paths, cycle-breaking (circular movement vs. the Szykman rule), retreats, civil disorder, and the documented DATC `xfail` gaps. Written for M7; the reference for anyone touching `src/engine/adjudicator/`. |
+| `diplomacy_rules.md` | Complete Diplomacy rules reference (prose; authoritative on rules, silent on algorithm — see `adjudication.md` for the algorithm) |
+| `data_spec.md` | Data model specification: engine value types (`types.py`), serialization, persistence (`state_json`/`pending_orders`/`last_resolution`/`order_history`), and the HTTP API view shape. Post-rewrite. |
 | `provinces_spec.md` | All 75 provinces with types, adjacencies, and multi-coast details |
 | `game_phases_design.md` | Phase state machine design |
 | `telegram_bot_spec.md` | Telegram bot command specification |
@@ -330,7 +371,7 @@ The `old_implementation/` directory contains the original open-source Diplomacy 
 |---|---|---|
 | Server protocol | WebSockets (asyncio) | REST API (FastAPI) |
 | Client interface | React web UI + Python async client | Telegram bot |
-| Game engine | DATC-compliant, monolithic `Game` class | Modular engine with typed data models |
+| Game engine | DATC-compliant (via a battle-tested AGPL package), monolithic `Game` class | Independently-rewritten Kruijswijk fixed-point resolver, 144/154 DATC cases green, immutable typed value types (`docs/specs/adjudication.md`) |
 | Database | File-based / in-memory | PostgreSQL with SQLAlchemy |
 | Bot protocol | DAIDE (full implementation) | DAIDE (simplified) + REST |
 | Maps | Multiple variants (15+ map files) | Standard + mini variant |
@@ -382,28 +423,51 @@ The old implementation includes:
             │                      │
             ▼                      ▼
 ┌─────────────────────────────────────────────────────────┐
-│            DatabaseService (database_service.py)         │
-│  • CRUD for all entities                                 │
-│  • Transaction management                                │
-│  • Game state serialization/deserialization               │
+│         GameService (server/game_service.py)              │
+│  • THE only path from server code into the engine         │
+│  • create_game / submit_orders / process_turn / view      │
+│  • wraps engine.Game + serialization + parser/validation  │
 └───────────────────────┬─────────────────────────────────┘
+                        │
+            ┌───────────┴────────────┐
+            ▼                        ▼
+┌───────────────────────┐  ┌──────────────────────────────┐
+│  GameRepo               │  │  DatabaseService              │
+│  (persistence/            │  │  (persistence/                 │
+│   game_repo.py)            │  │   database_service.py)          │
+│  state_json/pending_orders/ │  │  users/players/messages/         │
+│  last_resolution/            │  │  channels/tournaments             │
+│  order_history                │  │  (not engine-coupled)              │
+└───────────┬───────────┘  └──────────────┬───────────────┘
+            └────────────┬─────────────────┘
                         │ SQLAlchemy ORM
                         ▼
 ┌─────────────────────────────────────────────────────────┐
 │              PostgreSQL Database                         │
-│  • 9 tables (games, users, players, units, orders,       │
-│    supply_centers, turn_history, game_snapshots, msgs)   │
-│  • Alembic migrations                                    │
+│  • games (state_json/pending_orders/last_resolution/     │
+│    order_history + denormalized metadata), users,        │
+│    players, messages, turn_history, map_snapshots        │
+│  • + legacy units/orders/supply_centers tables            │
+│    (unused since the engine rewrite — see data_spec.md)   │
+│  • Alembic migrations (26 versions)                       │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│              Game Engine (engine/)                        │
-│  • Game — turn processing, adjudication                  │
-│  • Map — province topology, SVG rendering                │
-│  • Power — player state management                       │
-│  • OrderParser — text → Order objects                    │
-│  • StrategicAI — automated order generation              │
-│  • Data Models — typed dataclasses & enums               │
+│         Game Engine (engine/) — stdlib only               │
+│  • game.py — phase machine over immutable GameStates      │
+│  • adjudicator/movement.py — Kruijswijk fixed-point       │
+│    resolver (adjudication.md)                             │
+│  • adjudicator/retreats.py / adjustments.py                │
+│  • map_loader.py — .map topology (sole adjacency source)   │
+│  • orders/parser.py / validation.py — grammar + legality   │
+│  • serialization.py — GameState/Order/Resolution <-> JSON  │
+│  • simple_ai.py — dumb heuristic order generator           │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│         Rendering (rendering/)                            │
+│  • map.py — SVG -> PNG, order/resolution arrow overlays   │
+│  • order_overlay.py — Order/Resolution -> arrow primitives│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -415,30 +479,28 @@ The old implementation includes:
 
 1. **User sends `/start`** in Telegram → bot registers them via `POST /users/register_persistent`
 2. **User sends `/games`** → bot calls `GET /games` → shows available games with inline buttons
-3. **Admin creates game** → `POST /games` with `map_name` → engine creates `Game` object, DB persists it
-4. **User sends `/join`** → bot calls `POST /games/{id}/join` with `telegram_id` and chosen power → player row created in DB
-5. **User sends `/order`** → bot shows interactive unit selection keyboard → user picks unit → bot shows possible moves → user picks target → bot calls `POST /games/{id}/orders` with order string
-6. **Orders resolve** (manual `/processturn` or automatic deadline expiry) → `POST /games/{id}/process_turn`:
-   - Engine loads game state from DB
-   - Validates all submitted orders
-   - Runs adjudication (strength calculation, bouncing, dislodgement)
-   - Updates unit positions, supply center ownership
-   - Advances phase (Movement → Retreat → Builds → next season)
-   - Saves new state to DB
-   - Generates map snapshot
+3. **Admin creates game** → `POST /games` with `map_name` → `GameService.create_game` builds `Game.new_standard()` and persists its `state_json`
+4. **User sends `/join`** → bot calls `POST /games/{id}/join` with `telegram_id` and chosen power → player row created in DB (unaffected by the engine rewrite)
+5. **User sends `/order`** → bot shows interactive unit selection keyboard → user picks unit → bot shows possible moves → user picks target → bot calls `POST /games/{id}/orders` with order string → `GameService.submit_orders` parses + validates it and stores it in `pending_orders`
+6. **Orders resolve** (manual `/processturn` or automatic deadline expiry) → `POST /games/{id}/process_turn` → `GameService.process_turn`:
+   - Loads `state_json`, parses every power's `pending_orders`
+   - Calls `Game.adjudicate(orders)` — the Kruijswijk fixed-point resolver runs for a movement phase, or the retreat/adjustment adjudicator otherwise (see `docs/specs/adjudication.md`)
+   - Advances the phase (`S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M …`), updating SC ownership after Fall settles
+   - Persists the next `state_json` + `last_resolution`, appends to `order_history`, clears `pending_orders`
    - Notifies all players via Telegram
-7. **User views map** → `/map` command → bot calls `POST /games/{id}/generate_map` → engine renders SVG → returns PNG → bot sends image to chat
+7. **User views map** → `/map` command → bot calls the map-generation endpoint → `src/rendering/map.py` renders the SVG from the `GameService.view` shape (optionally with order/resolution arrows via `order_overlay.py`) → returns PNG → bot sends image to chat
 
 ### Order Format Examples
 
 ```
-A PAR - BUR          # Army Paris moves to Burgundy
-F BRE H              # Fleet Brest holds
-A MAR S A PAR - BUR  # Army Marseilles supports Army Paris → Burgundy
-F NTH C A LON - BEL  # Fleet North Sea convoys Army London → Belgium
-A MUN R TYR          # Army Munich retreats to Tyrolia
-BUILD A PAR          # Build Army in Paris
-D F BRE              # Destroy Fleet in Brest
+A PAR - BUR           # Army Paris moves to Burgundy
+F BRE H                # Fleet Brest holds
+A MAR S A PAR - BUR   # Army Marseilles supports Army Paris → Burgundy
+F NTH C A LON - BEL    # Fleet North Sea convoys Army London → Belgium
+A MUN R TYR             # Army Munich retreats to Tyrolia
+BUILD A PAR              # Build Army in Paris
+BUILD F STP/SC            # Build Fleet in St. Petersburg (south coast)
+D A PAR                    # Disband Army in Paris (retreat failure / adjustment / civil disorder)
 ```
 
 ---
@@ -454,9 +516,9 @@ D F BRE              # Destroy Fleet in Brest
 | **Data Validation** | Pydantic 2.x + Python dataclasses |
 | **Image Rendering** | Pillow + CairoSVG + SVG manipulation |
 | **HTTP Client** | httpx + requests |
-| **Testing** | pytest + pytest-asyncio + pytest-mock + coverage |
+| **Testing** | pytest + pytest-asyncio + pytest-mock + coverage + Hypothesis (property-based tests for the engine: determinism, round-trips, invariants) |
 | **Infrastructure** | Terraform (AWS), Docker Compose, systemd |
-| **Linting** | Ruff (strict mode) |
+| **Linting** | Ruff (strict mode, pinned version — CI pins to avoid new-release rule-set breakage) |
 
 ---
 
@@ -474,26 +536,27 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Set up PostgreSQL (must be running)
-export SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/diplomacy_db
+# Set up PostgreSQL (must be running) and run migrations
+export SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
+alembic upgrade head
 
-# Start the API server
-cd src
-python -m server._api_module
-# → API at http://localhost:8000
+# Start the API server (PYTHONPATH=src is required — packages live under src/)
+PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload
+# → API at http://localhost:8000, Swagger UI at /docs
 
 # Start the Telegram bot (in another terminal)
-export TELEGRAM_BOT_TOKEN=your-bot-token
-cd src
-python -m server.telegram_bot
+TELEGRAM_BOT_TOKEN=your-bot-token PYTHONPATH=src python -m server.telegram_bot
 ```
 
 ### Run Tests
 
 ```bash
 cd new_implementation
-pytest tests/ -v
-pytest tests/ --cov=src --cov-report=html  # with coverage
+# DB-dependent tests silently skip without SQLALCHEMY_DATABASE_URL set — a no-DB run
+# looks falsely green. Bring up Postgres and `alembic upgrade head` first.
+PYTHONPATH=src python -m pytest tests/ -v
+PYTHONPATH=src python -m pytest tests/ --cov=src --cov-report=html  # with coverage
+PYTHONPATH=src python -m pytest tests/ -m datc  # DATC conformance cases only
 ```
 
 ### Docker Compose

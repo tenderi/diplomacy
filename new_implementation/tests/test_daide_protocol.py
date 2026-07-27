@@ -57,7 +57,7 @@ def test_daide_server_hlo_creates_game_and_player() -> None:
         # Check server state
         state = server.process_command(f"GET_GAME_STATE {game_id}")
         assert state["status"] == "ok"
-        assert "FRANCE" in state["state"]["powers"]
+        assert "FRANCE" in state["state"]["players"]
     finally:
         sock.close()
         daide_server.stop()

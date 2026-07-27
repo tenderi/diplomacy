@@ -15,7 +15,7 @@ def test_standard_v2_map():
     print("=" * 50)
     
     try:
-        from engine.map import Map
+        from rendering.map import Map
         
         # Test that Map can be initialized with standard-v2
         print("📊 Testing Map initialization with standard-v2...")

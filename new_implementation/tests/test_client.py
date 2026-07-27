@@ -15,10 +15,11 @@ def test_client_server_interaction():
     client.send_command(f"PROCESS_TURN {game_id}")  # Advances phase: Spring Movement -> Autumn Movement (same turn)
     state = client.send_command(f"GET_GAME_STATE {game_id}")
     assert state["status"] == "ok"
-    # After first PROCESS_TURN, we're still in turn 0 (Spring -> Autumn Movement, turn only increments after Builds)
-    # Verify phase changed to Autumn Movement or the turn is 0
-    assert state["state"]["turn"] == 0 or state["state"]["phase"] in ["Movement", "Retreat"]
-    assert "FRANCE" in state["state"]["orders"] or state["state"]["orders"] == {}
+    # After the first PROCESS_TURN the phase advances (S1901M -> F1901M).
+    assert state["state"]["phase"] == "F1901M"
+    assert state["state"]["phase_type"] == "MOVEMENT"
+    # Orders were consumed by adjudication.
+    assert state["state"]["orders"] == {}
 
 def test_client_error_handling():
     server = Server()

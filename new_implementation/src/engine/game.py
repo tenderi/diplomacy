@@ -1,1696 +1,213 @@
-from typing import Dict, List, Any, Optional, Tuple
-from .map import Map
-from .order_parser import OrderParser, OrderValidationError, OrderParseError
-from .allowed_moves import build_allowed_moves
-from .data_models import (
-    Order, GameState, PowerState, Unit, MapData, Province, GameStatus,
-    MoveOrder, HoldOrder, SupportOrder, ConvoyOrder, RetreatOrder, BuildOrder, DestroyOrder
+"""Phase machine over immutable ``GameState`` snapshots.
+
+This is the pure orchestration layer that drives the season/phase state machine and
+threads the three adjudicators together:
+
+    S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M → …
+
+A retreat phase is inserted only when the preceding movement dislodged a unit; a
+winter adjustment phase only when some power's unit count differs from its supply-
+center count. Supply-center ownership is recomputed after the **Fall** turn settles
+(movement + any retreats), and a power holding ≥ ``VICTORY_CENTERS`` centers at that
+point wins.
+
+Everything is a pure function of ``(map, state, orders)``; ``Game`` is a frozen
+snapshot plus its history, and :meth:`Game.adjudicate` returns the phase resolution
+and the next ``Game``. No I/O, no mutation.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+
+from engine.adjudicator.adjustments import adjudicate_adjustments
+from engine.adjudicator.movement import adjudicate_movement
+from engine.adjudicator.retreats import adjudicate_retreats
+from engine.map_loader import MapData, load_standard_map
+from engine.types import (
+    VICTORY_CENTERS,
+    GameState,
+    GameStatus,
+    Order,
+    PhaseType,
+    Resolution,
+    Season,
 )
-import logging
-from collections import deque
-from datetime import datetime
 
-logger = logging.getLogger("diplomacy.engine.game")
+__all__ = ["Game"]
 
+
+@dataclass(frozen=True)
 class Game:
-    """
-    Main game class using new data models exclusively.
-    
-    This class manages the complete Diplomacy game state, including turn processing,
-    order validation, and game phase management. It uses the comprehensive data
-    models defined in data_models.py for proper type safety and validation.
-    
-    Attributes:
-        map_name: Name of the map variant being used
-        map: Map object containing province and adjacency data
-        turn: Current turn number
-        year: Current game year
-        season: Current season (Spring, Fall, Winter)
-        phase: Current phase (Movement, Retreat, Builds)
-        phase_code: Short code for current phase (e.g., "S1901M")
-        done: Whether the game is completed
-        game_state: Complete GameState object containing all game data
-    """
-    
-    def __init__(self, map_name: str = 'standard') -> None:
-        self.map_name: str = map_name
-        # Use standard map for demo mode
-        actual_map_name = 'standard' if map_name == 'demo' else map_name
-        self.map: Map = Map(actual_map_name)
-        
-        # Game state tracking
-        self.turn: int = 0
-        self.year: int = 1901
-        self.season: str = "Spring"
-        self.phase: str = "Movement"
-        self.phase_code: str = "S1901M"
-        self.done: bool = False
-        
-        # Initialize new data model
-        self.game_state = self._initialize_game_state()
+    """An immutable game: its map, the current ``state``, and past snapshots."""
 
-    def _initialize_game_state(self) -> GameState:
-        """Initialize the new GameState data model"""
-        # Create map data using the Map's Province objects directly
-        provinces = {}
-        for province_name in self.map.get_locations():
-            map_province = self.map.get_province(province_name)
-            if map_province:
-                # Convert Map Province to data_models Province
-                provinces[province_name] = Province(
-                    name=province_name,
-                    province_type=map_province.type,
-                    is_supply_center=province_name in self.map.get_supply_centers(),
-                    is_home_supply_center=False,  # Will be set when powers are added
-                    adjacent_provinces=list(map_province.adjacent) if map_province.adjacent else []
-                )
-        
-        map_data = MapData(
-            map_name=self.map_name,
-            provinces=provinces,
-            supply_centers=list(self.map.get_supply_centers()),
-            home_supply_centers={},  # Will be populated when powers are added
-            starting_positions={}  # Will be populated when powers are added
+    map: MapData
+    state: GameState
+    history: tuple[GameState, ...] = field(default_factory=tuple)
+
+    # -- construction -----------------------------------------------------
+
+    @classmethod
+    def new_standard(cls) -> "Game":
+        """A fresh standard game at its opening movement phase."""
+        map = load_standard_map()
+        state = GameState(
+            year=map.start_year,
+            season=map.start_season,
+            phase_type=PhaseType.MOVEMENT,
+            units=map.starting_units,
+            ownership=dict(map.initial_ownership),
         )
-        
-        allowed_moves = build_allowed_moves(self.map, self.map_name)
-        
+        return cls(map=map, state=state)
+
+    # -- driving ----------------------------------------------------------
+
+    def adjudicate(self, orders: list[Order]) -> tuple[Resolution, "Game"]:
+        """Adjudicate the current phase and advance to the next.
+
+        Returns the phase ``Resolution`` and a new ``Game`` whose ``state`` is the
+        next phase to play (or a completed game). The current state is appended to
+        the returned game's ``history``.
+        """
+        if self.state.status is GameStatus.COMPLETED:
+            return Resolution(()), self
+
+        pt = self.state.phase_type
+        if pt is PhaseType.MOVEMENT:
+            resolution, post = adjudicate_movement(self.map, self.state, orders)
+        elif pt is PhaseType.RETREAT:
+            resolution, post = adjudicate_retreats(self.map, self.state, orders)
+        else:
+            resolution, post = adjudicate_adjustments(self.map, self.state, orders)
+
+        next_state = self._transition(post)
+        return resolution, Game(
+            map=self.map, state=next_state, history=self.history + (self.state,)
+        )
+
+    # -- phase transitions ------------------------------------------------
+
+    def _transition(self, post: GameState) -> GameState:
+        """Compute the next phase's opening state from a settled adjudication."""
+        pt = self.state.phase_type
+
+        if pt is PhaseType.MOVEMENT:
+            if post.dislodged:
+                # Insert a retreat phase; keep dislodged units and standoffs.
+                return replace(post, phase_type=PhaseType.RETREAT)
+            return self._after_moves_settled(post)
+
+        if pt is PhaseType.RETREAT:
+            return self._after_moves_settled(post)
+
+        # ADJUSTMENT → next year's spring movement.
         return GameState(
-            game_id="demo",
-            map_name=self.map_name,
-            map_data=map_data,
-            current_turn=0,
-            current_year=1901,
-            current_season="Spring",
-            current_phase="Movement",
-            phase_code="S1901M",
-            powers={},
-            orders={},
-            status=GameStatus.ACTIVE,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-            allowed_moves=allowed_moves,
+            year=post.year + 1,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=post.units,
+            ownership=dict(post.ownership),
+            status=post.status,
         )
 
-    def add_player(self, power_name: str) -> None:
-        """
-        Add a player to the game.
-        
-        Args:
-            power_name: Name of the power to add (e.g., "FRANCE", "GERMANY")
-            
-        Note:
-            This method initializes the power with their home supply centers
-            and starting units according to the standard Diplomacy rules.
-            If the power already exists, this method does nothing.
-        """
-        if power_name not in self.game_state.powers:
-            # Define home supply centers for each power
-            home_centers = {
-                'ENGLAND': ['LON', 'EDI', 'LVP'],
-                'FRANCE': ['PAR', 'MAR', 'BRE'],
-                'GERMANY': ['BER', 'KIE', 'MUN'],
-                'ITALY': ['ROM', 'VEN', 'NAP'],
-                'AUSTRIA': ['VIE', 'BUD', 'TRI'],
-                'RUSSIA': ['MOS', 'WAR', 'SEV', 'STP'],
-                'TURKEY': ['CON', 'SMY', 'ANK'],
-            }
-            
-            # Add to new data model
-            self.game_state.powers[power_name] = PowerState(
-                power_name=power_name,
-                units=[],
-                controlled_supply_centers=home_centers.get(power_name.upper(), []),
-                home_supply_centers=home_centers.get(power_name.upper(), [])
+    def _after_moves_settled(self, post: GameState) -> GameState:
+        """After movement (+ any retreats) settle: go to the next movement, or —
+        after Fall — update SC ownership, check victory, and enter adjustment."""
+        year, season = post.year, post.season
+
+        if season is Season.SPRING:
+            return GameState(
+                year=year,
+                season=Season.FALL,
+                phase_type=PhaseType.MOVEMENT,
+                units=post.units,
+                ownership=dict(post.ownership),
+                status=post.status,
             )
-            
-            # Update map data with home supply centers
-            if power_name.upper() in home_centers:
-                self.game_state.map_data.home_supply_centers[power_name] = home_centers[power_name.upper()]
-            
-            # Assign standard starting units if using the standard map, standard-v2, or demo mode
-            if self.map_name in ['standard', 'standard-v2', 'demo']:
-                starting_units = {
-                    'ENGLAND': ['F LON', 'F EDI', 'A LVP'],
-                    'FRANCE': ['A PAR', 'A MAR', 'F BRE'],
-                    'GERMANY': ['A BER', 'A MUN', 'F KIE'],
-                    'ITALY': ['A ROM', 'A VEN', 'F NAP'],
-                    'AUSTRIA': ['A VIE', 'A BUD', 'F TRI'],
-                    'RUSSIA': ['A MOS', 'A WAR', 'F SEV', 'F STP'],
-                    'TURKEY': ['A CON', 'A SMY', 'F ANK'],
-                }
-                pname = power_name.upper()
-                if pname in starting_units:
-                    # Add units to new data model
-                    for unit_str in starting_units[pname]:
-                        unit_type, province = unit_str.split()
-                        unit = Unit(
-                            unit_type=unit_type,
-                            province=province,
-                            power=power_name,
-                            is_dislodged=False,
-                            dislodged_by=None,
-                            can_retreat=True,
-                            retreat_options=[]
-                        )
-                        self.game_state.powers[power_name].units.append(unit)
-        
-        # Initialize orders list for this power
-        if power_name not in self.game_state.orders:
-            self.game_state.orders[power_name] = []
 
-    def clear_orders(self, power_name: str) -> None:
-        """
-        Clear all orders for a power.
-        
-        Args:
-            power_name: Name of the power to clear orders for
-            
-        Note:
-            This removes all pending orders for the specified power,
-            effectively resetting their order submission for the current phase.
-        """
-        if power_name in self.game_state.powers:
-            self.game_state.orders[power_name] = []
+        # Fall settled: recompute supply-center ownership, then check victory.
+        ownership = self._updated_ownership(post)
+        status = post.status
+        if _has_winner(ownership):
+            status = GameStatus.COMPLETED
+            return GameState(
+                year=year,
+                season=Season.WINTER,
+                phase_type=PhaseType.ADJUSTMENT,
+                units=post.units,
+                ownership=ownership,
+                status=status,
+            )
 
-    def set_orders(self, power_name: str, orders: List[str]) -> None:
-        """
-        Set orders for a power. Orders are parsed, validated, and stored.
-        
-        Args:
-            power_name: Name of the power submitting orders
-            orders: List of order strings (e.g., ["A PAR - BUR", "F BRE H"])
-            
-        Raises:
-            ValueError: If the power is not found in the game
-            OrderValidationError: If any order fails validation
-            
-        Note:
-            Orders are parsed using the OrderParser and validated against
-            the current game state before being stored.
-        """
-        if power_name not in self.game_state.powers:
-            raise ValueError(f"Power {power_name} not found in game")
-        
-        # Convert string orders to new order objects
-        parser = OrderParser()
-        try:
-            parsed_orders = parser.parse_orders(";".join(orders), power_name)
-        except OrderParseError as e:
-            raise ValueError(f"Invalid order format: {str(e)}")
-        # Build concrete Order objects from parsed forms
-        new_orders = []
-        for parsed in parsed_orders:
-            try:
-                order_obj = parser.create_order_from_parsed(parsed, self.game_state)
-                if order_obj:
-                    # Validate unit belongs to power
-                    if hasattr(order_obj, 'unit') and order_obj.unit:
-                        if order_obj.unit.power != power_name:
-                            raise ValueError(f"Unit {order_obj.unit.unit_type} {order_obj.unit.province} does not belong to power {power_name}")
-                    new_orders.append(order_obj)
-                else:
-                    # If order_obj is None, it means creation failed
-                    raise ValueError(f"Failed to create order from: {parsed}")
-            except OrderValidationError as e:
-                # Convert OrderValidationError to ValueError for consistency
-                error_msg = str(e)
-                # Ensure error message matches test expectations
-                if "not found" in error_msg.lower() and "for power" in error_msg.lower():
-                    # Check if unit exists but belongs to different power
-                    unit_exists = any(
-                        u.unit_type == parsed.unit_type and u.province == parsed.unit_province
-                        for power_state in self.game_state.powers.values()
-                        for u in power_state.units
-                    )
-                    if unit_exists:
-                        raise ValueError(f"Unit {parsed.unit_type} {parsed.unit_province} does not belong to power {power_name}")
-                    raise ValueError(f"Unit {parsed.unit_type} {parsed.unit_province} not found for power {power_name}")
-                raise ValueError(error_msg)
-        
-        # Check for self-support (unit supporting its own move) before duplicate check
-        for order in new_orders:
-            if isinstance(order, SupportOrder):
-                # Check if the supporting unit is the same as the supported unit
-                if order.unit.province == order.supported_unit.province and order.unit.unit_type == order.supported_unit.unit_type:
-                    raise ValueError(f"Unit {order.unit.unit_type} {order.unit.province} cannot support its own move")
-        
-        # Check for duplicate orders for the same unit and convoy restrictions
-        unit_orders = {}  # (unit_type, province) -> list of orders
-        for order in new_orders:
-            if hasattr(order, 'unit') and order.unit:
-                unit_key = (order.unit.unit_type, order.unit.province)
-                if unit_key not in unit_orders:
-                    unit_orders[unit_key] = []
-                unit_orders[unit_key].append(order)
-        
-        # Validate unit orders
-        for unit_key, orders_list in unit_orders.items():
-            if len(orders_list) > 1:
-                # Check if unit has convoy order - convoying units cannot perform other actions
-                has_convoy = any(isinstance(o, ConvoyOrder) for o in orders_list)
-                if has_convoy:
-                    raise ValueError(f"Unit {unit_key[0]} {unit_key[1]} cannot perform other orders while convoying")
-                # Allow support + move (support will be cut during processing)
-                has_support = any(isinstance(o, SupportOrder) for o in orders_list)
-                has_move = any(isinstance(o, MoveOrder) for o in orders_list)
-                if has_support and has_move:
-                    # Unit supporting and moving - support will be cut, but order is valid
-                    continue
-                # Otherwise, it's a duplicate order
-                raise ValueError(f"duplicate order for unit {unit_key[0]} {unit_key[1]}")
-        
-        # Validate move to own occupied province (self-dislodgement prevention)
-        # Allow circular movements (units swapping positions) but prevent self-dislodgement
-        for order in new_orders:
-            if isinstance(order, MoveOrder):
-                # Check if target province is occupied by own unit
-                target_unit = next(
-                    (u for u in self.game_state.get_all_units() 
-                     if u.province == order.target_province and u.power == order.power),
-                    None
-                )
-                if target_unit:
-                    # Check if the target unit is also moving away (circular movement - allowed)
-                    target_unit_moving = any(
-                        isinstance(o, MoveOrder) and o.unit.province == target_unit.province
-                        for o in new_orders
-                    )
-                    if not target_unit_moving:
-                        # Self-dislodgement: target unit is not moving, so this move is invalid
-                        raise ValueError(f"Cannot move {order.unit.unit_type} {order.unit.province} to own occupied province {order.target_province}")
-        
-        # Validate retreat orders
-        for order in new_orders:
-            if isinstance(order, RetreatOrder):
-                # Check if unit is dislodged
-                if not order.unit.is_dislodged:
-                    raise ValueError(f"Retreat order for unit {order.unit.unit_type} {order.unit.province} that is not dislodged")
-                
-                # Check if retreat province is in retreat options
-                if order.retreat_province not in order.unit.retreat_options:
-                    raise ValueError(f"invalid retreat destination {order.retreat_province}")
-                
-                # Check if retreat province is occupied
-                retreat_province_occupied = any(
-                    u.province == order.retreat_province
-                    for u in self.game_state.get_all_units()
-                )
-                # Check if retreating to attacking province (dislodged_by) - check this before occupied
-                if hasattr(order.unit, 'dislodged_by') and order.unit.dislodged_by:
-                    attacking_province = order.unit.dislodged_by
-                    if order.retreat_province == attacking_province:
-                        raise ValueError(f"invalid retreat destination {order.retreat_province}: cannot retreat to attacking province")
-                
-                if retreat_province_occupied:
-                    raise ValueError(f"invalid retreat destination {order.retreat_province}: province is occupied")
-                
-                # Check if retreating to a province that was dislodged (check other dislodged units)
-                for other_power_name, other_power_state in self.game_state.powers.items():
-                    for other_unit in other_power_state.units:
-                        if other_unit.is_dislodged and other_unit.province.replace("DISLODGED_", "") == order.retreat_province:
-                            raise ValueError(f"invalid retreat destination {order.retreat_province}: province was dislodged")
-        
-        # Validate support orders
-        # Note: Support orders may support units from other powers, so we need to check
-        # both new_orders (current power) and existing orders in game_state (other powers)
-        all_current_orders = new_orders + [
-            o for power_orders in self.game_state.orders.values() for o in power_orders
-        ]
-        
-        for order in new_orders:
-            if isinstance(order, SupportOrder):
-                # Check if supporting a move, verify the move order exists
-                if order.supported_action == "move" and order.supported_target:
-                    # Find if there's a move order for the supported unit (check all orders)
-                    supported_unit_has_move = any(
-                        isinstance(o, MoveOrder) and 
-                        o.unit.unit_type == order.supported_unit.unit_type and
-                        o.unit.province == order.supported_unit.province and
-                        o.target_province == order.supported_target
-                        for o in all_current_orders
-                    )
-                    if not supported_unit_has_move:
-                        # Check if the unit has a hold order instead (invalid - can't support move for holding unit)
-                        supported_unit_has_hold = any(
-                            isinstance(o, HoldOrder) and 
-                            o.unit.unit_type == order.supported_unit.unit_type and
-                            o.unit.province == order.supported_unit.province
-                            for o in all_current_orders
-                        )
-                        if supported_unit_has_hold:
-                            raise ValueError(f"Cannot support move for holding unit {order.supported_unit.unit_type} {order.supported_unit.province}")
-                        # Don't raise error here - the move order might be in a different power's orders
-                        # This will be caught during actual adjudication
-                
-                # Check if supporting a hold, verify the unit is actually holding (has hold order or no move order)
-                if order.supported_action == "hold":
-                    # Check if supported unit has a move order (if so, can't support hold)
-                    supported_unit_has_move = any(
-                        isinstance(o, MoveOrder) and 
-                        o.unit.unit_type == order.supported_unit.unit_type and
-                        o.unit.province == order.supported_unit.province
-                        for o in all_current_orders
-                    )
-                    if supported_unit_has_move:
-                        raise ValueError(f"Cannot support hold for unit {order.supported_unit.unit_type} {order.supported_unit.province} that has a move order")
-        
-        # Ensure game state phase is up to date
-        self.game_state.current_phase = self.phase
-        
-        # Store orders temporarily for convoy validation
-        self.game_state.orders[power_name] = new_orders
-        
-        # Validate each order
-        validation_errors = []
-        for order in new_orders:
-            if order:
-                # Validate order against game state
-                valid, reason = OrderParser().validate_orders([order], self.game_state)[0]
-                if not valid:
-                    validation_errors.append(f"Order {order}: {reason}")
-                
-                # Check if order type is valid for current phase
-                if not self.game_state.is_valid_phase_for_order_type(order.order_type):
-                    validation_errors.append(f"Order {order}: type {order.order_type.value} not valid for phase {self.game_state.current_phase}")
-        
-        # Cross-order validation: Check convoy restrictions
-        convoy_validation_errors = self.game_state._validate_convoy_restrictions()
-        validation_errors.extend(convoy_validation_errors)
-        
-        # If there are validation errors, raise an exception
-        if validation_errors:
-            raise ValueError(f"Invalid orders for {power_name}: {'; '.join(validation_errors)}")
+        if self._adjustments_needed(post.units, ownership):
+            return GameState(
+                year=year,
+                season=Season.WINTER,
+                phase_type=PhaseType.ADJUSTMENT,
+                units=post.units,
+                ownership=ownership,
+                status=status,
+            )
 
-    def process_turn(self) -> Dict[str, Any]:
-        """
-        Process a complete turn and return results.
-        
-        Returns:
-            Dictionary containing:
-                - moves: List of successful moves
-                - dislodgements: List of units that were dislodged
-                - status: "completed" if turn processed successfully
-                
-        Note:
-            This method processes the current phase (Movement, Retreat, or Builds)
-            and then advances to the next phase. The game state is updated
-            with the results of order resolution.
-        """
-        results = {
-            "moves": [],
-            "dislodgements": [],
-            "status": "completed"
-        }
-        
-        # Process current phase
-        if self.phase == "Movement":
-            results.update(self._process_movement_phase())
-        elif self.phase == "Retreat":
-            results.update(self._process_retreat_phase())
-        elif self.phase == "Builds":
-            results.update(self._process_builds_phase())
-        
-        # Advance to next phase
-        self._advance_phase()
-        
-        return results
+        # No adjustments owed: skip straight to next spring.
+        return GameState(
+            year=year + 1,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=post.units,
+            ownership=ownership,
+            status=status,
+        )
 
-    def _ensure_hold_orders_for_units_without_orders(self) -> None:
-        """For Movement phase: add implicit HoldOrder for any unit that has no order (e.g. unjoined powers)."""
-        for power_name, power in self.game_state.powers.items():
-            if power_name not in self.game_state.orders:
-                self.game_state.orders[power_name] = []
-            orders = self.game_state.orders[power_name]
-            ordered_provinces = set()
-            for order in orders:
-                if hasattr(order, "unit") and order.unit:
-                    ordered_provinces.add(order.unit.province)
-            for unit in power.units:
-                if unit.province not in ordered_provinces:
-                    self.game_state.orders[power_name].append(HoldOrder(power=power_name, unit=unit))
+    # -- supply centers / powers -----------------------------------------
 
-    def _process_movement_phase(self) -> Dict[str, Any]:
-        """Process movement phase with full Diplomacy rules."""
-        self._ensure_hold_orders_for_units_without_orders()
-        results: Dict[str, List[Any]] = {
-            "moves": [],
-            "dislodgements": [],
-            "supports": [],
-            "convoys": [],
-            "conflicts": [],
-            "dislodged_units": []
-        }
+    def _updated_ownership(self, post: GameState) -> dict[str, str]:
+        """A supply center is captured by whoever occupies it after Fall; empty
+        centers keep their previous owner."""
+        ownership = dict(post.ownership)
+        for prov in self.map.supply_centers:
+            unit = post.unit_at(prov)
+            if unit is not None:
+                ownership[prov] = unit.power
+        return ownership
 
-        # Track provinces where a standoff occurred this turn (DATC 6.H: dislodged unit
-        # cannot retreat to a province where a standoff took place).
-        standoff_provinces: set = set()
+    def _adjustments_needed(self, units, ownership: dict[str, str]) -> bool:
+        counts_units: dict[str, int] = {}
+        for u in units:
+            counts_units[u.power] = counts_units.get(u.power, 0) + 1
+        counts_centers: dict[str, int] = {}
+        for owner in ownership.values():
+            counts_centers[owner] = counts_centers.get(owner, 0) + 1
+        powers = set(self.map.home_centers) | set(counts_units) | set(counts_centers)
+        return any(
+            counts_centers.get(p, 0) != counts_units.get(p, 0) for p in powers
+        )
 
-        # Store original provinces before processing (needed for self-dislodgement checks)
-        # Use id(unit) as key since Unit is not hashable
-        original_provinces = {}
-        for power_name, power in self.game_state.powers.items():
-            for unit in power.units:
-                original_provinces[id(unit)] = unit.province
-        
-        # First pass: Detect convoyed moves and convoy orders
-        # Convoy flow: (1) Unit orders move area1 -> area2; (2) allowed_moves says reachable;
-        # (3) engine checks actual convoy route (fleet chain) for strength; (4) if any convoying
-        # fleet is dislodged in resolution, convoyed move is cancelled and unit stays (see below).
-        convoy_orders = {}  # (convoyed_unit_type, convoyed_unit_province, convoyed_target) -> convoy_order
-        convoyed_moves = {}  # (unit_type, unit_province, target) -> convoy_order
-        
-        for power_name, orders in self.game_state.orders.items():
-            for order in orders:
-                if isinstance(order, ConvoyOrder):
-                    convoy_key = (order.convoyed_unit.unit_type, order.convoyed_unit.province, order.convoyed_target)
-                    convoy_orders[convoy_key] = order
-                    
-                    # Mark the corresponding move order as convoyed
-                    move_key = (order.convoyed_unit.unit_type, order.convoyed_unit.province, order.convoyed_target)
-                    convoyed_moves[move_key] = order
-        
-        # Calculate move strengths and identify conflicts
-        move_strengths: Dict[str, List[Tuple[Unit, int, Order]]] = {}  # target_province -> list of (unit, strength, order)
-        support_strengths: Dict[str, List[Tuple[Unit, int]]] = {}  # target_province -> list of (supporting_unit, strength)
-        
-        # First pass: Process all moves and holds to determine conflicts and dislodgements
-        for power_name, orders in self.game_state.orders.items():
-            for order in orders:
-                if isinstance(order, MoveOrder):
-                    # CRITICAL: Validate adjacency before processing move
-                    # This prevents non-adjacent moves from being executed even if they passed initial validation
-                    current_province_obj = self.game_state.map_data.provinces.get(order.unit.province)
-                    target_province_obj = self.game_state.map_data.provinces.get(order.target_province)
-                    
-                    if current_province_obj and target_province_obj:
-                        # P0-004/P0-005: Terrain check — armies cannot enter sea provinces,
-                        # fleets cannot enter inland provinces.
-                        unit_type = order.unit.unit_type
-                        target_ptype = target_province_obj.province_type
-                        if unit_type == "A" and target_ptype == "sea":
-                            logger.warning(
-                                f"Invalid move rejected: army {order.unit} cannot enter sea province {order.target_province}"
-                            )
-                            continue  # Skip this move
-                        if unit_type == "F" and target_ptype == "land":
-                            logger.warning(
-                                f"Invalid move rejected: fleet {order.unit} cannot enter inland province {order.target_province}"
-                            )
-                            continue  # Skip this move
+    # -- queries ----------------------------------------------------------
 
-                        # Check if move is convoyed
-                        move_key = (order.unit.unit_type, order.unit.province, order.target_province)
-                        is_convoyed = move_key in convoyed_moves
+    def eliminated_powers(self) -> frozenset[str]:
+        """Powers with no units and no supply centers."""
+        out = set()
+        for power in self.map.home_centers:
+            has_units = any(u.power == power for u in self.state.units)
+            has_centers = any(o == power for o in self.state.ownership.values())
+            if not has_units and not has_centers:
+                out.add(power)
+        return frozenset(out)
 
-                        # Validate adjacency (unless convoyed)
-                        if not is_convoyed:
-                            # P0-006: For fleets at multi-coast provinces, ALWAYS use the
-                            # coast-specific adjacency check (not the general one) because
-                            # general adjacency merges both coasts and produces false positives.
-                            if (order.unit.unit_type == "F"
-                                    and current_province_obj.is_multi_coast_province()
-                                    and hasattr(order.unit, 'coast') and order.unit.coast):
-                                coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
-                                is_adjacent = order.target_province in coast_adjacencies
-                            else:
-                                # Standard adjacency check
-                                is_adjacent = current_province_obj.is_adjacent_to(order.target_province)
+    def winner(self) -> str | None:
+        """The winning power (≥ ``VICTORY_CENTERS`` centers), if any."""
+        counts: dict[str, int] = {}
+        for owner in self.state.ownership.values():
+            counts[owner] = counts.get(owner, 0) + 1
+        for power, n in counts.items():
+            if n >= VICTORY_CENTERS:
+                return power
+        return None
 
-                                # For multi-coast provinces without a specified coast, fall back to
-                                # coast-specific check when general check fails.
-                                if not is_adjacent and current_province_obj.is_multi_coast_province():
-                                    if hasattr(order.unit, 'coast') and order.unit.coast:
-                                        coast_adjacencies = current_province_obj.get_coast_specific_adjacencies(order.unit.coast)
-                                        is_adjacent = order.target_province in coast_adjacencies
 
-                            if not is_adjacent:
-                                # Invalid move - log warning and skip
-                                logger.warning(
-                                    f"Invalid move rejected: {order.unit} cannot move to non-adjacent province {order.target_province} "
-                                    f"(not convoyed). Order: {order}"
-                                )
-                                continue  # Skip this move
-                    
-                    target = order.target_province
-                    if target not in move_strengths:
-                        move_strengths[target] = []
-                    
-                    # Calculate base strength (1 for move)
-                    strength = 1
-                    
-                    # Check if this move is convoyed
-                    move_key = (order.unit.unit_type, order.unit.province, order.target_province)
-                    if move_key in convoyed_moves:
-                        # Collect all convoy orders for this move (only fleets that actually convoy this move)
-                        convoy_route: List[str] = []
-                        for power_name_check, orders_check in self.game_state.orders.items():
-                            for convoy_order in orders_check:
-                                if isinstance(convoy_order, ConvoyOrder):
-                                    if (convoy_order.convoyed_unit.unit_type == order.unit.unit_type and
-                                        convoy_order.convoyed_unit.province == order.unit.province and
-                                        convoy_order.convoyed_target == order.target_province):
-                                        convoy_route.append(convoy_order.unit.province)
-                        # Only treat as convoyed if the convoy route forms a connected chain embark -> seas -> landing
-                        if self._convoy_route_forms_path(order.unit.province, order.target_province, convoy_route):
-                            order.convoy_route = convoy_route
-                            order.is_convoyed = True
-                            convoy_strength = self._calculate_convoy_strength(order)
-                            if convoy_strength > 0:
-                                strength += convoy_strength
-                        else:
-                            order.convoy_route = []
-                            order.is_convoyed = False
-                    
-                    move_strengths[target].append((order.unit, strength, order))
-                    
-                elif isinstance(order, HoldOrder):
-                    # Hold orders don't move, but they can be dislodged
-                    target = order.unit.province
-                    if target not in move_strengths:
-                        move_strengths[target] = []
-                    move_strengths[target].append((order.unit, 1, order))
-        
-        # Second pass: Process support orders
-        # Track support orders by target province and supported unit for proper matching
-        support_orders_by_target: Dict[str, List[Tuple[SupportOrder, Unit]]] = {}  # target_province -> [(support_order, supported_unit)]
-        
-        # Track which units are supporting (for implicit hold orders)
-        # Use tuple (power, unit_type, province) as key since Unit is not hashable
-        supporting_units = set()  # Set of (power, unit_type, province) tuples
-        
-        for power_name, orders in self.game_state.orders.items():
-            for order in orders:
-                if isinstance(order, SupportOrder):
-                    # Re-validate the support order against current game state before counting it
-                    support_valid, support_reason = order.validate(self.game_state)
-                    if not support_valid:
-                        logger.debug(
-                            f"Support order {order} rejected during processing: {support_reason}"
-                        )
-                        continue
-
-                    # Check if supporting unit is dislodged
-                    supporting_unit = order.unit
-                    supporting_units.add((supporting_unit.power, supporting_unit.unit_type, supporting_unit.province))
-                    is_support_cut = False
-
-                    # Check if the supporting unit itself is moving (support cut by move)
-                    # If a unit moves, it cannot provide support
-                    supporting_unit_moving = False
-                    for target_province, moves in move_strengths.items():
-                        for unit, strength, move_order in moves:
-                            if unit == supporting_unit and isinstance(move_order, MoveOrder):
-                                supporting_unit_moving = True
-                                is_support_cut = True
-                                break
-                        if supporting_unit_moving:
-                            break
-
-                    # Check if any other unit is moving to the supporting unit's province (support cut by attack)
-                    if not is_support_cut:
-                        for target_province, moves in move_strengths.items():
-                            if target_province == supporting_unit.province:
-                                for unit, strength, move_order in moves:
-                                    if unit != supporting_unit:  # Not supporting itself
-                                        is_support_cut = True
-                                        break
-                                if is_support_cut:
-                                    break
-
-                    if not is_support_cut:
-                        # Support is not cut, determine target province and supported unit
-                        if order.supported_action == "hold":
-                            # Hold support: target is the province being held
-                            target_province = order.supported_unit.province
-                            supported_unit = order.supported_unit
-                        else:
-                            # Move support: target is the destination province
-                            target_province = order.supported_target
-                            supported_unit = order.supported_unit
-                        
-                        if target_province:
-                            if target_province not in support_orders_by_target:
-                                support_orders_by_target[target_province] = []
-                            support_orders_by_target[target_province].append((order, supported_unit))
-                            
-                            # Also add to support_strengths for backward compatibility
-                            if target_province not in support_strengths:
-                                support_strengths[target_province] = []
-                            support_strengths[target_province].append((supporting_unit, 1))
-        
-        # Third pass: Add implicit hold orders for units that are supporting but don't have explicit hold orders
-        # A unit that is supporting is effectively holding in its own province for conflict resolution
-        # UNLESS support is cut (another unit is attacking the supporting unit's province)
-        for power_name, power in self.game_state.powers.items():
-            for supporting_unit in power.units:
-                unit_key = (supporting_unit.power, supporting_unit.unit_type, supporting_unit.province)
-                if unit_key not in supporting_units:
-                    continue
-                # Check if this unit already has a hold order in move_strengths
-                unit_province = supporting_unit.province
-                has_explicit_hold = False
-                if unit_province in move_strengths:
-                    for unit, strength, order in move_strengths[unit_province]:
-                        if unit == supporting_unit and isinstance(order, HoldOrder):
-                            has_explicit_hold = True
-                            break
-                
-                # Check if support is cut (another unit is attacking this province)
-                support_is_cut = False
-                if unit_province in move_strengths:
-                    for unit, strength, order in move_strengths[unit_province]:
-                        if unit != supporting_unit:  # Another unit is attacking
-                            support_is_cut = True
-                            break
-                
-                # If no explicit hold order and support is not cut, add implicit hold for conflict resolution
-                if not has_explicit_hold and not support_is_cut:
-                    if unit_province not in move_strengths:
-                        move_strengths[unit_province] = []
-                    # Create a temporary hold order for conflict resolution
-                    # (HoldOrder is already imported at the top of the file)
-                    implicit_hold = HoldOrder(
-                        power=supporting_unit.power,
-                        unit=supporting_unit
-                    )
-                    move_strengths[unit_province].append((supporting_unit, 1, implicit_hold))
-        
-        # Check for mutual moves (units trying to swap positions)
-        # A mutual move occurs when: Unit A moves to Province X, and Unit B (currently in X) moves to A's source province
-        mutual_moves = []
-        for target_province, moves in move_strengths.items():
-            if len(moves) == 1:
-                unit, strength, order = moves[0]
-                # Check if there's a unit currently in the target province that's also moving to unit's source province
-                for other_target, other_moves in move_strengths.items():
-                    if other_target != target_province:
-                        for other_unit, other_strength, other_order in other_moves:
-                            if isinstance(other_order, MoveOrder):
-                                # Mutual move: other_unit is in target_province AND moving to unit's source province
-                                if other_unit.province == target_province and other_order.target_province == unit.province:
-                                    # This is a mutual move (swap)
-                                    mutual_moves.append((unit, strength, order, other_unit, other_strength, other_order))
-        
-        # Process mutual moves first
-        for unit1, strength1, order1, unit2, strength2, order2 in mutual_moves:
-            # Both units bounce (standoff) — record the contested provinces
-            standoff_provinces.add(order1.target_province)
-            standoff_provinces.add(order2.target_province)
-            results["moves"].append({
-                "unit": f"{unit1.unit_type} {unit1.province}",
-                "from": unit1.province,
-                "to": order1.target_province,
-                "strength": strength1,
-                "success": False,
-                "failure_reason": "bounced"
-            })
-            results["moves"].append({
-                "unit": f"{unit2.unit_type} {unit2.province}",
-                "from": unit2.province,
-                "to": order2.target_province,
-                "strength": strength2,
-                "success": False,
-                "failure_reason": "bounced"
-            })
-        
-        # Process remaining moves (excluding mutual moves)
-        processed_units = set()
-        for unit1, strength1, order1, unit2, strength2, order2 in mutual_moves:
-            processed_units.add(f"{unit1.unit_type} {unit1.province}")
-            processed_units.add(f"{unit2.unit_type} {unit2.province}")
-        
-        # Resolve conflicts
-        for target_province, moves in move_strengths.items():
-            # Skip if this target province is involved in mutual moves
-            skip_target = False
-            for unit1, strength1, order1, unit2, strength2, order2 in mutual_moves:
-                if target_province == order1.target_province or target_province == order2.target_province:
-                    skip_target = True
-                    break
-            if skip_target:
-                continue
-            
-            # Filter out processed units
-            remaining_moves = [(unit, strength, order) for unit, strength, order in moves if f"{unit.unit_type} {unit.province}" not in processed_units]
-            if not remaining_moves:
-                continue
-            
-            # Check if there's a unit already in the target province that's holding
-            # This must be checked even if there's only one move order, as it creates a conflict
-            # IMPORTANT: A unit that is moving away from the target province should NOT be treated as holding
-            holding_unit_in_target = None
-            for power_name, power in self.game_state.powers.items():
-                for unit_in_province in power.units:
-                    if unit_in_province.province == target_province:
-                        # Check if this unit is moving away (has a MoveOrder to a different province)
-                        unit_is_moving_away = False
-                        for move_target, move_list in move_strengths.items():
-                            for move_unit, move_strength, move_order in move_list:
-                                if (isinstance(move_order, MoveOrder) and 
-                                    move_unit == unit_in_province and
-                                    move_order.target_province != target_province):
-                                    # Unit is moving to a different province - it's leaving
-                                    unit_is_moving_away = True
-                                    break
-                            if unit_is_moving_away:
-                                break
-                        
-                        # If unit is moving away, don't treat it as holding
-                        if unit_is_moving_away:
-                            continue
-                        
-                        # Check if this unit has a hold order
-                        unit_has_hold_order = False
-                        for order_in_moves in [o for _, _, o in remaining_moves]:
-                            if isinstance(order_in_moves, HoldOrder) and order_in_moves.unit == unit_in_province:
-                                unit_has_hold_order = True
-                                break
-                        
-                        # If unit is in target province but doesn't have a hold order in remaining_moves,
-                        # check if it should have one (it might have been filtered out or not added)
-                        if not unit_has_hold_order:
-                            # Check if this unit has any order at all
-                            unit_has_any_order = False
-                            for power_orders in self.game_state.orders.values():
-                                for power_order in power_orders:
-                                    if (isinstance(power_order, (MoveOrder, HoldOrder)) and 
-                                        power_order.unit == unit_in_province):
-                                        unit_has_any_order = True
-                                        # If it's a hold order, it should be in remaining_moves
-                                        if isinstance(power_order, HoldOrder):
-                                            # Add it to remaining_moves if it's not already there
-                                            if not any(u == unit_in_province for u, _, _ in remaining_moves):
-                                                remaining_moves.append((unit_in_province, 1, power_order))
-                                        break
-                                if unit_has_any_order:
-                                    break
-                        
-                        # If we found a holding unit, mark it
-                        if unit_has_hold_order or (not unit_has_any_order and any(isinstance(o, HoldOrder) and o.unit == unit_in_province for _, _, o in remaining_moves)):
-                            holding_unit_in_target = unit_in_province
-                            break
-                if holding_unit_in_target:
-                    break
-            
-            # If there's a holding unit and a moving unit, treat as conflict (even if len(remaining_moves) == 1)
-            # This ensures equal strength battles are resolved correctly
-            # After adding hold orders, re-check remaining_moves length
-            if len(remaining_moves) == 1:
-                unit, strength, order = remaining_moves[0]
-                # If this is a move order and there's a unit holding in the target, it's a conflict
-                # The hold order should have been added above, so remaining_moves should now have 2 items
-                # But if for some reason it wasn't added, skip single move processing
-                if isinstance(order, MoveOrder) and holding_unit_in_target:
-                    # Hold order should be in remaining_moves now - skip to conflict resolution
-                    # This will be handled in the else branch below
-                    if len(remaining_moves) == 1:
-                        # Hold order wasn't added - skip single move processing to force conflict resolution
-                        continue
-                else:
-                    # Single move with no conflict - succeeds
-                    old_province = unit.province
-                    
-                    # Add support strength
-                    # Match support orders to this specific unit and move
-                    if target_province in support_orders_by_target:
-                        for support_order, supported_unit in support_orders_by_target[target_province]:
-                            # Check if this support is for this specific unit
-                            if isinstance(order, MoveOrder):
-                                # For move support: supported_unit must match the moving unit
-                                # Treat '-' as equivalent to "move" when supported_target is present
-                                is_move_support = (support_order.supported_action == "move" or 
-                                                  (support_order.supported_action == "-" and support_order.supported_target))
-                                if (is_move_support and
-                                    supported_unit.unit_type == unit.unit_type and
-                                    supported_unit.province == unit.province and
-                                    supported_unit.power == unit.power):
-                                    strength += 1
-                                    break
-                            elif isinstance(order, HoldOrder):
-                                # For hold support: supported_unit must match the holding unit
-                                if (support_order.supported_action == "hold" and
-                                    supported_unit.unit_type == unit.unit_type and
-                                    supported_unit.province == unit.province and
-                                    supported_unit.power == unit.power):
-                                    strength += 1
-                                    break
-                    
-                    if isinstance(order, MoveOrder):
-                        # Check for self-dislodgement
-                        # IMPORTANT: A unit can move to a province if the friendly unit there is also moving away
-                        self_dislodgement = False
-                        for power_name, power in self.game_state.powers.items():
-                            for target_unit in power.units:
-                                if target_unit != unit and target_unit.power == unit.power:
-                                    # Check if target_unit was originally in the target province (before any moves)
-                                    target_unit_original_province = original_provinces.get(id(target_unit), target_unit.province)
-                                    if target_unit_original_province == target_province:
-                                        # Target unit was originally in target province - check if it's moving away
-                                        target_unit_is_moving_away = False
-                                        
-                                        # Check if target_unit has a MoveOrder to a different province
-                                        # Compare by power, unit_type, and original province since unit objects may differ
-                                        target_unit_original_province_for_match = original_provinces.get(id(target_unit), target_unit.province)
-                                        for power_orders in self.game_state.orders.values():
-                                            for power_order in power_orders:
-                                                if isinstance(power_order, MoveOrder):
-                                                    # Match by power, unit_type, and original province
-                                                    order_unit = power_order.unit
-                                                    order_unit_original_province = original_provinces.get(id(order_unit), order_unit.province)
-                                                    if (order_unit.power == target_unit.power and
-                                                        order_unit.unit_type == target_unit.unit_type and
-                                                        order_unit_original_province == target_unit_original_province_for_match and
-                                                        power_order.target_province != target_province):
-                                                        # Target unit is moving to a different province
-                                                        target_unit_is_moving_away = True
-                                                        break
-                                            if target_unit_is_moving_away:
-                                                break
-                                        
-                                        # Only block if target unit is NOT moving away
-                                        if not target_unit_is_moving_away:
-                                            # Self-dislodgement prohibited
-                                            self_dislodgement = True
-                                            break
-                            if self_dislodgement:
-                                break
-                        
-                        if self_dislodgement:
-                            # Self-dislodgement prohibited - move fails
-                            results["moves"].append({
-                                "unit": f"{unit.unit_type} {old_province}",
-                                "from": old_province,
-                                "to": target_province,
-                                "strength": strength,
-                                "success": False,
-                                "failure_reason": "self_dislodgement_prohibited"
-                            })
-                        else:
-                            # Execute move
-                            unit.province = target_province
-                            results["moves"].append({
-                                "unit": f"{unit.unit_type} {old_province}",
-                                "from": old_province,
-                                "to": target_province,
-                                "strength": strength,
-                                "success": True
-                            })
-                            
-                            # Note: SC ownership is NOT updated here. Per Diplomacy rules,
-                            # supply center ownership is only determined at the end of Autumn
-                            # movement (after retreats), inside _update_supply_center_ownership().
-
-                            # Check if there's an enemy unit that was originally in the target province (must use original positions: we already moved the winner into target_province)
-                            for power_name, power in self.game_state.powers.items():
-                                for target_unit in power.units:
-                                    was_in_target = original_provinces.get(id(target_unit), target_unit.province) == target_province
-                                    if was_in_target and target_unit != unit:
-                                        dislodged_from = original_provinces.get(id(target_unit), target_unit.province)
-                                        # Do not dislodge a unit that vacated the province (had a move order to a different province)
-                                        target_has_move_away = any(
-                                            isinstance(_o, MoveOrder) and _o.unit == target_unit and _o.target_province != target_province
-                                            for _orders in self.game_state.orders.values()
-                                            for _o in _orders
-                                        )
-                                        if target_has_move_away:
-                                            break
-                                        # This unit is being dislodged
-                                        target_unit.is_dislodged = True
-                                        target_unit.dislodged_by = old_province  # attacker's origin (DATC 6.H)
-                                        target_unit.province = f"DISLODGED_{dislodged_from}"
-                                        target_unit.retreat_options = self._calculate_retreat_options(
-                                            target_unit,
-                                            attacker_origin=old_province,
-                                            standoff_provinces=standoff_provinces,
-                                        )
-
-                                        results["dislodgements"].append({
-                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                            "dislodged_by": f"{unit.unit_type} {old_province}",
-                                            "retreat_options": target_unit.retreat_options
-                                        })
-                                        results["dislodged_units"].append({
-                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                            "dislodged_by": f"{unit.unit_type} {old_province}",
-                                            "retreat_options": target_unit.retreat_options
-                                        })
-                                        break
-            else:
-                # Multiple moves - resolve conflict
-                # Add support strengths
-                total_strengths = {}
-                for unit, strength, order in remaining_moves:
-                    unit_key = f"{unit.unit_type} {unit.province}"
-                    if unit_key not in total_strengths:
-                        total_strengths[unit_key] = 0
-                    total_strengths[unit_key] += strength
-                
-                # Add support from support orders
-                # Match support orders to specific units
-                if target_province in support_orders_by_target:
-                    for support_order, supported_unit in support_orders_by_target[target_province]:
-                        # Find the unit in remaining_moves that matches the supported unit
-                        for unit, strength, order in remaining_moves:
-                            # Match by unit type, province, and power
-                            # Also verify the support action matches the order type
-                            unit_matches = (supported_unit.unit_type == unit.unit_type and
-                                          supported_unit.province == unit.province and
-                                          supported_unit.power == unit.power)
-                            
-                            if unit_matches:
-                                # Verify support action matches order type
-                                # Treat '-' as equivalent to "move" when supported_target is present
-                                is_move_support = (support_order.supported_action == "move" or 
-                                                  (support_order.supported_action == "-" and support_order.supported_target))
-                                is_hold_support = (support_order.supported_action == "hold")
-                                
-                                if ((is_move_support and isinstance(order, MoveOrder)) or
-                                    (is_hold_support and isinstance(order, HoldOrder))):
-                                    # This support is for this unit
-                                    unit_key = f"{unit.unit_type} {unit.province}"
-                                    if unit_key in total_strengths:
-                                        total_strengths[unit_key] += 1
-                                    break
-                
-                # Find winner
-                max_strength = max(total_strengths.values())
-                winners = [unit_key for unit_key, strength in total_strengths.items() if strength == max_strength]
-                
-                # Add conflict information
-                conflict_info = {
-                    "target": target_province,
-                    "participants": list(total_strengths.keys()),
-                    "strengths": total_strengths,
-                    "winner": winners[0] if len(winners) == 1 else None
-                }
-                results["conflicts"].append(conflict_info)
-                
-                if len(winners) == 1:
-                    # Single winner
-                    winner_key = winners[0]
-                    # Store original provinces before any modifications
-                    unit_original_provinces = {}
-                    for unit, strength, order in remaining_moves:
-                        unit_original_provinces[id(unit)] = unit.province
-                    
-                    # Find the actual unit object
-                    winner_unit = None
-                    for unit, strength, order in remaining_moves:
-                        if f"{unit.unit_type} {unit.province}" == winner_key:
-                            winner_unit = unit
-                            break
-                    
-                    if winner_unit:
-                        old_province = winner_unit.province
-                        
-                        # Check for self-dislodgement
-                        self_dislodgement = False
-                        for power_name, power in self.game_state.powers.items():
-                            for target_unit in power.units:
-                                if (target_unit.province == target_province and 
-                                    target_unit != winner_unit and 
-                                    target_unit.power == winner_unit.power):
-                                    # Self-dislodgement prohibited
-                                    self_dislodgement = True
-                                    break
-                            if self_dislodgement:
-                                break
-                        
-                        if self_dislodgement:
-                            # Self-dislodgement prohibited - move fails
-                            results["moves"].append({
-                                "unit": f"{winner_unit.unit_type} {old_province}",
-                                "from": old_province,
-                                "to": target_province,
-                                "strength": max_strength,
-                                "success": False,
-                                "failure_reason": "self_dislodgement_prohibited"
-                            })
-                        else:
-                            # Execute winning move
-                            winner_unit.province = target_province
-                            results["moves"].append({
-                                "unit": f"{winner_unit.unit_type} {old_province}",
-                                "from": old_province,
-                                "to": target_province,
-                                "strength": max_strength,
-                                "success": True
-                            })
-                            
-                            # Note: SC ownership is NOT updated here. Per Diplomacy rules,
-                            # supply center ownership is only determined at the end of Autumn
-                            # movement (after retreats), inside _update_supply_center_ownership().
-
-                            # Dislodge units that were originally in the target province (use original positions: we already moved the winner into target_province)
-                            for power_name, power in self.game_state.powers.items():
-                                for target_unit in power.units:
-                                    was_in_target = original_provinces.get(id(target_unit), target_unit.province) == target_province
-                                    if was_in_target and target_unit != winner_unit:
-                                        dislodged_from = original_provinces.get(id(target_unit), target_unit.province)
-                                        # Do not dislodge a unit that vacated the province (had a move order to a different province)
-                                        target_has_move_away = any(
-                                            isinstance(_o, MoveOrder) and _o.unit == target_unit and _o.target_province != target_province
-                                            for _orders in self.game_state.orders.values()
-                                            for _o in _orders
-                                        )
-                                        if target_has_move_away:
-                                            continue
-                                        # This unit is being dislodged
-                                        target_unit.is_dislodged = True
-                                        target_unit.dislodged_by = old_province  # attacker's origin (DATC 6.H)
-                                        target_unit.province = f"DISLODGED_{dislodged_from}"
-                                        target_unit.retreat_options = self._calculate_retreat_options(
-                                            target_unit,
-                                            attacker_origin=old_province,
-                                            standoff_provinces=standoff_provinces,
-                                        )
-
-                                        results["dislodgements"].append({
-                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                            "dislodged_by": f"{winner_unit.unit_type} {old_province}",
-                                            "retreat_options": target_unit.retreat_options
-                                        })
-                                        results["dislodged_units"].append({
-                                            "unit": f"{target_unit.unit_type} {dislodged_from}",
-                                            "dislodged_by": f"{winner_unit.unit_type} {old_province}",
-                                            "retreat_options": target_unit.retreat_options
-                                        })
-                    
-                    # Add failed moves for all non-winning units
-                    for unit, strength, order in remaining_moves:
-                        original_province = unit_original_provinces[id(unit)]
-                        unit_key = f"{unit.unit_type} {original_province}"
-                        if unit_key != winner_key:
-                            results["moves"].append({
-                                "unit": f"{unit.unit_type} {original_province}",
-                                "from": original_province,
-                                "to": target_province,
-                                "strength": strength,
-                                "success": False,
-                                "failure_reason": "defeated"
-                            })
-                else:
-                    # Multiple winners - standoff, no move
-                    # Record this province as a standoff province (DATC 6.H)
-                    standoff_provinces.add(target_province)
-                    # Units at max strength bounce each other; weaker units are defeated
-                    for unit, strength, order in remaining_moves:
-                        unit_key = f"{unit.unit_type} {unit.province}"
-                        unit_total_strength = total_strengths.get(unit_key, strength)
-                        failure_reason = "bounced" if unit_total_strength >= max_strength else "defeated"
-                        if isinstance(order, MoveOrder):
-                            results["moves"].append({
-                                "unit": unit_key,
-                                "from": unit.province,
-                                "to": target_province,
-                                "strength": unit_total_strength,
-                                "success": False,
-                                "failure_reason": failure_reason
-                            })
-                        elif isinstance(order, HoldOrder):
-                            results["moves"].append({
-                                "unit": unit_key,
-                                "from": unit.province,
-                                "to": unit.province,
-                                "strength": unit_total_strength,
-                                "success": False,
-                                "failure_reason": failure_reason
-                            })
-        
-        # Final convoy disruption check: if any convoying fleet was dislodged, cancel the
-        # convoyed move and move unit A back to its start (step 4 of convoy flow).
-        convoy_disrupted_moves = []
-        for move_result in results["moves"]:
-            if move_result["success"]:
-                # Find the original order for this move
-                unit_str = move_result["unit"]
-                target_province = move_result["to"]
-                
-                # Look for convoyed orders that match this move
-                for power_name, orders in self.game_state.orders.items():
-                    for order in orders:
-                        if (isinstance(order, MoveOrder) and 
-                            order.is_convoyed and
-                            f"{order.unit.unit_type} {move_result['from']}" == unit_str and
-                            order.target_province == target_province):
-                            
-                            # Check if any convoying fleet was dislodged
-                            convoy_disrupted = False
-                            for convoy_province in order.convoy_route:
-                                # Find the convoying fleet at this province
-                                convoying_fleet = None
-                                for power_name_check, power in self.game_state.powers.items():
-                                    for unit in power.units:
-                                        if unit.province == convoy_province and unit.unit_type == "F":
-                                            convoying_fleet = unit
-                                            break
-                                    if convoying_fleet:
-                                        break
-                                
-                                if convoying_fleet:
-                                    # Check if this convoying fleet was dislodged
-                                    for power_name_check, power in self.game_state.powers.items():
-                                        for convoy_unit in power.units:
-                                            if (convoy_unit.province.startswith("DISLODGED_") and
-                                                convoy_unit.unit_type == convoying_fleet.unit_type and
-                                                convoy_unit.province.replace("DISLODGED_", "") == convoying_fleet.province.replace("DISLODGED_", "")):
-                                                convoy_disrupted = True
-                                                break
-                                    if convoy_disrupted:
-                                        break
-                                if convoy_disrupted:
-                                    break
-                            
-                            if convoy_disrupted:
-                                convoy_disrupted_moves.append(move_result)
-                                break
-                    if convoy_disrupted_moves and convoy_disrupted_moves[-1] == move_result:
-                        break
-        
-        # Mark convoy disrupted moves as failed and move units back
-        for move_result in convoy_disrupted_moves:
-            move_result["success"] = False
-            move_result["failure_reason"] = "convoy_disrupted"
-            
-            # Move the unit back to its original province
-            unit_str = move_result["unit"]
-            from_province = move_result["from"]
-            for power_name, power in self.game_state.powers.items():
-                for unit in power.units:
-                    # Check if this is the unit that moved (by matching unit type and current province)
-                    if (f"{unit.unit_type} {unit.province}" == unit_str or
-                        (unit.unit_type == unit_str.split()[0] and unit.province == move_result["to"])):
-                        unit.province = from_province
-                        break
-        
-        # Add hold orders to results
-        for power_name, orders in self.game_state.orders.items():
-            for order in orders:
-                if isinstance(order, HoldOrder):
-                    # Hold orders succeed unless the unit was dislodged
-                    was_dislodged = any(d["unit"] == f"{order.unit.unit_type} {order.unit.province}" 
-                                       for d in results["dislodged_units"])
-                    
-                    if not was_dislodged:
-                        results["moves"].append({
-                            "unit": f"{order.unit.unit_type} {order.unit.province}",
-                            "from": order.unit.province,
-                            "to": order.unit.province,
-                            "strength": 1,
-                            "success": True,
-                            "action": "hold"
-                        })
-        
-        return results
-
-    def _calculate_convoy_strength(self, order: MoveOrder) -> int:
-        """Calculate convoy strength for a convoyed move."""
-        convoy_strength = 0
-        convoyed_unit = order.unit
-        
-        for power_name, orders in self.game_state.orders.items():
-            for convoy_order in orders:
-                if isinstance(convoy_order, ConvoyOrder):
-                    if (convoy_order.convoyed_unit == convoyed_unit and 
-                        convoy_order.convoyed_target == order.target_province):
-                        # Check if convoy path is valid
-                        if self._is_valid_convoy_path(convoy_order, order):
-                            convoy_strength += 1
-        
-        return convoy_strength
-
-    def _convoy_route_forms_path(self, embark: str, landing: str, convoy_route: List[str]) -> bool:
-        """Return True iff there is a path from embark to landing using only embark, landing, and convoy_route provinces (map adjacency)."""
-        if not convoy_route:
-            return False
-        provinces = self.game_state.map_data.provinces
-        if embark not in provinces or landing not in provinces:
-            return False
-        allowed = {embark, landing} | set(convoy_route)
-        seen = {embark}
-        q = deque([embark])
-        while q:
-            cur = q.popleft()
-            if cur == landing:
-                return True
-            prov = provinces.get(cur)
-            if not prov:
-                continue
-            for a in getattr(prov, "adjacent_provinces", []):
-                if a in allowed and a not in seen:
-                    seen.add(a)
-                    q.append(a)
-        return False
-
-    def _is_valid_convoy_path(self, convoy_order: ConvoyOrder, move_order: MoveOrder) -> bool:
-        """Check if a single convoy order is valid (fleet adjacent to both embark and landing)."""
-        convoy_validation_error = convoy_order._validate_convoy_route(self.game_state)
-        return convoy_validation_error is None
-
-    def _calculate_retreat_options(
-        self,
-        unit: Unit,
-        attacker_origin: Optional[str] = None,
-        standoff_provinces: Optional[set] = None,
-    ) -> List[str]:
-        """Calculate valid retreat options for a dislodged unit.
-
-        Per DATC 6.H a dislodged unit may NOT retreat to:
-          1. The province the attacker came from (attacker_origin).
-          2. Any province where a standoff occurred this turn (standoff_provinces).
-          3. Any currently occupied province.
-        """
-        retreat_options: List[str] = []
-        current_province = unit.province.replace("DISLODGED_", "")
-
-        if standoff_provinces is None:
-            standoff_provinces = set()
-
-        # Get adjacent provinces
-        province_data = self.game_state.map_data.provinces.get(current_province)
-        if not province_data:
-            return retreat_options
-
-        for province_name in province_data.adjacent_provinces:
-            # DATC 6.H rule 1: cannot retreat to the province the attacker came from
-            if attacker_origin and province_name == attacker_origin:
-                continue
-
-            # DATC 6.H rule 2: cannot retreat to a province where a standoff occurred
-            if province_name in standoff_provinces:
-                continue
-
-            # Check if province is valid for this unit type
-            target_province = self.game_state.map_data.provinces.get(province_name)
-            if not target_province:
-                continue
-
-            # Check if province is occupied
-            occupied = False
-            for power_name, power in self.game_state.powers.items():
-                for other_unit in power.units:
-                    if other_unit.province == province_name:
-                        occupied = True
-                        break
-                if occupied:
-                    break
-
-            if not occupied:
-                retreat_options.append(province_name)
-
-        return retreat_options
-
-    def _process_retreat_phase(self) -> Dict[str, Any]:
-        """Process retreat phase."""
-        results: Dict[str, List[Any]] = {
-            "retreats": [],
-            "disbands": []
-        }
-        
-        # Track which units have retreat orders
-        units_with_retreat_orders = set()
-        
-        # Process retreat orders
-        for power_name, orders in self.game_state.orders.items():
-            for order in orders:
-                if isinstance(order, RetreatOrder):
-                    units_with_retreat_orders.add(id(order.unit))
-                    # Validate retreat
-                    if self._is_valid_retreat(order):
-                        # Execute retreat
-                        old_province = order.unit.province.replace("DISLODGED_", "")
-                        retreat_province = order.retreat_province
-                        order.unit.province = retreat_province
-                        order.unit.is_dislodged = False
-                        order.unit.retreat_options = []
-                        
-                        # SC ownership does NOT change during retreat phase.
-                        # Per Diplomacy rules, supply center control is only updated
-                        # at the end of Autumn (via _update_supply_center_ownership in builds phase).
-                        
-                        results["retreats"].append({
-                            "unit": f"{order.unit.unit_type} {old_province}",
-                            "to": retreat_province,
-                            "success": True
-                        })
-                    else:
-                        # Invalid retreat - unit is disbanded
-                        results["disbands"].append({
-                            "unit": f"{order.unit.unit_type} {order.unit.province.replace('DISLODGED_', '')}",
-                            "reason": "invalid_retreat"
-                        })
-                        
-                        # Remove unit from game
-                        power = self.game_state.powers[power_name]
-                        power.units = [u for u in power.units if u != order.unit]
-        
-        # Disband units with no retreat orders and no valid retreat options
-        for power_name, power_state in self.game_state.powers.items():
-            units_to_remove = []
-            for unit in power_state.units:
-                if unit.is_dislodged and id(unit) not in units_with_retreat_orders:
-                    # Unit has no retreat order - check if it has valid retreat options
-                    if not unit.retreat_options or len(unit.retreat_options) == 0:
-                        # No valid retreat options - disband
-                        units_to_remove.append(unit)
-                        results["disbands"].append({
-                            "unit": f"{unit.unit_type} {unit.province.replace('DISLODGED_', '')}",
-                            "reason": "no_retreat_options"
-                        })
-            
-            # Remove disbanded units
-            for unit in units_to_remove:
-                power_state.units.remove(unit)
-        
-        return results
-
-    def _is_valid_retreat(self, order: RetreatOrder) -> bool:
-        """Check if a retreat order is valid."""
-        # Unit must be dislodged
-        if not order.unit.is_dislodged:
-            return False
-        
-        # Retreat province must be in retreat options
-        if order.retreat_province not in order.unit.retreat_options:
-            return False
-        
-        # Check if retreat province is adjacent
-        current_province = order.unit.province.replace("DISLODGED_", "")
-        province_data = self.game_state.map_data.provinces.get(current_province)
-        if not province_data:
-            return False
-        
-        if order.retreat_province not in province_data.adjacent_provinces:
-            return False
-        
-        # Check if retreat province is occupied
-        for power_name, power in self.game_state.powers.items():
-            for unit in power.units:
-                if unit.province == order.retreat_province:
-                    return False
-        
-        return True
-
-    def _is_valid_move(self, order: MoveOrder) -> bool:
-        """Check if a move order is valid."""
-        valid, _ = order.validate(self.game_state)
-        if not valid:
-            return False
-        
-        # Check if target province is occupied (stricter validation for test)
-        # Note: In actual Diplomacy, moves to occupied provinces are valid and cause battles
-        # but this test expects them to be invalid in initial validation
-        if any(u.province == order.target_province for u in self.game_state.get_all_units()):
-            return False
-        
-        return True
-
-    def _is_valid_build(self, order: BuildOrder) -> bool:
-        """Check if a build order is valid."""
-        valid, _ = order.validate(self.game_state)
-        return valid
-
-    def _is_valid_destroy(self, order: DestroyOrder) -> bool:
-        """Check if a destroy order is valid."""
-        # First check basic validation
-        valid, _ = order.validate(self.game_state)
-        if not valid:
-            return False
-        
-        # Check if power actually needs to destroy units
-        # (has more units than supply centers)
-        power_state = self.game_state.powers.get(order.power)
-        if not power_state:
-            return False
-        
-        unit_count = len(power_state.units)
-        supply_count = len(power_state.controlled_supply_centers)
-        
-        # Can only destroy if we have more units than supply centers
-        if unit_count <= supply_count:
-            return False
-        
-        return True
-
-    def _is_valid_for_current_phase(self, order: Order) -> bool:
-        """Check if an order is valid for the current phase."""
-        return self.game_state.is_valid_phase_for_order_type(order.order_type)
-
-    def _is_valid_power_ownership(self, order: Order) -> bool:
-        """Check if an order has valid power ownership (power matches unit.power)."""
-        return order.unit.power == order.power
-
-    def _validate_order_comprehensive(self, order: Order) -> Tuple[bool, str]:
-        """Comprehensively validate an order."""
-        # Validate power ownership
-        if not self._is_valid_power_ownership(order):
-            return False, f"Unit {order.unit} does not belong to power {order.power}"
-        
-        # Validate using order's own validate method
-        valid, reason = order.validate(self.game_state)
-        if not valid:
-            return False, reason
-        
-        # Validate phase compatibility
-        if not self._is_valid_for_current_phase(order):
-            return False, f"Order type {order.order_type.value} not valid for phase {self.game_state.current_phase}"
-        
-        # Type-specific validations
-        if isinstance(order, MoveOrder):
-            if not self._is_valid_move(order):
-                return False, "Invalid move"
-        elif isinstance(order, RetreatOrder):
-            if not self._is_valid_retreat(order):
-                return False, "Invalid retreat"
-        elif isinstance(order, BuildOrder):
-            if not self._is_valid_build(order):
-                return False, "Invalid build"
-        elif isinstance(order, DestroyOrder):
-            if not self._is_valid_destroy(order):
-                return False, "Invalid destroy"
-        
-        return True, ""
-
-    def _update_supply_center_ownership(self) -> None:
-        """Update supply center ownership based on unit occupation at end of Fall.
-        
-        This method ensures that:
-        1. Supply centers with units are controlled by the power owning the unit
-        2. Supply centers without units maintain their previous control (persistence)
-        3. Only supply centers with units get control updated here (others maintain previous control)
-        """
-        # Build a set of all currently controlled supply centers (to preserve empty ones)
-        all_currently_controlled = set()
-        for power_state in self.game_state.powers.values():
-            all_currently_controlled.update(power_state.controlled_supply_centers)
-        
-        # Determine ownership based on unit occupation
-        for province_name, province in self.game_state.map_data.provinces.items():
-            if province.is_supply_center:
-                # Find unit occupying this supply center
-                occupying_unit = self.game_state.get_unit_at_province(province_name)
-                
-                if occupying_unit:
-                    # Unit occupies the supply center - power controls it
-                    # Remove control from previous owner (if different)
-                    for power_name, power_state in self.game_state.powers.items():
-                        if (province_name in power_state.controlled_supply_centers and 
-                            power_name != occupying_unit.power):
-                            power_state.controlled_supply_centers.remove(province_name)
-                    
-                    # Assign control to unit's power
-                    unit_power_state = self.game_state.powers[occupying_unit.power]
-                    if province_name not in unit_power_state.controlled_supply_centers:
-                        unit_power_state.controlled_supply_centers.append(province_name)
-                # Else: Supply center is empty - keep previous control (persistence)
-                # No action needed - controlled_supply_centers already contains the correct owner
-
-    def _process_builds_phase(self) -> Dict[str, Any]:
-        """Process builds phase with unit adjustments."""
-        # First, update supply center ownership based on current unit positions
-        if self.season == "Autumn":
-            self._update_supply_center_ownership()
-        
-        results: Dict[str, List[Any]] = {
-            "builds": [],
-            "destroys": []
-        }
-        
-        for power_name, orders in self.game_state.orders.items():
-            power = self.game_state.powers[power_name]
-            
-            for order in orders:
-                if isinstance(order, BuildOrder):
-                    # Execute build
-                    new_unit = Unit(
-                        unit_type=order.build_type,
-                        province=order.build_province,
-                        power=power_name,
-                        is_dislodged=False,
-                        dislodged_by=None,
-                        can_retreat=True,
-                        retreat_options=[]
-                    )
-                    power.units.append(new_unit)
-                    
-                    results["builds"].append({
-                        "unit": f"{order.build_type} {order.build_province}",
-                        "power": power_name,
-                        "success": True
-                    })
-                
-                elif isinstance(order, DestroyOrder):
-                    # Execute destroy
-                    power.units = [u for u in power.units if u != order.destroy_unit]
-                    
-                    results["destroys"].append({
-                        "unit": f"{order.destroy_unit.unit_type} {order.destroy_unit.province}",
-                        "power": power_name,
-                        "success": True
-                    })
-        
-        # Check for victory condition after builds
-        self._check_victory_condition()
-        
-        return results
-
-    def _check_victory_condition(self) -> None:
-        """Check if any power has achieved victory."""
-        for power_name, power_state in self.game_state.powers.items():
-            if len(power_state.controlled_supply_centers) >= 18:
-                self.done = True
-                self.game_state.status = GameStatus.COMPLETED
-                # Store winner information
-                if not hasattr(self, 'winner'):
-                    self.winner = power_name
-                break
-
-    def _advance_phase(self) -> None:
-        """Advance to the next phase."""
-        if self.phase == "Movement":
-            # Check if retreats are needed
-            retreats_needed = False
-            for power in self.game_state.powers.values():
-                for unit in power.units:
-                    if unit.is_dislodged:
-                        retreats_needed = True
-                        break
-                if retreats_needed:
-                    break
-            
-            if retreats_needed:
-                self.phase = "Retreat"
-            else:
-                # After Spring Movement -> Autumn Movement
-                # After Autumn Movement -> Builds
-                if self.season == "Spring":
-                    self.phase = "Movement"  # Go to Autumn Movement
-                    self.season = "Autumn"
-                else:  # Autumn
-                    self.phase = "Builds"
-        elif self.phase == "Retreat":
-            # After Spring Retreat -> Autumn Movement
-            # After Autumn Retreat -> Builds
-            if self.season == "Spring":
-                self.phase = "Movement"  # Go to Autumn Movement
-                self.season = "Autumn"
-            else:  # Autumn
-                self.phase = "Builds"
-        elif self.phase == "Builds":
-            self.phase = "Movement"
-            self.turn += 1
-            if self.season == "Autumn":
-                self.season = "Spring"
-                self.year += 1
-        
-        self._update_phase_code()
-
-    def _update_phase_code(self) -> None:
-        """Update the phase code based on current year, season, and phase."""
-        season_prefix = "S" if self.season == "Spring" else "A"
-        phase_suffix = "M" if self.phase == "Movement" else "R" if self.phase == "Retreat" else "B"
-        self.phase_code = f"{season_prefix}{self.year}{phase_suffix}"
-        
-        # Update new data model
-        self.game_state.phase_code = self.phase_code
-        self.game_state.current_turn = self.turn
-        self.game_state.current_year = self.year
-        self.game_state.current_season = self.season
-        self.game_state.current_phase = self.phase
-        self.game_state.updated_at = datetime.now()
-
-    def get_state(self) -> Dict[str, Any]:
-        """
-        Get current game state for compatibility.
-        
-        Returns:
-            Dictionary containing:
-                - turn: Current turn number
-                - year: Current game year
-                - season: Current season (Spring/Autumn)
-                - phase: Current phase (Movement/Retreat/Builds)
-                - phase_code: Short phase code (e.g., "S1901M")
-                - powers: List of power names in the game
-                - units: Dictionary mapping powers to their unit lists
-                - orders: Dictionary mapping powers to their order lists
-                
-        Note:
-            This method provides a legacy-compatible interface for accessing
-            game state information.
-        """
-        result = {
-            "game_id": getattr(self, 'game_id', 'unknown'),
-            "map_name": self.map_name,
-            "turn": self.turn,
-            "year": self.year,
-            "season": self.season,
-            "phase": self.phase,
-            "phase_code": self.phase_code,
-            "done": self.done,
-            "powers": {power_name: {
-                "power_name": power_name,
-                "controlled_supply_centers": power_state.controlled_supply_centers,
-                "home_supply_centers": power_state.home_supply_centers
-            } for power_name, power_state in self.game_state.powers.items()},
-            "units": {power_name: [f"{u.unit_type} {u.province}" for u in power.units] 
-                     for power_name, power in self.game_state.powers.items()},
-            "orders": {power_name: [str(order) for order in orders] 
-                      for power_name, orders in self.game_state.orders.items()},
-            "supply_centers": self.game_state.get_supply_centers()  # Include supply center ownership map
-        }
-        
-        # Add winner information if game is done
-        if self.done and hasattr(self, 'winner'):
-            result["winner"] = self.winner
-            
-        return result
-    
-    def get_game_state(self) -> 'GameState':
-        """
-        Get the game state using the new data model directly.
-        
-        Returns:
-            GameState object containing the complete current game state
-            
-        Note:
-            This method returns the full GameState object with all detailed
-            information including units, orders, map data, and power states.
-            Use this for applications that need access to the complete data model.
-        """
-        self.game_state.current_phase = self.phase
-        self.game_state.phase_code = self.phase_code
-        return self.game_state
-
-    def is_game_done(self) -> bool:
-        """
-        Check if the game is done.
-        
-        Returns:
-            True if the game has ended, False otherwise
-            
-        Note:
-            A game is considered done when a power controls 18 or more
-            supply centers, or when all other powers have been eliminated.
-        """
-        return self.done
+def _has_winner(ownership: dict[str, str]) -> bool:
+    counts: dict[str, int] = {}
+    for owner in ownership.values():
+        counts[owner] = counts.get(owner, 0) + 1
+    return any(n >= VICTORY_CENTERS for n in counts.values())

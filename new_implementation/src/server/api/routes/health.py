@@ -126,7 +126,7 @@ def environment_health() -> Dict[str, Any]:
     
     # Database connectivity (try to import and check)
     try:
-        from engine.database import db_service
+        from persistence.database import db_service
         # Try to get a connection
         if hasattr(db_service, 'engine') and db_service.engine:
             result["database"] = {
