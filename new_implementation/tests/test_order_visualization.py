@@ -9,7 +9,7 @@ import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
-from engine.map import Map
+from rendering.map import Map
 
 def test_orders_dictionary_format():
     """Test orders dictionary format visualization"""

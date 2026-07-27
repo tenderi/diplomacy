@@ -40,7 +40,7 @@ def test_bot_map_generation():
         
         # Generate map using the same code the bot uses
         print("🗺️ Generating map...")
-        from engine.map import Map
+        from rendering.map import Map
         
         # Build the renderer's {power: ["A PAR", "F KIE", ...]} from the new view.
         units = {

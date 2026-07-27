@@ -1,12 +1,12 @@
 """New-engine game service: the server's single entry point to the rules core.
 
-Wraps the pure engine (``orchestrator.Game`` + ``serialization`` + ``orders.parser``
+Wraps the pure engine (``game.Game`` + ``serialization`` + ``orders.parser``
 + ``orders.validation``) over ``GameRepo`` persistence. Routes, the CLI ``Server``
 and DAIDE all go through this — none of them touch engine internals.
 
 State lives as a serialized ``GameState`` in ``games.state_json``; submitted orders
 accumulate in ``games.pending_orders`` until ``process_turn`` adjudicates them and
-advances the phase (the orchestrator inserts retreat/adjustment phases as needed).
+advances the phase (the phase machine inserts retreat/adjustment phases as needed).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from engine.map_loader import MapData, load_standard_map
-from engine.orchestrator import Game
+from engine.game import Game
 from engine.orders.parser import OrderParseError, format_order, parse_order
 from engine.orders.validation import validate
 from engine.serialization import (

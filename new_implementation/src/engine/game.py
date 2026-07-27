@@ -14,9 +14,6 @@ point wins.
 Everything is a pure function of ``(map, state, orders)``; ``Game`` is a frozen
 snapshot plus its history, and :meth:`Game.adjudicate` returns the phase resolution
 and the next ``Game``. No I/O, no mutation.
-
-M6 note: this module is the rewrite's ``game.py``; it is named ``orchestrator`` only
-to coexist with the legacy ``engine/game.py`` until M6 deletes the old engine.
 """
 
 from __future__ import annotations
