@@ -97,7 +97,7 @@ def cleanup_old_maps() -> Dict[str, Any]:
 def get_map_cache_stats() -> Dict[str, Any]:
     """Get map cache statistics for monitoring."""
     try:
-        from engine.map import Map
+        from rendering.map import Map
         stats = Map.get_cache_stats()
         return {
             "status": "ok",
@@ -110,7 +110,7 @@ def get_map_cache_stats() -> Dict[str, Any]:
 def clear_map_cache() -> Dict[str, Any]:
     """Clear all cached maps."""
     try:
-        from engine.map import Map
+        from rendering.map import Map
         Map.clear_map_cache()
         return {
             "status": "ok",
@@ -123,7 +123,7 @@ def clear_map_cache() -> Dict[str, Any]:
 def preload_common_maps() -> Dict[str, Any]:
     """Preload common map configurations for better performance."""
     try:
-        from engine.map import Map
+        from rendering.map import Map
         Map.preload_common_maps()
         return {
             "status": "ok",

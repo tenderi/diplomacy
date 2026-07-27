@@ -11,7 +11,7 @@ import requests
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
 from ..shared import db_service, scheduler_logger, logger, NOTIFY_URL, notify_players, BOT_SECRET
-from engine.database import MessageModel
+from persistence.database import MessageModel
 
 router = APIRouter()
 

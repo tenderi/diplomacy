@@ -10,8 +10,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from engine.visualization_config import VisualizationConfig, get_config
-from engine.map import Map
+from rendering.visualization_config import VisualizationConfig, get_config
+from rendering.map import Map
 
 
 class TestVisualizationConfig:

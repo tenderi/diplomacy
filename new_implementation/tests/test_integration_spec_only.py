@@ -74,6 +74,6 @@ class TestSpecOnlyFlow:
 		state = client.get(f"/games/{game_id}/state")
 		assert state.status_code == 200
 		payload = state.json()
-		for key in ("game_id", "map_name", "current_turn", "current_year", "current_season", "current_phase", "phase_code", "status", "powers", "orders"):
+		for key in ("game_id", "map_name", "year", "season", "phase", "phase_type", "status", "units", "ownership", "orders"):
 			assert key in payload
-		assert isinstance(payload["powers"], dict)
+		assert isinstance(payload["units_by_power"], dict)

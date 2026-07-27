@@ -31,16 +31,57 @@ const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'T
 
 type Player = { power: string; user_id: number | null; is_active: boolean; full_name?: string }
 type UnitOut = { unit_type: string; province: string; coast?: string; is_dislodged?: boolean }
+/** A unit as returned by the new GameState-native API view. */
+type NewUnit = { kind: 'A' | 'F'; power: string; location: string }
+type DislodgedOut = { unit: NewUnit; attacker_origin: string | null; retreats: string[] }
+/**
+ * The GameState-native view returned by GET /games/{id}/state (see GameService.view).
+ * `phase` is a code like "S1901M"; `phase_type` drives the order UI.
+ */
 type GameState = {
-  current_year?: number
-  current_season?: string
-  current_phase?: string
-  current_turn?: number
-  phase_code?: string
-  powers?: Record<string, { power_name?: string; units?: UnitOut[]; orders_submitted?: boolean; controlled_supply_centers?: string[] }>
-  orders?: Record<string, unknown[]>
+  game_id: string
+  map_name: string
+  phase: string
+  year: number
+  season: string
+  phase_type: 'MOVEMENT' | 'RETREAT' | 'ADJUSTMENT'
+  status: 'ACTIVE' | 'COMPLETED'
+  units: NewUnit[]
+  units_by_power: Record<string, NewUnit[]>
+  ownership: Record<string, string>
+  supply_centers: Record<string, string>
+  dislodged: DislodgedOut[]
+  contested: string[]
+  players: Record<string, { user_id: number | null; is_active: boolean }>
+  orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
+
+/** Human phase label used by the order-entry UI and legal-order grouping. */
+const PHASE_LABEL: Record<GameState['phase_type'], string> = {
+  MOVEMENT: 'Movement',
+  RETREAT: 'Retreat',
+  ADJUSTMENT: 'Adjustment',
+}
+
+/** Split a location string ("PAR" or "SPA/SC") into province and optional coast. */
+function splitLocation(loc: string): { province: string; coast?: string } {
+  const [province, coast] = loc.split('/')
+  return coast ? { province, coast } : { province }
+}
+
+/** Adapt a new-view unit into the internal UnitOut shape the order UI consumes. */
+function toUnitOut(u: NewUnit, isDislodged = false): UnitOut {
+  const { province, coast } = splitLocation(u.location)
+  return { unit_type: u.kind, province, coast, is_dislodged: isDislodged }
+}
+
+/** Supply centers currently owned by a power, from the ownership map. */
+function centersOf(state: GameState, power: string): string[] {
+  return Object.entries(state.ownership)
+    .filter(([, owner]) => owner === power)
+    .map(([prov]) => prov)
+}
 
 function UnitOrdersSection({
   phase,
@@ -239,7 +280,6 @@ export default function GameView() {
   const [legalOrdersLoading, setLegalOrdersLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [processing, setProcessing] = useState(false)
-  const [starting, setStarting] = useState(false)
   const [messageText, setMessageText] = useState('')
   const [messageRecipient, setMessageRecipient] = useState('')
   const [broadcast, setBroadcast] = useState(false)
@@ -270,14 +310,14 @@ export default function GameView() {
   useEffect(() => {
     if (!gameId) return
     setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
-  }, [gameId, state?.current_phase, state?.phase_code])
+  }, [gameId, state?.phase])
 
   useEffect(() => {
     if (!gameId || !user) return
     apiJson<{ messages?: Message[] }>(`/games/${gameId}/messages`)
       .then((d) => setMessages(d.messages || []))
       .catch(() => {})
-  }, [gameId, user, state?.current_turn])
+  }, [gameId, user, state?.phase])
 
   useEffect(() => {
     if (!gameId || !myPower) return
@@ -295,16 +335,30 @@ export default function GameView() {
       .catch(() => {})
   }, [gameId, myPower])
 
-  const phase = state?.current_phase ?? ''
-  const isPregame = phase === 'Pregame'
-  const canStartGame = takenPowers.size >= 1
-  const myUnits = (state?.powers && myPower ? state.powers[myPower]?.units : undefined) ?? []
+  const phase = state ? PHASE_LABEL[state.phase_type] : ''
+  const seasonLabel = state ? state.season.charAt(0) + state.season.slice(1).toLowerCase() : ''
+  const myUnits: UnitOut[] =
+    state && myPower
+      ? [
+          ...(state.units_by_power[myPower] ?? []).map((u) => toUnitOut(u)),
+          ...state.dislodged
+            .filter((d) => d.unit.power === myPower)
+            .map((d) => toUnitOut(d.unit, true)),
+        ]
+      : []
+  const myPowerState =
+    state && myPower
+      ? {
+          units: (state.units_by_power[myPower] ?? []).map((u) => toUnitOut(u)),
+          controlled_supply_centers: centersOf(state, myPower),
+        }
+      : undefined
 
   useEffect(() => {
     if (!gameId || !myPower || !state || useOrdersFallback) return
-    const phase = state.current_phase ?? ''
+    const phase = PHASE_LABEL[state.phase_type]
     const isMovementOrRetreat = phase === 'Movement' || phase === 'Retreat'
-    const isBuildPhase = phase === 'Builds' || phase === 'Adjustment'
+    const isBuildPhase = phase === 'Adjustment'
     const unitsToFetch: { id: string; unit: UnitOut }[] = []
     if (isMovementOrRetreat) {
       for (const u of myUnits) {
@@ -350,7 +404,7 @@ export default function GameView() {
         setLegalOrdersByUnit(next)
       })
       .finally(() => setLegalOrdersLoading(false))
-  }, [gameId, myPower, state?.current_phase, state?.powers, useOrdersFallback])
+  }, [gameId, myPower, state?.phase_type, state?.units_by_power, state?.dislodged, useOrdersFallback])
 
   async function handleJoin() {
     if (!gameId || !joinPower) return
@@ -376,8 +430,7 @@ export default function GameView() {
     const orders: string[] = useOrdersFallback
       ? ordersFallbackText.split('\n').map((s) => s.trim()).filter(Boolean)
       : (() => {
-          const phase = state?.current_phase ?? ''
-          if (phase === 'Builds' || phase === 'Adjustment') {
+          if (state?.phase_type === 'ADJUSTMENT') {
             return buildOrderSlots.filter(Boolean)
           }
           return Object.values(orderByUnit).filter(Boolean)
@@ -411,21 +464,6 @@ export default function GameView() {
       setError(e instanceof Error ? e.message : 'Process turn failed')
     } finally {
       setProcessing(false)
-    }
-  }
-
-  async function handleStartGame() {
-    if (!gameId) return
-    setStarting(true)
-    setError('')
-    try {
-      await apiJson(`/games/${gameId}/start`, { method: 'POST' })
-      toast.success('Game started')
-      load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Start game failed')
-    } finally {
-      setStarting(false)
     }
   }
 
@@ -482,9 +520,8 @@ export default function GameView() {
         </Alert>
       )}
       <p className="text-muted-foreground mb-4">
-        {isPregame
-          ? 'Phase 0 — Lobby (join one or more powers below; you can Start game with any number. Unjoined powers get default units and do not receive orders.)'
-          : `${String(state.current_year)} ${String(state.current_season)} ${String(state.current_phase)} — Turn ${String(state.current_turn)}`}
+        {seasonLabel} {state.year} — {phase} ({state.phase})
+        {state.status === 'COMPLETED' ? ' — game over' : ''}
       </p>
       {mapUrl && (
         <div className="mb-6">
@@ -492,14 +529,12 @@ export default function GameView() {
         </div>
       )}
 
-      {(isPregame || !myPower) && availablePowers.length > 0 && (
+      {!myPower && availablePowers.length > 0 && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Join game</h2>
-          {isPregame && (
-            <p className="text-sm text-muted-foreground mb-2">
-              {takenPowers.size} / {POWERS.length} powers joined
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground mb-2">
+            {takenPowers.size} / {POWERS.length} powers claimed
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={joinPower}
@@ -521,23 +556,7 @@ export default function GameView() {
         </section>
       )}
 
-      {isPregame && myPower && (
-        <p className="font-medium mb-4">Your power: {myPower}</p>
-      )}
-
-      {isPregame && canStartGame && (
-        <section className="mb-6">
-          <h2 className="text-lg font-medium mb-2">Ready to start</h2>
-          <p className="text-sm text-muted-foreground mb-2">
-            At least one power has joined. Start the game to enter the first order phase. Unjoined powers will have default units on the map but will not receive orders.
-          </p>
-          <Button onClick={handleStartGame} disabled={starting}>
-            {starting ? 'Starting...' : 'Start game'}
-          </Button>
-        </section>
-      )}
-
-      {myPower && !isPregame && (
+      {myPower && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
           <section className="mb-6">
@@ -571,7 +590,7 @@ export default function GameView() {
               <BuildOrdersSection
                 gameId={gameId!}
                 myPower={myPower}
-                powerState={state.powers?.[myPower]}
+                powerState={myPowerState}
                 legalOrdersByUnit={legalOrdersByUnit}
                 buildOrderSlots={buildOrderSlots}
                 setBuildOrderSlots={setBuildOrderSlots}
@@ -597,7 +616,7 @@ export default function GameView() {
         </>
       )}
 
-      {!isPregame && (
+      {state.status === 'ACTIVE' && (
         <section className="mb-6">
           <Button onClick={handleProcessTurn} disabled={processing}>
             {processing ? 'Processing...' : 'Process turn'}

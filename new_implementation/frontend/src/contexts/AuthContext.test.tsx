@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, fireEvent, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from './AuthContext'
-import { clearTokens, REFRESH_STORAGE_KEY } from '@/api/client'
+import { clearTokens } from '@/api/client'
 
 function TestConsumer() {
   const { user, loading, login, logout } = useAuth()
