@@ -166,26 +166,19 @@ class TestStandardV2GameCreation:
         """Test creating a game via API with standard-v2"""
         from server.api.routes.games import create_game
         from server.api.routes.games import CreateGameRequest
-        from server.api.shared import server as shared_server
-        
+        from server.api.shared import game_service
+
         # Create game request
         req = CreateGameRequest(map_name="standard-v2")
         result = create_game(req)
-        
+
         assert "game_id" in result, "Result should contain game_id"
         game_id = result["game_id"]
-        
-        # Verify game exists and has correct map_name in shared server
-        assert game_id in shared_server.games, "Game should exist in shared server"
-        game = shared_server.games[game_id]
-        assert game.map_name == "standard-v2", "Map name should be standard-v2"
-        
-        # Cleanup
-        try:
-            if game_id in shared_server.games:
-                del shared_server.games[game_id]
-        except:
-            pass
+
+        # Verify the game exists with the requested map_name (via the engine service).
+        view = game_service.view(game_id)
+        assert view is not None, "Game should exist"
+        assert view["map_name"] == "standard-v2", "Map name should be standard-v2"
     
     def test_game_state_includes_map_name(self):
         """Test that game state includes correct map_name"""

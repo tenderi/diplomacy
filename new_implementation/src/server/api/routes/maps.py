@@ -8,7 +8,7 @@ functionally it already runs on the new engine here.)
 """
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
