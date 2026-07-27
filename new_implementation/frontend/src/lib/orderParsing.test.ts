@@ -53,6 +53,65 @@ describe('parseLegalOrder', () => {
     expect(parsed!.type).toBe('convoy')
     expect(parsed!.targetLabel).toContain('→')
   })
+
+  it('parses coasted move orders, coast intact', () => {
+    const parsed = parseLegalOrder('F STP/SC - BOT')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('move')
+    expect(parsed!.fullOrder).toBe('F STP/SC - BOT')
+  })
+
+  it('parses coasted support orders, coast intact', () => {
+    const parsed = parseLegalOrder('A MOS S F STP/SC - BOT')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('support')
+    expect(parsed!.targetValue).toBe('A MOS S F STP/SC - BOT')
+  })
+
+  it('parses coasted convoy orders, coast intact', () => {
+    const parsed = parseLegalOrder('F BUL/EC C A CON - SEV')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('convoy')
+  })
+
+  // Leading-verb forms: the engine's grammar is verb-first for builds/disbands/waives.
+  it('parses "D A PAR" (leading-verb disband)', () => {
+    const parsed = parseLegalOrder('D A PAR')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('destroy')
+    expect(parsed!.targetLabel).toBe('A PAR')
+    expect(parsed!.fullOrder).toBe('D A PAR')
+  })
+
+  it('parses "DISBAND A PAR" (leading-verb disband, long form)', () => {
+    const parsed = parseLegalOrder('DISBAND A PAR')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('destroy')
+    expect(parsed!.targetLabel).toBe('A PAR')
+  })
+
+  it('parses "BUILD F BRE" (leading-verb build)', () => {
+    const parsed = parseLegalOrder('BUILD F BRE')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('build')
+    expect(parsed!.targetLabel).toBe('F BRE')
+    expect(parsed!.fullOrder).toBe('BUILD F BRE')
+  })
+
+  it('parses "BUILD F STP/SC" (leading-verb build, coast intact)', () => {
+    const parsed = parseLegalOrder('BUILD F STP/SC')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('build')
+    expect(parsed!.targetLabel).toBe('F STP/SC')
+    expect(parsed!.fullOrder).toBe('BUILD F STP/SC')
+  })
+
+  it('parses bare "WAIVE"', () => {
+    const parsed = parseLegalOrder('WAIVE')
+    expect(parsed).not.toBeNull()
+    expect(parsed!.type).toBe('waive')
+    expect(parsed!.fullOrder).toBe('WAIVE')
+  })
 })
 
 describe('groupLegalOrdersByType', () => {
@@ -67,7 +126,7 @@ describe('groupLegalOrdersByType', () => {
   it('returns empty arrays for missing types', () => {
     const grouped = groupLegalOrdersByType([])
     const empty: GroupedByType = {
-      hold: [], move: [], support: [], convoy: [], retreat: [], build: [], destroy: [],
+      hold: [], move: [], support: [], convoy: [], retreat: [], build: [], destroy: [], waive: [],
     }
     expect(grouped).toEqual(empty)
   })
