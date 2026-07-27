@@ -410,10 +410,13 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
          adapter unit tests) + `TestResolutionPersistence` in `tests/test_game_service.py`;
          E2E-smoked (orders map 724 KB, resolution map 735 KB, no render warnings). Full
          suite 812 passed / 15 skipped / 10 xfailed, ruff clean.
-   - [ ] **`format_order` human display** (`engine/orders/parser.py`): it infers A/F from
-         coast, so a fleet at a non-split province prints `A` in echoed pending orders.
-         Cosmetic only (adjudication uses the board unit). Thread unit kind through for
-         display, or format pending orders in `GameService.view` using the board unit.
+   - [x] **`format_order` human display** DONE (2026-07-27). Threaded an optional
+         `kind_by_province` (province → `A`/`F`) through `format_order`/`_unit_str`/
+         `_kind_letter`; when given, unit letters come from the board instead of the
+         coast-presence inference. `GameService.view` now reparses+reformats echoed pending
+         orders against the current units (`_humanize_orders`), so a fleet at a non-split
+         province reads `F BRE H`, not `A BRE H`. Adjudication is unaffected (still uses the
+         board unit). Tests: `TestOrderDisplay` in `tests/test_game_service.py`.
    - [ ] **Per-turn order history** (optional): `/games/{id}/orders/history` returns `{}`
          now (state is a single snapshot). If needed, derive it from `map_snapshots`.
 2. [ ] **CI coverage gates** (`.github/workflows/test.yml`). Today CI runs plain
