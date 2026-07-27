@@ -378,8 +378,16 @@ Key decisions:
 Ordered so the suite/branch stays green at each commit; **merge to `main` is LAST.**
 
 1. **M6 follow-ups first** (they change code; land + green before docs/CI polish):
-   - [ ] **Frontend TS types & API calls → new view shape** (highest priority; the only
-         unported consumer). `frontend/src` still expects the OLD `powers`-shaped state.
+   - [x] **Frontend TS types & API calls → new view shape** (highest priority; the only
+         unported consumer). DONE (2026-07-27): `GameView.tsx` now consumes the GameState-
+         native view (`phase`/`phase_type`/`year`/`season`/`status`/`units_by_power`/
+         `ownership`/`dislodged`/`contested`/`players`), adapting units into the internal
+         `UnitOut` shape; Pregame/lobby/start removed (engine has no lobby — a created game
+         is at S1901M); join UI kept for claiming an unclaimed power. `GameView.test.tsx`
+         updated to the new shape. Also fixed 8 pre-existing unused-import `tsc` errors in
+         test files that had left `npm run build` red on this branch. Verified with a
+         scratchpad Node 22: `npm run build` green, `npm run test:run` 88/88 green.
+         (Old checklist text retained below for reference.)
          The new `/games/{id}/state` returns: `game_id, map_name, phase` (e.g. `"S1901M"`),
          `year, season, phase_type` (`MOVEMENT|RETREAT|ADJUSTMENT`), `status`
          (`ACTIVE|COMPLETED`), `units` (list of `{kind:"A"|"F", power, location:"PAR"|"SPA/SC"}`),
