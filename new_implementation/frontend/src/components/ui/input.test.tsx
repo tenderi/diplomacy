@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, fireEvent, within } from '@testing-library/react'
 import { Input } from './input'
 
 describe('Input', () => {
