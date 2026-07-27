@@ -3,7 +3,7 @@
  * Backend format: "POWER A PAR - BUR", "POWER A PAR H", "POWER A PAR S A BUR - BUR", etc.
  */
 
-export type OrderType = 'hold' | 'move' | 'support' | 'convoy' | 'retreat' | 'build' | 'destroy'
+export type OrderType = 'hold' | 'move' | 'support' | 'convoy' | 'retreat' | 'build' | 'destroy' | 'waive'
 
 export interface ParsedLegalOrder {
   type: OrderType
@@ -32,28 +32,28 @@ export function parseLegalOrder(orderString: string): ParsedLegalOrder | null {
   }
   const unitType = parts[i]
   const unitProvince = parts[i + 1]
+
+  // Leading-verb forms, checked BEFORE the null-guard below: the engine's grammar is
+  // verb-first for builds/disbands/waives, unlike every other order (which is unit-first).
+  // "D A PAR" / "DISBAND A PAR", "BUILD F BRE" / "BUILD F STP/SC", bare "WAIVE".
+  const leadVerb = parts[i]?.toUpperCase()
+  if (leadVerb === 'WAIVE') {
+    return { type: 'waive', targetLabel: 'Waive', targetValue: '', fullOrder: s }
+  }
+  if (leadVerb === 'D' || leadVerb === 'DISBAND') {
+    const unitPart = parts.slice(i + 1, i + 3).join(' ')
+    return { type: 'destroy', targetLabel: unitPart, targetValue: s, fullOrder: s }
+  }
+  if (leadVerb === 'BUILD') {
+    const unitPart = parts.slice(i + 1, i + 3).join(' ')
+    return { type: 'build', targetLabel: unitPart, targetValue: s, fullOrder: s }
+  }
+
   if (!unitType || !unitProvince) return null
 
-  // Hold: ends with " H" or " H" at end of line
-  if (s.endsWith(' H') || /\sH$/.test(s)) {
-    return { type: 'hold', targetLabel: 'Hold', targetValue: '', fullOrder: s }
-  }
-
-  // Retreat: "A PAR R PIC" (unit R province)
-  const retreatMatch = s.match(/\sR\s+([A-Za-z/]+)\s*$/)
-  if (retreatMatch) {
-    const prov = retreatMatch[1].trim()
-    return { type: 'retreat', targetLabel: prov, targetValue: prov, fullOrder: s }
-  }
-
-  // Move: " - BUR" or " - BUR" (dash then target province)
-  const moveMatch = s.match(/\s-\s+([A-Za-z/]+)\s*$/)
-  if (moveMatch && !s.includes(' S ') && !s.includes(' C ')) {
-    const prov = moveMatch[1].trim()
-    return { type: 'move', targetLabel: prov, targetValue: prov, fullOrder: s }
-  }
-
-  // Support: " S A BUR - BUR" or " S A BUR H"
+  // Support: " S A BUR - BUR" or " S A BUR H". Checked before Hold/Move/Retreat since a
+  // supported-hold string contains no trailing " H"/" - " of its own today, but keeping
+  // this ordering defensive against future formats that might.
   if (s.includes(' S ')) {
     const afterS = s.substring(s.indexOf(' S ') + 3).trim()
     const supportedUnit = afterS.split(/\s+/).slice(0, 2).join(' ') // e.g. "A BUR"
@@ -78,17 +78,34 @@ export function parseLegalOrder(orderString: string): ParsedLegalOrder | null {
     return { type: 'convoy', targetLabel: label, targetValue: s, fullOrder: s }
   }
 
-  // Build: "FRANCE BUILD A PAR" or "FRANCE BUILD F SPA/NC"
+  // Hold: ends with " H" or " H" at end of line
+  if (s.endsWith(' H') || /\sH$/.test(s)) {
+    return { type: 'hold', targetLabel: 'Hold', targetValue: '', fullOrder: s }
+  }
+
+  // Retreat: "A PAR R PIC" (unit R province)
+  const retreatMatch = s.match(/\sR\s+([A-Za-z/]+)\s*$/)
+  if (retreatMatch) {
+    const prov = retreatMatch[1].trim()
+    return { type: 'retreat', targetLabel: prov, targetValue: prov, fullOrder: s }
+  }
+
+  // Move: " - BUR" or " - BUR" (dash then target province)
+  const moveMatch = s.match(/\s-\s+([A-Za-z/]+)\s*$/)
+  if (moveMatch) {
+    const prov = moveMatch[1].trim()
+    return { type: 'move', targetLabel: prov, targetValue: prov, fullOrder: s }
+  }
+
+  // Build: "FRANCE BUILD A PAR" or "FRANCE BUILD F SPA/NC" (power-prefixed form)
   if (s.toUpperCase().includes('BUILD')) {
     const buildPart = s.substring(s.indexOf('BUILD') + 5).trim()
     return { type: 'build', targetLabel: buildPart, targetValue: s, fullOrder: s }
   }
 
-  // Destroy: "FRANCE DESTROY A PAR" or "D A PAR"
-  if (s.toUpperCase().includes('DESTROY') || (parts[parts.length - 2] === 'D' && /^[AF]$/.test(parts[parts.length - 3] ?? ''))) {
-    const destroyPart = s.includes('DESTROY')
-      ? s.substring(s.indexOf('DESTROY') + 7).trim()
-      : s.replace(/^[A-Z]+\s+/, '').replace(/\s+D\s*$/, '').trim()
+  // Destroy: "FRANCE DESTROY A PAR" (power-prefixed form)
+  if (s.toUpperCase().includes('DESTROY')) {
+    const destroyPart = s.substring(s.indexOf('DESTROY') + 7).trim()
     return { type: 'destroy', targetLabel: destroyPart, targetValue: s, fullOrder: s }
   }
 
@@ -103,6 +120,7 @@ export interface GroupedByType {
   retreat: ParsedLegalOrder[]
   build: ParsedLegalOrder[]
   destroy: ParsedLegalOrder[]
+  waive: ParsedLegalOrder[]
 }
 
 /**
@@ -117,6 +135,7 @@ export function groupLegalOrdersByType(orders: string[]): GroupedByType {
     retreat: [],
     build: [],
     destroy: [],
+    waive: [],
   }
   for (const order of orders) {
     const parsed = parseLegalOrder(order)
@@ -136,6 +155,7 @@ export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   retreat: 'Retreat',
   build: 'Build',
   destroy: 'Destroy',
+  waive: 'Waive',
 }
 
 /**
@@ -150,6 +170,7 @@ export function getOrderTypesFromGrouped(grouped: GroupedByType, phase: string):
   if (phase === 'Retreat' && grouped.retreat.length) types.push('retreat')
   if ((phase === 'Builds' || phase === 'Adjustment') && grouped.build.length) types.push('build')
   if ((phase === 'Builds' || phase === 'Adjustment') && grouped.destroy.length) types.push('destroy')
+  if ((phase === 'Builds' || phase === 'Adjustment') && grouped.waive.length) types.push('waive')
   return types
 }
 

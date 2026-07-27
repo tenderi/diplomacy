@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiJson, apiFetch, API_BASE } from '@/api/client'
@@ -56,6 +56,26 @@ type GameState = {
   orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
+/** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
+type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
+/**
+ * Response shape of GET /games/{id}/legal_orders/{power} (see server.legal_orders).
+ * `orders_by_unit` keys are exactly `${kind} ${location}` (coast included); every string in
+ * a bucket either starts with that key (hold/move/support/convoy/retreat) or ends with it
+ * (verb-first build/disband, e.g. "D A PAR", "BUILD F BRE") — callers must not assume a
+ * prefix match and should just use the bucket the backend already built. `WAIVE` has no
+ * unit and appears only in the flat `orders` list. `adjustment` is present only in an
+ * ADJUSTMENT phase.
+ */
+type LegalOrdersView = {
+  phase: string
+  phase_type: 'MOVEMENT' | 'RETREAT' | 'ADJUSTMENT'
+  power: string
+  units: { kind: 'A' | 'F'; location: string; province: string; coast: string | null }[]
+  orders_by_unit: Record<string, string[]>
+  orders: string[]
+  adjustment?: AdjustmentInfo
+}
 
 /** Human phase label used by the order-entry UI and legal-order grouping. */
 const PHASE_LABEL: Record<GameState['phase_type'], string> = {
@@ -76,11 +96,9 @@ function toUnitOut(u: NewUnit, isDislodged = false): UnitOut {
   return { unit_type: u.kind, province, coast, is_dislodged: isDislodged }
 }
 
-/** Supply centers currently owned by a power, from the ownership map. */
-function centersOf(state: GameState, power: string): string[] {
-  return Object.entries(state.ownership)
-    .filter(([, owner]) => owner === power)
-    .map(([prov]) => prov)
+/** Unit id matching the backend's `orders_by_unit` keys: `${kind} ${location}`, coast included. */
+function unitKey(u: UnitOut): string {
+  return `${u.unit_type} ${u.province}${u.coast ? `/${u.coast}` : ''}`
 }
 
 function UnitOrdersSection({
@@ -115,7 +133,7 @@ function UnitOrdersSection({
       ) : null}
       <ul className="space-y-3 mb-4">
         {unitsToShow.map((unit) => {
-          const unitId = `${unit.unit_type} ${unit.province}`
+          const unitId = unitKey(unit)
           const data = legalOrdersByUnit[unitId]
           const grouped = data?.grouped
           const currentOrder = orderByUnit[unitId]
@@ -188,9 +206,8 @@ function UnitOrdersSection({
 }
 
 function BuildOrdersSection({
-  myPower,
-  powerState,
-  legalOrdersByUnit,
+  adjustment,
+  orders,
   buildOrderSlots,
   setBuildOrderSlots,
   loading,
@@ -199,24 +216,25 @@ function BuildOrdersSection({
 }: {
   gameId: string
   myPower: string
-  powerState?: { units?: UnitOut[]; controlled_supply_centers?: string[] }
-  legalOrdersByUnit: Record<string, { orders: string[]; grouped: GroupedByType }>
+  adjustment?: AdjustmentInfo
+  orders: string[]
   buildOrderSlots: string[]
   setBuildOrderSlots: React.Dispatch<React.SetStateAction<string[]>>
   loading: boolean
   onSubmit: () => void
   submitting: boolean
 }) {
-  const buildData = legalOrdersByUnit['_build']
-  const orders = buildData?.orders ?? []
-  const unitCount = powerState?.units?.length ?? 0
-  const scCount = powerState?.controlled_supply_centers?.length ?? 0
-  const slotCount = scCount > unitCount ? scCount - unitCount : unitCount > scCount ? unitCount - scCount : 0
-  const slots = Array.from({ length: Math.max(slotCount, buildOrderSlots.length, 1) }, (_, i) => i)
+  const grouped = groupLegalOrdersByType(orders)
+  const options: ParsedLegalOrder[] = [...grouped.build, ...grouped.destroy, ...grouped.waive]
+  const slots = Array.from({ length: adjustment?.slots ?? 0 }, (_, i) => i)
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
-        Build or destroy: select one order per slot.
+        {adjustment?.action === 'build'
+          ? 'Build: select one order per slot, or waive.'
+          : adjustment?.action === 'disband'
+            ? 'Disband: select a unit to remove per slot.'
+            : 'No builds or disbands this turn.'}
       </p>
       {loading ? (
         <p className="text-sm text-muted-foreground mb-2">Loading options…</p>
@@ -240,9 +258,9 @@ function BuildOrdersSection({
                 <SelectValue placeholder="Build / Destroy" />
               </SelectTrigger>
               <SelectContent>
-                {orders.map((order) => (
-                  <SelectItem key={order} value={order}>
-                    {order.replace(new RegExp(`^${myPower}\\s+`, 'i'), '').trim()}
+                {options.map((opt) => (
+                  <SelectItem key={opt.fullOrder} value={opt.fullOrder}>
+                    {opt.targetLabel}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -250,7 +268,7 @@ function BuildOrdersSection({
           </li>
         ))}
       </ul>
-      <Button onClick={onSubmit} disabled={submitting}>
+      <Button onClick={onSubmit} disabled={submitting || slots.length === 0}>
         {submitting ? 'Submitting...' : 'Submit orders'}
       </Button>
     </>
@@ -275,8 +293,8 @@ export default function GameView() {
   /** When legal_orders API is unavailable (e.g. game not in memory), fall back to textarea. */
   const [ordersFallbackText, setOrdersFallbackText] = useState('')
   const [useOrdersFallback, setUseOrdersFallback] = useState(false)
-  /** Per-unit legal orders from API: unitId -> { orders, grouped } */
-  const [legalOrdersByUnit, setLegalOrdersByUnit] = useState<Record<string, { orders: string[]; grouped: GroupedByType }>>({})
+  /** Single GET /games/{id}/legal_orders/{power} response for the current phase. */
+  const [legalOrders, setLegalOrders] = useState<LegalOrdersView | null>(null)
   const [legalOrdersLoading, setLegalOrdersLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -346,65 +364,41 @@ export default function GameView() {
             .map((d) => toUnitOut(d.unit, true)),
         ]
       : []
-  const myPowerState =
-    state && myPower
-      ? {
-          units: (state.units_by_power[myPower] ?? []).map((u) => toUnitOut(u)),
-          controlled_supply_centers: centersOf(state, myPower),
-        }
-      : undefined
 
   useEffect(() => {
-    if (!gameId || !myPower || !state || useOrdersFallback) return
-    const phase = PHASE_LABEL[state.phase_type]
-    const isMovementOrRetreat = phase === 'Movement' || phase === 'Retreat'
-    const isBuildPhase = phase === 'Adjustment'
-    const unitsToFetch: { id: string; unit: UnitOut }[] = []
-    if (isMovementOrRetreat) {
-      for (const u of myUnits) {
-        const id = `${u.unit_type} ${u.province}`
-        if (phase === 'Retreat' && !u.is_dislodged) continue
-        unitsToFetch.push({ id, unit: u })
-      }
-    }
-    if (unitsToFetch.length === 0 && !isBuildPhase) {
-      setLegalOrdersByUnit({})
+    if (!gameId || !myPower || !state || useOrdersFallback) {
+      setLegalOrders(null)
       return
     }
     setLegalOrdersLoading(true)
-    const toFetch = isBuildPhase
-      ? [{ id: '_build', unit: myUnits[0] } as { id: string; unit: UnitOut }]
-      : unitsToFetch
-    if (toFetch.length === 0) {
-      setLegalOrdersLoading(false)
-      return
-    }
-    Promise.all(
-      toFetch.map(async ({ id, unit }) => {
-        const unitStr = `${unit.unit_type} ${unit.province}`
-        const path = `/games/${gameId}/legal_orders/${encodeURIComponent(myPower)}/${encodeURIComponent(unitStr)}`
-        try {
-          const res = await apiFetch(path)
-          if (res.status === 404) return { id, orders: [] as string[], is404: true }
-          if (!res.ok) return { id, orders: [] as string[] }
-          const data = (await res.json()) as { orders?: string[] }
-          return { id, orders: data.orders ?? [] }
-        } catch {
-          return { id, orders: [] as string[] }
+    const path = `/games/${gameId}/legal_orders/${encodeURIComponent(myPower)}`
+    apiFetch(path)
+      .then(async (res) => {
+        if (res.status === 404) {
+          setUseOrdersFallback(true)
+          setLegalOrders(null)
+          return
         }
-      })
-    )
-      .then((results) => {
-        const any404 = results.some((r) => 'is404' in r && r.is404)
-        if (any404) setUseOrdersFallback(true)
-        const next: Record<string, { orders: string[]; grouped: GroupedByType }> = {}
-        for (const r of results) {
-          next[r.id] = { orders: r.orders, grouped: groupLegalOrdersByType(r.orders) }
+        if (!res.ok) {
+          setLegalOrders(null)
+          return
         }
-        setLegalOrdersByUnit(next)
+        setLegalOrders((await res.json()) as LegalOrdersView)
       })
+      .catch(() => setLegalOrders(null))
       .finally(() => setLegalOrdersLoading(false))
-  }, [gameId, myPower, state?.phase_type, state?.units_by_power, state?.dislodged, useOrdersFallback])
+  }, [gameId, myPower, state?.phase_type, state?.phase, useOrdersFallback])
+
+  /** Per-unit legal orders derived from `legalOrders.orders_by_unit`: unitId -> { orders, grouped }. */
+  const legalOrdersByUnit = useMemo(() => {
+    const next: Record<string, { orders: string[]; grouped: GroupedByType }> = {}
+    if (legalOrders) {
+      for (const [key, orders] of Object.entries(legalOrders.orders_by_unit)) {
+        next[key] = { orders, grouped: groupLegalOrdersByType(orders) }
+      }
+    }
+    return next
+  }, [legalOrders])
 
   async function handleJoin() {
     if (!gameId || !joinPower) return
@@ -590,8 +584,8 @@ export default function GameView() {
               <BuildOrdersSection
                 gameId={gameId!}
                 myPower={myPower}
-                powerState={myPowerState}
-                legalOrdersByUnit={legalOrdersByUnit}
+                adjustment={legalOrders?.adjustment}
+                orders={legalOrders?.orders ?? []}
                 buildOrderSlots={buildOrderSlots}
                 setBuildOrderSlots={setBuildOrderSlots}
                 loading={legalOrdersLoading}
