@@ -34,7 +34,7 @@ from engine.types import (
     Waive,
 )
 
-__all__ = ["ValidationResult", "validate"]
+__all__ = ["ValidationResult", "validate", "legal_builds"]
 
 
 @dataclass(frozen=True)
@@ -204,6 +204,31 @@ def _validate_retreat(order: Retreat, du: DislodgedUnit, map: MapData) -> Valida
         if legal.coast is None or legal.coast == dest.coast:
             return ValidationResult(True)
     return ValidationResult(False, f"{dest} is not a legal retreat for {unit.location}")
+
+
+def legal_builds(power: str, state: GameState, map: MapData) -> list[Build]:
+    """Candidate ``Build`` orders for ``power``, filtered by ``_validate_build``.
+
+    Generates one candidate per home center per unit kind that could plausibly
+    be built there (an army unless the center is water-only; a fleet for each
+    coast of a split-coast center, else a single coastless fleet unless the
+    center is landlocked) and keeps only the candidates ``_validate_build``
+    accepts — home-centre / current-ownership / occupancy / land-vs-water /
+    split-coast rules are not re-derived here, they live in one place.
+    """
+    candidates: list[Build] = []
+    for province in sorted(map.home_centers.get(power, frozenset())):
+        ptype = map.province_type(province)
+        if ptype is not ProvinceType.WATER:
+            candidates.append(Build(power, location=Location(province), kind=UnitKind.ARMY))
+        if map.is_split_coast(province):
+            for coast in map.coasts_of(province):
+                candidates.append(
+                    Build(power, location=Location(province, coast), kind=UnitKind.FLEET)
+                )
+        elif ptype is not ProvinceType.LAND:
+            candidates.append(Build(power, location=Location(province), kind=UnitKind.FLEET))
+    return [b for b in candidates if _validate_build(b, state, map).ok]
 
 
 def _validate_build(order: Build, state: GameState, map: MapData) -> ValidationResult:

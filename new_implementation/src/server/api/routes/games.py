@@ -16,6 +16,7 @@ from ..shared import (
     db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
     notify_players, get_process_turn_lock,
 )
+from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 
 router = APIRouter()
@@ -570,32 +571,57 @@ def debug_unit_locations(game_id: str) -> Dict[str, Any]:
     }
 
 
+@router.get("/games/{game_id}/legal_orders/{power}")
+def get_legal_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
+    """Phase-aware legal order strings for every unit ``power`` controls.
+
+    Primary legal-orders endpoint. Delegates to the pure
+    ``server.legal_orders.legal_orders_for_power`` (map + state -> data), which
+    enumerates movement orders in a movement phase, retreat/disband orders in
+    a retreat phase (from the dislodged unit's precomputed legal retreats),
+    and build/waive or disband orders in an adjustment phase.
+    """
+    game = game_service.load(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return legal_orders_for_power(game_service.map, game.state, power.upper())
+
+
 @router.get("/games/{game_id}/legal_orders/{power}/{unit}")
 def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
-    """Legal order strings for a unit in the current phase (new engine).
+    """Legal order strings for one unit: a lookup into the power-level route.
 
-    Enumerates holds, adjacent moves and supports from the map topology; free-form
-    orders are still accepted and validated at submit time.
+    Kept for backward compatibility with existing clients; the power-level
+    route above is primary — ``%2F`` in a coast-bearing unit string like
+    ``F STP/SC`` is awkward as a path segment, so new clients should prefer
+    it. Behaviour preserved: 404 for an unknown game, 400 for a malformed
+    unit string. A unit that exists but belongs to another power, or doesn't
+    exist at all (or has no legal orders this phase), returns ``{"orders": []}``
+    with 200 — never a 404, which would trip the frontend's fallback path.
+    Accepts both ``"A PAR"`` and ``"F STP/SC"``; a bare ``"F STP"`` for a unit
+    actually standing on a named coast falls back to a province-only match.
     """
-    view = game_service.view(game_id)
-    if view is None:
+    game = game_service.load(game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
     parts = unit.upper().strip().split()
     if len(parts) < 2 or parts[0] not in ("A", "F"):
         raise HTTPException(status_code=400, detail=f"Invalid unit format: '{unit}'")
-    kind, province = parts[0], parts[1].split("/")[0]
-    m = game_service.map
-    orders: List[str] = [f"{kind} {province} H"]
-    if kind == "A":
-        dests = sorted(m.army_moves(province))
-        for d in dests:
-            orders.append(f"{kind} {province} - {d}")
-        for d in dests:
-            orders.append(f"{kind} {province} S A {d}")
-    else:
-        dests = sorted({loc.province for floc in m.fleet_locations(province) for loc in m.fleet_moves(floc)})
-        for d in dests:
-            orders.append(f"{kind} {province} - {d}")
-        for d in dests:
-            orders.append(f"{kind} {province} S F {d}")
-    return {"orders": orders}
+    kind, loc_token = parts[0], parts[1]
+    province = loc_token.split("/")[0]
+
+    data = legal_orders_for_power(game_service.map, game.state, power.upper())
+    orders_by_unit: Dict[str, List[str]] = data["orders_by_unit"]
+
+    exact_key = f"{kind} {loc_token}"
+    if exact_key in orders_by_unit:
+        return {"orders": orders_by_unit[exact_key]}
+
+    # Fall back to a province-only match (e.g. "F STP" for a unit that
+    # actually stands on a named coast, "F STP/SC").
+    prefix = f"{kind} {province}"
+    for key, orders in orders_by_unit.items():
+        if key == prefix or key.startswith(prefix + "/"):
+            return {"orders": orders}
+
+    return {"orders": []}
