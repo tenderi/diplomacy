@@ -13,6 +13,13 @@
 
 ## Status
 
+> ### ⚠️ A SECOND PROJECT IS NOW IN PROGRESS IN THIS FILE
+> The engine rewrite (M0–M7) below is **complete and closed**. A follow-on track,
+> **"Finish the Port" (PR1–PR6)**, is **IN PROGRESS** — see
+> [Finish the Port](#finish-the-port--make-a-game-playable-end-to-end-again) at the
+> bottom of this file. **PR1 and PR2 are merged; PR3 is the next task.** Do not resume
+> anything in M0–M7.
+
 - **Phase: COMPLETE.** M0–M7 all done. `engine-rewrite` merged to `main` via PR #5
   (commit `f0e7ae2`), tagged `v2.7.15`, pushed. `engine-rewrite` branch deleted
   (local + remote) — its full history lives on in `main`'s merge commit. This file's
@@ -523,3 +530,309 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
 - The rendering split must stay mechanical — resist redesigning it.
 - DB-dependent tests silently skip without `SQLALCHEMY_DATABASE_URL` (see `conftest.py`);
   CI provides postgres:14, so don't trust a local green run without a DB.
+
+---
+---
+
+# Finish the Port — make a game playable end-to-end again
+
+> **Status: IN PROGRESS.** Started 2026-07-27. This is a *separate project* from the
+> engine rewrite above, which is closed. Same maintenance contract applies: check tasks
+> off in the same commit as the work, keep this Status block current, never drop
+> discovered work silently.
+>
+> - **Done:** PR1 (merged, `v2.7.17`, PR #8) · PR2 (merged, `v2.7.18`, PR #10)
+> - **NEXT TASK: PR3 — `frontend-phase-ui` + the frontend CI job.**
+> - **Remaining after that:** PR4, PR5, PR6, then the manual end-to-end check.
+> - **Last updated:** 2026-07-27 (Opus 5 driver + Sonnet implementation subagents).
+
+## Why this project exists
+
+The engine rewrite landed a correct adjudicator, but it **changed the shape of the game
+state view and only some callers were ported**. The engine is fine; the layers that expose
+it are not. Concretely, before this work a game could not be played past the first
+dislodgement or the first build phase, and the Telegram bot could not start at all.
+
+**Acceptance criterion for the whole project:** a game can be played end-to-end — movement,
+retreat, and build phases — from *both* the browser and Telegram. No automated test spans
+this; it is the manual check at the end.
+
+## Execution model
+
+One **Sonnet** subagent per PR, run one at a time in dependency order. The driver (Opus)
+verifies every agent claim by direct read and by re-running the gates locally before
+opening a PR — this has already caught several incorrect subagent claims, so **do not skip
+it**. Agents push a branch and stop; they do not open or merge PRs.
+
+```
+PR1 (entrypoint) ──┐
+                   ├──► PR4 (bot) ──┐
+PR2 (legal_orders)─┤                ├──► PR6 (hygiene)
+                   └──► PR3 (frontend + CI job)
+PR5 (lifecycle) ──── independent
+```
+
+## Merge procedure (learned the hard way — follow exactly)
+
+`main` is protected with **strict mode** (branches must be up to date) and admin
+enforcement on.
+
+1. Agent pushes its feature branch.
+2. Driver re-runs the gates locally (below) and reads the diff.
+3. `gh pr create -R tenderi/diplomacy` (the `-R` is mandatory; `gh` otherwise resolves the
+   unrelated `upstream` remote).
+4. Wait for `test` + `security`: `gh pr checks <n> -R tenderi/diplomacy`.
+5. **Rebase onto `origin/main` and force-push the branch** — every PR after the first one
+   is behind, and strict mode refuses it with `the head branch is not up to date with the
+   base branch`. Do this *before* attempting the merge.
+6. `gh pr merge <n> -R tenderi/diplomacy --merge`.
+7. **Verify `gh pr view <n> --json state --jq .state` reads `MERGED` as its own step.**
+8. Only then delete the branch.
+9. Tag the **resulting `main` merge commit**, not the pre-rebase branch commit, then
+   `git push origin <tag>`.
+
+**Two traps hit on 2026-07-27, both cost a round-trip:**
+- Chaining `gh pr merge && git push --delete` in one command: the merge was refused for
+  staleness, the delete ran anyway, and deleting the head branch **closed** the open PR.
+  After a rebase changed the head SHA, `gh pr reopen` failed with
+  `GraphQL: Could not open the pull request` — recovery required a brand-new PR (#9 → #10).
+- Tagging the branch commit before the rebase left `v2.7.18` pointing at an **orphaned**
+  SHA. Fixed with `git tag -f` + `git push -f origin v2.7.18`. Verify with
+  `git merge-base --is-ancestor <tag> main`.
+
+## Local gates (run before every push)
+
+A local Postgres **is** configured and running for this repo, so DB tests really execute —
+a skip means something is wrong, not that it is unavailable.
+
+```bash
+cd new_implementation && source venv/bin/activate
+ruff check src/
+PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
+coverage report --include='src/engine/*' --fail-under=92
+coverage report --fail-under=57
+cd frontend && npx tsc -b --noEmit && npm run test:run && npm run build
+```
+
+Coverage headroom is the hidden constraint: overall floor **57** against ~59.2 measured.
+Test-count baseline as of PR2 merged: **844 passed, 15 skipped, 10 xfailed**.
+
+---
+
+## PR 1 — `bot-entrypoint` ✅ MERGED (`v2.7.17`, PR #8)
+
+- [x] **The Telegram bot could not start at all.** `src/server/telegram_bot.py` (620 LOC,
+      where every `CommandHandler` is registered) was **shadowed** by the same-named
+      package `src/server/telegram_bot/`. `PYTHONPATH=src python -m server.telegram_bot`
+      — verbatim the production systemd `ExecStart` at `infra/terraform/user_data.sh:159`
+      — died with `'server.telegram_bot' is a package and cannot be directly executed`.
+- [x] `git mv` → `src/server/telegram_bot/app.py` (contents unchanged; its imports were
+      already absolute `server.telegram_bot.X`). Added `telegram_bot/__main__.py`.
+- [x] `run_telegram_bot.py`: ~60 lines of hand-rolled `importlib` package forgery replaced
+      with one `runpy.run_module` call.
+- [x] `infra/scripts/run_bot_with_logs.sh` ran `python3 -m src.server.telegram_bot` (wrong
+      `src.` prefix) — fixed. `user_data.sh` needed no change (`PYTHONPATH` already comes
+      from `EnvironmentFile`).
+- [x] **Why nothing caught it:** the three tests referencing the module loaded it via
+      `spec_from_file_location` with a hand-forged `__package__`, which works fine on a
+      shadowed file — they tested the workaround, not the real import path. Repointed them
+      at `app.py` and switched to plain imports; they would otherwise have started
+      **silently skipping**. Added `test_no_shadowing_telegram_bot_module` so the shadowing
+      cannot come back, plus a subprocess smoke asserting the module now fails on the
+      *missing token* rather than on import.
+- [x] Gates: ruff clean, `822 passed`, `test_execution_context.py` 0 skips (was 3).
+
+## PR 2 — `legal-orders-phase-aware` ✅ MERGED (`v2.7.18`, PR #10)
+
+- [x] **`GET /legal_orders/{power}/{unit}` enumerated orders from map topology alone,
+      ignoring the phase** — it never read `state.units`, `state.dislodged`, or
+      `phase_type`. Consequences:
+      1. Retreat phases unusable (movement orders offered for dislodged units).
+      2. Build phases unusable **and silently destructive**: with no unit to key on, the
+         browser asked about `myUnits[0]`, got movement orders that *passed* `validate()`
+         and persisted — then `adjudicate_adjustments` (`adjustments.py:114`) dropped any
+         non-Build/Disband/Waive order **without error**, silently waiving the builds.
+      3. Split-coast bug: destinations unioned over *all* coasts, so a fleet at `STP/SC`
+         was offered `STP/NC`-only destinations, and the coast was dropped from the output.
+- [x] New **pure** `src/server/legal_orders.py` — `legal_orders_for_power(map, state,
+      power)`. No FastAPI / DB / `game_service` import, so it is unit-testable without a
+      database (this is also what protects the coverage floor). Returns `phase`,
+      `phase_type`, `power`, `units`, `orders_by_unit`, flat `orders`, and an `adjustment`
+      block (`delta`/`action`/`slots`) on Adjustment phases.
+- [x] Reuse, not reimplementation: RETREAT reads the already-computed
+      `DislodgedUnit.retreats`; ADJUSTMENT computes `delta` exactly as
+      `adjudicate_adjustments` does and filters candidates through the **unmodified**
+      `_validate_build` via a new public `legal_builds()` in `engine/orders/validation.py`.
+- [x] New primary route `GET /games/{id}/legal_orders/{power}`; the per-unit route is now a
+      lookup into `orders_by_unit`, preserving 404 (bad game) / 400 (malformed unit), and
+      returning `{"orders": []}` **with 200** for a foreign or unknown unit — a 404 trips
+      the frontend's fallback path. Province-only fallback so a bare `F STP` finds a unit
+      standing on `STP/SC`.
+- [x] `tests/test_legal_orders.py` (18 tests, no DB). The one that carries the PR: for
+      movement, retreat, build and disband states, **every emitted string** for **every
+      power** must satisfy `validate(parse_order(s), state, map).ok`.
+- [x] Tightened `TestLegalOrders` in `test_api_routes_games.py` (3 → 7): it asserted
+      `status_code in [200, 404]` and `isinstance(orders, list)`, so it could only fail on
+      a crash, never on a wrong answer.
+- [x] Gates: ruff clean, `844 passed`, engine 92.97%, overall 59.16%.
+
+### Two findings from PR2 that later PRs must respect
+
+- **`format_order` renders fleets as `A`.** It infers the unit letter from *coast presence*
+  unless passed `kind_by_province` — so a fleet at any non-split province prints `A`. Any
+  code emitting order strings must pass an explicit kind map. (Noted as a cosmetic M7
+  follow-up above; it is not cosmetic once clients parse the strings back.)
+- **`orders_by_unit` keys name their unit but do not always prefix it.** Keys are
+  `f"{kind} {location}"` **with coast** (`"F STP/SC"`). Hold/move/support/convoy/retreat
+  strings start with the key, but the engine's grammar is **verb-first** for builds and
+  disbands (`D A PAR`, `BUILD F BRE`), so for those the key matches as a *suffix*.
+  `WAIVE` has no unit and appears only in the flat `orders` list. Clients must not assume
+  a prefix match.
+
+---
+
+## PR 3 — `frontend-phase-ui` + the frontend CI job  ← **NEXT TASK**
+
+Ships together, because this is the first frontend change and **there is currently no
+frontend job in CI at all** — nothing gates `tsc`, Vitest, or the build.
+
+All three bug sites below were re-verified by direct read on 2026-07-27:
+
+- [ ] `frontend/src/lib/orderParsing.ts` — add a `waive` type and a **leading-verb** branch
+      *before* the null-guard. Verified dead today: for `D A PAR`, `parts[length-2]` is
+      `"A"`, not `"D"`, so the destroy branch never fires and the function returns `null`;
+      `WAIVE` returns `null` at the null-guard (`parts[i+1]` undefined). Moving the
+      `' S '`/`' C '` checks above the `endsWith(' H')` check is worth doing defensively,
+      **but is not an active bug** — `format_order` renders support-hold as `A PAR S A BUR`
+      with no trailing `H`, so engine-emitted strings never collide.
+- [ ] `frontend/src/pages/GameView.tsx` — one fetch of the new
+      `/legal_orders/{power}` replaces the N+1 per-unit loop. Delete the `_build` bucket and
+      all `myUnits[0]` indexing (`:376` — on an empty `myUnits`, `unit.unit_type` at `:384`
+      **throws**; that is a power with zero units in an Adjustment phase, which PR2 now
+      serves correctly). Unit keys must become `${kind} ${location}` carrying the coast —
+      today `:365` builds them from `u.province`, so they can never match PR2's keys.
+- [ ] `BuildOrdersSection` (`:202`, `:213-215`) — drop the **removed**
+      `powerState.controlled_supply_centers`; take `slots`/`action` from the new
+      `adjustment` block. This also removes the `Math.max(slotCount, ..., 1)` floor that
+      renders a phantom build slot when `delta == 0`.
+- [ ] **CI:** add a third `frontend` job to `.github/workflows/test.yml` — `npm ci`,
+      `npx tsc -b --noEmit`, `npm run test:run`, `npm run build`, with
+      `cache-dependency-path: new_implementation/frontend/package-lock.json` (the 97-byte
+      root lockfile is an unrelated stub). **Add `frontend` to required status checks only
+      after it has been green on `main` once**, or `main` bricks.
+- [ ] Tests: `orderParsing.test.ts` for each new verb form; `GameView.test.tsx` blocks
+      stubbing RETREAT and ADJUSTMENT states — assert exactly `slots` slots render, that
+      options are build strings, and that **a power with zero units in an Adjustment phase
+      renders without throwing** (today's crash).
+
+## PR 4 — `bot-phase-aware` (largest)
+
+API prerequisites, same PR: `routes/orders.py` `get_orders_for_power`/`get_orders` must
+accept `telegram_id` + bot secret (Bearer-only today, so the bot gets **403** even after
+the session fix); new `GET /games/{id}/map/history/{turn}`; promote
+`_units_for_render`/`_phase_info`/`_svg_path_for_map_name` from `routes/maps.py` into a new
+pure `src/rendering/view_adapter.py`.
+
+- [ ] New `telegram_bot/game_context.py` with `resolve_game_and_power(user_id, game_id=None)`
+      wrapping `api_get(f"/users/{id}/games")["games"]` — note that endpoint returns a
+      **dict**, not a list. Replaces every dead `api_get(f"/users/{id}")` call (that route
+      reads `user_sessions`, an in-memory dict populated only by `POST /users/register`,
+      which the bot never calls → 404) and four copy-pasted resolution blocks.
+- [ ] `orders.py`: fix `/myorders`, `/clearorders` (must also post `telegram_id` so
+      `api_client.py:74` injects the bot secret — it 401s today), `/clear`,
+      `/orderhistory`; make `/selectunit` read the units **list** and branch on
+      `phase_type`; drive `show_possible_moves`/`show_convoy_*` from `legal_orders` and
+      **delete `from rendering.map import Map`** (the bot must not import the engine or
+      renderer — CLAUDE.md: it is a thin client over the HTTP API).
+- [ ] Cache the fetched order list in `context.user_data` and put `ord|{game_id}|{idx}` in
+      `callback_data` — the current scheme embeds order text and **overflows Telegram's
+      64-byte cap** on convoys and coasted orders.
+- [ ] `maps.py`: `/map`, `/viewmap`, `/replay` fetch PNG bytes via a new `api_get_bytes()`
+      in `api_client.py`. `/replay` currently dies with `'list' object has no attribute
+      'items'` — `rendering/map.py:1155` expects `{power: ["A BER"]}` but the new view's
+      `units` is a **list of dicts**. Delete `send_demo_map` (broken twice over: it also
+      calls the `@staticmethod` `render_board_png` with shifted args) and repoint
+      `admin.py:69`.
+- [ ] `games.py`: `/players` reads the bare list (`:355`, `:432`); `/status` reads
+      `phase`/`phase_type`, deadline from `GET /games/{id}/deadline`, submission state from
+      the new `/orders_status` (PR5).
+- [ ] `ui.py:281`: `DESTROY A Munich` → `D A Munich` (the parser accepts only `D`/`DISBAND`);
+      add retreat and `WAIVE` examples.
+- [ ] **Check `normalize_order_provinces`** (`telegram_bot/orders.py:16-48`) against
+      `WAIVE`/`BUILD`/`D` — it maps any `.isalpha()` token through `province_mapping` and
+      will mangle verbs. Right fix is to stop calling it on strings that came from
+      `legal_orders`.
+- [ ] Also fix `infra/scripts/diagnose_bot.sh`: it references
+      `/opt/diplomacy/src/server/run_telegram_bot.py`, missing the `new_implementation/`
+      segment (prod path per `user_data.sh`'s `WorkingDirectory`). Found during PR1,
+      deliberately deferred here.
+- [ ] **Resurrect the 755 dead LOC of bot tests here, not in PR6.** `test_bot_functions.py`,
+      `test_selectunit_fix.py`, `test_telegram_bot.py` collect **zero tests** because their
+      classes are named `*Tester`, which does not match `python_classes = Test*`. Renaming
+      alone would make them collect and instantly fail — they assert pre-rewrite shapes.
+      Rename `*Tester` → `Test*` (leave `MockUser`/`MockUpdate`), add
+      `@pytest.mark.asyncio`, rewrite fixtures to the new view shape, and add
+      `test_selectunit_retreat_phase`, `test_selectunit_adjustment_phase`, and a test
+      asserting `render_board_png` is **never** called from the bot for a game map.
+
+## PR 5 — `turn-lifecycle` (independent of PR3/PR4)
+
+- [ ] `POST /deadline` (`routes/games.py:469-484`) mutates a **detached** ORM object and
+      never commits (the session closes at `database_service.py:315-318`, and
+      `db_service.commit()` is a documented no-op) — so the deadline is silently discarded.
+      Switch to `update_game_deadline`, which the scheduler already uses and which commits.
+- [ ] Concurrency: `POST /process_turn` **does** correctly acquire its lock (`async with
+      lock:` — an earlier survey claim that it only checks `lock.locked()` was wrong), but
+      an `asyncio.Lock` is per-process and won't survive a second uvicorn worker. Add
+      `expected_phase_code` to `GameRepo.save_state`, raise `StaleGameError` → 409. Drop the
+      `lock.locked()` check in `api/shared.py:127-136`, which pretends to guard without
+      acquiring.
+- [ ] New `GET /games/{id}/orders_status` + `POST /process_turn?require_all=true`. **Default
+      stays `false`** so no existing test changes; both clients pass `true`, the deadline
+      scheduler never does.
+- [ ] `restore/{snapshot_id}` is a stub — snapshots store the *view*, which
+      `state_from_dict` can't read. Add `state_json` to the snapshot payload (purely
+      additive, so `/history` and `/replay` keep working) and make restore of a
+      pre-change snapshot fail loudly with 409.
+- [ ] **Un-skip the four scheduler tests** (`test_api_scheduler.py:58,78,106,129`). Their
+      stated reason ("session isolation") is stale: `update_game_deadline` opens its own
+      session and commits, so once `set_deadline` uses it the value *is* visible
+      cross-session. Rewrite the 70-second reminder test to call the reminder branch
+      directly instead of `time.sleep`.
+- [ ] New `tests/test_persistence_database_service.py` — first direct coverage of the
+      1033-LOC DAL. Start narrow: `update_game_deadline` round-trip incl. `None`, snapshot
+      create/get, `get_players_by_game_id`, and an explicit test that `commit()` is a no-op
+      so nobody reintroduces the detached-mutation pattern.
+
+## PR 6 — `test-hygiene` (last, small)
+
+- [ ] `pytest.ini`: `asyncio_mode = auto`; **remove `--disable-warnings`** — that flag is
+      what hid the coroutine-never-awaited warnings. Triage the resulting noise with
+      targeted `filterwarnings`, not by restoring the blanket flag.
+- [ ] `@pytest.mark.asyncio` on `test_convoy_functions.py:229,235` — the only two genuinely
+      silent async skips outside the uncollected files (an earlier claim of ~19 was wrong).
+- [ ] Delete `tests/bot_test_runner.py` (never collected; 5 dead async functions).
+- [ ] Ratchet the coverage floors to just under the new measured values; refresh the dated
+      comments in `test.yml` / `.coveragerc`.
+- [ ] Add `frontend` to required status checks via `gh api` (only once green on `main`).
+
+## Final acceptance — manual end-to-end check
+
+No automated test spans this. Run it after PR4.
+
+- [ ] `PYTHONPATH=src python -m server.telegram_bot` starts (already true since PR1).
+- [ ] Start the API; create a game, fill 7 powers; `/map` returns a PNG in Telegram.
+- [ ] Order a deliberate dislodgement (A PAR–BUR supported, vs. A MUN–BUR); process.
+- [ ] Phase `S1901R`: browser shows retreat options for the dislodged unit only; Telegram
+      `/selectunit` offers retreats. Submit one, process — it takes effect.
+- [ ] Play to `W1901A` with a captured centre. Both clients show exactly `delta` build
+      slots with real home-centre options, and a power at `delta == 0` shows none. Submit a
+      build, process — the unit appears on the map.
+- [ ] `POST /games/{id}/deadline`, then `GET` it back — the value persists (it does not
+      today; PR5).
+
+## Out of scope for this project
+
+The 10 DATC hard-tail xfails; the aspirational spec docs (`dashboard.md`,
+`visualization_spec.md` §10); and everything in CLAUDE.md's standing out-of-scope list
+(tournaments, Discord, observer/spectator mode, AI-powered analysis).
