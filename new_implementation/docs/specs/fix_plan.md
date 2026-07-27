@@ -397,12 +397,19 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
          (power→[order string]). Update TS interfaces + any `.powers`/`.current_*` access;
          `cd frontend && npm run build` + `npm run test:run` must pass. NOTE: the Python CI
          job does not build the frontend, so this won't surface as a red pytest.
-   - [ ] **Order/resolution map overlays.** `src/server/api/routes/maps.py`
-         `generate_map/orders` & `/resolution` currently render a plain board (no move
-         arrows). Rebuild the overlay from `Resolution`/pending orders (the old
-         `order_visualization.py` was deleted — reimplement against the new types in
-         `src/rendering/`). `tests/test_order_visualization.py` etc. still exercise the
-         renderer's arrow primitives; wire them to the new data.
+   - [x] **Order/resolution map overlays.** DONE (2026-07-27). New adapter
+         `src/rendering/order_overlay.py` translates engine `Order`/`Resolution` data into
+         the renderer's order-dict format (the arrow primitives in `rendering/map.py` —
+         `render_board_png_orders`/`render_board_png_resolution` — survived M6 intact; only
+         the wiring was missing). `maps.py` `/generate_map/orders` now draws arrows from the
+         current pending orders; `/generate_map/resolution` draws each adjudicated order's
+         arrow coloured by its result plus standoff markers. Resolution is otherwise lost at
+         `process_turn` (pending cleared, state is a single snapshot), so it is now persisted
+         in a new nullable `games.last_resolution` JSON column (migration `b2c3d4e5f6a8`),
+         written by `GameService.process_turn`. Tests: `tests/test_order_overlay.py` (12
+         adapter unit tests) + `TestResolutionPersistence` in `tests/test_game_service.py`;
+         E2E-smoked (orders map 724 KB, resolution map 735 KB, no render warnings). Full
+         suite 812 passed / 15 skipped / 10 xfailed, ruff clean.
    - [ ] **`format_order` human display** (`engine/orders/parser.py`): it infers A/F from
          coast, so a fleet at a non-split province prints `A` in echoed pending orders.
          Cosmetic only (adjudication uses the board unit). Thread unit kind through for

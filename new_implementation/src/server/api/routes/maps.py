@@ -8,15 +8,26 @@ functionally it already runs on the new engine here.)
 """
 import os
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from ..shared import db_service, game_service
 from rendering.map import Map
+from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
 
 router = APIRouter()
+
+
+def _kind_by_province(view: Dict[str, Any]) -> Dict[str, str]:
+    """province -> "A"/"F" for the current units, so overlay arrows label units
+    with their real type (cosmetic; placement uses the province only)."""
+    out: Dict[str, str] = {}
+    for units in view.get("units_by_power", {}).values():
+        for u in units:
+            out[u["location"].split("/")[0]] = u["kind"]
+    return out
 
 
 def _svg_path_for_map_name(map_name: str) -> str:
@@ -72,16 +83,39 @@ def get_game_map_png(game_id: str) -> Response:
     return Response(content=img_bytes, media_type="image/png")
 
 
-def _render_and_save(game_id: str, view: Dict[str, Any], suffix: str = "") -> Dict[str, Any]:
+def _render_and_save(
+    game_id: str,
+    view: Dict[str, Any],
+    suffix: str = "",
+    order_viz: Optional[Dict[str, Any]] = None,
+    resolution_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Render the current board and save it under ``/tmp/diplomacy_maps``.
+
+    When ``order_viz`` is given, move/support/convoy arrows are drawn over the board
+    (orders map). When ``resolution_data`` is also given, standoff/conflict markers
+    are drawn too (resolution map). On any render error, falls back to a plain board.
+    """
     svg_path = _svg_path_for_map_name(view["map_name"])
+    units = _units_for_render(view)
+    phase_info = _phase_info(view, _turn_of(game_id))
+    scc = dict(view["ownership"])
     render_warnings: List[str] = []
     try:
-        img_bytes = Map.render_board_png(
-            svg_path,
-            _units_for_render(view),
-            phase_info=_phase_info(view, _turn_of(game_id)),
-            supply_center_control=dict(view["ownership"]),
-        )
+        if resolution_data is not None:
+            img_bytes = Map.render_board_png_resolution(
+                svg_path, units, order_viz or {}, resolution_data,
+                phase_info=phase_info, supply_center_control=scc,
+            )
+        elif order_viz is not None:
+            img_bytes = Map.render_board_png_orders(
+                svg_path, units, order_viz,
+                phase_info=phase_info, supply_center_control=scc,
+            )
+        else:
+            img_bytes = Map.render_board_png(
+                svg_path, units, phase_info=phase_info, supply_center_control=scc,
+            )
     except Exception as e:
         render_warnings.append(f"render_failed_primary: {e}")
         img_bytes = Map.render_board_png(
@@ -128,19 +162,40 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/generate_map/orders")
 def generate_orders_map(game_id: str) -> Dict[str, Any]:
-    """Generate an orders map. Order-arrow overlays are pending the M6 rendering
-    rework (checkpoint D); this currently renders the board for the phase."""
+    """Generate an orders map: the board plus arrows for the current pending orders.
+
+    Renders a plain board when no orders have been submitted yet.
+    """
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return _render_and_save(game_id, view, suffix="orders")
+    order_viz = orders_by_power_to_viz(
+        game_service.pending_orders_parsed(game_id), _kind_by_province(view)
+    )
+    return _render_and_save(game_id, view, suffix="orders", order_viz=order_viz)
 
 
 @router.post("/games/{game_id}/generate_map/resolution")
 def generate_resolution_map(game_id: str) -> Dict[str, Any]:
-    """Generate a resolution map. Resolution overlays are pending checkpoint D;
-    this currently renders the board for the phase."""
+    """Generate a resolution map: the board after the last processed turn, with each
+    adjudicated order's arrow coloured by its result plus standoff markers.
+
+    The resolution is stored at ``process_turn``; if none exists yet (no turn has been
+    processed), falls back to a plain board.
+    """
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return _render_and_save(game_id, view, suffix="resolution")
+    resolution = game_service.last_resolution(game_id)
+    if not resolution:
+        return _render_and_save(game_id, view, suffix="resolution")
+    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
+    resolution_data = {
+        "conflicts": [
+            {"province": prov, "result": "standoff"} for prov in view.get("contested", [])
+        ],
+    }
+    return _render_and_save(
+        game_id, view, suffix="resolution",
+        order_viz=order_viz, resolution_data=resolution_data,
+    )

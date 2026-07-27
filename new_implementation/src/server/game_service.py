@@ -129,17 +129,19 @@ class GameService:
 
         resolution, next_game = game.adjudicate(orders)
 
+        resolution_dict = resolution_to_dict(resolution)
         self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
             phase_code=next_game.state.phase_name,
             status=next_game.state.status.value.lower(),
+            last_resolution=resolution_dict,
         )
         self._repo.set_pending_orders(game_id, {})
         return {
             "phase": next_game.state.phase_name,
             "status": next_game.state.status.value,
-            "resolution": resolution_to_dict(resolution),
+            "resolution": resolution_dict,
         }
 
     # -- views ------------------------------------------------------------
@@ -175,6 +177,28 @@ class GameService:
             "players": players,
             "orders": pending,
         }
+
+    def pending_orders_parsed(self, game_id: str) -> dict[str, list[Any]]:
+        """Current pending orders as parsed ``Order`` objects, keyed by power.
+
+        Ill-formed stored orders are skipped (they were validated at submit time, so
+        this is defensive). Used by the orders-map renderer.
+        """
+        out: dict[str, list[Any]] = {}
+        for power, strings in self._repo.get_pending_orders(game_id).items():
+            orders: list[Any] = []
+            for s in strings:
+                try:
+                    orders.append(parse_order(s, power=power.upper(), map=self._map))
+                except OrderParseError:
+                    continue
+            if orders:
+                out[power] = orders
+        return out
+
+    def last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
+        """The most recent adjudication result (``resolution_to_dict``), or ``None``."""
+        return self._repo.get_last_resolution(game_id)
 
 
 # ---------------------------------------------------------------------------

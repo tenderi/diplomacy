@@ -32,6 +32,9 @@ class GameModel(Base):
     # These supersede the legacy relational units/orders/supply_centers storage.
     state_json = Column(JSON, nullable=True)
     pending_orders = Column(JSON, nullable=True)
+    # The most recent adjudication result (engine.serialization.resolution_to_dict),
+    # kept only for rendering the resolution map after a turn is processed.
+    last_resolution = Column(JSON, nullable=True)
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
