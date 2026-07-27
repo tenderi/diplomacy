@@ -13,25 +13,39 @@
 
 ## Status
 
-- **Phase:** **M0–M6 COMPLETE.** Ground-up engine rewrite done and integrated: the whole app
-  runs on the new immutable engine. **Remaining: M7 (enforcement, docs, ship) + the M6
-  follow-ups.** Not yet merged to `main`.
+- **Phase:** **M0–M6 COMPLETE; M7 IN PROGRESS.** All four M6 follow-ups done (M7 step 1),
+  CI coverage gates done (M7 step 2), ruff clean. **NEXT: M7 step 3 = Docs** (write
+  `adjudication.md`; update `architecture.md` / `data_spec.md` / `CODEBASE_OVERVIEW.md`),
+  then step 4 = merge to `main`, then step 5 = final. Not yet merged to `main`.
 
-> ### ▶ RESUME HERE (fresh agent, start of session)
-> 1. **Read this whole file**, then the M7 section + the "M6 follow-ups" box in the M6 section.
+> ### ▶ RESUME HERE (fresh agent, start of session — handoff 2026-07-27, mid-M7)
+> 1. **Read this whole file**, then the M7 section (steps 1–2 are done; **start at step 3,
+>    Docs**).
 > 2. **Bring up a DB before running tests** — a no-DB run silently skips ~all integration
 >    tests and looks falsely green. See the `local-postgres-for-m6` memory for the no-sudo
 >    recipe (the scratchpad `PGDATA` is ephemeral and may need re-`initdb` each session).
 >    Then: `export SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`
->    and `alembic upgrade head`.
-> 3. **Baseline to confirm before changing anything:**
->    `PYTHONPATH=src python -m pytest tests/ -q` → **800 passed, 15 skipped, 10 xfailed**;
->    `ruff check src/` → clean.
-> 4. **Do M7 in order** (below). The single most impactful M6 follow-up is the **frontend TS
->    types** — the React app still speaks the OLD API shape and will break at runtime until
->    ported; it is NOT covered by the Python CI, so it won't show up as a red test.
-> 5. Work on `engine-rewrite`; merge to `main` is the LAST M7 step (CI on `main` runs
->    `test` + `security` and rejects red pushes). Do **not** build on `fix-oidc-trust`.
+>    and **`alembic upgrade head`** — this session added **two new migrations**; head is now
+>    **`c3d4e5f6a7b9`** (`b2c3d4e5f6a8` last_resolution → `c3d4e5f6a7b9` order_history).
+> 3. **Current baseline to confirm before changing anything (with a DB):**
+>    `PYTHONPATH=src python -m pytest tests/ -q` → **820 passed, 15 skipped, 10 xfailed**;
+>    `ruff check src/` → clean. (Was 800 pre-M7; +20 from new overlay/service/history tests.)
+>    **CI now also enforces coverage** — reproduce with `pytest tests/ --cov=src
+>    --cov-report=term-missing` then `coverage report --include='src/engine/*'
+>    --fail-under=92` and `coverage report --fail-under=57` (both pass locally: engine
+>    92.91%, overall 58.66%).
+> 4. **Frontend note (Node not installed system-wide on the dev boxes):** the M7.1a frontend
+>    port is committed and was verified green (`npm run build` + `npm run test:run` 88/88)
+>    using a **portable Node 22 unpacked into the scratchpad** (ephemeral — gone next
+>    session; `frontend/node_modules` is gitignored). To re-verify the frontend you must
+>    reinstall Node (e.g. download `node-v22.x-linux-x64.tar.xz`, add its `bin/` to PATH,
+>    `cd frontend && npm install`). The Python CI does **not** build the frontend, so a
+>    frontend regression will not show as a red pytest.
+> 5. **Do M7 step 3 → 4 → 5 in order.** Work on `engine-rewrite`; merge to `main` is the
+>    LAST step (CI on `main` runs `test` + `security` and rejects red pushes). Do **not**
+>    build on `fix-oidc-trust`. **Note for the merge (step 4):** the two new migrations add
+>    only nullable columns (no data wipe); the original `a1b2c3d4e5f7` still wipes game rows
+>    in prod — call that out in the merge message as before.
 
 - **M6 COMPLETE (engine swapped, old engine deleted).** Server routes / CLI `Server` / DAIDE
   / persistence / rendering all go through `GameService` + the GameState-native API view;
@@ -61,7 +75,11 @@
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M6 COMPLETE: clean-break engine swap, old engine deleted, 800 green + E2E).
+- **Last updated:** 2026-07-27 (Opus 4.8 — M7 steps 1–2 DONE: all 4 M6 follow-ups (frontend
+  port, order/resolution overlays, truthful A/F display, per-turn order history) + CI
+  coverage gates; 820 green + ruff clean. Two new nullable-column migrations
+  (`b2c3d4e5f6a8`, `c3d4e5f6a7b9`). Handoff mid-M7 to continue on another machine — **next
+  is M7 step 3, Docs.**).
 
 ## Goal
 
@@ -360,7 +378,9 @@ Key decisions:
       (S1901M→F1901M) → fetch state + PNG map (722 KB). Convoy adjudication covered by
       tests/datc 6.F/6.G. ruff clean on `src/`.
 
-> **M6 follow-ups (not blocking; carry into M7/next):**
+> **M6 follow-ups — ALL DONE in M7 step 1 (2026-07-27).** The four bullets below are
+> resolved; see the checked items under "M7 → 1." for the implementation details. Kept here
+> for context.
 > - **Frontend TS types** (`frontend/src`) still describe the OLD `powers`-shaped state and
 >   have NOT been updated to the new view (`units`/`ownership`/`phase`/`phase_type`/
 >   `players`/`dislodged`/`contested`). The React app will break at runtime until ported;
