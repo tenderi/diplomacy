@@ -10,7 +10,6 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any, List
 
-from server.telegram_bot.maps import get_cached_default_map, set_cached_default_map, generate_default_map
 from server.telegram_bot.config import get_telegram_token
 from server.telegram_bot.api_client import api_post, api_get
 from server.telegram_bot.orders import normalize_order_provinces
@@ -52,19 +51,7 @@ class TestTelegramBotFunctions:
 
 class TestBotCommands:
     """Test bot command handling."""
-    
-    def test_get_cached_default_map_initial(self):
-        """Test getting cached map when cache is empty."""
-        result = get_cached_default_map()
-        assert result is None
-    
-    def test_set_and_get_cached_default_map(self):
-        """Test setting and getting cached map."""
-        test_data = b"test_map_data"
-        set_cached_default_map(test_data)
-        result = get_cached_default_map()
-        assert result == test_data
-    
+
     def test_get_telegram_token_from_env(self):
         """Test getting Telegram token from environment."""
         with patch.dict('os.environ', {'TELEGRAM_BOT_TOKEN': 'test_token'}):

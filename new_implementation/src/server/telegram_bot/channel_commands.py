@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
+from .game_context import fetch_user_games
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
 
@@ -39,8 +40,7 @@ async def link_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         # Verify user is in the game or is admin
         user_id = str(user.id)
-        user_games = api_get(f"/users/{user_id}/games")
-        user_in_game = any(str(g["game_id"]) == game_id for g in user_games.get("games", []))
+        user_in_game = any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id))
         
         if not user_in_game and user_id != "8019538":  # Admin check
             await update.message.reply_text(
@@ -88,8 +88,7 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         # Verify user is in the game or is admin
         user_id = str(user.id)
-        user_games = api_get(f"/users/{user_id}/games")
-        user_in_game = any(str(g["game_id"]) == game_id for g in user_games.get("games", []))
+        user_in_game = any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id))
         
         if not user_in_game and user_id != "8019538":  # Admin check
             await update.message.reply_text(
@@ -99,10 +98,10 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         # Unlink channel
         import requests
-        
-        result = requests.delete(
-            f"{api_get.__globals__.get('API_URL', 'http://localhost:8000')}/games/{game_id}/channel/unlink"
-        ).json()
+
+        from .config import API_URL
+
+        result = requests.delete(f"{API_URL}/games/{game_id}/channel/unlink").json()
         
         if result.get("status") == "ok":
             await update.message.reply_text(

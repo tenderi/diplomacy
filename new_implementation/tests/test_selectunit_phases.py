@@ -102,6 +102,32 @@ def test_selectunit_retreat_phase_no_dislodged_units(mock_ctx_get, mock_orders_g
 
 @patch("server.telegram_bot.orders.api_get")
 @patch("server.telegram_bot.game_context.api_get")
+def test_selectunit_adjustment_phase(mock_ctx_get, mock_orders_get):
+    """ADJUSTMENT phase renders the delta/action/slots header verbatim from
+    ``legal_orders``'s ``adjustment`` dict, and presents the flat order list --
+    unlike MOVEMENT/RETREAT there is no per-unit selection step first."""
+    update, context, message = _make_update_and_context()
+    mock_ctx_get.return_value = {"games": [{"game_id": 1, "power": "GERMANY"}]}
+    mock_orders_get.return_value = {
+        "phase": "W1901A", "phase_type": "ADJUSTMENT", "power": "GERMANY",
+        "units": [{"kind": "A", "location": "BER", "province": "BER", "coast": None}],
+        "orders_by_unit": {"F BRE": ["BUILD F BRE"]},
+        "orders": ["BUILD F BRE", "WAIVE"],
+        "adjustment": {"delta": 1, "action": "build", "slots": 1},
+    }
+
+    asyncio.run(selectunit(update, context))
+
+    message.reply_text.assert_called_once()
+    text = message.reply_text.call_args[0][0]
+    assert "Adjustment for GERMANY" in text
+    assert "Delta: 1" in text
+    assert "Action: build" in text
+    assert "Slots: 1" in text
+
+
+@patch("server.telegram_bot.orders.api_get")
+@patch("server.telegram_bot.game_context.api_get")
 def test_selectunit_adjustment_phase_build(mock_ctx_get, mock_orders_get):
     """delta > 0: build/WAIVE candidates are shown directly, no per-unit step."""
     update, context, message = _make_update_and_context()
