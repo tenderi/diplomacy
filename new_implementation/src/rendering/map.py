@@ -19,7 +19,7 @@ import logging
 from .visualization_config import get_config
 
 # Module-level logger for static methods
-logger = logging.getLogger("diplomacy.engine.map")
+logger = logging.getLogger("diplomacy.rendering.map")
 
 class Province:
     """Represents a province on the Diplomacy map."""
@@ -41,7 +41,7 @@ class MapCache:
         self.cache_dir = cache_dir
         self.cache: Dict[str, Tuple[bytes, float]] = {}  # key -> (image_bytes, timestamp)
         self.access_times: Dict[str, float] = {}  # key -> last_access_time
-        self.logger = logging.getLogger("diplomacy.engine.map.cache")
+        self.logger = logging.getLogger("diplomacy.rendering.map.cache")
         
         # Create cache directory
         os.makedirs(cache_dir, exist_ok=True)
@@ -225,7 +225,7 @@ class Map:
         self.provinces: Dict[str, Province] = {}
         self.supply_centers: Set[str] = set()
         self.map_name: str = map_name
-        self.logger = logging.getLogger("diplomacy.engine.map")
+        self.logger = logging.getLogger("diplomacy.rendering.map")
         self._init_map(map_name)
 
     def _init_map(self, map_name: str) -> None:
@@ -286,7 +286,7 @@ class Map:
         - Supply centers from power definitions
         - Bidirectional adjacencies
         """
-        from .province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
+        from engine.province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
         
         with open(map_file_path, 'r', encoding='utf-8') as f:
             content = f.read()

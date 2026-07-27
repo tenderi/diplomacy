@@ -11,7 +11,7 @@ import os
 import logging
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger("diplomacy.engine.visualization_config")
+logger = logging.getLogger("diplomacy.rendering.visualization_config")
 
 
 class VisualizationConfig:

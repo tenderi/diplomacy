@@ -1,6 +1,6 @@
 """Map generation API routes.
 
-Renders game states to PNG. The SVG→PNG pipeline (``engine.map.Map``) takes simple
+Renders game states to PNG. The SVG→PNG pipeline (``rendering.map.Map``) takes simple
 text units (``{power: ["A PAR", "F BRE", ...]}``) plus supply-center control, so it
 is fed directly from the new-engine ``GameService.view`` — no old data models.
 (The physical relocation of the renderer to ``src/rendering/`` is M6 checkpoint D;
@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from ..shared import db_service, game_service
-from engine.map import Map
+from rendering.map import Map
 
 router = APIRouter()
 

@@ -53,7 +53,7 @@ def test_map_adjacency():
     """Test map adjacency functionality"""
     print("Testing map adjacency...")
     
-    from engine.map import Map
+    from rendering.map import Map
     
     # Create map instance
     map_instance = Map("standard")
@@ -143,7 +143,7 @@ def test_unit_type_filtering():
     """Test unit type filtering for moves"""
     print("Testing unit type filtering...")
     
-    from engine.map import Map
+    from rendering.map import Map
     
     # Create map instance
     map_instance = Map("standard")

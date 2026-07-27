@@ -27,7 +27,7 @@ from server.telegram_bot.orders import (
     submit_interactive_order,
     normalize_order_provinces
 )
-from engine.map import Map
+from rendering.map import Map
 from engine.province_mapping import normalize_province_name
 
 

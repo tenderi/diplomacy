@@ -27,7 +27,7 @@ class TestStandardV2MapInitialization:
     
     def test_map_initialization(self):
         """Test that Map can be initialized with standard-v2"""
-        from engine.map import Map
+        from rendering.map import Map
         
         map_instance = Map("standard-v2")
         assert map_instance.map_name == "standard-v2"
@@ -36,7 +36,7 @@ class TestStandardV2MapInitialization:
     
     def test_map_uses_standard_adjacencies(self):
         """Test that standard-v2 uses same adjacencies as standard map"""
-        from engine.map import Map
+        from rendering.map import Map
         
         standard_map = Map("standard")
         v2_map = Map("standard-v2")
@@ -58,7 +58,7 @@ class TestStandardV2MapInitialization:
     
     def test_map_supply_centers_match(self):
         """Test that standard-v2 has same supply centers as standard"""
-        from engine.map import Map
+        from rendering.map import Map
         
         standard_map = Map("standard")
         v2_map = Map("standard-v2")
@@ -68,7 +68,7 @@ class TestStandardV2MapInitialization:
     
     def test_map_provinces_match(self):
         """Test that standard-v2 has same provinces as standard"""
-        from engine.map import Map
+        from rendering.map import Map
         
         standard_map = Map("standard")
         v2_map = Map("standard-v2")
@@ -91,7 +91,7 @@ class TestStandardV2CoordinateExtraction:
     
     def test_coordinate_extraction(self):
         """Test that coordinates can be extracted from v2.svg or standard.svg"""
-        from engine.map import Map
+        from rendering.map import Map
         
         # Get SVG path resolution (may resolve to standard.svg if v2.svg missing)
         svg_path = Map._resolve_svg_path("standard-v2")
@@ -114,7 +114,7 @@ class TestStandardV2CoordinateExtraction:
     
     def test_coordinate_scaling(self):
         """Test that coordinates are properly scaled"""
-        from engine.map import Map
+        from rendering.map import Map
         
         svg_path = Map._resolve_svg_path("standard-v2")
         tree, coords, _ = Map._get_cached_svg_data(svg_path)
@@ -215,7 +215,7 @@ class TestStandardV2MapRendering:
     
     def test_basic_map_rendering(self):
         """Test basic map rendering with standard-v2"""
-        from engine.map import Map
+        from rendering.map import Map
         
         units = {
             "GERMANY": ["A BER", "A MUN", "F KIE"],
@@ -239,7 +239,7 @@ class TestStandardV2MapRendering:
     
     def test_map_rendering_with_all_powers(self):
         """Test map rendering with all 7 powers"""
-        from engine.map import Map
+        from rendering.map import Map
         
         units = {
             "GERMANY": ["A BER", "A MUN", "F KIE"],
@@ -273,7 +273,7 @@ class TestStandardV2MapRendering:
     
     def test_map_rendering_with_moves(self):
         """Test map rendering with moves using standard-v2"""
-        from engine.map import Map
+        from rendering.map import Map
         
         units = {
             "FRANCE": ["A PAR", "F BRE"],
@@ -311,7 +311,7 @@ class TestStandardV2MapRendering:
     
     def test_map_rendering_with_supply_centers(self):
         """Test map rendering with supply center control"""
-        from engine.map import Map
+        from rendering.map import Map
         
         units = {
             "FRANCE": ["A PAR", "A MAR"],
@@ -421,7 +421,7 @@ class TestStandardV2Comparison:
     
     def test_visual_difference(self):
         """Test that standard and standard-v2 produce different visual outputs"""
-        from engine.map import Map
+        from rendering.map import Map
         
         units = {
             "FRANCE": ["A PAR", "F BRE"],
@@ -461,7 +461,7 @@ class TestStandardV2Comparison:
     
     def test_same_game_logic(self):
         """Test that standard and standard-v2 have identical game logic"""
-        from engine.map import Map
+        from rendering.map import Map
         
         standard_map = Map("standard")
         v2_map = Map("standard-v2")
@@ -482,7 +482,7 @@ class TestStandardV2EdgeCases:
     
     def test_fallback_when_v2_svg_missing(self):
         """Test fallback behavior when v2.svg is missing"""
-        from engine.map import Map
+        from rendering.map import Map
         
         # This should not raise an error, but should fallback to standard
         # (In practice, v2.svg exists, so we test the path resolution logic)
@@ -491,7 +491,7 @@ class TestStandardV2EdgeCases:
     
     def test_invalid_map_name_handling(self):
         """Test that invalid map names are handled gracefully"""
-        from engine.map import Map
+        from rendering.map import Map
         
         # standard-v2 should work
         try:
@@ -502,7 +502,7 @@ class TestStandardV2EdgeCases:
     
     def test_coordinate_extraction_with_malformed_svg(self):
         """Test coordinate extraction handles edge cases"""
-        from engine.map import Map
+        from rendering.map import Map
         
         svg_path = Map._resolve_svg_path("standard-v2")
         if os.path.exists(svg_path):

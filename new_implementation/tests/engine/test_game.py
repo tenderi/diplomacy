@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from engine.orchestrator import Game
+from engine.game import Game
 from engine.serialization import (
     resolution_from_dict,
     resolution_to_dict,

@@ -15,7 +15,7 @@ def test_map_changes():
     print("=" * 50)
     
     try:
-        from engine.map import Map
+        from rendering.map import Map
         
         # Test data with units
         units = {

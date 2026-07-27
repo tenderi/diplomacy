@@ -15,7 +15,7 @@ def test_map_with_units():
     print("=" * 50)
     
     try:
-        from engine.map import Map
+        from rendering.map import Map
         
         # Test data with proper units format: {power_name: [unit_list]}
         units = {
