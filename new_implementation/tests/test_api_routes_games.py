@@ -289,20 +289,70 @@ class TestGameSnapshots:
 
 @pytest.mark.unit
 class TestLegalOrders:
-    """Test legal orders endpoint."""
+    """Test legal orders endpoints (power-level and per-unit)."""
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_success(self, client):
-        """Test getting legal orders for a unit."""
+        """Per-unit route returns real, non-empty content for an army at Paris."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A PAR")
-        assert resp.status_code in [200, 404]
-        if resp.status_code == 200:
-            data = resp.json()
-            assert "orders" in data
-            assert isinstance(data["orders"], list)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "orders" in data
+        assert isinstance(data["orders"], list)
+        assert "A PAR H" in data["orders"]
+        assert all(o.startswith("A PAR") for o in data["orders"])
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_legal_orders_for_power(self, client):
+        """New power-level route: phase-aware dict with units/orders_by_unit/orders."""
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["power"] == "FRANCE"
+        assert data["phase_type"] == "MOVEMENT"
+        assert "F BRE" in data["orders_by_unit"]
+        assert "A PAR" in data["orders_by_unit"]
+        assert all(o.startswith("F BRE") for o in data["orders_by_unit"]["F BRE"])
+        assert "F BRE H" in data["orders"]
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_legal_orders_for_power_game_not_found(self, client):
+        """Power-level route 404s for an unknown game."""
+        resp = client.get("/games/nonexistent/legal_orders/FRANCE")
+        assert resp.status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_legal_orders_unknown_unit_returns_empty_not_404(self, client):
+        """A unit that doesn't exist (or belongs to another power) is a 200 with
+
+        an empty orders list -- never a 404, which would trip the frontend's
+        fallback path.
+        """
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        # No unit for FRANCE at Munich (that's a German home center).
+        resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A MUN")
+        assert resp.status_code == 200
+        assert resp.json() == {"orders": []}
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_get_legal_orders_bare_province_falls_back_to_coast(self, client):
+        """A bare 'F STP' finds a unit actually standing on 'STP/SC'."""
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        client.post("/games/add_player", json={"game_id": game_id, "power": "RUSSIA"})
+        resp = client.get(f"/games/{game_id}/legal_orders/RUSSIA/F STP")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["orders"], "expected the STP/SC fleet's orders via province fallback"
+        assert all(o.startswith("F STP/SC") for o in data["orders"])
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_legal_orders_invalid_format(self, client):
