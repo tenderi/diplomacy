@@ -10,10 +10,8 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
-import uuid
 from .database import (
-    GameModel, PlayerModel, UnitModel, OrderModel, SupplyCenterModel,
-    TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
+    GameModel, PlayerModel, OrderModel, TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
     SpectatorModel,
     get_session_factory,
