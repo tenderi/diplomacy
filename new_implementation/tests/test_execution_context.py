@@ -33,27 +33,24 @@ class TestTelegramBotExecutionContext:
     """Test that telegram_bot.py can be executed in different contexts"""
     
     def test_telegram_bot_runs_as_script_with_pythonpath(self, project_root, src_dir):
-        """Test that telegram_bot.py can be executed directly as a script with PYTHONPATH"""
-        telegram_bot_path = src_dir / "server" / "telegram_bot.py"
-        
-        if not telegram_bot_path.exists():
-            pytest.skip("telegram_bot.py not found")
-        
+        """Test that server.telegram_bot.app can be imported with PYTHONPATH set (production-like)"""
+        app_path = src_dir / "server" / "telegram_bot" / "app.py"
+
+        if not app_path.exists():
+            pytest.skip("server/telegram_bot/app.py not found")
+
         # Test with PYTHONPATH set (production-like)
         env = os.environ.copy()
         env['PYTHONPATH'] = str(src_dir)
         env['TELEGRAM_BOT_TOKEN'] = 'test_token'  # Prevent token errors
-        
-        # Try to import telegram_bot.py as a module - should not fail with import errors
-        # Use importlib to load it (like the wrapper script does)
+
+        # A plain import exercises exactly what `python -m server.telegram_bot`
+        # does at import time - no synthetic spec-loading needed now that the
+        # module lives inside the package proper.
         result = subprocess.run(
-            [sys.executable, '-c', 
-             f'import sys, importlib.util; '
-             f'sys.path.insert(0, "{src_dir}"); '
-             f'spec = importlib.util.spec_from_file_location("tb", "{telegram_bot_path}"); '
-             f'mod = importlib.util.module_from_spec(spec); '
-             f'mod.__package__ = "server"; '
-             f'spec.loader.exec_module(mod); '
+            [sys.executable, '-c',
+             f'import sys; sys.path.insert(0, "{src_dir}"); '
+             f'from server.telegram_bot.app import main; '
              f'print("Import successful")'],
             cwd=str(project_root),
             env=env,
@@ -61,7 +58,7 @@ class TestTelegramBotExecutionContext:
             text=True,
             timeout=10
         )
-        
+
         # Should not fail with ImportError or ModuleNotFoundError
         # May fail with other errors (like missing token), but not import errors
         stderr = result.stderr or ""
@@ -71,6 +68,8 @@ class TestTelegramBotExecutionContext:
             f"Module not found error: {stderr}"
         assert 'attempted relative import with no known parent package' not in stderr, \
             f"Relative import error: {stderr}"
+        assert result.returncode == 0, \
+            f"Plain import of server.telegram_bot.app failed: {stderr}"
     
     def test_telegram_bot_wrapper_script_works(self, project_root, src_dir):
         """Test that run_telegram_bot.py wrapper script works - verify package setup"""
@@ -177,19 +176,20 @@ print("✅ All wrapper script package setup verified")
     
     def test_telegram_bot_imports_from_different_contexts(self, project_root, src_dir):
         """Test that imports work from different working directories"""
-        telegram_bot_path = src_dir / "server" / "telegram_bot.py"
-        
-        if not telegram_bot_path.exists():
-            pytest.skip("telegram_bot.py not found")
-        
+        app_path = src_dir / "server" / "telegram_bot" / "app.py"
+
+        if not app_path.exists():
+            pytest.skip("server/telegram_bot/app.py not found")
+
         # Test from project root
         env = os.environ.copy()
         env['PYTHONPATH'] = str(src_dir)
-        
+
         result = subprocess.run(
             [sys.executable, '-c',
              'import sys; sys.path.insert(0, "' + str(src_dir) + '"); '
              'from server.telegram_bot.config import get_telegram_token; '
+             'from server.telegram_bot.app import main; '
              'print("Import successful")'],
             cwd=str(project_root),
             env=env,
@@ -197,15 +197,16 @@ print("✅ All wrapper script package setup verified")
             text=True,
             timeout=5
         )
-        
+
         assert result.returncode == 0, \
             f"Import failed from project root: {result.stderr}"
-        
+
         # Test from src/server directory (like systemd might)
         result2 = subprocess.run(
             [sys.executable, '-c',
              'import sys; sys.path.insert(0, "' + str(src_dir.parent) + '/src"); '
              'from server.telegram_bot.config import get_telegram_token; '
+             'from server.telegram_bot.app import main; '
              'print("Import successful")'],
             cwd=str(src_dir / "server"),
             env=env,
@@ -213,7 +214,7 @@ print("✅ All wrapper script package setup verified")
             text=True,
             timeout=5
         )
-        
+
         assert result2.returncode == 0, \
             f"Import failed from server directory: {result2.stderr}"
 
@@ -221,35 +222,32 @@ print("✅ All wrapper script package setup verified")
 class TestPackageStructure:
     """Test that package structure doesn't conflict"""
     
-    def test_telegram_bot_package_and_file_coexist(self, src_dir):
-        """Test that server.telegram_bot package and telegram_bot.py file can coexist"""
-        # Import the package
+    def test_no_shadowing_telegram_bot_module(self, src_dir: Path) -> None:
+        """
+        Guard against the package-shadowing bug regressing: server/telegram_bot.py
+        must never exist alongside the server/telegram_bot/ package again, since the
+        package always wins the import and silently makes the .py file dead code
+        (this is exactly what broke `python -m server.telegram_bot` in production).
+        """
         import sys
-        sys.path.insert(0, str(src_dir))
-        
-        # Should be able to import the package
-        from server.telegram_bot import config
-        assert config is not None
-        
-        # Should be able to import from the package
-        from server.telegram_bot.config import get_telegram_token
-        assert callable(get_telegram_token)
-        
-        # Verify the package is registered
-        assert 'server.telegram_bot' in sys.modules
-        
-        # Now try to load telegram_bot.py as a module (should not conflict)
         import importlib.util
-        telegram_bot_path = src_dir / "server" / "telegram_bot.py"
-        
-        if telegram_bot_path.exists():
-            spec = importlib.util.spec_from_file_location(
-                "telegram_bot_main",
-                str(telegram_bot_path)
-            )
-            # Should not conflict with existing package
-            assert spec is not None
-            assert 'server.telegram_bot' in sys.modules  # Package should still be there
+
+        telegram_bot_module_path = src_dir / "server" / "telegram_bot.py"
+        assert not telegram_bot_module_path.exists(), (
+            f"{telegram_bot_module_path} exists alongside the server/telegram_bot/ "
+            "package - it would be silently shadowed and unimportable/unexecutable "
+            "as `python -m server.telegram_bot`"
+        )
+
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
+
+        spec = importlib.util.find_spec("server.telegram_bot")
+        assert spec is not None, "server.telegram_bot should resolve to the package"
+        assert spec.submodule_search_locations, (
+            "server.telegram_bot did not resolve to a package (empty "
+            "submodule_search_locations) - shadowing may have regressed"
+        )
     
     def test_relative_imports_work_in_production_context(self, src_dir):
         """Test that relative imports work when server.server is imported"""
@@ -316,27 +314,16 @@ class TestServiceExecution:
     def test_telegram_bot_main_function_importable(self, src_dir):
         """Test that main() function can be imported and called"""
         import sys
-        import importlib.util
         sys.path.insert(0, str(src_dir))
-        
-        # Load telegram_bot.py as a module (like the wrapper does)
-        telegram_bot_path = src_dir / "server" / "telegram_bot.py"
-        
-        # Check that the file exists
-        if not telegram_bot_path.exists():
-            pytest.skip(f"telegram_bot.py not found at {telegram_bot_path}")
-        
-        spec = importlib.util.spec_from_file_location("telegram_bot_main", str(telegram_bot_path))
-        if spec is None or spec.loader is None:
-            pytest.fail(f"Could not create spec for {telegram_bot_path}")
-        
-        telegram_bot = importlib.util.module_from_spec(spec)
-        telegram_bot.__package__ = 'server'
-        spec.loader.exec_module(telegram_bot)
-        
+
+        # server/telegram_bot.py used to be shadowed by the server/telegram_bot/
+        # package, which required loading it via spec_from_file_location as a
+        # workaround. Now that its contents live at server/telegram_bot/app.py,
+        # a plain import is the honest test of "does this module import cleanly".
+        from server.telegram_bot.app import main
+
         # Check that main exists and is callable
-        assert hasattr(telegram_bot, 'main')
-        assert callable(telegram_bot.main)
+        assert callable(main)
     
     def test_imports_dont_fail_in_service_context(self, src_dir):
         """Test that all necessary imports work when executed as a service"""
@@ -359,7 +346,81 @@ class TestServiceExecution:
             from server.telegram_bot.channels import set_telegram_bot
         except ImportError as e:
             pytest.fail(f"Import failed in service context: {e}")
-        
+
         # All imports should succeed
         assert True
+
+
+class TestTelegramBotMainEntryPoint:
+    """
+    Regression tests for the telegram_bot.py / telegram_bot/ package shadowing bug.
+
+    server/telegram_bot.py used to be shadowed by the server/telegram_bot/ package
+    (same name, package wins on import), which made `python -m server.telegram_bot`
+    - the production systemd ExecStart - fail with
+    "'server.telegram_bot' is a package and cannot be directly executed".
+    The fix moves the module's contents into server/telegram_bot/app.py and adds
+    server/telegram_bot/__main__.py so the package itself is directly runnable.
+    """
+
+    def test_dunder_main_module_is_importable(self, src_dir: Path) -> None:
+        """server.telegram_bot.__main__ must exist so `python -m server.telegram_bot` works."""
+        import sys
+        import importlib.util
+
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
+
+        spec = importlib.util.find_spec("server.telegram_bot.__main__")
+        assert spec is not None, (
+            "server.telegram_bot.__main__ not found - "
+            "`python -m server.telegram_bot` will fail to execute"
+        )
+
+    def test_python_dash_m_server_telegram_bot_smoke(self, project_root: Path, src_dir: Path) -> None:
+        """
+        `python -m server.telegram_bot` (the production ExecStart) must fail, if it fails
+        at all, because TELEGRAM_BOT_TOKEN is unset - never because of the package/module
+        shadowing bug this test guards against.
+        """
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(src_dir)
+        # Ensure the missing-token code path is what we exercise, not a real bot startup.
+        env.pop("TELEGRAM_BOT_TOKEN", None)
+
+        timed_out = False
+        stderr = ""
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "server.telegram_bot"],
+                cwd=str(project_root),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            stderr = result.stderr or ""
+        except subprocess.TimeoutExpired as exc:
+            # A timeout only counts as a test failure if it's masking the import bug;
+            # otherwise it's a separate (environment/network) concern outside this test's scope.
+            timed_out = True
+            raw_stderr = exc.stderr
+            if isinstance(raw_stderr, bytes):
+                stderr = raw_stderr.decode(errors="replace")
+            else:
+                stderr = raw_stderr or ""
+
+        assert "No module named" not in stderr, (
+            f"Shadowing bug regressed (module not found): {stderr}"
+        )
+        assert "cannot be directly executed" not in stderr, (
+            f"Shadowing bug regressed (package not directly executable): {stderr}"
+        )
+
+        if timed_out:
+            pytest.fail(
+                "`python -m server.telegram_bot` did not exit within the timeout, but no "
+                "import/shadowing error was seen either; investigate separately - "
+                f"stderr tail: {stderr[-2000:]}"
+            )
 
