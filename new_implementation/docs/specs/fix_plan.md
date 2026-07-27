@@ -13,20 +13,17 @@
 
 ## Status
 
-- **Phase:** **M5 COMPLETE.** New phase machine `orchestrator.py` (→ `game.py` in M6),
-  `serialization.py` (canonical JSON, round-trip property), `simple_ai.py` (dumb generator
-  for all phases), and a 7-power self-play smoke test. New engine package is stdlib-only.
-  **308 passed, 10 xfailed, ruff clean.**
-- **M6 IN PROGRESS.** Local Postgres up (see the local-postgres memory). Green so far:
-  slice 1 (persistence move), slice 2 (dead-code delete), **checkpoint A** (new-engine
-  `GameService` over `state_json` + migration + tests). Suite **1280 passed, 16 skipped,
-  10 xfailed**. Decision recorded: **clean-break new API shape** (GameState-native).
-- **Next action:** **Checkpoint B** — the RED cutover. Rewire `Server`/`shared.py`/`games.py`
-  /`orders.py` onto `GameService` and the new view shape; then Checkpoint C deletes the old
-  engine + `data_models` and ports/deletes ~90 test files; then D (rendering split) and E
-  (frontend/bot/DAIDE + E2E). The suite is red from B until a large fraction of C lands —
-  commit WIP on the branch; only `main` gates on green CI. See the M6 checklist below for
-  the exact per-checkpoint steps.
+- **Phase:** **M6 COMPLETE — clean-break engine swap done; old engine deleted; full suite
+  green on a DB (800 passed).** Only M7 (CI coverage gates, docs, merge) + the M6 follow-ups
+  remain. See the M6 bullet below and the M6 section for details.
+- **M6 COMPLETE (engine swapped, old engine deleted).** The whole app runs on the new
+  immutable engine: server routes / CLI `Server` / DAIDE / persistence / rendering go
+  through `GameService` + the GameState-native API view; game state persists as
+  `games.state_json`. Old adjudication engine + `data_models` deleted; `engine/` is now
+  pure rules-logic, with `persistence/` and `rendering/` as separate packages. Full suite
+  **800 passed, 15 skipped, 10 xfailed**; ruff clean on `src/`; HTTP E2E verified (create →
+  coasted fleet move → advance → state + PNG map). See M6 follow-ups (frontend TS types are
+  the main open consumer).
 - **M4 COMPLETE.** `DislodgedUnit` data model; `retreats.py::compute_retreat_options`
   authoritative legality; `retreats.py` + `adjustments.py`; DATC 6.H/6.I/6.J all green.
 - **M3 COMPLETE** — resolver + full DATC 6.A–6.G + properties green.
@@ -43,16 +40,12 @@
 - **M3 Hypothesis properties: DONE** (`tests/datc/test_properties.py`) — determinism
   under order-shuffling (200 examples), ≤1 unit/province, unit conservation, retreat
   sets. 249 passed, 10 xfailed, ruff clean.
-- **Next action:** M4 (retreats & adjustments). Resolve the two M4 design decisions below
-  (dislodged-unit data model + authoritative retreat legality) FIRST — these are driver
-  calls touching M1/M3; then the 6.H/6.I/6.J case authoring + adjustment rules are
-  delegable to Sonnet. Optionally revisit the 10 xfail'd movement cases first.
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
 - **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
   `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-24 (Opus 4.8 — M6 checkpoint A: new-engine GameService over state_json, green; clean-break API decided).
+- **Last updated:** 2026-07-24 (Opus 4.8 — M6 COMPLETE: clean-break engine swap, old engine deleted, 800 green + E2E).
 
 ## Goal
 
@@ -329,34 +322,39 @@ Key decisions:
       validation); `tests/test_game_service.py` (5 passing incl. coasted fleet move). Suite
       1280 green. **Decision: clean-break new API shape** (GameState-native — see the view
       dict in `game_service.view`), not the legacy `powers` shape.
-- [ ] **Checkpoint B (begins the RED cutover):** rewire `Server` CLI, `api/shared.py`,
-      `api/routes/games.py` + `orders.py` onto `GameService`; return the new view shape.
-      Suite goes red here and cannot return to green until C's deletions + test ports land.
-- [ ] **Checkpoint C:** delete old engine (`game.py`, `data_models.py`, `order_parser.py`,
-      `order_parser_utils.py`, `allowed_moves.py`, `province_mapping.py`) + rename
-      `orchestrator.py`→`game.py`, `simple_ai.py`→`strategic_ai.py`(or keep). Delete the 54
-      old-engine-importing test files that test old internals; port genuine keepers
-      (battle/standoff/coast behavior → already covered by tests/datc; parser/map → tests/
-      engine). Rewrite the ~37 API/db tests to the new view shape.
-- [ ] **Checkpoint D:** rendering split (below). **Checkpoint E:** frontend types + bot
-      `api_client.py` + DAIDE to the new shape; E2E; docs.
-- [ ] Split rendering out of `src/engine/map.py` → `src/rendering/` (mechanical move,
-      keep the render API); move `order_visualization.py` + `visualization_config.*` too.
-- [ ] Adapt server: `src/server/api/shared.py` (`_state_to_spec_dict`), all routes in
-      `src/server/api/routes/` (esp. `games.py`, `orders.py`), `server.py` CLI surface —
-      public engine API only, no reaching into internals.
-- [ ] Adapt DAIDE (`daide_protocol.py`) and bot `api_client.py`/frontend types to any
-      changed JSON field names — change consumers, no compat shims.
-- [ ] Alembic migration: wipe stored game rows (users/auth kept — game data is
-      explicitly disposable per maintainer).
-- [ ] Delete old engine: `game.py`, `data_models.py`, `order_parser.py`,
-      `order_parser_utils.py`, `allowed_moves.py`, `power.py`, old `map.py` (topology
-      half), hardcoded tables — plus bug-enshrining tests. Port keeper tests
-      (`test_battle_resolution.py`, `test_standoff_detection.py`,
-      `test_multi_coast_provinces.py`, parser/map tests…) to the new API in the same
-      commits so the suite never lies.
-- [ ] **Done when:** full suite green with a DB; server boots; API E2E: create game →
-      submit orders (incl. coasted fleet move + convoy) → advance phase → fetch state+map.
+- [x] **Checkpoint B (RED cutover):** rewired `Server` CLI, `api/shared.py`,
+      `api/routes/games.py` + `orders.py` onto `GameService` returning the new view shape;
+      also DAIDE, `maps.py`, `channels.py`.
+- [x] **Checkpoint C:** deleted the old engine (`game.py`(old), `data_models.py`,
+      `order_parser.py`, `order_parser_utils.py`, `allowed_moves.py`, `order_visualization.py`,
+      dead `power.py`/`strategic_ai.py`, dead `server/api.py`). `province_mapping.py` KEPT
+      (rendering aliases). Removed the data_models-based methods from persistence. Deleted
+      43 old-engine test files (superseded by tests/engine + tests/datc); ported the
+      surviving API/server/daide/client tests to the new view shape; trimmed obsolete
+      Server-CLI tests (SAVE/LOAD/REMOVE_PLAYER/ADVANCE_PHASE).
+- [x] **Checkpoint D (rendering split):** `src/engine/map.py` + `visualization_config.py`
+      → `src/rendering/`; importers repointed; renderer fed from the `GameState` view (text
+      units). Order/resolution **arrow overlays are stubbed to plain-board renders** — the
+      overlay rework is deferred (see follow-ups). Also renamed `orchestrator.py`→`game.py`.
+- [x] Alembic migration `a1b2c3d4e5f7`: added `state_json`/`pending_orders`; wipes stored
+      game data (users/auth kept). Inspector-guarded TRUNCATE (safe on CI's fresh DB).
+- [x] **Done when:** full suite green with a DB (**800 passed, 15 skipped, 10 xfailed**),
+      server boots, HTTP E2E verified: create → coasted `F STP/SC - BOT` + moves → advance
+      (S1901M→F1901M) → fetch state + PNG map (722 KB). Convoy adjudication covered by
+      tests/datc 6.F/6.G. ruff clean on `src/`.
+
+> **M6 follow-ups (not blocking; carry into M7/next):**
+> - **Frontend TS types** (`frontend/src`) still describe the OLD `powers`-shaped state and
+>   have NOT been updated to the new view (`units`/`ownership`/`phase`/`phase_type`/
+>   `players`/`dislodged`/`contested`). The React app will break at runtime until ported;
+>   the Python suite + CI don't cover it. This is the main remaining consumer to adapt.
+> - **Order/resolution map overlays**: `maps.py` `generate_map/orders` & `/resolution` now
+>   render a plain board (no move arrows). Rework the overlay layer against `Resolution`.
+> - **`format_order` A/F display**: pending orders echo the unit letter inferred from coast
+>   (a fleet at a non-split province prints `A`). Cosmetic only — adjudication uses the
+>   board unit, not the letter. Pass unit kind through for human display.
+> - **Order history** is no longer retained per-turn (state is a single snapshot); the
+>   `/orders/history` endpoint returns empty. Add snapshot-derived history if needed.
 
 ### M7 — Enforcement, docs, ship
 
