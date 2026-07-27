@@ -13,54 +13,31 @@
 
 ## Status
 
-- **Phase:** **M0–M7 step 3 COMPLETE.** M6 follow-ups (M7 step 1) and CI coverage gates
-  (M7 step 2) done; ruff clean. **M7 step 3 (Docs) DONE 2026-07-27**: wrote
-  `docs/specs/adjudication.md` (the Kruijswijk fixed-point algorithm — strength model,
-  support-cut exemptions, convoy paths, cycle-breaking/Szykman, retreats, civil disorder,
-  the 10 documented `xfail` gaps); rewrote `docs/specs/architecture.md` and
-  `docs/specs/data_spec.md` from their stale pre-rewrite drafts to the actual
-  `engine`/`persistence`/`rendering`/`server` layout and the `state_json`-based
-  persistence + API view shape; updated root `CODEBASE_OVERVIEW.md` (engine, server,
-  rendering, persistence, tests, data-flow diagram sections) to match. **NEXT: M7 step 4 =
-  merge `engine-rewrite` → `main`**, then step 5 = final status update.
-
-> ### ▶ RESUME HERE (fresh agent, start of session — handoff 2026-07-27, mid-M7)
-> 1. **Read this whole file.** Steps 1–3 are done; **start at step 4, the merge to
->    `main`.**
-> 2. **Bring up a DB before running tests** — a no-DB run silently skips ~all integration
->    tests and looks falsely green. This session's recipe (no prior `local-postgres-for-m6`
->    memory was found — that note did not survive to this machine): system `postgresql`
->    via `systemctl`, `psql` present; `.env` already had
->    `SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`
->    from a prior `setup_database.sh` run. Then **`alembic upgrade head`** — head is
->    **`c3d4e5f6a7b9`** (`b2c3d4e5f6a8` last_resolution → `c3d4e5f6a7b9` order_history).
-> 3. **Current baseline confirmed this session (with a DB, fresh venv + `pip install -r
->    requirements.txt`):** `PYTHONPATH=src python -m pytest tests/ -q` → **820 passed, 15
->    skipped, 10 xfailed** (matches the M7 step-2 handoff exactly — no drift).
->    `ruff check src/` → clean, **but only with `ruff==0.15.12` pinned** (`main`'s
->    `v2.7.14` pinned this after `engine-rewrite` branched off, because unpinned ruff
->    picked up new default rules and produced 1000+ false errors on this branch's
->    unpinned `pip install ruff`). **Pin ruff to 0.15.12 when merging** — either cherry-pick
->    that pin from `main` into the CI workflow on this branch before merging, or let the
->    merge commit bring `main`'s already-pinned `.github/workflows/test.yml` forward;
->    confirm whichever `test.yml` ends up on `main` post-merge still pins it.
-> 4. **Frontend note (Node not installed system-wide on the dev boxes):** the M7.1a frontend
->    port is committed and was verified green in a prior session (`npm run build` +
->    `npm run test:run` 88/88) using a **portable Node 22 unpacked into the scratchpad**
->    (ephemeral — gone next session; `frontend/node_modules` is gitignored). Not
->    re-verified this session (docs-only work). To re-verify: reinstall Node (e.g.
->    download `node-v22.x-linux-x64.tar.xz`, add its `bin/` to PATH,
->    `cd frontend && npm install`). The Python CI does **not** build the frontend, so a
->    frontend regression will not show as a red pytest.
-> 5. **Do M7 step 4 → 5 in order.** Work on `engine-rewrite`; merge to `main` is the
->    LAST step (CI on `main` runs `test` + `security` and rejects red pushes). Do **not**
->    build on `fix-oidc-trust`. **Note for the merge:** the two M7-added migrations
->    (`b2c3d4e5f6a8`, `c3d4e5f6a7b9`) add only nullable columns (no data wipe); the
->    earlier M6 migration `a1b2c3d4e5f7` still wipes game rows in prod — call that out in
->    the merge/commit message as planned. `main` has diverged since this branch was cut
->    (at least the ruff-pin commit, `v2.7.14`, and possibly more — check `git log
->    main..engine-rewrite` / `git log engine-rewrite..main` and rebase or merge-resolve
->    accordingly rather than force-pushing).
+- **Phase: COMPLETE.** M0–M7 all done. `engine-rewrite` merged to `main` via PR #5
+  (commit `f0e7ae2`), tagged `v2.7.15`, pushed. `engine-rewrite` branch deleted
+  (local + remote) — its full history lives on in `main`'s merge commit. This file's
+  job as an active tracker is done; it remains as the historical record of the rewrite
+  and the reference for anyone touching `src/engine/adjudicator/` later (see
+  `adjudication.md` for the algorithm itself).
+- **How the merge actually went (2026-07-27):** a direct `git push origin main` of the
+  merge commit was **rejected by branch protection** (`2 of 2 required status checks are
+  expected`) — a brand-new merge-commit SHA has never had CI run against it, so it can
+  never satisfy "required status checks" via a bare push, regardless of how green the
+  underlying code is. This is a correction to this file's own prior guidance ("direct
+  push is allowed... GitHub rejects any push that fails CI" reads as if a passing push
+  either succeeds or fails on content — in practice a *new* SHA is rejected outright,
+  content aside). The fix: push to a temp branch, open a PR into `main` (`gh pr create`,
+  making sure `-R tenderi/diplomacy` is explicit — `gh` was silently resolving the
+  `upstream` remote, the unrelated original `diplomacy/diplomacy` repo, instead of
+  `origin`), wait for `test`+`security` to go green on the PR, `gh pr merge --merge`.
+  That merge-commit-through-GitHub is what satisfies protection. Tag *after* the PR
+  merges, on the resulting `main` commit — not on the pre-merge local commit.
+- **Deploy verification was explicitly skipped**: the maintainer confirmed nothing is
+  currently deployed anywhere, so the `a1b2c3d4e5f7` game-data-wiping migration has no
+  live data to affect and there is no running `/health` endpoint to check. Whoever
+  deploys this for the first time should expect that migration to run as part of the
+  normal `alembic upgrade head` deploy step (see CLAUDE.md's deploy-from-CI section) —
+  it is not destructive in a fresh environment, just worth knowing about.
 
 - **M6 COMPLETE (engine swapped, old engine deleted).** Server routes / CLI `Server` / DAIDE
   / persistence / rendering all go through `GameService` + the GameState-native API view;
@@ -484,12 +461,27 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
       persistence columns, and the `GameService.view` API shape; updated root
       `CODEBASE_OVERVIEW.md` (engine/server/rendering/persistence/tests sections, the
       architecture diagram, data-flow walkthrough, order examples) to match.
-4. [ ] **Merge `engine-rewrite` → `main`** per CLAUDE.md branch workflow (version bump +
-      tag). `main` is protected and rejects red pushes; `test` + `security` must pass on
-      CI's fresh DB. The deploy migration `a1b2c3d4e5f7` **wipes all game rows** in prod —
-      intended (game data disposable), but call it out in the merge/commit message. After
-      merge verify deploy + `/health`, delete the branch.
-5. [ ] Final update of this file: everything checked, Status → complete.
+4. [x] **Merge `engine-rewrite` → `main`** DONE (2026-07-27). Direct push to `main` was
+      rejected by branch protection (`2 of 2 required status checks are expected` — a
+      brand-new merge commit SHA has no prior CI run, so a direct `git push` can never
+      satisfy "required status checks" on a protected branch; this contradicts the literal
+      reading of CLAUDE.md's "direct push is allowed" — in practice, for a merge this
+      size, it has to go through a PR so GitHub associates the check runs with the merge
+      commit). Routed through PR #5 (`merge-engine-rewrite` → `main`) instead: local
+      `git merge engine-rewrite --no-ff` on `main`, pushed to a temp branch, opened the
+      PR, both `test` and `security` checks passed (`test` 2m6s, `security` 27s), merged
+      via `gh pr merge --merge`. Tagged `v2.7.15` on the resulting `main` commit
+      (`f0e7ae2`) and pushed the tag. Temp branch `merge-engine-rewrite` deleted
+      (local + remote). The merge migration `a1b2c3d4e5f7` (wipes all game rows) was
+      called out in both the merge commit message and the PR description — moot in
+      practice, since the maintainer confirmed **nothing is currently deployed anywhere**,
+      so there is no live data to lose and no `/health` endpoint to verify against.
+      `engine-rewrite` itself (the long-lived feature branch, distinct from the deleted
+      `merge-engine-rewrite` temp branch) is scheduled for deletion in step 5.
+5. [x] Final update of this file DONE (2026-07-27): everything checked, Status → complete.
+      Deploy/`/health` verification skipped per the maintainer (nothing deployed yet —
+      see step 4). `engine-rewrite` branch deleted (local + remote) now that `main`
+      carries its full history via the merge commit.
 
 **Environment reminder for whoever runs this:** DB-dependent tests skip silently without
 `SQLALCHEMY_DATABASE_URL`; bring up Postgres first (see `local-postgres-for-m6` memory) and
