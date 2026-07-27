@@ -43,16 +43,18 @@ class GameService:
 
     # -- lifecycle --------------------------------------------------------
 
-    def create_game(self, game_id: str, map_name: str = "standard") -> str:
-        """Create a fresh standard game at its opening movement phase."""
+    def create_game(self, game_id: Optional[str] = None, map_name: str = "standard") -> str:
+        """Create a fresh standard game at its opening movement phase.
+
+        Returns the game's id (the integer PK as a string when not supplied).
+        """
         game = Game(map=self._map, state=_initial_state(self._map))
-        self._repo.create(
-            game_id=game_id,
+        return self._repo.create(
             map_name=map_name,
             state_json=state_to_dict(game.state),
             phase_code=game.state.phase_name,
+            game_id=game_id,
         )
-        return game_id
 
     def load(self, game_id: str) -> Optional[Game]:
         sj = self._repo.get_state_json(game_id)

@@ -80,11 +80,20 @@ class GameRepo:
     # -- writes -----------------------------------------------------------
 
     def create(
-        self, game_id: str, map_name: str, state_json: dict[str, Any], phase_code: str
-    ) -> None:
+        self,
+        map_name: str,
+        state_json: dict[str, Any],
+        phase_code: str,
+        game_id: Optional[str] = None,
+    ) -> str:
+        """Insert a new game row and return its ``game_id`` string.
+
+        When ``game_id`` is not given it defaults to the integer primary key (as a
+        string), keeping ids stable and numeric for callers.
+        """
         with self._session_factory() as session:
             row = GameModel(
-                game_id=str(game_id),
+                game_id=str(game_id) if game_id is not None else "",
                 map_name=map_name,
                 state_json=state_json,
                 pending_orders={},
@@ -96,7 +105,11 @@ class GameRepo:
                 current_phase=str(state_json.get("phase_type", "MOVEMENT")).capitalize(),
             )
             session.add(row)
+            session.flush()  # assign the integer PK
+            if game_id is None:
+                row.game_id = str(row.id)
             session.commit()
+            return row.game_id
 
     def save_state(
         self,

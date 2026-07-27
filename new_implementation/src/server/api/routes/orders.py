@@ -1,24 +1,19 @@
-"""
-Order management API routes.
+"""Order management API routes (new engine).
 
-This module contains all endpoints related to order submission, retrieval, and history.
+Orders are validated by the engine and stored per power in ``games.pending_orders``
+via ``GameService``; they are consumed and cleared when the turn is processed.
 """
 from fastapi import APIRouter, HTTPException, Body, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
-import requests
+from typing import Any, Dict, List, Optional
 
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
-from ..shared import (
-    db_service, server, logger, scheduler_logger, NOTIFY_URL,
-    _state_to_spec_dict, ensure_game_in_memory
-)
-from engine.order_parser import OrderParser
+from ..shared import db_service, game_service, logger
 
 router = APIRouter()
 
-# --- Request Models ---
+
 class SetOrdersRequest(BaseModel):
     """Request model for submitting orders for a power in a game."""
     game_id: str
@@ -27,204 +22,69 @@ class SetOrdersRequest(BaseModel):
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     bot_secret: Optional[str] = None
 
-def _order_model_to_text(order_model) -> str:
-    """Convert OrderModel back to order text string."""
-    unit_str = f"{order_model.unit_type} {order_model.unit_province}"
-    
-    if order_model.order_type == "move":
-        return f"{unit_str} - {order_model.target_province}"
-    elif order_model.order_type == "hold":
-        return f"{unit_str} H"
-    elif order_model.order_type == "support":
-        if order_model.supported_target:
-            return f"{unit_str} S {order_model.supported_unit_type} {order_model.supported_unit_province} - {order_model.supported_target}"
-        else:
-            return f"{unit_str} S {order_model.supported_unit_type} {order_model.supported_unit_province} H"
-    elif order_model.order_type == "convoy":
-        return f"{unit_str} C {order_model.convoyed_unit_type} {order_model.convoyed_unit_province} - {order_model.convoyed_target}"
-    elif order_model.order_type == "retreat":
-        return f"{unit_str} R {order_model.target_province}"
-    elif order_model.order_type == "build":
-        coast_str = f"/{order_model.build_coast}" if order_model.build_coast else ""
-        return f"BUILD {order_model.build_type} {order_model.build_province}{coast_str}"
-    elif order_model.order_type == "destroy":
-        return f"D {order_model.destroy_unit_type} {order_model.destroy_unit_province}"
-    else:
-        return f"{unit_str} ({order_model.order_type})"
 
-# --- Order Endpoints ---
+def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_secret):
+    """Resolve the caller and confirm they hold ``power`` in ``game_id``."""
+    user = resolve_user_or_telegram(credentials, telegram_id, bot_secret=bot_secret)
+    player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    if int(player.user_id) != int(user.id):  # type: ignore
+        raise HTTPException(status_code=403, detail="You are not authorized to act for this power.")
+    return user, player
+
+
 @router.post("/games/set_orders")
 def set_orders(
     req: SetOrdersRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
-    """Submit orders for a power in a game. Only the assigned user (Bearer or telegram_id) can submit orders.
-    Returns per-order validation results. 403 if unauthorized, 404 if player not found.
-    """
-    results = []
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        # game_id can be string, method handles conversion
-        player = db_service.get_player_by_game_id_and_power(game_id=req.game_id, power=req.power)
-        if player is None:
-            raise HTTPException(status_code=404, detail="Player not found")
-        if int(player.user_id) != int(user.id):  # type: ignore
-            raise HTTPException(status_code=403, detail="You are not authorized to submit orders for this power.")
-        # Get game by game_id string (not numeric id) for other operations
-        game = db_service.get_game_by_game_id(str(req.game_id))
-        # Get current_turn directly from database with refresh to ensure we get the latest value
-        turn = db_service.get_game_current_turn(str(req.game_id))
-        # Ensure game is in memory (restore from DB if server was restarted)
-        if ensure_game_in_memory(str(req.game_id)) is None:
-            raise HTTPException(status_code=404, detail="Game not found")
-        # Parse and validate orders using the engine; then persist via DAL
-        parsed_orders: list[Any] = []
-        if str(req.game_id) in server.games:
-            game_obj = server.games[str(req.game_id)]
-            for order in req.orders:
-                try:
-                    parser = OrderParser()
-                    parsed = parser.parse_orders(order, req.power)
-                    if parsed:
-                        # Convert ParsedOrder to Order objects
-                        order_objects = []
-                        for p in parsed:
-                            try:
-                                order_obj = parser.create_order_from_parsed(p, game_obj.get_game_state())
-                                if order_obj:
-                                    order_objects.append(order_obj)
-                            except Exception as create_err:
-                                logger.warning(f"set_orders: create_order_from_parsed failed for parsed order {p}: {create_err}")
-                                pass
-                        if order_objects:
-                            parsed_orders.extend(order_objects)
-                            results.append({"order": order, "success": True, "error": None})
-                        else:
-                            error_msg = "Failed to create order object"
-                            results.append({"order": order, "success": False, "error": error_msg})
-                            logger.warning(f"set_orders: {error_msg} for order '{order}'")
-                    else:
-                        error_msg = "Invalid order"
-                        results.append({"order": order, "success": False, "error": error_msg})
-                        logger.warning(f"set_orders: {error_msg}: '{order}'")
-                except Exception as e:
-                    error_msg = str(e)
-                    results.append({"order": order, "success": False, "error": error_msg})
-                    logger.warning(f"set_orders: Exception parsing order '{order}': {error_msg}")
-                    try:
-                        user_id = getattr(player, "user_id", None)
-                        if player is not None and user_id is not None:
-                            user = db_service.get_user_by_id(user_id)
-                            telegram_id_val = getattr(user, "telegram_id", None) if user is not None else None
-                            if telegram_id_val is not None:
-                                try:
-                                    telegram_id_int = int(telegram_id_val)
-                                    requests.post(
-                                        NOTIFY_URL,
-                                        json={"telegram_id": telegram_id_int, "message": f"Order error in game {req.game_id} for {req.power}: {order}\nError: {e}"},
-                                        timeout=2,
-                                    )
-                                except (ValueError, TypeError):
-                                    pass
-                    except Exception as notify_err:
-                        scheduler_logger.error(f"Failed to notify order error: {notify_err}")
-        else:
-            # Game not in DB or restore failed
-            raise HTTPException(status_code=404, detail="Game not found or could not be loaded for order parsing")
+    """Submit orders for a power. Only the assigned user may submit.
 
-        # Persist orders for this power and turn via DAL
-        if parsed_orders:
-            db_service.submit_orders(game_id=str(req.game_id), power_name=req.power, orders=parsed_orders, turn_number=turn)
-            
-            # Also add orders to in-memory game state
-            if str(req.game_id) in server.games:
-                game_obj = server.games[str(req.game_id)]
-                order_strings = [f"{order.unit.unit_type} {order.unit.province} - {order.target_province}" 
-                                if hasattr(order, 'target_province') and order.target_province
-                                else f"{order.unit.unit_type} {order.unit.province} H"
-                                for order in parsed_orders if hasattr(order, 'unit')]
-                if order_strings:
-                    existing_orders = game_obj.game_state.orders.get(req.power, [])
-                    game_obj.game_state.orders[req.power] = existing_orders + parsed_orders
-        
-        # Update game state in DB to reflect in-memory state
-        if game and req.game_id in server.games:
-            game_obj = server.games[req.game_id]
-            state_obj = game_obj.get_game_state()
-            state: Dict[str, Any] = _state_to_spec_dict(state_obj)
-            try:
-                game.state = state  # type: ignore
-            except Exception as e:
-                logger.debug(f"set_orders: failed to assign spec-shaped game.state: {e}")
-        return {"results": results}
-    except HTTPException:
-        raise
+    Returns per-order validation results ``{order, success, error}``.
+    """
+    _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
+    if not game_service.exists(str(req.game_id)):
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        raw = game_service.submit_orders(str(req.game_id), req.power, req.orders)
     except Exception as e:
-        logger.exception(f"set_orders: SQLAlchemyError: {e}")
+        logger.exception(f"set_orders failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    results = [{"order": r["order"], "success": r["ok"], "error": r["reason"]} for r in raw]
+    return {"results": results}
+
 
 @router.get("/games/{game_id}/orders")
 def get_orders(
     game_id: str,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> List[Dict[str, Any]]:
-    """Get current-turn orders. Authenticated users see only their own power's orders."""
-    try:
-        user = get_current_user_optional(credentials)
-        players = db_service.get_players_by_game_id(int(game_id))
-        orders: List[Dict[str, Any]] = []
-        # Determine which players' orders this caller may see
-        if user is not None:
-            player_for_user = db_service.get_player_by_game_id_and_user_id(
-                game_id=int(game_id), user_id=int(user.id)
-            )
-            visible_powers = {player_for_user.power_name} if player_for_user else set()
-        else:
-            # Unauthenticated: no current-turn orders visible
-            visible_powers = set()
-        for player in players:
-            power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-            if power_name not in visible_powers:
-                continue
-            player_orders = db_service.get_orders_by_player_id(int(player.id))  # type: ignore
-            for order in player_orders:
-                unit_str = f"{order.unit_type} {order.unit_province}"
-                order_str = f"{power_name} {unit_str}"
-                if order.order_type == "move" and getattr(order, 'target_province', None):  # type: ignore
-                    order_str += f" - {order.target_province}"
-                elif order.order_type == "hold":  # type: ignore
-                    order_str += " H"
-                elif order.order_type == "support":  # type: ignore
-                    supported_type = getattr(order, 'supported_unit_type', None)
-                    supported_prov = getattr(order, 'supported_unit_province', None)
-                    if supported_type is not None and supported_prov is not None:  # type: ignore
-                        order_str += f" S {supported_type} {supported_prov}"
-                        supported_target = getattr(order, 'supported_target', None)
-                        if supported_target is not None:  # type: ignore
-                            order_str += f" - {order.supported_target}"
-                orders.append({"player_id": player.id, "power": power_name, "order": order_str})
-        return orders
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Current-turn pending orders; authenticated users see only their own power."""
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    user = get_current_user_optional(credentials)
+    if user is None:
+        return []
+    player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_id), user_id=int(user.id))
+    if player is None:
+        return []
+    power = player.power_name
+    return [
+        {"player_id": player.id, "power": power, "order": o}
+        for o in view["orders"].get(power, [])
+    ]
+
 
 @router.get("/games/{game_id}/orders/history")
 def get_order_history(game_id: str) -> Dict[str, Any]:
-    """Get the full order history for all players in a game, grouped by turn and power."""
-    try:
-        players = db_service.get_players_by_game_id(int(game_id))
-        history = {}
-        for player in players:
-            orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
-            for order in orders:
-                turn = str(order.turn_number)
-                power = player.power_name
-                order_text = _order_model_to_text(order)
-                history.setdefault(turn, {}).setdefault(power, []).append(order_text)
-        return {"game_id": game_id, "order_history": history}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Order history is not retained per-turn under the new engine (state is a
+    single snapshot). Returns an empty history for API compatibility."""
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
+    return {"game_id": game_id, "order_history": {}}
+
 
 @router.get("/games/{game_id}/orders/{power}")
 def get_orders_for_power(
@@ -232,30 +92,23 @@ def get_orders_for_power(
     power: str,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
-    """Get current orders for a specific power in a game (current turn only).
-    Only the assigned user may view their own power's pending orders."""
-    try:
-        user = get_current_user_optional(credentials)
-        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
-        if player is None:
-            raise HTTPException(status_code=404, detail="Player not found")
-        # Enforce: only the assigned user may read current-turn orders for a power
-        if user is None or int(getattr(player, "user_id", -1)) != int(user.id):
-            raise HTTPException(
-                status_code=403,
-                detail="You are not authorized to view orders for this power.",
-            )
-        orders = db_service.get_orders_by_player_id(int(getattr(player, 'id', 0)))  # type: ignore
-        order_list = [_order_model_to_text(order) for order in orders]
-        return {"power": power, "orders": order_list}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Current pending orders for a power. Only the assigned user may view them."""
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    user = get_current_user_optional(credentials)
+    player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    if user is None or int(getattr(player, "user_id", -1)) != int(user.id):
+        raise HTTPException(status_code=403, detail="You are not authorized to view orders for this power.")
+    return {"power": power, "orders": view["orders"].get(power.upper(), [])}
+
 
 class ClearOrdersRequest(BaseModel):
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
+
 
 @router.post("/games/{game_id}/orders/{power}/clear")
 def clear_orders_for_power(
@@ -264,27 +117,7 @@ def clear_orders_for_power(
     req: ClearOrdersRequest = Body(...),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, str]:
-    """Clear orders for a power. Only the assigned user (Bearer or telegram_id) can clear orders."""
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
-        if player is None:
-            raise HTTPException(status_code=404, detail="Player not found")
-        if int(player.user_id) != int(user.id):  # type: ignore
-            raise HTTPException(status_code=403, detail="You are not authorized to clear orders for this power.")
-        
-        # Clear orders in database
-        db_service.delete_orders_by_player_id(int(player.id))  # type: ignore
-        
-        # Clear orders in in-memory game state
-        if str(game_id) in server.games:
-            game = server.games[str(game_id)]
-            if power in game.game_state.orders:
-                game.game_state.orders[power] = []
-        
-        return {"status": "ok"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    """Clear a power's pending orders. Only the assigned user may clear them."""
+    _authorize_power(credentials, str(game_id), power, req.telegram_id, req.bot_secret)
+    game_service.clear_orders(str(game_id), power)
+    return {"status": "ok"}
