@@ -1,20 +1,34 @@
 """
 Order management commands for the Telegram bot.
+
+The bot is a thin client over the HTTP API -- it never imports the engine or
+the renderer. Interactive order selection (``/selectunit`` and the callback
+chain it kicks off) is driven entirely by ``GET
+/games/{id}/legal_orders/{power}`` (see ``src/server/legal_orders.py``),
+which is phase-aware (MOVEMENT / RETREAT / ADJUSTMENT) and emits canonical,
+ready-to-submit order strings -- so nothing here re-derives adjacency,
+coasts, or order grammar locally.
 """
-import logging
-import requests
+from typing import Any, Awaitable, Callable, Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
-from rendering.map import Map
+from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
 
-logger = logging.getLogger("diplomacy.telegram_bot.orders")
+Sender = Callable[..., Awaitable[None]]
 
 
 def normalize_order_provinces(order_text: str, power: str) -> str:
-    """Normalize province names in an order string."""
+    """Normalize province names in a free-text order string.
+
+    Only meant for user-typed orders (``/order``, ``/orders``), which may use
+    full province names ("Berlin") instead of codes ("BER"). Never call this
+    on strings that came from ``legal_orders`` -- the server already emits
+    canonical codes, and this function's naive ``.isalpha()`` scan would
+    mangle order verbs like ``WAIVE``, ``BUILD``, and ``D`` if fed one.
+    """
     from engine.province_mapping import normalize_province_name
 
     # Split the order into parts
@@ -48,6 +62,81 @@ def normalize_order_provinces(order_text: str, power: str) -> str:
     return " ".join(normalized_parts)
 
 
+# ---------------------------------------------------------------------------
+# order-string helpers (shared by the interactive selection flow)
+# ---------------------------------------------------------------------------
+
+_VERB_EMOJI = {"H": "🛑", "-": "➡️", "S": "🤝", "C": "🚢", "R": "↩️", "D": "❌"}
+
+
+def _order_verb(order_str: str) -> str:
+    """The verb token of a unit-first order string (index 2), or ``""``.
+
+    Unit-first orders (hold/move/support/convoy/retreat/disband) all have
+    the shape ``"{kind} {location} {verb} ..."`` -- see the "PR2 facts" in
+    ``docs/specs/fix_plan.md``: build/waive orders are verb-first
+    (``"BUILD F BRE"``, ``"WAIVE"``) and never appear in a per-unit
+    ``orders_by_unit`` bucket, only in the flat ``orders`` list, so this
+    helper is never applied to them.
+    """
+    parts = order_str.split()
+    return parts[2] if len(parts) > 2 else ""
+
+
+def _order_label(order_str: str) -> str:
+    """A short, emoji-prefixed button label for a canonical order string."""
+    if order_str == "WAIVE":
+        label = "⏭️ Waive build"
+    elif order_str.startswith("BUILD "):
+        label = f"🏗️ {order_str}"
+    else:
+        emoji = _VERB_EMOJI.get(_order_verb(order_str), "")
+        label = f"{emoji} {order_str}".strip()
+    return label if len(label) <= 60 else label[:57] + "..."
+
+
+async def _present_order_choices(
+    send: Sender,
+    context: ContextTypes.DEFAULT_TYPE,
+    game_id: str,
+    header: str,
+    order_strings: list[str],
+) -> None:
+    """Cache ``order_strings`` for this game and show one button per order.
+
+    Each button's ``callback_data`` is ``ord|{game_id}|{idx}`` -- never the
+    order text itself. Embedding full order strings (as the pre-rewrite
+    scheme did) overflows Telegram's 64-byte ``callback_data`` cap on
+    coasted/support/convoy orders; an index into a cache does not, no matter
+    how long the underlying order string is. ``send`` is any
+    ``async (text, reply_markup=None) -> None`` callable, so this works from
+    both a plain message reply and a callback-query edit.
+    """
+    if not order_strings:
+        await send(f"{header}\n\n(no options available)")
+        return
+    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(order_strings)
+    keyboard = [
+        [InlineKeyboardButton(_order_label(s), callback_data=f"ord|{game_id}|{i}")]
+        for i, s in enumerate(order_strings)
+    ]
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+    await send(header, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+def resolve_pending_order(context: ContextTypes.DEFAULT_TYPE, game_id: str, idx: int) -> Optional[str]:
+    """Resolve an ``ord|{game_id}|{idx}`` callback back to its order text.
+
+    Returns ``None`` if the cache is missing (bot restarted, ``user_data``
+    cleared) or ``idx`` is stale/out of range -- callers must treat that as
+    "selection expired", not crash.
+    """
+    cached = context.user_data.get("pending_orders", {}).get(str(game_id))
+    if cached is None or not (0 <= idx < len(cached)):
+        return None
+    return cached[idx]
+
+
 async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Simplified order command that automatically detects the game and power"""
     user = update.effective_user
@@ -72,64 +161,43 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     order_text = " ".join(args)
 
     try:
-        # Get user's games
-        user_games_response = api_get(f"/users/{user_id}/games")
-        user_games = user_games_response.get("games", []) if user_games_response else []
+        game_id, power = resolve_game_and_power(user_id)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except Exception as e:
+        await update.message.reply_text(f"Order error: {e}")
+        return
 
-        if not user_games:
-            await update.message.reply_text(
-                "❌ You're not in any games!\n\n"
-                "💡 *To submit orders:*\n"
-                "1. Join a game first\n"
-                "2. Use /orders <game_id> <order> for specific games\n"
-                "3. Or use this command when you're in exactly one game"
-            )
-            return
+    try:
+        normalized_order = normalize_order_provinces(order_text, power)
+    except Exception:
+        normalized_order = order_text
 
-        if len(user_games) > 1:
-            await update.message.reply_text(
-                f"❌ You're in {len(user_games)} games. Please specify which game:\n\n"
-                "Use: /orders <game_id> <order>\n\n"
-                "Your games:\n" +
-                "\n".join([f"• Game {g['game_id']} as {g['power']}" for g in user_games])
-            )
-            return
-
-        # User is in exactly one game
-        game = user_games[0]
-        game_id = str(game["game_id"])
-        power = game["power"]
-
-        # Normalize province names in the order (fallback to raw on error)
-        try:
-            normalized_order = normalize_order_provinces(order_text, power)
-        except Exception:
-            normalized_order = order_text
-
-        # Submit the order
+    try:
         result = api_post("/games/set_orders", {
             "game_id": game_id,
             "power": power,
             "orders": [normalized_order],
             "telegram_id": user_id
         })
-
-        results = result.get("results", [])
-        if not results:
-            await update.message.reply_text("No orders were processed.")
-            return
-
-        response_lines = []
-        for r in results:
-            if r["success"]:
-                response_lines.append(f"✅ {r['order']}")
-            else:
-                response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
-
-        await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
-
     except Exception as e:
         await update.message.reply_text(f"Order error: {e}")
+        return
+
+    results = result.get("results", [])
+    if not results:
+        await update.message.reply_text("No orders were processed.")
+        return
+
+    response_lines = []
+    for r in results:
+        if r["success"]:
+            response_lines.append(f"✅ {r['order']}")
+        else:
+            response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
+
+    await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
 
 
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -144,45 +212,45 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(args) < 2:
         await update.message.reply_text("Usage: /orders <game_id> <order1>; <order2>; ...")
         return
-    game_id = args[0]
+    game_id_arg = args[0]
     order_text = " ".join(args[1:])
+
     try:
-        user_games = api_get(f"/users/{user_id}/games")
-        power = None
-        games_list = user_games.get("games", [])
-        for g in games_list:
-            if str(g["game_id"]) == str(game_id):
-                power = g["power"]
-                break
-        if not power:
-            await update.message.reply_text(f"You are not in game {game_id}.")
-            return
-        orders = [o.strip() for o in order_text.split(";") if o.strip()]
-        if not orders:
-            await update.message.reply_text("No orders found in your message.")
-            return
-
-        # Normalize province names in all orders
-        normalized_orders = []
-        for order in orders:
-            normalized_order = normalize_order_provinces(order, power)
-            normalized_orders.append(normalized_order)
-
-        result = api_post("/games/set_orders",
-                         {"game_id": game_id, "power": power, "orders": normalized_orders, "telegram_id": user_id})
-        results = result.get("results", [])
-        if not results:
-            await update.message.reply_text("No orders were processed.")
-            return
-        response_lines = []
-        for r in results:
-            if r["success"]:
-                response_lines.append(f"✅ {r['order']}")
-            else:
-                response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
-        await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
     except Exception as e:
         await update.message.reply_text(f"Order error: {e}")
+        return
+
+    order_list = [o.strip() for o in order_text.split(";") if o.strip()]
+    if not order_list:
+        await update.message.reply_text("No orders found in your message.")
+        return
+
+    normalized_orders = [normalize_order_provinces(o, power) for o in order_list]
+
+    try:
+        result = api_post(
+            "/games/set_orders",
+            {"game_id": game_id, "power": power, "orders": normalized_orders, "telegram_id": user_id},
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Order error: {e}")
+        return
+
+    results = result.get("results", [])
+    if not results:
+        await update.message.reply_text("No orders were processed.")
+        return
+    response_lines = []
+    for r in results:
+        if r["success"]:
+            response_lines.append(f"✅ {r['order']}")
+        else:
+            response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
+    await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
 
 
 async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -193,18 +261,29 @@ async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Could not retrieve orders: No user context.")
         return
     user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    game_id_arg = args[0] if args else None
+
     try:
-        session = api_get(f"/users/{user_id}")
-        game_id = session["game_id"]
-        power = session["power"]
-        result = api_get(f"/games/{game_id}/orders/{power}")
-        orders = result.get("orders", [])
-        if not orders:
-            await update.message.reply_text("You have not submitted any orders for this turn.")
-        else:
-            await update.message.reply_text("Your current orders:\n" + "\n".join(orders))
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
     except Exception as e:
         await update.message.reply_text(f"Error retrieving orders: {e}")
+        return
+
+    try:
+        result = api_get(f"/games/{game_id}/orders/{power}", telegram_id=user_id)
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving orders: {e}")
+        return
+
+    order_list = result.get("orders", [])
+    if not order_list:
+        await update.message.reply_text("You have not submitted any orders for this turn.")
+    else:
+        await update.message.reply_text("Your current orders:\n" + "\n".join(order_list))
 
 
 async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -215,14 +294,28 @@ async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("Could not clear orders: No user context.")
         return
     user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    game_id_arg = args[0] if args else None
+
     try:
-        session = api_get(f"/users/{user_id}")
-        game_id = session["game_id"]
-        power = session["power"]
-        api_post(f"/games/{game_id}/orders/{power}/clear", {})
-        await update.message.reply_text("Your orders for this turn have been cleared.")
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
     except Exception as e:
         await update.message.reply_text(f"Error clearing orders: {e}")
+        return
+
+    try:
+        # telegram_id must be present so api_post injects bot_secret into the
+        # body -- the clear route requires it for auth. Without this the
+        # request 401s (the bug this rewrite fixes).
+        api_post(f"/games/{game_id}/orders/{power}/clear", {"telegram_id": user_id})
+    except Exception as e:
+        await update.message.reply_text(f"Error clearing orders: {e}")
+        return
+
+    await update.message.reply_text("Your orders for this turn have been cleared.")
 
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -238,24 +331,36 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text("Could not retrieve order history: No user context.")
         return
     user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    game_id_arg = args[0] if args else None
+
     try:
-        session = api_get(f"/users/{user_id}")
-        game_id = session["game_id"]
-        result = api_get(f"/games/{game_id}/orders/history")
-        history = result.get("order_history", {})
-        if not history:
-            await update.message.reply_text("No order history found for this game.")
-            return
-        lines = [f"Order history for game {game_id}:"]
-        for turn in sorted(history.keys(), key=lambda x: int(x)):
-            lines.append(f"\nTurn {turn}:")
-            for power, orders in history[turn].items():
-                lines.append(f"  {power}:")
-                for order in orders:
-                    lines.append(f"    {order}")
-        await update.message.reply_text("\n".join(lines))
+        game_id, _power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
     except Exception as e:
         await update.message.reply_text(f"Error retrieving order history: {e}")
+        return
+
+    try:
+        result = api_get(f"/games/{game_id}/orders/history")
+    except Exception as e:
+        await update.message.reply_text(f"Error retrieving order history: {e}")
+        return
+
+    history = result.get("order_history", {})
+    if not history:
+        await update.message.reply_text("No order history found for this game.")
+        return
+    lines = [f"Order history for game {game_id}:"]
+    for turn in sorted(history.keys(), key=lambda x: int(x)):
+        lines.append(f"\nTurn {turn}:")
+        for power, power_orders in history[turn].items():
+            lines.append(f"  {power}:")
+            for o in power_orders:
+                lines.append(f"    {o}")
+    await update.message.reply_text("\n".join(lines))
 
 
 async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -276,20 +381,16 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    game_id = args[0]
+    try:
+        game_id, _power = resolve_game_and_power(user_id, args[0])
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except Exception as e:
+        await update.message.reply_text(f"Process turn error: {e}")
+        return
 
     try:
-        # Check if user is in this game
-        user_games_response = api_get(f"/users/{user_id}/games")
-        user_games = user_games_response.get("games", []) if user_games_response else []
-
-        user_in_game = any(str(g["game_id"]) == str(game_id) for g in user_games)
-
-        if not user_in_game:
-            await update.message.reply_text(f"You are not in game {game_id}.")
-            return
-
-        # Process the turn via API
         # The API will automatically restore the game from database if needed
         result = api_post(f"/games/{game_id}/process_turn", {})
 
@@ -346,35 +447,32 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    game_id = args[0]
+    try:
+        game_id, _power = resolve_game_and_power(user_id, args[0])
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except Exception as e:
+        await update.message.reply_text(f"View map error: {e}")
+        return
 
     try:
-        # Check if user is in this game
-        try:
-            user_games_response = api_get(f"/users/{user_id}/games")
-            user_games = user_games_response.get("games", []) if user_games_response else []
-        except requests.exceptions.HTTPError as e:
-            # Handle 404 (user not found) gracefully - treat as no games
-            if e.response is not None and e.response.status_code == 404:
-                user_games = []
-            else:
-                raise  # Re-raise other HTTP errors
-
-        user_in_game = any(str(g["game_id"]) == str(game_id) for g in user_games)
-
-        if not user_in_game:
-            await update.message.reply_text(f"You are not in game {game_id}.")
-            return
-
-        # Send the game map
         await send_game_map(update, context, game_id)
-
     except Exception as e:
         await update.message.reply_text(f"View map error: {e}")
 
 
 async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's units for interactive order selection"""
+    """Show phase-appropriate order choices for the user's units.
+
+    Branches on ``phase_type`` from ``GET /games/{id}/legal_orders/{power}``:
+    MOVEMENT and RETREAT both show one button per unit (existing units, or
+    dislodged units respectively) leading into ``show_possible_moves``;
+    ADJUSTMENT has no "unit to select" step -- build/waive candidates aren't
+    tied to an existing unit, and disband candidates are exactly the
+    player's units, one order each -- so it presents the flat order list
+    directly.
+    """
     user = update.effective_user
     if not user:
         if update.message:
@@ -383,8 +481,12 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await update.callback_query.edit_message_text("Select unit failed: No user context.")
         return
     user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    game_id_arg = args[0] if args else None
 
-    async def reply_or_edit(text: str, reply_markup=None, parse_mode='Markdown'):
+    async def reply_or_edit(
+        text: str, reply_markup: Optional[InlineKeyboardMarkup] = None, parse_mode: str = 'Markdown'
+    ) -> None:
         """Helper function to handle both message and callback query contexts"""
         if update.message:
             await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -392,368 +494,271 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
     try:
-        # Get user's games
-        user_games_response = api_get(f"/users/{user_id}/games")
-        user_games = user_games_response.get("games", []) if user_games_response else []
-
-        if not user_games:
-            await reply_or_edit(
-                "❌ You're not in any games!\n\n"
-                "💡 *To select units:*\n"
-                "1. Join a game first\n"
-                "2. Use /selectunit when you're in exactly one game"
-            )
-            return
-
-        if len(user_games) > 1:
-            await reply_or_edit(
-                f"❌ You're in {len(user_games)} games. Please specify which game:\n\n"
-                "Use: /selectunit <game_id>\n\n"
-                "Your games:\n" +
-                "\n".join([f"• Game {g['game_id']} as {g['power']}" for g in user_games])
-            )
-            return
-
-        # User is in exactly one game
-        game = user_games[0]
-        game_id = str(game["game_id"])
-        power = game["power"]
-
-        # Get current game state
-        game_state = api_get(f"/games/{game_id}/state")
-        if not game_state:
-            await reply_or_edit(f"❌ Could not retrieve game state for game {game_id}")
-            return
-
-        # Get user's units
-        units = game_state.get("units", {}).get(power, [])
-        if not units:
-            await reply_or_edit(f"❌ No units found for {power} in game {game_id}")
-            return
-
-        # Create inline keyboard with unit buttons
-        keyboard = []
-        for unit in units:
-            # unit format: "A BER" or "F KIE"
-            unit_type = unit.split()[0]  # A or F
-
-            # Create button text with emoji
-            emoji = "🛡️" if unit_type == "A" else "🚢"
-            button_text = f"{emoji} {unit}"
-
-            # Create callback data (replace spaces with underscores)
-            callback_data = f"select_unit_{game_id}_{unit.replace(' ', '_')}"
-
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-
-        # Add cancel button
-        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_unit_selection_{game_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await reply_or_edit(
-            f"🎯 *Select a Unit for Orders*\n\n"
-            f"📊 Game: {game_id} | Power: {power}\n"
-            f"🛡️ Army | 🚢 Fleet\n\n"
-            f"Choose a unit to see its possible moves:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await reply_or_edit(e.message)
+        return
     except Exception as e:
         await reply_or_edit(f"Select unit error: {e}")
-
-
-async def show_possible_moves(query, game_id: str, unit: str) -> None:
-    """Show possible moves for a selected unit"""
-    # Optionally retrieve user's games to align with test expectations
-    try:
-        user_id = str(query.from_user.id)
-        _ = api_get(f"/users/{user_id}/games")
-    except Exception:
-        pass
-
-    # Get game state to determine unit location and type
-    game_state = api_get(f"/games/{game_id}/state")
-    if not game_state:
-        await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
         return
 
-    # Parse unit info
-    unit_parts = unit.split()
-    unit_type = unit_parts[0]  # A or F
-    unit_location = unit_parts[1]  # BER, KIE, etc.
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await reply_or_edit(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
+        return
 
-    # Get adjacency data from map
-    map_instance = Map("standard")
+    phase_type = data.get("phase_type", "MOVEMENT")
 
-    # Get adjacent provinces
-    adjacent_provinces = map_instance.get_adjacency(unit_location)
+    if phase_type == "ADJUSTMENT":
+        adjustment = data.get("adjustment", {})
+        flat_orders = data.get("orders", [])
+        if adjustment.get("action") in (None, "none") or not flat_orders:
+            await reply_or_edit(
+                f"✅ No adjustment actions needed for {power} in game {game_id} "
+                f"(delta: {adjustment.get('delta', 0)})."
+            )
+            return
+        header = (
+            f"🏗️ *Adjustment for {power}* (Game {game_id})\n\n"
+            f"Delta: {adjustment.get('delta')} | Action: {adjustment.get('action')} "
+            f"| Slots: {adjustment.get('slots')}\n\nChoose an order:"
+        )
+        await _present_order_choices(reply_or_edit, context, game_id, header, flat_orders)
+        return
 
-    # Filter adjacent provinces based on unit type
-    valid_moves = []
-    for province in adjacent_provinces:
-        province_info = map_instance.provinces.get(province)
-        if province_info:
-            # Armies can move to land and coast provinces
-            # Fleets can move to water and coast provinces
-            if unit_type == "A" and province_info.type in ["land", "coast"]:
-                valid_moves.append(province)
-            elif unit_type == "F" and province_info.type in ["water", "coast"]:
-                valid_moves.append(province)
+    units = data.get("units", [])
+    if not units:
+        label = "retreat" if phase_type == "RETREAT" else "orders"
+        await reply_or_edit(f"❌ No units require {label} for {power} in game {game_id}.")
+        return
 
-    # Create keyboard with move options
     keyboard = []
+    for u in units:
+        key = f"{u['kind']} {u['location']}"
+        emoji = "🛡️" if u["kind"] == "A" else "🚢"
+        keyboard.append([InlineKeyboardButton(f"{emoji} {key}", callback_data=f"selunit|{game_id}|{key}")])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
 
-    # Add Hold option
-    keyboard.append([InlineKeyboardButton("🛑 Hold", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_hold")])
+    phase_header = {
+        "MOVEMENT": "Select a unit for orders",
+        "RETREAT": "Select a dislodged unit to retreat/disband",
+    }.get(phase_type, "Select a unit")
 
-    # Add Move options
-    for province in valid_moves:
-        button_text = f"➡️ Move to {province}"
-        callback_data = f"move_unit_{game_id}_{unit_type}_{unit_location}_move_{province}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-
-    # Add Support option (simplified for now)
-    keyboard.append([InlineKeyboardButton("🤝 Support", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_support")])
-
-    # Add Convoy option for fleets
-    if unit_type == "F":
-        keyboard.append([InlineKeyboardButton("🚢 Convoy", callback_data=f"move_unit_{game_id}_{unit_type}_{unit_location}_convoy")])
-
-    # Add cancel button
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Create unit emoji
-    emoji = "🛡️" if unit_type == "A" else "🚢"
-
-    await query.edit_message_text(
-        f"🎯 *Possible Moves for {emoji} {unit}*\n\n"
-        f"📍 Location: {unit_location}\n"
-        f"📊 Game: {game_id}\n\n"
-        f"Choose an action:",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+    await reply_or_edit(
+        f"🎯 *{phase_header}*\n\n"
+        f"📊 Game: {game_id} | Power: {power} | Phase: {data.get('phase')}\n\n"
+        f"🛡️ Army | 🚢 Fleet",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
-async def show_convoy_options(query, game_id: str, fleet_unit: str) -> None:
-    """Show convoy options for a fleet"""
+async def show_possible_moves(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str
+) -> None:
+    """Show non-convoy legal orders for one unit, plus a convoy sub-menu if any exist.
+
+    ``unit_key`` is exactly an ``orders_by_unit`` key, ``"{kind} {location}"``
+    (e.g. ``"F STP/SC"``). Convoy orders are split into a separate
+    "Convoy options" step (``show_convoy_options``) instead of listed inline:
+    an open-water fleet's bucket can contain a full cross product of
+    origin/destination convoy pairs, which would otherwise dominate the menu.
+    """
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
     try:
-        # Get game state to find armies that can be convoyed
-        game_state = api_get(f"/games/{game_id}/state")
-        if not game_state:
-            await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
-            return
-
-        # Parse fleet info
-        fleet_parts = fleet_unit.split()
-        fleet_type = fleet_parts[0]  # Should be 'F'
-        fleet_location = fleet_parts[1]  # e.g., 'NTH', 'ENG'
-
-        if fleet_type != "F":
-            await query.edit_message_text(f"❌ Only fleets can convoy. {fleet_unit} is not a fleet.")
-            return
-
-        # Get map instance for adjacency data
-        map_instance = Map("standard")
-
-        # Get provinces adjacent to the fleet's sea area
-        adjacent_provinces = map_instance.get_adjacency(fleet_location)
-
-        # Get all armies in the game that are adjacent to this fleet's sea area
-        all_units = game_state.get("units", {})
-        convoyable_armies = []
-
-        for power, units in all_units.items():
-            for unit in units:
-                if unit.startswith("A "):  # Army
-                    army_location = unit.split()[1]  # e.g., 'LON', 'PAR'
-                    # Only include armies that are adjacent to the fleet's sea area
-                    if army_location in adjacent_provinces:
-                        convoyable_armies.append((power, unit))
-
-        if not convoyable_armies:
-            await query.edit_message_text(
-                f"❌ No armies found adjacent to {fleet_location} that can be convoyed by {fleet_unit}\n\n"
-                f"📍 Adjacent provinces: {', '.join(adjacent_provinces)}"
-            )
-            return
-
-        # Create keyboard with convoy options
-        keyboard = []
-
-        for power, army_unit in convoyable_armies:
-            army_location = army_unit.split()[1]  # e.g., 'LON', 'PAR'
-            button_text = f"🚢 Convoy {power} {army_unit}"
-            callback_data = f"convoy_select_{game_id}_{fleet_unit.replace(' ', '_')}_{power}_{army_unit.replace(' ', '_')}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-
-        # Add cancel button
-        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            f"🚢 *Convoy Options for {fleet_unit}*\n\n"
-            f"📍 Fleet Location: {fleet_location}\n"
-            f"📍 Adjacent Provinces: {', '.join(adjacent_provinces)}\n"
-            f"📊 Game: {game_id}\n\n"
-            f"Select an army to convoy:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    except Exception as e:
-        await query.edit_message_text(f"❌ Error showing convoy options: {e}")
-
-
-async def show_convoy_destinations(query, game_id: str, fleet_unit: str, army_power: str, army_unit: str) -> None:
-    """Show convoy destination options for an army"""
-    try:
-        # Get game state and map data
-        game_state = api_get(f"/games/{game_id}/state")
-        if not game_state:
-            await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
-            return
-
-        # Parse fleet and army info
-        fleet_location = fleet_unit.split()[1]  # e.g., 'NTH', 'ENG'
-        army_location = army_unit.split()[1]    # e.g., 'LON', 'PAR'
-
-        # Get map instance for adjacency data
-        map_instance = Map("standard")
-
-        # Get provinces adjacent to the fleet's sea area that can be convoy destinations
-        # A convoy can only reach provinces adjacent to the convoying fleet's sea area
-        adjacent_provinces = map_instance.get_adjacency(fleet_location)
-
-        # Filter to only coastal provinces (armies can only be convoyed to coastal provinces)
-        convoy_destinations = []
-        for province_name in adjacent_provinces:
-            province_info = map_instance.get_province(province_name)
-            if province_info and province_info.type == "coast":
-                convoy_destinations.append(province_name)
-
-        if not convoy_destinations:
-            await query.edit_message_text(
-                f"❌ No valid convoy destinations found for {fleet_unit}\n\n"
-                f"📍 Fleet Location: {fleet_location}\n"
-                f"📍 Adjacent Provinces: {', '.join(adjacent_provinces)}\n"
-                f"💡 Convoy destinations must be coastal provinces adjacent to the fleet's sea area."
-            )
-            return
-
-        # Create keyboard with convoy destination options
-        keyboard = []
-
-        for province in convoy_destinations:
-            button_text = f"🚢 Convoy to {province}"
-            callback_data = f"convoy_dest_{game_id}_{fleet_unit.replace(' ', '_')}_{army_power}_{army_unit.replace(' ', '_')}_{province}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-
-        # Add cancel button
-        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_move_selection_{game_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            f"🚢 *Convoy Destination for {army_unit}*\n\n"
-            f"📍 Army Location: {army_location}\n"
-            f"🚢 Convoying Fleet: {fleet_unit}\n"
-            f"📍 Valid Destinations: {', '.join(convoy_destinations)}\n"
-            f"📊 Game: {game_id}\n\n"
-            f"Select convoy destination:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    except Exception as e:
-        await query.edit_message_text(f"❌ Error showing convoy destinations: {e}")
-
-
-async def submit_interactive_order(query, game_id: str, order_text: str) -> None:
-    """Submit an order created through interactive selection"""
-    try:
-        # Get user info
         user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    except Exception as e:
+        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
 
-        # Get user's power in this game
-        user_games_response = api_get(f"/users/{user_id}/games")
-        user_games = user_games_response.get("games", []) if user_games_response else []
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await send(f"❌ Could not retrieve legal orders: {e}")
+        return
 
-        power = None
-        for g in user_games:
-            if str(g["game_id"]) == str(game_id):
-                power = g["power"]
-                break
+    bucket = data.get("orders_by_unit", {}).get(unit_key, [])
+    if not bucket:
+        await send(f"❌ No legal orders found for {unit_key} in game {game_id}.")
+        return
 
-        if not power:
-            await query.edit_message_text(f"❌ You are not in game {game_id}")
-            return
+    convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
+    direct_orders = [o for o in bucket if _order_verb(o) != "C"]
 
-        # Normalize province names in the order
-        normalized_order = normalize_order_provinces(order_text, power)
+    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(direct_orders)
+    keyboard = [
+        [InlineKeyboardButton(_order_label(s), callback_data=f"ord|{game_id}|{i}")]
+        for i, s in enumerate(direct_orders)
+    ]
+    if convoy_orders:
+        keyboard.append(
+            [InlineKeyboardButton("🚢 Convoy options", callback_data=f"cvopt|{game_id}|{unit_key}")]
+        )
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
 
-        # Submit the order
+    emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
+    await send(
+        f"🎯 *Orders for {emoji} {unit_key}*\n\n📊 Game: {game_id} | Power: {power}\n\nChoose an order:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def show_convoy_options(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str
+) -> None:
+    """Show the distinct armies a fleet can convoy (grouped by origin province).
+
+    A fleet's convoy bucket already contains one fully-formed order string
+    per (origin, destination) pair; this groups them by origin so the user
+    picks an army first, then a destination (``show_convoy_destinations``),
+    instead of facing every pair in one long list. The intermediate
+    callback (``cvorig|{game_id}|{unit_key}|{origin}``) carries only short
+    province codes, never order text.
+    """
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    try:
+        user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    except Exception as e:
+        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
+
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await send(f"❌ Could not retrieve legal orders: {e}")
+        return
+
+    bucket = data.get("orders_by_unit", {}).get(unit_key, [])
+    convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
+    if not convoy_orders:
+        await send(f"❌ No convoy options found for {unit_key} in game {game_id}.")
+        return
+
+    # "F NTH C A LON - BEL".split() -> ["F","NTH","C","A","LON","-","BEL"]; origin province is index 4.
+    origins = sorted({o.split()[4] for o in convoy_orders if len(o.split()) > 4})
+    keyboard = [
+        [InlineKeyboardButton(f"🪖 {origin}", callback_data=f"cvorig|{game_id}|{unit_key}|{origin}")]
+        for origin in origins
+    ]
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+
+    await send(
+        f"🚢 *Convoy via {unit_key}: choose the army to move*\n\n📊 Game: {game_id}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def show_convoy_destinations(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str, origin: str
+) -> None:
+    """Show destination choices for convoying the army standing at ``origin``."""
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    try:
+        user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    except Exception as e:
+        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
+
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await send(f"❌ Could not retrieve legal orders: {e}")
+        return
+
+    bucket = data.get("orders_by_unit", {}).get(unit_key, [])
+    dest_orders = [
+        o for o in bucket
+        if _order_verb(o) == "C" and len(o.split()) > 4 and o.split()[4] == origin
+    ]
+    if not dest_orders:
+        await send(f"❌ No convoy destinations found for {unit_key} → {origin}.")
+        return
+
+    await _present_order_choices(
+        send, context, game_id, f"🚢 *Convoy {origin} via {unit_key}*\n\nChoose destination:", dest_orders
+    )
+
+
+async def submit_interactive_order(query: Any, game_id: str, order_text: str) -> None:
+    """Submit an order string chosen through the interactive selection flow.
+
+    ``order_text`` is always a canonical string that came straight from
+    ``legal_orders`` (or, for the ``ord|`` callback path, was cached
+    verbatim from it) -- it is posted as-is, never re-normalized. Running it
+    through ``normalize_order_provinces`` (as the pre-rewrite version did)
+    would mangle verb-first strings like ``WAIVE``/``BUILD F BRE``/``D A
+    PAR``, which is exactly the bug this rewrite fixes.
+    """
+    try:
+        user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await query.edit_message_text(e.message)
+        return
+    except Exception as e:
+        await query.edit_message_text(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
+
+    try:
         result = api_post("/games/set_orders", {
             "game_id": game_id,
             "power": power,
-            "orders": [normalized_order],
+            "orders": [order_text],
             "telegram_id": user_id
         })
-
-        results = result.get("results", [])
-        if results and results[0]["success"]:
-            await query.edit_message_text(
-                f"✅ *Order Submitted Successfully!*\n\n"
-                f"📋 Order: `{normalized_order}`\n"
-                f"🎮 Game: {game_id}\n"
-                f"👤 Power: {power}\n\n"
-                f"💡 *Next Steps:*\n"
-                f"• Submit more orders with /selectunit\n"
-                f"• Process turn with /processturn {game_id}\n"
-                f"• View map with /viewmap {game_id}\n"
-                f"• View orders with /myorders {game_id}\n"
-                f"• Clear orders with /clearorders {game_id}",
-                parse_mode='Markdown'
-            )
-        else:
-            error_msg = results[0]["error"] if results else "Unknown error"
-            await query.edit_message_text(
-                f"❌ *Order Failed*\n\n"
-                f"📋 Order: `{normalized_order}`\n"
-                f"❌ Error: {error_msg}\n\n"
-                f"💡 Try selecting a different move or use /orders command",
-                parse_mode='Markdown'
-            )
-
-        # Refresh user games (used by tests to validate interaction sequence)
-        try:
-            _ = api_get(f"/users/{user_id}/games")
-        except Exception:
-            pass
-
     except Exception as e:
         await query.edit_message_text(f"❌ Error submitting order: {e}")
+        return
+
+    results = result.get("results", [])
+    if results and results[0]["success"]:
+        await query.edit_message_text(
+            f"✅ *Order Submitted Successfully!*\n\n"
+            f"📋 Order: `{order_text}`\n"
+            f"🎮 Game: {game_id}\n"
+            f"👤 Power: {power}\n\n"
+            f"💡 *Next Steps:*\n"
+            f"• Submit more orders with /selectunit\n"
+            f"• Process turn with /processturn {game_id}\n"
+            f"• View map with /viewmap {game_id}\n"
+            f"• View orders with /myorders {game_id}\n"
+            f"• Clear orders with /clearorders {game_id}",
+            parse_mode='Markdown'
+        )
+    else:
+        error_msg = results[0]["error"] if results else "Unknown error"
+        await query.edit_message_text(
+            f"❌ *Order Failed*\n\n"
+            f"📋 Order: `{order_text}`\n"
+            f"❌ Error: {error_msg}\n\n"
+            f"💡 Try selecting a different order with /selectunit",
+            parse_mode='Markdown'
+        )
 
 
 async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show orders menu for user's games"""
     try:
         user_id = str(update.effective_user.id)
-        try:
-            user_games_response = api_get(f"/users/{user_id}/games")
-            # Extract games list from API response
-            user_games = user_games_response.get("games", []) if user_games_response else []
-        except requests.exceptions.HTTPError as e:
-            # Handle 404 (user not found) gracefully - treat as no games
-            if e.response is not None and e.response.status_code == 404:
-                user_games = []
-            else:
-                raise  # Re-raise other HTTP errors
+        user_games = fetch_user_games(user_id)
 
         # Handle different response types safely
         if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
@@ -783,7 +788,7 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
             if isinstance(game, dict):
                 game_id = game.get('game_id', 'Unknown')
                 power = game.get('power', 'Unknown')
-                state = game.get('state', 'Unknown')
+                state = game.get('status', 'Unknown')
                 # Add more context to button text
                 button_text = f"📋 Game {game_id} ({power}) - {state}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"orders_menu_{game_id}_{power}")])
@@ -847,4 +852,3 @@ async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-

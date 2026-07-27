@@ -32,7 +32,7 @@ from server.telegram_bot.games import (
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
     show_possible_moves, show_convoy_options, show_convoy_destinations, submit_interactive_order,
-    show_my_orders_menu
+    show_my_orders_menu, resolve_pending_order
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
 from server.telegram_bot.ui import (
@@ -294,58 +294,39 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(f"🎯 Starting interactive order selection for Game {game_id} ({power})...")
         await selectunit(update, context)
 
-    # Interactive Order Input Callbacks
-    elif data.startswith("select_unit_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"
-        await show_possible_moves(query, game_id, unit)
+    # Interactive Order Input Callbacks -- "|"-delimited, distinct from the
+    # "_"-delimited legacy prefixes above. Order text itself is never carried
+    # in callback_data (Telegram's 64-byte cap); "ord|" carries only an index
+    # into the per-game cache orders.py populated in context.user_data.
+    elif data.startswith("selunit|"):
+        _, game_id, unit_key = data.split("|", 2)
+        await show_possible_moves(query, context, game_id, unit_key)
 
-    elif data.startswith("cancel_unit_selection_"):
-        game_id = data.split("_")[3]
-        await query.edit_message_text(f"❌ Unit selection cancelled for game {game_id}")
+    elif data.startswith("cvopt|"):
+        _, game_id, unit_key = data.split("|", 2)
+        await show_convoy_options(query, context, game_id, unit_key)
 
-    elif data.startswith("move_unit_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"
-        move_type = parts[5]
+    elif data.startswith("cvorig|"):
+        _, game_id, unit_key, origin = data.split("|", 3)
+        await show_convoy_destinations(query, context, game_id, unit_key, origin)
 
-        if move_type == "hold":
-            await submit_interactive_order(query, game_id, f"{unit} H")
-        elif move_type == "move":
-            target_province = parts[6]
-            await submit_interactive_order(query, game_id, f"{unit} - {target_province}")
-        elif move_type == "support":
+    elif data.startswith("ord|"):
+        _, game_id, idx_str = data.split("|", 2)
+        try:
+            order_text = resolve_pending_order(context, game_id, int(idx_str))
+        except ValueError:
+            order_text = None
+        if order_text is None:
             await query.edit_message_text(
-                f"🔄 Support orders are now fully implemented!\n\n"
-                f"Use `/orders <game_id> {unit} S <unit to support>` for support orders.\n\n"
-                f"💡 Example: `/orders 123 A Berlin S A Munich - Kiel`"
+                "⚠️ This order selection has expired. Please run /selectunit again."
             )
-        elif move_type == "convoy":
-            await show_convoy_options(query, game_id, unit)
+        else:
+            await submit_interactive_order(query, game_id, order_text)
 
-    elif data.startswith("cancel_move_selection_"):
-        game_id = data.split("_")[3]
-        await query.edit_message_text(f"❌ Move selection cancelled for game {game_id}")
-
-    elif data.startswith("convoy_select_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        fleet_unit = f"{parts[3]} {parts[4]}"
-        army_power = parts[5]
-        army_unit = f"{parts[6]} {parts[7]}"
-        await show_convoy_destinations(query, game_id, fleet_unit, army_power, army_unit)
-
-    elif data.startswith("convoy_dest_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        fleet_unit = f"{parts[3]} {parts[4]}"
-        army_power = parts[5]
-        army_unit = f"{parts[6]} {parts[7]}"
-        destination = parts[8]
-        convoy_order = f"{fleet_unit} C {army_power} {army_unit} - {destination}"
-        await submit_interactive_order(query, game_id, convoy_order)
+    elif data.startswith("cancelunit|"):
+        _, game_id = data.split("|", 1)
+        context.user_data.get("pending_orders", {}).pop(game_id, None)
+        await query.edit_message_text(f"❌ Selection cancelled for game {game_id}.")
 
     elif data.startswith("view_orders_"):
         parts = data.split("_")
