@@ -64,11 +64,25 @@ jobs:
           SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
         run: alembic upgrade head
 
-      - name: Run test suite
+      - name: Run test suite (with coverage)
         env:
           SQLALCHEMY_DATABASE_URL: postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
           PYTHONPATH: src
-        run: pytest tests/ -q
+        run: pytest tests/ -q --cov=src --cov-report=term-missing
+
+      # Coverage gates. The engine is the rules core and env-independent, so it holds a
+      # tight floor; the overall floor is lower because the Telegram/Discord bot modules
+      # are thin clients that are intentionally lightly unit-tested. Measured 2026-07-27:
+      # engine 92.91%, overall 58.66% (see docs/specs/fix_plan.md M7 step 2).
+      - name: Coverage gate — engine (rules core)
+        env:
+          PYTHONPATH: src
+        run: coverage report --include='src/engine/*' --fail-under=92
+
+      - name: Coverage gate — overall
+        env:
+          PYTHONPATH: src
+        run: coverage report --fail-under=57
 
   security:
     runs-on: ubuntu-latest
