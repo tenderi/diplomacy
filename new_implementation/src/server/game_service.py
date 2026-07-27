@@ -175,8 +175,31 @@ class GameService:
             "dislodged": [_dislodged_view(du) for du in state.dislodged],
             "contested": sorted(state.contested),
             "players": players,
-            "orders": pending,
+            "orders": self._humanize_orders(pending, state),
         }
+
+    def _humanize_orders(
+        self, pending: dict[str, list[str]], state: GameState
+    ) -> dict[str, list[str]]:
+        """Rewrite stored order strings so unit letters match the board.
+
+        Orders are stored via ``format_order``, which infers ``A``/``F`` from coast
+        presence — so a fleet at a non-split-coast province is stored as ``A``. For
+        display, reparse each order and reformat it against the current units so the
+        letter is truthful. Anything that fails to reparse is left untouched.
+        """
+        kind_by_province = {u.province: u.kind.value for u in state.units}
+        out: dict[str, list[str]] = {}
+        for power, strings in pending.items():
+            display: list[str] = []
+            for s in strings:
+                try:
+                    order = parse_order(s, power=power.upper(), map=self._map)
+                    display.append(format_order(order, kind_by_province))
+                except OrderParseError:
+                    display.append(s)
+            out[power] = display
+        return out
 
     def pending_orders_parsed(self, game_id: str) -> dict[str, list[Any]]:
         """Current pending orders as parsed ``Order`` objects, keyed by power.

@@ -96,3 +96,21 @@ class TestResolutionPersistence:
         parsed = service.pending_orders_parsed(gid)
         assert set(parsed.keys()) == {"FRANCE"}
         assert len(parsed["FRANCE"]) == 2
+
+
+class TestOrderDisplay:
+    """view() echoes pending orders with unit letters matching the board."""
+
+    def test_fleet_at_non_split_province_displays_as_fleet(self, service):
+        gid = _new_game(service)
+        # France's fleet sits at BRE, a non-split-coast province. Stored via
+        # format_order it would read "A BRE H"; the view must correct it to "F".
+        service.submit_orders(gid, "FRANCE", ["F BRE H"])
+        v = service.view(gid)
+        assert v["orders"]["FRANCE"] == ["F BRE H"]
+
+    def test_army_order_still_displays_as_army(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
+        v = service.view(gid)
+        assert v["orders"]["FRANCE"] == ["A PAR - BUR"]

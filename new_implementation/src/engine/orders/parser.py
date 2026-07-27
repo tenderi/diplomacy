@@ -31,6 +31,7 @@ Design notes:
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 from engine.map_loader import MapData
 from engine.types import (
@@ -276,38 +277,55 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
     raise OrderParseError(f"unrecognized order verb: {verb!r}")
 
 
-def _kind_letter(loc: Location) -> str:
-    """Infer a display kind for ``loc``: ``F`` if it names a coast, else ``A``.
+def _kind_letter(loc: Location, kind_by_province: Optional[dict[str, str]] = None) -> str:
+    """Display kind for ``loc``: the board unit's actual kind when known via
+    ``kind_by_province`` (province code → ``"A"``/``"F"``), else ``F`` if ``loc``
+    names a coast, else ``A``.
 
-    See the module docstring: this is round-trip safe, not truth-preserving,
-    for non-split-coast provinces that can host either unit kind.
+    Without a board map this is round-trip safe but not truth-preserving for
+    non-split-coast provinces that can host either kind (see the module docstring);
+    passing ``kind_by_province`` makes it truthful for display.
     """
+    if kind_by_province is not None:
+        kind = kind_by_province.get(loc.province)
+        if kind is not None:
+            return kind
     return "F" if loc.coast is not None else "A"
 
 
-def _unit_str(loc: Location) -> str:
-    return f"{_kind_letter(loc)} {loc}"
+def _unit_str(loc: Location, kind_by_province: Optional[dict[str, str]] = None) -> str:
+    return f"{_kind_letter(loc, kind_by_province)} {loc}"
 
 
-def format_order(order: Order) -> str:
-    """Render ``order`` as a canonical order string (no power prefix)."""
+def format_order(
+    order: Order, kind_by_province: Optional[dict[str, str]] = None
+) -> str:
+    """Render ``order`` as a canonical order string (no power prefix).
+
+    ``kind_by_province`` (province code → ``"A"``/``"F"``) makes the unit letters
+    truthful for human display; without it the letter is inferred from coast
+    presence (round-trip safe, but a fleet at a non-split province prints ``A``).
+    """
+    def u(loc: Location) -> str:
+        return _unit_str(loc, kind_by_province)
+
     if isinstance(order, Waive):
         return "WAIVE"
     if isinstance(order, Hold):
-        return f"{_unit_str(order.unit)} H"
+        return f"{u(order.unit)} H"
     if isinstance(order, Move):
-        text = f"{_unit_str(order.unit)} - {order.dest}"
+        text = f"{u(order.unit)} - {order.dest}"
         return f"{text} VIA" if order.via_convoy else text
     if isinstance(order, SupportHold):
-        return f"{_unit_str(order.unit)} S {_unit_str(order.target)}"
+        return f"{u(order.unit)} S {u(order.target)}"
     if isinstance(order, SupportMove):
-        return f"{_unit_str(order.unit)} S {_unit_str(order.origin)} - {order.dest}"
+        return f"{u(order.unit)} S {u(order.origin)} - {order.dest}"
     if isinstance(order, Convoy):
-        return f"{_unit_str(order.unit)} C {_unit_str(order.origin)} - {order.dest}"
+        return f"{u(order.unit)} C {u(order.origin)} - {order.dest}"
     if isinstance(order, Retreat):
-        return f"{_unit_str(order.unit)} R {order.dest}"
+        return f"{u(order.unit)} R {order.dest}"
     if isinstance(order, Disband):
-        return f"D {_unit_str(order.unit)}"
+        return f"D {u(order.unit)}"
     if isinstance(order, Build):
         kind_letter = "A" if order.kind is UnitKind.ARMY else "F"
         return f"BUILD {kind_letter} {order.location}"
