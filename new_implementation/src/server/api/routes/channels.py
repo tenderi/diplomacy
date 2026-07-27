@@ -12,8 +12,47 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 
 from .auth import require_bot_or_user
-from ..shared import db_service, server, logger
+from ..shared import db_service, game_service, logger
 from ...response_cache import invalidate_cache
+
+_ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+
+
+def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
+    """Build the channel-posting game_state dict from the new engine's view."""
+    v = game_service.view(game_id)
+    if v is None:
+        return None
+    sc_by_power: Dict[str, list] = {p: [] for p in _ALL_POWERS}
+    for prov, owner in v["ownership"].items():
+        sc_by_power.setdefault(owner, []).append(prov)
+    units_by_power: Dict[str, list] = {p: [] for p in _ALL_POWERS}
+    for p, us in v.get("units_by_power", {}).items():
+        units_by_power[p] = [
+            {"unit_type": u["kind"], "province": u["location"].split("/")[0],
+             "is_dislodged": False, "dislodged_by": None}
+            for u in us
+        ]
+    return {
+        "game_id": game_id,
+        "current_year": v["year"],
+        "current_season": v["season"],
+        "current_phase": v["phase_type"],
+        "phase_code": v["phase"],
+        "supply_centers": sc_by_power,
+        "units": units_by_power,
+        "orders": {p: v["orders"].get(p, []) for p in _ALL_POWERS},
+        "powers": {
+            p: {
+                "is_eliminated": not units_by_power.get(p) and not sc_by_power.get(p),
+                "controlled_supply_centers": sc_by_power.get(p, []),
+                "orders_submitted": bool(v["orders"].get(p)),
+                "last_order_time": None,
+                "is_active": True,
+            }
+            for p in _ALL_POWERS
+        },
+    }
 
 router = APIRouter()
 
@@ -64,12 +103,9 @@ def link_channel_to_game(
     """
     try:
         # Verify game exists
-        if game_id not in server.games:
-            # Try to load from database
-            game_state = db_service.get_game_state(game_id)
-            if not game_state:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
+        if not game_service.exists(game_id):
+            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+
         # Link channel via database service
         db_service.link_game_to_channel(
             game_id=game_id,
@@ -99,11 +135,9 @@ def unlink_channel_from_game(game_id: str) -> Dict[str, Any]:
     """Unlink a Telegram channel from a game."""
     try:
         # Verify game exists
-        if game_id not in server.games:
-            game_state = db_service.get_game_state(game_id)
-            if not game_state:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
+        if not game_service.exists(game_id):
+            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+
         # Unlink channel
         db_service.unlink_game_from_channel(game_id)
         
@@ -349,33 +383,11 @@ def get_timeline(game_id: str) -> Dict[str, Any]:
     """Get historical timeline for the game."""
     try:
         from ...telegram_bot.channels import format_historical_timeline
-        
-        # Get game state
-        if game_id not in server.games:
+
+        game_state_dict = _legacy_state_dict(game_id)
+        if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
-        game_obj = server.games[game_id]
-        current_state = game_obj.get_game_state()
-        
-        # Convert to dict
-        game_state_dict = {
-            "game_id": game_id,
-            "current_year": current_state.current_year,
-            "current_season": current_state.current_season,
-            "current_phase": current_state.current_phase,
-            "powers": {
-                power: {
-                    "is_eliminated": power_state.is_eliminated,
-                    "controlled_supply_centers": list(power_state.controlled_supply_centers)
-                }
-                for power, power_state in current_state.powers.items()
-            },
-            "supply_centers": {
-                power: list(power_state.controlled_supply_centers)
-                for power, power_state in current_state.powers.items()
-            }
-        }
-        
+
         # Format timeline
         timeline_text = format_historical_timeline(game_state_dict)
         
@@ -402,33 +414,11 @@ def post_timeline_update(game_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
         
         channel_id = channel_info.get("channel_id")
-        
-        # Get game state
-        if game_id not in server.games:
+
+        game_state_dict = _legacy_state_dict(game_id)
+        if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
-        game_obj = server.games[game_id]
-        current_state = game_obj.get_game_state()
-        
-        # Convert to dict
-        game_state_dict = {
-            "game_id": game_id,
-            "current_year": current_state.current_year,
-            "current_season": current_state.current_season,
-            "current_phase": current_state.current_phase,
-            "powers": {
-                power: {
-                    "is_eliminated": power_state.is_eliminated,
-                    "controlled_supply_centers": list(power_state.controlled_supply_centers)
-                }
-                for power, power_state in current_state.powers.items()
-            },
-            "supply_centers": {
-                power: list(power_state.controlled_supply_centers)
-                for power, power_state in current_state.powers.items()
-            }
-        }
-        
+
         # Post timeline
         message_id = post_timeline_update_to_channel(
             channel_id=channel_id,
@@ -461,18 +451,16 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
         
         channel_id = channel_info.get("channel_id")
-        
-        # Get game state
-        if game_id not in server.games:
+
+        game_state_dict = _legacy_state_dict(game_id)
+        if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
-        game_obj = server.games[game_id]
-        current_state = game_obj.get_game_state()
-        
+
         # Get players data
         players_data = None
         try:
-            players_list = db_service.get_players_by_game_id(int(game_obj.game_id) if hasattr(game_obj, 'game_id') and game_obj.game_id else 0)
+            row = db_service.get_game_by_game_id(game_id)
+            players_list = db_service.get_players_by_game_id(int(row.id)) if row else []
             players_data = []
             for p in players_list:
                 user = db_service.get_user_by_id(int(p.user_id)) if p.user_id else None
@@ -485,29 +473,7 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
                 })
         except Exception as e:
             logger.warning(f"Could not get players data for dashboard: {e}")
-        
-        # Convert current state to dict
-        game_state_dict = {
-            "game_id": game_id,
-            "current_year": current_state.current_year,
-            "current_season": current_state.current_season,
-            "current_phase": current_state.current_phase,
-            "phase_code": current_state.phase_code,
-            "orders": {
-                power: []  # Orders are cleared after processing
-                for power in current_state.powers.keys()
-            },
-            "powers": {
-                power: {
-                    "orders_submitted": power_state.orders_submitted,
-                    "last_order_time": power_state.last_order_time.isoformat() if power_state.last_order_time else None,
-                    "is_active": power_state.is_active,
-                    "is_eliminated": power_state.is_eliminated
-                }
-                for power, power_state in current_state.powers.items()
-            }
-        }
-        
+
         # Post dashboard
         message_id = post_player_dashboard_to_channel(
             channel_id=channel_id,
@@ -534,53 +500,22 @@ def post_battle_results(game_id: str) -> Dict[str, Any]:
     """Manually post formatted battle results to the linked channel."""
     try:
         from ...telegram_bot.channels import post_battle_results_to_channel
-        from persistence.database import order_to_dict
-        
+
         # Get channel info
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
+
         channel_id = channel_info.get("channel_id")
-        
-        # Get game state
-        if game_id not in server.games:
+
+        game_state_dict = _legacy_state_dict(game_id)
+        if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-        
-        game_obj = server.games[game_id]
-        current_state = game_obj.get_game_state()
-        
-        # Get previous supply centers from order history if available
+
+        # Order history is not retained per-turn under the new engine.
         previous_supply_centers = None
         order_history = None
-        
-        if hasattr(game_obj.game_state, "order_history") and len(game_obj.game_state.order_history) > 0:
-            # Get the last turn's orders
-            last_turn_index = game_obj.turn - 1
-            if last_turn_index >= 0 and last_turn_index < len(game_obj.game_state.order_history):
-                order_history = {
-                    power: [order_to_dict(o) for o in orders]
-                    for power, orders in game_obj.game_state.order_history[last_turn_index].items()
-                }
-        
-        # Convert current state to dict
-        game_state_dict = {
-            "current_year": current_state.current_year,
-            "current_season": current_state.current_season,
-            "current_phase": current_state.current_phase,
-            "phase_code": current_state.phase_code,
-            "supply_centers": {
-                power: list(power_state.controlled_supply_centers)
-                for power, power_state in current_state.powers.items()
-            },
-            "units": {
-                power: [{"unit_type": u.unit_type, "province": u.province, 
-                        "is_dislodged": u.is_dislodged, "dislodged_by": u.dislodged_by}
-                       for u in power_state.units]
-                for power, power_state in current_state.powers.items()
-            }
-        }
-        
+
         # Post battle results
         message_id = post_battle_results_to_channel(
             channel_id=channel_id,
