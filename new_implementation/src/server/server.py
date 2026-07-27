@@ -70,9 +70,8 @@ class Server:
         try:
             if cmd in ("NEW_GAME", "CREATE_GAME"):
                 map_name = tokens[1] if len(tokens) > 1 else "standard"
-                game_id = str(self.next_game_id)
-                self.next_game_id += 1
-                self._svc.create_game(game_id, map_name=map_name)
+                # Let the repo assign a unique game_id (the integer PK as a string).
+                game_id = self._svc.create_game(map_name=map_name)
                 return {"status": "ok", "game_id": game_id, "map_name": map_name}
 
             if cmd == "ADD_PLAYER":

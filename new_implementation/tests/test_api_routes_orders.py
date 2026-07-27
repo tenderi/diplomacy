@@ -116,7 +116,7 @@ class TestGetOrders:
     def test_get_orders_not_found(self, client):
         """Test getting orders for non-existent game."""
         resp = client.get("/games/nonexistent/orders")
-        assert resp.status_code == 500
+        assert resp.status_code == 404
 
 
 @pytest.mark.unit

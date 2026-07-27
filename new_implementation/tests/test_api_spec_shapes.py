@@ -46,5 +46,5 @@ class TestApiSpecShapes:
 			assert state.status_code == 200
 			# Validate minimal required keys
 			payload = state.json()
-			for key in ("game_id", "map_name", "current_turn", "current_year", "current_season", "current_phase", "phase_code", "status"):
+			for key in ("game_id", "map_name", "phase", "year", "season", "phase_type", "status", "units", "ownership"):
 				assert key in payload
