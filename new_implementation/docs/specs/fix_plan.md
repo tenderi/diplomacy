@@ -65,15 +65,14 @@
 - **Execution:** pipeline with mixed models — driver (Fable/Opus) owns M1, M3 core, M6;
   Sonnet/Haiku subagents take M2, M4, M5, M7 and DATC test batches. Milestones are
   sequential; each gated green before the next starts.
-- **Branch:** work happens on `engine-rewrite` (off up-to-date `main`). Do **not** build on
-  `fix-oidc-trust`; it carries unrelated in-flight infra work.
-- **Last updated:** 2026-07-27 (Sonnet 5 — M7 step 3 DONE: `adjudication.md` written;
+- **Branch:** all work happened on `engine-rewrite` (off up-to-date `main`); merged and
+  deleted (local + remote) 2026-07-27 — see the Status block above. Everything now lives
+  on `main`.
+- **Last updated:** 2026-07-27 (Sonnet 5 — M7 steps 3–5 DONE: `adjudication.md` written;
   `architecture.md`/`data_spec.md`/`CODEBASE_OVERVIEW.md` rewritten from stale
-  pre-rewrite drafts to the actual post-M6 layout. Baseline reconfirmed on a fresh
-  machine (new venv + local Postgres): 820 passed, 15 skipped, 10 xfailed; ruff clean
-  with `ruff==0.15.12` pinned (unpinned ruff on this branch produces 1000+ false
-  positives — `main` pinned this in `v2.7.14` after `engine-rewrite` branched off; carry
-  the pin through the M7 step 4 merge). **Next is M7 step 4, merge to `main`.**).
+  pre-rewrite drafts to the actual post-M6 layout; `engine-rewrite` merged to `main` via
+  PR #5 and tagged `v2.7.15`; branch deleted. **Project complete — nothing left to
+  resume.**).
 
 ## Goal
 
@@ -387,7 +386,7 @@ Key decisions:
 > - **Order history** is no longer retained per-turn (state is a single snapshot); the
 >   `/orders/history` endpoint returns empty. Add snapshot-derived history if needed.
 
-### M7 — Enforcement, docs, ship  ← **NEXT MILESTONE (do these in order)**
+### M7 — Enforcement, docs, ship  ← **COMPLETE (2026-07-27)**
 
 Ordered so the suite/branch stays green at each commit; **merge to `main` is LAST.**
 
@@ -502,9 +501,10 @@ Ordered so the suite/branch stays green at each commit; **merge to `main` is LAS
       runs to ≥1911 or an 18-center win; invariants asserted every phase).
 - [x] Live E2E through the HTTP API incl. coasted fleet move (create → `F STP/SC - BOT` +
       moves → advance → state + PNG map). Convoy adjudication covered by tests/datc 6.F/6.G.
-- [x] Old engine + dead code deleted; specs updated (fix_plan + CLAUDE.md; adjudication.md /
-      architecture.md / CODEBASE_OVERVIEW.md still pending in M7).
-- [ ] **CI green on `main`** (merge is the last M7 step; still on `engine-rewrite`).
+- [x] Old engine + dead code deleted; specs updated (fix_plan, CLAUDE.md, adjudication.md,
+      architecture.md, data_spec.md, CODEBASE_OVERVIEW.md).
+- [x] **CI green on `main`** — merged via PR #5 (`test` + `security` both passed), tagged
+      `v2.7.15`, `engine-rewrite` branch deleted.
 
 ## Out of scope
 
