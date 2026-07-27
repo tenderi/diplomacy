@@ -13,14 +13,15 @@
 
 ## Status
 
-- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR3 — `frontend-phase-ui` + the
-  frontend CI job.** PR1 and PR2 are merged; PR4–PR6 and the manual end-to-end check
-  remain after PR3.
+- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR4 — `bot-phase-aware` (the largest
+  one).** PR1, PR2 and PR3 are merged; PR5, PR6 and the manual end-to-end check remain
+  after PR4.
 - **QUEUED: Track B — Post-rewrite cleanup.** V0 (audit + first dead-code batch) done
   2026-07-28 (`v2.7.19`). V1 was absorbed into Track A's PR4. V2–V4 start **after PR4**;
   V5 is independent filler.
 - **Suite baseline:** 841 passed, 15 skipped, 10 xfailed; ruff clean. (PR2's baseline was
-  844 — V0 deleted 3 dead-path tests.)
+  844 — V0 deleted 3 dead-path tests.) **Frontend baseline:** 99 passed in 21 files;
+  `tsc -b --noEmit` and `npm run build` clean.
 - **Last updated:** 2026-07-28.
 
 ### Where the old trackers went
@@ -157,42 +158,40 @@ power passes `validate()` in movement/retreat/build/disband states.
   `WAIVE` has no unit and appears only in the flat `orders` list. Clients must not assume
   a prefix match.
 
-## PR 3 — `frontend-phase-ui` + the frontend CI job  ← **NEXT TASK**
+## PR 3 — `frontend-phase-ui` + the frontend CI job ✅ MERGED (`v2.7.20`, PR #13)
 
-Ships together, because this is the first frontend change and **there is currently no
-frontend job in CI at all** — nothing gates `tsc`, Vitest, or the build.
+- [x] `orderParsing.ts`: added a `waive` type and a **leading-verb** branch *before* the
+      null-guard, so the engine's verb-first grammar parses (`D A PAR`, `DISBAND A PAR`,
+      `BUILD F BRE`, `BUILD F STP/SC`, `WAIVE`). The old destroy check tested
+      `parts[length-2] === 'D'` — which is `"A"` — so it had never fired; deleted. The
+      `' S '`/`' C '` checks moved above the `endsWith(' H')` check defensively (not an
+      active bug: `format_order` emits `A PAR S A BUR`, no trailing `H`).
+- [x] `GameView.tsx`: one fetch of `/legal_orders/{power}` replaced the N+1 per-unit loop;
+      `_build` bucket, `myUnits[0]` indexing, `centersOf` and `myPowerState` deleted; unit
+      keys now `${kind} ${location}` **with coast** via a `unitKey()` helper.
+- [x] `BuildOrdersSection`: `slots`/`action` come from the response's `adjustment` block;
+      the `Math.max(slotCount, ..., 1)` phantom-slot floor is gone.
+- [x] **CI:** third `frontend` job in `.github/workflows/test.yml` (`npm ci`,
+      `npx tsc -b --noEmit`, `npm run test:run`, `npm run build`), with its own
+      `defaults.run.working-directory: new_implementation/frontend` overriding the
+      top-level one, and `cache-dependency-path:
+      new_implementation/frontend/package-lock.json`. **Green on its first run** (PR #13)
+      — so PR6's "add to required status checks" precondition is now satisfiable.
+- [x] Tests: verb-form + coast regressions in `orderParsing.test.ts`; RETREAT and
+      ADJUSTMENT blocks in `GameView.test.tsx` asserting only the dislodged unit is
+      offered retreats, exactly `slots` slots render, and a zero-unit power in an
+      Adjustment phase renders without throwing.
 
-All three bug sites below were re-verified by direct read on 2026-07-27:
+### Finding from PR3 that later PRs must respect
 
-- [ ] `frontend/src/lib/orderParsing.ts` — add a `waive` type and a **leading-verb**
-      branch *before* the null-guard. Verified dead today: for `D A PAR`,
-      `parts[length-2]` is `"A"`, not `"D"`, so the destroy branch never fires and the
-      function returns `null`; `WAIVE` returns `null` at the null-guard (`parts[i+1]`
-      undefined). Moving the `' S '`/`' C '` checks above the `endsWith(' H')` check is
-      worth doing defensively, **but is not an active bug** — `format_order` renders
-      support-hold as `A PAR S A BUR` with no trailing `H`, so engine-emitted strings
-      never collide.
-- [ ] `frontend/src/pages/GameView.tsx` — one fetch of the new `/legal_orders/{power}`
-      replaces the N+1 per-unit loop. Delete the `_build` bucket and all `myUnits[0]`
-      indexing (`:376` — on an empty `myUnits`, `unit.unit_type` at `:384` **throws**;
-      that is a power with zero units in an Adjustment phase, which PR2 now serves
-      correctly). Unit keys must become `${kind} ${location}` carrying the coast — today
-      `:365` builds them from `u.province`, so they can never match PR2's keys.
-- [ ] `BuildOrdersSection` (`:202`, `:213-215`) — drop the **removed**
-      `powerState.controlled_supply_centers`; take `slots`/`action` from the new
-      `adjustment` block. This also removes the `Math.max(slotCount, ..., 1)` floor that
-      renders a phantom build slot when `delta == 0`.
-- [ ] **CI:** add a third `frontend` job to `.github/workflows/test.yml` — `npm ci`,
-      `npx tsc -b --noEmit`, `npm run test:run`, `npm run build`, with
-      `cache-dependency-path: new_implementation/frontend/package-lock.json` (the 97-byte
-      root lockfile is an unrelated stub). **Add `frontend` to required status checks
-      only after it has been green on `main` once**, or `main` bricks.
-- [ ] Tests: `orderParsing.test.ts` for each new verb form; `GameView.test.tsx` blocks
-      stubbing RETREAT and ADJUSTMENT states — assert exactly `slots` slots render, that
-      options are build strings, and that **a power with zero units in an Adjustment
-      phase renders without throwing** (today's crash).
+- **The old `GameView.test.tsx` was asserting nothing.** It rendered `<GameView />` inside
+  a bare `MemoryRouter` with no `<Route>`, so `useParams()` never resolved `gameId` and
+  the component never left its loading screen. Any frontend test touching a `/games/:id`
+  page must wrap it in `<Routes><Route path="/games/:gameId" …>` or it silently tests the
+  spinner. (Same class of bug as PR1's `spec_from_file_location` tests — a test that
+  exercises the workaround instead of the real path.)
 
-## PR 4 — `bot-phase-aware` (largest)
+## PR 4 — `bot-phase-aware` (largest)  ← **NEXT TASK**
 
 API prerequisites, same PR: `routes/orders.py` `get_orders_for_power`/`get_orders` must
 accept `telegram_id` + bot secret (Bearer-only today, so the bot gets **403** even after
@@ -286,7 +285,8 @@ new pure `src/rendering/view_adapter.py`.
 - [ ] Delete `tests/bot_test_runner.py` (never collected; 5 dead async functions).
 - [ ] Ratchet the coverage floors to just under the new measured values; refresh the
       dated comments in `test.yml` / `.coveragerc`.
-- [ ] Add `frontend` to required status checks via `gh api` (only once green on `main`).
+- [ ] Add `frontend` to required status checks via `gh api`. Precondition met: the job was
+      green on PR #13 and on the resulting `main` merge commit (`v2.7.20`).
 
 ## Final acceptance — manual end-to-end check
 
