@@ -15,7 +15,6 @@ except ImportError:
 try:
 	from fastapi.testclient import TestClient
 	from server.api import app
-	from server.models import GameStateOut
 except Exception:
 	pytest.skip("FastAPI app not importable; skipping API tests", allow_module_level=True)
 
