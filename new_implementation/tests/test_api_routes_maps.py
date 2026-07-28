@@ -84,6 +84,41 @@ class TestGenerateResolutionMap:
 
 
 @pytest.mark.unit
+class TestGetMapPreviewPng:
+    """Test GET /maps/{map_name}/preview.png -- the unit-less sample board used by
+    the bot's "View Sample Map" button."""
+
+    def test_preview_standard_returns_real_png(self, client):
+        resp = client.get("/maps/standard/preview.png")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_preview_unknown_map_name_is_404(self, client):
+        resp = client.get("/maps/not-a-real-map/preview.png")
+        assert resp.status_code == 404
+
+    def test_preview_second_request_hits_renderer_byte_cache(self, client):
+        """The route calls ``Map.render_board_png`` on every request, but that
+        function's own ``MapCache`` (keyed by svg_path/units/phase_info, which are
+        fixed here) should short-circuit the actual SVG->PNG conversion on repeat
+        calls for the same map name -- no second caching layer needed in the route."""
+        from rendering import map as map_module
+
+        # Warm the cache first, outside the patch, so this test doesn't depend on
+        # whether an earlier test already populated it.
+        warm = client.get("/maps/standard/preview.png")
+        assert warm.status_code == 200
+
+        with patch.object(map_module, "cairosvg") as mock_cairosvg:
+            resp = client.get("/maps/standard/preview.png")
+
+        assert resp.status_code == 200
+        assert resp.content == warm.content
+        mock_cairosvg.svg2png.assert_not_called()
+
+
+@pytest.mark.unit
 class TestGetGameMapHistoryPng:
     """Test GET /games/{game_id}/map/history/{turn} — renders a persisted snapshot."""
 

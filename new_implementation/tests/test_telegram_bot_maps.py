@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from server.telegram_bot.maps import map_command, replay, send_game_map
+from server.telegram_bot.maps import map_command, replay, send_default_map, send_game_map
 from rendering.map import Map
 
 pytestmark = pytest.mark.unit
@@ -102,11 +102,47 @@ def test_replay_requires_two_args(mock_get_bytes):
 
 
 @patch("server.telegram_bot.maps.api_get_bytes")
+def test_send_default_map_fetches_bytes_from_api(mock_get_bytes):
+    """``send_default_map`` (the "View Sample Map" button's target) fetches
+    ``GET /maps/standard/preview.png`` bytes and posts them -- the server does
+    the unit-less board rendering, not the bot."""
+    mock_get_bytes.return_value = b"fake-png-bytes"
+    update, context, message = _make_message_update([])
+
+    asyncio.run(send_default_map(update, context))
+
+    mock_get_bytes.assert_called_once_with("/maps/standard/preview.png")
+    message.reply_photo.assert_called_once()
+    kwargs = message.reply_photo.call_args.kwargs
+    assert kwargs["photo"].read() == b"fake-png-bytes"
+
+
+@patch("server.telegram_bot.maps.api_get_bytes")
+def test_send_default_map_via_callback_query_replies_on_the_query_message(mock_get_bytes):
+    """Invoked from the inline "View Sample Map" button, the map is posted as a
+    new photo on the callback query's message rather than via ``update.message``
+    (which is ``None`` on a pure callback update)."""
+    mock_get_bytes.return_value = b"fake-png-bytes"
+    update = Mock()
+    context = Mock()
+    query = Mock()
+    query.message.reply_photo = AsyncMock()
+    update.callback_query = query
+    update.message = None
+
+    asyncio.run(send_default_map(update, context))
+
+    mock_get_bytes.assert_called_once_with("/maps/standard/preview.png")
+    query.message.reply_photo.assert_called_once()
+
+
+@patch("server.telegram_bot.maps.api_get_bytes")
 def test_render_board_png_never_called_from_bot_for_a_game_map(mock_get_bytes):
-    """The bot is a thin client over the HTTP API: rendering a game map must
-    never invoke ``rendering.map.Map.render_board_png`` from bot code -- all
-    three PNG-producing commands (``/map``, ``/viewmap`` -> ``send_game_map``,
-    ``/replay``) go through ``api_get_bytes`` instead."""
+    """The bot is a thin client over the HTTP API: rendering a map must never
+    invoke ``rendering.map.Map.render_board_png`` from bot code -- all four
+    PNG-producing paths (``/map``, ``/viewmap`` -> ``send_game_map``, ``/replay``,
+    and the "View Sample Map" button -> ``send_default_map``) go through
+    ``api_get_bytes`` instead."""
     mock_get_bytes.return_value = b"fake-png-bytes"
 
     with patch.object(Map, "render_board_png") as mock_render:
@@ -115,5 +151,7 @@ def test_render_board_png_never_called_from_bot_for_a_game_map(mock_get_bytes):
         asyncio.run(map_command(update, context))
         update, context, _ = _make_message_update(["42", "3"])
         asyncio.run(replay(update, context))
+        update, context, _ = _make_message_update([])
+        asyncio.run(send_default_map(update, context))
 
         mock_render.assert_not_called()

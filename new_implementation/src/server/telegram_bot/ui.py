@@ -70,6 +70,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         if not user_games:
             keyboard = [
+                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")],
                 [InlineKeyboardButton("🎮 Start Demo Game (Germany)", callback_data="start_demo_game")],
                 [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
                 [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
@@ -79,6 +80,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 "🗺️ *No Game Maps Yet*\n\n"
                 "🎮 You're not in any active games!\n\n"
                 "💡 *Options:*\n"
+                "🗺️ View the standard Diplomacy board\n"
                 "🎮 Start a demo game as Germany\n"
                 "🎲 Browse games and join one for live maps\n"
                 "⏳ Join waiting list for auto-matching",
@@ -96,6 +98,9 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             state = game.get('status', 'Unknown')
             keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power}) - {state}", callback_data=f"view_map_{game_id}")])
 
+        # Also offer the unit-less sample board.
+        keyboard.append([InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         if update.callback_query:
             await update.callback_query.edit_message_text(
@@ -112,6 +117,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     except Exception as e:
         keyboard = [
+            [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")],
             [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
@@ -121,6 +127,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"⚠️ *Can't Load Game Maps*\n\n"
                 f"🔧 Unable to access your game maps right now.\n\n"
                 f"💡 *You can still:*\n"
+                f"🗺️ View the standard board\n"
                 f"🎲 Browse available games\n"
                 f"🏠 Return to main menu\n\n"
                 f"*Error:* {str(e)[:100]}",
@@ -132,6 +139,7 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"⚠️ *Can't Load Game Maps*\n\n"
                 f"🔧 Unable to access your game maps right now.\n\n"
                 f"💡 *You can still:*\n"
+                f"🗺️ View the standard board\n"
                 f"🎲 Browse available games\n"
                 f"🏠 Return to main menu\n\n"
                 f"*Error:* {str(e)[:100]}",
