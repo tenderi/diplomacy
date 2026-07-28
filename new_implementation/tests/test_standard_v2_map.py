@@ -16,17 +16,12 @@ def test_standard_v2_map():
     
     try:
         from rendering.map import Map
-        
-        # Test that Map can be initialized with standard-v2
-        print("📊 Testing Map initialization with standard-v2...")
-        map_instance = Map("standard-v2")
-        print(f"✅ Map initialized with map_name: {map_instance.map_name}")
-        
-        # Verify it uses standard map logic (same adjacencies)
-        assert map_instance.is_adjacent("PAR", "BUR"), "PAR should be adjacent to BUR"
-        assert map_instance.is_adjacent("LON", "YOR"), "LON should be adjacent to YOR"
-        print("✅ Adjacencies verified (same as standard map)")
-        
+
+        # Topology (adjacency, supply centers) is out of scope here -- it's
+        # sourced solely from engine.map_loader and covered by tests/engine/;
+        # standard-v2 reuses the same maps/standard.map for game logic, only
+        # its SVG differs. This test exercises the rendering pipeline only.
+
         # Test data with proper units format: {power_name: [unit_list]}
         units = {
             "GERMANY": ["A BER", "A MUN", "F KIE"],
