@@ -45,11 +45,22 @@ exclude_lines =
     except ImportError
 
 # Minimum coverage threshold. This is the overall floor; CI enforces it plus a
-# tighter engine-only floor (92%) via `coverage report --include='src/engine/*'
-# --fail-under=92` (see .github/workflows/test.yml). Measured 2026-07-27: engine
-# 92.91%, overall 58.66%. Both floors sit just under the measured values to prevent
-# regression while leaving margin for CI-environment variance.
-fail_under = 57
+# tighter engine-only floor via `coverage report --include='src/engine/*'
+# --fail-under=92` (see .github/workflows/test.yml).
+#
+# Measured 2026-07-28 (v2.7.23 + PR6): engine 92.86%, overall 62.02%.
+#
+# Overall ratcheted 57 -> 60. It rose from ~59 to 62 because PR4 and Track B's V2
+# deleted a lot of untested/dead src code; 60 locks in most of that gain while leaving
+# room for CI-environment variance and for V3's rendering split.
+#
+# The ENGINE floor deliberately stays at 92, NOT ratcheted to ~92.8. V2 deleted 366
+# well-tested lines from src/engine/ (province_mapping.py), which dropped the measured
+# figure 92.97% -> 92.86% without a single test being lost. Only 0.86 points of headroom
+# remain, and tightening further would make ordinary dead-code deletion fail CI --
+# exactly the cleanup this project keeps wanting to do. Raise it only alongside genuinely
+# new engine tests.
+fail_under = 60
 
 # Show missing lines
 show_missing = True
