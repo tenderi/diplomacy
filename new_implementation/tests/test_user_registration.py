@@ -180,7 +180,7 @@ class TestUserRegistrationErrorHandling:
         """Test registration with invalid JSON."""
         response = self.client.post(
             "/users/persistent_register",
-            data="not json",
+            content="not json",
             headers={"Content-Type": "application/json"}
         )
         assert response.status_code == 422

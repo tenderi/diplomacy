@@ -73,9 +73,16 @@ jobs:
         run: pytest tests/ -q --cov=src --cov-report=term-missing
 
       # Coverage gates. The engine is the rules core and env-independent, so it holds a
-      # tight floor; the overall floor is lower because the Telegram/Discord bot modules
-      # are thin clients that are intentionally lightly unit-tested. Measured 2026-07-27:
-      # engine 92.91%, overall 58.66% (see docs/specs/fix_plan.md M7 step 2).
+      # tight floor; the overall floor is lower because the Telegram bot modules are thin
+      # clients that are intentionally lightly unit-tested.
+      #
+      # Measured 2026-07-28 (v2.7.23 + PR6): engine 92.86%, overall 62.02%.
+      #
+      # The engine floor stays at 92 rather than ratcheting to ~92.8: Track B's V2 deleted
+      # 366 well-tested lines from src/engine/, moving the measured figure 92.97 -> 92.86
+      # without losing a test. Only 0.86 points of headroom remain, and a tighter floor
+      # would make routine dead-code deletion fail CI. Raise it only with new engine tests.
+      # Keep this in sync with .coveragerc, which documents the same reasoning.
       - name: Coverage gate — engine (rules core)
         env:
           PYTHONPATH: src
@@ -84,7 +91,7 @@ jobs:
       - name: Coverage gate — overall
         env:
           PYTHONPATH: src
-        run: coverage report --fail-under=57
+        run: coverage report --fail-under=60
 
   frontend:
     runs-on: ubuntu-latest

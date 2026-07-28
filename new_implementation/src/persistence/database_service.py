@@ -15,6 +15,7 @@ from .database import (
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
     SpectatorModel,
     get_session_factory,
+    utcnow_naive,
 )
 
 
@@ -426,13 +427,12 @@ class DatabaseService:
     # --- Messages ---
     def create_message(self, game_id: int, sender_user_id: int, recipient_power: Optional[str], text: str):
         with self.session_factory() as session:
-            from datetime import datetime
             msg = MessageModel(
                 game_id=game_id,
                 sender_user_id=sender_user_id,
                 recipient_power=recipient_power,
                 text=text,
-                timestamp=datetime.utcnow(),
+                timestamp=utcnow_naive(),
             )
             session.add(msg)
             session.commit()
