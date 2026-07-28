@@ -1,11 +1,14 @@
 """
-Map representation for Diplomacy.
-- Represents provinces, supply centers, adjacency, and coasts.
-- Loads map data from standard.map file as the single source of truth.
-- Includes comprehensive map caching for performance optimization.
+SVG -> PNG rendering pipeline for the Diplomacy board.
+
+This module has zero topology knowledge of its own: province adjacency,
+coasts, and supply centers all come from ``engine.map_loader`` (the sole
+topology source in the codebase). ``Map`` here is a namespace of static
+rendering methods fed plain data (unit lists, phase info, SVG paths) by
+callers such as ``GameService.view``.
 """
 
-from typing import Dict, List, Set, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 import os
 import json
 import math
@@ -17,21 +20,34 @@ import hashlib
 import time
 import logging
 from .visualization_config import get_config
+from engine.map_loader import MapData, load_standard_map
+from engine.types import ProvinceType
 
 # Module-level logger for static methods
 logger = logging.getLogger("diplomacy.rendering.map")
 
-class Province:
-    """Represents a province on the Diplomacy map."""
-    def __init__(self, name: str, is_supply_center: bool = False, coasts: Optional[List[str]] = None, type_: str = 'land') -> None:
-        self.name: str = name
-        self.is_supply_center: bool = is_supply_center
-        self.coasts: List[str] = coasts or []
-        self.adjacent: Set[str] = set()
-        self.type: str = type_  # 'land', 'water', or 'coast'
+_engine_map_data: Optional[MapData] = None
 
-    def add_adjacent(self, province: str) -> None:
-        self.adjacent.add(province)
+
+def _engine_map() -> MapData:
+    """The engine's topology for the bundled standard map (module-cached).
+
+    A rendering -> engine import is fine; only the reverse direction (engine
+    importing rendering) is banned. Used to replace what used to be a
+    duplicate, hardcoded topology parser in this module.
+    """
+    global _engine_map_data
+    if _engine_map_data is None:
+        _engine_map_data = load_standard_map()
+    return _engine_map_data
+
+
+def _is_water_province(province_code: str) -> bool:
+    """Ocean hatching predicate, backed by the engine's province types."""
+    try:
+        return _engine_map().province_type(province_code) is ProvinceType.WATER
+    except KeyError:
+        return False
 
 class MapCache:
     """Comprehensive map caching system for performance optimization."""
@@ -214,213 +230,15 @@ def _get_power_colors_dict() -> Dict[str, str]:
 
 
 class Map:
-    """Represents the Diplomacy map, including provinces and their adjacencies."""
-    
-    # List of water provinces (sea/ocean spaces)
-    WATER_PROVINCES = {
-        "ADR", "AEG", "BAL", "BAR", "BLA", "BOT", "EAS", "ENG", "HEL", "ION", "IRI", "MAO", "NAO", "NTH", "NWG", "SKA", "TYS", "WES"
-    }
-    
-    def __init__(self, map_name: str = 'standard') -> None:
-        self.provinces: Dict[str, Province] = {}
-        self.supply_centers: Set[str] = set()
-        self.map_name: str = map_name
-        self.logger = logging.getLogger("diplomacy.rendering.map")
-        self._init_map(map_name)
+    """Namespace for the SVG -> PNG rendering pipeline.
 
-    def _init_map(self, map_name: str) -> None:
-        if map_name == 'standard' or map_name == 'standard-v2':
-            # standard-v2 uses the same game logic as standard, just different visual appearance
-            self._init_classic_map()
-        else:
-            # Load map from file for variants
-            map_dir = os.path.join(os.path.dirname(__file__), '../../maps')
-            map_file = os.path.join(map_dir, f'{map_name}.json')
-            if not os.path.isfile(map_file):
-                raise FileNotFoundError(f"Map file '{map_file}' not found for variant '{map_name}'")
-            with open(map_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            # Expecting JSON: {"provinces": {name: {"is_supply_center": bool, "adjacent": [str], "coasts": [str]}}}
-            for name, info in data["provinces"].items():
-                prov = Province(name, is_supply_center=info.get("is_supply_center", False), coasts=info.get("coasts", []))
-                self.provinces[name] = prov
-                if prov.is_supply_center:
-                    self.supply_centers.add(name)
-            # Add adjacencies
-            for name, info in data["provinces"].items():
-                for adj in info.get("adjacent", []):
-                    if adj in self.provinces:
-                        self.provinces[name].add_adjacent(adj)
-                        self.provinces[adj].add_adjacent(name)
-
-    def _init_classic_map(self) -> None:
-        """Initialize standard map by parsing standard.map file as the single source of truth."""
-        # Use standard.map as the authoritative source for adjacencies
-        map_dir = os.path.join(os.path.dirname(__file__), '../../maps')
-        map_file = os.path.join(map_dir, 'standard.map')
-        
-        if not os.path.isfile(map_file):
-            raise FileNotFoundError(
-                f"standard.map not found at {map_file}. "
-                f"This file is required as the single source of truth for province adjacencies."
-            )
-        
-        try:
-            self._parse_map_file(map_file)
-            self.logger.info(f"Successfully loaded standard map from {map_file}")
-        except Exception as e:
-            self.logger.error(f"Failed to parse standard.map: {e}")
-            raise RuntimeError(
-                f"Failed to parse standard.map at {map_file}. "
-                f"This file is required and must be valid. Error: {e}"
-            ) from e
-
-    def _parse_map_file(self, map_file_path: str) -> None:
-        """
-        Parse a .map file as the single source of truth for province adjacencies.
-        
-        Handles:
-        - Province types from LAND/COAST/WATER prefixes
-        - Case-insensitive province names (normalizes to uppercase)
-        - Multi-coast provinces (BUL/EC, BUL/SC, STP/NC, STP/SC, SPA/NC, SPA/SC)
-        - Supply centers from power definitions
-        - Bidirectional adjacencies
-        """
-        from engine.province_mapping import get_sea_provinces, get_coastal_provinces, get_land_provinces
-        
-        with open(map_file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # Get province type mappings for validation
-        water_provinces = set(get_sea_provinces())
-        coastal_provinces = set(get_coastal_provinces())
-        land_provinces = set(get_land_provinces())
-
-        # Parse supply centers from the power definitions
-        supply_centers: set[str] = set()
-        lines = content.split('\n')
-        for line in lines:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('#'):
-                continue
-            # Parse power definition lines like "AUSTRIA     (AUSTRIAN)     BUD TRI VIE"
-            if '(' in line and ')' in line and not line.startswith('LAND') and not line.startswith('COAST') and not line.startswith('WATER'):
-                if line.count('(') == 1 and line.count(')') == 1:
-                    parts = line.split(')')
-                    if len(parts) == 2:
-                        centers_part = parts[1].strip()
-                        if centers_part:
-                            centers = centers_part.split()
-                            # Normalize supply center names to uppercase
-                            supply_centers.update([center.upper() for center in centers])
-
-        # Parse adjacencies and province types
-        adjacencies: dict[str, list[str]] = {}
-        province_types: dict[str, str] = {}  # Map province name to type: 'land', 'coastal', 'sea'
-        province_prefixes: dict[str, str] = {}  # Track LAND/COAST/WATER prefix for each province
-        
-        for line in lines:
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith('#'):
-                continue
-                
-            if line.startswith('LAND ') or line.startswith('COAST ') or line.startswith('WATER '):
-                # Parse adjacency line like "COAST    CLY        ABUTS    EDI LVP NAO NWG"
-                parts = line.split()
-                if len(parts) >= 4 and parts[2] == 'ABUTS':
-                    prefix = parts[0].upper()  # LAND, COAST, or WATER
-                    province_raw = parts[1]  # Keep original case for multi-coast handling
-                    province = province_raw.upper()  # Normalize to uppercase for key
-                    
-                    # Determine province type from prefix
-                    if prefix == 'LAND':
-                        province_types[province] = 'land'
-                    elif prefix == 'COAST':
-                        province_types[province] = 'coastal'
-                    elif prefix == 'WATER':
-                        province_types[province] = 'sea'
-                    
-                    province_prefixes[province] = prefix
-                    
-                    # Parse adjacent provinces (normalize to uppercase, handle case variations)
-                    adjacent_provinces = []
-                    for adj in parts[3:]:
-                        adj_upper = adj.upper()
-                        # Handle multi-coast provinces in adjacency list (e.g., "lvp", "edi")
-                        adjacent_provinces.append(adj_upper)
-                    
-                    # Store adjacencies (handle both specific coast and base province entries)
-                    if province not in adjacencies:
-                        adjacencies[province] = []
-                    adjacencies[province].extend(adjacent_provinces)
-
-        # Create provinces with correct types
-        for province, adj_list in adjacencies.items():
-            # Determine if this is a supply center
-            is_supply_center = province in supply_centers
-            
-            # Get province type (default to 'land' if not specified)
-            prov_type = province_types.get(province, 'land')
-            
-            # Validate province type against mapping (for consistency check)
-            if prov_type == 'sea' and province not in water_provinces:
-                self.logger.warning(f"Province {province} marked as sea in map file but not in water_provinces mapping")
-            elif prov_type == 'coastal' and province not in coastal_provinces:
-                self.logger.warning(f"Province {province} marked as coastal in map file but not in coastal_provinces mapping")
-            elif prov_type == 'land' and province not in land_provinces and province not in coastal_provinces:
-                # Some provinces might be in both, which is fine
-                pass
-            
-            # Create province with correct type
-            self.provinces[province] = Province(province, is_supply_center=is_supply_center, type_=prov_type)
-            if is_supply_center:
-                self.supply_centers.add(province)
-        
-        # Create bidirectional adjacencies
-        for province, adjacent_list in adjacencies.items():
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_adjacents = []
-            for adj in adjacent_list:
-                if adj not in seen and adj in self.provinces:
-                    seen.add(adj)
-                    unique_adjacents.append(adj)
-            
-            # Set adjacencies (bidirectional)
-            for adj in unique_adjacents:
-                if adj in self.provinces:
-                    self.provinces[province].add_adjacent(adj)
-                    self.provinces[adj].add_adjacent(province)
-        
-        # Validation: Check bidirectional consistency
-        self._validate_adjacencies()
-
-    def _validate_adjacencies(self) -> None:
-        """Validate that adjacencies are bidirectional and complete."""
-        issues = []
-        
-        # Check bidirectional consistency: if A borders B, B should border A
-        for prov_name, province in self.provinces.items():
-            for adj in province.adjacent:
-                if adj in self.provinces:
-                    adj_province = self.provinces[adj]
-                    if prov_name not in adj_province.adjacent:
-                        issues.append(f"Adjacency inconsistency: {prov_name} borders {adj}, but {adj} does not border {prov_name}")
-        
-        if issues:
-            self.logger.warning(f"Found {len(issues)} adjacency inconsistencies:")
-            for issue in issues[:10]:  # Limit to first 10
-                self.logger.warning(f"  {issue}")
-            if len(issues) > 10:
-                self.logger.warning(f"  ... and {len(issues) - 10} more")
-        
-        # Check that all provinces have at least one adjacency (except possibly impassable)
-        for prov_name, province in self.provinces.items():
-            if len(province.adjacent) == 0:
-                self.logger.warning(f"Province {prov_name} has no adjacencies")
-    
+    ``Map`` carries no per-instance topology state -- ``engine.map_loader`` is
+    the sole topology source (province adjacency, supply centers, coasts).
+    Every method here is a ``@staticmethod`` operating on plain data (unit
+    lists, phase info, SVG paths) fed in by the caller; there is nothing left
+    to construct, so the class is used purely as a namespace and is never
+    instantiated.
+    """
 
     @staticmethod
     def _resolve_svg_path(map_name: str = 'standard') -> str:
@@ -655,10 +473,9 @@ class Map:
             # Get supply centers set if filtering is enabled
             if color_only_supply_centers:
                 if supply_centers_set is None:
-                    # Try to get supply centers from Map instance if available
+                    # Get supply centers from the engine's topology if available
                     try:
-                        map_instance = Map("standard")
-                        supply_centers_set = set(map_instance.get_supply_centers())
+                        supply_centers_set = set(_engine_map().supply_centers)
                     except Exception:
                         supply_centers_set = set()  # Fallback: empty set
                 # Filter province_power_map to only include supply centers
@@ -686,7 +503,7 @@ class Map:
                         
                         path_data = path_elem.get('d')
                         if path_data:
-                            if normalized_id in Map.WATER_PROVINCES:
+                            if _is_water_province(normalized_id):
                                 polygon_points = Map._extract_polygon_points_from_path(path_data, 195, 170)
                                 pattern_color = (*rgb_color, 120)
                                 if polygon_points and len(polygon_points) >= 3:
@@ -1143,8 +960,7 @@ class Map:
         supply_centers_set = None
         if color_only_supply_centers:
             try:
-                map_instance = Map("standard")
-                supply_centers_set = set(map_instance.get_supply_centers())
+                supply_centers_set = set(_engine_map().supply_centers)
             except Exception:
                 supply_centers_set = set()
         
@@ -1506,29 +1322,6 @@ class Map:
         
         return img_bytes
 
-    def get_province(self, name: str) -> Optional[Province]:
-        return self.provinces.get(name)
-
-    def is_adjacent(self, from_prov: str, to_prov: str) -> bool:
-        return to_prov in self.provinces[from_prov].adjacent
-
-    def get_supply_centers(self) -> Set[str]:
-        return self.supply_centers
-
-    def get_locations(self) -> List[str]:
-        return list(self.provinces.keys())
-
-    def get_adjacency(self, location: str) -> List[str]:
-        prov = self.get_province(location)
-        if prov:
-            self.logger.debug(f"get_adjacency({location}) -> {prov.adjacent}")
-            return list(prov.adjacent)
-        self.logger.debug(f"get_adjacency({location}) -> [] (not found)")
-        return []
-
-    def validate_location(self, location: str) -> bool:
-        return location in self.provinces
-    
     @staticmethod
     def get_cache_stats() -> Dict[str, Any]:
         """Get map cache statistics."""
