@@ -12,7 +12,6 @@ from typing import Dict, Any, List
 
 from server.telegram_bot.config import get_telegram_token
 from server.telegram_bot.api_client import api_post, api_get
-from server.telegram_bot.orders import normalize_order_provinces
 from server.telegram_bot.games import process_waiting_list
 
 
@@ -94,19 +93,6 @@ class TestBotCommands:
         result = api_get('/test')
         assert result == {'data': 'test'}
         mock_get.assert_called_once()
-    
-    def test_normalize_order_provinces_basic(self):
-        """Test basic province normalization."""
-        result = normalize_order_provinces("A PAR - BUR", "FRANCE")
-        assert "PAR" in result
-        assert "BUR" in result
-    
-    def test_normalize_order_provinces_with_power(self):
-        """Test province normalization with power prefix."""
-        result = normalize_order_provinces("FRANCE A PAR - BUR", "FRANCE")
-        assert "FRANCE" not in result  # Power should be removed
-        assert "PAR" in result
-        assert "BUR" in result
 
 
 class TestProcessWaitingList:

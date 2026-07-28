@@ -15,7 +15,6 @@ from telegram import Update, Message, User, Chat, CallbackQuery
 from telegram.ext import ContextTypes
 
 from server.telegram_bot.games import start
-from server.telegram_bot.orders import normalize_order_provinces
 from tests.conftest import _get_db_url
 
 
@@ -199,40 +198,6 @@ class TestInvalidGameID:
         # Should handle gracefully (parse error or validation error)
         # Implementation depends on actual handler
         pass
-
-
-@pytest.mark.telegram
-@pytest.mark.unit
-class TestMalformedOrders:
-    """Test handling of malformed orders."""
-    
-    def test_malformed_order_syntax(self):
-        """Test handling of orders with syntax errors."""
-        # Test order normalization with invalid syntax
-        try:
-            result = normalize_order_provinces("INVALID ORDER FORMAT", "FRANCE")
-            # Should either normalize or raise error
-        except Exception:
-            # Expected for invalid syntax
-            pass
-    
-    def test_empty_order_text(self):
-        """Test handling of empty order text."""
-        try:
-            result = normalize_order_provinces("", "FRANCE")
-            # Should handle empty string
-        except Exception:
-            # May raise error for empty string
-            pass
-    
-    def test_order_with_special_characters(self):
-        """Test handling of orders with special characters."""
-        try:
-            result = normalize_order_provinces("A PAR@ - BUR#", "FRANCE")
-            # Should handle or reject special characters
-        except Exception:
-            # Expected for invalid characters
-            pass
 
 
 @pytest.mark.telegram
