@@ -114,7 +114,7 @@ def _color_provinces_by_power_with_transparency(
                 # Get supply centers from the engine's topology if available
                 try:
                     supply_centers_set = set(_engine_map().supply_centers)
-                except Exception:
+                except (OSError, ValueError, KeyError):
                     supply_centers_set = set()  # Fallback: empty set
             # Filter province_power_map to only include supply centers
             province_power_map = {prov: color for prov, color in province_power_map.items()
@@ -167,7 +167,7 @@ def _color_provinces_by_power_with_transparency(
         # Composite the overlay onto the background image using proper alpha compositing
         bg_image.paste(overlay, (0, 0), overlay)
 
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError) as e:
         logger.warning(f"Could not parse SVG for province coloring: {e}")
         # Fallback: continue without province coloring
 
@@ -269,7 +269,7 @@ def _extract_polygon_points_from_path(
             return points
         return None
 
-    except Exception as e:
+    except (ValueError, TypeError, IndexError) as e:
         logger.warning(f"Could not extract polygon points from path: {e}")
         return None
 
@@ -286,7 +286,7 @@ def _fill_svg_path_with_transform(
             # Draw the filled polygon with transformed coordinates
             draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
 
-    except Exception as e:
+    except (ValueError, TypeError, IndexError) as e:
         logger.warning(f"Could not fill SVG path with transform: {e}")
         # Fallback: continue without path filling
 
@@ -375,7 +375,7 @@ def _draw_ocean_pattern(
         # Composite pattern onto overlay - transparent areas remain transparent
         overlay_image.paste(pattern_img, (0, 0), pattern_img)
 
-    except Exception as e:
+    except (ValueError, TypeError, IndexError, ZeroDivisionError) as e:
         logger.warning(f"Could not draw ocean pattern: {e}")
         # Fallback: continue without pattern
 
@@ -427,7 +427,7 @@ def _fill_svg_path_direct(draw: ImageDraw.ImageDraw, path_data: str, fill_color:
                 # Draw the filled polygon with direct SVG coordinates
                 draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
 
-    except Exception as e:
+    except (ValueError, TypeError, IndexError) as e:
         logger.warning(f"Could not fill SVG path with direct coordinates: {e}")
         # Fallback: continue without path filling
 
@@ -486,6 +486,6 @@ def _fill_svg_path(draw: ImageDraw.ImageDraw, path_data: str, fill_color: Any, s
                 # Draw the filled polygon
                 draw.polygon(points, fill=fill_color, outline=stroke_color, width=2)
 
-    except Exception as e:
+    except (ValueError, TypeError, IndexError) as e:
         logger.warning(f"Could not fill SVG path: {e}")
         # Fallback: continue without path filling
