@@ -13,22 +13,23 @@
 
 ## Status
 
-- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR5 — `turn-lifecycle`,** which is
-  independent of everything landed so far. PR1–PR4 are merged; PR6 and the manual
-  end-to-end check remain. **The manual end-to-end check is now runnable** — it was
-  gated on PR4.
-- **UNBLOCKED: Track B — Post-rewrite cleanup.** V0 done 2026-07-28 (`v2.7.19`); V1 was
-  absorbed into PR4 and is complete. **V2 done 2026-07-28 (`v2.7.24`, branch
-  `renderer-topology-v2`, pushed not merged)** — see the V2 section below for details.
-  **V3–V4 are now startable.** V5 is independent filler. Track B may be run in parallel
-  with PR5/PR6 — they touch disjoint files.
-- **Suite baseline (post-V2, `renderer-topology-v2`):** 840 passed, 15 skipped, 10
-  xfailed; ruff clean; engine coverage 92.86%, overall 61.73%. (Was 890/15/10 before
-  V2 — the 50-test drop is entirely deleted dead-module tests: 34 in
-  `test_province_mapping.py` plus 16 elsewhere that exercised the retired
-  `normalize_province_name`/`normalize_order_provinces`/`Map` topology-query API; see
-  the V2 section for the itemized list.) **Frontend baseline unchanged:** 99 passed in
-  21 files; `tsc -b --noEmit` and `npm run build` clean (V2 touched no frontend files).
+- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR6 — `test-hygiene`** (last and
+  small). PR1–PR5 are merged. After PR6 only the **manual end-to-end check** remains,
+  and it is the acceptance criterion for the whole track — it needs a live bot token and
+  a human at a Telegram client, so it cannot be delegated to an agent.
+- **Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are merged; V1
+  was absorbed into PR4. **V3–V5 are startable and independent of PR6** — they touch
+  disjoint files, so they can run in parallel.
+- **Suite baseline (post-PR5, on `main`):** 852 passed, 11 skipped, 10 xfailed; ruff
+  clean; engine coverage 92.86%, overall 62.02%. The skip count dropped 15 → 11 because
+  PR5 un-skipped the four scheduler tests. **Frontend baseline:** 99 passed in 21 files;
+  `tsc -b --noEmit` and `npm run build` clean.
+- **Two counts that look alarming but are fine:** V2's suite drop (890 → 840) is
+  *entirely* deleted dead-module tests — 34 in `test_province_mapping.py` plus 16
+  elsewhere exercising the retired `normalize_province_name` /
+  `normalize_order_provinces` / `Map` topology-query API. And engine coverage fell
+  92.97% → 92.86% because V2 deleted 366 well-tested engine lines; that leaves **0.86
+  points of headroom over the 92 floor**, which PR6's ratchet must not squeeze further.
 - **Last updated:** 2026-07-28.
 
 ### Where the old trackers went
@@ -263,41 +264,46 @@ to carry them; pattern copied from `GET /games/{id}/messages`); new
    `engine/orders/parser.py`, after which the bot should stop normalizing entirely and let
    the server's single grammar handle aliases.
 
-## PR 5 — `turn-lifecycle` (independent of PR3/PR4)
+## PR 5 — `turn-lifecycle` ✅ MERGED (`v2.7.23`)
 
-- [ ] **`/status` submission state (carried over from PR4).** Once
-      `GET /games/{id}/orders_status` exists, wire the Telegram `/status` command to it.
-      PR4 removed the old, already-broken submission-status block rather than fake it;
-      `GET /games/{id}/orders` cannot substitute because it only returns the caller's own
-      power.
+- [x] **`/status` submission state** (carried over from PR4) — the Telegram `/status`
+      command now reads `GET /games/{id}/orders_status`.
+- [x] `POST /deadline` no longer mutates a **detached** ORM object that never commits;
+      it uses `update_game_deadline`, which opens its own session and commits.
+- [x] Concurrency: `expected_phase_code` added to `GameRepo.save_state`, raising
+      `StaleGameError` → **409**. This is the cross-process guard an `asyncio.Lock`
+      cannot be (each uvicorn worker has its own). The non-acquiring `lock.locked()`
+      check in `api/shared.py` is deleted.
+- [x] New `GET /games/{id}/orders_status` + `POST /process_turn?require_all=true`
+      (default stays `false`; the deadline scheduler never passes it).
+- [x] `restore/{snapshot_id}` is real: snapshots now also carry `state_json` (the raw
+      `state_to_dict`, not the view shape) via Alembic `d1e2f3a4b5c6`. Purely additive —
+      `/history` and `/replay` never read the column — and restoring a pre-migration
+      snapshot fails loudly with **409** instead of silently doing nothing.
+      `GameRepo.restore_state` deliberately has **no** staleness check: a restore is an
+      explicit caller-decided rollback, and it clears `pending_orders` (they were
+      submitted against the phase being discarded).
+- [x] The four scheduler tests are un-skipped (15 → 11 skips). Both long real sleeps are
+      gone: the reminder test calls the new `check_and_send_reminders(now)` directly.
+- [x] New `tests/test_persistence_database_service.py` — first direct coverage of the
+      1033-LOC DAL, including an explicit test that `commit()` is a no-op so nobody
+      reintroduces the detached-mutation pattern.
 
-- [ ] `POST /deadline` (`routes/games.py:469-484`) mutates a **detached** ORM object and
-      never commits (the session closes at `database_service.py:315-318`, and
-      `db_service.commit()` is a documented no-op) — so the deadline is silently
-      discarded. Switch to `update_game_deadline`, which the scheduler already uses and
-      which commits.
-- [ ] Concurrency: `POST /process_turn` **does** correctly acquire its lock (`async with
-      lock:` — an earlier survey claim that it only checks `lock.locked()` was wrong),
-      but an `asyncio.Lock` is per-process and won't survive a second uvicorn worker. Add
-      `expected_phase_code` to `GameRepo.save_state`, raise `StaleGameError` → 409. Drop
-      the `lock.locked()` check in `api/shared.py:127-136`, which pretends to guard
-      without acquiring.
-- [ ] New `GET /games/{id}/orders_status` + `POST /process_turn?require_all=true`.
-      **Default stays `false`** so no existing test changes; both clients pass `true`,
-      the deadline scheduler never does.
-- [ ] `restore/{snapshot_id}` is a stub — snapshots store the *view*, which
-      `state_from_dict` can't read. Add `state_json` to the snapshot payload (purely
-      additive, so `/history` and `/replay` keep working) and make restore of a
-      pre-change snapshot fail loudly with 409.
-- [ ] **Un-skip the four scheduler tests** (`test_api_scheduler.py:58,78,106,129`). Their
-      stated reason ("session isolation") is stale: `update_game_deadline` opens its own
-      session and commits, so once `set_deadline` uses it the value *is* visible
-      cross-session. Rewrite the 70-second reminder test to call the reminder branch
-      directly instead of `time.sleep`.
-- [ ] New `tests/test_persistence_database_service.py` — first direct coverage of the
-      1033-LOC DAL. Start narrow: `update_game_deadline` round-trip incl. `None`,
-      snapshot create/get, `get_players_by_game_id`, and an explicit test that `commit()`
-      is a no-op so nobody reintroduces the detached-mutation pattern.
+### Two real bugs the un-skipped scheduler tests exposed
+
+The plan assumed those four tests were skipped for a stale reason ("session isolation").
+That was true but not the whole story — un-skipping them surfaced two genuine defects:
+
+1. **The tests never sent `Authorization` headers**, so `/games/create` and
+   `POST /deadline` 401'd immediately. They would have failed for that reason alone.
+2. **`games.deadline` is a naive `TIMESTAMP` column.** Postgres converts a tz-aware
+   value to the *connection's session timezone* on write and stores it naive, while every
+   reader reinterprets naive as UTC. On any non-UTC session timezone (a local dev
+   Postgres defaults to the machine's zone — this one is `Europe/Helsinki`) **every
+   deadline was silently shifted by the zone offset.** CI never caught it because its
+   Postgres runs UTC. `update_game_deadline` now normalizes to naive UTC before writing.
+   **If you add another `datetime` column, either make it `timestamptz` or normalize on
+   write — do not assume the session timezone is UTC.**
 
 ## PR 6 — `test-hygiene` (last, small)
 
