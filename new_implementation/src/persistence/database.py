@@ -9,9 +9,22 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
+
+
+def utcnow_naive() -> datetime:
+    """Current UTC time as a **naive** datetime, for the naive ``DateTime`` columns below.
+
+    Replaces ``datetime.utcnow`` (deprecated in 3.12+). Deliberately naive rather than
+    tz-aware: every timestamp column here is a plain ``TIMESTAMP``, and Postgres converts
+    a tz-aware value to the *connection's session timezone* before storing it naive — so
+    handing it an aware value silently shifts the stored time by the session's offset on
+    any non-UTC connection. That is exactly the bug `v2.7.23` fixed for ``games.deadline``.
+    Readers here already treat naive values as UTC, so produce naive UTC.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class GameModel(Base):
@@ -43,8 +56,8 @@ class GameModel(Base):
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
     
     # Relationships
     players = relationship("PlayerModel", back_populates="game", cascade="all, delete-orphan")
@@ -68,8 +81,8 @@ class UserModel(Base):
     full_name = Column(String(255), nullable=False)
     username = Column(String(255))
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
     
     # Relationships
     players = relationship("PlayerModel", back_populates="user")
@@ -86,7 +99,7 @@ class LinkCodeModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     code = Column(String(32), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Relationships
     user = relationship("UserModel", back_populates="link_codes")
@@ -100,7 +113,7 @@ class PasswordResetTokenModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     token = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     # Relationships
     user = relationship("UserModel", backref="password_reset_tokens")
@@ -120,7 +133,7 @@ class PlayerModel(Base):
     controlled_supply_centers = Column(JSON, default=list)
     orders_submitted = Column(Boolean, default=False)
     last_order_time = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Constraints and indexes
     __table_args__ = (
@@ -146,7 +159,7 @@ class UnitModel(Base):
     dislodged_by = Column(String(20))
     can_retreat = Column(Boolean, default=True)
     retreat_options = Column(JSON, default=list)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Constraints
     __table_args__ = (
@@ -185,7 +198,7 @@ class OrderModel(Base):
     failure_reason = Column(Text)
     phase = Column(String(20), nullable=False)
     turn_number = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Constraints and indexes
     __table_args__ = (
@@ -209,7 +222,7 @@ class SupplyCenterModel(Base):
     controlling_power = Column(String(20))
     is_home_supply_center = Column(Boolean, default=False)
     home_power = Column(String(20))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Constraints
     __table_args__ = (
@@ -235,7 +248,7 @@ class TurnHistoryModel(Base):
     units_after = Column(JSON)
     supply_centers_before = Column(JSON)
     supply_centers_after = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Relationships
     game = relationship("GameModel", back_populates="turn_history")
@@ -252,7 +265,7 @@ class MapSnapshotModel(Base):
     units = Column(JSON, nullable=False)
     supply_centers = Column(JSON, nullable=False)
     map_image_path = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     # The full serialized GameState (engine.serialization.state_to_dict) captured at
     # snapshot time, so /restore can rebuild an engine Game via state_from_dict.
     # Purely additive: nullable, so snapshots created before this column existed
@@ -299,7 +312,7 @@ class ChannelMessageModel(Base):
     thread_id = Column(Integer, nullable=True)  # For forum topics/threads
     parent_message_id = Column(Integer, nullable=True)  # For reply threading
     reaction_counts = Column(JSON, nullable=True)  # JSONB for reaction tracking
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Relationships
     game = relationship("GameModel")
@@ -319,7 +332,7 @@ class ChannelProposalModel(Base):
     votes_support = Column(Integer, default=0)
     votes_oppose = Column(Integer, default=0)
     votes_undecided = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Relationships
     game = relationship("GameModel")
@@ -338,7 +351,7 @@ class ChannelTimelineEventModel(Base):
     event_type = Column(String(50), nullable=False)  # 'elimination', 'major_battle', 'supply_change', 'victory'
     event_description = Column(Text, nullable=False)
     power = Column(String(20), nullable=True)  # Power involved in event
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     # Relationships
     game = relationship("GameModel")
@@ -356,7 +369,7 @@ class ChannelAnalyticsModel(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # User who triggered the event
     power = Column(String(20), nullable=True)  # Power associated with the event
     event_data = Column(JSON, nullable=True)  # Additional event data (message_id, response_time, etc.)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
     
     # Indexes for efficient querying
     __table_args__ = (
@@ -381,8 +394,8 @@ class TournamentModel(Base):
     bracket_type = Column(String(50), nullable=True)  # 'single_elimination', 'double_elimination', 'round_robin'
     start_date = Column(DateTime, nullable=True)
     end_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
     # Relationships
     games = relationship("TournamentGameModel", back_populates="tournament", cascade="all, delete-orphan")
@@ -398,7 +411,7 @@ class TournamentGameModel(Base):
     game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
     round_number = Column(Integer, nullable=False, default=1)
     bracket_position = Column(String(50), nullable=True)  # e.g. '1', '2', 'semifinal_1'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         UniqueConstraint('tournament_id', 'game_id', name='uq_tournament_game'),
@@ -418,7 +431,7 @@ class TournamentPlayerModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True)
     seed = Column(Integer, nullable=True)
     final_rank = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         UniqueConstraint('tournament_id', 'user_id', name='uq_tournament_user'),
@@ -436,7 +449,7 @@ class SpectatorModel(Base):
     id = Column(Integer, primary_key=True)
     game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    joined_at = Column(DateTime, default=utcnow_naive, nullable=False)
 
     __table_args__ = (
         UniqueConstraint('game_id', 'user_id', name='uq_spectator_game_user'),
