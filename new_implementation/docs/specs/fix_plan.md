@@ -18,20 +18,17 @@
   track. It needs a live bot token and a human at a Telegram client, so **it cannot be
   delegated to an agent** — it is the maintainer's to run.
 - **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are
-  merged; V1 was absorbed into PR4. **V3 (the `map.py` split) is in flight** on branch
-  `rendering-split-v3`. **NEXT TASK after V3 lands: V4** (overlay correctness), with
-  **V5 as independent filler** — note V5 now carries the `standard-v2` deletion below,
-  which touches `rendering/map.py` and so must wait for V3 to avoid conflicting.
-- **V5 now includes a maintainer decision (2026-07-28): delete `standard-v2` entirely** —
-  `maps/v2.svg`, `maps/v2/`, the `_KNOWN_MAP_NAMES` entry, the `svg_path_for_map_name`
-  and `_resolve_svg_path` branches, the health-check reference and both test files.
-  **Reason it can never have worked:** the renderer locates provinces by SVG path `id`
-  normalized to 3-letter codes (`map.py`), and `standard.svg` has 80 such ids while
-  `v2.svg` has **zero** — its 43 ids are layer names (`Backdrop`, `Countries`, `Centres`).
-  A `standard-v2` game renders background art with no province colouring and no units
-  placed. The existing test only asserted `len(img_bytes) > 0`, which is why it looked
-  fine. Making it real would mean re-authoring the SVG with per-province geometry — an
-  illustration task, not plumbing.
+  merged; V1 was absorbed into PR4.
+- **NEXT TASK: merge the open V3 PR, then finish V3's one remaining item** — narrowing the
+  25 blanket `except Exception` blocks, which were relocated but never narrowed. The
+  `map.py` split itself is done and verified on branch `rendering-split-v3` (gates green,
+  renders byte-identical); it is **pushed with a PR open, not yet merged.**
+- **After V3: V4** (overlay correctness), with **V5 as independent filler** — note V5 now
+  carries the `standard-v2` deletion below, which touches `rendering/map.py` and so should
+  follow V3 to avoid conflicting.
+- **Maintainer decision 2026-07-28: `standard-v2` gets deleted entirely.** It could never
+  have rendered a playable board. Full reasoning and the exact file list are in the V5
+  section — read it there before touching anything named `v2`.
 - **Suite baseline (post-PR6, on `main`):** 852 passed, 11 skipped, 10 xfailed; ruff
   clean; engine coverage 92.86%, overall 62.02%. The skip count dropped 15 → 11 because
   PR5 un-skipped the four scheduler tests. **Frontend baseline:** 99 passed in 21 files;
@@ -40,7 +37,8 @@
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-28.
+- **Last updated:** 2026-07-28 (end of the Track A session: PR1–PR6 all merged,
+  `v2.7.17`–`v2.7.25`; Track B V0/V2 merged, V3 pushed with a PR open).
 
 ### Where the old trackers went
 
@@ -372,11 +370,11 @@ No automated test spans this. Run it after PR4.
 
 # Track B — Post-Rewrite Cleanup: dead code & visualization quality
 
-**UNBLOCKED as of `v2.7.22`** — PR4 removed the bot's `rendering.map` import, which was
-the last src consumer of the renderer's topology half, so finding 2 below is now spent and
-V2–V4 can start. V5 was always independent. Goal: remove the remaining pre-rewrite dead
-and duplicated code, and bring `src/rendering/` up to the engine's standard — single
-topology source, focused modules, correct overlays.
+**ACTIVE TRACK as of `v2.7.25`** — Track A is finished, so this is where work continues.
+V0 and V2 are merged, V1 was absorbed into PR4, V3 is done-but-unmerged (one item
+outstanding). **V4 and V5 remain.** Goal: remove the remaining pre-rewrite dead and
+duplicated code, and bring `src/rendering/` up to the engine's standard — single topology
+source, focused modules, correct overlays.
 
 ## Findings driving this track (verified by direct reads, 2026-07-28)
 
@@ -390,18 +388,20 @@ topology source, focused modules, correct overlays.
    UI.~~ SPENT as of `v2.7.22`:** PR4 rewired that UI onto `legal_orders` and deleted the
    import. **The topology half of `rendering/map.py` now has zero src consumers** — verify
    with `grep -rn "rendering" src/server/telegram_bot/` (empty) before starting V2.
-3. **`engine/province_mapping.py` (365 lines) is almost retired.** Remaining consumers:
+3. **~~`engine/province_mapping.py` (365 lines) is almost retired.~~ SPENT by V2** — the
+   module is deleted and `grep -rn "province_mapping" src/ tests/` is empty. Original note,
+   kept for context: remaining consumers were
    `map.py:289` (type lists used only for *warnings* inside the doomed `_parse_map_file`)
    and `telegram_bot/orders.py` (a function-local `normalize_province_name` import on the
    **user-typed-order path only** — PR4 stopped calling it on `legal_orders` strings). It
    also sits inside `src/engine/`, violating "engine = pure rules logic". V2 should fold
    the alias table into `engine/orders/parser.py` and drop the bot's normalization
    entirely, letting the server's single grammar resolve aliases.
-4. **`map.py` is a 3,150-line God class**: one `Map` class, ~80 methods (mostly static),
-   26 blanket `except Exception`, duplicated primitives (`_draw_checkmark` vs
-   `_draw_success_checkmark`, `_draw_status_x` vs `_draw_failure_x`), and a redundant
-   public pair (`render_board_png_orders` at `:1382` is a thin alias over
-   `render_board_png_with_orders` at `:1320`).
+4. **~~`map.py` is a 3,150-line God class.~~ SPENT by V3** (branch `rendering-split-v3`):
+   split into 7 modules, none over 687 lines, with `map.py` left as a 185-line facade. The
+   duplicated primitives and the `render_board_png_with_orders` alias are gone. **The 26
+   blanket `except Exception` blocks are NOT** — 25 remain, relocated into the new modules.
+   That is V3's one open item.
 5. **Overlay adapter gaps** (`rendering/order_overlay.py` — otherwise clean, keep its
    style): each `Convoy` order emits `convoy_chain=[own fleet]` instead of one merged
    chain per convoyed move; `ResultCode.DISLODGED → "success"` styling is misleading;
@@ -432,7 +432,7 @@ from `legal_orders`, delete the `rendering.map` import, stop province-normalizin
 server-emitted strings). Nothing to do here; kept as a placeholder so V-numbering in the
 `v2.7.19` commit history stays meaningful.
 
-### V2 — Delete the renderer's topology half; retire `province_mapping` ✅ DONE 2026-07-28 (`v2.7.24`, branch `renderer-topology-v2`, pushed not merged)
+### V2 — Delete the renderer's topology half; retire `province_mapping` ✅ MERGED (`v2.7.24`, PR #16)
 
 - [x] Deleted from `rendering/map.py`: the `Province` class (`:24`), `WATER_PROVINCES`
       (`:220`), `_init_map`/`_init_classic_map`/`_parse_map_file`/`_validate_adjacencies`
@@ -512,33 +512,49 @@ server-emitted strings). Nothing to do here; kept as a placeholder so V-numberin
       API-route functions with a captured logger — zero warnings logged by
       `diplomacy.rendering.map`.
 
-### V3 — Split `map.py` into focused modules
+### V3 — Split `map.py` into focused modules — **MOSTLY DONE**, branch `rendering-split-v3`
 
-3,150 lines / one class is the last pre-rewrite God object. Keep this **mechanical** —
-move code, don't redesign rendering (same rule the rewrite used for the M6 split). Note
-PR4 already creates `rendering/view_adapter.py`; slot it into this layout.
+`map.py` went from ~2,850 lines (post-V2) to a **185-line facade**. All gates green.
+**One task in this section is NOT done — see the unchecked box below; do not treat V3 as
+finished.**
 
-- [ ] Proposed layout (adjust with rationale here if reality disagrees):
-      - `rendering/cache.py` — `MapCache` + module-level `_map_cache`.
-      - `rendering/board.py` — SVG load/parse, coordinate extraction, province coloring,
-        ocean pattern, `render_board_png`, phase-info banner.
-      - `rendering/overlays.py` — `_draw_comprehensive_order_visualization` + every
-        arrow/marker primitive (`_draw_arrow`, curved/dashed/dotted variants, standoff,
-        conflict, checkmark/X).
-      - `rendering/legend.py` — `_draw_legend` (285 lines) + mini-icon helpers.
-      - `rendering/icons.py` — army/fleet icon loading & drawing.
-      - `rendering/map.py` stays as a thin facade re-exporting `Map` — or update the
-        importers (`api/routes/maps.py`, `api/routes/admin.py`, `telegram_bot/maps.py`,
-        tests) and delete the facade; pick one, note it here.
-- [ ] Deduplicate while moving (pure duplicates, safe to merge):
-      `_draw_checkmark`≡`_draw_success_checkmark`, `_draw_status_x`≡`_draw_failure_x`;
-      fold `render_board_png_with_orders` into `render_board_png_orders` (one public
-      name, the alias dies).
-- [ ] Narrow the 26 blanket `except Exception` blocks to what each site actually expects
-      (most guard font/icon loading and SVG parsing); let programming errors raise.
-- [ ] Type hints on every moved signature (mandatory repo-wide; ruff must stay clean).
-- [ ] **Done when:** no module in `rendering/` exceeds ~800 lines, suite + the map E2E
-      smoke green, `ruff check src/` clean.
+- [x] **Layout — 7 modules, not the proposed 5.** Two extra splits, both made purely to
+      stay under the ~800-line target and both documented in the modules' own docstrings:
+      `rendering/svg_paths.py` (491) was split out of `board.py`, and
+      `rendering/arrows.py` (566) out of `overlays.py`. Final sizes: `overlays.py` 687,
+      `board.py` 570, `arrows.py` 566, `svg_paths.py` 491, `legend.py` 338, `icons.py`
+      306, `cache.py` 196, `map.py` 185. **Nothing exceeds 687.**
+- [x] **Facade decision: `map.py` KEPT as a thin facade.** It re-exports `Map` as a
+      namespace of 49 `staticmethod(...)` bindings over the new module-level functions, so
+      `api/routes/maps.py`, `api/routes/admin.py` and the tests were not touched. Chosen
+      over deleting it because the alternative meant editing every importer for no
+      behavioural gain, and V4 still has overlay work to do against this surface.
+- [x] Deduplicated while moving: `_draw_checkmark` and `_draw_status_x` are gone (only
+      `_draw_success_checkmark` / `_draw_failure_x` survive), and the
+      `render_board_png_with_orders` alias is deleted — `render_board_png_orders` is the
+      single public name. Verified by grep: the old names appear nowhere in `src/`.
+- [x] Type hints on every moved signature; `ruff check src/` clean.
+- [ ] **NOT DONE — narrow the blanket `except Exception` blocks.** There are still **25**
+      of them (`board.py` 8, `svg_paths.py` 7, `cache.py` 6, `icons.py` 3, `overlays.py`
+      1). They were **relocated, not narrowed** — the count is essentially unchanged from
+      the original 26. This is the one V3 task left; do it as its own change, since it is
+      behavioural (letting programming errors raise) rather than mechanical, and so wants
+      its own careful test pass.
+- [x] **Done when** (except the box above): no module over ~800 lines ✅; suite green ✅
+      852 passed, 11 skipped, 10 xfailed; engine 92.86%, overall 61.74% (both floors
+      pass); `ruff check src/` clean ✅.
+
+**Evidence the split was genuinely mechanical:** the board and orders PNGs were rendered
+before and after and are **byte-identical** (sha256 `5273a039…` / `ac40f03b…`, 722,481 and
+725,129 bytes) with the byte cache cleared between runs. That check matters more than the
+test suite here — 25 blanket excepts can swallow a broken import and hand back a subtly
+wrong image while every test still passes.
+
+**Process note:** the V3 subagent died before committing, reporting, or updating this
+file. The work was recovered from its worktree, verified independently (gates + the
+byte-identical render comparison above), and committed by the driver. That is why this
+section is written from direct inspection rather than from an agent's report — and why the
+unfinished except-narrowing was caught rather than assumed done.
 
 ### V4 — Overlay correctness polish
 
@@ -564,11 +580,18 @@ PR4 already creates `rendering/view_adapter.py`; slot it into this layout.
 - [ ] Delete tracked backup cruft: `maps/standard_backup.svg`,
       `maps/standard_backup_20250730_145707.svg`, `maps/standard.map.backup`
       (git history is the backup). Check nothing globs `maps/*` for variants first.
-- [ ] Decide the fate of the `standard-v2` map variant (`maps/v2.svg`,
-      `Map._resolve_svg_path("standard-v2")`, two `test_standard_v2_*` files): it is not
-      reachable from any production flow (games are created with `map_name="standard"`).
-      Either wire it up as a real selectable variant or delete the SVG + tests. Ask the
-      maintainer if unsure — don't silently keep dead product surface.
+- [ ] **DELETE `standard-v2` entirely — maintainer decision, 2026-07-28.** Remove
+      `maps/v2.svg` (1.2 MB), `maps/v2/`, the `_KNOWN_MAP_NAMES` entry in
+      `api/routes/maps.py`, the `svg_path_for_map_name` branch in `rendering/view_adapter.py`,
+      the `Map._resolve_svg_path` branch, the `health.py` reference, and both
+      `test_standard_v2_*` files. **It could never have worked:** the renderer locates
+      provinces by SVG path `id` normalized to 3-letter codes, and `standard.svg` has 80
+      such ids while `v2.svg` has **zero** — its 43 ids are layer names (`Backdrop`,
+      `Countries`, `Centres`). A `standard-v2` game renders background art with no province
+      colouring and no units placed; the test only asserted `len(img_bytes) > 0`, which is
+      why it looked fine. Making it real needs the SVG re-authored with per-province
+      geometry — an illustration task, not plumbing. This also removes the suite's last
+      remaining warning (`PytestReturnNotNoneWarning` from `test_standard_v2_map.py`).
 - [ ] Modernize or prune the pre-rewrite print-style test scripts
       (`test_order_visualization.py`, `test_visualization.py`,
       `test_standard_v2_map.py`): drop `main()` runners, emoji banners, `sys.path`
@@ -584,7 +607,8 @@ PR4 already creates `rendering/view_adapter.py`; slot it into this layout.
 - [ ] **Track A acceptance:** a game plays end-to-end (movement, retreat, build) from
       both the browser and Telegram — the manual check above completed and each step
       checked off.
-- [ ] Frontend CI job green and required.
+- [x] Frontend CI job green and required (`v2.7.25` — verified green on `main` before
+      being switched on).
 - [ ] `src/rendering/` has zero topology knowledge beyond what it imports from
       `engine.map_loader`; `engine/province_mapping.py` is gone; no rendering module
       over ~800 lines.
@@ -607,11 +631,14 @@ PR4 already creates `rendering/view_adapter.py`; slot it into this layout.
 
 ## Risks / notes
 
-- The Telegram bot tests stub deep internals; PR4 will churn them — port assertions to
-  the new flow rather than deleting coverage.
-- The rendering split (V3) is import-graph surgery over a file with 26 broad excepts —
-  breakage may hide at runtime, not test time. Run the E2E smoke (orders + resolution
-  PNGs) after every move, not just at the end.
+- ~~The Telegram bot tests stub deep internals; PR4 will churn them.~~ Done — see PR4's
+  decision 1: three files were deleted rather than ported, with the reasoning recorded.
+- **The rendering split's broad excepts are still there (25 of them).** V3 moved the code
+  but did not narrow them, so breakage in `src/rendering/` can still hide at runtime
+  rather than test time. **When touching rendering, compare rendered PNG bytes before and
+  after** — that is how V3 was validated, and it catches what the suite cannot. A probe
+  script pattern: clear `Map.clear_map_cache()` + `/tmp/diplomacy_map_cache`, render board
+  and orders PNGs, compare sha256.
 - `visualization_config.json` is live again as of V0 — if arrow styling looks different
   in a diff of rendered PNGs, that's the intended restore, not a regression.
 - Renderer output is byte-cached (`/tmp/diplomacy_map_cache` + in-memory); clear it when
