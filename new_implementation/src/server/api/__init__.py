@@ -12,9 +12,20 @@ This package contains route modules organized by functionality:
 
 The main FastAPI app is re-exported here for backward compatibility (lazy to avoid circular import).
 """
-from .shared import deadline_scheduler, process_due_deadlines, ADMIN_TOKEN
+from .shared import (
+    deadline_scheduler,
+    process_due_deadlines,
+    check_and_send_reminders,
+    ADMIN_TOKEN,
+)
 
-__all__ = ["app", "deadline_scheduler", "process_due_deadlines", "ADMIN_TOKEN"]
+__all__ = [
+    "app",
+    "deadline_scheduler",
+    "process_due_deadlines",
+    "check_and_send_reminders",
+    "ADMIN_TOKEN",
+]
 
 
 def __getattr__(name: str):

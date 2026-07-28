@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from persistence.database_service import DatabaseService
-from persistence.game_repo import GameRepo
+from persistence.game_repo import GameRepo, StaleGameError
 from ..server import Server
 from ..game_service import GameService
 
@@ -121,19 +121,22 @@ def process_due_deadlines(now: datetime) -> None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
-                    # --- Process turn (with per-game lock to prevent double-processing) ---
+                    # Process the turn. Double-processing within this worker is
+                    # prevented by GameRepo.save_state's expected_phase_code check
+                    # (raises StaleGameError, caught below) -- an asyncio.Lock here
+                    # would only guard this one process anyway, not a second uvicorn
+                    # worker racing to process the same missed deadline, so it isn't
+                    # a real guard and has been removed rather than kept for show.
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
-                    lock = get_process_turn_lock(game_id_str)
-                    if lock.locked():
+                    try:
+                        game_service.process_turn(game_id_str)
+                    except StaleGameError:
                         scheduler_logger.warning(
-                            "PROCESS_TURN for game %s already in progress (scheduler), skipping.",
+                            "PROCESS_TURN for game %s already processed concurrently, skipping.",
                             game_id_str,
                         )
-                    else:
-                        try:
-                            game_service.process_turn(game_id_str)
-                        except Exception as e:
-                            scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
+                    except Exception as e:
+                        scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db_service.update_game_deadline(game_id_val, None)
                     db_service.commit()  # type: ignore
@@ -183,6 +186,40 @@ def process_due_deadlines(now: datetime) -> None:
         scheduler_logger.error(f"Error processing deadlines: {e}")
 
 
+def check_and_send_reminders(now: datetime) -> None:
+    """Send a one-time 10-minute-to-deadline reminder for every active game whose
+    deadline is due within the next 10 minutes and hasn't already had one sent
+    (tracked in-memory via ``reminder_sent``).
+
+    Split out from ``deadline_scheduler`` so it's callable directly -- both by the
+    scheduler's own loop and by tests, which would otherwise have no way to
+    exercise the reminder branch without sleeping through most of the 10-minute
+    window in real time.
+    """
+    if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+        now = now.replace(tzinfo=pytz.UTC)
+    try:
+        games = db_service.get_games_with_deadlines_and_active_status()
+        for game in games:
+            deadline = getattr(game, 'deadline', None)  # type: ignore
+            game_id_val = getattr(game, 'id', None)  # type: ignore
+            if game_id_val is None:
+                continue  # skip games with no id
+            if deadline is not None:
+                # deadlines are stored as naive UTC (see
+                # DatabaseService.update_game_deadline) -- reinterpret as UTC.
+                if deadline.tzinfo is None or deadline.tzinfo.utcoffset(deadline) is None:
+                    deadline = deadline.replace(tzinfo=pytz.UTC)
+                # Send reminder 10 minutes before deadline
+                if deadline - now <= timedelta(minutes=10) and deadline > now:
+                    if not reminder_sent.get(game_id_val, False):
+                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
+                        scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
+                        reminder_sent[game_id_val] = True
+    except Exception as e:
+        scheduler_logger.error(f"Error in deadline scheduler: {e}")
+
+
 async def deadline_scheduler() -> None:
     """
     Background task that checks all games with deadlines every 30 seconds.
@@ -198,20 +235,5 @@ async def deadline_scheduler() -> None:
         await asyncio.sleep(30)  # Check every 30 seconds
         now = datetime.now(timezone.utc)
         process_due_deadlines(now)
-        try:
-            games = db_service.get_games_with_deadlines_and_active_status()
-            for game in games:
-                deadline = getattr(game, 'deadline', None)  # type: ignore
-                game_id_val = getattr(game, 'id', None)  # type: ignore
-                if game_id_val is None:
-                    continue  # skip games with no id
-                if deadline is not None:
-                    # Send reminder 10 minutes before deadline
-                    if deadline - now <= timedelta(minutes=10) and deadline > now:
-                        if not reminder_sent.get(game_id_val, False):
-                            notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
-                            scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
-                            reminder_sent[game_id_val] = True
-        except Exception as e:
-            scheduler_logger.error(f"Error in deadline scheduler: {e}")
+        check_and_send_reminders(now)
 

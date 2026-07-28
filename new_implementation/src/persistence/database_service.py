@@ -345,11 +345,22 @@ class DatabaseService:
     def update_game_deadline(self, game_id: int, deadline: Optional[datetime]) -> None:
         """
         Update the deadline for a game.
-        
+
         Args:
             game_id: The game ID to update
             deadline: The new deadline (or None to clear the deadline)
+
+        ``games.deadline`` is a plain ``TIMESTAMP`` (no timezone) column: Postgres
+        silently converts a tz-aware value to the connection's session timezone and
+        stores it as naive wall-clock time on write. Every reader (the scheduler,
+        ``get_deadline``) then reinterprets a naive value as UTC -- correct only if
+        it was actually stored as UTC. A non-UTC session timezone (e.g. a local dev
+        Postgres defaulting to the machine's zone) would otherwise silently shift
+        every deadline by the zone offset. Normalize to naive UTC here so the
+        round trip is correct regardless of session timezone configuration.
         """
+        if deadline is not None and deadline.tzinfo is not None:
+            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
         with self.session_factory() as session:
             game = session.query(GameModel).filter_by(id=game_id).first()
             if game:
@@ -438,7 +449,24 @@ class DatabaseService:
             session.commit()
 
     # --- Snapshots & History ---
-    def create_game_snapshot(self, game_id: int, turn: int, year: int, season: str, phase: str, phase_code: str, game_state: Dict[str, Any]) -> MapSnapshotModel:
+    def create_game_snapshot(
+        self,
+        game_id: int,
+        turn: int,
+        year: int,
+        season: str,
+        phase: str,
+        phase_code: str,
+        game_state: Dict[str, Any],
+        state_json: Optional[Dict[str, Any]] = None,
+    ) -> MapSnapshotModel:
+        """Record a point-in-time snapshot.
+
+        ``game_state`` is the view shape (used for the ``units``/``supply_centers``
+        columns, kept for ``/history`` and ``/replay``). ``state_json``, when given,
+        is the raw serialized ``GameState`` (``engine.serialization.state_to_dict``)
+        -- the only shape ``restore_game_snapshot`` can rebuild a ``Game`` from.
+        """
         units = game_state.get('units', {})
         supply_centers = game_state.get('supply_centers', {})
         with self.session_factory() as session:
@@ -448,6 +476,7 @@ class DatabaseService:
                 phase_code=phase_code,
                 units=units,
                 supply_centers=supply_centers,
+                state_json=state_json,
             )
             # dynamic attribute for compatibility
             setattr(snap, 'phase', phase)
