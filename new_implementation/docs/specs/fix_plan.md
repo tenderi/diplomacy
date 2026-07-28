@@ -13,23 +13,33 @@
 
 ## Status
 
-- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR6 — `test-hygiene`** (last and
-  small). PR1–PR5 are merged. After PR6 only the **manual end-to-end check** remains,
-  and it is the acceptance criterion for the whole track — it needs a live bot token and
-  a human at a Telegram client, so it cannot be delegated to an agent.
-- **Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are merged; V1
-  was absorbed into PR4. **V3–V5 are startable and independent of PR6** — they touch
-  disjoint files, so they can run in parallel.
-- **Suite baseline (post-PR5, on `main`):** 852 passed, 11 skipped, 10 xfailed; ruff
+- **Track A — Finish the Port: ALL PRs MERGED (PR1–PR6).** The only thing left is the
+  **manual end-to-end check** below, which is the acceptance criterion for the whole
+  track. It needs a live bot token and a human at a Telegram client, so **it cannot be
+  delegated to an agent** — it is the maintainer's to run.
+- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are
+  merged; V1 was absorbed into PR4. **V3 (the `map.py` split) is in flight** on branch
+  `rendering-split-v3`. **NEXT TASK after V3 lands: V4** (overlay correctness), with
+  **V5 as independent filler** — note V5 now carries the `standard-v2` deletion below,
+  which touches `rendering/map.py` and so must wait for V3 to avoid conflicting.
+- **V5 now includes a maintainer decision (2026-07-28): delete `standard-v2` entirely** —
+  `maps/v2.svg`, `maps/v2/`, the `_KNOWN_MAP_NAMES` entry, the `svg_path_for_map_name`
+  and `_resolve_svg_path` branches, the health-check reference and both test files.
+  **Reason it can never have worked:** the renderer locates provinces by SVG path `id`
+  normalized to 3-letter codes (`map.py`), and `standard.svg` has 80 such ids while
+  `v2.svg` has **zero** — its 43 ids are layer names (`Backdrop`, `Countries`, `Centres`).
+  A `standard-v2` game renders background art with no province colouring and no units
+  placed. The existing test only asserted `len(img_bytes) > 0`, which is why it looked
+  fine. Making it real would mean re-authoring the SVG with per-province geometry — an
+  illustration task, not plumbing.
+- **Suite baseline (post-PR6, on `main`):** 852 passed, 11 skipped, 10 xfailed; ruff
   clean; engine coverage 92.86%, overall 62.02%. The skip count dropped 15 → 11 because
   PR5 un-skipped the four scheduler tests. **Frontend baseline:** 99 passed in 21 files;
   `tsc -b --noEmit` and `npm run build` clean.
-- **Two counts that look alarming but are fine:** V2's suite drop (890 → 840) is
-  *entirely* deleted dead-module tests — 34 in `test_province_mapping.py` plus 16
-  elsewhere exercising the retired `normalize_province_name` /
-  `normalize_order_provinces` / `Map` topology-query API. And engine coverage fell
-  92.97% → 92.86% because V2 deleted 366 well-tested engine lines; that leaves **0.86
-  points of headroom over the 92 floor**, which PR6's ratchet must not squeeze further.
+- **A count that looks alarming but is fine:** V2's suite drop (890 → 840) is *entirely*
+  deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
+  exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
+  topology-query API. No real coverage was lost.
 - **Last updated:** 2026-07-28.
 
 ### Where the old trackers went
@@ -51,9 +61,12 @@
   Postgres is configured for this repo (see `.env` + the `local-postgres-for-m6` memory);
   a skip means something is wrong, not that the DB is unavailable. Never trust a local
   green run without a DB.
-- **Coverage gates in CI:** engine ≥92% (`--include='src/engine/*'`), overall ≥57%
-  (measured ~59). Coverage headroom is the hidden constraint — thin-client bot code drags
-  the overall number; deleting dead src code helps it.
+- **Coverage gates in CI:** engine ≥92% (`--include='src/engine/*'`), overall ≥60%
+  (measured 2026-07-28: engine 92.86%, overall 62.02%). Coverage headroom is the hidden
+  constraint — thin-client bot code drags the overall number; deleting dead src code helps
+  it. **The engine floor has only ~0.86 points of headroom** and is deliberately not
+  ratcheted tighter: V2 deleted 366 well-tested engine lines without losing a test, and a
+  tighter floor would make ordinary dead-code deletion fail CI.
 - **Pushing to protected `main`:** required status checks never ran on a brand-new SHA,
   so a bare `git push origin main` is always rejected — even for a clean local commit
   (re-confirmed 2026-07-28). Either go through a PR, or push the commit to a temp branch,
@@ -125,7 +138,7 @@ cd new_implementation && source venv/bin/activate
 ruff check src/
 PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
 coverage report --include='src/engine/*' --fail-under=92
-coverage report --fail-under=57
+coverage report --fail-under=60
 cd frontend && npx tsc -b --noEmit && npm run test:run && npm run build
 ```
 
@@ -305,19 +318,42 @@ That was true but not the whole story — un-skipping them surfaced two genuine 
    **If you add another `datetime` column, either make it `timestamptz` or normalize on
    write — do not assume the session timezone is UTC.**
 
-## PR 6 — `test-hygiene` (last, small)
+## PR 6 — `test-hygiene` ✅ MERGED (`v2.7.25`)
 
-- [ ] `pytest.ini`: `asyncio_mode = auto`; **remove `--disable-warnings`** — that flag is
-      what hid the coroutine-never-awaited warnings. Triage the resulting noise with
-      targeted `filterwarnings`, not by restoring the blanket flag.
-- [ ] `@pytest.mark.asyncio` on `test_convoy_functions.py:229,235` — the only two
-      genuinely silent async skips outside the uncollected files (an earlier claim of ~19
-      was wrong).
-- [ ] Delete `tests/bot_test_runner.py` (never collected; 5 dead async functions).
-- [ ] Ratchet the coverage floors to just under the new measured values; refresh the
-      dated comments in `test.yml` / `.coveragerc`.
-- [ ] Add `frontend` to required status checks via `gh api`. Precondition met: the job was
-      green on PR #13 and on the resulting `main` merge commit (`v2.7.20`).
+- [x] `pytest.ini`: `asyncio_mode = auto`; `--disable-warnings` removed. **The blanket
+      `filterwarnings` ignores were removed too** — `ignore::DeprecationWarning` was doing
+      the same hiding job more quietly, and between them they concealed the real finding
+      below. `filterwarnings` is now empty, with a comment forbidding blanket entries.
+- [x] `@pytest.mark.asyncio` on `test_convoy_functions.py` — **already done**; PR4/V2's
+      rewrites gave every async test in that file an explicit marker. No action needed.
+- [x] Deleted `tests/bot_test_runner.py` (never collected; 5 dead async functions).
+- [x] Coverage floors ratcheted — **overall 57 → 60, engine deliberately left at 92.**
+      See the reasoning in `.coveragerc`/`test.yml`: V2 deleted 366 well-tested engine
+      lines, so the measured engine figure fell 92.97 → 92.86 without losing a test, and a
+      tighter floor would make routine dead-code deletion fail CI.
+- [x] `frontend` added to required status checks. Verified it had actually run and passed
+      on `main` (not just on the PR) before switching it on, since a required check that
+      never reports would brick the branch.
+
+### What removing the warning filters actually found
+
+The plan expected the flag to be hiding coroutine-never-awaited warnings. Those were
+already fixed. What it was really hiding was **22 uses of `datetime.utcnow()`** — 21
+`default=`/`onupdate=` column defaults in `persistence/database.py` plus one direct call
+in the DAL. That is the *same naive-datetime class of bug* that silently shifted
+`games.deadline` (fixed in `v2.7.23`), sitting on every `created_at`/`updated_at` in the
+schema.
+
+All 22 now go through `persistence.database.utcnow_naive()`. **It returns a NAIVE UTC
+datetime on purpose** — every timestamp column here is a plain `TIMESTAMP`, and handing
+Postgres a tz-aware value makes it convert to the connection's session timezone and store
+it naive, shifting the value by the offset. Do not "modernize" this helper to return
+`datetime.now(timezone.utc)`; that is the bug, not the fix.
+
+One test also used httpx's deprecated `data=` for a raw body (now `content=`). After
+these fixes the suite emits **no warnings at all** except one
+`PytestReturnNotNoneWarning` from `test_standard_v2_map.py`, which disappears with V5's
+`standard-v2` removal.
 
 ## Final acceptance — manual end-to-end check
 
