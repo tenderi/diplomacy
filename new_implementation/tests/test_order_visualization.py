@@ -55,7 +55,7 @@ def test_orders_dictionary_format():
     output_path = os.path.join(BASE_DIR, "test_maps", "test_orders_visualization.png")
     
     try:
-        img_bytes = Map.render_board_png_with_orders(
+        img_bytes = Map.render_board_png_orders(
             svg_path=svg_path,
             units=units,
             orders=orders,
@@ -123,7 +123,7 @@ def test_comprehensive_order_types():
     output_path = os.path.join(BASE_DIR, "test_maps", "test_comprehensive_orders.png")
     
     try:
-        img_bytes = Map.render_board_png_with_orders(
+        img_bytes = Map.render_board_png_orders(
             svg_path=svg_path,
             units=units,
             orders=orders,
