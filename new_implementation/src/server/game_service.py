@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from persistence.game_repo import StaleGameError
 from engine.map_loader import MapData, load_standard_map
 from engine.game import Game
 from engine.orders.parser import OrderParseError, format_order, parse_order
@@ -25,7 +26,7 @@ from engine.serialization import (
 )
 from engine.types import GameState, PhaseType
 
-__all__ = ["GameService", "OrderError"]
+__all__ = ["GameService", "OrderError", "StaleGameError"]
 
 
 class OrderError(ValueError):
@@ -113,7 +114,14 @@ class GameService:
     # -- turn processing --------------------------------------------------
 
     def process_turn(self, game_id: str) -> dict[str, Any]:
-        """Adjudicate all pending orders, advance the phase, persist, clear orders."""
+        """Adjudicate all pending orders, advance the phase, persist, clear orders.
+
+        Raises ``StaleGameError`` if another process already advanced this game's
+        phase between the ``load`` above and the write below (the phase this call
+        loaded no longer matches what's persisted) -- the caller (an HTTP route)
+        should surface that as 409 rather than silently re-adjudicating or
+        clobbering the concurrent result.
+        """
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
@@ -142,6 +150,7 @@ class GameService:
             state_to_dict(next_game.state),
             phase_code=next_game.state.phase_name,
             status=next_game.state.status.value.lower(),
+            expected_phase_code=game.state.phase_name,
             last_resolution=resolution_dict,
             order_history_entry=history_entry,
         )
@@ -234,6 +243,44 @@ class GameService:
     def order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
         """Per-turn submitted-order history ``{turn: {power: [order_str]}}``."""
         return self._repo.get_order_history(game_id)
+
+    def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
+        """Which powers have submitted orders for the current phase, and which
+        still control at least one unit and haven't. ``None`` if the game doesn't
+        exist. A power counts as "submitted" once it has a ``pending_orders`` entry
+        for this phase, even an empty one (0 valid orders still means it acted)."""
+        sj = self._repo.get_state_json(game_id)
+        if sj is None:
+            return None
+        state = state_from_dict(sj)
+        submitted = set(self._repo.get_pending_orders(game_id).keys())
+        active_powers = sorted({u.power for u in state.units})
+        return {
+            "phase": state.phase_name,
+            "active_powers": active_powers,
+            "submitted": sorted(submitted),
+            "missing": sorted(p for p in active_powers if p not in submitted),
+        }
+
+    def state_json(self, game_id: str) -> Optional[dict[str, Any]]:
+        """The raw serialized ``GameState`` (``engine.serialization.state_to_dict``
+        shape), for callers that need to persist it verbatim (e.g. snapshots)
+        rather than the view shape from ``view()``."""
+        return self._repo.get_state_json(game_id)
+
+    def restore_snapshot(
+        self, game_id: str, state_json: dict[str, Any], phase_code: str
+    ) -> None:
+        """Roll a game's live state back to a previously captured snapshot.
+
+        Validates that ``state_json`` actually parses as a ``GameState`` before
+        writing it -- raises ``ValueError`` on a malformed payload rather than
+        leaving the game in a state ``load()`` can't read back. Also clears
+        pending orders (see ``GameRepo.restore_state``): whatever was pending was
+        submitted against the phase being discarded.
+        """
+        state_from_dict(state_json)  # raises ValueError if malformed; result unused
+        self._repo.restore_state(game_id, state_json, phase_code=phase_code)
 
 
 # ---------------------------------------------------------------------------

@@ -253,7 +253,13 @@ class MapSnapshotModel(Base):
     supply_centers = Column(JSON, nullable=False)
     map_image_path = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+    # The full serialized GameState (engine.serialization.state_to_dict) captured at
+    # snapshot time, so /restore can rebuild an engine Game via state_from_dict.
+    # Purely additive: nullable, so snapshots created before this column existed
+    # (which only carry the view-shaped units/supply_centers above) keep working for
+    # /history and /replay, they just can't be restored (see restore_game_snapshot).
+    state_json = Column(JSON, nullable=True)
+
     # Relationships
     game = relationship("GameModel", back_populates="map_snapshots")
 
