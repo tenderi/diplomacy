@@ -18,6 +18,40 @@ from .api_client import api_get_bytes
 logger = logging.getLogger("diplomacy.telegram_bot.maps")
 
 
+async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the unit-less standard board, fetched from ``GET /maps/standard/preview.png``.
+
+    The server renders and caches this PNG (see ``server.api.routes.maps``); the
+    bot just relays the bytes.
+    """
+    try:
+        img_bytes = api_get_bytes("/maps/standard/preview.png")
+    except Exception as e:
+        error_msg = f"❌ Error fetching standard map: {e}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+        return
+
+    caption = (
+        "🗺️ *Standard Diplomacy Map*\n\n"
+        "This is the classic Diplomacy board showing:\n"
+        "🏰 *7 Great Powers:* Austria, England, France, Germany, Italy, Russia, Turkey\n"
+        "🏙️ *Supply Centers:* Cities that provide military units\n"
+        "🌊 *Seas & Land:* Different movement rules for fleets vs armies\n\n"
+        "🎲 *Ready to play?* Use the menu to join a game!"
+    )
+    if update.callback_query:
+        await update.callback_query.message.reply_photo(
+            photo=BytesIO(img_bytes), caption=caption, parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_photo(
+            photo=BytesIO(img_bytes), caption=caption, parse_mode='Markdown'
+        )
+
+
 async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     """Send the live game map with current state, fetched from ``GET /games/{id}/map``."""
     try:

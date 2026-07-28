@@ -20,6 +20,11 @@ from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_
 
 router = APIRouter()
 
+# Map names the renderer actually knows how to draw. ``svg_path_for_map_name``
+# silently falls back to the standard SVG for anything it doesn't recognize
+# (it never raises), so the 404 boundary for an unsupported map name lives here.
+_KNOWN_MAP_NAMES = frozenset({"standard", "standard-v2"})
+
 
 def _kind_by_province(view: Dict[str, Any]) -> Dict[str, str]:
     """province -> "A"/"F" for the current units, so overlay arrows label units
@@ -66,6 +71,29 @@ def _view_from_snapshot(map_name: str, snapshot: Any) -> Dict[str, Any]:
 def _turn_of(game_id: str) -> int:
     row = db_service.get_game_by_game_id(game_id)
     return int(getattr(row, "current_turn", 0) or 0) if row is not None else 0
+
+
+@router.get("/maps/{map_name}/preview.png", response_class=Response)
+def get_map_preview_png(map_name: str) -> Response:
+    """Return a unit-less, ownership-less board PNG for ``map_name``.
+
+    This is the "sample map" shown to bot users who aren't in a game yet -- the
+    bare board, no units, no supply-center coloring. Its output depends only on
+    ``map_name``, so it never changes; rather than adding a second cache here,
+    it leans on ``Map.render_board_png``'s own byte cache (``MapCache``, disk-backed
+    at ``/tmp/diplomacy_map_cache``, keyed by ``(svg_path, units, phase_info)``):
+    calling it with fixed empty ``units``/``phase_info`` means every request for
+    the same map name after the first is a cache hit there. Ops can bust it via
+    the existing ``POST /admin/clear_map_cache``.
+    """
+    if map_name not in _KNOWN_MAP_NAMES:
+        raise HTTPException(status_code=404, detail=f"Unknown map: {map_name}")
+    svg_path = svg_path_for_map_name(map_name)
+    try:
+        img_bytes = Map.render_board_png(svg_path, {}, supply_center_control=None)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
 
 
 @router.get("/games/{game_id}/map", response_class=Response)

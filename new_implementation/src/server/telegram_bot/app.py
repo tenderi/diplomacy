@@ -21,7 +21,7 @@ from telegram.ext import (
 # Import directly from modules
 from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import api_post, api_get, wait_for_api_health, _validate_api_url
-from server.telegram_bot.maps import send_game_map, map_command, replay
+from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
     join, quit, replace, wait, status, players
@@ -94,6 +94,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         game_id = data.split("_")[2]
         await query.edit_message_text(f"🗺️ Generating map for Game {game_id}...")
         await send_game_map(update, context, game_id)
+
+    elif data == "view_default_map":
+        await query.edit_message_text("🗺️ Fetching standard Diplomacy map...")
+        await send_default_map(update, context)
 
     elif data == "start_demo_game":
         await query.edit_message_text("🎮 Starting demo game as Germany...")
