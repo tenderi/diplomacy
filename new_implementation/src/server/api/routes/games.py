@@ -18,6 +18,7 @@ from ..shared import (
 )
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
+from persistence.game_repo import StaleGameError
 
 router = APIRouter()
 
@@ -100,16 +101,40 @@ def add_player(
 @router.post("/games/{game_id}/process_turn")
 async def process_turn(
     game_id: str,
+    require_all: bool = False,
     _: None = Depends(require_bot_or_user),
 ) -> Dict[str, str]:
-    """Adjudicate all pending orders and advance the phase."""
+    """Adjudicate all pending orders and advance the phase.
+
+    ``require_all=true`` refuses (400) unless every power that still controls at
+    least one unit has submitted orders this phase; clients that want a hard gate
+    on full submission pass it explicitly. Defaults to ``false`` (unchanged
+    behaviour) -- the deadline scheduler never passes it, since a missed deadline
+    must still process whatever was submitted.
+
+    The in-process ``asyncio.Lock`` below only protects against two concurrent
+    calls *within this worker*; it does not survive a second uvicorn worker. The
+    real cross-process guard is ``expected_phase_code`` in ``GameService.process_turn``
+    -> ``GameRepo.save_state``, which raises ``StaleGameError`` (surfaced here as
+    409) if another process already advanced the phase.
+    """
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
+    if require_all:
+        status = game_service.orders_status(game_id)
+        if status and status["missing"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not all powers have submitted orders: missing {status['missing']}",
+            )
     lock = get_process_turn_lock(game_id)
     if lock.locked():
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
     async with lock:
-        game_service.process_turn(game_id)
+        try:
+            game_service.process_turn(game_id)
+        except StaleGameError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
 
     try:
@@ -125,6 +150,7 @@ async def process_turn(
                     phase=view["phase_type"],
                     phase_code=view["phase"],
                     game_state=view,
+                    state_json=game_service.state_json(game_id),
                 )
             except Exception as e:
                 logger.debug(f"process_turn: snapshot failed: {e}")
@@ -160,6 +186,17 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return view
+
+@router.get("/games/{game_id}/orders_status")
+def get_orders_status(game_id: str) -> Dict[str, Any]:
+    """Which powers have submitted orders for the current phase, and which are
+    still outstanding. Powers of eliminated/no-unit players are never "missing"
+    (there is nothing for them to order). Used by ``require_all=true`` on
+    ``process_turn`` and by the Telegram ``/status`` command."""
+    status = game_service.orders_status(game_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return status
 
 @router.get("/games")
 def list_games() -> Dict[str, Any]:
@@ -473,16 +510,22 @@ def set_deadline(
     req: SetDeadlineRequest,
     _: None = Depends(require_bot_or_user),
 ) -> dict[str, Optional[str]]:
-    """Set the deadline for a game."""
+    """Set the deadline for a game.
+
+    Uses ``update_game_deadline`` (opens and commits its own session), not a bare
+    attribute assignment on the row returned by ``get_game_by_game_id`` -- that row
+    is detached the moment its session-scoped ``with`` block exits, so mutating it
+    afterwards is silently discarded (``DatabaseService.commit()`` is a documented
+    no-op, not a real flush).
+    """
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
     try:
-        game = db_service.get_game_by_game_id(game_id)
-        if not game:
-            raise HTTPException(status_code=404, detail="Game not found")
-        game.deadline = req.deadline  # type: ignore
-        deadline_value = getattr(game, 'deadline', None)
-        return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
+        db_service.update_game_deadline(int(game.id), req.deadline)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", "deadline": req.deadline.isoformat() if req.deadline else None}
 
 @router.get("/games/{game_id}/history/{turn}")
 def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
@@ -512,6 +555,7 @@ def save_game_snapshot(game_id: str) -> Dict[str, Any]:
             phase=view["phase_type"],
             phase_code=view["phase"],
             game_state=view,
+            state_json=game_service.state_json(game_id),
         )
         return {"status": "ok", "snapshot_id": snapshot.id, "turn": turn}
     except Exception as e:
@@ -542,17 +586,32 @@ def get_game_snapshots(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/restore/{snapshot_id}")
 def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
-    """Restore a game to a previous snapshot"""
+    """Restore a game's live state to a previous snapshot.
+
+    Only snapshots taken after PR5 carry ``state_json`` (the raw serialized
+    ``GameState``, the only shape ``state_from_dict`` can rebuild a ``Game`` from).
+    Restoring an older, pre-PR5 snapshot -- which only has the view-shaped
+    ``units``/``supply_centers`` -- now fails loudly with 409 instead of the old
+    stub's silent no-op.
+    """
+    row = db_service.get_game_by_game_id(game_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    snapshot = db_service.get_game_snapshot_by_id(snapshot_id, int(row.id))
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    snapshot_state_json = getattr(snapshot, "state_json", None)
+    if not snapshot_state_json:
+        raise HTTPException(
+            status_code=409,
+            detail="Snapshot predates state_json capture and cannot be restored",
+        )
     try:
-        snapshot = db_service.get_game_snapshot_by_id(snapshot_id)
-        if not snapshot:
-            raise HTTPException(status_code=404, detail="Snapshot not found")
-        if not game_service.exists(game_id):
-            raise HTTPException(status_code=404, detail="Game not found")
-        # Note: simplified restore - full restore would rewrite games.state_json.
-        return {"status": "ok", "message": "Snapshot restored (simplified implementation)"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        game_service.restore_snapshot(game_id, snapshot_state_json, snapshot.phase_code)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Corrupt snapshot: {e}") from e
+    invalidate_cache(f"games/{game_id}")
+    return {"status": "ok", "snapshot_id": snapshot_id, "phase_code": snapshot.phase_code}
 
 @router.get("/games/{game_id}/debug/unit_locations")
 def debug_unit_locations(game_id: str) -> Dict[str, Any]:

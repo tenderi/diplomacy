@@ -16,7 +16,16 @@ from typing import Any, Optional
 
 from persistence.database import GameModel, PlayerModel
 
-__all__ = ["GameRepo"]
+__all__ = ["GameRepo", "StaleGameError"]
+
+
+class StaleGameError(RuntimeError):
+    """Raised by ``GameRepo.save_state`` when ``expected_phase_code`` no longer
+    matches the persisted row: another process advanced the phase after this
+    caller loaded its state (concurrent ``process_turn``). Multiple uvicorn workers
+    each have their own in-process ``asyncio.Lock``, so that lock alone cannot
+    prevent two workers from adjudicating the same phase; this is the cross-process
+    guard, checked at the point of writing the result back."""
 
 
 class GameRepo:
@@ -136,17 +145,30 @@ class GameRepo:
         *,
         phase_code: str,
         status: str,
+        expected_phase_code: Optional[str] = None,
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
     ) -> None:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
         adjudication ``last_resolution`` is stored for later resolution-map rendering,
         and ``order_history_entry`` (the just-adjudicated ``{power: [order_str]}``) is
-        appended to ``order_history`` under the turn number being left behind."""
+        appended to ``order_history`` under the turn number being left behind.
+
+        ``expected_phase_code``, when given, must match the row's current
+        ``phase_code`` or a ``StaleGameError`` is raised instead of writing --
+        the optimistic-concurrency check that keeps two concurrent
+        ``process_turn`` calls (e.g. from two uvicorn workers) from both adjudicating
+        the same phase and one silently clobbering the other's result."""
         with self._session_factory() as session:
             row = self._row(session, game_id)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
+            if expected_phase_code is not None and row.phase_code != expected_phase_code:
+                raise StaleGameError(
+                    f"game {game_id}: expected phase {expected_phase_code!r} but the "
+                    f"persisted phase is {row.phase_code!r} -- already processed "
+                    "concurrently"
+                )
             row.state_json = state_json
             row.phase_code = phase_code
             row.status = status
@@ -161,6 +183,28 @@ class GameRepo:
             row.current_year = state_json.get("year", row.current_year)
             row.current_season = str(state_json.get("season", "SPRING")).capitalize()
             row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
+            row.updated_at = datetime.now(timezone.utc)
+            session.commit()
+
+    def restore_state(
+        self, game_id: str, state_json: dict[str, Any], *, phase_code: str
+    ) -> None:
+        """Overwrite the live ``state_json``/``phase_code`` from a snapshot.
+
+        An explicit, caller-decided rollback -- unlike ``save_state`` there is no
+        staleness check; the caller has already chosen to discard whatever is
+        currently live. Also clears ``pending_orders`` (they were submitted against
+        whatever phase was live before the restore, not the restored one) and marks
+        the game ``active`` (a restore always targets a playable phase).
+        """
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.state_json = state_json
+            row.phase_code = phase_code
+            row.status = "active"
+            row.pending_orders = {}
             row.updated_at = datetime.now(timezone.utc)
             session.commit()
 

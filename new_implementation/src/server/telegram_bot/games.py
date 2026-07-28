@@ -158,13 +158,10 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - get current game phase and deadline.
-
-    Note: does not show per-power order submission state -- there is no
-    ``GET /games/{id}/orders_status`` endpoint yet (planned for PR5).
-    ``GET /games/{id}/orders`` only returns the caller's own power's orders,
-    so it cannot answer "who has submitted" and is not used here.
-    """
+    """Handle /status command - get current game phase, deadline, and per-power
+    order submission state (via ``GET /games/{id}/orders_status``; ``GET
+    /games/{id}/orders`` only returns the caller's own power, so it can't answer
+    "who has submitted")."""
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -205,6 +202,19 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         deadline = None
     if deadline:
         status_text += f"⏰ **Deadline:** {deadline}\n"
+
+    try:
+        orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
+    except Exception:
+        orders_status = None
+    if orders_status:
+        submitted = orders_status.get("submitted", [])
+        missing = orders_status.get("missing", [])
+        status_text += (
+            "\n✅ **Submitted:** " + (", ".join(submitted) if submitted else "none") + "\n"
+        )
+        if missing:
+            status_text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
 
     await update.message.reply_text(status_text, parse_mode='Markdown')
 

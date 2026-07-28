@@ -2,12 +2,28 @@
 Test the Diplomacy API scheduler and deadline endpoints.
 """
 from fastapi.testclient import TestClient
-from server.api import app, process_due_deadlines
+from server.api import app, process_due_deadlines, check_and_send_reminders
 
 import datetime
 import time
 import pytest
 from unittest.mock import patch
+
+
+def _auth_headers(client: TestClient) -> dict:
+    """Register a fresh user and return Bearer auth headers for it.
+
+    ``/games/create`` and ``POST /games/{id}/deadline`` both require
+    ``require_bot_or_user`` (Bearer token or X-Bot-Secret); a plain unauthenticated
+    call gets 401, not the endpoint's own logic, so every test below that hits
+    either of those needs a real token.
+    """
+    email = f"sched_{int(time.time() * 1000000)}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    if reg.status_code != 200:
+        pytest.skip("Database not available for scheduler test")
+    return {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
 
 def test_scheduler_status():
     client = TestClient(app)
@@ -19,19 +35,12 @@ def test_scheduler_status():
 
 def test_deadline_endpoints():
     client = TestClient(app)
-    # Register and get auth token
-    import time as _time
-    email = f"sched_{int(_time.time() * 1000)}@example.com"
-    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
-    if reg.status_code != 200:
-        pytest.skip("Database not available for scheduler test")
-    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    headers = _auth_headers(client)
     # Create a game
     resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     assert resp.status_code == 200
     game_id = resp.json()["game_id"]
     # Set a deadline
-    import datetime
     deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": deadline}, headers=headers)
     assert resp.status_code == 200
@@ -45,26 +54,24 @@ def test_deadline_endpoints():
         assert deadline_response.startswith(str(datetime.datetime.now().year))
 
 
-# NOTE: The following 4 tests are skipped due to session isolation issues in the test environment.
-# When deadline processing runs, changes to game state are not visible across different database
-# sessions in the test environment, even though the production code works correctly.
-# This is a limitation of how TestClient creates isolated database sessions. The production code
-# correctly processes deadlines and updates game state.
-#
-# To fix these tests, we would need to either:
-# 1. Use a shared database session across test client calls
-# 2. Force session refresh/flush after deadline processing
-# 3. Use a different testing approach that doesn't isolate sessions
-@pytest.mark.skip(reason="Session isolation: deadline processing not visible across sessions in test environment. Production code is correct.")
-def test_deadline_past_on_startup(monkeypatch):
+# The following 4 tests used to be skipped as "session isolation issues": the claim
+# was that changes made by deadline processing weren't visible across the different
+# DB sessions TestClient calls open. That diagnosis was stale -- the real bug was
+# POST /deadline mutating a detached ORM object and never committing (see
+# update_game_deadline in routes/games.py), so the deadline was silently discarded
+# regardless of session boundaries. Once that route switched to
+# DatabaseService.update_game_deadline (which opens its own session and commits),
+# the value is genuinely visible cross-session and these pass for real.
+def test_deadline_past_on_startup():
     """Test that a deadline in the past is processed immediately on app startup."""
     client = TestClient(app)
+    headers = _auth_headers(client)
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     game_id = resp.json()["game_id"]
     # Set a deadline in the past
     past_deadline = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
-    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": past_deadline})
+    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": past_deadline}, headers=headers)
     assert resp.status_code == 200
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
@@ -75,26 +82,25 @@ def test_deadline_past_on_startup(monkeypatch):
     assert resp.json()["deadline"] is None
 
 
-@pytest.mark.skip(reason="Session isolation: deadline processing not visible across sessions in test environment. Production code is correct.")
-def test_overlapping_deadlines(monkeypatch):
+def test_overlapping_deadlines():
     """Test that multiple games with overlapping deadlines are processed independently."""
     client = TestClient(app)
+    headers = _auth_headers(client)
     # Create two games
-    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     game1_id = resp1.json()["game_id"]
-    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     game2_id = resp2.json()["game_id"]
     # Set deadlines a few seconds apart
     now = datetime.datetime.now(datetime.timezone.utc)
     deadline1 = (now + datetime.timedelta(seconds=2)).isoformat()
     deadline2 = (now + datetime.timedelta(seconds=4)).isoformat()
-    client.post(f"/games/{game1_id}/deadline", json={"deadline": deadline1})
-    client.post(f"/games/{game2_id}/deadline", json={"deadline": deadline2})
-    # Wait for both deadlines to pass
-    import time
-    time.sleep(5)
-    # Synchronously process deadlines
-    process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
+    client.post(f"/games/{game1_id}/deadline", json={"deadline": deadline1}, headers=headers)
+    client.post(f"/games/{game2_id}/deadline", json={"deadline": deadline2}, headers=headers)
+    # Process with a synthetic "now" past both deadlines instead of sleeping for
+    # them to actually elapse -- process_due_deadlines takes "now" as a parameter
+    # precisely so callers (tests included) don't need to wait on the wall clock.
+    process_due_deadlines(now + datetime.timedelta(seconds=10))
     # Re-query with a new client/session to avoid stale cache
     client2 = TestClient(app)
     resp = client2.get(f"/games/{game1_id}/deadline")
@@ -103,37 +109,41 @@ def test_overlapping_deadlines(monkeypatch):
     assert resp.json()["deadline"] is None
 
 
-@pytest.mark.skip(reason="Session isolation: deadline processing not visible across sessions in test environment. Production code is correct.")
-def test_reminder_and_notification(monkeypatch):
-    """Test that reminders and notifications are sent (mock notify_players)."""
+def test_reminder_and_notification():
+    """Test that reminders are sent for a deadline within the 10-minute window.
+
+    Previously waited up to 70 real seconds for the scheduler's 30s poll loop to
+    notice a deadline 11 minutes out. check_and_send_reminders (split out of
+    deadline_scheduler for exactly this) takes "now" as a parameter, so the test
+    calls it directly with a synthetic "now" 9 minutes after deadline-setting --
+    i.e. 2 minutes before the deadline, inside the reminder window -- with no
+    sleep at all.
+    """
     client = TestClient(app)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    headers = _auth_headers(client)
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     game_id = resp.json()["game_id"]
-    # Set a deadline 11 minutes from now (reminder should be sent at 10 min)
+    # Set a deadline 11 minutes from now (reminder window opens at 10 min out).
     now = datetime.datetime.now(datetime.timezone.utc)
     deadline = (now + datetime.timedelta(minutes=11)).isoformat()
-    client.post(f"/games/{game_id}/deadline", json={"deadline": deadline})
-    # Patch notify_players to track calls
-    with patch("server.api.notify_players") as mock_notify:
-        # Wait for up to 70 seconds for reminder (should be sent at 10 min mark)
-        for _ in range(7):
-            time.sleep(10)
-            if mock_notify.called:
-                break
+    client.post(f"/games/{game_id}/deadline", json={"deadline": deadline}, headers=headers)
+    # Patch notify_players where check_and_send_reminders actually looks it up
+    # (module-global in server.api.shared), not the server.api package namespace.
+    with patch("server.api.shared.notify_players") as mock_notify:
+        check_and_send_reminders(now + datetime.timedelta(minutes=2))
         assert mock_notify.called
-        # Check that reminder message was sent
         reminder_msgs = [call.args[1] for call in mock_notify.call_args_list if "Reminder" in call.args[1]]
         assert any(reminder_msgs)
 
 
-@pytest.mark.skip(reason="Session isolation: deadline processing not visible across sessions in test environment. Production code is correct.")
-def test_deadline_set_to_now(monkeypatch):
+def test_deadline_set_to_now():
     """Test that a deadline set to now is processed immediately."""
     client = TestClient(app)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    headers = _auth_headers(client)
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     game_id = resp.json()["game_id"]
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now})
+    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now}, headers=headers)
     assert resp.status_code == 200
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
