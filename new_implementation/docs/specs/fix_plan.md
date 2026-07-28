@@ -19,10 +19,10 @@
   delegated to an agent** — it is the maintainer's to run.
 - **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are
   merged; V1 was absorbed into PR4.
-- **NEXT TASK: merge the open V3 PR, then finish V3's one remaining item** — narrowing the
-  25 blanket `except Exception` blocks, which were relocated but never narrowed. The
-  `map.py` split itself is done and verified on branch `rendering-split-v3` (gates green,
-  renders byte-identical); it is **pushed with a PR open, not yet merged.**
+- **NEXT TASK: finish V3's one remaining item** — narrowing the 25 blanket
+  `except Exception` blocks in `src/rendering/`, which V3 relocated but never narrowed
+  (`board.py` 8, `svg_paths.py` 7, `cache.py` 6, `icons.py` 3, `overlays.py` 1). The
+  `map.py` split itself is **merged** (`v2.7.26`, PR #19) and was verified byte-identical.
 - **After V3: V4** (overlay correctness), with **V5 as independent filler** — note V5 now
   carries the `standard-v2` deletion below, which touches `rendering/map.py` and so should
   follow V3 to avoid conflicting.
@@ -37,8 +37,9 @@
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-28 (end of the Track A session: PR1–PR6 all merged,
-  `v2.7.17`–`v2.7.25`; Track B V0/V2 merged, V3 pushed with a PR open).
+- **Last updated:** 2026-07-28, end of session. Track A complete (PR1–PR6,
+  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`).
+  `main` is green, no open PRs, no stale branches.
 
 ### Where the old trackers went
 
@@ -397,7 +398,7 @@ source, focused modules, correct overlays.
    also sits inside `src/engine/`, violating "engine = pure rules logic". V2 should fold
    the alias table into `engine/orders/parser.py` and drop the bot's normalization
    entirely, letting the server's single grammar resolve aliases.
-4. **~~`map.py` is a 3,150-line God class.~~ SPENT by V3** (branch `rendering-split-v3`):
+4. **~~`map.py` is a 3,150-line God class.~~ SPENT by V3** (`v2.7.26`, PR #19):
    split into 7 modules, none over 687 lines, with `map.py` left as a 185-line facade. The
    duplicated primitives and the `render_board_png_with_orders` alias are gone. **The 26
    blanket `except Exception` blocks are NOT** — 25 remain, relocated into the new modules.
@@ -512,11 +513,11 @@ server-emitted strings). Nothing to do here; kept as a placeholder so V-numberin
       API-route functions with a captured logger — zero warnings logged by
       `diplomacy.rendering.map`.
 
-### V3 — Split `map.py` into focused modules — **MOSTLY DONE**, branch `rendering-split-v3`
+### V3 — Split `map.py` into focused modules — **MERGED (`v2.7.26`, PR #19), one item open**
 
-`map.py` went from ~2,850 lines (post-V2) to a **185-line facade**. All gates green.
-**One task in this section is NOT done — see the unchecked box below; do not treat V3 as
-finished.**
+`map.py` went from ~2,850 lines (post-V2) to a **185-line facade**. All gates green and
+merged. **One task in this section is NOT done — see the unchecked box below; do not treat
+V3 as finished.**
 
 - [x] **Layout — 7 modules, not the proposed 5.** Two extra splits, both made purely to
       stay under the ~800-line target and both documented in the modules' own docstrings:
