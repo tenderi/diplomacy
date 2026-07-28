@@ -257,7 +257,7 @@ def _get_cached_font(size: int) -> ImageFont.ImageFont:
     if size not in _font_cache:
         try:
             _font_cache[size] = ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-        except Exception:
+        except OSError:
             _font_cache[size] = ImageFont.load_default()
     return _font_cache[size]
 
@@ -298,7 +298,7 @@ def render_board_png(
                     if os.path.exists(c):
                         svg_path = c
                         break
-    except Exception:
+    except OSError:
         pass
 
     # Generate cache key for this map configuration
@@ -331,7 +331,7 @@ def render_board_png(
         if isinstance(output_path, str) and output_path:
             try:
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            except Exception:
+            except OSError:
                 pass
             bg.save(output_path, format="PNG")
         output = BytesIO()
@@ -362,7 +362,7 @@ def render_board_png(
     if color_only_supply_centers:
         try:
             supply_centers_set = set(_engine_map().supply_centers)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             supply_centers_set = set()
 
     # First pass: Color provinces based on power control using proper transparency
@@ -461,7 +461,7 @@ def render_board_png(
     if isinstance(output_path, str) and output_path:
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        except Exception:
+        except OSError:
             pass
         bg.save(output_path, format="PNG")
     output = BytesIO()
@@ -486,7 +486,7 @@ def _draw_phase_info(draw: ImageDraw.ImageDraw, phase_info: dict, image_size: tu
     font_size = font_specs["phase_overlay_size"]
     try:
         phase_font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
-    except Exception:
+    except OSError:
         phase_font = ImageFont.load_default()
 
     # Extract phase information
@@ -549,7 +549,7 @@ def preload_common_maps() -> None:
     try:
         render_board_png(svg_path, empty_units, phase_info=empty_phase_info)
         logger.info("Preloaded empty map")
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         logger.warning(f"Could not preload empty map: {e}")
 
     # Preload starting positions map
@@ -566,5 +566,5 @@ def preload_common_maps() -> None:
     try:
         render_board_png(svg_path, starting_units, phase_info=empty_phase_info)
         logger.info("Preloaded starting positions map")
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         logger.warning(f"Could not preload starting positions map: {e}")

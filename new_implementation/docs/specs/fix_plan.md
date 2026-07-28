@@ -17,28 +17,32 @@
   **manual end-to-end check** below, which is the acceptance criterion for the whole
   track. It needs a live bot token and a human at a Telegram client, so **it cannot be
   delegated to an agent** — it is the maintainer's to run.
-- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`) and V2 (`v2.7.24`) are
-  merged; V1 was absorbed into PR4.
-- **NEXT TASK: finish V3's one remaining item** — narrowing the 25 blanket
-  `except Exception` blocks in `src/rendering/`, which V3 relocated but never narrowed
-  (`board.py` 8, `svg_paths.py` 7, `cache.py` 6, `icons.py` 3, `overlays.py` 1). The
-  `map.py` split itself is **merged** (`v2.7.26`, PR #19) and was verified byte-identical.
-- **After V3: V4** (overlay correctness), with **V5 as independent filler** — note V5 now
-  carries the `standard-v2` deletion below, which touches `rendering/map.py` and so should
-  follow V3 to avoid conflicting.
+- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`), V2 (`v2.7.24`) and now
+  **V3 in full** (`v2.7.26` + `v2.7.28`) are merged; V1 was absorbed into PR4.
+- **V3 is now fully done.** Its one open item — narrowing the 25 blanket
+  `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
+  `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
+  near-identical `except (AttributeError, Exception)` tuples in `icons.py` (not caught by
+  the original grep, which searched literally for `"except Exception"`) were narrowed in
+  the same pass, so 27 blocks total were fixed. See the V3 section for the per-block
+  exception choices and how they were validated.
+- **NEXT TASK: V4** (overlay correctness). **V5 remains as independent filler** — note V5
+  carries the `standard-v2` deletion below, which touches `rendering/map.py`; V3 is now
+  merged so that no longer risks a conflict.
 - **Maintainer decision 2026-07-28: `standard-v2` gets deleted entirely.** It could never
   have rendered a playable board. Full reasoning and the exact file list are in the V5
   section — read it there before touching anything named `v2`.
-- **Suite baseline (post-PR6, on `main`):** 852 passed, 11 skipped, 10 xfailed; ruff
-  clean; engine coverage 92.86%, overall 62.02%. The skip count dropped 15 → 11 because
-  PR5 un-skipped the four scheduler tests. **Frontend baseline:** 99 passed in 21 files;
-  `tsc -b --noEmit` and `npm run build` clean.
+- **Suite baseline (post-V3-except-narrowing, on `main`):** 852 passed, 11 skipped,
+  10 xfailed — unchanged from the post-PR6 baseline (the except-narrowing changed no
+  behavior on any tested path); ruff clean; engine coverage 92.86%, overall 61.74%.
+  **Frontend baseline:** 99 passed in 21 files; `tsc -b --noEmit` and `npm run build`
+  clean (untouched by this change).
 - **A count that looks alarming but is fine:** V2's suite drop (890 → 840) is *entirely*
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
 - **Last updated:** 2026-07-28, end of session. Track A complete (PR1–PR6,
-  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`).
+  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`+`v2.7.28`).
   `main` is green, no open PRs, no stale branches.
 
 ### Where the old trackers went
@@ -513,11 +517,10 @@ server-emitted strings). Nothing to do here; kept as a placeholder so V-numberin
       API-route functions with a captured logger — zero warnings logged by
       `diplomacy.rendering.map`.
 
-### V3 — Split `map.py` into focused modules — **MERGED (`v2.7.26`, PR #19), one item open**
+### V3 — Split `map.py` into focused modules — **MERGED (`v2.7.26` + `v2.7.28`), DONE**
 
 `map.py` went from ~2,850 lines (post-V2) to a **185-line facade**. All gates green and
-merged. **One task in this section is NOT done — see the unchecked box below; do not treat
-V3 as finished.**
+merged.
 
 - [x] **Layout — 7 modules, not the proposed 5.** Two extra splits, both made purely to
       stay under the ~800-line target and both documented in the modules' own docstrings:
@@ -535,15 +538,57 @@ V3 as finished.**
       `render_board_png_with_orders` alias is deleted — `render_board_png_orders` is the
       single public name. Verified by grep: the old names appear nowhere in `src/`.
 - [x] Type hints on every moved signature; `ruff check src/` clean.
-- [ ] **NOT DONE — narrow the blanket `except Exception` blocks.** There are still **25**
-      of them (`board.py` 8, `svg_paths.py` 7, `cache.py` 6, `icons.py` 3, `overlays.py`
-      1). They were **relocated, not narrowed** — the count is essentially unchanged from
-      the original 26. This is the one V3 task left; do it as its own change, since it is
-      behavioural (letting programming errors raise) rather than mechanical, and so wants
-      its own careful test pass.
-- [x] **Done when** (except the box above): no module over ~800 lines ✅; suite green ✅
-      852 passed, 11 skipped, 10 xfailed; engine 92.86%, overall 61.74% (both floors
-      pass); `ruff check src/` clean ✅.
+- [x] **Narrowed the blanket `except Exception` blocks (`v2.7.28`).** All 25 counted in
+      the original audit (`board.py` 8, `svg_paths.py` 7, `cache.py` 6, `icons.py` 3,
+      `overlays.py` 1) plus 2 more found in the same pass — `icons.py` had two
+      `except (AttributeError, Exception) as e:` blocks (functionally identical to a bare
+      `except Exception`, just missed by the original literal-string grep) — are now
+      narrowed to specific exception tuples chosen per call site:
+      - **Font loading** (`ImageFont.truetype` fallback to `load_default()`, 4 sites
+        across `board.py`/`overlays.py`): `OSError` — the only thing PIL raises when a
+        font file is missing/unreadable.
+      - **Filesystem I/O** (`os.makedirs`, cache reads/writes/removal in `cache.py`, path
+        fallback resolution in `board.py`): `OSError`, plus `json.JSONDecodeError` where
+        cache metadata is parsed.
+      - **Engine topology lookups** (`_engine_map().supply_centers`, 2 sites in
+        `board.py`/`svg_paths.py`): `(OSError, ValueError, KeyError)` — covers a missing/
+        malformed bundled `.map` file; `MapData.supply_centers` itself is a always-present
+        frozen-dataclass field, so an `AttributeError` here would mean a real bug and is
+        left to raise.
+      - **Hand-rolled SVG path-data parsing** (the 5 `_fill_svg_path*`/
+        `_extract_polygon_points_from_path`/`_draw_ocean_pattern` regex parsers in
+        `svg_paths.py`, plus the outer `_color_provinces_by_power_with_transparency`
+        wrapper): `(ValueError, TypeError, IndexError)`, with `ZeroDivisionError` added
+        for `_draw_ocean_pattern` (divides by `spacing`) and `AttributeError` added back
+        for the outer wrapper only (it also touches caller-supplied `units`/
+        `supply_center_control` dicts, where a non-string power/province name is a
+        legitimate malformed-input case, not a code bug).
+      - **Icon loading/pasting** (`icons.py`): `(OSError, ValueError, IndexError,
+        ZeroDivisionError)` for `_load_and_process_icon` (file I/O + a `size /
+        max(canvas_size)` division); `AttributeError` for the inner `draw.im` fallback
+        probe (the one place an `AttributeError` *is* the expected outcome, since it's
+        deliberately probing for an attribute that may not exist); `(ValueError,
+        TypeError, OSError)` for the final icon-paste block (PIL `paste()`'s failure
+        modes) — `AttributeError` dropped there since the `isinstance(base_image,
+        Image.Image)` check immediately above already guarantees the attribute exists.
+      - **Best-effort startup preload** (`preload_common_maps`'s two blocks): `(OSError,
+        ValueError, TypeError)` — the render pipeline's own explicit `raise ValueError`s
+        plus file/font I/O.
+      In every case, `NameError`/`ImportError`/`RecursionError` and (except where noted
+      above) `AttributeError` are deliberately left uncaught, so a real programming bug
+      introduced later raises instead of being logged-and-swallowed.
+- [x] **Validated the narrowing changed no behavior** — re-ran the same byte-identical
+      render check V3's split used: a real game created through `GameService`
+      (`generate_map_for_snapshot`/`generate_orders_map`/`generate_resolution_map`, the
+      actual API-route functions, against a local Postgres), byte cache cleared first.
+      Board, orders, and resolution PNG sha256 are **identical before and after** the
+      except-narrowing (`5273a039…`/`fa87835d…`/`41f42161…`, 722481/725052/727603 bytes)
+      — the board hash also matches the one recorded for the original V3 split, confirming
+      the render is still deterministic. Zero warnings logged during any render.
+- [x] **Done when:** no module over ~800 lines ✅; all 25(+2) blanket excepts narrowed ✅;
+      suite green ✅ 852 passed, 11 skipped, 10 xfailed (identical to the pre-narrowing
+      baseline); engine 92.86%, overall 61.74% (both floors pass, unchanged); `ruff check
+      src/` clean ✅.
 
 **Evidence the split was genuinely mechanical:** the board and orders PNGs were rendered
 before and after and are **byte-identical** (sha256 `5273a039…` / `ac40f03b…`, 722,481 and
@@ -634,12 +679,14 @@ unfinished except-narrowing was caught rather than assumed done.
 
 - ~~The Telegram bot tests stub deep internals; PR4 will churn them.~~ Done — see PR4's
   decision 1: three files were deleted rather than ported, with the reasoning recorded.
-- **The rendering split's broad excepts are still there (25 of them).** V3 moved the code
-  but did not narrow them, so breakage in `src/rendering/` can still hide at runtime
-  rather than test time. **When touching rendering, compare rendered PNG bytes before and
-  after** — that is how V3 was validated, and it catches what the suite cannot. A probe
-  script pattern: clear `Map.clear_map_cache()` + `/tmp/diplomacy_map_cache`, render board
-  and orders PNGs, compare sha256.
+- **The rendering split's broad excepts are narrowed (`v2.7.28`).** All 27 were replaced
+  with specific exception tuples (see the V3 section), so a genuine programming bug
+  (`AttributeError`/`NameError`/`ImportError`/etc.) now raises instead of being logged and
+  swallowed. **Still true and still worth doing when touching rendering: compare rendered
+  PNG bytes before and after** — that is how both the V3 split and the except-narrowing
+  were validated, and it catches what the suite cannot. A probe script pattern: clear
+  `Map.clear_map_cache()` + `/tmp/diplomacy_map_cache`, render board/orders/resolution PNGs
+  through the real `GameService`/API-route functions, compare sha256.
 - `visualization_config.json` is live again as of V0 — if arrow styling looks different
   in a diff of rendered PNGs, that's the intended restore, not a regression.
 - Renderer output is byte-cached (`/tmp/diplomacy_map_cache` + in-memory); clear it when

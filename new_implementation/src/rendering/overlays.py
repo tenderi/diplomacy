@@ -455,7 +455,7 @@ def _draw_conflict_marker(draw: ImageDraw.ImageDraw, province: str, strengths: d
         font_size = font_specs["conflict_label_size"]
         try:
             font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
-        except Exception:
+        except OSError:
             font = ImageFont.load_default()
         draw.text((x + marker_size + 5, y - 10), str(max_strength), fill="black", font=font)
 
