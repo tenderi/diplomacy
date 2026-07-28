@@ -99,44 +99,62 @@ def test_callback_data_parsing():
     print("✅ Callback data parsing tests passed")
 
 @patch('server.telegram_bot.orders.api_get')
-def test_selectunit_command_mock(mock_api_get):
-    """Test /selectunit command with mocked API"""
+@patch('server.telegram_bot.game_context.api_get')
+def test_selectunit_command_mock(mock_ctx_get, mock_orders_get):
+    """Test /selectunit command with mocked API.
+
+    Two separate ``api_get`` references are involved:
+    ``game_context.api_get`` resolves the caller's game/power via
+    ``/users/{id}/games``; ``orders.api_get`` fetches the phase-aware
+    ``/games/{id}/legal_orders/{power}`` the interactive flow is built on.
+    """
     print("Testing /selectunit command...")
-    
+
     from server.telegram_bot.orders import selectunit
     import asyncio
-    
-    # Mock API responses
-    mock_api_get.side_effect = [
-        {"games": [{"game_id": 1, "power": "GERMANY"}]},  # user games
-        {"units": {"GERMANY": ["A BER", "A MUN", "F KIE"]}}  # game state
-    ]
-    
+
+    mock_ctx_get.return_value = {"games": [{"game_id": 1, "power": "GERMANY"}]}
+    mock_orders_get.return_value = {
+        "phase": "S1901M",
+        "phase_type": "MOVEMENT",
+        "power": "GERMANY",
+        "units": [
+            {"kind": "A", "location": "BER", "province": "BER", "coast": None},
+            {"kind": "A", "location": "MUN", "province": "MUN", "coast": None},
+            {"kind": "F", "location": "KIE", "province": "KIE", "coast": None},
+        ],
+        "orders_by_unit": {
+            "A BER": ["A BER H"], "A MUN": ["A MUN H"], "F KIE": ["F KIE H"],
+        },
+        "orders": ["A BER H", "A MUN H", "F KIE H"],
+    }
+
     # Mock update and context with async support
     mock_update = Mock()
     mock_context = Mock()
+    mock_context.user_data = {}
+    mock_context.args = None
     mock_message = Mock()
     mock_user = Mock()
-    
+
     mock_user.id = 12345
     mock_update.effective_user = mock_user
     mock_update.message = mock_message
-    
+    mock_update.callback_query = None
+
     # Create async mock for reply_text
     async def mock_reply_text(*args, **kwargs):
         return Mock()
-    
+
     mock_message.reply_text = mock_reply_text
-    
+
     # Call the function
     asyncio.run(selectunit(mock_update, mock_context))
-    
-    # Verify API calls were made
-    assert mock_api_get.call_count >= 2
-    mock_api_get.assert_any_call("/users/12345/games")
-    # May also call for state, but check that games was called
-    assert any("/users/12345/games" in str(call) for call in mock_api_get.call_args_list)
-    
+
+    # Verify both API calls were made
+    mock_ctx_get.assert_called_once_with("/users/12345/games")
+    mock_orders_get.assert_called_once_with("/games/1/legal_orders/GERMANY")
+
     print("✅ /selectunit command tests passed")
 
 def test_unit_type_filtering():

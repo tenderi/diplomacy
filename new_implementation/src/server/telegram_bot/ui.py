@@ -2,12 +2,11 @@
 UI and menu helpers for the Telegram bot.
 """
 import logging
-import requests
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from .api_client import api_get
+from .game_context import fetch_user_games
 from .games import register, games, show_available_games, wait
 from .orders import show_my_orders_menu
 from .messages import show_messages_menu
@@ -64,25 +63,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show map menu for user's games or default map if not in any games"""
+    """Show map menu for user's games."""
     try:
         user_id = str(update.effective_user.id)
-        try:
-            user_games_response = api_get(f"/users/{user_id}/games")
-            # Extract games list from API response
-            user_games = user_games_response.get("games", []) if user_games_response else []
-        except requests.exceptions.HTTPError as e:
-            # Handle 404 (user not found) gracefully - treat as no games
-            if e.response is not None and e.response.status_code == 404:
-                user_games = []
-            else:
-                raise  # Re-raise other HTTP errors
+        user_games = fetch_user_games(user_id)
 
-        # Handle different response types safely
-        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
-            # Show default map for users not in any games
+        if not user_games:
             keyboard = [
-                [InlineKeyboardButton("🗺️ View Standard Diplomacy Map", callback_data="view_default_map")],
+                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")],
                 [InlineKeyboardButton("🎮 Start Demo Game (Germany)", callback_data="start_demo_game")],
                 [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
                 [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
@@ -105,14 +93,13 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         keyboard = []
         games_to_show = user_games[:10] if len(user_games) > 10 else user_games
         for game in games_to_show:
-            if isinstance(game, dict):
-                game_id = game.get('game_id', 'Unknown')
-                power = game.get('power', 'Unknown')
-                state = game.get('state', 'Unknown')
-                keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power}) - {state}", callback_data=f"view_map_{game_id}")])
+            game_id = game.get('game_id', 'Unknown')
+            power = game.get('power', 'Unknown')
+            state = game.get('status', 'Unknown')
+            keyboard.append([InlineKeyboardButton(f"🗺️ Game {game_id} Map ({power}) - {state}", callback_data=f"view_map_{game_id}")])
 
-        # Also add option to see default map
-        keyboard.append([InlineKeyboardButton("🗺️ Standard Reference Map", callback_data="view_default_map")])
+        # Also offer the unit-less sample board.
+        keyboard.append([InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         if update.callback_query:
@@ -130,8 +117,8 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     except Exception as e:
         keyboard = [
-            [InlineKeyboardButton("🗺️ View Standard Map",
-                                 callback_data="view_default_map")],
+            [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")],
+            [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -140,7 +127,8 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"⚠️ *Can't Load Game Maps*\n\n"
                 f"🔧 Unable to access your game maps right now.\n\n"
                 f"💡 *You can still:*\n"
-                f"🗺️ View the standard reference map\n"
+                f"🗺️ View the standard board\n"
+                f"🎲 Browse available games\n"
                 f"🏠 Return to main menu\n\n"
                 f"*Error:* {str(e)[:100]}",
                 reply_markup=reply_markup,
@@ -151,7 +139,8 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"⚠️ *Can't Load Game Maps*\n\n"
                 f"🔧 Unable to access your game maps right now.\n\n"
                 f"💡 *You can still:*\n"
-                f"🗺️ View the standard reference map\n"
+                f"🗺️ View the standard board\n"
+                f"🎲 Browse available games\n"
                 f"🏠 Return to main menu\n\n"
                 f"*Error:* {str(e)[:100]}",
                 reply_markup=reply_markup,
@@ -179,7 +168,12 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 *🏗️ Build Phase Orders:*
 • **Build:** `BUILD A PAR` (Build army in Paris)
-• **Destroy:** `DESTROY A MUN` (Destroy army in Munich)
+• **Disband:** `D A MUN` (Disband army in Munich)
+• **Waive:** `WAIVE` (Skip an available build)
+
+*↩️ Retreat Phase Orders:*
+• **Retreat:** `A MUN R SIL` (Retreat dislodged army in Munich to Silesia)
+• **Disband:** `D A MUN` (Disband instead of retreating)
 
 *📋 Order Format:*
 • Use abbreviations: `A`, `F`, `H`, `S`, `C`
@@ -189,8 +183,8 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 *🔄 Game Phases:*
 • **Movement** (Spring/Autumn): Submit movement, support, convoy orders
-• **Retreat**: Retreat dislodged units to adjacent provinces
-• **Builds**: Build or destroy units based on supply center control
+• **Retreat**: Retreat dislodged units to adjacent provinces, or disband
+• **Builds**: Build, disband, or waive based on supply center control
 
 *💡 Tips:*
 • Units can't move into occupied provinces (except with support)
@@ -227,7 +221,12 @@ async def examples(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 *🏗️ Build Phase Orders:*
 • `BUILD A Paris` - Build army in Paris (requires supply center control)
 • `BUILD F Brest` - Build fleet in Brest
-• `DESTROY A Munich` - Destroy army in Munich (if you have too many units)
+• `D A Munich` - Disband army in Munich (if you have too many units)
+• `WAIVE` - Skip an available build
+
+*↩️ Retreat Phase Orders:*
+• `A Munich R Silesia` - Retreat dislodged army in Munich to Silesia
+• `D A Munich` - Disband instead of retreating
 
 *📝 Multiple Orders:*
 Separate multiple orders with semicolons:
@@ -278,18 +277,20 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 • `A Berlin S A Munich - Kiel` (Support)
 • `F English Channel C A London - Brest` (Convoy)
 • `BUILD A Paris` (Build unit - Builds phase only)
-• `DESTROY A Munich` (Destroy unit - Builds phase only)
+• `D A Munich` (Disband unit - Builds/Retreat phase only)
+• `WAIVE` (Skip an available build - Builds phase only)
+• `A Munich R Silesia` (Retreat to Silesia - Retreat phase only)
 
 *📝 Order Format Notes:*
-• Use abbreviations: `A`, `F`, `H`, `S`, `C`, `BUILD`, `DESTROY`
-• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`, `BUILD`, `DESTROY`
-• **Important:** Mix abbreviations and full names in the same order
+• Use abbreviations: `A`, `F`, `H`, `S`, `C`, `R`, `D`, `BUILD`, `WAIVE`
+• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`, `RETREAT`, `DISBAND`, `BUILD`, `WAIVE`
+• **Important:** Don't mix abbreviations and full names in the same order
 • Examples: `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅ or `A Berlin HOLD` ❌
 
 *🎯 Game Phases:*
 • **Movement** (Spring/Autumn) - Submit movement orders
-• **Retreat** - Retreat dislodged units
-• **Builds** - Build/destroy units based on supply centers
+• **Retreat** - Retreat dislodged units, or disband (`D`)
+• **Builds** - Build, disband (`D`), or waive (`WAIVE`) based on supply centers
 
 *💡 Tips:*
 • Use `/selectunit` for interactive order selection

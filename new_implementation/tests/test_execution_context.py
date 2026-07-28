@@ -335,7 +335,7 @@ class TestServiceExecution:
         try:
             from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL, get_telegram_token
             from server.telegram_bot.api_client import api_post, api_get
-            from server.telegram_bot.maps import get_cached_default_map
+            from server.telegram_bot.maps import send_game_map
             from server.telegram_bot.games import start
             from server.telegram_bot.orders import order
             from server.telegram_bot.messages import message
