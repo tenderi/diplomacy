@@ -111,7 +111,7 @@ def _load_and_process_icon(
         _icon_cache[cache_key] = scaled
         return scaled
 
-    except Exception as e:
+    except (OSError, ValueError, IndexError, ZeroDivisionError) as e:
         logger.error(f"Error loading icon {icon_path}: {e}")
         import traceback
         logger.error(traceback.format_exc())
@@ -174,7 +174,7 @@ def _draw_army_icon(
                     try:
                         # Try accessing through the image that created the draw
                         base_image = getattr(draw, '_image', None) or draw.im
-                    except Exception:
+                    except AttributeError:
                         pass
 
             # Ensure base_image is a proper PIL Image
@@ -200,7 +200,7 @@ def _draw_army_icon(
             else:
                 base_image.paste(icon_img, (paste_x, paste_y))
 
-        except (AttributeError, Exception) as e:
+        except (ValueError, TypeError, OSError) as e:
             logger.warning(f"Could not paste icon image: {e}, falling back to programmatic drawing")
             import traceback
             logger.debug(traceback.format_exc())
@@ -268,7 +268,7 @@ def _draw_fleet_icon(
                     try:
                         # Try accessing through the image that created the draw
                         base_image = getattr(draw, '_image', None) or draw.im
-                    except Exception:
+                    except AttributeError:
                         pass
 
             # Ensure base_image is a proper PIL Image
@@ -294,7 +294,7 @@ def _draw_fleet_icon(
             else:
                 base_image.paste(icon_img, (paste_x, paste_y))
 
-        except (AttributeError, Exception) as e:
+        except (ValueError, TypeError, OSError) as e:
             logger.warning(f"Could not paste icon image: {e}, falling back to programmatic drawing")
             import traceback
             logger.debug(traceback.format_exc())

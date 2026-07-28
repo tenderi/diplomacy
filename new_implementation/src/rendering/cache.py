@@ -64,7 +64,7 @@ class MapCache:
                 with open(cache_meta_file, 'r') as f:
                     meta_data = json.load(f)
                     self.access_times = meta_data.get("access_times", {})
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             self.logger.warning(f"Could not load cache metadata: {e}")
 
     def _save_cache_metadata(self) -> None:
@@ -77,7 +77,7 @@ class MapCache:
             }
             with open(cache_meta_file, 'w') as f:
                 json.dump(meta_data, f)
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Could not save cache metadata: {e}")
 
     def get(self, cache_key: str) -> bytes | None:
@@ -95,7 +95,7 @@ class MapCache:
                             img_bytes = f.read()
                             self.cache[cache_key] = (img_bytes, time.time())
                             return img_bytes
-                    except Exception as e:
+                    except OSError as e:
                         self.logger.warning(f"Could not load cached image {cache_key}: {e}")
 
             return self.cache[cache_key][0]
@@ -115,7 +115,7 @@ class MapCache:
             cache_file = os.path.join(self.cache_dir, f"{cache_key}.png")
             with open(cache_file, 'wb') as f:
                 f.write(img_bytes)
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Could not save cached image {cache_key}: {e}")
 
         # Cleanup if cache is too large
@@ -146,7 +146,7 @@ class MapCache:
             try:
                 if os.path.exists(cache_file):
                     os.remove(cache_file)
-            except Exception as e:
+            except OSError as e:
                 self.logger.warning(f"Could not remove cache file {cache_file}: {e}")
 
             # Remove from access times
@@ -164,7 +164,7 @@ class MapCache:
                 if filename.endswith('.png') or filename == 'cache_meta.json':
                     file_path = os.path.join(self.cache_dir, filename)
                     os.remove(file_path)
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Could not clear cache directory: {e}")
 
     def get_stats(self) -> dict[str, Any]:
