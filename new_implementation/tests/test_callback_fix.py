@@ -2,125 +2,73 @@
 """
 Test Callback Data Format Fix
 
-This script specifically tests the callback data format fix for unit selection.
-Run with: python src/server/test_callback_fix.py
+Documents why the interactive-order ``callback_data`` scheme changed in
+v2.7.22 and verifies the replacement.
+
+The pre-rewrite scheme embedded the order text itself (and, for units,
+underscore-escaped unit strings like ``select_unit_1_A_BER``). That worked
+for a two-token unit id but overflowed Telegram's 64-byte ``callback_data``
+cap once real order strings -- support-move and convoy orders, coasted
+locations like ``F STP/SC`` -- got embedded directly. The fix is structural:
+``callback_data`` never carries order text at all. It carries only a short
+index (``ord|{game_id}|{idx}``) or unit key (``selunit|{game_id}|{unit}``),
+"|"-delimited so a value containing a space (a unit key) or a slash (a
+coast) doesn't need escaping. The real order text lives in
+``context.user_data`` and is resolved by index in the callback handler --
+see ``server.telegram_bot.orders._present_order_choices`` /
+``resolve_pending_order``.
 """
 
-import sys
-import os
 
-# Add the project root to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
-
-def test_callback_data_format():
-    """Test the callback data format fix"""
-    print("🧪 Testing Callback Data Format Fix...")
-    
-    # Test the old problematic format
-    print("   Testing old format (should fail):")
-    old_callback = "select_unit_1_A BER"  # This has a space
-    parts = old_callback.split("_")
-    print(f"   Old callback: {old_callback}")
-    print(f"   Split result: {parts}")
-    
-    if len(parts) >= 5:
-        game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"
-        print(f"   Parsed: game_id={game_id}, unit={unit}")
-    else:
-        print("   ❌ Old format fails - not enough parts after split")
-    
-    # Test the new fixed format
-    print("\n   Testing new format (should work):")
-    new_callback = "select_unit_1_A_BER"  # This uses underscores
-    parts = new_callback.split("_")
-    print(f"   New callback: {new_callback}")
-    print(f"   Split result: {parts}")
-    
-    if len(parts) >= 5:
-        game_id = parts[2]
-        unit = f"{parts[3]} {parts[4]}"  # Reconstruct space
-        print(f"   Parsed: game_id={game_id}, unit={unit}")
-        print("   ✅ New format works correctly!")
-        assert len(parts) >= 5, "New format should have enough parts after split"
-        assert game_id == "1", f"Expected game_id '1', got '{game_id}'"
-        assert unit == "A BER", f"Expected unit 'A BER', got '{unit}'"
-    else:
-        print("   ❌ New format fails")
-        assert False, "New format should have enough parts after split"
-
-def test_unit_callback_generation():
-    """Test how callback data should be generated"""
-    print("\n🧪 Testing Callback Data Generation...")
-    
-    # Simulate the selectunit function logic
+def test_new_unit_select_callback_survives_a_coast():
+    """selunit|{game_id}|{unit} -- "|" split, no escaping needed for "F STP/SC"."""
     game_id = "1"
-    unit = "A BER"
-    
-    # Old way (problematic)
-    old_callback = f"select_unit_{game_id}_{unit}"
-    print(f"   Old generation: {old_callback}")
-    
-    # New way (fixed)
-    new_callback = f"select_unit_{game_id}_{unit.replace(' ', '_')}"
-    print(f"   New generation: {new_callback}")
-    
-    # Test parsing the new callback
-    parts = new_callback.split("_")
-    parsed_game_id = parts[2]
-    parsed_unit = f"{parts[3]} {parts[4]}"
-    
-    print(f"   Parsed game_id: {parsed_game_id}")
-    print(f"   Parsed unit: {parsed_unit}")
-    
-    # Verify it matches the original
-    assert parsed_game_id == game_id, f"Expected game_id '{game_id}', got '{parsed_game_id}'"
-    assert parsed_unit == unit, f"Expected unit '{unit}', got '{parsed_unit}'"
-    print("   ✅ Callback generation and parsing work correctly!")
+    unit = "F STP/SC"
 
-def test_multiple_units():
-    """Test callback data for multiple units"""
-    print("\n🧪 Testing Multiple Units...")
-    
-    units = ["A BER", "A MUN", "F KIE"]
-    game_id = "1"
-    
-    for unit in units:
-        # Generate callback data
-        callback_data = f"select_unit_{game_id}_{unit.replace(' ', '_')}"
-        
-        # Parse callback data
-        parts = callback_data.split("_")
-        parsed_game_id = parts[2]
-        parsed_unit = f"{parts[3]} {parts[4]}"
-        
-        print(f"   Unit: {unit}")
-        print(f"   Callback: {callback_data}")
-        print(f"   Parsed: game_id={parsed_game_id}, unit={parsed_unit}")
-        
-        assert parsed_game_id == game_id, f"Expected game_id '{game_id}', got '{parsed_game_id}'"
-        assert parsed_unit == unit, f"Expected unit '{unit}', got '{parsed_unit}'"
-        print("   ✅ Correct")
-    
-    print("   ✅ All units work correctly!")
+    callback_data = f"selunit|{game_id}|{unit}"
+    assert len(callback_data.encode("utf-8")) <= 64
 
-def run_all_tests():
-    """Run all callback format tests"""
-    print("🚀 Testing Callback Data Format Fix\n")
-    
-    try:
-        test_callback_data_format()
-        test_unit_callback_generation()
-        test_multiple_units()
-        
-        print("\n🎉 All callback format tests passed!")
-        print("✅ Unit selection buttons should now work correctly")
-        
-    except Exception as e:
-        print(f"\n❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+    parts = callback_data.split("|", 2)
+    assert len(parts) == 3
+    assert parts[1] == game_id
+    assert parts[2] == unit
+
+
+def test_new_order_callback_is_index_based_not_order_text():
+    """ord|{game_id}|{idx} -- the order text is never embedded, so its length
+    (support/convoy strings, coasted locations, ...) cannot overflow the cap."""
+    game_id = "123456"
+    long_order = "A MOS S F STP/SC - BOT"  # a support order with a coasted target
+    idx = 4
+
+    callback_data = f"ord|{game_id}|{idx}"
+
+    assert long_order not in callback_data
+    assert len(callback_data.encode("utf-8")) <= 64
+
+    parts = callback_data.split("|", 2)
+    assert parts[1] == game_id
+    assert int(parts[2]) == idx
+
+
+def test_order_callback_stays_under_cap_for_worst_case_ids():
+    """Even with a large game id and a deep order list, the callback stays tiny --
+    unlike embedding order text, index length barely grows with the payload."""
+    callback_data = f"ord|{999999999}|{9999}"
+    assert len(callback_data.encode("utf-8")) <= 64
+
+
+def test_cancel_callback_format():
+    """cancelunit|{game_id} clears the per-game cache; also index-free."""
+    game_id = "42"
+    callback_data = f"cancelunit|{game_id}"
+    assert len(callback_data.encode("utf-8")) <= 64
+    assert callback_data.split("|", 1) == ["cancelunit", "42"]
+
 
 if __name__ == "__main__":
-    run_all_tests()
+    test_new_unit_select_callback_survives_a_coast()
+    test_new_order_callback_is_index_based_not_order_text()
+    test_order_callback_stays_under_cap_for_worst_case_ids()
+    test_cancel_callback_format()
+    print("✅ All callback format tests passed!")

@@ -2,12 +2,12 @@
 Messaging commands for the Telegram bot.
 """
 import logging
-import requests
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
+from .game_context import fetch_user_games
 
 logger = logging.getLogger("diplomacy.telegram_bot.messages")
 
@@ -95,24 +95,13 @@ async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Show messages menu for user's games"""
     try:
         user_id = str(update.effective_user.id)
-        try:
-            user_games_response = api_get(f"/users/{user_id}/games")
-            # Extract games list from API response
-            user_games = user_games_response.get("games", []) if user_games_response else []
-        except requests.exceptions.HTTPError as e:
-            # Handle 404 (user not found) gracefully - treat as no games
-            if e.response is not None and e.response.status_code == 404:
-                user_games = []
-            else:
-                raise  # Re-raise other HTTP errors
+        user_games = fetch_user_games(user_id)
 
-        # Handle different response types safely
-        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
+        if not user_games:
             # Create helpful keyboard for users not in games
             keyboard = [
                 [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
-                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")],
-                [InlineKeyboardButton("🗺️ View Sample Map", callback_data="view_default_map")]
+                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -120,8 +109,7 @@ async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "🎮 You're not currently in any games!\n\n"
                 "💡 *Get started:*\n"
                 "🎲 Browse games and pick one to join\n"
-                "⏳ Join the waiting list for auto-matching\n"
-                "🗺️ Check out the game board first",
+                "⏳ Join the waiting list for auto-matching",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
@@ -131,13 +119,12 @@ async def show_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Safely handle list slicing
         games_to_show = user_games[:10] if len(user_games) > 10 else user_games
         for game in games_to_show:
-            if isinstance(game, dict):
-                game_id = game.get('game_id', 'Unknown')
-                power = game.get('power', 'Unknown')
-                state = game.get('state', 'Unknown')
-                # Add more context to button text
-                button_text = f"💬 Game {game_id} ({power}) - {state}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"view_messages_{game_id}")])
+            game_id = game.get('game_id', 'Unknown')
+            power = game.get('power', 'Unknown')
+            state = game.get('status', 'Unknown')
+            # Add more context to button text
+            button_text = f"💬 Game {game_id} ({power}) - {state}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"view_messages_{game_id}")])
 
         if not keyboard:
             # Fallback if games exist but are malformed

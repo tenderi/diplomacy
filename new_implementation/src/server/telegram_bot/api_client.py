@@ -78,9 +78,34 @@ def api_post(endpoint: str, json_data: dict) -> dict:
     return resp.json()
 
 
-def api_get(endpoint: str) -> dict:
-    """Make a GET request to the API."""
-    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers())
+def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
+    """Make a GET request to the API.
+
+    Mirrors ``api_post``'s ``bot_secret`` injection, but via the query string:
+    a GET has no body, so routes that need telegram-id auth on a GET (e.g.
+    ``GET /games/{id}/orders/{power}``) read ``telegram_id``/``bot_secret`` as
+    query params instead. Passing ``telegram_id`` here adds both to the
+    request under those exact names; omit it for endpoints that don't need
+    per-user auth (public reads, or ones using the ``X-Bot-Secret`` header
+    alone).
+    """
+    params: dict = {}
+    if telegram_id is not None:
+        params["telegram_id"] = telegram_id
+        if BOT_SECRET:
+            params["bot_secret"] = BOT_SECRET
+    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), params=params)
     resp.raise_for_status()
     return resp.json()
+
+
+def api_get_bytes(endpoint: str) -> bytes:
+    """Make a GET request to the API and return the raw response body (e.g. a PNG).
+
+    Mirrors ``api_get``'s auth handling (``X-Bot-Secret`` header via
+    ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
+    """
+    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers())
+    resp.raise_for_status()
+    return resp.content
 

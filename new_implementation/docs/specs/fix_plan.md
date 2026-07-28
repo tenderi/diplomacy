@@ -13,14 +13,17 @@
 
 ## Status
 
-- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR4 — `bot-phase-aware` (the largest
-  one).** PR1, PR2 and PR3 are merged; PR5, PR6 and the manual end-to-end check remain
-  after PR4.
-- **QUEUED: Track B — Post-rewrite cleanup.** V0 (audit + first dead-code batch) done
-  2026-07-28 (`v2.7.19`). V1 was absorbed into Track A's PR4. V2–V4 start **after PR4**;
-  V5 is independent filler.
-- **Suite baseline:** 841 passed, 15 skipped, 10 xfailed; ruff clean. (PR2's baseline was
-  844 — V0 deleted 3 dead-path tests.) **Frontend baseline:** 99 passed in 21 files;
+- **ACTIVE: Track A — Finish the Port. NEXT TASK: PR5 — `turn-lifecycle`,** which is
+  independent of everything landed so far. PR1–PR4 are merged; PR6 and the manual
+  end-to-end check remain. **The manual end-to-end check is now runnable** — it was
+  gated on PR4.
+- **UNBLOCKED: Track B — Post-rewrite cleanup.** V0 done 2026-07-28 (`v2.7.19`); V1 was
+  absorbed into PR4 and is complete. **V2–V4 are now startable** (PR4 removed the bot's
+  renderer import, so `rendering/map.py`'s topology half is fully dead). V5 is independent
+  filler. Track B may be run in parallel with PR5/PR6 — they touch disjoint files.
+- **Suite baseline:** 890 passed, 15 skipped, 10 xfailed; ruff clean; engine coverage
+  92.97%, overall 62.05% (up from ~59 — PR4's dead-code deletion bought ~3 points of
+  headroom against the 57 floor). **Frontend baseline:** 99 passed in 21 files;
   `tsc -b --noEmit` and `npm run build` clean.
 - **Last updated:** 2026-07-28.
 
@@ -191,60 +194,78 @@ power passes `validate()` in movement/retreat/build/disband states.
   spinner. (Same class of bug as PR1's `spec_from_file_location` tests — a test that
   exercises the workaround instead of the real path.)
 
-## PR 4 — `bot-phase-aware` (largest)  ← **NEXT TASK**
+## PR 4 — `bot-phase-aware` ✅ MERGED (`v2.7.22`)
 
-API prerequisites, same PR: `routes/orders.py` `get_orders_for_power`/`get_orders` must
-accept `telegram_id` + bot secret (Bearer-only today, so the bot gets **403** even after
-the session fix); new `GET /games/{id}/map/history/{turn}`; promote
-`_units_for_render`/`_phase_info`/`_svg_path_for_map_name` from `routes/maps.py` into a
-new pure `src/rendering/view_adapter.py`.
+Built by four Sonnet agents in sequence on one branch (API prerequisites → bot core →
+bot periphery + tests → sample-map restore).
 
-- [ ] New `telegram_bot/game_context.py` with
-      `resolve_game_and_power(user_id, game_id=None)` wrapping
-      `api_get(f"/users/{id}/games")["games"]` — note that endpoint returns a **dict**,
-      not a list. Replaces every dead `api_get(f"/users/{id}")` call (that route reads
-      `user_sessions`, an in-memory dict populated only by `POST /users/register`, which
-      the bot never calls → 404) and four copy-pasted resolution blocks.
-- [ ] `orders.py`: fix `/myorders`, `/clearorders` (must also post `telegram_id` so
-      `api_client.py:74` injects the bot secret — it 401s today), `/clear`,
-      `/orderhistory`; make `/selectunit` read the units **list** and branch on
-      `phase_type`; drive `show_possible_moves`/`show_convoy_*` from `legal_orders` and
-      **delete `from rendering.map import Map`** (the bot must not import the engine or
-      renderer — CLAUDE.md: it is a thin client over the HTTP API). *(This also completes
-      Track B's V1 and unblocks V2.)*
-- [ ] Cache the fetched order list in `context.user_data` and put `ord|{game_id}|{idx}`
-      in `callback_data` — the current scheme embeds order text and **overflows
-      Telegram's 64-byte cap** on convoys and coasted orders.
-- [ ] `maps.py`: `/map`, `/viewmap`, `/replay` fetch PNG bytes via a new
-      `api_get_bytes()` in `api_client.py`. `/replay` currently dies with `'list' object
-      has no attribute 'items'` — the renderer expects `{power: ["A BER"]}` but the new
-      view's `units` is a **list of dicts**. Delete `send_demo_map` (broken twice over:
-      it also calls the `@staticmethod` `render_board_png` with shifted args) and
-      repoint `admin.py:69`.
-- [ ] `games.py`: `/players` reads the bare list (`:355`, `:432`); `/status` reads
-      `phase`/`phase_type`, deadline from `GET /games/{id}/deadline`, submission state
-      from the new `/orders_status` (PR5).
-- [ ] `ui.py:281`: `DESTROY A Munich` → `D A Munich` (the parser accepts only
-      `D`/`DISBAND`); add retreat and `WAIVE` examples.
-- [ ] **Check `normalize_order_provinces`** (`telegram_bot/orders.py:16-48`) against
-      `WAIVE`/`BUILD`/`D` — it maps any `.isalpha()` token through `province_mapping` and
-      will mangle verbs. Right fix is to stop calling it on strings that came from
-      `legal_orders`.
-- [ ] Also fix `infra/scripts/diagnose_bot.sh`: it references
-      `/opt/diplomacy/src/server/run_telegram_bot.py`, missing the `new_implementation/`
-      segment (prod path per `user_data.sh`'s `WorkingDirectory`). Found during PR1,
-      deliberately deferred here.
-- [ ] **Resurrect the 755 dead LOC of bot tests here, not in PR6.**
-      `test_bot_functions.py`, `test_selectunit_fix.py`, `test_telegram_bot.py` collect
-      **zero tests** because their classes are named `*Tester`, which does not match
-      `python_classes = Test*`. Renaming alone would make them collect and instantly
-      fail — they assert pre-rewrite shapes. Rename `*Tester` → `Test*` (leave
-      `MockUser`/`MockUpdate`), add `@pytest.mark.asyncio`, rewrite fixtures to the new
-      view shape, and add `test_selectunit_retreat_phase`,
-      `test_selectunit_adjustment_phase`, and a test asserting `render_board_png` is
-      **never** called from the bot for a game map.
+API prerequisites, same PR: `routes/orders.py` `get_orders_for_power`/`get_orders` now
+accept `telegram_id` + bot secret **as query params** (they are GET, so there is no body
+to carry them; pattern copied from `GET /games/{id}/messages`); new
+`GET /games/{id}/map/history/{turn}`; `_units_for_render`/`_phase_info`/
+`_svg_path_for_map_name` promoted out of `routes/maps.py` into the new pure
+`src/rendering/view_adapter.py`.
+
+- [x] New `telegram_bot/game_context.py` with `resolve_game_and_power(user_id,
+      game_id=None)` + `fetch_user_games` + `GameContextError`, wrapping
+      `api_get(f"/users/{id}/games")["games"]` (that endpoint returns a **dict**, not a
+      list). Replaced the three dead `api_get(f"/users/{id}")` calls and the resolution
+      blocks duplicated across `orders.py`, `games.py`, `ui.py`, `messages.py` and
+      `channel_commands.py` — **19 call sites, not the 4 originally counted.**
+- [x] `orders.py`: `/myorders`, `/clearorders`, `/clear`, `/orderhistory` fixed;
+      `/selectunit` reads the units **list** and branches on `phase_type`;
+      `show_possible_moves`/`show_convoy_*` driven by `legal_orders`;
+      `from rendering.map import Map` deleted. *(Completes Track B's V1, unblocks V2.)*
+- [x] Order list cached in `context.user_data`; `callback_data` is now
+      `ord|{game_id}|{idx}` (plus `selunit|`/`cvopt|`/`cvorig|`/`cancelunit|`), so nothing
+      can overflow Telegram's 64-byte cap.
+- [x] `maps.py`: `/map`, `/viewmap`, `/replay` fetch PNG bytes via the new
+      `api_get_bytes()`. `send_demo_map` deleted, `admin.py:69` repointed.
+- [x] `games.py`: `/players` reads the bare list; `/status` reads `phase`/`phase_type`
+      and the deadline from `GET /games/{id}/deadline`. **Submission state deferred —
+      `/orders_status` is PR5's; see the new PR5 task below.**
+- [x] `ui.py`: `DESTROY A Munich` → `D A Munich`, plus retreat and `WAIVE` examples.
+- [x] `normalize_order_provinces` scoped to user-typed `/order` and `/orders` only, with
+      a docstring forbidding its use on server-emitted strings; the interactive flow posts
+      `legal_orders` strings verbatim.
+- [x] `infra/scripts/diagnose_bot.sh` path fixed (`new_implementation/` segment restored).
+- [x] The three zero-collecting bot test files were **deleted, not resurrected** — see the
+      decision note below.
+
+### Three decisions taken during PR4 (departures from the plan as written)
+
+1. **`test_bot_functions.py` / `test_selectunit_fix.py` / `test_telegram_bot.py` were
+   deleted rather than rewritten.** They collected zero tests (`*Tester` classes vs.
+   `python_classes = Test*`), and on inspection they mocked the pre-rewrite response
+   shape, patched module paths that never existed (`src.server.telegram_bot.api_get`),
+   imported `button_callback` from a location it never lived, and exercised only the
+   now-deleted local-render paths. Their intended coverage is carried by the new
+   `tests/test_game_context.py`, `tests/test_selectunit_phases.py` (including
+   `test_selectunit_retreat_phase` / `test_selectunit_adjustment_phase`) and
+   `tests/test_telegram_bot_maps.py` (which holds the "renderer is never called from the
+   bot" assertion). Net suite: 841 → 890 passing.
+2. **The bot's sample-map feature was removed and then restored differently.** Making the
+   bot a strict thin client killed local rendering, which took the "View Sample Map"
+   button, `/refresh_map` and the startup map-pregeneration with it. The maintainer chose
+   to keep the feature, so it now comes from a new `GET /maps/{map_name}/preview.png`
+   (validated against `{standard, standard-v2}` → 404 otherwise; repeat requests hit the
+   renderer's existing `MapCache`, no second cache layer added). **`/refresh_map` and the
+   startup pregen were not restored** — the command only ever warmed a bot-local byte
+   cache that no longer exists, and wiring it to `POST /admin/clear_map_cache` would mean
+   plumbing an admin token into the bot for no functional gain.
+3. **`engine.province_mapping` is still imported by `telegram_bot/orders.py`** (function-
+   local import, user-typed-order path only). This is the last engine import in the bot
+   and it is Track B's V2 to remove — V2 folds the alias table into
+   `engine/orders/parser.py`, after which the bot should stop normalizing entirely and let
+   the server's single grammar handle aliases.
 
 ## PR 5 — `turn-lifecycle` (independent of PR3/PR4)
+
+- [ ] **`/status` submission state (carried over from PR4).** Once
+      `GET /games/{id}/orders_status` exists, wire the Telegram `/status` command to it.
+      PR4 removed the old, already-broken submission-status block rather than fake it;
+      `GET /games/{id}/orders` cannot substitute because it only returns the caller's own
+      power.
 
 - [ ] `POST /deadline` (`routes/games.py:469-484`) mutates a **detached** ORM object and
       never commits (the session closes at `database_service.py:315-318`, and
@@ -305,10 +326,11 @@ No automated test spans this. Run it after PR4.
 
 # Track B — Post-Rewrite Cleanup: dead code & visualization quality
 
-**QUEUED behind Track A's PR4** (V2–V4 depend on the bot no longer importing the
-renderer's topology; V5 is independent filler). Goal: remove the remaining pre-rewrite
-dead and duplicated code, and bring `src/rendering/` up to the engine's standard —
-single topology source, focused modules, correct overlays.
+**UNBLOCKED as of `v2.7.22`** — PR4 removed the bot's `rendering.map` import, which was
+the last src consumer of the renderer's topology half, so finding 2 below is now spent and
+V2–V4 can start. V5 was always independent. Goal: remove the remaining pre-rewrite dead
+and duplicated code, and bring `src/rendering/` up to the engine's standard — single
+topology source, focused modules, correct overlays.
 
 ## Findings driving this track (verified by direct reads, 2026-07-28)
 
@@ -318,14 +340,17 @@ single topology source, focused modules, correct overlays.
    **hardcoded `WATER_PROVINCES` table** (`map.py:220` — exactly the kind of duplicate
    topology source the rewrite banned; `engine/map_loader.py` is the sole source), and a
    topology query API (`get_province`/`is_adjacent`/`get_adjacency`/…, `map.py:1509-1531`).
-2. **The only src consumer of that topology half is the Telegram interactive-order UI**
-   (`telegram_bot/orders.py:488/561/627`), which Track A's PR4 rewires onto
-   `legal_orders` and deletes. After PR4 the topology half is fully dead.
-3. **`engine/province_mapping.py` (365 lines) is almost retired.** Post-V0 consumers:
+2. **~~The only src consumer of that topology half is the Telegram interactive-order
+   UI.~~ SPENT as of `v2.7.22`:** PR4 rewired that UI onto `legal_orders` and deleted the
+   import. **The topology half of `rendering/map.py` now has zero src consumers** — verify
+   with `grep -rn "rendering" src/server/telegram_bot/` (empty) before starting V2.
+3. **`engine/province_mapping.py` (365 lines) is almost retired.** Remaining consumers:
    `map.py:289` (type lists used only for *warnings* inside the doomed `_parse_map_file`)
-   and `telegram_bot/orders.py:18` (`normalize_province_name` — PR4 stops calling it on
-   `legal_orders` strings). It also sits inside `src/engine/`, violating "engine = pure
-   rules logic".
+   and `telegram_bot/orders.py` (a function-local `normalize_province_name` import on the
+   **user-typed-order path only** — PR4 stopped calling it on `legal_orders` strings). It
+   also sits inside `src/engine/`, violating "engine = pure rules logic". V2 should fold
+   the alias table into `engine/orders/parser.py` and drop the bot's normalization
+   entirely, letting the server's single grammar resolve aliases.
 4. **`map.py` is a 3,150-line God class**: one `Map` class, ~80 methods (mostly static),
    26 blanket `except Exception`, duplicated primitives (`_draw_checkmark` vs
    `_draw_success_checkmark`, `_draw_status_x` vs `_draw_failure_x`), and a redundant

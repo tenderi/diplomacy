@@ -1,14 +1,17 @@
 """
 Tests for convoy-related functions in the Telegram bot.
 
-This module tests the show_convoy_options and show_convoy_destinations functions
-to ensure they work correctly with the game state and map data.
+This module tests ``show_convoy_options`` and ``show_convoy_destinations``.
+Rewritten for v2.7.22: both functions are now driven entirely by
+``GET /games/{id}/legal_orders/{power}`` (``server.telegram_bot.orders.api_get``)
+rather than ``rendering.map.Map`` adjacency data, which the bot no longer
+imports. ``resolve_game_and_power`` (used internally to find the caller's
+power) fetches ``/users/{id}/games`` via a *separate* import
+(``server.telegram_bot.game_context.api_get``), so tests patch both names.
 """
 import pytest
-import pytest_asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from telegram import Update, CallbackQuery, User, Message, Chat
-from telegram.ext import ContextTypes
+from unittest.mock import Mock, AsyncMock, patch
+from telegram import CallbackQuery, User
 
 from server.telegram_bot.orders import show_convoy_options, show_convoy_destinations
 
@@ -24,16 +27,41 @@ def mock_query():
 
 
 @pytest.fixture
-def mock_game_state():
-    """Create a mock game state with units."""
+def mock_context():
+    context = Mock()
+    context.user_data = {}
+    return context
+
+
+@pytest.fixture
+def user_games():
+    return {"games": [{"game_id": "test_game_1", "power": "ENGLAND"}]}
+
+
+@pytest.fixture
+def fleet_legal_orders():
+    """A fleet at NTH with a Hold/Move plus two convoyable armies (LON, EDI),
+    each with two possible destinations -- i.e. a bucket that mixes
+    non-convoy and convoy order strings, exactly the shape
+    ``server.legal_orders.legal_orders_for_power`` produces."""
     return {
-        "units": {
-            "ENGLAND": ["A LON", "F NTH", "F ENG"],
-            "FRANCE": ["A PAR", "F BRE"],
-            "GERMANY": ["A BER", "F KIE"]
+        "phase": "S1901M",
+        "phase_type": "MOVEMENT",
+        "power": "ENGLAND",
+        "units": [{"kind": "F", "location": "NTH", "province": "NTH", "coast": None}],
+        "orders_by_unit": {
+            "F NTH": [
+                "F NTH H",
+                "F NTH - HOL",
+                "F NTH C A LON - BEL",
+                "F NTH C A LON - HOL",
+                "F NTH C A EDI - BEL",
+            ]
         },
-        "game_id": "test_game_1",
-        "current_phase": "Movement"
+        "orders": [
+            "F NTH H", "F NTH - HOL",
+            "F NTH C A LON - BEL", "F NTH C A LON - HOL", "F NTH C A EDI - BEL",
+        ],
     }
 
 
@@ -41,199 +69,146 @@ def mock_game_state():
 @pytest.mark.telegram
 class TestShowConvoyOptions:
     """Tests for show_convoy_options function."""
-    
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    @patch('server.telegram_bot.orders.Map')
-    async def test_show_convoy_options_with_adjacent_armies(self, mock_map_class, mock_api_get, mock_query, mock_game_state):
-        """Test that convoy options shows armies adjacent to the fleet's sea area."""
-        # Setup mocks
-        mock_api_get.return_value = mock_game_state
-        
-        mock_map = Mock()
-        mock_map.get_adjacency.return_value = ["LON", "EDI", "NTH", "DEN", "HOL", "BEL"]
-        mock_map_class.return_value = mock_map
-        
-        # Call function
-        await show_convoy_options(mock_query, "test_game_1", "F NTH")
-        
-        # Verify API was called
-        mock_api_get.assert_called_once_with("/games/test_game_1/state")
-        
-        # Verify map was created
-        mock_map_class.assert_called_once_with("standard")
-        
-        # Verify edit_message_text was called with convoy options
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_options_with_adjacent_armies(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games, fleet_legal_orders
+    ):
+        """Convoy options are grouped by origin army, one button per origin."""
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.return_value = fleet_legal_orders
+
+        await show_convoy_options(mock_query, mock_context, "test_game_1", "F NTH")
+
+        mock_orders_get.assert_called_once_with("/games/test_game_1/legal_orders/ENGLAND")
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Convoy Options" in call_args[0][0] or "convoy" in call_args[0][0].lower()
-        assert "F NTH" in call_args[0][0] or "NTH" in call_args[0][0]
-    
+        kwargs = mock_query.edit_message_text.call_args.kwargs
+        button_texts = [btn.text for row in kwargs["reply_markup"].inline_keyboard for btn in row]
+        assert any("LON" in t for t in button_texts)
+        assert any("EDI" in t for t in button_texts)
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    @patch('server.telegram_bot.orders.Map')
-    async def test_show_convoy_options_no_adjacent_armies(self, mock_map_class, mock_api_get, mock_query, mock_game_state):
-        """Test that convoy options shows error when no armies are adjacent."""
-        # Setup mocks - no armies adjacent to this sea area
-        mock_api_get.return_value = mock_game_state
-        
-        mock_map = Mock()
-        mock_map.get_adjacency.return_value = ["NWG", "BAR"]  # No coastal provinces
-        mock_map_class.return_value = mock_map
-        
-        # Call function
-        await show_convoy_options(mock_query, "test_game_1", "F NWG")
-        
-        # Verify error message
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_options_no_convoy_orders(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games
+    ):
+        """A unit whose bucket has no 'C' entries reports no convoy options."""
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.return_value = {
+            "phase_type": "MOVEMENT", "power": "ENGLAND",
+            "units": [], "orders_by_unit": {"F NWG": ["F NWG H"]}, "orders": ["F NWG H"],
+        }
+
+        await show_convoy_options(mock_query, mock_context, "test_game_1", "F NWG")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "No armies" in call_args[0][0] or "not found" in call_args[0][0].lower()
-    
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "No convoy options" in call_args
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    async def test_show_convoy_options_invalid_fleet_type(self, mock_api_get, mock_query):
-        """Test that convoy options rejects non-fleet units."""
-        # Call function with army instead of fleet
-        await show_convoy_options(mock_query, "test_game_1", "A LON")
-        
-        # Verify error message
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_options_unknown_unit(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games, fleet_legal_orders
+    ):
+        """A unit key absent from orders_by_unit degrades to a clear message."""
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.return_value = fleet_legal_orders
+
+        await show_convoy_options(mock_query, mock_context, "test_game_1", "F BAL")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Only fleets" in call_args[0][0] or "not a fleet" in call_args[0][0].lower()
-    
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "No convoy options" in call_args
+
     @pytest.mark.asyncio
-    @patch('server.telegram_bot.orders.api_get')
-    async def test_show_convoy_options_game_state_error(self, mock_api_get, mock_query):
-        """Test that convoy options handles game state retrieval errors."""
-        # Setup mock to return None (error)
-        mock_api_get.return_value = None
-        
-        # Call function
-        await show_convoy_options(mock_query, "test_game_1", "F NTH")
-        
-        # Verify error message
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_options_user_not_in_game(self, mock_ctx_get, mock_query, mock_context):
+        """If the caller can't be resolved to a power, fail gracefully with a message."""
+        mock_ctx_get.return_value = {"games": []}
+
+        await show_convoy_options(mock_query, mock_context, "test_game_1", "F NTH")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Could not retrieve" in call_args[0][0] or "error" in call_args[0][0].lower()
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "not in game test_game_1" in call_args
 
 
 @pytest.mark.unit
 @pytest.mark.telegram
 class TestShowConvoyDestinations:
     """Tests for show_convoy_destinations function."""
-    
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    @patch('server.telegram_bot.orders.Map')
-    async def test_show_convoy_destinations_with_valid_destinations(self, mock_map_class, mock_api_get, mock_query, mock_game_state):
-        """Test that convoy destinations shows coastal provinces adjacent to fleet."""
-        # Setup mocks
-        mock_api_get.return_value = mock_game_state
-        
-        mock_map = Mock()
-        # Mock adjacency returns both land and coastal provinces
-        mock_map.get_adjacency.return_value = ["LON", "EDI", "NTH", "DEN", "HOL", "BEL"]
-        
-        # Mock province info for coastal provinces
-        def mock_get_province(name):
-            prov = Mock()
-            if name in ["LON", "EDI", "DEN", "HOL", "BEL"]:
-                prov.type = "coast"
-            else:
-                prov.type = "land"
-            return prov
-        
-        mock_map.get_province = mock_get_province
-        mock_map_class.return_value = mock_map
-        
-        # Call function
-        await show_convoy_destinations(mock_query, "test_game_1", "F NTH", "ENGLAND", "A LON")
-        
-        # Verify API was called
-        mock_api_get.assert_called_once_with("/games/test_game_1/state")
-        
-        # Verify map was created
-        mock_map_class.assert_called_once_with("standard")
-        
-        # Verify edit_message_text was called with destination options
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_destinations_with_valid_destinations(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games, fleet_legal_orders
+    ):
+        """Destinations are filtered to the chosen origin and cached under a
+        short ord|game_id|idx callback (never the full order text)."""
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.return_value = fleet_legal_orders
+
+        await show_convoy_destinations(mock_query, mock_context, "test_game_1", "F NTH", "LON")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Convoy Destination" in call_args[0][0] or "destination" in call_args[0][0].lower()
-        assert "A LON" in call_args[0][0] or "LON" in call_args[0][0]
-    
+        cached = mock_context.user_data["pending_orders"]["test_game_1"]
+        assert cached == ["F NTH C A LON - BEL", "F NTH C A LON - HOL"]
+
+        kwargs = mock_query.edit_message_text.call_args.kwargs
+        for row in kwargs["reply_markup"].inline_keyboard:
+            for btn in row:
+                if btn.callback_data.startswith("ord|"):
+                    assert len(btn.callback_data.encode("utf-8")) <= 64
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    @patch('server.telegram_bot.orders.Map')
-    async def test_show_convoy_destinations_no_coastal_destinations(self, mock_map_class, mock_api_get, mock_query, mock_game_state):
-        """Test that convoy destinations shows error when no coastal provinces available."""
-        # Setup mocks - only landlocked provinces adjacent
-        mock_api_get.return_value = mock_game_state
-        
-        mock_map = Mock()
-        mock_map.get_adjacency.return_value = ["MUN", "BER", "WAR"]  # Landlocked provinces
-        
-        def mock_get_province(name):
-            prov = Mock()
-            prov.type = "land"  # All landlocked
-            return prov
-        
-        mock_map.get_province = mock_get_province
-        mock_map_class.return_value = mock_map
-        
-        # Call function
-        await show_convoy_destinations(mock_query, "test_game_1", "F BLA", "RUSSIA", "A SEV")
-        
-        # Verify error message
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_destinations_no_matching_origin(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games, fleet_legal_orders
+    ):
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.return_value = fleet_legal_orders
+
+        await show_convoy_destinations(mock_query, mock_context, "test_game_1", "F NTH", "SEV")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "No valid convoy destinations" in call_args[0][0] or "not found" in call_args[0][0].lower()
-    
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "No convoy destinations" in call_args
+
     @pytest.mark.asyncio
     @patch('server.telegram_bot.orders.api_get')
-    async def test_show_convoy_destinations_game_state_error(self, mock_api_get, mock_query):
-        """Test that convoy destinations handles game state retrieval errors."""
-        # Setup mock to return None (error)
-        mock_api_get.return_value = None
-        
-        # Call function
-        await show_convoy_destinations(mock_query, "test_game_1", "F NTH", "ENGLAND", "A LON")
-        
-        # Verify error message
+    @patch('server.telegram_bot.game_context.api_get')
+    async def test_show_convoy_destinations_exception_handling(
+        self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games
+    ):
+        mock_ctx_get.return_value = user_games
+        mock_orders_get.side_effect = Exception("Test error")
+
+        await show_convoy_destinations(mock_query, mock_context, "test_game_1", "F NTH", "LON")
+
         mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Could not retrieve" in call_args[0][0] or "error" in call_args[0][0].lower()
-    
-    @pytest.mark.asyncio
-    @patch('server.telegram_bot.orders.api_get')
-    @patch('server.telegram_bot.orders.Map')
-    async def test_show_convoy_destinations_exception_handling(self, mock_map_class, mock_api_get, mock_query, mock_game_state):
-        """Test that convoy destinations handles exceptions gracefully."""
-        # Setup mocks to raise exception
-        mock_api_get.side_effect = Exception("Test error")
-        
-        # Call function
-        await show_convoy_destinations(mock_query, "test_game_1", "F NTH", "ENGLAND", "A LON")
-        
-        # Verify error message
-        mock_query.edit_message_text.assert_called_once()
-        call_args = mock_query.edit_message_text.call_args
-        assert "Error" in call_args[0][0] or "error" in call_args[0][0].lower()
+        call_args = mock_query.edit_message_text.call_args[0][0]
+        assert "error" in call_args.lower()
 
 
 @pytest.mark.integration
 @pytest.mark.telegram
 class TestConvoyFunctionsIntegration:
-    """Integration tests for convoy functions with real game state."""
-    
+    """Integration tests for convoy functions with a real API server."""
+
+    @pytest.mark.asyncio
     @pytest.mark.skip(reason="Requires running API server")
     async def test_convoy_options_with_real_game(self):
         """Test convoy options with a real game state (requires API server)."""
-        # This would test against a real game if API server is running
         pass
-    
+
+    @pytest.mark.asyncio
     @pytest.mark.skip(reason="Requires running API server")
     async def test_convoy_destinations_with_real_game(self):
         """Test convoy destinations with a real game state (requires API server)."""
-        # This would test against a real game if API server is running
         pass
-
