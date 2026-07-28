@@ -18,13 +18,17 @@
   end-to-end check remain. **The manual end-to-end check is now runnable** — it was
   gated on PR4.
 - **UNBLOCKED: Track B — Post-rewrite cleanup.** V0 done 2026-07-28 (`v2.7.19`); V1 was
-  absorbed into PR4 and is complete. **V2–V4 are now startable** (PR4 removed the bot's
-  renderer import, so `rendering/map.py`'s topology half is fully dead). V5 is independent
-  filler. Track B may be run in parallel with PR5/PR6 — they touch disjoint files.
-- **Suite baseline:** 890 passed, 15 skipped, 10 xfailed; ruff clean; engine coverage
-  92.97%, overall 62.05% (up from ~59 — PR4's dead-code deletion bought ~3 points of
-  headroom against the 57 floor). **Frontend baseline:** 99 passed in 21 files;
-  `tsc -b --noEmit` and `npm run build` clean.
+  absorbed into PR4 and is complete. **V2 done 2026-07-28 (`v2.7.24`, branch
+  `renderer-topology-v2`, pushed not merged)** — see the V2 section below for details.
+  **V3–V4 are now startable.** V5 is independent filler. Track B may be run in parallel
+  with PR5/PR6 — they touch disjoint files.
+- **Suite baseline (post-V2, `renderer-topology-v2`):** 840 passed, 15 skipped, 10
+  xfailed; ruff clean; engine coverage 92.86%, overall 61.73%. (Was 890/15/10 before
+  V2 — the 50-test drop is entirely deleted dead-module tests: 34 in
+  `test_province_mapping.py` plus 16 elsewhere that exercised the retired
+  `normalize_province_name`/`normalize_order_provinces`/`Map` topology-query API; see
+  the V2 section for the itemized list.) **Frontend baseline unchanged:** 99 passed in
+  21 files; `tsc -b --noEmit` and `npm run build` clean (V2 touched no frontend files).
 - **Last updated:** 2026-07-28.
 
 ### Where the old trackers went
@@ -386,30 +390,85 @@ from `legal_orders`, delete the `rendering.map` import, stop province-normalizin
 server-emitted strings). Nothing to do here; kept as a placeholder so V-numbering in the
 `v2.7.19` commit history stays meaningful.
 
-### V2 — Delete the renderer's topology half; retire `province_mapping` (after PR4)
+### V2 — Delete the renderer's topology half; retire `province_mapping` ✅ DONE 2026-07-28 (`v2.7.24`, branch `renderer-topology-v2`, pushed not merged)
 
-- [ ] Delete from `rendering/map.py`: the `Province` class (`:24`), `WATER_PROVINCES`
+- [x] Deleted from `rendering/map.py`: the `Province` class (`:24`), `WATER_PROVINCES`
       (`:220`), `_init_map`/`_init_classic_map`/`_parse_map_file`/`_validate_adjacencies`
       (`:231-424`), and the topology query API (`get_province`, `is_adjacent`,
       `get_supply_centers`, `get_locations`, `get_adjacency`, `validate_location`).
-      Note `map.py:689` uses `Map.WATER_PROVINCES` to decide ocean hatching — replace
-      that one lookup with province types from `engine.map_loader.load_map()` (the sole
-      topology source; a rendering→engine import is fine, it's the other direction that's
-      banned).
-- [ ] Slim the `Map` constructor accordingly — after this, `Map` carries no per-instance
-      state worth constructing; either make it a namespace of statics only, or (better)
-      fold the change into V3's module split. Fix the two pointless
-      `Map("standard")`-then-static-call sites in `telegram_bot/maps.py:109/138` (if PR4
-      hasn't already removed them).
-- [ ] Retire `src/engine/province_mapping.py` entirely. Keep any alias entries the engine
-      parser doesn't already have by folding them into `engine/orders/parser.py`'s table
-      (diff the two alias tables first; the parser is the single grammar).
-- [ ] Update/retire topology-asserting tests: `test_province_mapping.py` (dies with the
-      module), the adjacency asserts in `test_standard_v2_map.py` /
-      `test_standard_v2_map_comprehensive.py` (either point them at `engine.map_loader`
-      or drop them — `tests/engine/` already covers topology properly).
-- [ ] **Done when:** `grep -rn "province_mapping" src/ tests/` is empty, exactly one
-      `.map` parser exists in the codebase (`engine/map_loader.py`), suite green.
+      `map.py`'s ocean-hatching check (`normalized_id in Map.WATER_PROVINCES`) is now
+      `_is_water_province(normalized_id)`, a module-level helper backed by a
+      module-cached `engine.map_loader.load_standard_map()` (`_engine_map()`) —
+      confirmed to agree with the old hardcoded set on all 18 water codes plus a
+      negative check on an unknown code. `telegram_bot/maps.py:109/138` had **already**
+      been cleaned by PR4 — no `Map("standard")` construction remained there to fix.
+- [x] **`Map` constructor decision: removed entirely, not left trivial.** After task 1
+      nothing in the class read `self.*` (the last reader, `get_adjacency`'s
+      `self.logger`, died with the topology API), so `Map` is now a pure namespace of
+      `@staticmethod`s with a docstring saying so — never instantiated anywhere in
+      `src/` or `tests/` post-cleanup. This was chosen over "trivial constructor"
+      because a trivial `__init__` would just be dead ceremony nobody calls; folding
+      into V3's module split (the plan's "better" option) was rejected because V3 is a
+      separate, larger mechanical move and blocking V2 on it wasn't warranted — V3 can
+      still relocate this namespace class wholesale later.
+- [x] Retired `src/engine/province_mapping.py` entirely (365 lines). Diffed its
+      `ALTERNATIVE_MAPPING` (66 entries) against the engine parser's alias source
+      (`MapData.aliases`, built from `maps/standard.map`'s `=` lines) — **one gap
+      found**: `"english"` (bare, no "channel"/"ech" suffix) was in
+      `ALTERNATIVE_MAPPING` but not in the `.map` file's `English Channel = eng channel
+      ech eng+ch` line. Folded it in by adding `english` to that line (the parser has
+      *no* alias table of its own by design — `MapData.aliases` from the `.map` file is
+      the only alias source per `engine/orders/parser.py`'s own docstring — so "fold
+      into the parser" means editing the `.map` file, not adding a second table).
+      Verified: `load_standard_map().aliases["english"] == "ENG"`. Every other
+      `ALTERNATIVE_MAPPING` entry already matched the engine's alias exactly (same
+      canonical code) — see the "full province names" finding just below.
+      `telegram_bot/orders.py`'s `normalize_order_provinces` (and its function-local
+      `province_mapping` import) was deleted outright and both call sites (`/order`,
+      `/orders`) now post the user's text/split list unmodified — **verified this is
+      safe, not just assumed**: `normalize_province_name("Berlin")` returns the
+      unchanged string `"BERLIN"` (checked interactively before deleting), because
+      `PROVINCE_MAPPING` is keyed by 3-letter codes and `ALTERNATIVE_MAPPING` never
+      contained full city names — the old code's docstring example ("Berlin" → BER) was
+      aspirational and never actually worked. So the bot's normalizer was already a
+      no-op for full names before this change; removing it changes behavior for exactly
+      one input class, the alternative abbreviations in `ALTERNATIVE_MAPPING`, all of
+      which (bar the folded-in `"english"`) the engine already accepted.
+- [x] Test-file decisions (all four itemized in the plan):
+      - `tests/test_province_mapping.py` — **deleted** (34 tests, dies with the module,
+        as specified).
+      - `tests/test_standard_v2_map.py` — **updated**: dropped the two `is_adjacent`
+        assertions (the only topology-asserting lines); kept the rendering assertions.
+      - `tests/test_standard_v2_map_comprehensive.py` — **updated**: dropped
+        `TestStandardV2MapInitialization` (4 tests: all pure `Map(...)` topology
+        queries — `map_name`/`.provinces`/`.supply_centers`/`.is_adjacent`, redundant
+        with `tests/engine/`) and `test_invalid_map_name_handling` (asserted
+        `Map("standard-v2").map_name`, meaningless post-cleanup). Rewrote
+        `test_same_game_logic` to assert what's actually true post-cleanup (there is no
+        per-variant topology to compare — `standard` and `standard-v2` differ only in
+        which SVG they render) instead of deleting it outright.
+      - Three test files **not named in the plan** turned out to import
+        `normalize_order_provinces` directly and failed collection once it was deleted:
+        `tests/test_interactive_orders.py` (dropped 2 of its own tests plus the
+        import), `tests/test_telegram_bot_edge_cases.py` (dropped the 3-test
+        `TestMalformedOrders` class — each test only asserted "does not necessarily
+        raise", i.e. vacuous), `tests/test_telegram_bot_enhanced.py` (dropped 2 tests).
+        All other tests in these three files are kept and pass.
+      - Net: 890 → 840 passing (50 removed exactly matches 34 + 4 + 5 + 2 + 3 + 2 across
+        the six files above; `tests/test_interactive_orders_simple.py` lost 4 more
+        dead-module tests not separately itemized in the plan
+        (`test_province_mapping`, `test_normalize_order_provinces`,
+        `test_map_adjacency`, `test_unit_type_filtering`) but its two real tests
+        (`test_callback_data_parsing`, `test_selectunit_command_mock`) are kept).
+- [x] **Done when:** `grep -rn "province_mapping" src/ tests/` is empty (confirmed);
+      exactly one `.map` parser exists (`engine/map_loader.py`, confirmed via
+      `grep -rln "ABUTS" src/`); suite green: 840 passed, 15 skipped, 10 xfailed; ruff
+      clean; engine coverage 92.86% (≥92 floor), overall 61.73% (≥57 floor). Rendered a
+      real board PNG (722,481 bytes), orders-overlay PNG (724,983 bytes), and a
+      post-`PROCESS_TURN` "resolution" PNG (726,342 bytes, phase F1901M) through the
+      actual `generate_map_for_snapshot`/`generate_orders_map`/`generate_resolution_map`
+      API-route functions with a captured logger — zero warnings logged by
+      `diplomacy.rendering.map`.
 
 ### V3 — Split `map.py` into focused modules
 

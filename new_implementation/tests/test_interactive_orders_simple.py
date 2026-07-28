@@ -13,63 +13,6 @@ from unittest.mock import Mock, patch
 # Add the project root to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 
-def test_province_mapping():
-    """Test province name normalization"""
-    print("Testing province mapping...")
-    
-    from engine.province_mapping import normalize_province_name
-    
-    # Test known provinces
-    assert normalize_province_name("ber") == "BER"
-    assert normalize_province_name("SIL") == "SIL"
-    assert normalize_province_name("kie") == "KIE"
-    
-    # Test unknown provinces
-    assert normalize_province_name("unknown") == "UNKNOWN"
-    
-    print("✅ Province mapping tests passed")
-
-def test_normalize_order_provinces():
-    """Test order normalization function"""
-    print("Testing order normalization...")
-    
-    from server.telegram_bot.orders import normalize_order_provinces
-    
-    # Test basic normalization
-    result = normalize_order_provinces("A BER - SIL", "GERMANY")
-    assert result == "A BER - SIL"
-    
-    # Test with lowercase provinces
-    result = normalize_order_provinces("A ber - sil", "GERMANY")
-    assert result == "A BER - SIL"
-    
-    # Test hold order
-    result = normalize_order_provinces("A BER H", "GERMANY")
-    assert result == "A BER H"
-    
-    print("✅ Order normalization tests passed")
-
-def test_map_adjacency():
-    """Test map adjacency functionality"""
-    print("Testing map adjacency...")
-    
-    from rendering.map import Map
-    
-    # Create map instance
-    map_instance = Map("standard")
-    
-    # Test adjacency for Berlin (should have adjacent provinces)
-    adjacent = map_instance.get_adjacency("BER")
-    assert isinstance(adjacent, list)
-    assert len(adjacent) > 0
-    
-    # Test adjacency for Kiel (should have adjacent provinces)
-    adjacent = map_instance.get_adjacency("KIE")
-    assert isinstance(adjacent, list)
-    assert len(adjacent) > 0
-    
-    print("✅ Map adjacency tests passed")
-
 def test_callback_data_parsing():
     """Test callback data parsing"""
     print("Testing callback data parsing...")
@@ -157,61 +100,17 @@ def test_selectunit_command_mock(mock_ctx_get, mock_orders_get):
 
     print("✅ /selectunit command tests passed")
 
-def test_unit_type_filtering():
-    """Test unit type filtering for moves"""
-    print("Testing unit type filtering...")
-    
-    from rendering.map import Map
-    
-    # Create map instance
-    map_instance = Map("standard")
-    
-    # Test army adjacency (should include land provinces)
-    adjacent = map_instance.get_adjacency("BER")
-    valid_moves = []
-    for province in adjacent:
-        province_info = map_instance.provinces.get(province)
-        if province_info and province_info.type in ["land", "coast"]:
-            valid_moves.append(province)
-    
-    assert len(valid_moves) > 0
-    print(f"   Army BER can move to: {valid_moves}")
-    
-    # Test fleet adjacency (should include water provinces)
-    adjacent = map_instance.get_adjacency("KIE")
-    valid_moves = []
-    for province in adjacent:
-        province_info = map_instance.provinces.get(province)
-        if province_info:
-            prov_type = getattr(province_info, 'type', None)
-            if prov_type in ["water", "coast"]:
-                valid_moves.append(province)
-            # KIE is coastal, so it can also move to some land provinces adjacent to coast
-            elif prov_type == "coastal":
-                valid_moves.append(province)
-    
-    # KIE should have valid moves (coastal provinces or water)
-    # If all adjacencies are land and no water, that's still valid for a coastal province
-    assert len(valid_moves) > 0 or "BAL" in adjacent or "HEL" in adjacent, f"KIE should have valid adjacent provinces, got: {adjacent}, types: {[map_instance.provinces.get(p).type if map_instance.provinces.get(p) else None for p in adjacent]}"
-    print(f"   Fleet KIE can move to: {valid_moves}")
-    
-    print("✅ Unit type filtering tests passed")
-
 def run_all_tests():
     """Run all tests"""
     print("🧪 Running Interactive Order Input Tests\n")
-    
+
     try:
-        test_province_mapping()
-        test_normalize_order_provinces()
-        test_map_adjacency()
         test_callback_data_parsing()
         test_selectunit_command_mock()
-        test_unit_type_filtering()
-        
+
         print("\n🎉 All tests passed! Interactive Order Input system is working correctly.")
         return True
-        
+
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback

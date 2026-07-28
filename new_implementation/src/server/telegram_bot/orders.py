@@ -20,48 +20,6 @@ from .game_context import GameContextError, fetch_user_games, resolve_game_and_p
 Sender = Callable[..., Awaitable[None]]
 
 
-def normalize_order_provinces(order_text: str, power: str) -> str:
-    """Normalize province names in a free-text order string.
-
-    Only meant for user-typed orders (``/order``, ``/orders``), which may use
-    full province names ("Berlin") instead of codes ("BER"). Never call this
-    on strings that came from ``legal_orders`` -- the server already emits
-    canonical codes, and this function's naive ``.isalpha()`` scan would
-    mangle order verbs like ``WAIVE``, ``BUILD``, and ``D`` if fed one.
-    """
-    from engine.province_mapping import normalize_province_name
-
-    # Split the order into parts
-    parts = order_text.split()
-
-    # The order format is: UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
-    # NOT: POWER UNIT_TYPE PROVINCE [ACTION] [TARGET_PROVINCE]
-    # The power is handled separately in the API call
-
-    # Remove power name if it's the first part
-    if parts and parts[0] == power:
-        parts = parts[1:]  # Remove the power name
-
-    normalized_parts = []
-    for i, part in enumerate(parts):
-        # Skip unit type (A/F) - first part after removing power
-        if i == 0 and part in ['A', 'F']:
-            normalized_parts.append(part)
-            continue
-
-        # Check if this part looks like a province name
-        # Province names are typically 3-4 characters and uppercase
-        if len(part) >= 2 and part.isalpha():
-            # This might be a province name
-            normalized_province = normalize_province_name(part)
-            normalized_parts.append(normalized_province)
-        else:
-            # This is likely an action word (-, S, H, etc.) or other non-province text
-            normalized_parts.append(part)
-
-    return " ".join(normalized_parts)
-
-
 # ---------------------------------------------------------------------------
 # order-string helpers (shared by the interactive selection flow)
 # ---------------------------------------------------------------------------
@@ -170,15 +128,10 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        normalized_order = normalize_order_provinces(order_text, power)
-    except Exception:
-        normalized_order = order_text
-
-    try:
         result = api_post("/games/set_orders", {
             "game_id": game_id,
             "power": power,
-            "orders": [normalized_order],
+            "orders": [order_text],
             "telegram_id": user_id
         })
     except Exception as e:
@@ -229,12 +182,10 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No orders found in your message.")
         return
 
-    normalized_orders = [normalize_order_provinces(o, power) for o in order_list]
-
     try:
         result = api_post(
             "/games/set_orders",
-            {"game_id": game_id, "power": power, "orders": normalized_orders, "telegram_id": user_id},
+            {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
         )
     except Exception as e:
         await update.message.reply_text(f"Order error: {e}")
@@ -702,10 +653,12 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
 
     ``order_text`` is always a canonical string that came straight from
     ``legal_orders`` (or, for the ``ord|`` callback path, was cached
-    verbatim from it) -- it is posted as-is, never re-normalized. Running it
-    through ``normalize_order_provinces`` (as the pre-rewrite version did)
-    would mangle verb-first strings like ``WAIVE``/``BUILD F BRE``/``D A
-    PAR``, which is exactly the bug this rewrite fixes.
+    verbatim from it) -- it is posted as-is. The pre-rewrite version ran
+    user-typed strings through a local province-name normalizer that would
+    have mangled verb-first strings like ``WAIVE``/``BUILD F BRE``/``D A
+    PAR``; that normalizer is gone (v2.7.24) and the server's single order
+    grammar (``engine.orders.parser``) now resolves aliases for every order,
+    typed or generated, via ``MapData.aliases``.
     """
     try:
         user_id = str(query.from_user.id)

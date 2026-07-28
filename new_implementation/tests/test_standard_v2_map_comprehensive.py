@@ -22,61 +22,6 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 
-class TestStandardV2MapInitialization:
-    """Test Map class initialization with standard-v2"""
-    
-    def test_map_initialization(self):
-        """Test that Map can be initialized with standard-v2"""
-        from rendering.map import Map
-        
-        map_instance = Map("standard-v2")
-        assert map_instance.map_name == "standard-v2"
-        assert len(map_instance.provinces) > 0
-        assert len(map_instance.supply_centers) > 0
-    
-    def test_map_uses_standard_adjacencies(self):
-        """Test that standard-v2 uses same adjacencies as standard map"""
-        from rendering.map import Map
-        
-        standard_map = Map("standard")
-        v2_map = Map("standard-v2")
-        
-        # Test several key adjacencies
-        test_cases = [
-            ("PAR", "BUR"),
-            ("LON", "YOR"),
-            ("BER", "KIE"),
-            ("VIE", "BUD"),
-            ("ROM", "VEN"),
-            ("CON", "SMY"),
-            ("MOS", "WAR"),
-        ]
-        
-        for prov1, prov2 in test_cases:
-            assert standard_map.is_adjacent(prov1, prov2) == v2_map.is_adjacent(prov1, prov2), \
-                f"Adjacency mismatch for {prov1}-{prov2}"
-    
-    def test_map_supply_centers_match(self):
-        """Test that standard-v2 has same supply centers as standard"""
-        from rendering.map import Map
-        
-        standard_map = Map("standard")
-        v2_map = Map("standard-v2")
-        
-        assert standard_map.supply_centers == v2_map.supply_centers, \
-            "Supply centers should match between standard and standard-v2"
-    
-    def test_map_provinces_match(self):
-        """Test that standard-v2 has same provinces as standard"""
-        from rendering.map import Map
-        
-        standard_map = Map("standard")
-        v2_map = Map("standard-v2")
-        
-        assert set(standard_map.provinces.keys()) == set(v2_map.provinces.keys()), \
-            "Provinces should match between standard and standard-v2"
-
-
 class TestStandardV2CoordinateExtraction:
     """Test coordinate extraction from v2.svg"""
     
@@ -422,21 +367,17 @@ class TestStandardV2Comparison:
             f.write(v2_img)
     
     def test_same_game_logic(self):
-        """Test that standard and standard-v2 have identical game logic"""
+        """``standard-v2`` has no topology of its own to compare: game logic
+        for every map variant is sourced from the single bundled
+        ``maps/standard.map`` via ``engine.map_loader.load_standard_map``
+        (the sole topology source -- see ``tests/engine/`` for full adjacency
+        coverage). Only the SVG (visual style) differs by variant name."""
         from rendering.map import Map
-        
-        standard_map = Map("standard")
-        v2_map = Map("standard-v2")
-        
-        # Test all provinces are the same
-        assert set(standard_map.provinces.keys()) == set(v2_map.provinces.keys())
-        
-        # Test all adjacencies are the same
-        for prov_name in standard_map.provinces:
-            standard_adj = set(standard_map.provinces[prov_name].adjacent)
-            v2_adj = set(v2_map.provinces[prov_name].adjacent)
-            assert standard_adj == v2_adj, \
-                f"Adjacencies for {prov_name} should match: {standard_adj} vs {v2_adj}"
+
+        # There is exactly one `.map` parser/topology source in the codebase
+        # (engine.map_loader) and no per-variant one -- the two map "names"
+        # differ only in which SVG they render.
+        assert Map._resolve_svg_path("standard") != Map._resolve_svg_path("standard-v2")
 
 
 class TestStandardV2EdgeCases:
@@ -450,17 +391,6 @@ class TestStandardV2EdgeCases:
         # (In practice, v2.svg exists, so we test the path resolution logic)
         svg_path = Map._resolve_svg_path("standard-v2")
         assert svg_path is not None, "Should resolve to a path (even if fallback)"
-    
-    def test_invalid_map_name_handling(self):
-        """Test that invalid map names are handled gracefully"""
-        from rendering.map import Map
-        
-        # standard-v2 should work
-        try:
-            map_instance = Map("standard-v2")
-            assert map_instance.map_name == "standard-v2"
-        except Exception as e:
-            pytest.fail(f"standard-v2 should be valid: {e}")
     
     def test_coordinate_extraction_with_malformed_svg(self):
         """Test coordinate extraction handles edge cases"""

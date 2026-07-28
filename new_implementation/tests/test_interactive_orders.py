@@ -23,7 +23,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from server.telegram_bot.orders import (
-    normalize_order_provinces,
     selectunit,
     show_possible_moves,
     submit_interactive_order,
@@ -217,29 +216,6 @@ class TestInteractiveOrderInput:
         self.mock_query.edit_message_text.assert_called_once()
         call_args = self.mock_query.edit_message_text.call_args[0][0]
         assert "not in game 1" in call_args
-
-    def test_normalize_order_provinces(self):
-        result = normalize_order_provinces("A BER - SIL", "GERMANY")
-        assert result == "A BER - SIL"
-
-        result = normalize_order_provinces("A ber - sil", "GERMANY")
-        assert result == "A BER - SIL"
-
-        result = normalize_order_provinces("A Ber - Sil", "GERMANY")
-        assert result == "A BER - SIL"
-
-        result = normalize_order_provinces("A BER H", "GERMANY")
-        assert result == "A BER H"
-
-    def test_normalize_order_provinces_edge_cases(self):
-        result = normalize_order_provinces("A INVALID - SIL", "GERMANY")
-        assert "INVALID" in result
-
-        result = normalize_order_provinces("", "GERMANY")
-        assert result == ""
-
-        result = normalize_order_provinces("A", "GERMANY")
-        assert result == "A"
 
     @patch('server.telegram_bot.orders.api_get')
     @patch('server.telegram_bot.game_context.api_get')
