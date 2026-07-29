@@ -496,7 +496,15 @@ def main():
     def start_notify_server():
         """Start the notification API server in a separate thread."""
         try:
-            uvicorn.run(fastapi_app, host="0.0.0.0", port=8081, log_level="info")
+            # Bind loopback-only by default: the API's NOTIFY_URL default is
+            # http://localhost:8081/notify (server/api/shared.py), both systemd units
+            # (diplomacy-api, diplomacy-bot) run on the same EC2 host, and the /notify
+            # endpoint (notifications.py) has no auth -- unlike _api_module.py (behind
+            # nginx) and daide/server.py (needs external DAIDE clients), this one has no
+            # reason to accept connections from outside the host. Override via env if a
+            # future deployment genuinely splits the two processes across hosts.
+            notify_host = os.environ.get("DIPLOMACY_NOTIFY_HOST", "127.0.0.1")
+            uvicorn.run(fastapi_app, host=notify_host, port=8081, log_level="info")
         except OSError as e:
             if e.errno == 98:  # Address already in use
                 logger.warning(f"Port 8081 already in use, notification server not started: {e}")
