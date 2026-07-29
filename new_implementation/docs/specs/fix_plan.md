@@ -20,11 +20,12 @@
 - **Track B — Post-rewrite cleanup: ALL SUB-TRACKS DONE.** V0 (`v2.7.19`), V2
   (`v2.7.24`), V3 (`v2.7.26` + `v2.7.28`), V4 (`v2.7.31`), and V5 (`v2.7.30`) are all
   merged; V1 was absorbed into PR4. **Track B is complete.**
-- **Track C — Security hardening & missing gameplay features: ACTIVE, nothing merged
-  yet.** Added 2026-07-29 from a direct old-vs-new comparison requested by the
-  maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
-  decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
-  Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
+- **Track C — Security hardening & missing gameplay features: ACTIVE, half resolved.**
+  Added 2026-07-29 from a direct old-vs-new comparison requested by the maintainer. Four
+  findings (C1-C4), each verified by reading the actual code. **C4 is done** (decision
+  made, executed end to end via Track D's D1-D5) and **C3's engine+API layer is done**
+  (Track D's D3) — its only remaining item is Telegram/frontend client UX, not the
+  mechanism itself. **C1 and C2 remain open and unstarted** (no PR under either yet).
 - **Track D — Full DAIDE protocol support: DONE — all of D1-D5 merged.** Added
   2026-07-29 at the maintainer's explicit request ("I want the full DAIDE support as
   well") after Track C's C4 flagged the current server as a non-conformant text stub.
@@ -80,9 +81,9 @@
 - **Last updated:** 2026-07-29, mid-session. Track A complete except the manual check
   (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
   `v2.7.28`/`v2.7.30`/`v2.7.31`); Track C's C4 decision executed via Track D, C3 satisfied
-  by D3, C1/C2 still open; **Track D fully complete (D1-D5, `v2.7.34`-`v2.7.43`)**. `main`
-  is green, no open PRs, no stale branches (as of D1-D4; D5 itself is on branch
-  `daide-e2e-tests-and-docs`, pushed but not yet merged).
+  by D3, C1/C2 still open; **Track D fully complete (D1-D5, `v2.7.34`-`v2.7.43`, PRs
+  #27/#29/#31/#33/#35 all merged)**. `main` is green (`db53274`), no open PRs, no stale
+  branches.
 
 ### Where the old trackers went
 
@@ -853,47 +854,35 @@ to a vote — it never touches `GameStatus`, is not aware of which powers are el
 and has no server-side quorum rule. It's a social feature sitting next to the actual gap,
 not a substitute for it.
 
-- [ ] **Engine (`src/engine/`):** add a way to mark a `GameState` as drawn among a set of
-      winners without going through `adjudicate_movement`/`adjudicate_adjustments` — mirror
-      the old implementation's shape (`draw(winners=None)` defaulting to all surviving,
-      non-eliminated powers) but as a pure function consistent with this engine's
-      `(map, state) -> new_state` style, not a mutating method. Add a `GameStatus` value
-      (or a `draw_winners: frozenset[str] | None` field alongside `COMPLETED`) so a
-      completed-by-draw game is distinguishable from a completed-by-solo game in the view
-      shape — clients (frontend, bot) will want to render "Draw between ENGLAND, FRANCE,
-      RUSSIA" differently from "FRANCE wins".
-- [ ] **Vote state:** decide where per-power draw votes live for an in-progress game —
-      either a new small table via `DatabaseService`/`GameRepo` (consistent with how
-      `pending_orders` already works) or a field folded into `GameState` if it should be
-      part of the serialized snapshot (check `serialization.py` either way — votes clearing
-      each phase, per the old implementation's `clear_vote()` called every processed turn,
-      is the expected semantic: a vote is a per-phase yes/no, not a standing position).
-      Eliminated powers must be excluded from both the numerator and denominator of "all
-      remaining powers voted yes" — reuse `Game.eliminated_powers` (`game.py:188`).
-- [ ] **API:** new endpoints under `/games/{id}` — e.g. `POST /draw_vote` (submit this
-      power's yes/no for the current phase, auth-checked the same way order submission is:
-      only the assigned user for that power), `GET /draw_vote_status` (who's voted, is
-      quorum reached), and a way to actually finalize the draw once quorum is reached —
-      either auto-finalize on the vote that completes quorum, or require an explicit
-      `POST /finalize_draw` call from the processing path (auto-finalize is closer to the
-      old implementation's behavior and avoids a stuck game if nobody triggers the second
-      call). Also add a **concede** path for a single power to voluntarily leave with its
-      centers marked eliminated/redistributed per the standard rule (civil disorder), distinct
-      from a draw (concede doesn't end the game, draw does).
-- [ ] **Clients:** Telegram bot command (e.g. `/draw` to cast a yes vote, `/status` already
-      shows submission state and should grow a "N/7 voted for draw" line once this lands)
-      and a frontend button in the game view. Both are thin — they call the new API, no
-      client-side game logic.
-- [ ] Tests: engine-level draw resolution (unanimous survivors → `COMPLETED` with the right
-      winner set; one holdout among non-eliminated powers → stays `ACTIVE`; eliminated
-      powers' votes/absence don't block quorum), API auth checks (only the assigned player
-      can vote their own power), and one full `GameService`-driven scenario test in the
-      style of Track B V4's `TestResolutionMapAcrossPhases` — create a small game, drive it
-      to a 3-power stalemate, vote unanimous draw, assert `GameStatus.COMPLETED` with all
-      three as winners.
-- [ ] **Done when:** the scenario test above passes, engine coverage floor still holds
-      (≥92%), and both clients can cast a vote and see the game end without an 18-center
-      solo.
+- [x] **Engine, vote state, API, and tests — all done, via Track D's D3** (`v2.7.35`,
+      PR #29; see the D3 section under Track D for the full detail and verification
+      evidence). `GameState.winners: frozenset[str] | None`, `Game.draw(winners=None)`;
+      `games.draw_votes` JSON column mirroring `pending_orders`, cleared every processed
+      turn, excluding eliminated powers from quorum; `GameService.submit_draw_vote`
+      (auto-finalizes on quorum)/`get_draw_votes`/`concede` (distinct from a draw — does
+      not end the game); `POST /games/{id}/draw_vote`, `GET .../draw_vote_status`,
+      `POST .../concede`. Engine-level and `GameService`-scenario tests both exist and
+      pass. D3 implemented this exactly as specified below (kept for reference, not
+      because it's still open):
+      <details><summary>original spec</summary>
+
+      Engine: add a way to mark a `GameState` as drawn among a set of winners without
+      going through `adjudicate_movement`/`adjudicate_adjustments` — mirror the old
+      implementation's shape (`draw(winners=None)` defaulting to all surviving,
+      non-eliminated powers) but as a pure function. Vote state: per-power draw votes,
+      cleared each phase, excluding eliminated powers from quorum (`Game.eliminated_powers`).
+      API: `POST /draw_vote`, `GET /draw_vote_status`, auto-finalize on the vote that
+      completes quorum, plus a **concede** path distinct from a draw. Tests: engine-level
+      draw resolution, API auth checks, one full `GameService`-driven scenario test.
+      </details>
+- [ ] **Clients — still open, not part of D3's scope.** Telegram bot command (e.g. `/draw`
+      to cast a yes vote, `/status` already shows submission state and should grow a
+      "N/7 voted for draw" line once this lands) and a frontend button in the game view.
+      Both are thin — they call D3's existing API, no client-side game logic.
+- [ ] **Done when:** a human can actually cast a draw vote from the Telegram bot or the
+      frontend (not just via a raw API call) and see the game end without an 18-center
+      solo. The mechanism itself (engine coverage floor, scenario test, quorum logic) is
+      already done and verified — see D3.
 
 ## C4 — The "DAIDE" server does not implement the DAIDE protocol — **DECISION MADE: (a), implement it**
 
