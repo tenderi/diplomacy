@@ -321,21 +321,24 @@ def auth_headers(api_client):
 
 
 @pytest.fixture(autouse=True)
-def reset_telegram_link_rate_limiter():
-    """Clear the in-memory telegram link rate-limiter before each test.
+def reset_auth_rate_limiters():
+    """Clear all in-memory auth rate-limit buckets before each test.
 
-    The limiter is a module-level dict that accumulates across the test session
-    and causes 429s once 5 attempts have been recorded from the same IP.
+    Covers /auth/login, /auth/token, /auth/register, and /auth/telegram/link --
+    all share the same module-level dict in server.api.routes.auth (see
+    `_rate_limit_attempts`), which otherwise accumulates across the whole
+    test session and causes 429s once the real thresholds are crossed by
+    tests that register/log in repeatedly from the same TestClient IP.
     """
     try:
-        from server.api.routes.auth import _link_attempts
-        _link_attempts.clear()
+        from server.api.routes.auth import reset_rate_limits
+        reset_rate_limits()
     except ImportError:
         pass
     yield
     try:
-        from server.api.routes.auth import _link_attempts
-        _link_attempts.clear()
+        from server.api.routes.auth import reset_rate_limits
+        reset_rate_limits()
     except ImportError:
         pass
 
