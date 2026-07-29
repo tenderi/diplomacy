@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import xml.etree.ElementTree as ET
 from io import BytesIO
 from typing import Any
@@ -115,7 +114,7 @@ def _resolve_svg_path(map_name: str = 'standard') -> str:
     Resolve SVG file path based on map name.
 
     Args:
-        map_name: Name of the map variant ('standard' or 'standard-v2')
+        map_name: Name of the map variant ('standard')
 
     Returns:
         Path to the SVG file
@@ -123,13 +122,7 @@ def _resolve_svg_path(map_name: str = 'standard') -> str:
     base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
     base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
 
-    if map_name == 'standard-v2':
-        # Use v2.svg for standard-v2 map
-        svg_path = os.path.join(base_dir, "v2.svg")
-        # Fallback to standard if v2.svg doesn't exist
-        if not os.path.exists(svg_path):
-            svg_path = base_path
-    elif map_name == 'standard':
+    if map_name == 'standard':
         svg_path = base_path
     else:
         # For other variants, try {map_name}.svg
@@ -166,67 +159,19 @@ def _get_cached_svg_data(
         tree = ET.parse(svg_path)
         root = tree.getroot()
 
-        # Check if this is the standard-v2 map (doesn't have jdipNS structure)
-        # standard-v2 uses text elements with transform attributes instead of jdipNS:PROVINCE
-        if 'v2.svg' in svg_path or 'standard-v2' in svg_path.lower():
-            coords = {}
-            dislodged_coords: dict[str, tuple[float, float]] = {}
-            # Get viewBox to scale coordinates appropriately
-            viewbox = root.get('viewBox', '0 0 7016 4960')
-            viewbox_parts = viewbox.split()
-            if len(viewbox_parts) >= 4:
-                svg_width = float(viewbox_parts[2])
-                svg_height = float(viewbox_parts[3])
-            else:
-                svg_width = 7016.0
-                svg_height = 4960.0
+        # Use jdipNS coordinates -- these are the authoritative coordinate system
+        coords = {}
+        dislodged_coords: dict[str, tuple[float, float]] = {}
+        ns = {'jdipNS': 'svg.dtd'}
 
-            # Output dimensions for rendering (standard map size)
-            output_width = 1835.0
-            output_height = 1360.0
-
-            # Scale factors
-            scale_x = output_width / svg_width
-            scale_y = output_height / svg_height
-
-            # Parse text elements with transform="translate(x, y)" attributes
-            # Text content format: "FullNameABBREV" (e.g., "LondonLON", "EdinburghEDI")
-            for text_elem in root.findall('.//{http://www.w3.org/2000/svg}text'):
-                transform = text_elem.get('transform', '')
-                if 'translate' in transform:
-                    # Extract coordinates from transform='translate(x y)'
-                    match = re.search(r'translate\(([\d.]+)\s+([\d.]+)\)', transform)
-                    if match:
-                        x = float(match.group(1))
-                        y = float(match.group(2))
-                        # Scale coordinates to match output dimensions
-                        x_scaled = x * scale_x
-                        y_scaled = y * scale_y
-                        # Get text content
-                        content = ''.join(text_elem.itertext()).strip()
-                        # Extract abbreviation (typically last 2-4 uppercase letters)
-                        # Pattern: full name followed by abbreviation
-                        abbrev_match = re.search(r'([A-Z]{2,4})$', content)
-                        if abbrev_match:
-                            abbrev = abbrev_match.group(1).upper()
-                            coords[abbrev] = (x_scaled, y_scaled)
-
-            if not coords:
-                logger.warning(f"Failed to extract coordinates from v2 SVG at {svg_path}, using empty dict")
-        else:
-            # Use jdipNS coordinates -- these are the authoritative coordinate system
-            coords = {}
-            dislodged_coords = {}
-            ns = {'jdipNS': 'svg.dtd'}
-
-            for prov in root.findall('.//jdipNS:PROVINCE', ns):
-                name = prov.attrib.get('name')
-                unit = prov.find('jdipNS:UNIT', ns)
-                if name and unit is not None:
-                    coords[name.upper()] = (float(unit.attrib.get('x', '0')), float(unit.attrib.get('y', '0')))
-                dislodged = prov.find('jdipNS:DISLODGED_UNIT', ns)
-                if name and dislodged is not None:
-                    dislodged_coords[name.upper()] = (float(dislodged.attrib.get('x', '0')), float(dislodged.attrib.get('y', '0')))
+        for prov in root.findall('.//jdipNS:PROVINCE', ns):
+            name = prov.attrib.get('name')
+            unit = prov.find('jdipNS:UNIT', ns)
+            if name and unit is not None:
+                coords[name.upper()] = (float(unit.attrib.get('x', '0')), float(unit.attrib.get('y', '0')))
+            dislodged = prov.find('jdipNS:DISLODGED_UNIT', ns)
+            if name and dislodged is not None:
+                dislodged_coords[name.upper()] = (float(dislodged.attrib.get('x', '0')), float(dislodged.attrib.get('y', '0')))
 
         # Cache the parsed data
         _svg_cache[svg_path] = (tree, coords, dislodged_coords)
