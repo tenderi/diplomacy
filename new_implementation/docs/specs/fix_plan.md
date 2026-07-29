@@ -811,27 +811,54 @@ hammer unlimited times). There is no global rate-limiting middleware in `_api_mo
 either (`grep -rn "rate.limit\|slowapi\|RateLimit" src/` matches only the telegram-link
 helper).
 
-- [ ] Add per-IP (and per-email, to stop distributed attacks against one account) rate
+- [x] Add per-IP (and per-email, to stop distributed attacks against one account) rate
       limiting to `/auth/login` and `/auth/token`, reusing or generalizing the existing
       `_check_link_rate_limit` pattern in the same file rather than inventing a second
       mechanism. A sensible starting point: 5 failed attempts per email per 15 minutes,
       plus a coarser per-IP ceiling; return 429 with a `Retry-After` header rather than a
       misleading 401.
-- [ ] Add a coarser per-IP limit to `/auth/register` (distinct concern: account-creation
+- [x] Add a coarser per-IP limit to `/auth/register` (distinct concern: account-creation
       spam, not credential guessing) — no need for per-email keying since there's no
       existing account to target.
-- [ ] Failed attempts must **not** distinguish "no such user" from "wrong password" in
+- [x] Failed attempts must **not** distinguish "no such user" from "wrong password" in
       timing or counting — the current 401 messages are already unified
       (`"Invalid email or password"`), keep that property when adding limiting logic (an
       early-return on unknown email would create a timing side-channel and should count
       against the same per-IP bucket as a real wrong-password attempt).
-- [ ] Test: hammer `/auth/login` with a bad password past the threshold in a test using
+- [x] Test: hammer `/auth/login` with a bad password past the threshold in a test using
       `TestClient`, assert 429 + `Retry-After`, assert a *correct* login for a different
       account/IP still succeeds (bucket isolation), assert the limiter resets after the
       window (use a fake clock, not a real `sleep`).
-- [ ] **Done when:** the new tests pass, `ruff check src/` clean, and manually confirmed
+- [x] **Done when:** the new tests pass, `ruff check src/` clean, and manually confirmed
       that 429s stop appearing once the window rolls over (no permanent lockout without an
       unlock path — a permanently locked legitimate user is its own denial-of-service).
+
+**Implementation notes (`v2.7.46`):** `_check_link_rate_limit` was generalized into shared
+`_check_rate_limit`/`_record_attempt` helpers over one module-level bucket dict
+(`_rate_limit_attempts` in `src/server/api/routes/auth.py`), keyed by namespaced strings
+(`login_email:`, `login_ip:`, `register_ip:`, `link_ip:`/`link_tid:`) rather than a second
+mechanism. Decisions that go beyond the letter of the spec above:
+- **Thresholds:** login/token per-email 5 attempts / 15 min, per-IP 20 attempts / 15 min
+  (coarser, since one IP can legitimately serve many users — e.g. NAT/office wifi);
+  register per-IP 20 attempts / hour (coarser still — account-creation spam, not
+  credential guessing).
+- **`/auth/login` and `/auth/token` share the same buckets** (keyed by email, not by which
+  endpoint was hit) — they're the same password-guessing surface (JSON body vs. OAuth2
+  form), so an attacker switching endpoints must not get a fresh budget.
+- **What counts:** only *failed* login/token attempts are recorded (`_record_attempt`
+  happens in the failure branch only), so normal repeated successful logins — including
+  the existing test suite — never burn the budget. `/auth/register` records every call
+  regardless of outcome, since the concern there is creation-attempt volume, not
+  correctness.
+- **No enumeration timing/counting side-channel:** added `_DUMMY_PASSWORD_HASH`, a
+  precomputed bcrypt hash of a fixed constant. `/auth/login` and `/auth/token` always run
+  `bcrypt.checkpw` — against the real hash if the user exists, against the dummy hash if
+  not — with no early return on unknown email, so both cases take the same code path,
+  roughly the same time, and land in the same rate-limit-recording branch.
+- New tests in `tests/test_auth_rate_limiting.py` (9 tests); `tests/conftest.py`'s autouse
+  reset fixture was renamed `reset_auth_rate_limiters` and now calls a single
+  `auth.reset_rate_limits()` covering all four buckets (previously only cleared the
+  telegram-link dict).
 
 ## C3 — No draw or concede mechanism; a game can only end by 18-center solo win
 
