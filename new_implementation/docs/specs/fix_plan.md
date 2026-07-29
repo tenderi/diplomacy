@@ -70,9 +70,20 @@
   retreat-phase and adjustment-phase resolution maps verified correct with a real
   dislodge→retreat→ownership-flip→disband scenario driven through `GameService`; E2E
   smoke extended. See the V4 section for the full detail and verification evidence.
-- **Only remaining item in ANY track: Track A's manual end-to-end check** (needs a
-  live bot token and a human at a Telegram client — see Track A's "Final acceptance"
-  section — it cannot be delegated to an agent). Every other task in this file is done.
+- **Track E — Client UX: ACTIVE, this is where work continues.** Added 2026-07-30 at the
+  maintainer's request. Two read-only audits (web + Telegram) found the same structural
+  gap from opposite directions: **neither client can tell a player what happened to their
+  orders**, because the resolution the engine computes is discarded by the HTTP layer. E1
+  (backend enablement + a real authorization hole in `process_turn`), E2 (web game-screen
+  restructure) and E3 (Telegram) are in flight; E4 (web results panel) waits on E1. See the
+  Track E section for the full findings.
+- **Track A's manual end-to-end check is still outstanding and still cannot be delegated**
+  (needs a live bot token and a human at a Telegram client — see Track A's "Final
+  acceptance"). Note as of 2026-07-30 the maintainer confirmed **there is no production
+  server currently running**, which makes `CLAUDE.md`'s "Production infrastructure (AWS)"
+  section describe infrastructure that isn't there; the CI `Deploy` workflow has never
+  succeeded (40/40 runs failed on `sts:AssumeRoleWithWebIdentity`) and that is expected,
+  not a regression to chase.
 - **Suite baseline (post-C1+C2+C3, on `main` at `v2.7.48`):** **1293 passed, 11 skipped,
   10 xfailed**; ruff clean; engine coverage 93.42% (≥92), overall 66.12% (≥60);
   `bandit -r src/ -ll` and `pip-audit -r requirements.txt` both exit 0. Verified
@@ -1354,6 +1365,142 @@ Depends on D4.
       passes on its own and as part of the full `daide/` suite (417 passed:
       `tokens`+`wire`+`clauses`+`session`+`server`), full suite **1275 passed, 11 skipped,
       10 xfailed**, engine coverage 93.42% (≥92), overall coverage 65.77% (≥60).
+
+---
+
+# Track E — Client UX
+
+## Why this track exists
+
+**Added 2026-07-30 at the maintainer's explicit request ("Focus on improving the UX"),** and
+scoped by two maintainer decisions taken the same day: work **both** client surfaces in
+parallel, and treat the web game screen as a **restructure**, not a polish pass.
+
+Tracks A–D made the game *correct and playable*: the adjudicator conforms to DATC, every
+phase works from both clients, a game can end by agreement, and a real DAIDE bot can play.
+None of that work asked whether a human enjoys using the thing. Two read-only audits (one
+per surface, 2026-07-30) found that the answer is often no — and that the most valuable
+missing information is already computed server-side and then discarded.
+
+## The finding that shapes this whole track
+
+**Neither client can tell a player what happened to their orders.** `GameService.process_turn`
+returns `{"phase", "status", "resolution"}` (`game_service.py:163-167`), but the HTTP route
+ends with `return {"status": "ok"}` (`api/routes/games.py`), throwing the resolution away.
+`GameService.last_resolution` has exactly one consumer in the entire server — the map
+renderer (`api/routes/maps.py:254`) — and the overlay PNGs it produces are returned as a
+*server filesystem path* with no `StaticFiles` mount, so a browser can never load them.
+`GET /games/{id}/orders/history` returns orders as *submitted*, never their outcomes.
+
+So after a turn resolves, a player gets a new picture and must diff it against memory to
+work out that their army bounced. "Did my order work?" is the central question of a
+turn-based game, and answering it needs a backend change (E1), not just frontend work.
+
+## Execution model
+
+Same as Tracks A–D: one Sonnet subagent per task in its own git worktree, each against its
+own Postgres database, driver verifies every claim by re-running the gates and reading the
+whole diff before opening a PR. **One change from earlier tracks: subagents do not edit this
+file.** With three-plus agents running in parallel, concurrent edits to `fix_plan.md`
+guarantee rebase conflicts, so the driver maintains Track E's checkboxes and Status block on
+their behalf. Agents report; the driver records.
+
+E1 and E2/E3 have no file overlap (backend vs. `frontend/` vs. `telegram_bot/`) and ran in
+parallel. E4 depends on E1's endpoints existing.
+
+## E1 — `api-resolution-and-authz` (backend enablement)
+
+- [ ] `POST /games/{id}/process_turn` returns the resolution it already computes, additively
+      (the existing `"status": "ok"` key must survive — the bot and existing tests read it).
+- [ ] A read endpoint for the last resolution as JSON, so a page reload doesn't lose it.
+      Serialized via the engine's existing `serialization.py`, not a hand-rolled shape.
+- [ ] `GET` routes streaming the **orders** and **resolution** overlay PNGs as bytes,
+      mirroring the working `GET /games/{id}/map`. The renderer already exists
+      (`rendering/order_overlay.py`) — this is plumbing, explicitly **not** a rendering
+      redesign.
+- [ ] **Authorization hole:** `process_turn` depends only on `require_bot_or_user`, which
+      checks that you are *someone*, not that you are *in this game*. With `require_all`
+      defaulting to `false`, any logged-in stranger can end a turn early for all seven
+      powers, converting everyone's unsubmitted units into holds. Restrict to bot-secret,
+      a user holding a power in that game, and the admin path if one already exists; 403
+      otherwise.
+
+## E2 — `game-screen-restructure` (web)
+
+- [ ] Gate "Process turn" on `myPower` and require confirmation. Today the block is
+      `{state.status === 'ACTIVE' && ...}` while the draw-vote block immediately above it
+      correctly uses `{myPower && ...}` — an irreversible seven-power action offered to
+      non-members on a single unlabelled click.
+- [ ] Rebuild the information hierarchy: deadline and per-power submitted/missing state
+      (both endpoints exist and were called by **nobody** in `frontend/src`), an
+      unmistakable phase indicator, and a clear "you still need to submit" signal.
+- [ ] Render the player roster — `players` is fetched *with* `full_name` and used only to
+      compute `myPower`/`takenPowers`/`availablePowers`, never drawn, so a player cannot
+      see who controls the other six powers.
+- [ ] Fix the mobile layout: order rows wrap to multiple lines each, pushing every action
+      below a long scroll.
+- [ ] Bug: order selections from the previous phase survive a processed turn (the pre-fill
+      effect doesn't depend on `state.phase`).
+- [ ] Bug: `buildOrderSlots` is never restored from the server, so submitted builds vanish
+      from the UI on reload while the server still holds them.
+- [ ] A 409 `StaleGameError` dumps the raw backend string at the user; catch it and reload.
+- [ ] Add concede/quit (both endpoints exist, neither is called), a "game is full" message
+      where the join section currently vanishes silently, accessible names on the order and
+      recipient selects, and remove the dead `phase === 'Builds'` branch.
+- **Deliberately excluded:** the results panel and overlay map (depend on E1 → that's E4),
+  and an interactive/zoomable map component (a rendering redesign, out of scope per the
+  Out-of-scope list).
+
+## E3 — `bot-ux-improvements` (Telegram)
+
+- [ ] **Highest leverage in either audit:** `api_client.py` discards every server error
+      message. `resp.raise_for_status()` yields only `"401 Client Error: Unauthorized for
+      url: ..."`, so FastAPI's real `{"detail": ...}` — "Power already taken", "Sender not
+      in game" — never reaches the player, at dozens of call sites across the package.
+      `link_account.py:34-48` already does it correctly and is the template. One file, every
+      handler benefits.
+- [ ] An ordinary Telegram display name breaks registration reporting: `full_name` is taken
+      verbatim from the user's profile and interpolated into a `parse_mode='Markdown'`
+      message, so a name containing `_` or `*` makes Telegram reject it, and the surrounding
+      `except` then reports **"Registration error"** for a registration that already
+      succeeded. `/players` has the same bug with *no* try/except at all, so it silently
+      dies. `utils.py` has shipped `escape_markdown` all along, unused here.
+- [ ] `/messages` shows only who a message was addressed *to*, never who sent it — in a game
+      that is entirely negotiation. Joinable client-side from `players`; no new endpoint.
+- [ ] After `/processturn` the player learns nothing: the handler already holds the `state`
+      response containing `dislodged` and `contested` and reads only `turn`/`phase`/`done`.
+- [ ] `/processturn` lets one player force resolution while others haven't moved (no
+      `require_all`, no warning), silently converting their units to holds. Check
+      `orders_status` first and confirm.
+- [ ] No `set_my_commands` anywhere, so Telegram's "/" autocomplete is empty for all ~27
+      commands.
+- [ ] `docs/TELEGRAM_BOT_COMMANDS.md` actively lies about `/join` and `/order`; anyone in
+      two games who follows the `/order [game_id]` docs is stuck, because `order()` cannot
+      accept a game id at all.
+
+## E4 — results comprehension in the web client (depends on E1)
+
+- [ ] Render "what happened to my orders" from E1's resolution endpoint, and show the
+      resolution/orders overlay map now that it's fetchable. Not started; deliberately kept
+      out of E2 so the two agents didn't collide on `GameView.tsx`.
+
+## Known gaps recorded but not yet scheduled
+
+- **A manual `/processturn` notifies only the caller.** The deadline-triggered path calls
+  `notify_players` and posts to a linked channel (`api/shared.py`); the manually-triggered
+  route does neither. So the *success* case (everyone submits, someone processes) is silent
+  while the *failure* case (missed deadline) is richly instrumented. The audit flagged this
+  as needing a deliberate design pass over "who gets told what, when" rather than a bolt-on.
+- **Support-order keyboards have no size limit** in the interactive flow — a central unit can
+  produce 20-30 buttons. Convoys already solved this with a sub-menu; supports need the same
+  treatment and its own callback namespace.
+- **`WAITING_LIST` is an in-memory global** dropped on every bot restart (i.e. every deploy),
+  with no notification to the players in it, and `process_waiting_list` isn't atomic — a
+  failure partway can orphan a game and leave the list undrained.
+- **No full province names anywhere in the codebase**, so every client shows 3-letter codes
+  while `/rules` and `/examples` teach full names. Teaching material and UI disagree.
+- **Two API warts** found while seeding a game: `/games/create` requires an authenticated
+  user, and `/games/{id}/join` requires `game_id` in the body *and* the path or it 422s.
 
 ---
 
