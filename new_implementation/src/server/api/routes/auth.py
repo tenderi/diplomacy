@@ -9,7 +9,6 @@ import os
 import re
 import smtplib
 import time
-from collections import defaultdict
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from datetime import datetime, timezone, timedelta
@@ -64,7 +63,15 @@ http_bearer = HTTPBearer(auto_error=False)
 # This is in-process state: fine for the current single-worker deployment
 # (see CLAUDE.md's infra section), but would need a shared store (e.g. Redis)
 # behind multiple uvicorn workers.
-_rate_limit_attempts: Dict[str, List[float]] = defaultdict(list)
+#
+# This is a *plain* dict, not a defaultdict: an attacker who hammers
+# /auth/login with random, never-repeated email addresses must not be able to
+# grow this dict without bound just by having each key *checked*. Only
+# _record_attempt (a real, counted attempt) may create a key, and any bucket
+# that purges down to empty is deleted immediately rather than left behind as
+# an empty list -- otherwise a key that is checked exactly once (e.g. a
+# one-off unknown-email guess) would live forever.
+_rate_limit_attempts: Dict[str, List[float]] = {}
 
 
 def reset_rate_limits() -> None:
@@ -83,16 +90,23 @@ def _check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
     """Raise HTTP 429 with a Retry-After header if `key` already has
     max_attempts counted attempts within the trailing window_seconds.
 
-    Purges expired attempts as a side effect. Does not record anything by
-    itself -- callers decide what counts as an attempt and call
-    _record_attempt explicitly (e.g. only failed logins, not successful
+    Purges expired attempts as a side effect and deletes the bucket entirely
+    if that empties it, so checking a key that turns out to have no (or only
+    expired) attempts never leaves a permanent dict entry behind. Does not
+    record anything by itself -- callers decide what counts as an attempt and
+    call _record_attempt explicitly (e.g. only failed logins, not successful
     ones).
     """
     now = time.time()
     window_start = now - window_seconds
-    bucket = _rate_limit_attempts[key]
+    bucket = _rate_limit_attempts.get(key)
+    if bucket is None:
+        return
     while bucket and bucket[0] <= window_start:
         bucket.pop(0)
+    if not bucket:
+        del _rate_limit_attempts[key]
+        return
     if len(bucket) >= max_attempts:
         retry_after = max(1, int(bucket[0] + window_seconds - now) + 1)
         raise HTTPException(
@@ -103,7 +117,7 @@ def _check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
 
 
 def _record_attempt(key: str) -> None:
-    _rate_limit_attempts[key].append(time.time())
+    _rate_limit_attempts.setdefault(key, []).append(time.time())
 
 
 # /auth/login and /auth/token share these buckets and thresholds: they are the
