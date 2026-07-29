@@ -4,18 +4,18 @@ Game management API routes.
 This module contains all endpoints related to game creation, state management,
 player management (join/quit/replace), deadlines, snapshots, and history.
 """
-from fastapi import APIRouter, HTTPException, Body, Depends
+from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone, timedelta
 
 import requests
 from fastapi.security import HTTPAuthorizationCredentials
-from .auth import require_bot_or_user, resolve_user_or_telegram, http_bearer
+from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
-    db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
+    db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN, BOT_SECRET,
     notify_players, get_process_turn_lock,
 )
 from ...legal_orders import legal_orders_for_power
@@ -116,12 +116,46 @@ def add_player(
     return {"status": "ok", "player_id": getattr(player, "id", None)}
 
 
+def _authorize_process_turn(
+    game_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials],
+    x_bot_secret: Optional[str],
+    x_admin_token: Optional[str],
+) -> None:
+    """Only the bot-secret path, an admin-token holder, or a user who holds a
+    power in this game may end this game's turn early.
+
+    ``require_bot_or_user`` alone only checks that the caller is *someone*
+    authenticated, not that they're *in this game* -- combined with
+    ``require_all`` defaulting to ``false``, that let any logged-in stranger
+    browsing "All games" end a turn early for all seven powers, converting
+    everyone's unsubmitted units into holds. Everyone who fails all three
+    checks below gets 403.
+    """
+    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+        return
+    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+        return
+    user = get_current_user_optional(credentials)
+    if user is not None:
+        row = db_service.get_game_by_game_id(game_id)
+        if row is not None:
+            player = db_service.get_player_by_game_id_and_user_id(
+                game_id=int(row.id), user_id=int(user.id)
+            )
+            if player is not None:
+                return
+    raise HTTPException(status_code=403, detail="Not authorized to process this game's turn")
+
+
 @router.post("/games/{game_id}/process_turn")
 async def process_turn(
     game_id: str,
     require_all: bool = False,
-    _: None = Depends(require_bot_or_user),
-) -> Dict[str, str]:
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
     """Adjudicate all pending orders and advance the phase.
 
     ``require_all=true`` refuses (400) unless every power that still controls at
@@ -129,6 +163,12 @@ async def process_turn(
     on full submission pass it explicitly. Defaults to ``false`` (unchanged
     behaviour) -- the deadline scheduler never passes it, since a missed deadline
     must still process whatever was submitted.
+
+    Only the bot-secret path (``X-Bot-Secret``), an admin-token holder
+    (``X-Admin-Token``), or a Bearer-authenticated user who holds a power in
+    this game may call this -- see ``_authorize_process_turn``. The deadline
+    scheduler bypasses this entirely: it calls ``GameService.process_turn``
+    directly (``api/shared.py``'s ``process_due_deadlines``), never over HTTP.
 
     The in-process ``asyncio.Lock`` below only protects against two concurrent
     calls *within this worker*; it does not survive a second uvicorn worker. The
@@ -138,6 +178,7 @@ async def process_turn(
     """
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
+    _authorize_process_turn(game_id, credentials, x_bot_secret, x_admin_token)
     if require_all:
         status = game_service.orders_status(game_id)
         if status and status["missing"]:
@@ -152,7 +193,7 @@ async def process_turn(
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
     async with lock:
         try:
-            game_service.process_turn(game_id)
+            turn_result = game_service.process_turn(game_id)
         except StaleGameError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
@@ -190,7 +231,12 @@ async def process_turn(
                     scheduler_logger.error(f"Failed to notify game end: {e}")
     except Exception as e:
         scheduler_logger.error(f"process_turn post-processing error: {e}")
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "phase": turn_result["phase"],
+        "game_status": turn_result["status"],
+        "resolution": turn_result["resolution"],
+    }
 
 
 @router.post("/games/{game_id}/start")
@@ -212,6 +258,25 @@ def get_game_state(game_id: str) -> Dict[str, Any]:
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return view
+
+@router.get("/games/{game_id}/last_resolution")
+def get_last_resolution(game_id: str) -> Dict[str, Any]:
+    """The most recently adjudicated turn's per-order outcomes.
+
+    A page reload loses whatever ``process_turn`` returned inline (see its
+    ``resolution`` field); this is how a client re-fetches it afterwards.
+    404 when the game doesn't exist; ``{"results": []}`` when it exists but no
+    turn has been processed yet. See ``GameService.last_resolution_view`` for
+    the payload shape -- the canonical ``engine.serialization.resolution_to_dict``
+    fields (``order``, ``result``, ``dislodged``, ``retreat_options``) per entry,
+    plus convenience ``power``/``order_str`` fields so a client can answer "what
+    happened to my orders?" without re-deriving adjudication.
+    """
+    view = game_service.last_resolution_view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return view
+
 
 @router.get("/games/{game_id}/orders_status")
 def get_orders_status(game_id: str) -> Dict[str, Any]:

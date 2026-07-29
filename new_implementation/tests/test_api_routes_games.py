@@ -190,19 +190,135 @@ class TestProcessTurn:
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_success(self, client):
-        """Test successful turn processing."""
+        """Test successful turn processing.
+
+        The bare (no-auth) call this test used to make encoded the E1d bug --
+        the ``client`` fixture bypasses ``require_bot_or_user`` entirely, so an
+        unauthenticated request was indistinguishable here from an authorized
+        one. Now that ``process_turn`` checks bot-secret/admin/membership on its
+        own (independent of that bypassed dependency), the call must carry a
+        real credential -- the bot-secret path, exercised elsewhere too (e.g.
+        the deadline scheduler and Telegram bot).
+        """
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        resp = client.post(f"/games/{game_id}/process_turn")
+        resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
+        assert "phase" in data
+        assert "game_status" in data
+        assert "resolution" in data
+        assert "results" in data["resolution"]
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_not_found(self, client):
         """Test processing turn for non-existent game."""
-        resp = client.post("/games/nonexistent/process_turn")
+        resp = client.post("/games/nonexistent/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_process_turn_unauthenticated_is_forbidden(self, client):
+        """No Bearer, no X-Bot-Secret, no X-Admin-Token -> 403, not 200.
+
+        This is the E1d regression test: any caller (not just "any authenticated
+        user") used to be able to end a turn early. The ``client`` fixture only
+        bypasses ``require_bot_or_user``; process_turn's own membership check is
+        independent of it and must still reject a bare call.
+        """
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        resp = client.post(f"/games/{game_id}/process_turn")
+        assert resp.status_code == 403
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_process_turn_non_member_forbidden(self, client):
+        """A logged-in user who holds no power in this game gets 403, even
+        though they are a perfectly valid, authenticated user elsewhere."""
+        import time as _time
+        email = f"nonmember_{int(_time.time() * 1000)}@example.com"
+        reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+        assert reg.status_code == 200, reg.text
+        headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+
+        resp = client.post(f"/games/{game_id}/process_turn", headers=headers)
+        assert resp.status_code == 403
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_process_turn_member_allowed(self, client):
+        """A Bearer-authenticated user who holds a power in this game may
+        process its turn -- the fix must not lock out legitimate players."""
+        import time as _time
+        email = f"member_{int(_time.time() * 1000)}@example.com"
+        reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+        assert reg.status_code == 200, reg.text
+        headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
+        game_id = game_resp.json()["game_id"]
+        join_resp = client.post(
+            f"/games/{game_id}/join",
+            json={"game_id": int(game_id), "power": "AUSTRIA"},
+            headers=headers,
+        )
+        assert join_resp.status_code == 200, join_resp.text
+
+        resp = client.post(f"/games/{game_id}/process_turn", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+@pytest.mark.unit
+class TestLastResolution:
+    """Test GET /games/{game_id}/last_resolution (E1b)."""
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_last_resolution_not_found(self, client):
+        resp = client.get("/games/nonexistent/last_resolution")
+        assert resp.status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_last_resolution_before_any_turn_processed(self, client):
+        """A real game that has never had a turn processed -> empty results,
+        not 404 (the game does exist)."""
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        resp = client.get(f"/games/{game_id}/last_resolution")
+        assert resp.status_code == 200
+        assert resp.json() == {"results": []}
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_last_resolution_after_process_turn_matches_inline_resolution(self, client):
+        """The persisted resolution fetched afterwards must match what
+        process_turn returned inline (E1a), decorated with power/order_str."""
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        process_resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
+        assert process_resp.status_code == 200
+        inline_resolution = process_resp.json()["resolution"]
+
+        resp = client.get(f"/games/{game_id}/last_resolution")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+        assert len(data["results"]) == len(inline_resolution["results"])
+        assert len(data["results"]) > 0  # 22 opening holds
+
+        for entry in data["results"]:
+            assert "power" in entry
+            assert "order_str" in entry
+            assert "order" in entry
+            assert "result" in entry
+            assert entry["power"] == entry["order"]["power"]
+
+        # Every submitted power appears among the results (all holds at the
+        # opening position, since no orders were submitted).
+        powers = {r["power"] for r in data["results"]}
+        assert powers == {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+        assert all(r["result"] == "OK" for r in data["results"])
 
 
 @pytest.mark.unit
