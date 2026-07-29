@@ -156,7 +156,9 @@ def _get_cached_svg_data(
                         svg_path = c
                         break
         # Parse SVG and extract coordinates
-        tree = ET.parse(svg_path)
+        # nosec B314 -- svg_path resolves to the bundled repo asset maps/standard.svg,
+        # never untrusted input; no defusedxml dependency needed for a trusted local file.
+        tree = ET.parse(svg_path)  # nosec B314
         root = tree.getroot()
 
         # Use jdipNS coordinates -- these are the authoritative coordinate system

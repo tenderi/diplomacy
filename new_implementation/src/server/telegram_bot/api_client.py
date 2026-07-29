@@ -15,6 +15,12 @@ from .config import API_URL
 # Must match DIPLOMACY_BOT_SECRET on the server.
 BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
 
+# Request timeout (seconds) for all outbound calls to the API. A bot request
+# that hangs forever on a stuck connection is an availability bug, not just
+# lint noise (bandit B113) -- every requests.* call in this module and in
+# telegram_bot/channel_commands.py uses this constant.
+DEFAULT_API_TIMEOUT = 10
+
 logger = logging.getLogger("diplomacy.telegram_bot.api_client")
 
 
@@ -73,7 +79,9 @@ def api_post(endpoint: str, json_data: dict) -> dict:
     payload = dict(json_data)
     if "telegram_id" in payload and BOT_SECRET:
         payload.setdefault("bot_secret", BOT_SECRET)
-    resp = requests.post(f"{API_URL}{endpoint}", json=payload, headers=_bot_headers())
+    resp = requests.post(
+        f"{API_URL}{endpoint}", json=payload, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -94,7 +102,9 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
         params["telegram_id"] = telegram_id
         if BOT_SECRET:
             params["bot_secret"] = BOT_SECRET
-    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), params=params)
+    resp = requests.get(
+        f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=DEFAULT_API_TIMEOUT
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -105,7 +115,7 @@ def api_get_bytes(endpoint: str) -> bytes:
     Mirrors ``api_get``'s auth handling (``X-Bot-Secret`` header via
     ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
     """
-    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers())
+    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
     resp.raise_for_status()
     return resp.content
 

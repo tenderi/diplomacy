@@ -777,25 +777,82 @@ dependency bump or a bandit-flagged code pattern (e.g. a new `eval`, a hardcoded
 would merge to `main` without so much as a warning in the PR checks UI — only a
 downloadable artifact nobody looks at by default.
 
-- [ ] Change `bandit` from `continue-on-error: true` to failing the job on medium+
+- [x] Change `bandit` from `continue-on-error: true` to failing the job on medium+
       severity findings (`bandit -r src/ -ll` — `-ll` sets the severity floor to medium,
       which excludes the noisiest low-severity findings that would otherwise need a mass
       triage before this can be turned on). Run it locally first and fix or
       `# nosec`-annotate (with a one-line reason) any findings before flipping the switch,
       so turning on enforcement doesn't itself red the build.
-- [ ] Change `safety check` similarly, but expect more friction: `safety check` needs a
+- [x] Change `safety check` similarly, but expect more friction: `safety check` needs a
       free-tier API key or a switch to the newer `safety scan` / `pip-audit` command as of
       2025-era safety versions — confirm which one the CI runner's `pip install safety`
       resolves to and that it can run non-interactively in CI before wiring it to fail the
       build. If `safety` can't run unauthenticated in CI, switch to `pip-audit` (no auth
       required, actively maintained, reads `requirements.txt` directly) rather than leaving
       the step informational.
-- [ ] Keep the bandit JSON artifact upload (useful even with a hard gate), but the job's
+- [x] Keep the bandit JSON artifact upload (useful even with a hard gate), but the job's
       overall exit code must now reflect real findings.
 - [ ] **Done when:** deliberately introducing a known-bad pattern (e.g. a branch with
       `subprocess.call(user_input, shell=True)`) makes the `security` check fail on that
       PR, verified with `gh pr checks`, then revert the deliberate finding before merging
-      anything.
+      anything. *(Verified locally on branch `security-ci-gate`: adding
+      `subprocess.call(user_input, shell=True)` to a file under `src/` makes
+      `bandit -r src/ -ll` flag it as `B602 HIGH` and exit 1; the file was fully reverted
+      before committing (`git status`/`git diff` clean). The on-PR demonstration via
+      `gh pr checks` is pending — driver to open the PR and confirm the `security` check
+      goes red on a deliberate-finding commit, then green again after revert.)*
+
+**Implementation notes (branch `security-ci-gate`):**
+
+- **`safety` → `pip-audit` swap.** `safety check` (v3.8.1) exits 0 while printing
+  "0 vulnerabilities reported, 29 vulnerabilities ignored" — it only scans pinned
+  versions, and `requirements.txt` uses range specifiers throughout, so it silently
+  skipped known CVEs in PyJWT, Pillow, requests, python-multipart, cairosvg, etc. A gate
+  that skips almost everything is worse than no gate. `pip-audit` (2.10.1) runs
+  unauthenticated, reads `requirements.txt` directly, and correctly surfaced one real
+  finding (see below). `.github/workflows/test.yml`'s `security` job now installs
+  `bandit pip-audit` (not `safety`) and runs
+  `pip-audit -r requirements.txt --progress-spinner=off` as a hard gate before bandit.
+- **pytest advisory (PYSEC-2026-1845).** `pip-audit` flagged `pytest==8.4.2`, fixed in
+  9.0.3. Tried the real fix first: widened the pin to `pytest>=9.0.3,<10.0.0` in
+  `requirements.txt` and ran the full suite (`pytest-asyncio>=1.1.0,<2.0.0` already
+  covers the resolved 1.4.0, no change needed there). Result: **1275 passed, 11 skipped,
+  10 xfailed** — identical to the pre-upgrade baseline, no code or test changes required.
+  `pip-audit -r requirements.txt` now reports "No known vulnerabilities found" (exit 0).
+- **`# nosec` sites** (all carry a same-line or immediately-above reason comment):
+  - `src/rendering/board.py:161` — B314 (`ET.parse`): `svg_path` resolves to the bundled
+    repo asset `maps/standard.svg`, never untrusted input.
+  - `src/server/api/routes/dashboard.py:230,237` — B608 (f-string SQL): `table_name` is
+    checked against `ALLOWED_TABLES` before either query is built; `limit`/`offset` are
+    bound parameters, not interpolated. Query left unrewritten per the allowlist.
+  - `src/server/_api_module.py:290` — B104 (bind `0.0.0.0`): dev-only `__main__` fallback
+    (production starts via `uvicorn ... --host 127.0.0.1` under systemd, see
+    `infra/terraform/user_data.sh`); mirrors the documented local-dev command in
+    `CLAUDE.md` which binds all interfaces on purpose so other LAN devices can reach it.
+  - `src/server/daide/server.py:53` — B104: the DAIDE listener must accept connections
+    from external DAIDE clients; binding loopback would break the protocol.
+  - `src/rendering/cache.py:27` and `src/server/api/routes/maps.py:189,193` — B108
+    (hardcoded `/tmp` path): documented cache/render-scratch locations
+    (`CLAUDE.md`: "cached ... at `/tmp/diplomacy_map_cache`"); the app runs on a
+    single-tenant EC2 host with no other local users, so there's no multi-user `/tmp`
+    collision/symlink risk. *(These 3 sites were not in the original triage list handed
+    down for this task — found and triaged independently while clearing the gate.)*
+  - **Not suppressed — fixed instead:** `src/server/telegram_bot/app.py`'s notification
+    server (port 8081) was flagged B104 too and the original triage called it deliberate
+    like the other two binds, but that turned out to be wrong on inspection: its caller
+    (`NOTIFY_URL` in `server/api/shared.py`) defaults to `http://localhost:8081/notify`,
+    both systemd units (`diplomacy-api`, `diplomacy-bot`) run on the same EC2 host, and
+    `/notify` (`telegram_bot/notifications.py`) has **no authentication** — an open relay
+    that lets anyone with a `telegram_id` push arbitrary messages through the bot if ever
+    reachable. The only thing keeping it safe today is that the AWS security group
+    doesn't open port 8081 (incidental, not defense-in-depth). Changed the default bind
+    to `127.0.0.1` (overridable via `DIPLOMACY_NOTIFY_HOST` for a future split-host
+    deployment) instead of adding a `# nosec`.
+  - B324 (`hashlib.md5`, 3 sites — `rendering/cache.py`, `rendering/overlays.py`,
+    `server/response_cache.py`) and B113 (`requests.*` without timeout, 4 sites —
+    `telegram_bot/api_client.py` x3, `telegram_bot/channel_commands.py`) were fixed in
+    code (`usedforsecurity=False`; a shared `DEFAULT_API_TIMEOUT = 10` constant in
+    `api_client.py`), not suppressed — see diff.
 
 ## C2 — No brute-force protection on password auth
 
