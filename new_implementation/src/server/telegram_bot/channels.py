@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from telegram import Bot
 from telegram.error import TelegramError
 
+from .utils import escape_markdown
+
 logger = logging.getLogger("diplomacy.telegram_bot.channels")
 
 # Global bot instance (set by main telegram_bot.py)
@@ -135,12 +137,17 @@ def post_broadcast_to_channel(
         return None
     
     try:
-        # Format message
+        # `message` is free-text a player typed via /broadcast (or the web
+        # app) -- escape it before folding it into a Markdown-formatted
+        # channel post, or an unescaped `_`/`*`/`` ` ``/`[` in it makes the
+        # whole send_message call raise (caught below and just logged, so
+        # the broadcast silently never reaches the channel).
+        safe_message = escape_markdown(message)
         if power:
-            formatted_message = f"📢 **{power}** → All Powers\n\n{message}"
+            formatted_message = f"📢 **{power}** → All Powers\n\n{safe_message}"
         else:
-            formatted_message = f"📢 **PUBLIC BROADCAST**\n\n{message}"
-        
+            formatted_message = f"📢 **PUBLIC BROADCAST**\n\n{safe_message}"
+
         # Prepare message parameters
         message_params = {
             "chat_id": channel_id,
@@ -283,13 +290,18 @@ def post_proposal_with_voting(
         }
         
         emoji = power_emoji.get(power, "")
-        title = proposal_title or "PROPOSAL"
-        
+        # `proposal_title`/`proposal_text` are player-typed free text folded
+        # into a Markdown-formatted channel post -- escape both, same reason
+        # as post_broadcast_to_channel above.
+        safe_title = escape_markdown(proposal_title) if proposal_title else None
+        safe_text = escape_markdown(proposal_text)
+        title = safe_title or "PROPOSAL"
+
         # Format proposal message
         formatted_message = (
-            f"📢 **{title}: {proposal_title or 'Diplomatic Proposal'}**\n"
+            f"📢 **{title}: {safe_title or 'Diplomatic Proposal'}**\n"
             f"{emoji} **{power}** proposes:\n\n"
-            f"{proposal_text}\n\n"
+            f"{safe_text}\n\n"
             f"💬 Vote using the buttons below:"
         )
         
