@@ -292,3 +292,70 @@ def test_register_limit_is_per_ip_not_per_email(client, monkeypatch):
         "/auth/register", json={"email": _unique_email("c"), "password": "pass12345"}
     )
     assert r3.status_code == 429
+
+
+# --- Unbounded memory growth (driver review follow-up) ---
+
+def test_rate_limit_dict_does_not_accumulate_dead_keys(client, monkeypatch):
+    """Regression test for the unbounded-memory-growth defect flagged in
+    driver review: `_check_rate_limit` used to read via a `defaultdict`,
+    which creates a permanent dict entry as a side effect of merely *reading*
+    a key -- even when nothing is ever recorded against it (e.g. every
+    successful login checks both buckets but records neither). Separately,
+    purging expired timestamps from a bucket used to leave an empty `[]`
+    behind in the dict forever instead of deleting the key.
+
+    Asserts directly on `len(server.api.routes.auth._rate_limit_attempts)` --
+    a test that only checks 429 behavior would pass without either fix and
+    prove nothing about memory growth.
+    """
+    _skip_if_no_db()
+    import server.api.routes.auth as auth_module
+
+    # Registering 26 accounts in this test would otherwise trip the (unrelated)
+    # per-IP register limiter; raise it so it can't interfere with what this
+    # test actually checks (the login_* buckets).
+    monkeypatch.setattr(auth_module, "_REGISTER_IP_RATE_LIMIT_MAX", 1000)
+
+    fake_now = [time.time()]
+    monkeypatch.setattr(auth_module.time, "time", lambda: fake_now[0])
+
+    def _login_buckets():
+        return {
+            k: v for k, v in auth_module._rate_limit_attempts.items() if k.startswith("login_")
+        }
+
+    # Part 1: many distinct *successful* logins only ever check the login_ip
+    # and login_email buckets -- they never record. None of them may leave a
+    # dict entry behind (the pre-fix defaultdict read would create one empty
+    # list per distinct email, unboundedly, for as long as the process runs).
+    for i in range(25):
+        email = _unique_email(f"leak_ok_{i}")
+        password = "correct-horse-1"
+        reg = client.post("/auth/register", json={"email": email, "password": password})
+        assert reg.status_code == 200
+        ok = client.post("/auth/login", json={"email": email, "password": password})
+        assert ok.status_code == 200
+    assert _login_buckets() == {}, (
+        "successful logins must not create permanent rate-limit dict entries"
+    )
+
+    # Part 2: a bucket that later fully expires and is re-checked must be
+    # reclaimed (its key deleted), not left behind as an empty list forever.
+    email = _unique_email("leak_expired")
+    password = "correct-horse-1"
+    client.post("/auth/register", json={"email": email, "password": password})
+    for _ in range(auth_module._LOGIN_EMAIL_RATE_LIMIT_MAX):
+        resp = client.post("/auth/login", json={"email": email, "password": "wrong"})
+        assert resp.status_code == 401
+    assert f"login_email:{email}" in auth_module._rate_limit_attempts
+    assert len(_login_buckets()) == 2  # login_email:... + login_ip:...
+
+    fake_now[0] += auth_module._LOGIN_EMAIL_RATE_LIMIT_WINDOW + 1
+
+    ok2 = client.post("/auth/login", json={"email": email, "password": password})
+    assert ok2.status_code == 200
+    assert f"login_email:{email}" not in auth_module._rate_limit_attempts, (
+        "an expired bucket must be deleted from the dict when re-checked, not left as []"
+    )
+    assert _login_buckets() == {}
