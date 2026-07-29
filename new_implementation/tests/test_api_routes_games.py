@@ -320,6 +320,42 @@ class TestLastResolution:
         assert powers == {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
         assert all(r["result"] == "OK" for r in data["results"])
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_last_resolution_fleet_order_renders_with_f_not_a(self, client):
+        """Regression: a fleet's order_str must render "F", never "A".
+
+        RUSSIA's opening fleet sits at SEV and TURKEY's at ANK -- both
+        non-split-coast provinces, exactly the case ``format_order``'s
+        docstring warns about when no ``kind_by_province`` map is supplied.
+        No orders are submitted, so process_turn adjudicates the opening
+        position's implicit holds for all 22 units. Before the fix,
+        ``GameService.last_resolution_view`` called ``format_order(order)``
+        with no board map, so these printed as "A SEV H" / "A ANK H".
+        """
+        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+        game_id = game_resp.json()["game_id"]
+        process_resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
+        assert process_resp.status_code == 200
+
+        resp = client.get(f"/games/{game_id}/last_resolution")
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+
+        by_unit = {r["order"]["unit"]: r["order_str"] for r in results if "unit" in r["order"]}
+        assert by_unit["SEV"].startswith("F "), by_unit["SEV"]
+        assert by_unit["ANK"].startswith("F "), by_unit["ANK"]
+        # Sanity: an army at a non-coast province still renders as an army.
+        assert by_unit["PAR"].startswith("A "), by_unit["PAR"]
+
+        # The same must hold for what process_turn returns inline (no reload
+        # needed) -- it's the same decorated resolution, persisted verbatim.
+        inline_results = process_resp.json()["resolution"]["results"]
+        inline_by_unit = {
+            r["order"]["unit"]: r["order_str"] for r in inline_results if "unit" in r["order"]
+        }
+        assert inline_by_unit["SEV"].startswith("F "), inline_by_unit["SEV"]
+        assert inline_by_unit["ANK"].startswith("F "), inline_by_unit["ANK"]
+
 
 @pytest.mark.unit
 class TestDeadlineEndpoints:

@@ -528,6 +528,7 @@ function stubFetchActive(
     ordersStatus?: Record<string, unknown>
     savedOrders?: string[]
     legalOrders?: Record<string, unknown>
+    lastResolution?: Record<string, unknown>
   } = {}
 ) {
   return vi.fn((url: string, init?: RequestInit) => {
@@ -535,6 +536,7 @@ function stubFetchActive(
       opts.onProcessTurn?.()
       return opts.processTurnResponse ? opts.processTurnResponse() : jsonResponse({ status: 'ok' })
     }
+    if (url.includes('/last_resolution')) return jsonResponse(opts.lastResolution ?? { results: [] })
     if (url.includes('/orders_status'))
       return jsonResponse(
         opts.ordersStatus ?? { phase: 'S1901M', active_powers: [], submitted: [], missing: [] }
@@ -806,5 +808,188 @@ describe('GameView — 409 conflict handling', () => {
     // phase someone else already advanced past.
     const stateCalls = fetchMock.mock.calls.filter(([url]) => (url as string).includes('/state'))
     expect(stateCalls.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('GameView — results panel (E4)', () => {
+  it('renders nothing for a fresh game with {"results": []} -- no empty scary panel', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    // Wait for the roster (always present) so the initial load has settled, then assert
+    // the results heading never appeared.
+    await waitFor(() => {
+      expect(within(container).getByText('AUSTRIA')).toBeInTheDocument()
+    })
+    expect(within(container).queryByText(/what happened last turn/i)).not.toBeInTheDocument()
+  })
+
+  it("leads with the viewer's own power in plain language, not raw result codes", async () => {
+    const lastResolution = {
+      results: [
+        {
+          order: { type: 'MOVE', power: 'FRANCE', unit: 'PAR', dest: 'BUR' },
+          result: 'OK',
+          dislodged: false,
+          retreat_options: [],
+          power: 'FRANCE',
+          order_str: 'A PAR - BUR',
+        },
+        {
+          order: { type: 'MOVE', power: 'GERMANY', unit: 'MUN', dest: 'BUR' },
+          result: 'BOUNCE',
+          dislodged: false,
+          retreat_options: [],
+          power: 'GERMANY',
+          order_str: 'A MUN - BUR',
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, { lastResolution })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/what happened last turn/i)).toBeInTheDocument()
+    })
+    // The viewer's own result is visible immediately, in plain language.
+    expect(within(container).getByText('A PAR - BUR')).toBeInTheDocument()
+    expect(within(container).getByText(/move succeeded/i)).toBeInTheDocument()
+    expect(within(container).queryByText(/^OK$/)).not.toBeInTheDocument()
+    // The other power's result is not shown by default -- it's tucked behind a disclosure.
+    expect(within(container).queryByText('A MUN - BUR')).not.toBeInTheDocument()
+    expect(within(container).getByText(/other powers.*results \(1\)/i)).toBeInTheDocument()
+
+    // Expanding it reveals the raw-code-free description for the other power too.
+    fireEvent.click(within(container).getByText(/other powers.*results \(1\)/i))
+    expect(within(container).getByText(/GERMANY: A MUN - BUR/)).toBeInTheDocument()
+    expect(within(container).getByText(/blocked \(bounced\)/i)).toBeInTheDocument()
+    expect(within(container).queryByText(/^BOUNCE$/)).not.toBeInTheDocument()
+  })
+
+  it('surfaces a dislodged unit and its retreat options prominently', async () => {
+    const lastResolution = {
+      results: [
+        {
+          order: { type: 'HOLD', power: 'FRANCE', unit: 'PAR' },
+          result: 'DISLODGED',
+          dislodged: true,
+          retreat_options: ['PIC', 'GAS'],
+          power: 'FRANCE',
+          order_str: 'A PAR H',
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, { lastResolution })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/must retreat or disband/i)).toBeInTheDocument()
+    })
+    expect(within(container).getByText(/PIC, GAS/)).toBeInTheDocument()
+  })
+
+  it('lets the viewer switch the board image between board / pending orders / last resolution', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    const img = await waitFor(() => {
+      const el = container.querySelector('img[alt^="Game map"]') as HTMLImageElement | null
+      expect(el).not.toBeNull()
+      return el as HTMLImageElement
+    })
+    expect(img.src).toContain('/games/10/map?')
+    expect(img.src).not.toContain('/map/orders')
+    expect(img.src).not.toContain('/map/resolution')
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Pending orders' }))
+    await waitFor(() => {
+      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+        '/games/10/map/orders?'
+      )
+    })
+
+    fireEvent.click(within(container).getByRole('button', { name: 'Last resolution' }))
+    await waitFor(() => {
+      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+        '/games/10/map/resolution?'
+      )
+    })
+  })
+
+  it('defaults the map to the resolution overlay once a processed turn has results', async () => {
+    const lastResolution = {
+      results: [
+        {
+          order: { type: 'HOLD', power: 'FRANCE', unit: 'PAR' },
+          result: 'OK',
+          dislodged: false,
+          retreat_options: [],
+          power: 'FRANCE',
+          order_str: 'A PAR H',
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, { lastResolution })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+        '/games/10/map/resolution?'
+      )
+    })
   })
 })
