@@ -20,6 +20,13 @@
 - **Track B — Post-rewrite cleanup: ALL SUB-TRACKS DONE.** V0 (`v2.7.19`), V2
   (`v2.7.24`), V3 (`v2.7.26` + `v2.7.28`), V4 (`v2.7.31`), and V5 (`v2.7.30`) are all
   merged; V1 was absorbed into PR4. **Track B is complete.**
+- **Track C — Security hardening & missing gameplay features: NEW, ACTIVE, nothing
+  started.** Added 2026-07-29 from a direct old-vs-new comparison requested by the
+  maintainer (motivation: old implementation works but has stale deps/vulnerabilities;
+  new implementation should not just port features but close security gaps the old one
+  never had to face as a public HTTP service). Four findings, each verified by reading
+  the actual code, not inferred from docs. **Next action: C1** (cheapest, highest
+  leverage — the CI "security" job is currently a no-op gate).
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -56,7 +63,8 @@
   topology-query API. No real coverage was lost.
 - **Last updated:** 2026-07-29, mid-session. Track A complete except the manual check
   (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
-  `v2.7.28`/`v2.7.30`/`v2.7.31`). `main` is green, no open PRs, no stale branches.
+  `v2.7.28`/`v2.7.30`/`v2.7.31`); Track C added, nothing merged yet. `main` is green, no
+  open PRs, no stale branches.
 
 ### Where the old trackers went
 
@@ -707,7 +715,220 @@ unfinished except-narrowing was caught rather than assumed done.
 
 ---
 
-## Definition of done (both tracks)
+# Track C — Security Hardening & Missing Gameplay Features
+
+## Why this track exists
+
+The maintainer's stated goal for the rewrite was not just "port the old engine to modern
+libraries" but "don't carry over the old implementation's vulnerabilities" and "support
+more UI surfaces" (Telegram, done in Track A). A direct comparison of
+`old_implementation/` against `new_implementation/src/` on 2026-07-29 found four gaps
+that neither Track A nor Track B's findings covered — two are security regressions
+relative to what a public-facing service needs (not present in the old codebase either,
+but the old one was never deployed as a public HTTP service the way this one is), and two
+are gameplay-completeness gaps inherited from an incomplete port. Each was verified by
+reading the actual code, not inferred from a docstring or comment.
+
+**This track has no single acceptance criterion** the way Track A does — it's four
+independent findings. Execute them in the order below (C1/C2 are cheap and
+security-critical; C3 is a real gameplay gap; C4 needs a maintainer scope decision before
+any code is written).
+
+## C1 — The CI "security" job cannot fail a build
+
+**Finding:** `.github/workflows/test.yml:139-144` — both actual scan steps in the
+`security` job have `continue-on-error: true`:
+
+```yaml
+- name: Run safety check (informational)
+  run: safety check -r requirements.txt
+  continue-on-error: true
+
+- name: Run bandit security check (informational)
+  run: bandit -r src/ -f json -o bandit-report.json
+  continue-on-error: true
+```
+
+`security` is listed in `CLAUDE.md` as one of the two **required status checks** gating
+`main`. But a required check that always exits 0 regardless of findings provides zero
+protection — it is required in name only. This is the opposite of the maintainer's stated
+goal: the whole point of the rewrite was to not silently carry forward vulnerable
+dependencies the way the old implementation did, and right now a genuinely vulnerable
+dependency bump or a bandit-flagged code pattern (e.g. a new `eval`, a hardcoded secret)
+would merge to `main` without so much as a warning in the PR checks UI — only a
+downloadable artifact nobody looks at by default.
+
+- [ ] Change `bandit` from `continue-on-error: true` to failing the job on medium+
+      severity findings (`bandit -r src/ -ll` — `-ll` sets the severity floor to medium,
+      which excludes the noisiest low-severity findings that would otherwise need a mass
+      triage before this can be turned on). Run it locally first and fix or
+      `# nosec`-annotate (with a one-line reason) any findings before flipping the switch,
+      so turning on enforcement doesn't itself red the build.
+- [ ] Change `safety check` similarly, but expect more friction: `safety check` needs a
+      free-tier API key or a switch to the newer `safety scan` / `pip-audit` command as of
+      2025-era safety versions — confirm which one the CI runner's `pip install safety`
+      resolves to and that it can run non-interactively in CI before wiring it to fail the
+      build. If `safety` can't run unauthenticated in CI, switch to `pip-audit` (no auth
+      required, actively maintained, reads `requirements.txt` directly) rather than leaving
+      the step informational.
+- [ ] Keep the bandit JSON artifact upload (useful even with a hard gate), but the job's
+      overall exit code must now reflect real findings.
+- [ ] **Done when:** deliberately introducing a known-bad pattern (e.g. a branch with
+      `subprocess.call(user_input, shell=True)`) makes the `security` check fail on that
+      PR, verified with `gh pr checks`, then revert the deliberate finding before merging
+      anything.
+
+## C2 — No brute-force protection on password auth
+
+**Finding:** `src/server/api/routes/auth.py` — `/auth/login` (`:278-295`), `/auth/token`
+(`:298-312`), and `/auth/register` (`:251-275`) have no rate limiting, lockout, or delay
+of any kind. Compare to `/auth/link_telegram`, which *does* have one
+(`_check_link_rate_limit`, `:449-470`) — so the codebase already has the pattern, it just
+wasn't applied to the password-auth surface, which is the one actually exposed to
+credential-stuffing bots on the open internet (production has no HTTPS yet either, per
+`CLAUDE.md`'s infra section — a separate, already-tracked deployment gap, but it makes
+this worse in the meantime: credentials transit in cleartext to an endpoint anyone can
+hammer unlimited times). There is no global rate-limiting middleware in `_api_module.py`
+either (`grep -rn "rate.limit\|slowapi\|RateLimit" src/` matches only the telegram-link
+helper).
+
+- [ ] Add per-IP (and per-email, to stop distributed attacks against one account) rate
+      limiting to `/auth/login` and `/auth/token`, reusing or generalizing the existing
+      `_check_link_rate_limit` pattern in the same file rather than inventing a second
+      mechanism. A sensible starting point: 5 failed attempts per email per 15 minutes,
+      plus a coarser per-IP ceiling; return 429 with a `Retry-After` header rather than a
+      misleading 401.
+- [ ] Add a coarser per-IP limit to `/auth/register` (distinct concern: account-creation
+      spam, not credential guessing) — no need for per-email keying since there's no
+      existing account to target.
+- [ ] Failed attempts must **not** distinguish "no such user" from "wrong password" in
+      timing or counting — the current 401 messages are already unified
+      (`"Invalid email or password"`), keep that property when adding limiting logic (an
+      early-return on unknown email would create a timing side-channel and should count
+      against the same per-IP bucket as a real wrong-password attempt).
+- [ ] Test: hammer `/auth/login` with a bad password past the threshold in a test using
+      `TestClient`, assert 429 + `Retry-After`, assert a *correct* login for a different
+      account/IP still succeeds (bucket isolation), assert the limiter resets after the
+      window (use a fake clock, not a real `sleep`).
+- [ ] **Done when:** the new tests pass, `ruff check src/` clean, and manually confirmed
+      that 429s stop appearing once the window rolls over (no permanent lockout without an
+      unlock path — a permanently locked legitimate user is its own denial-of-service).
+
+## C3 — No draw or concede mechanism; a game can only end by 18-center solo win
+
+**Finding:** `src/engine/types.py:99-104` — `GameStatus` has exactly three values
+(`FORMING`, `ACTIVE`, `COMPLETED`), and the only place anything sets `COMPLETED` is
+`src/engine/game.py:132`, gated on `VICTORY_CENTERS = 18` (`types.py:120`). There is no
+engine-level draw, concede, or vote-to-end mechanism at all — contrast with
+`old_implementation/diplomacy/engine/game.py:745` (`draw(winners=None)`) and its
+`has_draw_vote()`/`count_voted()`/`clear_vote()` companions (`:877-895`), which let a game
+finish by agreement among survivors. In real Diplomacy the large majority of games end in
+a negotiated draw, not an 18-center solo — **without this, a new-implementation game that
+doesn't produce a solo winner has no way to ever finish.**
+
+This is easy to mistake for already-covered ground because
+`src/server/api/routes/channels.py:319-374` has `POST /games/{id}/channel/proposal` +
+`GET /games/{id}/channel/proposal/{message_id}`. Read closely
+(`telegram_bot/channels.py`'s `post_proposal_with_voting`/`get_proposal_results`), that's
+a generic Telegram/Discord poll-with-reactions feature for any text a player wants to put
+to a vote — it never touches `GameStatus`, is not aware of which powers are eliminated,
+and has no server-side quorum rule. It's a social feature sitting next to the actual gap,
+not a substitute for it.
+
+- [ ] **Engine (`src/engine/`):** add a way to mark a `GameState` as drawn among a set of
+      winners without going through `adjudicate_movement`/`adjudicate_adjustments` — mirror
+      the old implementation's shape (`draw(winners=None)` defaulting to all surviving,
+      non-eliminated powers) but as a pure function consistent with this engine's
+      `(map, state) -> new_state` style, not a mutating method. Add a `GameStatus` value
+      (or a `draw_winners: frozenset[str] | None` field alongside `COMPLETED`) so a
+      completed-by-draw game is distinguishable from a completed-by-solo game in the view
+      shape — clients (frontend, bot) will want to render "Draw between ENGLAND, FRANCE,
+      RUSSIA" differently from "FRANCE wins".
+- [ ] **Vote state:** decide where per-power draw votes live for an in-progress game —
+      either a new small table via `DatabaseService`/`GameRepo` (consistent with how
+      `pending_orders` already works) or a field folded into `GameState` if it should be
+      part of the serialized snapshot (check `serialization.py` either way — votes clearing
+      each phase, per the old implementation's `clear_vote()` called every processed turn,
+      is the expected semantic: a vote is a per-phase yes/no, not a standing position).
+      Eliminated powers must be excluded from both the numerator and denominator of "all
+      remaining powers voted yes" — reuse `Game.eliminated_powers` (`game.py:188`).
+- [ ] **API:** new endpoints under `/games/{id}` — e.g. `POST /draw_vote` (submit this
+      power's yes/no for the current phase, auth-checked the same way order submission is:
+      only the assigned user for that power), `GET /draw_vote_status` (who's voted, is
+      quorum reached), and a way to actually finalize the draw once quorum is reached —
+      either auto-finalize on the vote that completes quorum, or require an explicit
+      `POST /finalize_draw` call from the processing path (auto-finalize is closer to the
+      old implementation's behavior and avoids a stuck game if nobody triggers the second
+      call). Also add a **concede** path for a single power to voluntarily leave with its
+      centers marked eliminated/redistributed per the standard rule (civil disorder), distinct
+      from a draw (concede doesn't end the game, draw does).
+- [ ] **Clients:** Telegram bot command (e.g. `/draw` to cast a yes vote, `/status` already
+      shows submission state and should grow a "N/7 voted for draw" line once this lands)
+      and a frontend button in the game view. Both are thin — they call the new API, no
+      client-side game logic.
+- [ ] Tests: engine-level draw resolution (unanimous survivors → `COMPLETED` with the right
+      winner set; one holdout among non-eliminated powers → stays `ACTIVE`; eliminated
+      powers' votes/absence don't block quorum), API auth checks (only the assigned player
+      can vote their own power), and one full `GameService`-driven scenario test in the
+      style of Track B V4's `TestResolutionMapAcrossPhases` — create a small game, drive it
+      to a 3-power stalemate, vote unanimous draw, assert `GameStatus.COMPLETED` with all
+      three as winners.
+- [ ] **Done when:** the scenario test above passes, engine coverage floor still holds
+      (≥92%), and both clients can cast a vote and see the game end without an 18-center
+      solo.
+
+## C4 — The "DAIDE" server does not implement the DAIDE protocol — needs a maintainer scope decision
+
+**Finding:** `src/server/daide_protocol.py` (161 lines total) is a hand-rolled,
+newline-delimited **ASCII text** protocol that happens to reuse a few DAIDE token names
+(`HLO`, `ORD`, `SUB`, `TME`, `PRP`, `REJ`, `ACC`) as literal prefixes matched with
+`str.startswith`. The real DAIDE protocol (used by every existing standalone Diplomacy AI
+— DumbBot, Albert, and the various tournament bots this feature would exist to
+interoperate with) is a **binary** protocol: a 4-byte IM/RM/DM message header, then a
+token stream where every clause (province, power, unit, coast, order type, ...) is encoded
+as a 2-byte token per `docs`/the DAIDE spec, not literal ASCII. `old_implementation`
+carries a from-scratch implementation of that encoding across
+`diplomacy/daide/tokens.py` (440 lines — the full token table),
+`diplomacy/daide/clauses.py` (828 lines — clause parsing/building),
+`diplomacy/daide/messages.py` (240 lines), `diplomacy/daide/requests.py` (829 lines),
+`diplomacy/daide/responses.py` (862 lines), and `diplomacy/daide/notifications.py`
+(492 lines) — essentially 4,900 lines of protocol machinery that the new implementation's
+161-line stub does not have and cannot grow into incrementally, because it's built on the
+wrong wire format from the ground up.
+
+Concretely: **no unmodified real-world DAIDE bot can connect to this server today.**
+Anything that has exercised `tests/test_daide_protocol.py` has necessarily been testing
+against the same text stub, not real DAIDE framing — that test suite cannot be evidence of
+DAIDE compatibility.
+
+This is **not obviously in scope** — `docs/specs/architecture.md` lists DAIDE clients as
+a first-class caller (so someone once intended this), but `CLAUDE.md`'s out-of-scope list
+for "AI-powered analysis" is arguably adjacent (DAIDE's whole purpose is letting external
+AI bots play), and reimplementing ~4,900 lines of binary protocol machinery is a
+multi-week project, not a cleanup task. **Before any agent picks this up:**
+
+- [ ] **Maintainer decision needed:** (a) commit to a real DAIDE implementation ported
+      from `old_implementation/diplomacy/daide/` (biggest lift, but makes the server
+      interoperate with the existing DAIDE bot ecosystem — the reason DAIDE exists at all),
+      (b) keep the current text stub but stop calling it "DAIDE" in code/docs/architecture
+      diagrams — rename to something like a "simple TCP bot protocol" and update
+      `docs/specs/architecture.md:12,19,59,61` accordingly so nobody discovers the mismatch
+      the hard way when a real bot fails to connect, or (c) delete it — `grep -rn
+      "daide" src/ | grep -v __pycache__` first to size the blast radius (routes, tests,
+      docs referencing it) if the answer is "nobody's ever going to plug in a real DAIDE
+      bot."
+- [ ] Whichever option is chosen, update `docs/specs/architecture.md` and this file's
+      "Out of scope" list to make the decision explicit so a future agent doesn't re-open
+      this question from scratch.
+- [ ] If (a): scope it as its own sub-track with its own PRs (token table → clause
+      encode/decode → message framing → request/response mapping onto `GameService`, in
+      that dependency order, each independently testable against fixed byte sequences from
+      the old implementation's own test fixtures in `old_implementation/diplomacy/daide/tests/`
+      before wiring to the live server).
+
+---
+
+## Definition of done (all tracks)
 
 - [ ] **Track A acceptance:** a game plays end-to-end (movement, retreat, build) from
       both the browser and Telegram — the manual check above completed and each step
@@ -721,6 +942,12 @@ unfinished except-narrowing was caught rather than assumed done.
       dislodged positions (V4, `v2.7.31`).
 - [x] Full suite green **with a DB**, ruff clean, coverage gates hold, CI green on
       `main`, every landed chunk committed + tagged per CLAUDE.md.
+- [ ] **Track C acceptance:** C1 — `security` CI job actually fails on a real finding
+      (demonstrated, then reverted). C2 — brute-force test suite passes for
+      `/auth/login`/`/auth/token`/`/auth/register`. C3 — a game can reach `COMPLETED` by
+      draw vote, not just 18-center solo, from both clients. C4 — maintainer scope
+      decision recorded in this file and in `docs/specs/architecture.md` (code changes
+      only if the decision is "implement it").
 
 ## Out of scope
 
@@ -728,11 +955,17 @@ unfinished except-narrowing was caught rather than assumed done.
   ever — see "Carried-over facts").
 - Tournaments, Discord, observer/spectator mode, AI-powered analysis (long-standing
   maintainer list — `tournaments.py`, `discord_bot/`, `run_discord_bot.py` are **kept for
-  backward compatibility, not dead code**; don't extend, don't delete).
+  backward compatibility, not dead code**; don't extend, don't delete). This does not
+  cover DAIDE (Track C's C4) — DAIDE lets *external* bots play via a standard protocol,
+  which is a different concern from this repo's own AI-powered analysis; C4 asks the
+  maintainer to make that scope call explicitly rather than assuming either way.
 - Rendering redesign (new art, new layout engine, frontend map component). V3 moves
   code; V4 fixes correctness; neither restyles the board.
 - The aspirational spec docs (`dashboard.md`, `visualization_spec.md` §10).
 - Map variants beyond `standard` (except the V5 keep-or-kill decision on `standard-v2`).
+- HTTPS / TLS termination — already tracked as a known infra gap in the root `CLAUDE.md`
+  ("No HTTPS yet"), not new work discovered here. C2's brute-force fix reduces the
+  in-the-meantime risk; it doesn't replace TLS.
 
 ## Risks / notes
 
