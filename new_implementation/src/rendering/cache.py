@@ -21,7 +21,10 @@ logger = logging.getLogger("diplomacy.rendering.map")
 class MapCache:
     """Comprehensive map caching system for performance optimization."""
 
-    def __init__(self, max_size: int = 100, cache_dir: str = "/tmp/diplomacy_map_cache") -> None:
+    # nosec B108 -- documented cache location (CLAUDE.md: "cached ... at
+    # /tmp/diplomacy_map_cache"); the app runs on a single-tenant EC2 host with no
+    # other local users, so there is no multi-user /tmp collision/symlink risk here.
+    def __init__(self, max_size: int = 100, cache_dir: str = "/tmp/diplomacy_map_cache") -> None:  # nosec B108
         self.max_size = max_size
         self.cache_dir = cache_dir
         self.cache: dict[str, tuple[bytes, float]] = {}  # key -> (image_bytes, timestamp)
@@ -54,7 +57,9 @@ class MapCache:
 
         # Convert to JSON string and hash
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        # Cache key, not a security control -- usedforsecurity=False silences the
+        # weak-hash warning without masking a real crypto misuse.
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def _load_cache_from_disk(self) -> None:
         """Load cache metadata from disk on startup."""

@@ -184,10 +184,13 @@ def _render_and_save(
             svg_path, {}, phase_info={"year": None, "season": None, "phase": None, "phase_code": None},
             supply_center_control=None,
         )
-    os.makedirs("/tmp/diplomacy_maps", exist_ok=True)
+    # nosec B108 -- fixed, documented map-render scratch dir; single-tenant EC2 host,
+    # no other local users, so no multi-user /tmp collision/symlink risk.
+    os.makedirs("/tmp/diplomacy_maps", exist_ok=True)  # nosec B108
     phase_code = view["phase"]
     part = f"_{suffix}" if suffix else ""
-    map_path = f"/tmp/diplomacy_maps/game_{game_id}{part}_{phase_code}_{int(datetime.now().timestamp())}.png"
+    ts = int(datetime.now().timestamp())
+    map_path = f"/tmp/diplomacy_maps/game_{game_id}{part}_{phase_code}_{ts}.png"  # nosec B108
     with open(map_path, "wb") as f:
         f.write(img_bytes)
     resp: Dict[str, Any] = {

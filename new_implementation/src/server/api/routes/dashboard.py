@@ -225,12 +225,16 @@ def get_table_data(table_name: str, limit: int = 100, offset: int = 0) -> Dict[s
             ]
             
             # Get row count
-            count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+            # nosec B608 -- table_name is validated against ALLOWED_TABLES above;
+            # it never reaches this f-string as unvalidated input.
+            count_query = text(f"SELECT COUNT(*) FROM {table_name}")  # nosec B608
             count_result = session.execute(count_query)
             total_rows = count_result.scalar() if count_result else 0
-            
+
             # Get table data
-            data_query = text(f"SELECT * FROM {table_name} LIMIT :limit_val OFFSET :offset_val")
+            # nosec B608 -- table_name is validated against ALLOWED_TABLES above;
+            # limit/offset are bound parameters, not interpolated.
+            data_query = text(f"SELECT * FROM {table_name} LIMIT :limit_val OFFSET :offset_val")  # nosec B608
             data_result = session.execute(data_query, {"limit_val": limit, "offset_val": offset})
             
             # Convert rows to dicts

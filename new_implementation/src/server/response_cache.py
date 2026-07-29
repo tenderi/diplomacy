@@ -50,7 +50,9 @@ class ResponseCache:
             "params": params or {}
         }
         key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        # Cache key, not a security control -- usedforsecurity=False silences the
+        # weak-hash warning without masking a real crypto misuse.
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
     
     def _get_endpoint_path(self, endpoint: str) -> str:
         """Extract route path from endpoint name for cache invalidation."""
