@@ -25,14 +25,15 @@
   maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
   decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
   Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
-- **Track D — Full DAIDE protocol support: ACTIVE, D1+D3 merged.** Added 2026-07-29 at
-  the maintainer's explicit request ("I want the full DAIDE support as well") after
+- **Track D — Full DAIDE protocol support: ACTIVE, D1+D2+D3 merged.** Added 2026-07-29
+  at the maintainer's explicit request ("I want the full DAIDE support as well") after
   Track C's C4 flagged the current server as a non-conformant text stub. Five PRs
   (D1-D5) in dependency order — see the Track D section below. **D1 merged (`v2.7.34`,
-  PR #27)** — token vocabulary + DCSP wire framing. **D3 merged (`v2.7.35`, PR #29)** —
-  shared draw-vote/concede mechanism, also satisfies Track C's C3. D2 (clause codec) in
-  progress. **Next action: D4** once D2 lands (D4 depends on both D2 and D3; D3 is
-  already available).
+  PR #27)** — token vocabulary + DCSP wire framing. **D2 merged (`v2.7.37`, PR #31)** —
+  clause encode/decode bridge. **D3 merged (`v2.7.35`, PR #29)** — shared draw-vote/
+  concede mechanism, also satisfies Track C's C3. **Next action: D4** — the message-level
+  protocol surface and the first real asyncio TCP listener (both its dependencies are now
+  available).
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -1012,37 +1013,37 @@ Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
       by eye — all matched. Diff read in full for the clean-room rule: original docstrings,
       original class design, no structural resemblance to the old file.
 
-## D2 — `daide-clauses`
+## D2 — `daide-clauses` ✅ MERGED (`v2.7.37`, PR #31)
 
-Builds on D1. Still no I/O — this is the encode/decode bridge between DAIDE token streams
-and `engine.types`, analogous to how `orders/parser.py` bridges order strings to `Order`
-objects.
-
-- [ ] `src/server/daide/clauses.py`: encode/decode for:
-      - Province + optional coast → `engine.types.Location` and back (reuse
-        `engine.map_loader` for the coast-validity check, don't hardcode which provinces
-        are bicoastal a second time).
-      - Power name ↔ token.
-      - Unit (type + location) ↔ `engine.types.Unit`.
-      - Turn/season (`SPR`/`SUM`/`FAL`/`AUT`/`WIN`) ↔ `engine.types.Season`/`PhaseType` —
-        note DAIDE's 5-phase-per-year model (movement + retreat + builds, split
-        spring/fall) doesn't map 1:1 onto this engine's `PhaseType` enum; write the mapping
-        table explicitly and comment *why* a given DAIDE season token corresponds to a
-        given engine phase, since this is exactly the kind of subtle invariant that's
-        obvious now and confusing in six months.
-      - Order clauses for every DAIDE order type (`HLD`, `MTO`, `SUP`, `CVY`, `CTO`+`VIA`,
-        `BLD`, `REM`, `WVE`, `RTO`, `DSB`) ↔ the corresponding `engine.types` `Order`
-        variant, going through `engine.orders.parser`/`orders.validation` for the actual
-        legality check rather than re-implementing validation here — this module's job is
-        *shape* translation, not rules.
-- [ ] Tests: every order type round-trips through a real `GameState` fixture (build one via
-      `GameService`/the engine's own test helpers, not a hand-rolled dict) and produces the
-      order string `engine.orders.parser` accepts; province/coast edge cases (STP/SC,
-      BUL/EC, SPA/NC — the multi-coast provinces already special-cased throughout the
-      engine) get explicit tests.
-- [ ] **Done when:** round-trip tests pass for all 9 order clause types across at least one
-      multi-coast province, `ruff check` clean, no import of `persistence`/`server` modules
-      (this layer stays as pure as D1 — only `engine` and D1's `tokens`/`wire`).
+- [x] `src/server/daide/clauses.py`: province+coast ↔ `Location`, power ↔ token, unit ↔
+      `Unit`, turn/season ↔ `(Season, PhaseType)` (explicit `SPR/SUM/FAL/AUT/WIN` table
+      with the "why" comment this section asked for), and all 9 order clause types.
+      **Decode** goes through `engine.orders.parser.parse_order` (reuses the one grammar).
+      **Encode does not** go through `format_order` — documented, sound rationale:
+      `SupportHold`/`SupportMove`/`Convoy` carry only `Location` for their target/origin
+      unit, never a power, but DAIDE's `SUP`/`CVY` clauses need one; encode composes
+      tokens directly from `Order` fields, falling back to DAIDE's own `UNO` ("unknown
+      power") token when no `power_by_province` lookup is supplied. `Move.via_convoy`'s
+      fleet path is validated as well-formed on decode but not threaded into engine state
+      (it isn't engine state — the real path comes from separate `Convoy` orders); encode
+      takes an optional `via_fleets` for D4 to supply from the matching orders.
+      Added reverse lookups (`engine_province_code`, `engine_power_name`,
+      `engine_coast_suffix`) to D1's `tokens.py` rather than duplicating them locally —
+      D1's file already owns the bidirectional atom registries.
+- [x] Tests: `tests/test_daide_clauses.py`, 59 tests (352 total across the whole `daide/`
+      package once combined with D1's) — every order type round-tripped against
+      `parse_order`'s own output, explicit STP/SC, STP/NC, SPA/NC, SPA/SC, BUL/EC, BUL/SC
+      coverage, and decode-error cases (bad/missing coast, coast-on-army, wrong-phase
+      DSB/REM, malformed VIA, unknown verb, `UNO`-as-own-power).
+- [x] **Done when — verified independently by the driver, not just taken from the
+      subagent's report:** checked out into a worktree, rebased onto `main` (post-D1+D3)
+      with zero conflicts, `ruff check src/` clean, `pytest tests/test_daide_clauses.py`
+      59/59 and the combined `daide/` suite 352/352, full suite post-rebase (against a
+      real local Postgres, migration applied) **1216 passed, 11 skipped, 10 xfailed**,
+      overall coverage 64.80% (≥60). Diff read in full: no import of `persistence`/`server`
+      beyond `server.daide.tokens`/`wire`, clean-room rule held, and the encode-path
+      deviation's rationale checked against `engine/types.py` directly — confirmed
+      `SupportHold`/`SupportMove`/`Convoy` genuinely carry no power field.
 
 ## D3 — `draw-vote` (shared with Track C's C3 — implement once) ✅ MERGED (`v2.7.35`, PR #29)
 
