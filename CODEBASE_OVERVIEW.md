@@ -212,7 +212,6 @@ The `maps/` directory contains:
 |---|---|
 | `standard.map` | The canonical, **sole** topology source. Defines all 75 provinces, their abbreviations/aliases, 7 great powers with home supply centers and starting units, unowned supply centers, and full adjacency lists (including coast-specific adjacency: `BUL/EC`, `BUL/SC`, `SPA/NC`, `SPA/SC`, `STP/NC`, `STP/SC`). `map_loader.py` is the only reader; `src/engine/` has no other adjacency/coast tables. |
 | `standard.svg` | The SVG vector map of Europe used for rendering. Province regions are identified by ID attributes matching abbreviations. |
-| `v2.svg` + `v2/` | An alternative "v2" map design with AI-generated assets. |
 | `mini_variant.json` | A smaller map variant for testing. |
 | `svg.dtd` | SVG DTD for validation. |
 
@@ -279,7 +278,7 @@ top-level files), `tests/datc/` (154 DATC conformance cases), and `tests/engine/
 | **Game service** | `test_game_service.py`, `test_order_overlay.py` | `GameService` (create/submit/process/view) over `GameRepo`; order/resolution map-overlay adapter. |
 | **API Routes** | `test_api_routes_games.py`, `test_api_routes_orders.py`, `test_api_routes_users.py`, `test_api_routes_messages.py`, `test_api_routes_maps.py`, `test_api_routes_admin.py`, `test_api_routes_dashboard.py`, `test_api_spec_shapes.py`, `test_api_games_list.py`, `test_api_parsing_simple.py`, `test_api_scheduler.py` | REST endpoints, request/response shapes against the GameState-native view. |
 | **Auth** | `test_auth.py`, `test_authorization.py`, `test_user_registration.py` | JWT + Telegram-id dual auth, per-power authorization checks. |
-| **Map rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_map_with_units.py`, `test_map_opacity_font.py`, `test_standard_v2_map.py`, `test_standard_v2_map_comprehensive.py`, `test_map_consistency.py`, `test_province_mapping.py` | Map rendering, order arrows, unit placement, province mapping. |
+| **Map rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_map_with_units.py`, `test_map_opacity_font.py` | Map rendering, order arrows, unit placement. |
 | **Telegram Bot** | `test_telegram_bot.py`, `test_telegram_bot_enhanced.py`, `test_telegram_bot_edge_cases.py`, `test_telegram_messages.py`, `test_telegram_waiting_list.py`, `test_bot_functions.py`, `test_bot_map_generation.py`, `test_interactive_orders.py`, `test_interactive_orders_simple.py`, `test_channel_*` | Bot commands, interactive order flow, channel integration. |
 | **DAIDE Protocol** | `test_daide_protocol.py` | TCP protocol handling, message parsing over `GameService`. |
 | **Server / CLI** | `test_server.py`, `test_server_advanced.py`, `test_client.py`, `test_execution_context.py` | CLI `Server` text-command surface, command processing. |
