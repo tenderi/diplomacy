@@ -99,15 +99,51 @@ class TestRealSocketHandshake:
         finally:
             await server.stop()
 
-    async def test_server_start_binds_ephemeral_port_and_creates_a_game_on_demand(self) -> None:
-        # No game_id/pre-existing service game supplied -- start() must create one.
+    async def test_start_binds_an_ephemeral_port_and_creates_no_game(self) -> None:
+        """`start()` must not touch `game_service`/the database at all -- see
+        its docstring. This repo auto-deploys to production on every merge to
+        `main` (`systemctl restart diplomacy-api`, per `CLAUDE.md`); if
+        `start()` created a game whenever no ``game_id`` was supplied, every
+        single deploy would mint a permanent orphan row, whether or not a
+        DAIDE client ever connects."""
         session_factory = sessionmaker(bind=_bare_sqlite_engine())
         gs = GameService(GameRepo(session_factory))
         server = DaideServer(gs, host="127.0.0.1", port=0)
         await server.start()
         try:
             assert server.port != 0
-            assert gs.exists(server.game_id)
+            assert server.current_game_id is None
+            with pytest.raises(RuntimeError):
+                _ = server.game_id
+        finally:
+            await server.stop()
+
+    async def test_first_successful_nme_creates_the_game_lazily(self) -> None:
+        """A game is only ever created once a real client identifies itself
+        (`NME`) -- not by `start()`, and not merely by accepting a TCP
+        connection that never sends anything."""
+        session_factory = sessionmaker(bind=_bare_sqlite_engine())
+        gs = GameService(GameRepo(session_factory))
+        server = DaideServer(gs, host="127.0.0.1", port=0)
+        await server.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+            try:
+                await wire.write_message(writer, wire.InitialMessage())
+                await wire.read_message(reader)  # RepresentationMessage
+                assert server.current_game_id is None  # handshake alone creates nothing
+
+                nme_payload = b"".join(
+                    bytes(tok) for tok in (t.NME, *text_clause("DumbBot"), *text_clause("1.0"))
+                )
+                await wire.write_message(writer, wire.DiplomacyMessage(payload=nme_payload))
+                hlo = await wire.read_message(reader)
+                assert isinstance(hlo, wire.DiplomacyMessage)
+
+                assert server.current_game_id is not None
+                assert gs.exists(server.current_game_id)
+            finally:
+                writer.close()
         finally:
             await server.stop()
 

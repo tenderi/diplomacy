@@ -143,10 +143,13 @@ async def lifespan(app: FastAPI):
     # DAIDE listener (Track D, D4): one game per listener, following the
     # daide_protocol.DAIDEServer default of port 8432 (overridable via
     # DIPLOMACY_DAIDE_PORT, mainly so tests/CI running multiple app instances
-    # don't fight over the same port). Startup failure (port in use, no DB
-    # configured to create a game against, ...) is logged and swallowed
-    # rather than crashing the whole API -- DAIDE is one integration among
-    # several this process serves, not a prerequisite for the others.
+    # don't fight over the same port). start() only binds the socket -- it
+    # does not create a game (see DaideServer.start()'s docstring for why:
+    # this repo auto-deploys to prod on every merge to main, and eager
+    # creation would mint an orphan game row on every single restart).
+    # Startup failure (port in use, ...) is logged and swallowed rather than
+    # crashing the whole API -- DAIDE is one integration among several this
+    # process serves, not a prerequisite for the others.
     daide_port = int(os.environ.get("DIPLOMACY_DAIDE_PORT", str(DAIDE_DEFAULT_PORT)))
     _api_shared.daide_server = DaideServer(_api_shared.game_service, db_service=_api_shared.db_service, port=daide_port)
     try:

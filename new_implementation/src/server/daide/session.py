@@ -497,20 +497,34 @@ class DaideSession:
     ``server`` is duck-typed to `server.DaideServer` (not imported here, to
     avoid a circular import -- `server.py` imports *this* module). The
     attributes/methods this class actually calls on it: ``game_service``
-    (a `GameService`), ``map`` (a `MapData`), ``game_id`` (str property),
-    ``assign_power(game_id) -> Optional[str]``, ``register(game_id, power,
-    session) -> int``, ``try_reclaim(game_id, power, passcode, session) ->
-    bool``, ``unregister(game_id, power, session) -> None``,
-    ``deadline_seconds(game_id) -> Optional[int]``, ``broadcast_draw_completion(game_id)``,
-    ``broadcast_admin(game_id, from_name, message_tokens, exclude)``,
-    ``relay_press(game_id, from_power, to_powers, message_tokens)``.
+    (a `GameService`), ``map`` (a `MapData`), ``current_game_id`` (a
+    non-raising ``Optional[str]`` property -- ``None`` until a game has
+    actually been created), ``ensure_game_id() -> str`` (creates the game on
+    first successful `NME`, not before -- see `DaideServer.start()`'s
+    docstring for why eager creation is actively harmful for this repo's
+    deploy pipeline), ``assign_power(game_id) -> Optional[str]``,
+    ``register(game_id, power, session) -> int``, ``try_reclaim(game_id,
+    power, passcode, session) -> bool``, ``unregister(game_id, power,
+    session) -> None``, ``deadline_seconds(game_id) -> Optional[int]``,
+    ``broadcast_draw_completion(game_id)``, ``broadcast_admin(game_id,
+    from_name, message_tokens, exclude)``, ``relay_press(game_id, from_power,
+    to_powers, message_tokens)``.
+
+    ``self.game_id`` starts out ``None`` (mirroring the server's
+    ``current_game_id`` at construction time -- already a real id if this is
+    a second-or-later connection after some earlier session's `NME` created
+    one) and is only ever set to a real id by a successful `_cmd_nme`/
+    `_cmd_iam`, at which point `self.power` is set in the same breath -- every
+    other command handler runs only once `self.power is not None` (the
+    dispatch gate in `_handle_diplomacy`), so by the time any of them read
+    ``self.game_id`` it is guaranteed to be a real id, not `None`.
     """
 
     def __init__(self, reader: Any, writer: Any, server: Any) -> None:
         self.reader = reader
         self.writer = writer
         self.server = server
-        self.game_id: str = server.game_id
+        self.game_id: Optional[str] = server.current_game_id
         self.power: Optional[str] = None
         self.client_name: str = ""
         self.client_version: str = ""
@@ -605,25 +619,38 @@ class DaideSession:
             raise SessionProtocolError("NME needs (name) (version)")
         self.client_name = _text_of_tokens(groups[0])
         self.client_version = _text_of_tokens(groups[1])
-        power = self.server.assign_power(self.game_id)
+        # The game is created here, on the first successful NME -- not by
+        # DaideServer.start() or on merely accepting a connection. Idempotent
+        # (a no-op reuse) once some earlier session's NME already created it.
+        game_id = self.server.ensure_game_id()
+        power = self.server.assign_power(game_id)
         if power is None:
             await self._send(t.REJ, *_echo(raw))
             return
+        self.game_id = game_id
         self.power = power
-        self.passcode = self.server.register(self.game_id, power, self)
+        self.passcode = self.server.register(game_id, power, self)
         await self._send(*build_hlo_tokens(power, self.passcode))
 
     async def _cmd_iam(self, args: list[Token], raw: list[Token]) -> None:
         groups = _top_level_groups(args)
         if len(groups) != 2 or len(groups[0]) != 1 or not groups[1] or not groups[1][0].is_integer:
             raise SessionProtocolError("IAM needs (power) (passcode)")
+        game_id = self.server.current_game_id
+        if game_id is None:
+            # No NME has ever succeeded on this listener -- no game, no
+            # passcode was ever issued, nothing to reclaim. IAM never creates
+            # a game itself (only NME does; see ensure_game_id()'s docstring).
+            await self._send(t.REJ, *_echo(raw))
+            return
         try:
             power = t.engine_power_name(groups[0][0])
         except ValueError:
             await self._send(t.REJ, *_echo(raw))
             return
         passcode = int(groups[1][0])
-        if self.server.try_reclaim(self.game_id, power, passcode, self):
+        if self.server.try_reclaim(game_id, power, passcode, self):
+            self.game_id = game_id
             self.power = power
             self.passcode = passcode
             await self._send(t.YES, *_echo(raw))

@@ -73,21 +73,55 @@ class DaideServer:
 
     @property
     def game_id(self) -> str:
+        """The game this server serves. Raises if none has been created yet --
+        use `current_game_id` for a non-raising check, or `ensure_game_id()`
+        to create one on demand."""
         if self._game_id is None:
-            raise RuntimeError("DaideServer.start() has not run yet -- no game_id assigned")
+            raise RuntimeError(
+                "no game has been created yet -- DaideServer defers game "
+                "creation to the first successful NME (ensure_game_id()), "
+                "not to start() or accepting a connection; see start()'s "
+                "docstring for why"
+            )
+        return self._game_id
+
+    @property
+    def current_game_id(self) -> Optional[str]:
+        """Non-raising peek at `game_id` -- `None` until `ensure_game_id()`
+        has actually run (or a game_id was supplied at construction)."""
+        return self._game_id
+
+    def ensure_game_id(self) -> str:
+        """Create this server's game on first real use, if it doesn't exist
+        yet. Idempotent -- a second call returns the same id, no second game.
+
+        Called from `session.py`'s `NME` handler, deliberately not from
+        `start()` or `_handle_client()` -- see `start()`'s docstring for why
+        eager creation there is actively harmful for this repo."""
+        if self._game_id is None:
+            self._game_id = self.game_service.create_game()
         return self._game_id
 
     # -- lifecycle ------------------------------------------------------------
 
     async def start(self) -> None:
-        """Ensure a game exists, then start accepting connections.
+        """Bind the listening socket. Does **not** touch `game_service` or the
+        database.
+
+        Game creation is deliberately deferred to the first successful `NME`
+        (`ensure_game_id()`), not done here, because `CLAUDE.md` documents
+        that this repo auto-deploys to production on every merge to `main`
+        that passes CI (`systemctl restart diplomacy-api`) -- if `start()`
+        created a game whenever ``game_id`` wasn't supplied (as it used to),
+        every single deploy would mint one permanent orphan game row, whether
+        or not a DAIDE client ever connects, and whether or not the socket
+        even binds. Creating on first `NME` instead means a listener that
+        nobody ever talks to costs nothing.
 
         ``asyncio.start_server`` wraps a coroutine ``client_connected_cb`` in
         its own `asyncio.Task` per connection automatically -- no extra
         bookkeeping needed here for "one task per session".
         """
-        if self._game_id is None:
-            self._game_id = self.game_service.create_game()
         self._server = await asyncio.start_server(self._handle_client, self.host, self.port)
         if self._server.sockets:
             self.port = self._server.sockets[0].getsockname()[1]
@@ -103,8 +137,10 @@ class DaideServer:
             self._server = None
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        if self._game_id is None:
-            self._game_id = self.game_service.create_game()
+        # No game-creation guard here either (see `start()`'s docstring) --
+        # a connection that never sends a successful `NME` never mints a
+        # game; `DaideSession` tolerates `current_game_id` being `None` until
+        # then.
         daide_session = DaideSession(reader, writer, self)
         await daide_session.run()
 
