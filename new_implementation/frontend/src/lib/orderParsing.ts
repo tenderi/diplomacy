@@ -168,9 +168,9 @@ export function getOrderTypesFromGrouped(grouped: GroupedByType, phase: string):
   if (grouped.support.length) types.push('support')
   if (grouped.convoy.length) types.push('convoy')
   if (phase === 'Retreat' && grouped.retreat.length) types.push('retreat')
-  if ((phase === 'Builds' || phase === 'Adjustment') && grouped.build.length) types.push('build')
-  if ((phase === 'Builds' || phase === 'Adjustment') && grouped.destroy.length) types.push('destroy')
-  if ((phase === 'Builds' || phase === 'Adjustment') && grouped.waive.length) types.push('waive')
+  if (phase === 'Adjustment' && grouped.build.length) types.push('build')
+  if (phase === 'Adjustment' && grouped.destroy.length) types.push('destroy')
+  if (phase === 'Adjustment' && grouped.waive.length) types.push('waive')
   return types
 }
 
