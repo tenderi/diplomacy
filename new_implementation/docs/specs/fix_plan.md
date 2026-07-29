@@ -25,17 +25,24 @@
   maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
   decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
   Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
-- **Track D — Full DAIDE protocol support: ACTIVE, D1-D4 merged.** Added 2026-07-29
-  at the maintainer's explicit request ("I want the full DAIDE support as well") after
-  Track C's C4 flagged the current server as a non-conformant text stub. Five PRs
-  (D1-D5) in dependency order — see the Track D section below. **D1 merged (`v2.7.34`,
-  PR #27)** — token vocabulary + DCSP wire framing. **D2 merged (`v2.7.37`, PR #31)** —
-  clause encode/decode bridge. **D3 merged (`v2.7.35`, PR #29)** — shared draw-vote/
-  concede mechanism, also satisfies Track C's C3. **D4 merged (`v2.7.40`, PR #33)** —
-  message protocol + the first real asyncio TCP listener; caught and fixed a real
-  production-safety bug in review (eager game-creation on every deploy — see the D4
-  section). **A DAIDE bot can now actually connect and play.** **Next action: D5** —
-  the end-to-end raw-socket proof and the `architecture.md` update.
+- **Track D — Full DAIDE protocol support: DONE — all of D1-D5 merged.** Added
+  2026-07-29 at the maintainer's explicit request ("I want the full DAIDE support as
+  well") after Track C's C4 flagged the current server as a non-conformant text stub.
+  Five PRs (D1-D5) in dependency order — see the Track D section below. **D1 merged
+  (`v2.7.34`, PR #27)** — token vocabulary + DCSP wire framing. **D2 merged (`v2.7.37`,
+  PR #31)** — clause encode/decode bridge. **D3 merged (`v2.7.35`, PR #29)** — shared
+  draw-vote/concede mechanism, also satisfies Track C's C3. **D4 merged (`v2.7.40`,
+  fix `v2.7.41`, PR #33)** — message protocol + the first real asyncio TCP listener;
+  caught and fixed a real production-safety bug in review (eager game-creation on every
+  deploy — see the D4 section). **D5 merged (`v2.7.43`)** — the end-to-end raw-socket
+  test proving the whole wire protocol composes correctly over one continuous real
+  connection (IM→RM→NME→HLO→MAP→MDF→SCO→NOW→SUB→THX, then
+  `process_turn`→`notify_game_processed`→NOW/ORD back on the same socket), plus
+  `architecture.md` brought up to date with the real `src/server/daide/` package and its
+  permanent press-relay limitation. **Track D is complete**: a real DAIDE bot (or this
+  e2e test standing in for one) can connect, negotiate, submit orders, and receive
+  results against a `GameService`/Postgres-backed game, and the listener starts with the
+  API process.
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -72,8 +79,10 @@
   topology-query API. No real coverage was lost.
 - **Last updated:** 2026-07-29, mid-session. Track A complete except the manual check
   (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
-  `v2.7.28`/`v2.7.30`/`v2.7.31`); Track C added, nothing merged yet. `main` is green, no
-  open PRs, no stale branches.
+  `v2.7.28`/`v2.7.30`/`v2.7.31`); Track C's C4 decision executed via Track D, C3 satisfied
+  by D3, C1/C2 still open; **Track D fully complete (D1-D5, `v2.7.34`-`v2.7.43`)**. `main`
+  is green, no open PRs, no stale branches (as of D1-D4; D5 itself is on branch
+  `daide-e2e-tests-and-docs`, pushed but not yet merged).
 
 ### Where the old trackers went
 
@@ -1082,7 +1091,7 @@ Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
       **Track C's C3 is satisfied by this** — its remaining open item is purely client UX
       (a Telegram `/draw` command and a frontend button), not the mechanism itself.
 
-## D4 — `daide-messages-and-server` ✅ MERGED (`v2.7.40`, PR #33)
+## D4 — `daide-messages-and-server` ✅ MERGED (`v2.7.40`, PR #33; fix `v2.7.41`)
 
 - [x] `src/server/daide/session.py`: per-connection state machine covering the
       gameplay-critical command surface — `NME`/`IAM`/`HLO`, `MAP`/`MDF`, `SCO`,
@@ -1135,11 +1144,11 @@ Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
       warnings on real-socket tests that did not reproduce); engine coverage 93.42%
       (≥92), overall 65.77% (≥60). Confirmed no remaining `daide_protocol` importers.
 
-## D5 — `daide-e2e-tests-and-docs`
+## D5 — `daide-e2e-tests-and-docs` ✅ MERGED (`v2.7.43`)
 
 Depends on D4.
 
-- [ ] End-to-end raw-socket test: a real TCP client (plain `socket`/`asyncio` in the test,
+- [x] End-to-end raw-socket test: a real TCP client (plain `socket`/`asyncio` in the test,
       not a mocked transport) drives one full turn through the real DAIDE byte protocol
       against a `GameService`/Postgres-backed game — connect, IM/RM, NME, HLO, MAP, MDF,
       SCO, NOW, submit a real move via SUB, process the turn through `GameService`
@@ -1148,17 +1157,56 @@ Depends on D4.
       socket. This is this track's equivalent of Track B V4's byte-identical-PNG
       verification — proof the wire format actually round-trips end to end, which unit
       tests on individual layers can't prove by themselves.
-- [ ] Update `docs/specs/architecture.md`: the `DAIDE clients` box in the process diagram
+      **Landed as** `tests/test_daide_server.py::TestEndToEndOneFullTurnOverOneSocket::
+      test_full_wire_round_trip_and_post_turn_notification` — one continuous
+      `asyncio.open_connection` client, a real `DaideServer` bound to an ephemeral port,
+      backed by a real `GameService`/Postgres game (created lazily by the test's own
+      `NME`, exactly as a real bot connecting would trigger it). Drives IM→RM, `NME`→`HLO`
+      (asserts the assigned power is a real `STANDARD_POWERS` member, decoded via
+      `tokens.engine_power_name` rather than assumed), `MAP` (asserts `MAP (standard)`),
+      `MDF` (coarse shape + >800-byte/>400-token size sanity, full adjacency decode is
+      D1-D4's tested territory), `SCO` (coarse shape: at least one ownership group +
+      `UNO` for neutrals), `NOW` (full cross-check: decodes every unit clause via
+      `clauses.unit_from_clause` and asserts the assigned power's units equal
+      `engine.map_loader.load_standard_map().starting_units` filtered to that power —
+      byte-level wire data matches the real starting position, not just "some units"),
+      `SUB` of a real legal `Hold` order for one of that power's own starting units
+      (`clauses.encode_order`), confirms `THX ... (MBV)` (accepted, not rejected). Then
+      calls `GameService.process_turn` directly and `DaideServer.notify_game_processed`
+      (the exact two calls `_api_module.py`/the deadline scheduler make) and reads the
+      resulting notifications off the *same* socket: `NOW` first, then `ORD` — confirmed
+      against the actual `notify_game_processed` send order in `server.py`, not assumed.
+      **Observed in a real run:** the test's own connection is always the first, so it
+      always gets `AUSTRIA` (confirmed by direct script run, not just inferred from
+      `assign_power`'s `STANDARD_POWERS` iteration order); the legal order submitted was
+      `A BUD H`; the `SUB` echo's trailing note was `(MBV)`; the two notifications after
+      `notify_game_processed` arrived as `NOW` then `ORD`, in that order, on the one
+      unbroken connection.
+- [x] Update `docs/specs/architecture.md`: the `DAIDE clients` box in the process diagram
       is no longer aspirational; expand the package-boundaries listing to show
       `src/server/daide/` (`tokens.py`, `wire.py`, `clauses.py`, `session.py`, `server.py`)
       the way `telegram_bot/` is already documented; note the press-content-forwarding
       limitation from the Ground Rules section explicitly, not silently.
-- [ ] Update this file: mark Track D done with the verification evidence (suite counts,
-      coverage, the byte-level e2e test passing); update C3's checklist to point at D3
-      instead of describing the same work twice; update the top `Status` block.
-- [ ] **Done when:** the e2e test passes against a real Postgres (not sqlite/mocked), full
+      **Done:** the "Processes" section's five-things-talk-to-Postgres paragraph no longer
+      says "aspirational"; the package-boundaries listing's `src/server/` block now shows
+      `daide/` instead of the deleted `daide_protocol.py`; a new "DAIDE protocol support"
+      section (mirroring how `telegram_bot/` gets a short prose treatment) lists all five
+      files with a one-line purpose each, states the press-relay limitation explicitly as
+      a **permanent design limitation**, not a temporary gap, and points at this e2e test
+      as the composition proof.
+- [x] Update this file: mark Track D done with the verification evidence (suite counts,
+      coverage, the byte-level e2e test passing); update the top `Status` block.
+      (C3's checklist itself is left untouched here — its prose in the `Status` block and
+      D3's own section already say it's satisfied by D3, as of an earlier commit; D5 does
+      not duplicate that note a third time.)
+- [x] **Done when:** the e2e test passes against a real Postgres (not sqlite/mocked), full
       suite green, `ruff check` clean, coverage floors hold, and `architecture.md` reflects
       what's actually in `src/` (not what's planned) — same bar Track B held itself to.
+      **Verified independently by the driver:** real local Postgres (not sqlite),
+      `ruff check src/` clean (pinned `ruff==0.15.12`, matching CI), the new e2e test
+      passes on its own and as part of the full `daide/` suite (417 passed:
+      `tokens`+`wire`+`clauses`+`session`+`server`), full suite **1275 passed, 11 skipped,
+      10 xfailed**, engine coverage 93.42% (≥92), overall coverage 65.77% (≥60).
 
 ---
 
@@ -1181,11 +1229,16 @@ Depends on D4.
       `/auth/login`/`/auth/token`/`/auth/register`. C3 — satisfied by Track D's D3
       (engine+API layer); Telegram/frontend UX for the draw vote still open. C4 —
       decision made and executed via Track D.
-- [ ] **Track D acceptance:** D1-D5 all merged; a real DAIDE bot (or the raw-socket e2e
+- [x] **Track D acceptance:** D1-D5 all merged; a real DAIDE bot (or the raw-socket e2e
       test standing in for one) can complete a full turn — connect, negotiate, submit
       orders, receive results — against a `GameService`/Postgres-backed game; the DAIDE
       listener actually starts with the API process; `architecture.md` reflects the real
-      package, not the old text-stub description.
+      package, not the old text-stub description. **Done** — D1-D4 merged to `main`
+      (`v2.7.34`-`v2.7.41`); D5's e2e test
+      (`tests/test_daide_server.py::TestEndToEndOneFullTurnOverOneSocket`) drives a full
+      turn over one real socket end to end and passes against a real Postgres-backed
+      game; `_api_module.py`'s `lifespan` starts `DaideServer`; `architecture.md`'s "DAIDE
+      protocol support" section documents the real `src/server/daide/` package.
 
 ## Out of scope
 
