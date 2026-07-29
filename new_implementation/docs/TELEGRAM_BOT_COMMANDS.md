@@ -34,7 +34,9 @@ the web app if you need to re-link.
 | `/replace <game_id> <power>` | Take over a vacated power. |
 | `/wait` | Join the waiting list; a new game is created automatically once 7 players are waiting. |
 | `/players [game_id]` | List all players and their powers. |
-| `/status [game_id]` | Current phase, deadline, and who has submitted orders. |
+| `/status [game_id]` | Current phase, deadline, who has submitted orders, and the draw-vote tally. |
+| `/draw [game_id]` | Vote yes to end the game as a draw. If your vote completes quorum — every surviving power has voted yes — the game ends immediately. |
+| `/nodraw [game_id]` | Withdraw a draw vote you previously cast. |
 
 ## Orders
 
