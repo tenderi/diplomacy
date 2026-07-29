@@ -59,6 +59,14 @@ class GameRepo:
                 return {}
             return {k: list(v) for k, v in dict(row.pending_orders).items()}
 
+    def get_draw_votes(self, game_id: str) -> dict[str, str]:
+        """Current phase's ``{power: "yes"}`` draw votes (empty if none cast)."""
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None or not row.draw_votes:
+                return {}
+            return {k: str(v) for k, v in dict(row.draw_votes).items()}
+
     def get_last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
         """The most recent adjudication result, or ``None`` if the game has not yet
         processed a turn."""
@@ -124,6 +132,7 @@ class GameRepo:
                 map_name=map_name,
                 state_json=state_json,
                 pending_orders={},
+                draw_votes={},
                 phase_code=phase_code,
                 status="active",
                 current_turn=0,
@@ -193,9 +202,10 @@ class GameRepo:
 
         An explicit, caller-decided rollback -- unlike ``save_state`` there is no
         staleness check; the caller has already chosen to discard whatever is
-        currently live. Also clears ``pending_orders`` (they were submitted against
-        whatever phase was live before the restore, not the restored one) and marks
-        the game ``active`` (a restore always targets a playable phase).
+        currently live. Also clears ``pending_orders`` and ``draw_votes`` (both
+        were submitted against whatever phase was live before the restore, not
+        the restored one) and marks the game ``active`` (a restore always
+        targets a playable phase).
         """
         with self._session_factory() as session:
             row = self._row(session, game_id)
@@ -205,6 +215,7 @@ class GameRepo:
             row.phase_code = phase_code
             row.status = "active"
             row.pending_orders = {}
+            row.draw_votes = {}
             row.updated_at = datetime.now(timezone.utc)
             session.commit()
 
@@ -214,6 +225,35 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.pending_orders = pending
+            session.commit()
+
+    def set_draw_votes(self, game_id: str, votes: dict[str, str]) -> None:
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.draw_votes = votes
+            session.commit()
+
+    def update_state_json(
+        self, game_id: str, state_json: dict[str, Any], *, phase_code: str, status: str
+    ) -> None:
+        """Overwrite ``state_json``/``phase_code``/``status`` in place, without the
+        turn-counter bump or ``pending_orders`` clearing ``save_state`` does.
+
+        For out-of-band state mutations that are not a phase transition --
+        currently only ``GameService.concede`` (a power leaving mid-phase must
+        not disturb the other powers' already-submitted orders for this phase,
+        nor advance the turn counter the way a real ``process_turn`` does).
+        """
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.state_json = state_json
+            row.phase_code = phase_code
+            row.status = status
+            row.updated_at = datetime.now(timezone.utc)
             session.commit()
 
     def list_game_ids(self) -> list[str]:

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from engine.serialization import state_to_dict
-from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
+from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
@@ -310,3 +310,170 @@ class TestResolutionMapAcrossPhases:
         view = service.view(gid)
         provinces = {u["location"] for u in view["units"] if u["power"] == "GERMANY"}
         assert provinces == {"BER"}
+
+
+class TestDrawVoteAndConcede:
+    """D3/C3: GameService.submit_draw_vote/get_draw_votes/concede, driven the way
+    TestResolutionMapAcrossPhases drives process_turn -- a small hand-built
+    ``GameState`` via ``restore_snapshot``, then real service calls end to end."""
+
+    def _three_power_stalemate(self, service: GameService) -> str:
+        """FRANCE, GERMANY, RUSSIA each hold one unit/center; every other
+        standard power has neither, so it's already eliminated -- exercising
+        the "eliminated powers excluded from quorum" rule for free."""
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset(
+                {
+                    Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                    Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                    Unit(UnitKind.ARMY, "RUSSIA", Location("MOS")),
+                }
+            ),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY", "MOS": "RUSSIA"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        return gid
+
+    def test_unanimous_draw_vote_completes_game(self, service):
+        gid = self._three_power_stalemate(service)
+
+        r1 = service.submit_draw_vote(gid, "france", True)
+        assert r1["status"] == "recorded"
+        assert r1["quorum_reached"] is False
+        r2 = service.submit_draw_vote(gid, "GERMANY", True)
+        assert r2["quorum_reached"] is False
+        r3 = service.submit_draw_vote(gid, "RUSSIA", True)
+        assert r3["status"] == "completed"
+        assert r3["quorum_reached"] is True
+        assert r3["game_status"] == "COMPLETED"
+        assert sorted(r3["winners"]) == ["FRANCE", "GERMANY", "RUSSIA"]
+
+        view = service.view(gid)
+        assert view["status"] == "COMPLETED"
+        assert view["winners"] == ["FRANCE", "GERMANY", "RUSSIA"]
+
+    def test_holdout_keeps_game_active(self, service):
+        gid = self._three_power_stalemate(service)
+        service.submit_draw_vote(gid, "FRANCE", True)
+        service.submit_draw_vote(gid, "GERMANY", True)
+        # RUSSIA never votes -- quorum never reached.
+
+        status = service.get_draw_votes(gid)
+        assert status["required"] == ["FRANCE", "GERMANY", "RUSSIA"]
+        assert status["votes"] == ["FRANCE", "GERMANY"]
+        assert status["missing"] == ["RUSSIA"]
+        assert status["quorum_reached"] is False
+
+        view = service.view(gid)
+        assert view["status"] == "ACTIVE"
+        assert view["winners"] is None
+
+    def test_no_vote_removes_a_previous_yes(self, service):
+        gid = self._three_power_stalemate(service)
+        service.submit_draw_vote(gid, "FRANCE", True)
+        r = service.submit_draw_vote(gid, "FRANCE", False)
+        assert r["votes"] == []
+        assert service.get_draw_votes(gid)["votes"] == []
+
+    def test_eliminated_powers_excluded_from_quorum(self, service):
+        """Only FRANCE and GERMANY hold anything -- the other five standard
+        powers (including RUSSIA here) are eliminated and must not be required
+        to vote, nor able to block quorum by staying silent."""
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset(
+                {
+                    Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                    Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                }
+            ),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+
+        status = service.get_draw_votes(gid)
+        assert status["required"] == ["FRANCE", "GERMANY"]
+
+        service.submit_draw_vote(gid, "FRANCE", True)
+        r = service.submit_draw_vote(gid, "GERMANY", True)
+        assert r["quorum_reached"] is True
+        assert sorted(r["winners"]) == ["FRANCE", "GERMANY"]
+
+    def test_draw_votes_cleared_when_a_turn_is_processed(self, service):
+        gid = self._three_power_stalemate(service)
+        service.submit_draw_vote(gid, "FRANCE", True)
+        assert service.get_draw_votes(gid)["votes"] == ["FRANCE"]
+
+        service.submit_orders(gid, "FRANCE", ["A PAR H"])
+        service.submit_orders(gid, "GERMANY", ["A MUN H"])
+        service.submit_orders(gid, "RUSSIA", ["A MOS H"])
+        service.process_turn(gid)
+
+        # The vote was scoped to S1901M; it does not carry over to F1901M.
+        assert service.get_draw_votes(gid)["votes"] == []
+
+    def test_concede_does_not_end_the_game(self, service):
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset(
+                {
+                    Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                    Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                    Unit(UnitKind.ARMY, "RUSSIA", Location("BUR")),
+                }
+            ),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+
+        result = service.concede(gid, "germany")
+        assert result["status"] == "ok"
+        assert result["power"] == "GERMANY"
+        assert result["game_status"] == "ACTIVE"
+        # GERMANY still "owns" MUN (concede never touches ownership) so it is
+        # not yet reported eliminated -- that only happens once the vacated
+        # center is actually recaptured by someone else at a Fall settle.
+        assert result["eliminated"] is False
+
+        view = service.view(gid)
+        assert view["status"] == "ACTIVE"
+        assert "GERMANY" not in {u["power"] for u in view["units"]}
+        assert view["ownership"]["MUN"] == "GERMANY"  # untouched by concede
+
+        # RUSSIA marches into the now-empty MUN and holds through Fall.
+        service.submit_orders(gid, "FRANCE", ["A PAR H"])
+        service.submit_orders(gid, "RUSSIA", ["A BUR - MUN"])
+        out = service.process_turn(gid)
+        assert out["phase"] == "F1901M"
+
+        service.submit_orders(gid, "FRANCE", ["A PAR H"])
+        service.submit_orders(gid, "RUSSIA", ["A MUN H"])
+        service.process_turn(gid)
+
+        # Fall settled: MUN flips to RUSSIA: GERMANY now has neither units nor
+        # centers, so eliminated_powers() picks it up.
+        game = service.load(gid)
+        assert game.state.ownership["MUN"] == "RUSSIA"
+        assert "GERMANY" in game.eliminated_powers()
+        assert game.state.status is GameStatus.ACTIVE  # concede never ends the game
+
+    def test_concede_clears_the_conceding_powers_pending_orders_and_vote(self, service):
+        gid = self._three_power_stalemate(service)
+        service.submit_orders(gid, "GERMANY", ["A MUN H"])
+        service.submit_draw_vote(gid, "GERMANY", True)
+
+        service.concede(gid, "GERMANY")
+
+        view = service.view(gid)
+        assert view["orders"].get("GERMANY", []) == []
+        assert service.get_draw_votes(gid)["votes"] == []

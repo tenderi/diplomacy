@@ -112,6 +112,100 @@ class TestPhaseSequence:
         assert g3.state.status is GameStatus.COMPLETED
 
 
+class TestDraw:
+    """D3/C3: negotiated draw among survivors, distinct from a solo win."""
+
+    def test_unanimous_survivors_draw(self):
+        # Three powers left standing, no eliminations -- Game.draw() with the
+        # default winners set should complete the game with all three sharing.
+        g = Game.new_standard()
+        from dataclasses import replace
+
+        units = frozenset(
+            {
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                Unit(UnitKind.ARMY, "RUSSIA", Location("MOS")),
+            }
+        )
+        ownership = {"PAR": "FRANCE", "MUN": "GERMANY", "MOS": "RUSSIA"}
+        state = replace(g.state, units=units, ownership=ownership)
+        g = replace(g, state=state)
+
+        g2 = g.draw()
+        assert g2.state.status is GameStatus.COMPLETED
+        assert g2.state.winners == frozenset({"FRANCE", "GERMANY", "RUSSIA"})
+        # Pure: the original game is untouched.
+        assert g.state.status is GameStatus.ACTIVE
+        # A completed draw does not advance further.
+        _res, g3 = g2.adjudicate([])
+        assert g3.state.status is GameStatus.COMPLETED
+        assert g3.state.winners == g2.state.winners
+
+    def test_explicit_winners_override_default(self):
+        g = Game.new_standard()
+        from dataclasses import replace
+
+        units = frozenset(
+            {
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }
+        )
+        g = replace(g, state=replace(g.state, units=units))
+
+        g2 = g.draw(winners=frozenset({"FRANCE"}))
+        assert g2.state.status is GameStatus.COMPLETED
+        assert g2.state.winners == frozenset({"FRANCE"})
+        assert g2.winner() == "FRANCE"
+
+    def test_holdout_keeps_game_active(self):
+        """The engine has no built-in "vote" concept -- quorum is a service-layer
+        concern (GameService.submit_draw_vote). At the engine level, a holdout
+        simply means the caller never calls draw() with that power included, and
+        the game stays whatever status it already was."""
+        g = Game.new_standard()
+        assert g.state.status is GameStatus.ACTIVE
+        assert g.state.winners is None
+
+    def test_eliminated_powers_excluded_from_default_winners(self):
+        # AUSTRIA has no units and no centers (eliminated); default draw()
+        # winners must not include it even though it's a "standard" power.
+        g = Game.new_standard()
+        from dataclasses import replace
+
+        units = frozenset(
+            {
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }
+        )
+        ownership = {"PAR": "FRANCE", "MUN": "GERMANY"}
+        g = replace(g, state=replace(g.state, units=units, ownership=ownership))
+        assert "AUSTRIA" in g.eliminated_powers()
+
+        g2 = g.draw()
+        assert g2.state.winners == frozenset({"FRANCE", "GERMANY"})
+        assert "AUSTRIA" not in g2.state.winners
+
+    def test_solo_win_sets_single_winner(self):
+        g = Game.new_standard()
+        from dataclasses import replace
+
+        ownership = {p: "FRANCE" for p in list(g.map.supply_centers)[:18]}
+        state = replace(
+            g.state,
+            season=Season.FALL,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}),
+            ownership=ownership,
+        )
+        g = replace(g, state=state)
+        _res, g2 = g.adjudicate([Hold("FRANCE", Location("PAR"))])
+        assert g2.state.status is GameStatus.COMPLETED
+        assert g2.state.winners == frozenset({"FRANCE"})
+        assert g2.winner() == "FRANCE"
+
+
 class TestSelfPlaySmoke:
     @pytest.mark.slow
     def test_self_play_ten_years_invariants(self):

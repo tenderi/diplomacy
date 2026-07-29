@@ -200,10 +200,12 @@ def state_to_dict(state: GameState) -> dict[str, Any]:
         "dislodged": [_dislodged_to_dict(du) for du in state.dislodged],
         "contested": sorted(state.contested),
         "status": state.status.value,
+        "winners": sorted(state.winners) if state.winners is not None else None,
     }
 
 
 def state_from_dict(d: dict[str, Any]) -> GameState:
+    winners = d.get("winners")
     return GameState(
         year=d["year"],
         season=Season(d["season"]),
@@ -213,6 +215,7 @@ def state_from_dict(d: dict[str, Any]) -> GameState:
         dislodged=tuple(_dislodged_from_dict(x) for x in d.get("dislodged", [])),
         contested=frozenset(d.get("contested", [])),
         status=GameStatus(d.get("status", GameStatus.ACTIVE.value)),
+        winners=frozenset(winners) if winners is not None else None,
     )
 
 

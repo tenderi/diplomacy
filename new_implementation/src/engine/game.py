@@ -128,7 +128,8 @@ class Game:
         # Fall settled: recompute supply-center ownership, then check victory.
         ownership = self._updated_ownership(post)
         status = post.status
-        if _has_winner(ownership):
+        solo = _solo_winner(ownership)
+        if solo is not None:
             status = GameStatus.COMPLETED
             return GameState(
                 year=year,
@@ -137,6 +138,7 @@ class Game:
                 units=post.units,
                 ownership=ownership,
                 status=status,
+                winners=frozenset({solo}),
             )
 
         if self._adjustments_needed(post.units, ownership):
@@ -183,6 +185,27 @@ class Game:
             counts_centers.get(p, 0) != counts_units.get(p, 0) for p in powers
         )
 
+    # -- draw / concede -----------------------------------------------------
+
+    def draw(self, winners: "frozenset[str] | None" = None) -> "Game":
+        """Mark the game complete by negotiated draw among ``winners``.
+
+        Pure: returns a new ``Game``; ``self`` is untouched. Defaults ``winners``
+        to every power that currently still has at least one unit on the board
+        (the historical Diplomacy/DAIDE convention — surviving, non-eliminated
+        powers share the draw). Unlike the solo-win path this does not go through
+        movement/retreat/adjustment adjudication at all: it is a direct state
+        transition, callable from any phase.
+        """
+        if winners is None:
+            winners = frozenset(u.power for u in self.state.units)
+        new_state = replace(
+            self.state,
+            status=GameStatus.COMPLETED,
+            winners=frozenset(winners),
+        )
+        return Game(map=self.map, state=new_state, history=self.history + (self.state,))
+
     # -- queries ----------------------------------------------------------
 
     def eliminated_powers(self) -> frozenset[str]:
@@ -196,18 +219,26 @@ class Game:
         return frozenset(out)
 
     def winner(self) -> str | None:
-        """The winning power (≥ ``VICTORY_CENTERS`` centers), if any."""
-        counts: dict[str, int] = {}
-        for owner in self.state.ownership.values():
-            counts[owner] = counts.get(owner, 0) + 1
-        for power, n in counts.items():
-            if n >= VICTORY_CENTERS:
-                return power
-        return None
+        """The sole winning power, if any (a solo of ≥ ``VICTORY_CENTERS``
+        centers, or a draw's ``winners`` set narrowed to a single survivor).
+
+        ``None`` for a multi-power draw or while the game is still active --
+        callers that need the full draw membership should read
+        ``self.state.winners`` directly.
+        """
+        if self.state.winners is not None:
+            if len(self.state.winners) == 1:
+                return next(iter(self.state.winners))
+            return None
+        return _solo_winner(self.state.ownership)
 
 
-def _has_winner(ownership: dict[str, str]) -> bool:
+def _solo_winner(ownership: dict[str, str]) -> str | None:
+    """The power holding ≥ ``VICTORY_CENTERS`` centers, if any."""
     counts: dict[str, int] = {}
     for owner in ownership.values():
         counts[owner] = counts.get(owner, 0) + 1
-    return any(n >= VICTORY_CENTERS for n in counts.values())
+    for power, n in counts.items():
+        if n >= VICTORY_CENTERS:
+            return power
+    return None
