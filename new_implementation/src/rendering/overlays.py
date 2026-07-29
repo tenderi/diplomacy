@@ -17,6 +17,7 @@ from .arrows import (
     _draw_circle,
     _draw_circle_at_size,
     _draw_curved_arrow,
+    _draw_dislodged_marker,
     _draw_failure_x,
     _draw_star,
     _draw_success_checkmark,
@@ -181,15 +182,23 @@ def _draw_movement_order(draw: ImageDraw.ImageDraw, from_province: str, to_provi
 
 
 def _draw_hold_order(draw: ImageDraw.ImageDraw, province: str, color: str, status: str, coords: dict) -> None:
-    """Draw hold order circle"""
+    """Draw hold order circle.
+
+    ``status == "dislodged"`` reaches this function (rather than the "move" one)
+    because the engine only assigns ``ResultCode.DISLODGED`` to a ``Hold`` order or
+    a convoying ``Convoy`` order -- never to ``Move``/``Support*`` -- see
+    ``order_overlay._STATUS_BY_CODE``.
+    """
     if province not in coords:
         return
 
     coord = coords[province]
 
-    # Choose circle style based on status
     if status == "success":
         _draw_circle(draw, coord, color, width=2, style="solid")
+    elif status == "dislodged":
+        _draw_circle(draw, coord, "red", width=4, style="solid")
+        _draw_dislodged_marker(draw, coord)
     else:
         _draw_circle(draw, coord, "red", width=2, style="dashed")
 
@@ -310,14 +319,20 @@ def _draw_convoy_order(
                               width=arrow_specs["line_width_secondary"],
                               style="solid" if status == "success" else "dashed")
 
-    # Draw circles/markers around convoying fleets in convoy color (per spec)
+    # Draw circles/markers around convoying fleets in convoy color (per spec).
+    # A "dislodged" chain (one of its fleets was displaced) uses the dislodged
+    # ring marker instead of the plain solid circle, so it reads as distinct from
+    # a chain that merely failed for another reason (cut/void/no-convoy-path).
     fleet_marker_diameter = marker_specs["convoy_fleet_marker_diameter"]
     fleet_marker_border_width = marker_specs["convoy_fleet_marker_border_width"]
     for fleet_prov in convoy_chain:
         if fleet_prov in coords:
             fleet_coord = coords[fleet_prov]
-            _draw_circle_at_size(draw, fleet_coord, convoy_color_actual,
-                                   fleet_marker_diameter, fleet_marker_border_width, style="solid")
+            if status == "dislodged":
+                _draw_dislodged_marker(draw, fleet_coord, convoy_color_actual)
+            else:
+                _draw_circle_at_size(draw, fleet_coord, convoy_color_actual,
+                                       fleet_marker_diameter, fleet_marker_border_width, style="solid")
 
 
 def _draw_build_order(draw: ImageDraw.ImageDraw, province: str, color: str, status: str, coords: dict) -> None:
