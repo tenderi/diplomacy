@@ -1,8 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, within, waitFor, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, within, waitFor, fireEvent, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameView from './GameView'
+
+/** Minimal ok-response Response stub for a JSON body, used across the tests below. */
+function jsonResponse(body: unknown, status = 200): Promise<Response> {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  } as Response)
+}
+
+// This suite's setup does not enable Testing Library's automatic per-test cleanup
+// (that requires vitest's `globals: true`, which this project doesn't set), so without
+// this every test's rendered DOM accumulates in `document.body`. Scoped `within(container)`
+// queries tolerate that, but `screen.*` queries below (needed to reach AlertDialog's
+// portal, which renders outside `container`) would otherwise match stale nodes from
+// earlier tests in this file.
+afterEach(() => cleanup())
 
 const mockUser = {
   id: 1,
@@ -410,9 +428,13 @@ describe('GameView — draw vote', () => {
     )
 
     await waitFor(() => {
-      expect(within(container).getByText(/1\/3 powers have voted for a draw/)).toBeInTheDocument()
+      // The tally text itself includes the voter list, e.g. "1/3 ... a draw: GERMANY" --
+      // GERMANY also appears in the players roster, so match on the full tally line rather
+      // than a bare /GERMANY/ regex to avoid an ambiguous multi-match.
+      expect(
+        within(container).getByText(/1\/3 powers have voted for a draw: GERMANY/)
+      ).toBeInTheDocument()
     })
-    expect(within(container).getByText(/GERMANY/)).toBeInTheDocument()
     // FRANCE (this user's power) hasn't voted yet -> offered the "vote" action, not "withdraw".
     expect(within(container).getByRole('button', { name: /vote for draw/i })).toBeInTheDocument()
   })
@@ -491,5 +513,298 @@ describe('GameView — draw vote', () => {
       expect(within(container).getByText(/Join game/i)).toBeInTheDocument()
     })
     expect(within(container).queryByText(/Draw vote/i)).not.toBeInTheDocument()
+  })
+})
+
+/** Fetch stub used by the process-turn / roster / orders-status tests below: covers
+ * every endpoint GameView calls for an ACTIVE game, plus an optional `onProcessTurn`
+ * spy so tests can assert the confirmation gate actually blocks the real POST. */
+function stubFetchActive(
+  state: Record<string, unknown>,
+  players: Record<string, unknown>[],
+  opts: {
+    onProcessTurn?: () => void
+    processTurnResponse?: () => Promise<Response>
+    ordersStatus?: Record<string, unknown>
+    savedOrders?: string[]
+    legalOrders?: Record<string, unknown>
+  } = {}
+) {
+  return vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes('/process_turn') && init?.method === 'POST') {
+      opts.onProcessTurn?.()
+      return opts.processTurnResponse ? opts.processTurnResponse() : jsonResponse({ status: 'ok' })
+    }
+    if (url.includes('/orders_status'))
+      return jsonResponse(
+        opts.ordersStatus ?? { phase: 'S1901M', active_powers: [], submitted: [], missing: [] }
+      )
+    if (url.includes('/deadline')) return jsonResponse({ status: 'ok', deadline: null })
+    if (url.includes('/draw_vote_status'))
+      return jsonResponse({
+        phase: 'S1901M', game_status: 'ACTIVE', required: [], votes: [], missing: [], quorum_reached: false,
+      })
+    if (url.includes('/legal_orders/'))
+      return jsonResponse(opts.legalOrders ?? { orders: [], orders_by_unit: {} })
+    if (url.includes('/state')) return jsonResponse(state)
+    if (url.includes('/players')) return jsonResponse(players)
+    if (url.includes('/orders/')) return jsonResponse({ orders: opts.savedOrders ?? [] })
+    if (url.includes('/messages')) return jsonResponse({ messages: [] })
+    return Promise.resolve({ ok: false, status: 401 } as Response)
+  })
+}
+
+const activeMovementState = {
+  game_id: '10',
+  map_name: 'standard',
+  phase: 'S1901M',
+  year: 1901,
+  season: 'SPRING',
+  phase_type: 'MOVEMENT',
+  status: 'ACTIVE',
+  units: [{ kind: 'A', power: 'FRANCE', location: 'PAR' }],
+  units_by_power: { FRANCE: [{ kind: 'A', power: 'FRANCE', location: 'PAR' }] },
+  ownership: { PAR: 'FRANCE' },
+  supply_centers: { PAR: 'FRANCE' },
+  dislodged: [],
+  contested: [],
+  players: { FRANCE: { user_id: 1, is_active: true } },
+  orders: {},
+}
+const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]
+
+describe('GameView — process turn: gated on membership and confirmed', () => {
+  it('hides the process-turn action entirely for a user with no power in the game', async () => {
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Other' }]
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, otherPlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/Join game/i)).toBeInTheDocument()
+    })
+    expect(within(container).queryByText(/Process turn/i)).not.toBeInTheDocument()
+    expect(
+      within(container).queryByRole('button', { name: /resolve orders and advance/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('requires confirmation before calling process_turn for a member', async () => {
+    const onProcessTurn = vi.fn()
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { onProcessTurn }))
+
+    render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    const trigger = await screen.findByRole('button', { name: /resolve orders and advance/i })
+    fireEvent.click(trigger)
+    // Opening the confirmation dialog must not itself call process_turn.
+    expect(onProcessTurn).not.toHaveBeenCalled()
+
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /^process turn$/i }))
+
+    await waitFor(() => {
+      expect(onProcessTurn).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+describe('GameView — roster', () => {
+  it('renders every power with its controlling player or Open', async () => {
+    const rosterPlayers = [
+      { power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Alice' },
+      { power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' },
+    ]
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, rosterPlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText('Alice')).toBeInTheDocument()
+    })
+    expect(within(container).getByText('Bob')).toBeInTheDocument()
+    // AUSTRIA is unclaimed in this fixture -- its roster row must say so.
+    const austriaRow = within(container).getByText('AUSTRIA').closest('li')
+    expect(austriaRow).not.toBeNull()
+    expect(within(austriaRow as HTMLElement).getByText('Open')).toBeInTheDocument()
+  })
+})
+
+describe('GameView — orders status', () => {
+  it("shows the logged-in power's submission status and who is still missing", async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, {
+        ordersStatus: {
+          phase: 'S1901M',
+          active_powers: ['FRANCE', 'GERMANY'],
+          submitted: ['GERMANY'],
+          missing: ['FRANCE'],
+        },
+      })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(
+        within(container).getByText(/You still need to submit orders for FRANCE/)
+      ).toBeInTheDocument()
+    })
+    expect(
+      within(container).getByText(/1\/2 powers have submitted orders this phase — waiting on FRANCE\./)
+    ).toBeInTheDocument()
+  })
+
+  it("shows the logged-in power as submitted once it's in the submitted list", async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, {
+        ordersStatus: {
+          phase: 'S1901M',
+          active_powers: ['FRANCE', 'GERMANY'],
+          submitted: ['FRANCE', 'GERMANY'],
+          missing: [],
+        },
+      })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/Your orders are in for FRANCE/)).toBeInTheDocument()
+    })
+  })
+})
+
+describe('GameView — Adjustment build slots restored from the server', () => {
+  it('pre-fills build/waive slots from GET /orders/{power} instead of leaving them empty', async () => {
+    const adjustmentState = {
+      ...activeMovementState,
+      game_id: '12',
+      phase: 'W1901A',
+      season: 'WINTER',
+      phase_type: 'ADJUSTMENT',
+      ownership: { PAR: 'FRANCE', MAR: 'FRANCE', BRE: 'FRANCE' },
+      supply_centers: { PAR: 'FRANCE', MAR: 'FRANCE', BRE: 'FRANCE' },
+    }
+    const legalOrders = {
+      phase: 'W1901A',
+      phase_type: 'ADJUSTMENT',
+      power: 'FRANCE',
+      units: [{ kind: 'A', location: 'PAR', province: 'PAR', coast: null }],
+      orders_by_unit: { 'A MAR': ['BUILD A MAR'], 'F BRE': ['BUILD F BRE'] },
+      orders: ['BUILD A MAR', 'BUILD F BRE', 'WAIVE'],
+      adjustment: { delta: 2, action: 'build', slots: 2 },
+    }
+    // The power already submitted these two slots earlier this same phase.
+    const savedOrders = ['BUILD A MAR', 'WAIVE']
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(adjustmentState, francePlayers, { legalOrders, savedOrders })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/12']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getAllByText(/^Slot \d+$/)).toHaveLength(2)
+    })
+    // Restored from the server, not left on the "Build / Destroy" placeholder.
+    await waitFor(() => {
+      expect(within(container).getByText('A MAR')).toBeInTheDocument()
+    })
+    expect(within(container).getByText('Waive')).toBeInTheDocument()
+    expect(within(container).queryAllByText('Build / Destroy')).toHaveLength(0)
+  })
+})
+
+describe('GameView — 409 conflict handling', () => {
+  it('shows a human message instead of the raw StaleGameError text and reloads state', async () => {
+    const rawStaleMessage =
+      "game 10: expected phase 'S1901M' but the persisted phase is 'F1901M' -- already processed concurrently"
+    let processTurnCalls = 0
+    const fetchMock = stubFetchActive(activeMovementState, francePlayers, {
+      processTurnResponse: () => {
+        processTurnCalls += 1
+        return jsonResponse({ detail: rawStaleMessage }, 409)
+      },
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    const trigger = await screen.findByRole('button', { name: /resolve orders and advance/i })
+    fireEvent.click(trigger)
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /^process turn$/i }))
+
+    await waitFor(() => {
+      expect(processTurnCalls).toBe(1)
+    })
+    await waitFor(() => {
+      expect(within(container).getByText(/someone else updated this game/i)).toBeInTheDocument()
+    })
+    // The raw backend string must never reach the user.
+    expect(within(container).queryByText(/expected phase/i)).not.toBeInTheDocument()
+    // The state GET is called again (initial load + post-409 reload) to pick up the
+    // phase someone else already advanced past.
+    const stateCalls = fetchMock.mock.calls.filter(([url]) => (url as string).includes('/state'))
+    expect(stateCalls.length).toBeGreaterThanOrEqual(2)
   })
 })

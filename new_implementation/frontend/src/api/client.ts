@@ -70,6 +70,21 @@ export async function apiFetch(
   return res
 }
 
+/**
+ * Error thrown by `apiJson` on a non-ok response. Carries the HTTP status so
+ * callers can branch on specific codes (e.g. 409 `StaleGameError`) without
+ * parsing the message string -- the message itself may be a raw backend
+ * string not meant for display (see `errorDetailToMessage`).
+ */
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 /** Turn API error body into a single readable message (handles 422 validation and plain detail). */
 export function errorDetailToMessage(text: string, status: number): string {
   try {
@@ -96,7 +111,7 @@ export async function apiJson<T>(path: string, options: RequestInit = {}): Promi
   if (!res.ok) {
     const text = await res.text()
     const message = errorDetailToMessage(text, res.status)
-    throw new Error(message)
+    throw new ApiError(message, res.status)
   }
   return res.json()
 }

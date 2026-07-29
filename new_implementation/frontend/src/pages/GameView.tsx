@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { apiJson, apiFetch, API_BASE } from '@/api/client'
+import { apiJson, apiFetch, API_BASE, ApiError } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -71,6 +83,16 @@ type DrawVoteStatus = {
   missing: string[]
   quorum_reached: boolean
 }
+/**
+ * GET /games/{id}/orders_status response (see GameService.orders_status). Powers
+ * with no units this phase are never "missing" -- there's nothing for them to order.
+ */
+type OrdersStatus = {
+  phase: string
+  active_powers: string[]
+  submitted: string[]
+  missing: string[]
+}
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
 type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
 /**
@@ -99,6 +121,13 @@ const PHASE_LABEL: Record<GameState['phase_type'], string> = {
   ADJUSTMENT: 'Adjustment',
 }
 
+/** Badge color per phase type so the current phase reads at a glance, not as a muted aside. */
+const PHASE_BADGE_CLASS: Record<GameState['phase_type'], string> = {
+  MOVEMENT: 'bg-primary/10 text-primary',
+  RETREAT: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  ADJUSTMENT: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
+}
+
 /** Split a location string ("PAR" or "SPA/SC") into province and optional coast. */
 function splitLocation(loc: string): { province: string; coast?: string } {
   const [province, coast] = loc.split('/')
@@ -116,6 +145,33 @@ function unitKey(u: UnitOut): string {
   return `${u.unit_type} ${u.province}${u.coast ? `/${u.coast}` : ''}`
 }
 
+/** Render a submission/order deadline as a short relative countdown. */
+function formatDeadline(iso: string | null, now: number): string {
+  if (!iso) return 'No deadline set for this phase.'
+  const target = new Date(iso).getTime()
+  if (Number.isNaN(target)) return 'No deadline set for this phase.'
+  const ms = target - now
+  if (ms <= 0) return 'Deadline has passed — waiting for the turn to be processed.'
+  const totalMinutes = Math.round(ms / 60000)
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (days > 0 || hours > 0) parts.push(`${hours}h`)
+  parts.push(`${minutes}m`)
+  return `${parts.join(' ')} left this phase`
+}
+
+/** A 409 StaleGameError carries a raw backend string (see game_repo.py) not meant for
+ * display; translate it and any other action error into something a player can act on. */
+function describeActionError(e: unknown, fallback: string): string {
+  if (e instanceof ApiError && e.status === 409) {
+    return 'Someone else updated this game a moment ago. The latest state has been reloaded — please check before trying again.'
+  }
+  return e instanceof Error ? e.message : fallback
+}
+
 function UnitOrdersSection({
   phase,
   myUnits,
@@ -126,8 +182,6 @@ function UnitOrdersSection({
   onSubmit,
   submitting,
 }: {
-  gameId: string
-  myPower: string
   phase: string
   myUnits: UnitOut[]
   orderByUnit: Record<string, string>
@@ -160,8 +214,11 @@ function UnitOrdersSection({
             : []
           const targetValue = parsedCurrent?.fullOrder ?? ''
           return (
-            <li key={unitId} className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
-              <span className="font-medium min-w-[4rem]">{unitId}</span>
+            <li
+              key={unitId}
+              className="grid grid-cols-1 items-start gap-2 border-b border-border pb-3 sm:grid-cols-[5rem_8rem_1fr] sm:items-center"
+            >
+              <span className="font-medium">{unitId}</span>
               <Select
                 value={selectedOrderType || undefined}
                 onValueChange={(t) => {
@@ -175,7 +232,7 @@ function UnitOrdersSection({
                 }}
                 disabled={!grouped || loading}
               >
-                <SelectTrigger className="w-[7rem]">
+                <SelectTrigger className="w-full" aria-label={`Order type for ${unitId}`}>
                   <SelectValue placeholder="Order type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -194,7 +251,7 @@ function UnitOrdersSection({
                   }}
                   disabled={!grouped || loading}
                 >
-                  <SelectTrigger className="min-w-[10rem] max-w-xs">
+                  <SelectTrigger className="w-full" aria-label={`Target for ${unitId} order`}>
                     <SelectValue placeholder="Target" />
                   </SelectTrigger>
                   <SelectContent>
@@ -229,8 +286,6 @@ function BuildOrdersSection({
   onSubmit,
   submitting,
 }: {
-  gameId: string
-  myPower: string
   adjustment?: AdjustmentInfo
   orders: string[]
   buildOrderSlots: string[]
@@ -256,8 +311,11 @@ function BuildOrdersSection({
       ) : null}
       <ul className="space-y-3 mb-4">
         {slots.map((i) => (
-          <li key={i} className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
-            <span className="font-medium min-w-[4rem]">Slot {i + 1}</span>
+          <li
+            key={i}
+            className="grid grid-cols-1 items-start gap-2 border-b border-border pb-3 sm:grid-cols-[5rem_1fr] sm:items-center"
+          >
+            <span className="font-medium">Slot {i + 1}</span>
             <Select
               value={buildOrderSlots[i] ?? ''}
               onValueChange={(fullOrder) => {
@@ -269,7 +327,7 @@ function BuildOrdersSection({
               }}
               disabled={loading}
             >
-              <SelectTrigger className="min-w-[12rem]">
+              <SelectTrigger className="w-full" aria-label={`Build or destroy order for slot ${i + 1}`}>
                 <SelectValue placeholder="Build / Destroy" />
               </SelectTrigger>
               <SelectContent>
@@ -319,6 +377,11 @@ export default function GameView() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [drawStatus, setDrawStatus] = useState<DrawVoteStatus | null>(null)
   const [votingDraw, setVotingDraw] = useState(false)
+  const [ordersStatus, setOrdersStatus] = useState<OrdersStatus | null>(null)
+  const [deadlineIso, setDeadlineIso] = useState<string | null>(null)
+  const [leaving, setLeaving] = useState(false)
+  /** Ticks every 30s so the deadline countdown doesn't go stale while the tab sits open. */
+  const [now, setNow] = useState(() => Date.now())
 
   const load = useCallback(() => {
     if (!gameId) return
@@ -343,6 +406,11 @@ export default function GameView() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
     if (!gameId) return
     setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
   }, [gameId, state?.phase])
@@ -364,8 +432,30 @@ export default function GameView() {
       .catch(() => setDrawStatus(null))
   }, [gameId, myPower, state?.status, state?.phase])
 
+  // orders_status and deadline are unauthenticated status reads (same as draw_vote_status) --
+  // fetch them for every viewer, not just the logged-in power, so anyone watching the game
+  // can see who's still expected to submit and how long is left.
   useEffect(() => {
-    if (!gameId || !myPower) return
+    if (!gameId || !state || state.status !== 'ACTIVE') {
+      setOrdersStatus(null)
+      setDeadlineIso(null)
+      return
+    }
+    apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
+      .then(setOrdersStatus)
+      .catch(() => setOrdersStatus(null))
+    apiJson<{ deadline: string | null }>(`/games/${gameId}/deadline`)
+      .then((d) => setDeadlineIso(d.deadline ?? null))
+      .catch(() => setDeadlineIso(null))
+  }, [gameId, state?.status, state?.phase])
+
+  // Depends on state.phase (not just gameId/myPower) so that: (a) a phase change refetches
+  // and resets selections instead of letting a previous phase's picks survive into the new
+  // one, and (b) reloading mid-phase restores whatever was already submitted -- including
+  // Adjustment build/disband slots, which otherwise only ever came from local UI state and
+  // looked "lost" on refresh even though the server still had them.
+  useEffect(() => {
+    if (!gameId || !myPower || !state) return
     apiJson<{ orders?: string[] }>(`/games/${gameId}/orders/${myPower}`)
       .then((d) => {
         const orders = d.orders || []
@@ -376,9 +466,10 @@ export default function GameView() {
         }
         setOrderByUnit(byUnit)
         setOrdersFallbackText(orders.join('\n'))
+        setBuildOrderSlots(state.phase_type === 'ADJUSTMENT' ? orders : [])
       })
       .catch(() => {})
-  }, [gameId, myPower])
+  }, [gameId, myPower, state?.phase])
 
   const phase = state ? PHASE_LABEL[state.phase_type] : ''
   const seasonLabel = state ? state.season.charAt(0) + state.season.slice(1).toLowerCase() : ''
@@ -427,6 +518,8 @@ export default function GameView() {
     return next
   }, [legalOrders])
 
+  const iHaveSubmitted = !!(myPower && ordersStatus?.submitted.includes(myPower))
+
   async function handleJoin() {
     if (!gameId || !joinPower) return
     setJoining(true)
@@ -440,7 +533,7 @@ export default function GameView() {
       load()
       setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Join failed')
+      setError(describeActionError(e, 'Join failed'))
     } finally {
       setJoining(false)
     }
@@ -467,14 +560,14 @@ export default function GameView() {
       toast.success('Orders submitted')
       load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Submit orders failed')
+      setError(describeActionError(e, 'Submit orders failed'))
     } finally {
       setSubmitting(false)
     }
   }
 
   async function handleProcessTurn() {
-    if (!gameId) return
+    if (!gameId || !myPower) return
     setProcessing(true)
     setError('')
     try {
@@ -482,7 +575,11 @@ export default function GameView() {
       toast.success('Turn processed')
       load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Process turn failed')
+      // `load()` clears `error` as its first step, so on a 409 it must run
+      // *before* the friendly message is set, not after -- otherwise the
+      // reload silently wipes the message we just showed the user.
+      if (e instanceof ApiError && e.status === 409) load()
+      setError(describeActionError(e, 'Process turn failed'))
     } finally {
       setProcessing(false)
     }
@@ -513,9 +610,52 @@ export default function GameView() {
       }
       load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Draw vote failed')
+      // See handleProcessTurn: load() must run before setError on a 409, since
+      // load() itself clears `error` first.
+      if (e instanceof ApiError && e.status === 409) load()
+      setError(describeActionError(e, 'Draw vote failed'))
     } finally {
       setVotingDraw(false)
+    }
+  }
+
+  /** Unassign this user from `myPower`; units stay on the board and the slot becomes
+   * open for a replacement. Does not end the game or touch anyone else's units. */
+  async function handleQuit() {
+    if (!gameId || !myPower) return
+    setLeaving(true)
+    setError('')
+    try {
+      await apiJson(`/games/${gameId}/quit`, {
+        method: 'POST',
+        body: JSON.stringify({ power: myPower }),
+      })
+      toast.success(`You have quit as ${myPower}`)
+      load()
+    } catch (e) {
+      setError(describeActionError(e, 'Quit failed'))
+    } finally {
+      setLeaving(false)
+    }
+  }
+
+  /** Voluntarily leave the game as `myPower`: removes all its units immediately.
+   * Unlike a draw, the other six powers keep playing -- this never ends the game. */
+  async function handleConcede() {
+    if (!gameId || !myPower) return
+    setLeaving(true)
+    setError('')
+    try {
+      await apiJson(`/games/${gameId}/concede`, {
+        method: 'POST',
+        body: JSON.stringify({ power: myPower }),
+      })
+      toast.success(`${myPower} has conceded`)
+      load()
+    } catch (e) {
+      setError(describeActionError(e, 'Concede failed'))
+    } finally {
+      setLeaving(false)
     }
   }
 
@@ -541,7 +681,7 @@ export default function GameView() {
       const res = await apiJson<{ messages?: Message[] }>(`/games/${gameId}/messages`)
       setMessages(res.messages || [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Send failed')
+      setError(describeActionError(e, 'Send failed'))
     } finally {
       setSendingMsg(false)
     }
@@ -565,46 +705,133 @@ export default function GameView() {
       <p className="mb-4">
         <Link to="/games" className="text-primary underline underline-offset-2">Back to games</Link>
       </p>
-      <h1 className="text-2xl font-semibold mb-2">Game {gameId}</h1>
+
+      <div className="mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-1">
+          <h1 className="text-2xl font-semibold">Game {gameId}</h1>
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
+              PHASE_BADGE_CLASS[state.phase_type]
+            )}
+          >
+            {phase}
+          </span>
+          {state.status === 'COMPLETED' && (
+            <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+              Game over
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {seasonLabel} {state.year} · {state.phase}
+        </p>
+      </div>
+
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <p className="text-muted-foreground mb-4">
-        {seasonLabel} {state.year} — {phase} ({state.phase})
-        {state.status === 'COMPLETED' ? ' — game over' : ''}
-      </p>
+
+      {state.status === 'ACTIVE' && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Turn status</CardTitle>
+            <CardDescription>{formatDeadline(deadlineIso, now)}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {myPower && (
+              <p
+                className={cn(
+                  'text-sm font-medium',
+                  iHaveSubmitted
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                )}
+              >
+                {iHaveSubmitted
+                  ? `Your orders are in for ${myPower}.`
+                  : `You still need to submit orders for ${myPower}.`}
+              </p>
+            )}
+            {ordersStatus && (
+              <p className="text-sm text-muted-foreground">
+                {ordersStatus.submitted.length}/{ordersStatus.active_powers.length} powers have
+                submitted orders this phase
+                {ordersStatus.missing.length > 0
+                  ? ` — waiting on ${ordersStatus.missing.join(', ')}.`
+                  : '.'}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <section className="mb-6">
+        <h2 className="text-lg font-medium mb-2">Players</h2>
+        <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          {POWERS.map((p) => {
+            const pl = players.find((x) => x.power === p)
+            const label = pl?.user_id ? pl.full_name || `Player #${pl.user_id}` : 'Open'
+            return (
+              <li
+                key={p}
+                className="flex items-center justify-between border-b border-border/50 py-1"
+              >
+                <span className="font-medium">
+                  {p}
+                  {p === myPower ? ' (you)' : ''}
+                </span>
+                <span className={cn('text-muted-foreground', !pl?.user_id && 'italic')}>
+                  {label}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      </section>
+
       {mapUrl && (
         <div className="mb-6">
           <img src={mapUrl} alt="Game map" className="max-w-full h-auto" />
         </div>
       )}
 
-      {!myPower && availablePowers.length > 0 && (
+      {!myPower && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Join game</h2>
-          <p className="text-sm text-muted-foreground mb-2">
-            {takenPowers.size} / {POWERS.length} powers claimed
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={joinPower}
-              onChange={(e) => setJoinPower(e.target.value)}
-              className={cn(
-                "h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              )}
-            >
-              <option value="">Select power</option>
-              {availablePowers.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-            <Button onClick={handleJoin} disabled={!joinPower || joining}>
-              {joining ? 'Joining...' : 'Join'}
-            </Button>
-          </div>
+          {availablePowers.length > 0 ? (
+            <>
+              <p className="text-sm text-muted-foreground mb-2">
+                {takenPowers.size} / {POWERS.length} powers claimed
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={joinPower}
+                  onChange={(e) => setJoinPower(e.target.value)}
+                  aria-label="Power to join as"
+                  className={cn(
+                    'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  )}
+                >
+                  <option value="">Select power</option>
+                  {availablePowers.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <Button onClick={handleJoin} disabled={!joinPower || joining}>
+                  {joining ? 'Joining...' : 'Join'}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This game is full — all seven powers are claimed. You can still follow its
+              progress here.
+            </p>
+          )}
         </section>
       )}
 
@@ -638,10 +865,8 @@ export default function GameView() {
                   </button>
                 </div>
               </>
-            ) : (phase === 'Builds' || phase === 'Adjustment') ? (
+            ) : phase === 'Adjustment' ? (
               <BuildOrdersSection
-                gameId={gameId!}
-                myPower={myPower}
                 adjustment={legalOrders?.adjustment}
                 orders={legalOrders?.orders ?? []}
                 buildOrderSlots={buildOrderSlots}
@@ -652,8 +877,6 @@ export default function GameView() {
               />
             ) : (
               <UnitOrdersSection
-                gameId={gameId!}
-                myPower={myPower}
                 phase={phase}
                 myUnits={myUnits}
                 orderByUnit={orderByUnit}
@@ -693,11 +916,87 @@ export default function GameView() {
         </section>
       )}
 
-      {state.status === 'ACTIVE' && (
+      {myPower && state.status === 'ACTIVE' && (
         <section className="mb-6">
-          <Button onClick={handleProcessTurn} disabled={processing}>
-            {processing ? 'Processing...' : 'Process turn'}
-          </Button>
+          <h2 className="text-lg font-medium mb-2">Leave game</h2>
+          <p className="text-sm text-muted-foreground mb-2">
+            Quitting hands your slot back for someone else to take over — your units stay on
+            the board. Conceding removes {myPower}&apos;s units immediately; the other powers
+            keep playing either way.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" disabled={leaving}>Quit (step away)</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Quit as {myPower}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You&apos;ll be unassigned from {myPower} and its slot will be open for a
+                    replacement. Your units stay on the board exactly as they are — this does
+                    not end the game or remove anything.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleQuit}>Quit</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" disabled={leaving}>Concede</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Concede as {myPower}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    All of {myPower}&apos;s units are removed from the board immediately. The
+                    other six powers keep playing — this is not a draw and does not end the
+                    game. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleConcede}>Concede</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </section>
+      )}
+
+      {myPower && state.status === 'ACTIVE' && (
+        <section className="mb-6">
+          <h2 className="text-lg font-medium mb-2">Process turn</h2>
+          <p className="text-sm text-muted-foreground mb-2">
+            Resolves every power&apos;s orders for {state.phase} right now and advances the
+            game. Any unit without a submitted order will hold. This affects all seven powers
+            and cannot be undone.
+          </p>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={processing}>
+                {processing ? 'Processing...' : 'Resolve orders and advance the game'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Resolve {state.phase} for all powers?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This adjudicates every power&apos;s orders for this phase right now, not just
+                  yours. Any power that hasn&apos;t submitted orders will have its units hold.
+                  This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleProcessTurn}>Process turn</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </section>
       )}
 
@@ -720,6 +1019,7 @@ export default function GameView() {
             <select
               value={messageRecipient}
               onChange={(e) => setMessageRecipient(e.target.value)}
+              aria-label="Message recipient power"
               className={cn(
                 "block h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
