@@ -17,8 +17,10 @@ DAIDE clients ─┘         │                        │
 
 Five things talk to one Postgres database: the FastAPI HTTP server, the Telegram bot (a
 thin HTTP client, never touches the engine or DB directly), the React SPA, DAIDE TCP
-clients (via `daide_protocol.py`, itself a client of `GameService`), and the deadline
-scheduler background task inside the API process.
+clients (a real `asyncio` listener, `src/server/daide/`, started alongside the API
+process — see "DAIDE protocol support" below; this is no longer aspirational, per
+`fix_plan.md` Track D D1-D5), and the deadline scheduler background task inside the API
+process.
 
 ## Package boundaries (the M6 split)
 
@@ -56,7 +58,7 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
                              # dashboard, health, tournaments
   telegram_bot/              # thin HTTP client over the API — see below
-  daide_protocol.py           # TCP server (port 8432) for DAIDE bots, via GameService
+  daide/                      # the DAIDE TCP protocol (Track D D1-D5) — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
                                 # used by tests and DAIDE; independent of the HTTP API
 ```
@@ -112,6 +114,53 @@ from engine internals) plus, optionally, order or resolution arrows adapted by
 `order_overlay.py` from `Order`/`Resolution` objects. Results are cached in-memory and on
 disk at `/tmp/diplomacy_map_cache`. This package has no engine-internal coupling beyond
 `map_loader` topology and the plain-dict view `GameService.view` already produces.
+
+## DAIDE protocol support
+
+`src/server/daide/` (Track D, D1-D5) is a real implementation of the DAIDE wire protocol
+— interoperability with the external DAIDE bot ecosystem (DumbBot, Albert, and other
+standalone Diplomacy AIs) — not the text-command stub `daide_protocol.py` used to be
+(deleted in D4). It is started as an `asyncio.start_server` listener alongside the
+deadline scheduler in `_api_module.py`'s `lifespan`, same port (8432) the old stub used.
+
+```
+src/server/daide/
+  tokens.py    # Token: the DAIDE byte-level vocabulary (powers, provinces+coasts, unit
+               #   types, order types, commands, THX/ORD/HLO tokens) as a bidirectional
+               #   registry; province coverage is asserted against
+               #   engine.map_loader.load_standard_map(), never a second hardcoded list
+  wire.py      # DCSP framing: IM/RM/DM/FM/EM message types over asyncio Stream{Reader,
+               #   Writer}; async read_message/write_message
+  clauses.py   # the encode/decode bridge between DAIDE token clauses and engine.types
+               #   (Location, Unit, Order variants); decode reuses
+               #   engine.orders.parser.parse_order rather than a second grammar
+  session.py   # DaideSession: per-connection protocol state machine — the IM/RM
+               #   handshake, then NME/IAM/HLO/MAP/MDF/SCO/NOW/SUB/THX/MIS/TME/HST/DRW/
+               #   ADM/SND dispatch, all routed through GameService (never engine
+               #   internals directly)
+  server.py    # DaideServer: owns the listening socket, the game a connection's NME
+               #   resolves against (created lazily on first successful NME, not at
+               #   listener startup — see its docstring), the power/passcode registry,
+               #   and the notify_game_processed broadcast (NOW/ORD/OUT/SLO) that fires
+               #   whenever GameService.process_turn runs for a game with live sessions
+```
+
+**Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
+press negotiation grammar (`PRP`/`ALY`/`XDO`/... nested inside `SND`/`FRM`) is the
+deepest part of the spec and the least essential for interoperability. This codebase
+syntax-checks press messages only (balanced parens, a valid recipient-power list) and
+forwards the token payload opaquely between clients — negotiation *content* is the
+bots' concern, not the server's. Full press-grammar parsing is out of scope by design
+(see `fix_plan.md` Track D's "Ground rules" and "Out of scope"), not a temporary gap to
+be closed later.
+
+End-to-end proof this composes correctly over a real socket (not just each layer's own
+unit tests) lives in `tests/test_daide_server.py`'s
+`TestEndToEndOneFullTurnOverOneSocket` — one continuous `asyncio` TCP connection drives
+IM→RM→NME→HLO→MAP→MDF→SCO→NOW→SUB→THX against a real `GameService`/Postgres-backed game,
+then `GameService.process_turn` + `DaideServer.notify_game_processed` (the same calls the
+HTTP route/deadline scheduler make) push a real `NOW`/`ORD` notification back over that
+same socket.
 
 ## Frontend
 
