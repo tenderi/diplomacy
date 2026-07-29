@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import DEFAULT_API_TIMEOUT, api_post, api_get
 from .game_context import fetch_user_games
+from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
 
@@ -142,10 +143,13 @@ async def channel_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
         
         settings = channel_info.get("settings", {})
+        # Channel name is set by whoever administers the Telegram channel --
+        # not trusted input -- and this reply is sent with parse_mode='Markdown'.
+        channel_name = escape_markdown(channel_info.get('channel_name')) or 'N/A'
         info_text = (
             f"📢 *Channel Information - Game {game_id}*\n\n"
             f"Channel ID: `{channel_info.get('channel_id')}`\n"
-            f"Channel Name: {channel_info.get('channel_name', 'N/A')}\n\n"
+            f"Channel Name: {channel_name}\n\n"
             f"*Settings:*\n"
             f"• Auto-post maps: {settings.get('auto_post_maps', True)}\n"
             f"• Auto-post broadcasts: {settings.get('auto_post_broadcasts', True)}\n"

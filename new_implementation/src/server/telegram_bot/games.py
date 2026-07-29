@@ -3,13 +3,15 @@ Game management commands for the Telegram bot.
 """
 import logging
 import random
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
+import requests
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
 from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
+from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
 
@@ -58,7 +60,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /register command - register user with the bot."""
+    """Handle /register command - register user with the bot.
+
+    The API call and the confirmation reply are two separate try blocks on
+    purpose. ``full_name`` comes straight from the user's Telegram profile
+    (below) and is sent with ``parse_mode='Markdown'`` -- an unescaped ``_``,
+    ``*``, `` ` `` or ``[`` in it makes Telegram reject *this* message only.
+    If that reply failed while wrapped in the same try/except as the API
+    call, the player would see "Registration error" even though the server
+    had already registered them. Escaping ``full_name`` below fixes the
+    common case; splitting the try blocks means any other reply failure
+    (e.g. a transient Telegram API hiccup) can no longer misreport a
+    successful registration as failed.
+    """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -73,20 +87,29 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "full_name": full_name,
             "username": username
         })
-        if result.get("status") == "ok":
-            await update.message.reply_text(
-                f"✅ *Registration Successful!*\n\n"
-                f"Welcome, {full_name}!\n\n"
-                f"🎮 You can now:\n"
-                f"• Join games with /join\n"
-                f"• View available games with /games\n"
-                f"• Join the waiting list with /wait",
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(f"Registration error: {result.get('message', 'Unknown error')}")
     except Exception as e:
         await update.message.reply_text(f"Registration error: {e}")
+        return
+
+    if result.get("status") != "ok":
+        await update.message.reply_text(f"Registration error: {result.get('message', 'Unknown error')}")
+        return
+
+    try:
+        await update.message.reply_text(
+            f"✅ *Registration Successful!*\n\n"
+            f"Welcome, {escape_markdown(full_name)}!\n\n"
+            f"🎮 You can now:\n"
+            f"• Join games with /join\n"
+            f"• View available games with /games\n"
+            f"• Join the waiting list with /wait",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        # Registration itself already succeeded (checked above) -- don't
+        # send a message claiming otherwise just because the confirmation
+        # reply happened to fail.
+        logger.warning(f"Registration succeeded for telegram_id={user_id} but confirmation reply failed: {e}")
 
 
 async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -338,16 +361,24 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No players found in game {game_id}.")
         return
 
-    # Format player list
+    # Format player list. `full_name` is user-controlled (the player's Telegram
+    # profile name) and this message is sent with parse_mode='Markdown', so it
+    # must be escaped -- an unescaped `_`/`*`/`` ` ``/`[` here previously made
+    # Telegram reject the whole message with no try/except around this call to
+    # catch it, so /players silently did nothing for that player.
     lines = [f"👥 *Players in Game {game_id}*\n"]
     for player in players_list:
         power = player.get('power', 'Unknown')
-        username = player.get('full_name') or 'Unknown'
+        username = escape_markdown(player.get('full_name') or 'Unknown')
         is_active = player.get('is_active', True)
         status_emoji = "✅" if is_active else "❌"
         lines.append(f"{status_emoji} **{power}** - {username}")
 
-    await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    try:
+        await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    except Exception as e:
+        logger.warning(f"Failed to send /players listing for game {game_id}: {e}")
+        await update.message.reply_text(f"Could not display players for game {game_id}: {e}")
 
 
 async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -389,51 +420,59 @@ async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYP
         await reply_or_edit(f"❌ Error loading games: {str(e)}")
 
 
+def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
+    """Build the "choose a power" text + keyboard for ``game_id``.
+
+    Shared by the inline "Browse Games" callback flow (``show_power_selection``)
+    and ``/join <game_id>`` with no power argument -- docs/TELEGRAM_BOT_COMMANDS.md
+    documents ``/join <game_id>`` as showing this menu, so both entry points
+    into it need to render the same thing. Returns ``(text, None)`` for the
+    "game not found" / "game full" cases (nothing to attach a keyboard to).
+    """
+    game_state = api_get(f"/games/{game_id}/state")
+    if not game_state:
+        return f"Could not retrieve game {game_id}.", None
+
+    # Bare list, not {"players": [...]}.
+    players_data = api_get(f"/games/{game_id}/players")
+    taken_powers = {player.get('power') for player in (players_data or [])}
+
+    keyboard = []
+    for power in POWERS:
+        if power not in taken_powers:
+            button_text = f"Join as {power}"
+            callback_data = f"join_game_{game_id}_{power}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+    if not keyboard:
+        return f"Game {game_id} is full. All powers are taken.", None
+
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_games")])
+    text = f"🎮 *Select Power for Game {game_id}*\n\nAvailable powers:"
+    return text, InlineKeyboardMarkup(keyboard)
+
+
 async def show_power_selection(update: Update, game_id: str) -> None:
-    """Show available powers for a specific game."""
+    """Show available powers for a specific game (inline-button entry point)."""
     query = update.callback_query
     if not query:
         return
-    
     try:
-        # Get game state to see available powers
-        game_state = api_get(f"/games/{game_id}/state")
-        if not game_state:
-            await query.edit_message_text(f"Could not retrieve game {game_id}.")
-            return
-        
-        # Get players to see which powers are taken (bare list, not {"players": [...]}).
-        players_data = api_get(f"/games/{game_id}/players")
-        taken_powers = {player.get('power') for player in (players_data or [])}
-        
-        # Create keyboard with available powers
-        keyboard = []
-        for power in POWERS:
-            if power not in taken_powers:
-                button_text = f"Join as {power}"
-                callback_data = f"join_game_{game_id}_{power}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-        
-        if not keyboard:
-            await query.edit_message_text(f"Game {game_id} is full. All powers are taken.")
-            return
-        
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_games")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            f"🎮 *Select Power for Game {game_id}*\n\n"
-            f"Available powers:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-    
+        text, reply_markup = _power_selection_prompt(game_id)
     except Exception as e:
         await query.edit_message_text(f"Error: {str(e)}")
+        return
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /join command - join a game as a specific power."""
+    """Handle /join command.
+
+    ``/join <game_id>`` (no power) shows the inline power-selection menu --
+    this is what docs/TELEGRAM_BOT_COMMANDS.md documents. ``/join <game_id>
+    <power>`` joins directly, for players who already know which power they
+    want (e.g. scripted use, or after seeing the menu once).
+    """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -441,10 +480,20 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     user_id = str(user.id)
     args = context.args if context.args is not None else []
-    if len(args) < 2:
-        await update.message.reply_text("Usage: /join <game_id> <power>")
+    if len(args) < 1:
+        await update.message.reply_text("Usage: /join <game_id> [power]")
         return
     game_id = args[0]
+
+    if len(args) == 1:
+        try:
+            text, reply_markup = _power_selection_prompt(game_id)
+        except Exception as e:
+            await update.message.reply_text(f"Error: {e}")
+            return
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        return
+
     power = args[1].upper()
     try:
         result = api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": power})
@@ -454,6 +503,11 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"You are already in Game {game_id} as {power}.")
         else:
             await update.message.reply_text(f"Failed to join: {result.get('message', 'Unknown error')}")
+    except requests.HTTPError as e:
+        hint = ""
+        if getattr(e, "response", None) is not None and e.response.status_code == 401:
+            hint = "\n\n💡 Try /register first."
+        await update.message.reply_text(f"Join error: {e}{hint}")
     except Exception as e:
         await update.message.reply_text(f"Join error: {e}")
 

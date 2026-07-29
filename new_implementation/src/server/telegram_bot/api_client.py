@@ -69,6 +69,46 @@ def _bot_headers() -> dict:
     return {}
 
 
+class ApiError(requests.HTTPError):
+    """An HTTP error from the API, with the server's ``detail`` message (if
+    any) folded into the exception's string.
+
+    FastAPI error responses are shaped ``{"detail": "<human-readable
+    reason>"}`` -- "Power already taken", "Sender not in game", "Not
+    authenticated", etc (see ``src/server/api/routes/*.py``). Plain
+    ``requests.HTTPError.__str__`` only ever produces the generic ``"401
+    Client Error: Unauthorized for url: ..."`` line, discarding that reason
+    entirely -- and every ``except Exception as e: reply_text(f"...: {e}")``
+    handler across the bot package (dozens of them) relies on ``str(e)``
+    being something worth showing a player. Subclassing ``HTTPError``
+    (rather than a bare ``Exception``) means call sites that already catch
+    ``requests.HTTPError`` specifically (``link_account.py``, which reads
+    ``e.response.status_code``/``.json()`` itself) keep working unchanged --
+    ``.response`` is still populated -- while every generic ``except
+    Exception`` at the other ~40 call sites starts showing the real reason
+    for free.
+    """
+
+
+def _raise_for_status(resp: requests.Response) -> None:
+    """Like ``resp.raise_for_status()``, but raises :class:`ApiError` whose
+    message is the server's JSON ``detail`` field when present, falling back
+    to the normal ``HTTPError`` text otherwise (non-JSON body, or JSON
+    without a ``detail`` key)."""
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        detail: Optional[str] = None
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and isinstance(body.get("detail"), str):
+            detail = body["detail"]
+        message = detail if detail else str(exc)
+        raise ApiError(message, response=resp, request=resp.request) from exc
+
+
 def api_post(endpoint: str, json_data: dict) -> dict:
     """Make a POST request to the API.
 
@@ -82,7 +122,7 @@ def api_post(endpoint: str, json_data: dict) -> dict:
     resp = requests.post(
         f"{API_URL}{endpoint}", json=payload, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
     )
-    resp.raise_for_status()
+    _raise_for_status(resp)
     return resp.json()
 
 
@@ -105,7 +145,7 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
     resp = requests.get(
         f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=DEFAULT_API_TIMEOUT
     )
-    resp.raise_for_status()
+    _raise_for_status(resp)
     return resp.json()
 
 
@@ -116,6 +156,6 @@ def api_get_bytes(endpoint: str) -> bytes:
     ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
     """
     resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
-    resp.raise_for_status()
+    _raise_for_status(resp)
     return resp.content
 
