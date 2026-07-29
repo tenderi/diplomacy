@@ -12,6 +12,8 @@ from unittest.mock import patch, MagicMock
 from server.api import app
 from tests.conftest import _get_db_url
 
+BOT_SECRET = "test_bot_secret_for_tests"
+
 
 @pytest.fixture
 def client():
@@ -116,6 +118,89 @@ class TestGetMapPreviewPng:
         assert resp.status_code == 200
         assert resp.content == warm.content
         mock_cairosvg.svg2png.assert_not_called()
+
+
+@pytest.mark.unit
+class TestGetGameOrdersMapPng:
+    """Test GET /games/{game_id}/map/orders -- streams the orders-overlay PNG
+    as bytes (E1c), unlike the pre-existing POST .../generate_map/orders which
+    only returns a server-filesystem path unreachable from a browser."""
+
+    def test_orders_map_game_not_found(self, client):
+        resp = client.get("/games/nonexistent/map/orders")
+        assert resp.status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_orders_map_returns_real_png_with_no_orders_submitted(self, client):
+        """Renders a plain board when no orders have been submitted yet, same
+        as the POST variant."""
+        headers = _register_and_login(client, "ordersmap")
+        game_id = _create_game(client, headers)
+        resp = client.get(f"/games/{game_id}/map/orders")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_orders_map_returns_real_png_with_pending_orders(self, client):
+        """With a pending order submitted, the endpoint still renders bytes
+        (the arrow-overlay path, not the plain-board fallback)."""
+        headers = _register_and_login(client, "ordersmap2")
+        game_id = _create_game(client, headers)
+        join = client.post(
+            f"/games/{game_id}/join",
+            json={"game_id": int(game_id), "power": "FRANCE"},
+            headers=headers,
+        )
+        assert join.status_code == 200, join.text
+        set_resp = client.post(
+            "/games/set_orders",
+            json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"]},
+            headers=headers,
+        )
+        assert set_resp.status_code == 200, set_resp.text
+
+        resp = client.get(f"/games/{game_id}/map/orders")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.unit
+class TestGetGameResolutionMapPng:
+    """Test GET /games/{game_id}/map/resolution -- streams the
+    resolution-overlay PNG as bytes (E1c)."""
+
+    def test_resolution_map_game_not_found(self, client):
+        resp = client.get("/games/nonexistent/map/resolution")
+        assert resp.status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_resolution_map_falls_back_to_plain_board_before_any_turn(self, client):
+        """No turn processed yet -> no last_resolution -> plain board, not 500."""
+        headers = _register_and_login(client, "resmap")
+        game_id = _create_game(client, headers)
+        resp = client.get(f"/games/{game_id}/map/resolution")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_resolution_map_after_process_turn(self, client):
+        """After a turn is processed, renders the resolution-arrow overlay."""
+        headers = _register_and_login(client, "resmap2")
+        game_id = _create_game(client, headers)
+        # process_turn now requires bot-secret/admin-token/membership (E1d) --
+        # the game creator hasn't joined as a power, so use the bot-secret path.
+        process_resp = client.post(
+            f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}
+        )
+        assert process_resp.status_code == 200, process_resp.text
+
+        resp = client.get(f"/games/{game_id}/map/resolution")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 @pytest.mark.unit
