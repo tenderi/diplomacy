@@ -146,7 +146,18 @@ class GameService:
             self._humanize_orders(pending, game.state).items() if strings
         }
 
+        # Decorate each result with a truthful order_str, computed against the
+        # *pre-adjudication* board (game.state) -- the only place a fleet at a
+        # non-split-coast province can still be told apart from an army, since
+        # a successful move relocates the unit and a resolution fetched after a
+        # reload has no other way to recover which kind made the order (see
+        # last_resolution_view's docstring / _kind_by_province).
+        kind_by_province = _kind_by_province(game.state)
         resolution_dict = resolution_to_dict(resolution)
+        resolution_dict["results"] = [
+            {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
+            for r in resolution_dict["results"]
+        ]
         self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
@@ -334,7 +345,7 @@ class GameService:
         display, reparse each order and reformat it against the current units so the
         letter is truthful. Anything that fails to reparse is left untouched.
         """
-        kind_by_province = {u.province: u.kind.value for u in state.units}
+        kind_by_province = _kind_by_province(state)
         out: dict[str, list[str]] = {}
         for power, strings in pending.items():
             display: list[str] = []
@@ -374,12 +385,17 @@ class GameService:
         "what happened to my orders?" without re-deriving adjudication.
 
         Passes the canonical ``resolution_to_dict`` shape (``engine.serialization``)
-        through unchanged and adds two convenience fields per result: a flattened
+        through unchanged and adds one convenience field per result: a flattened
         ``power`` (already nested inside ``order``, but tedious to dig out per
-        result) and a human-readable ``order_str`` (via ``format_order``). The
-        latter is best-effort: without a ``kind_by_province`` map for the board as
-        it stood *before* this turn's adjudication (not retained after the fact),
-        a fleet at a non-split-coast province may print as ``A`` -- see
+        result). ``order_str`` is truthful (a fleet renders as ``F`` even at a
+        non-split-coast province) because ``process_turn`` already computed it
+        against the pre-adjudication board and persisted it onto each result --
+        ``Game.history`` does not survive a ``GameRepo`` round-trip
+        (``state_to_dict``/``state_from_dict`` only cover ``GameState``, not
+        ``Game``), so that board is unrecoverable here and must be captured at
+        adjudication time instead. Only a resolution persisted before this fix
+        would lack it; that falls back to ``format_order`` without a board map,
+        which is round-trip safe but can print a fleet as ``A`` -- see
         ``format_order``'s docstring. Returns ``None`` if the game doesn't exist;
         ``{"results": []}`` if it exists but no turn has been processed yet.
         """
@@ -391,7 +407,8 @@ class GameService:
         results: list[dict[str, Any]] = []
         for r in resolution.get("results", []):
             order = order_from_dict(r["order"])
-            results.append({**r, "power": order.power, "order_str": format_order(order)})
+            order_str = r.get("order_str") or format_order(order)
+            results.append({**r, "power": order.power, "order_str": order_str})
         return {"results": results}
 
     def order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
@@ -458,3 +475,19 @@ def _dislodged_view(du: Any) -> dict[str, Any]:
         "attacker_origin": du.attacker_origin,
         "retreats": [str(loc) for loc in du.retreats],
     }
+
+
+def _kind_by_province(state: GameState) -> dict[str, str]:
+    """province -> "A"/"F" for every unit on the board, standing or dislodged.
+
+    Feeds ``format_order``'s ``kind_by_province`` so displayed unit letters are
+    truthful instead of inferred from coast presence (see ``format_order``'s
+    docstring). Dislodged units are included too -- during a retreat phase the
+    unit a ``Retreat`` order names has already been removed from ``state.units``
+    and lives only in ``state.dislodged``, so leaving it out would silently
+    reintroduce the same mislabeling for retreat orders.
+    """
+    out = {u.province: u.kind.value for u in state.units}
+    for du in state.dislodged:
+        out[du.unit.province] = du.unit.kind.value
+    return out
