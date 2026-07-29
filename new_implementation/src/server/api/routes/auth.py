@@ -9,7 +9,6 @@ import os
 import re
 import smtplib
 import time
-from collections import defaultdict
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from datetime import datetime, timezone, timedelta
@@ -54,11 +53,93 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 # Optional Bearer (for routes that support both Bearer and body telegram_id)
 http_bearer = HTTPBearer(auto_error=False)
 
-# --- Rate limiting for /auth/telegram/link ---
-# Tracks (ip, telegram_id) -> list of timestamps of recent attempts
-_link_attempts: Dict[str, List[float]] = defaultdict(list)
+# --- Generic in-process rate limiting ---
+#
+# One shared mechanism for every password-auth-adjacent endpoint below
+# (/auth/login, /auth/token, /auth/register, /auth/telegram/link) instead of a
+# bespoke limiter per route. Each bucket is keyed by a namespaced string (e.g.
+# "login_email:a@b.com", "login_ip:1.2.3.4", "register_ip:1.2.3.4",
+# "link_ip:1.2.3.4") holding the Unix timestamps of recent *counted* attempts.
+# This is in-process state: fine for the current single-worker deployment
+# (see CLAUDE.md's infra section), but would need a shared store (e.g. Redis)
+# behind multiple uvicorn workers.
+#
+# This is a *plain* dict, not a defaultdict: an attacker who hammers
+# /auth/login with random, never-repeated email addresses must not be able to
+# grow this dict without bound just by having each key *checked*. Only
+# _record_attempt (a real, counted attempt) may create a key, and any bucket
+# that purges down to empty is deleted immediately rather than left behind as
+# an empty list -- otherwise a key that is checked exactly once (e.g. a
+# one-off unknown-email guess) would live forever.
+_rate_limit_attempts: Dict[str, List[float]] = {}
+
+
+def reset_rate_limits() -> None:
+    """Test helper: clear every rate-limit bucket.
+
+    The limiter is module-level state that otherwise accumulates across the
+    whole pytest session and starts 429ing tests that legitimately
+    register/log in repeatedly. Call this from an autouse fixture between
+    tests (see tests/conftest.py) rather than tuning thresholds up until
+    tests happen to pass.
+    """
+    _rate_limit_attempts.clear()
+
+
+def _check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
+    """Raise HTTP 429 with a Retry-After header if `key` already has
+    max_attempts counted attempts within the trailing window_seconds.
+
+    Purges expired attempts as a side effect and deletes the bucket entirely
+    if that empties it, so checking a key that turns out to have no (or only
+    expired) attempts never leaves a permanent dict entry behind. Does not
+    record anything by itself -- callers decide what counts as an attempt and
+    call _record_attempt explicitly (e.g. only failed logins, not successful
+    ones).
+    """
+    now = time.time()
+    window_start = now - window_seconds
+    bucket = _rate_limit_attempts.get(key)
+    if bucket is None:
+        return
+    while bucket and bucket[0] <= window_start:
+        bucket.pop(0)
+    if not bucket:
+        del _rate_limit_attempts[key]
+        return
+    if len(bucket) >= max_attempts:
+        retry_after = max(1, int(bucket[0] + window_seconds - now) + 1)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _record_attempt(key: str) -> None:
+    _rate_limit_attempts.setdefault(key, []).append(time.time())
+
+
+# /auth/login and /auth/token share these buckets and thresholds: they are the
+# same password-guessing surface (JSON body vs. OAuth2 form), so an attacker
+# switching endpoints must not get a fresh budget. Per-email stops a
+# distributed attack against one account from many IPs; the coarser per-IP
+# ceiling stops one host credential-stuffing many accounts.
+_LOGIN_EMAIL_RATE_LIMIT_MAX = 5
+_LOGIN_EMAIL_RATE_LIMIT_WINDOW = 900  # 15 minutes
+_LOGIN_IP_RATE_LIMIT_MAX = 20
+_LOGIN_IP_RATE_LIMIT_WINDOW = 900  # 15 minutes
+
+# /auth/register: account-creation spam, not credential guessing -- there's no
+# existing account to key on, so per-IP only. Coarser than the login limits
+# since legitimately registering a few accounts in a row from one IP is
+# normal (a household signing up multiple players, or a test suite).
+_REGISTER_IP_RATE_LIMIT_MAX = 20
+_REGISTER_IP_RATE_LIMIT_WINDOW = 3600  # 1 hour
+
+# /auth/telegram/link (pre-existing; now expressed via the shared helpers above).
 _LINK_RATE_LIMIT_MAX = 5
-_LINK_RATE_LIMIT_WINDOW = 600  # 10 minutes in seconds
+_LINK_RATE_LIMIT_WINDOW = 600  # 10 minutes
 
 
 # --- Request/Response models ---
@@ -136,6 +217,20 @@ def _verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("ascii"))
     except Exception:
         return False
+
+
+# A precomputed bcrypt hash of an unguessable constant. /auth/login and
+# /auth/token always run a bcrypt comparison against *some* hash -- this one
+# when the email doesn't exist -- rather than returning 401 immediately for
+# an unknown email. Without it, "unknown email" would be measurably faster
+# than "wrong password" (a timing side-channel) and would skip the
+# rate-limit recording below entirely, giving an attacker a free, unlimited
+# way to enumerate valid emails.
+_DUMMY_PASSWORD_HASH: Optional[str] = (
+    bcrypt.hashpw(b"dummy-password-for-constant-time-auth-checks", bcrypt.gensalt()).decode("ascii")
+    if _bcrypt_available
+    else None
+)
 
 
 def _create_access_token(user_id: int) -> str:
@@ -249,8 +344,15 @@ def _user_response(user: Any) -> Dict[str, Any]:
 
 # --- Routes ---
 @router.post("/register")
-def register(req: RegisterRequest) -> Dict[str, Any]:
+def register(req: RegisterRequest, request: Request) -> Dict[str, Any]:
     """Register with email and password. Returns user and tokens."""
+    client_ip = request.client.host if request.client else "unknown"
+    # Coarser, IP-only: every call counts (not just failures) -- this guards
+    # account-creation spam/volume, not credential guessing.
+    _check_rate_limit(
+        f"register_ip:{client_ip}", _REGISTER_IP_RATE_LIMIT_MAX, _REGISTER_IP_RATE_LIMIT_WINDOW
+    )
+    _record_attempt(f"register_ip:{client_ip}")
     if not _bcrypt_available:
         raise HTTPException(status_code=500, detail="Auth not configured (bcrypt)")
     email = req.email.strip().lower()
@@ -276,12 +378,26 @@ def register(req: RegisterRequest) -> Dict[str, Any]:
 
 
 @router.post("/login")
-def login(req: LoginRequest) -> Dict[str, Any]:
+def login(req: LoginRequest, request: Request) -> Dict[str, Any]:
     """Login with email and password. Returns user and tokens."""
-    user = db_service.get_user_by_email(req.email)
-    if not user or not getattr(user, "password_hash", None):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not _verify_password(req.password, user.password_hash):
+    client_ip = request.client.host if request.client else "unknown"
+    email = req.email  # already lowercased/stripped by the model validator
+    _check_rate_limit(f"login_ip:{client_ip}", _LOGIN_IP_RATE_LIMIT_MAX, _LOGIN_IP_RATE_LIMIT_WINDOW)
+    _check_rate_limit(
+        f"login_email:{email}", _LOGIN_EMAIL_RATE_LIMIT_MAX, _LOGIN_EMAIL_RATE_LIMIT_WINDOW
+    )
+    user = db_service.get_user_by_email(email)
+    # Always run the bcrypt comparison, even for an unknown email (against
+    # _DUMMY_PASSWORD_HASH) -- no early return -- so "no such user" and
+    # "wrong password" take the same time and land in the same branch below.
+    password_hash = getattr(user, "password_hash", None) if user else None
+    password_ok = _verify_password(req.password, password_hash or _DUMMY_PASSWORD_HASH or "")
+    if not user or not password_hash or not password_ok:
+        # Only failed attempts burn the budget: a legitimate user logging in
+        # repeatedly (as the test suite does) never reaches this branch, so
+        # normal use can't trip the limiter.
+        _record_attempt(f"login_ip:{client_ip}")
+        _record_attempt(f"login_email:{email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not getattr(user, "is_active", True):
         raise HTTPException(status_code=401, detail="Account inactive")
@@ -296,12 +412,22 @@ def login(req: LoginRequest) -> Dict[str, Any]:
 
 
 @router.post("/token")
-def token(form: OAuth2PasswordRequestForm = Depends()) -> Dict[str, Any]:
+def token(request: Request, form: OAuth2PasswordRequestForm = Depends()) -> Dict[str, Any]:
     """OAuth2 compatible token endpoint (username=email, password). For Swagger Authorize."""
+    client_ip = request.client.host if request.client else "unknown"
+    email = form.username.strip().lower()
+    # Shares buckets with /auth/login -- same credential-guessing surface, so
+    # an attacker can't dodge the limiter by switching endpoints.
+    _check_rate_limit(f"login_ip:{client_ip}", _LOGIN_IP_RATE_LIMIT_MAX, _LOGIN_IP_RATE_LIMIT_WINDOW)
+    _check_rate_limit(
+        f"login_email:{email}", _LOGIN_EMAIL_RATE_LIMIT_MAX, _LOGIN_EMAIL_RATE_LIMIT_WINDOW
+    )
     user = db_service.get_user_by_email(form.username)
-    if not user or not getattr(user, "password_hash", None):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not _verify_password(form.password, user.password_hash):
+    password_hash = getattr(user, "password_hash", None) if user else None
+    password_ok = _verify_password(form.password, password_hash or _DUMMY_PASSWORD_HASH or "")
+    if not user or not password_hash or not password_ok:
+        _record_attempt(f"login_ip:{client_ip}")
+        _record_attempt(f"login_email:{email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
     access = _create_access_token(user.id)
     refresh = _create_refresh_token(user.id)
@@ -448,19 +574,12 @@ def reset_password(req: ResetPasswordRequest) -> Dict[str, Any]:
 
 def _check_link_rate_limit(ip: str, telegram_id: str) -> None:
     """Raise 429 if too many link attempts from this IP or telegram_id in the window."""
-    now = time.time()
-    window_start = now - _LINK_RATE_LIMIT_WINDOW
-    for key in (f"ip:{ip}", f"tid:{telegram_id}"):
-        # Purge old attempts
-        _link_attempts[key] = [t for t in _link_attempts[key] if t > window_start]
-        if len(_link_attempts[key]) >= _LINK_RATE_LIMIT_MAX:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many link attempts. Please wait 10 minutes before trying again.",
-            )
-    # Record this attempt
-    for key in (f"ip:{ip}", f"tid:{telegram_id}"):
-        _link_attempts[key].append(now)
+    _check_rate_limit(f"link_ip:{ip}", _LINK_RATE_LIMIT_MAX, _LINK_RATE_LIMIT_WINDOW)
+    _check_rate_limit(f"link_tid:{telegram_id}", _LINK_RATE_LIMIT_MAX, _LINK_RATE_LIMIT_WINDOW)
+    # Record this attempt (both keys, regardless of outcome -- matches the
+    # original behavior of this endpoint's limiter).
+    _record_attempt(f"link_ip:{ip}")
+    _record_attempt(f"link_tid:{telegram_id}")
 
 
 @router.post("/telegram/link")
