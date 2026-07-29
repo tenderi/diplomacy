@@ -20,12 +20,17 @@
 - **Track B — Post-rewrite cleanup: ALL SUB-TRACKS DONE.** V0 (`v2.7.19`), V2
   (`v2.7.24`), V3 (`v2.7.26` + `v2.7.28`), V4 (`v2.7.31`), and V5 (`v2.7.30`) are all
   merged; V1 was absorbed into PR4. **Track B is complete.**
-- **Track C — Security hardening & missing gameplay features: ACTIVE, half resolved.**
+- **Track C — Security hardening & missing gameplay features: DONE — all of C1-C4.**
   Added 2026-07-29 from a direct old-vs-new comparison requested by the maintainer. Four
-  findings (C1-C4), each verified by reading the actual code. **C4 is done** (decision
-  made, executed end to end via Track D's D1-D5) and **C3's engine+API layer is done**
-  (Track D's D3) — its only remaining item is Telegram/frontend client UX, not the
-  mechanism itself. **C1 and C2 remain open and unstarted** (no PR under either yet).
+  findings (C1-C4), each verified by reading the actual code. **C4** — decision made,
+  executed end to end via Track D's D1-D5. **C3** — engine+API layer via Track D's D3
+  (`v2.7.35`), client UX via `v2.7.47` (PR #39): Telegram `/draw`+`/nodraw` and a
+  `/status` tally, plus a draw-vote control in the React game view, so a human can end a
+  game by agreement without a raw API call. **C2** — `v2.7.46` (PR #38): per-email and
+  per-IP rate limiting on `/auth/login`/`/auth/token`/`/auth/register`, 429 +
+  `Retry-After`, no enumeration side-channel, no unbounded bucket growth. **C1** —
+  `v2.7.48` (PR #40): the `security` CI job is a real gate at last, and was *proved* to
+  fail on a deliberate finding via throwaway PR #41 before being merged.
 - **Track D — Full DAIDE protocol support: DONE — all of D1-D5 merged.** Added
   2026-07-29 at the maintainer's explicit request ("I want the full DAIDE support as
   well") after Track C's C4 flagged the current server as a non-conformant text stub.
@@ -65,25 +70,39 @@
   retreat-phase and adjustment-phase resolution maps verified correct with a real
   dislodge→retreat→ownership-flip→disband scenario driven through `GameService`; E2E
   smoke extended. See the V4 section for the full detail and verification evidence.
-- **Only remaining item in either track: Track A's manual end-to-end check** (needs a
+- **Only remaining item in ANY track: Track A's manual end-to-end check** (needs a
   live bot token and a human at a Telegram client — see Track A's "Final acceptance"
-  section — it cannot be delegated to an agent).
-- **Suite baseline (post-V4+V5, on `main`):** 842 passed, 11 skipped, 10 xfailed, 1
-  warning (only the pre-existing unrelated `StarletteDeprecationWarning` — V5 removed the
-  suite's last `PytestReturnNotNoneWarning`); ruff clean; engine coverage 93.02% (≥92),
-  overall 62.43% (≥60). Verified independently by the driver in each subagent's worktree
-  after rebasing onto the other's merged `main`, not just taken from the subagents'
-  reports.
+  section — it cannot be delegated to an agent). Every other task in this file is done.
+- **Suite baseline (post-C1+C2+C3, on `main` at `v2.7.48`):** **1293 passed, 11 skipped,
+  10 xfailed**; ruff clean; engine coverage 93.42% (≥92), overall 66.12% (≥60);
+  `bandit -r src/ -ll` and `pip-audit -r requirements.txt` both exit 0. Verified
+  independently by the driver against a real local Postgres on each branch *after*
+  rebasing onto the others' merged `main` — not taken from the subagents' reports. The
+  suite now runs under **pytest 9.1.1** (see C1: the `>=8.4.0,<9.0.0` pin carried
+  PYSEC-2026-1845).
+- **Historical baseline (post-V4+V5):** 842 passed, 11 skipped, 10 xfailed, 1 warning
+  (only the pre-existing unrelated `StarletteDeprecationWarning` — V5 removed the suite's
+  last `PytestReturnNotNoneWarning`); ruff clean; engine coverage 93.02%, overall 62.43%.
 - **A count that looks alarming but is fine:** V2's suite drop (890 → 840) is *entirely*
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-29, mid-session. Track A complete except the manual check
+- **Last updated:** 2026-07-29, end of session. Track A complete except the manual check
   (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
-  `v2.7.28`/`v2.7.30`/`v2.7.31`); Track C's C4 decision executed via Track D, C3 satisfied
-  by D3, C1/C2 still open; **Track D fully complete (D1-D5, `v2.7.34`-`v2.7.43`, PRs
-  #27/#29/#31/#33/#35 all merged)**. `main` is green (`db53274`), no open PRs, no stale
-  branches.
+  `v2.7.28`/`v2.7.30`/`v2.7.31`); **Track C fully complete** (C4 via Track D, C3 via D3 +
+  `v2.7.47`, C2 `v2.7.46`, C1 `v2.7.48` — PRs #38/#39/#40 merged, throwaway #41 closed);
+  **Track D fully complete (D1-D5, `v2.7.34`-`v2.7.43`, PRs #27/#29/#31/#33/#35 all
+  merged)**. `main` is green (`8d70023`), no open PRs, no stale branches.
+
+  Execution note for whoever picks this up next: C1/C2/C3 were built by three Sonnet
+  subagents working in parallel git worktrees (one per task, each against its own
+  Postgres database), with an Opus driver verifying every claim by re-running the gates
+  itself. That caught three things the agents' own reports did not: C2's unbounded bucket
+  growth, C3's two failing frontend tests (the sandbox had no Node until the driver
+  installed one — the agent correctly flagged the gap instead of claiming a pass), and a
+  wrong triage the driver itself had handed to the C1 agent (see C1's `app.py:497` note,
+  where the agent's pushback was right and the driver's instruction was wrong). **Re-run
+  the gates yourself; do not merge on an agent's say-so.**
 
 ### Where the old trackers went
 
@@ -792,15 +811,22 @@ downloadable artifact nobody looks at by default.
       the step informational.
 - [x] Keep the bandit JSON artifact upload (useful even with a hard gate), but the job's
       overall exit code must now reflect real findings.
-- [ ] **Done when:** deliberately introducing a known-bad pattern (e.g. a branch with
+- [x] **Done when:** deliberately introducing a known-bad pattern (e.g. a branch with
       `subprocess.call(user_input, shell=True)`) makes the `security` check fail on that
       PR, verified with `gh pr checks`, then revert the deliberate finding before merging
       anything. *(Verified locally on branch `security-ci-gate`: adding
       `subprocess.call(user_input, shell=True)` to a file under `src/` makes
       `bandit -r src/ -ll` flag it as `B602 HIGH` and exit 1; the file was fully reverted
-      before committing (`git status`/`git diff` clean). The on-PR demonstration via
-      `gh pr checks` is pending — driver to open the PR and confirm the `security` check
-      goes red on a deliberate-finding commit, then green again after revert.)*
+      before committing (`git status`/`git diff` clean).* **On-PR demonstration done by the
+      driver 2026-07-29:** throwaway branch `ci-gate-proof` off `security-ci-gate` added
+      `src/server/_ci_gate_probe.py` containing exactly that call, opened as PR #41 →
+      `gh pr checks 41` reported **`security  fail`**, and the failing step in the run log
+      is `Run bandit security check` (`bandit -r src/ -ll -f json -o bandit-report.json`),
+      not some unrelated step. The `bandit-report` artifact was still uploaded on the
+      failing run, confirming `if: always()` survives the hard gate. PR #41 closed and
+      branch deleted immediately after; nothing from it reached `main`. The same commit
+      minus the probe (PR #40) has `security  pass` — so the check is genuinely
+      finding-sensitive, not merely red.
 
 **Implementation notes (branch `security-ci-gate`):**
 
@@ -916,6 +942,28 @@ mechanism. Decisions that go beyond the letter of the spec above:
   reset fixture was renamed `reset_auth_rate_limiters` and now calls a single
   `auth.reset_rate_limits()` covering all four buckets (previously only cleared the
   telegram-link dict).
+
+**Two findings from the driver's review of C2 (both now fixed/verified in `v2.7.46`):**
+
+1. **The bucket store must not be a `defaultdict`.** The first pass read buckets via
+   `_rate_limit_attempts[key]`, so *every key that was merely checked* became a permanent
+   entry, and expired buckets were only ever reclaimed if that exact key was touched again
+   — which an attacker hammering `/auth/login` with random, never-repeated emails never
+   does. That is unbounded, attacker-controlled memory growth on an unauthenticated public
+   endpoint (production is a 1 GB `t3.micro`), i.e. the task's own threat model. Now a
+   plain `dict`: `_check_rate_limit` reads with `.get()` and returns early on a miss, a
+   bucket that purges to empty is `del`eted, and `_record_attempt` is the only thing that
+   may create a key. Regression test
+   `test_rate_limit_dict_does_not_accumulate_dead_keys` asserts on `len()` of the dict
+   itself, and was confirmed to **fail** against the pre-fix code (26 permanent empty-list
+   entries) — a test that only checked the 429 behavior would have passed either way.
+2. **The per-IP buckets depend on uvicorn's proxy-header handling — do not disable it.**
+   `request.client.host` is only the real client IP because uvicorn defaults to
+   `proxy_headers=True` with `forwarded_allow_ips="127.0.0.1"`, and nginx (which sets
+   `X-Forwarded-For`/`X-Real-IP`, see `infra/terraform/user_data.sh`) proxies from
+   loopback. If anyone ever passes `--no-proxy-headers` or narrows `forwarded_allow_ips`,
+   **every user collapses into a single `127.0.0.1` bucket** and the per-IP limits become
+   a self-inflicted denial of service on the whole service rather than a protection.
 
 ## C3 — No draw or concede mechanism; a game can only end by 18-center solo win
 
@@ -1323,11 +1371,14 @@ Depends on D4.
       dislodged positions (V4, `v2.7.31`).
 - [x] Full suite green **with a DB**, ruff clean, coverage gates hold, CI green on
       `main`, every landed chunk committed + tagged per CLAUDE.md.
-- [ ] **Track C acceptance:** C1 — `security` CI job actually fails on a real finding
-      (demonstrated, then reverted). C2 — brute-force test suite passes for
-      `/auth/login`/`/auth/token`/`/auth/register`. C3 — satisfied by Track D's D3
-      (engine+API layer); Telegram/frontend UX for the draw vote still open. C4 —
-      decision made and executed via Track D.
+- [x] **Track C acceptance:** C1 — `security` CI job actually fails on a real finding
+      (demonstrated on throwaway PR #41: `gh pr checks` reported `security  fail`, failing
+      step `Run bandit security check`; PR closed and branch deleted, nothing reached
+      `main`), `v2.7.48`. C2 — brute-force test suite passes for
+      `/auth/login`/`/auth/token`/`/auth/register` (10 tests, `v2.7.46`). C3 — engine+API
+      layer satisfied by Track D's D3; Telegram `/draw`+`/nodraw`+`/status` tally and the
+      frontend draw-vote control landed in `v2.7.47`, so a human can now end a game by
+      agreement from either client. C4 — decision made and executed via Track D.
 - [x] **Track D acceptance:** D1-D5 all merged; a real DAIDE bot (or the raw-socket e2e
       test standing in for one) can complete a full turn — connect, negotiate, submit
       orders, receive results — against a `GameService`/Postgres-backed game; the DAIDE
