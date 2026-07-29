@@ -45,6 +45,11 @@ class GameModel(Base):
     # These supersede the legacy relational units/orders/supply_centers storage.
     state_json = Column(JSON, nullable=True)
     pending_orders = Column(JSON, nullable=True)
+    # Per-phase draw-vote yes-votes, {power: "yes"} -- absence means no/not-voted.
+    # Cleared whenever a turn is processed (same phase-scoped lifetime as
+    # pending_orders): a vote is "did this power vote yes to draw this phase",
+    # not a standing position.
+    draw_votes = Column(JSON, nullable=True)
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

@@ -404,6 +404,10 @@ class GameState:
       during non-retreat phases.
     - ``contested`` — provinces that stood off this movement phase (no unit may
       retreat into them). Empty outside a retreat phase.
+    - ``winners`` — set when ``status`` becomes ``COMPLETED``: the power(s) that
+      ended the game. A single power means a solo (≥ ``VICTORY_CENTERS`` centers);
+      more than one means a negotiated draw among survivors (see ``Game.draw``).
+      ``None`` while the game is still ``ACTIVE``/``FORMING``.
     """
 
     year: int
@@ -414,6 +418,7 @@ class GameState:
     dislodged: tuple[DislodgedUnit, ...] = ()
     contested: frozenset[str] = field(default_factory=frozenset)
     status: GameStatus = GameStatus.ACTIVE
+    winners: Optional[frozenset[str]] = None
 
     @property
     def phase_name(self) -> str:
