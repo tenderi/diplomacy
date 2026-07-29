@@ -376,10 +376,9 @@ No automated test spans this. Run it after PR4.
 # Track B — Post-Rewrite Cleanup: dead code & visualization quality
 
 **ACTIVE TRACK as of `v2.7.25`** — Track A is finished, so this is where work continues.
-V0 and V2 are merged, V1 was absorbed into PR4, V3 is done-but-unmerged (one item
-outstanding). **V4 and V5 remain.** Goal: remove the remaining pre-rewrite dead and
-duplicated code, and bring `src/rendering/` up to the engine's standard — single topology
-source, focused modules, correct overlays.
+V0, V2, and now V3 are fully merged, V1 was absorbed into PR4. **V4 and V5 remain.** Goal:
+remove the remaining pre-rewrite dead and duplicated code, and bring `src/rendering/` up to
+the engine's standard — single topology source, focused modules, correct overlays.
 
 ## Findings driving this track (verified by direct reads, 2026-07-28)
 
@@ -402,11 +401,11 @@ source, focused modules, correct overlays.
    also sits inside `src/engine/`, violating "engine = pure rules logic". V2 should fold
    the alias table into `engine/orders/parser.py` and drop the bot's normalization
    entirely, letting the server's single grammar resolve aliases.
-4. **~~`map.py` is a 3,150-line God class.~~ SPENT by V3** (`v2.7.26`, PR #19):
-   split into 7 modules, none over 687 lines, with `map.py` left as a 185-line facade. The
-   duplicated primitives and the `render_board_png_with_orders` alias are gone. **The 26
-   blanket `except Exception` blocks are NOT** — 25 remain, relocated into the new modules.
-   That is V3's one open item.
+4. **~~`map.py` is a 3,150-line God class.~~ SPENT by V3** (`v2.7.26` + `v2.7.28`,
+   PR #19 + PR #21): split into 7 modules, none over 687 lines, with `map.py` left as a
+   185-line facade. The duplicated primitives and the `render_board_png_with_orders` alias
+   are gone. **The 25 (+2 near-identical) blanket `except Exception` blocks are also gone**
+   — narrowed to specific exception tuples in `v2.7.28`. V3 is fully done.
 5. **Overlay adapter gaps** (`rendering/order_overlay.py` — otherwise clean, keep its
    style): each `Convoy` order emits `convoy_chain=[own fleet]` instead of one merged
    chain per convoyed move; `ResultCode.DISLODGED → "success"` styling is misleading;
@@ -655,9 +654,9 @@ unfinished except-narrowing was caught rather than assumed done.
       checked off.
 - [x] Frontend CI job green and required (`v2.7.25` — verified green on `main` before
       being switched on).
-- [ ] `src/rendering/` has zero topology knowledge beyond what it imports from
-      `engine.map_loader`; `engine/province_mapping.py` is gone; no rendering module
-      over ~800 lines.
+- [x] `src/rendering/` has zero topology knowledge beyond what it imports from
+      `engine.map_loader` (V2); `engine/province_mapping.py` is gone (V2); no rendering
+      module over ~800 lines — max is `overlays.py` at 687 (V3).
 - [ ] Overlays: merged convoy chains, distinct dislodged styling, retreat arrows from
       dislodged positions.
 - [ ] Full suite green **with a DB**, ruff clean, coverage gates hold, CI green on
