@@ -38,6 +38,7 @@ import {
   ORDER_TYPE_LABELS,
   extractUnitFromOrderString,
 } from '@/lib/orderParsing'
+import { type OrderResultEntry, describeResult, resultBadgeClass } from '@/lib/resultText'
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
 
@@ -95,6 +96,14 @@ type OrdersStatus = {
 }
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
 type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
+/**
+ * GET /games/{id}/last_resolution response (see GameService.last_resolution_view).
+ * `{"results": []}` before any turn has been processed -- not an error, just nothing to show.
+ */
+type LastResolution = { results: OrderResultEntry[] }
+/** Which overlay the board image shows: the plain board, currently pending orders, or the
+ * last processed turn's adjudicated results (arrows coloured by outcome). */
+type MapMode = 'board' | 'orders' | 'resolution'
 /**
  * Response shape of GET /games/{id}/legal_orders/{power} (see server.legal_orders).
  * `orders_by_unit` keys are exactly `${kind} ${location}` (coast included); every string in
@@ -348,6 +357,96 @@ function BuildOrdersSection({
   )
 }
 
+/** One result row: the truthful order string (already "F"/"A"-correct — see
+ * GameService.last_resolution_view), a plain-language outcome badge, and — when the
+ * ordering unit was dislodged — a prominent call-out with its retreat options, since a
+ * dislodged unit demands action next phase. `showPower` prefixes the owning power for
+ * the "other powers" list, where it isn't otherwise obvious. */
+function ResultList({ entries, showPower = false }: { entries: OrderResultEntry[]; showPower?: boolean }) {
+  return (
+    <ul className="space-y-2">
+      {entries.map((r, i) => (
+        <li key={i} className="border-b border-border/50 pb-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">
+              {showPower ? `${r.power}: ` : ''}
+              {r.order_str}
+            </span>
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
+                resultBadgeClass(r.result)
+              )}
+            >
+              {describeResult(r)}
+            </span>
+          </div>
+          {r.dislodged && (
+            <p className="mt-1 text-amber-700 dark:text-amber-400">
+              This unit was dislodged and must retreat or disband next phase
+              {r.retreat_options.length > 0
+                ? ` — retreat options: ${r.retreat_options.join(', ')}.`
+                : ' — no legal retreat is available; it will be disbanded.'}
+            </p>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * "What happened to my orders" -- the question a turn-based game player actually has
+ * after a phase resolves. Leads with the viewer's own power (the primary question);
+ * every other power's results are available but secondary, tucked behind a disclosure
+ * so the panel doesn't drown the player in six other powers' business by default.
+ *
+ * Renders nothing at all -- not even a header -- when there's nothing to show yet (a
+ * fresh game before any turn has processed returns `{"results": []}`, not an error).
+ * An empty scary panel is worse than no panel.
+ */
+function ResultsSection({
+  resolution,
+  myPower,
+}: {
+  resolution: LastResolution | null
+  myPower: string | null
+}) {
+  if (!resolution || resolution.results.length === 0) return null
+
+  const mine = myPower ? resolution.results.filter((r) => r.power === myPower) : []
+  const others = resolution.results.filter((r) => r.power !== myPower)
+
+  return (
+    <section className="mb-6">
+      <h2 className="text-lg font-medium mb-2">What happened last turn</h2>
+      {myPower ? (
+        mine.length > 0 ? (
+          <ResultList entries={mine} />
+        ) : (
+          <p className="text-sm text-muted-foreground mb-2">
+            {myPower} had no orders recorded for that turn.
+          </p>
+        )
+      ) : (
+        <p className="text-sm text-muted-foreground mb-2">
+          Join a power to see how its orders resolved.
+        </p>
+      )}
+      {others.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+            Other powers&apos; results ({others.length})
+          </summary>
+          <div className="mt-2">
+            <ResultList entries={others} showPower />
+          </div>
+        </details>
+      )}
+    </section>
+  )
+}
+
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>()
   const { user } = useAuth()
@@ -380,6 +479,15 @@ export default function GameView() {
   const [ordersStatus, setOrdersStatus] = useState<OrdersStatus | null>(null)
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
+  /** The last processed turn's per-order outcomes (GET .../last_resolution), so "what
+   * happened to my orders" survives a reload, not just the inline process_turn response. */
+  const [resolution, setResolution] = useState<LastResolution | null>(null)
+  /** Which board overlay is showing: plain board, currently pending orders, or the last
+   * resolution's outcome-coloured arrows. */
+  const [mapMode, setMapMode] = useState<MapMode>('board')
+  /** Once the viewer picks a map mode themselves, stop overriding it for the rest of the
+   * phase (see the auto-default effect below). */
+  const [mapModeTouched, setMapModeTouched] = useState(false)
   /** Ticks every 30s so the deadline countdown doesn't go stale while the tab sits open. */
   const [now, setNow] = useState(() => Date.now())
 
@@ -412,8 +520,39 @@ export default function GameView() {
 
   useEffect(() => {
     if (!gameId) return
-    setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
+    const suffix = mapMode === 'board' ? '' : `/${mapMode}`
+    setMapUrl(`${API_BASE}/games/${gameId}/map${suffix}?t=${Date.now()}`)
+  }, [gameId, state?.phase, mapMode])
+
+  // A phase change means the previously chosen overlay may no longer be the most useful
+  // default (e.g. "pending orders" from a phase that's now resolved) -- reset to board and
+  // let the auto-default effect below pick "resolution" again if there's something to show.
+  useEffect(() => {
+    setMapMode('board')
+    setMapModeTouched(false)
+  }, [state?.phase])
+
+  // Fetch the last processed turn's outcomes for the "what happened" panel. Unauthenticated
+  // (like orders_status/deadline below) so any viewer, not just a logged-in power, can see
+  // it. `{"results": []}` before any turn has processed is not an error.
+  useEffect(() => {
+    if (!gameId || !state) {
+      setResolution(null)
+      return
+    }
+    apiJson<LastResolution>(`/games/${gameId}/last_resolution`)
+      .then(setResolution)
+      .catch(() => setResolution(null))
   }, [gameId, state?.phase])
+
+  // Once the resolution for this phase is known to have something to show, default the
+  // map to the resolution overlay -- "what happened" is the more useful first view than a
+  // bare board -- unless the viewer already picked a mode themselves this phase.
+  useEffect(() => {
+    if (!mapModeTouched && resolution && resolution.results.length > 0) {
+      setMapMode('resolution')
+    }
+  }, [resolution, mapModeTouched])
 
   useEffect(() => {
     if (!gameId || !user) return
@@ -768,6 +907,8 @@ export default function GameView() {
         </Card>
       )}
 
+      <ResultsSection resolution={resolution} myPower={myPower ?? null} />
+
       <section className="mb-6">
         <h2 className="text-lg font-medium mb-2">Players</h2>
         <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -794,7 +935,29 @@ export default function GameView() {
 
       {mapUrl && (
         <div className="mb-6">
-          <img src={mapUrl} alt="Game map" className="max-w-full h-auto" />
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            {(
+              [
+                ['board', 'Board'],
+                ['orders', 'Pending orders'],
+                ['resolution', 'Last resolution'],
+              ] as [MapMode, string][]
+            ).map(([mode, label]) => (
+              <Button
+                key={mode}
+                type="button"
+                size="sm"
+                variant={mapMode === mode ? 'default' : 'outline'}
+                onClick={() => {
+                  setMapMode(mode)
+                  setMapModeTouched(true)
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <img src={mapUrl} alt={`Game map (${mapMode})`} className="max-w-full h-auto" />
         </div>
       )}
 
