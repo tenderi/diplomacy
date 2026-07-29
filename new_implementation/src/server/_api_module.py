@@ -26,7 +26,9 @@ import logging
 from pathlib import Path
 
 from .db_config import SQLALCHEMY_DATABASE_URL
+from .api import shared as _api_shared
 from .api.shared import deadline_scheduler, db_service
+from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 
 # Import route modules
 from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth
@@ -135,14 +137,34 @@ async def lifespan(app: FastAPI):
     """
     # Initialize database schema on startup (synchronous operation)
     _initialize_database_schema()
-    
+
     task = asyncio.create_task(deadline_scheduler())
+
+    # DAIDE listener (Track D, D4): one game per listener, following the
+    # daide_protocol.DAIDEServer default of port 8432 (overridable via
+    # DIPLOMACY_DAIDE_PORT, mainly so tests/CI running multiple app instances
+    # don't fight over the same port). Startup failure (port in use, no DB
+    # configured to create a game against, ...) is logged and swallowed
+    # rather than crashing the whole API -- DAIDE is one integration among
+    # several this process serves, not a prerequisite for the others.
+    daide_port = int(os.environ.get("DIPLOMACY_DAIDE_PORT", str(DAIDE_DEFAULT_PORT)))
+    _api_shared.daide_server = DaideServer(_api_shared.game_service, db_service=_api_shared.db_service, port=daide_port)
+    try:
+        await _api_shared.daide_server.start()
+    except Exception as e:
+        logger.error(f"DAIDE listener failed to start on port {daide_port}: {e}")
+        _api_shared.daide_server = None
+
     try:
         yield
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        if _api_shared.daide_server is not None:
+            with contextlib.suppress(Exception):
+                await _api_shared.daide_server.stop()
+            _api_shared.daide_server = None
 
 # Initialize schema immediately when module is imported (for TestClient compatibility)
 # TestClient doesn't always trigger lifespan, so initialize here as well
