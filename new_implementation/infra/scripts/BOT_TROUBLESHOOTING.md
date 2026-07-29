@@ -1,136 +1,85 @@
-# Telegram Bot Troubleshooting Guide
+# Telegram Bot Troubleshooting (production)
 
-## Quick Diagnosis
+For the EC2 host. The two systemd units are **`diplomacy-api`** and **`diplomacy-bot`**.
+Get a shell with SSM (no SSH key needed):
 
-Run the diagnostic script on the server:
 ```bash
-ssh -i YOUR_KEY.pem ubuntu@YOUR_SERVER_IP
-sudo /opt/diplomacy/infra/scripts/diagnose_bot.sh
+aws ssm start-session --target $(terraform output -raw instance_id) --region eu-north-1
 ```
 
-Or if the script isn't on the server yet:
+## Quick diagnosis
+
 ```bash
-ssh -i YOUR_KEY.pem ubuntu@YOUR_SERVER_IP
-sudo bash -c 'cd /opt/diplomacy && curl -s https://raw.githubusercontent.com/YOUR_REPO/main/infra/scripts/diagnose_bot.sh | bash'
+sudo /opt/diplomacy/new_implementation/infra/scripts/diagnose_bot.sh
 ```
 
-## Common Issues and Fixes
+## 1. Service not running
 
-### 1. Bot Service Not Running
-
-**Check status:**
 ```bash
 sudo systemctl status diplomacy-bot
-```
-
-**If stopped, start it:**
-```bash
-sudo systemctl start diplomacy-bot
-sudo systemctl enable diplomacy-bot  # Enable auto-start on boot
-```
-
-**View logs:**
-```bash
+sudo systemctl start diplomacy-bot && sudo systemctl enable diplomacy-bot
 sudo journalctl -u diplomacy-bot -n 50 --no-pager
-sudo journalctl -u diplomacy-bot -f  # Follow logs in real-time
+sudo journalctl -u diplomacy-bot -f              # follow
 ```
 
-### 2. Missing Telegram Bot Token
+## 2. Missing or wrong bot token
 
-**Check if token is set:**
 ```bash
-sudo -u diplomacy grep TELEGRAM_BOT_TOKEN /opt/diplomacy/.env
+sudo grep TELEGRAM_BOT_TOKEN /opt/diplomacy/.env
 ```
 
-**If missing, add it:**
+The token comes from SSM, not from the repo. To rotate it:
+
 ```bash
-sudo -u diplomacy bash -c 'echo "TELEGRAM_BOT_TOKEN=your_token_here" >> /opt/diplomacy/.env'
+aws ssm put-parameter --name /diplomacy/telegram_bot_token --type SecureString \
+  --value '<new-token>' --overwrite --region eu-north-1
+# then on the instance:
+sudo bash /opt/diplomacy/new_implementation/infra/scripts/refresh-env.sh
 sudo systemctl restart diplomacy-bot
 ```
 
-### 3. API Not Responding
+## 3. API not responding
 
-The bot waits for the API to be healthy before starting.
+The bot waits for the API to be healthy before it starts.
 
-**Check API status:**
 ```bash
-sudo systemctl status diplomacy
+sudo systemctl status diplomacy-api
 curl http://localhost:8000/health
+sudo systemctl start diplomacy-api && sudo systemctl restart diplomacy-bot
 ```
 
-**If API is down:**
+## 4. Import errors
+
 ```bash
-sudo systemctl start diplomacy
-sudo systemctl restart diplomacy-bot  # Restart bot after API is up
+sudo journalctl -u diplomacy-bot | grep -i "no module\|importerror"
 ```
 
-### 4. Import Errors
+Almost always a missing `PYTHONPATH=src` or an incomplete
+`pip install -r requirements.txt`. The unit file sets both — check it hasn't drifted from
+`infra/terraform/user_data.sh`.
 
-**Check for Python import errors:**
+## 5. Permission errors
+
 ```bash
-sudo journalctl -u diplomacy-bot | grep -i "import\|module\|no module"
-```
-
-**Common fixes:**
-- Ensure dependencies are installed: `sudo -u diplomacy pip3 install --user -r /opt/diplomacy/requirements.txt`
-- Check Python path: `sudo -u diplomacy python3 -c "import sys; print(sys.path)"`
-
-### 5. Permission Errors
-
-**Check file ownership:**
-```bash
-ls -la /opt/diplomacy/src/server/run_telegram_bot.py
-```
-
-**Fix ownership if needed:**
-```bash
+ls -la /opt/diplomacy/new_implementation/src/server/run_telegram_bot.py
 sudo chown -R diplomacy:diplomacy /opt/diplomacy
 ```
 
-### 6. Sudo Errors (Dashboard)
+## 6. Sudo errors in the dashboard
 
-These errors don't prevent the bot from working, but they clutter logs.
+Noisy but harmless to the bot itself:
 
-**Fix sudoers configuration:**
 ```bash
-sudo /opt/diplomacy/infra/scripts/fix_sudoers.sh
+sudo /opt/diplomacy/new_implementation/infra/scripts/fix_sudoers.sh
 ```
 
-Or manually:
+## Restart everything
+
 ```bash
-sudo visudo -f /etc/sudoers.d/diplomacy-systemctl
-# Ensure each command is on its own line
+sudo systemctl restart diplomacy-api diplomacy-bot
+sleep 5 && sudo systemctl status diplomacy-bot
 ```
 
-## Manual Bot Test
-
-Test the bot script directly:
-```bash
-sudo -u diplomacy bash -c 'cd /opt/diplomacy && /usr/bin/python3 src/server/run_telegram_bot.py'
-```
-
-This will show any immediate errors.
-
-## Restart Everything
-
-If all else fails:
-```bash
-sudo systemctl restart diplomacy
-sudo systemctl restart diplomacy-bot
-sleep 5
-sudo systemctl status diplomacy-bot
-```
-
-## Check Bot is Responding
-
-Once the bot is running, test it:
-1. Open Telegram
-2. Find your bot
-3. Send `/start` command
-4. Bot should respond
-
-If it doesn't respond:
-- Check logs: `sudo journalctl -u diplomacy-bot -f`
-- Verify token is correct
-- Check if bot is actually running: `sudo systemctl is-active diplomacy-bot`
-
+Then send `/start` to the bot in Telegram. If it stays silent, tail
+`journalctl -u diplomacy-bot -f` while sending the command — the request either doesn't
+arrive (token/network) or fails inside a handler (which will show in the log).
