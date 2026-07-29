@@ -119,9 +119,10 @@ disk at `/tmp/diplomacy_map_cache`. This package has no engine-internal coupling
 
 `src/server/daide/` (Track D, D1-D5) is a real implementation of the DAIDE wire protocol
 — interoperability with the external DAIDE bot ecosystem (DumbBot, Albert, and other
-standalone Diplomacy AIs) — not the text-command stub `daide_protocol.py` used to be
+standalone Diplomacy AIs) — not the text-command stub that used to occupy this slot
 (deleted in D4). It is started as an `asyncio.start_server` listener alongside the
-deadline scheduler in `_api_module.py`'s `lifespan`, same port (8432) the old stub used.
+deadline scheduler in `_api_module.py`'s `lifespan`, on the same port (8432) the old stub
+used.
 
 ```
 src/server/daide/

@@ -1,52 +1,64 @@
-# Browser client (web app)
+# Browser Client
 
-You can play Diplomacy in a browser: register with email and password, then optionally link the same account to Telegram.
+Play Diplomacy in a browser: register with email and password, then optionally link the same
+account to Telegram and use either.
 
 ## Run locally
 
-**Backend** (from repo root; API must listen on 8000 for Vite proxy):
+Backend (must be on port 8000 for the Vite proxy):
+
 ```bash
-cd new_implementation && source venv/bin/activate
+source venv/bin/activate
 PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000
 ```
 
-**Frontend** (separate terminal):
+Frontend, in a second terminal:
+
 ```bash
-cd new_implementation/frontend
-npm install && npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to the API so that app routes (e.g. `/games`, `/games/123`) are served by the frontend; **refresh and back/forward work correctly**. The frontend uses Tailwind CSS and shadcn/ui for the UI.
+Open http://localhost:5173. Vite proxies API calls to the backend and serves the SPA for app
+routes, so refresh and back/forward work correctly. UI is Tailwind CSS + shadcn/ui — see
+[`frontend/README.md`](../frontend/README.md).
 
-## First time: register
+## Register
 
-1. Open the app → **Register**.
-2. Enter email, password (min 8 characters), and optional full name.
-3. You are logged in; use **My games / All games** and **Link Telegram** as needed.
+**Register** → email, password (minimum 8 characters), optional full name. You are logged in
+immediately; from there use **My games / All games** and **Link Telegram**.
 
 ## Link Telegram
 
-1. In the browser: **Link Telegram** → **Generate link code**.
-2. In Telegram: send `/link <code>` (e.g. `/link 123456`) to the bot.
-3. This Telegram account is now linked to your browser account; you can use either.
+1. In the browser: **Link Telegram → Generate link code**.
+2. In Telegram, send `/link <code>` to the bot.
+
+Both clients now act as the same account. Unlink from the same page; you can re-link later
+with a new code.
 
 ## Forgot password
 
-1. On the login page, click **Forgot password?**.
-2. Enter your email and submit. If an account exists, a reset link is generated (and optionally sent by email if you configure SMTP).
-3. For development: set `DIPLOMACY_PASSWORD_RESET_BASE_URL` (e.g. `http://localhost:5173`) and `DIPLOMACY_DEV_SHOW_RESET_LINK=1`; the reset link will appear on the confirmation page so you can copy it and open the reset-password form. For production, set `DIPLOMACY_SMTP_HOST` (and optionally `DIPLOMACY_SMTP_USER`, `DIPLOMACY_SMTP_PASSWORD`, etc.) so reset links are sent by email; see [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for all SMTP env vars.
-4. Set your new password; you can then log in with the new password.
+Click **Forgot password?** on the login page and submit your email. The response is always
+the same whether or not the account exists.
 
-## Troubleshooting: Register does nothing or shows error
+- **Development:** set `DIPLOMACY_PASSWORD_RESET_BASE_URL=http://localhost:5173` and
+  `DIPLOMACY_DEV_SHOW_RESET_LINK=1` — the reset link appears on the confirmation page.
+- **Production:** set `DIPLOMACY_SMTP_HOST` (plus the other SMTP variables) so links are
+  emailed. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#3-environment-variables).
 
-- **API must be running** and reachable. The Vite dev server proxies `/api` to `http://localhost:8000`. If your API runs on another port, set `VITE_API_URL=http://localhost:PORT` in `frontend/.env` and restart `npm run dev`.
-- **Database**: Registration uses the API database; ensure PostgreSQL is up and migrations are applied (`alembic upgrade head`).
-- **Error message**: The app now shows the API error message (e.g. "Password must be at least 8 characters", "Email already registered"). If you see "Server unavailable", the frontend could not reach the API.
+## Production build
 
-## Production
+```bash
+cd frontend && npm run build
+```
 
-- Set `DIPLOMACY_JWT_SECRET` for the API.
-- Build the frontend: `cd frontend && npm run build`. The API can serve `frontend/dist` at `/app` when present (e.g. open `https://your-api-host/app`).
-- If you serve the built app from a static server (e.g. nginx, Netlify), configure **SPA fallback**: serve `index.html` for routes that do not match a file (so `/games/123` and refresh/back work). With Vite preview: `npm run preview` already does this.
+FastAPI serves `frontend/dist` at `/app` when it exists. Set `DIPLOMACY_JWT_SECRET` for the
+API. If you serve the build from a separate static host, configure **SPA fallback** (serve
+`index.html` for unmatched routes) or `/games/123` and refresh will 404.
 
-See `frontend/README.md` for more details.
+## Troubleshooting
+
+- **Register does nothing / "Server unavailable"** — the frontend can't reach the API. Check
+  it's running on port 8000, or set `VITE_API_URL` in `frontend/.env` and restart `npm run dev`.
+- **Registration errors** — the app surfaces the API message ("Password must be at least 8
+  characters", "Email already registered"). If registration fails silently, check Postgres is
+  up and `alembic upgrade head` has run.

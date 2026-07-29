@@ -1,150 +1,65 @@
 # Running the Diplomacy Server Locally
 
-This guide walks you through installing dependencies, configuring the database, and running the API server and optional components (frontend, Telegram bot) on your machine.
-
----
+Install, configure, and run the API server plus the optional components (browser frontend,
+Telegram bot). All commands assume you are in `new_implementation/` with the venv active.
 
 ## Prerequisites
 
-- **Python 3.14** (pinned via [`pyproject.toml`](../pyproject.toml))
-- **PostgreSQL** (for the API and most features)
-- **Node.js 18+** and **npm** (only if you want to run the browser frontend)
-- **Git** (to clone the repo)
+- **Python 3.14** (pinned in [`pyproject.toml`](../pyproject.toml))
+- **PostgreSQL** — required by the API and most tests
+- **libcairo2** — required by CairoSVG for map rendering
+- **Node.js 18+ / npm** — only for the browser frontend
+- **A Telegram bot token** from [@BotFather](https://t.me/BotFather) — only for the bot
 
-Optional (for map image rendering and Telegram bot):
-
-- **Chrome or Chromium** and **ChromeDriver** (see [BROWSER_SETUP_INSTRUCTIONS.md](BROWSER_SETUP_INSTRUCTIONS.md))
-- **Telegram Bot Token** (from [@BotFather](https://t.me/BotFather)) for the Telegram bot
-
-*Discord bot is out of scope for the current roadmap; see [DISCORD_BOT.md](DISCORD_BOT.md) for reference only if needed.*
-
----
-
-## Installing prerequisites
-
-You can install everything with one script (Arch, Debian/Ubuntu, or macOS with Homebrew):
+One script installs everything on Arch, Debian/Ubuntu, or macOS with Homebrew:
 
 ```bash
-cd new_implementation
 ./install_prerequisites.sh
 ```
 
-Or install manually using the commands below for your OS.
-
-### Arch Linux
+Or by hand:
 
 ```bash
-# Python (usually pre-installed; includes pip)
-sudo pacman -S python python-pip
-
-# PostgreSQL server and client
-sudo pacman -S postgresql
-
-# Node.js and npm (for the browser frontend)
-sudo pacman -S nodejs npm
-
-# Start PostgreSQL (enable on boot: sudo systemctl enable postgresql)
+# Arch
+sudo pacman -S python python-pip postgresql nodejs npm cairo
 sudo systemctl start postgresql
-```
 
-### Ubuntu / Debian
-
-```bash
-# Python 3.14 (deadsnakes PPA on older Ubuntu releases)
-sudo add-apt-repository -y ppa:deadsnakes/ppa
-sudo apt-get update
-sudo apt-get install -y python3.14 python3.14-venv python3-pip
-
-# PostgreSQL
-sudo apt-get install -y postgresql postgresql-client
-
-# Node.js 18+ and npm (NodeSource repo for current LTS)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Start PostgreSQL
+# Debian / Ubuntu (Python 3.14 via deadsnakes on older releases)
+sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update
+sudo apt-get install -y python3.14 python3.14-venv python3-pip postgresql postgresql-client libcairo2 libcairo2-dev
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs
 sudo systemctl start postgresql
-```
 
-### macOS (Homebrew)
-
-```bash
-# Python
-brew install python@3.14
-
-# PostgreSQL
-brew install postgresql@16
+# macOS
+brew install python@3.14 postgresql@16 node@20 cairo
 brew services start postgresql@16
-
-# Node.js and npm
-brew install node@20
 ```
 
-### Verify installations
+## 1. Virtual environment and packages
 
 ```bash
-python3 --version   # 3.14.x
-node --version      # v18 or higher (only needed for frontend)
-npm --version       # 9 or higher (only needed for frontend)
-psql --version      # PostgreSQL client (only needed if you use psql manually)
-```
-
----
-
-## 1. Clone and enter the project
-
-```bash
-git clone <repository-url>
-cd diplomacy/new_implementation
-```
-
-All following commands assume you are in `new_implementation/`.
-
----
-
-## 2. Python virtual environment and packages
-
-Create and activate a virtual environment, then install dependencies:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-
-pip install -r requirements.txt
-```
-
-Recommended: upgrade pip first:
-
-```bash
+python3.14 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
----
+## 2. Database
 
-## 3. PostgreSQL database
+The default connection URL is
+`postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`.
 
-The API expects a PostgreSQL database. The default URL is:
+The quickest path creates the role, the database, and the schema in one go:
 
-`postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db`
+```bash
+./setup_database.sh
+```
 
-### 3.1 Install PostgreSQL
-
-- **Ubuntu/Debian:** `sudo apt-get install postgresql postgresql-client`
-- **Arch:** `sudo pacman -S postgresql`
-- **macOS:** `brew install postgresql@16` (or current) and start the service
-
-Ensure the PostgreSQL server is running (e.g. `sudo systemctl start postgresql` or `brew services start postgresql`).
-
-### 3.2 Create user and database
-
-Connect as the postgres superuser and run:
+To do it manually:
 
 ```bash
 sudo -u postgres psql
 ```
-
-In the `psql` prompt:
 
 ```sql
 CREATE USER diplomacy_user WITH PASSWORD 'password';
@@ -153,202 +68,132 @@ GRANT ALL PRIVILEGES ON DATABASE diplomacy_db TO diplomacy_user;
 \q
 ```
 
-To use a different user, database name, or password, set `SQLALCHEMY_DATABASE_URL` (see step 4).
-
-### 3.3 Run migrations
-
-From `new_implementation/` with your venv activated:
-
 ```bash
-alembic upgrade head
+psql -U diplomacy_user -h localhost -d diplomacy_db   # verify the connection
+alembic upgrade head                                  # create/update tables
 ```
 
-This creates/updates tables. For more detail, see [README_postgres.md](README_postgres.md).
+To use different credentials, set `SQLALCHEMY_DATABASE_URL` (see step 3).
 
----
+**Game IDs start high.** The displayed `game_id` is the `games.id` primary key, and the
+Postgres sequence advances on every insert including tests and rolled-back transactions. To
+restart numbering in development — only when `games` is empty or you're happy to wipe it:
 
-## 4. Environment variables (optional)
-
-You can rely on defaults or use a `.env` file in `new_implementation/` so you don’t have to export variables every time.
-
-Create `new_implementation/.env` (do not commit secrets):
-
-```env
-# Database (default if omitted: postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db)
-SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_db
-
-# Optional: JWT secret for auth (use a long random string in production)
-DIPLOMACY_JWT_SECRET=dev-secret-change-in-production-32b
-
-# Optional: Telegram bot (only if you run the Telegram bot)
-# TELEGRAM_BOT_TOKEN=your-bot-token-from-BotFather
-
-# Optional: CORS origins (default *); restrict in production
-# DIPLOMACY_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-
-# Optional: Map file path (default: maps/standard.svg relative to project)
-# DIPLOMACY_MAP_PATH=maps/standard.svg
+```sql
+TRUNCATE games CASCADE;
+ALTER SEQUENCE games_id_seq RESTART WITH 1;
 ```
 
-The app loads `.env` via `python-dotenv` where used (e.g. tests, Alembic). For the API server you can also export variables in the shell instead of using `.env`.
+## 3. Environment variables
+
+Everything has a working default. To avoid exporting variables each session, put them in
+`new_implementation/.env` (loaded via `python-dotenv`; never commit secrets).
 
 | Variable | Purpose |
-|----------|--------|
+|---|---|
 | `SQLALCHEMY_DATABASE_URL` | PostgreSQL connection URL |
-| `DIPLOMACY_JWT_SECRET` | Secret for JWT auth (set in production) |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token (for Telegram bot process) |
-| `DIPLOMACY_API_URL` | API base URL used by Telegram bot (default `http://localhost:8000`) |
-| `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`) |
-| `DIPLOMACY_MAP_PATH` | Path to map SVG (default `maps/standard.svg`) |
-| `DIPLOMACY_DEV_SHOW_RESET_LINK` | Set to `1` to show password reset link in response (dev only) |
-| `DIPLOMACY_PASSWORD_RESET_BASE_URL` | Base URL for password reset links (e.g. `http://localhost:5173`) |
-| `DIPLOMACY_SMTP_HOST` | SMTP server hostname for sending password-reset emails (if set, forgot-password sends email) |
-| `DIPLOMACY_SMTP_PORT` | SMTP port (default `587`) |
-| `DIPLOMACY_SMTP_USE_TLS` | Set to `1`/`true` for STARTTLS (default `1`) |
-| `DIPLOMACY_SMTP_USER` | SMTP username (optional if server allows unauthenticated) |
-| `DIPLOMACY_SMTP_PASSWORD` | SMTP password (optional) |
-| `DIPLOMACY_SMTP_FROM` | From address for reset emails (default `noreply@diplomacy` or SMTP_USER) |
-| `DIPLOMACY_SMTP_FROM_NAME` | From display name (default `Diplomacy`) |
+| `DIPLOMACY_JWT_SECRET` | JWT signing secret — **must** be set in production |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token (bot process only) |
+| `DIPLOMACY_API_URL` | API base URL used by the bot (default `http://localhost:8000`) |
+| `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`; restrict in production) |
+| `DIPLOMACY_MAP_PATH` | Path to the map SVG (default `maps/standard.svg`) |
+| `DIPLOMACY_LOG_LEVEL` / `DIPLOMACY_LOG_FILE` | Log level (default `INFO`); log to a file instead of stdout |
+| `DIPLOMACY_PASSWORD_RESET_BASE_URL` | Base URL for password-reset links (e.g. `http://localhost:5173`) |
+| `DIPLOMACY_DEV_SHOW_RESET_LINK` | `1` returns the reset link in the response (**development only**) |
+| `DIPLOMACY_SMTP_HOST` / `_PORT` / `_USE_TLS` / `_USER` / `_PASSWORD` / `_FROM` / `_FROM_NAME` | SMTP settings; if `HOST` is set, forgot-password sends real email |
 
----
-
-## 5. Run the API server
-
-From `new_implementation/` with the venv activated, set `PYTHONPATH` so the `server` and `engine` packages are found (they live under `src/`):
+## 4. Run the API server
 
 ```bash
-export PYTHONPATH=src
-uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload
+PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Or in one line:
+`PYTHONPATH=src` is required — the `server` and `engine` packages live under `src/`. Drop
+`--reload` when debugging startup issues.
+
+- API: **http://localhost:8000**
+- Swagger UI: **http://localhost:8000/docs**
+- Verify: `curl http://localhost:8000/health`
+
+## 5. Run the browser frontend (optional)
+
+In a second terminal:
 
 ```bash
-cd new_implementation && source venv/bin/activate && PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload
+cd frontend && npm install && npm run dev
 ```
 
-- **Without `--reload`:** no auto-restart on code changes (better for debugging some issues).
-- The API will be at **http://localhost:8000**.
-- Open **http://localhost:8000/docs** for Swagger UI.
+The app runs at **http://localhost:5173**; Vite proxies API routes to the backend. Set
+`VITE_API_URL` in `frontend/.env` if the API is elsewhere. See
+[BROWSER_CLIENT.md](BROWSER_CLIENT.md) and [`frontend/README.md`](../frontend/README.md).
 
-### Verify
+## 6. Run the Telegram bot (optional)
 
-```bash
-curl http://localhost:8000/health
-```
-
-You should get a JSON response with status and environment info.
-
----
-
-## 6. Run the browser frontend (optional)
-
-To use the React web app (register, login, games, orders, messages):
-
-In a **second terminal**, from the repo:
+The API server must already be running.
 
 ```bash
-cd new_implementation/frontend
-npm install
-npm run dev
-```
-
-- App: **http://localhost:5173**
-- Vite proxies `/auth`, `/games`, `/users`, etc. to the API (default `http://localhost:8000`). Set `VITE_API_URL` in the frontend if the API is elsewhere.
-
-See [BROWSER_CLIENT.md](BROWSER_CLIENT.md) and `frontend/README.md` for more.
-
----
-
-## 7. Run the Telegram bot (optional)
-
-Only if you want the Telegram bot and have a bot token:
-
-```bash
-cd new_implementation
-source venv/bin/activate
 export TELEGRAM_BOT_TOKEN=your-token-from-BotFather
-export PYTHONPATH=src
-python -m server.telegram_bot
-```
-
-Or use a `.env` in `new_implementation/` with `TELEGRAM_BOT_TOKEN` and run:
-
-```bash
 PYTHONPATH=src python -m server.telegram_bot
 ```
 
-The bot talks to the API using `DIPLOMACY_API_URL` (default `http://localhost:8000`). The API server must be running. Commands: [TELEGRAM_BOT_COMMANDS.md](TELEGRAM_BOT_COMMANDS.md).
+Commands: [TELEGRAM_BOT_COMMANDS.md](TELEGRAM_BOT_COMMANDS.md).
 
----
+*(A minimal Discord bot exists at `src/server/discord_bot/` — set
+`DIPLOMACY_DISCORD_BOT_TOKEN` and run `PYTHONPATH=src python -m server.run_discord_bot`. It
+is **out of scope** for the current roadmap and is kept only for backward compatibility.)*
 
-## 8. Run the Discord bot (optional, out of scope)
-
-**Note:** Discord is not part of the current roadmap. Do not prioritize it unless explicitly requested.
-
-If you need to run the existing Discord bot for reference:
-
-```bash
-cd new_implementation
-source venv/bin/activate
-export DIPLOMACY_DISCORD_BOT_TOKEN=your-discord-bot-token
-export PYTHONPATH=src
-python -m server.run_discord_bot
-```
-
-See [DISCORD_BOT.md](DISCORD_BOT.md) for details (reference only).
-
----
-
-## 9. Run tests
-
-From `new_implementation/` with venv activated:
+## 7. Run the tests
 
 ```bash
 pytest tests/ -v
-```
-
-Database-dependent tests need `SQLALCHEMY_DATABASE_URL` (or `DIPLOMACY_DATABASE_URL`) set, or a `.env` with that variable; otherwise they are skipped.
-
-With coverage:
-
-```bash
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
----
+**Database-dependent tests skip silently** without `SQLALCHEMY_DATABASE_URL` (or
+`DIPLOMACY_DATABASE_URL`) set — a run without a database looks falsely green. Testing
+strategy: [`specs/testing_and_validation.md`](specs/testing_and_validation.md).
 
 ## Quick reference
 
-| Task | Command (from `new_implementation/`, venv active) |
-|------|--------------------------------------------------|
+| Task | Command |
+|---|---|
 | API server | `PYTHONPATH=src uvicorn server._api_module:app --host 0.0.0.0 --port 8000 --reload` |
 | Migrations | `alembic upgrade head` |
 | Tests | `pytest tests/ -v` |
+| Lint | `ruff check src/` |
 | Frontend dev | `cd frontend && npm run dev` |
 | Telegram bot | `PYTHONPATH=src python -m server.telegram_bot` |
-
----
+| Demo game | `python examples/demo_perfect_game.py` |
 
 ## Troubleshooting
 
-- **ImportError / ModuleNotFoundError for `server` or `engine`**  
-  Run the API (and bots) from `new_implementation/` with `PYTHONPATH=src`.
+**`ModuleNotFoundError: server` / `engine`** — run from `new_implementation/` with
+`PYTHONPATH=src`.
 
-- **Database connection errors**  
-  Check that PostgreSQL is running, the user/database exist, and `SQLALCHEMY_DATABASE_URL` (or `.env`) matches your setup. Test with:  
-  `psql -U diplomacy_user -h localhost -d diplomacy_db`
+**Database connection errors** — check that PostgreSQL is running (`pg_isready`), that the
+role and database exist, and that `SQLALCHEMY_DATABASE_URL` matches. Test directly with
+`psql -U diplomacy_user -h localhost -d diplomacy_db`. If columns are missing, run
+`alembic upgrade head`.
 
-- **Migrations out of date**  
-  Run `alembic upgrade head` from `new_implementation/`.
+**401 on `/games/.../join` or `/auth/refresh`** — the access or refresh token is invalid or
+expired. Changing `DIPLOMACY_JWT_SECRET` invalidates every existing token; log in again.
 
-- **Auth (JWT) or CORS issues**  
-  Set `DIPLOMACY_JWT_SECRET` and, if needed, `DIPLOMACY_CORS_ORIGINS` (e.g. `http://localhost:5173` for the Vite frontend).
-- **401 on /games/.../join or /auth/refresh**  
-  Usually means the access or refresh token is invalid or expired. If you changed `DIPLOMACY_JWT_SECRET`, all existing tokens are invalid—log in again. The frontend clears stored tokens when refresh returns 401, so you should be prompted to log in.
+**CORS errors from the frontend** — set `DIPLOMACY_CORS_ORIGINS` (e.g.
+`http://localhost:5173`).
 
-- **Map images or rendering**  
-  See [BROWSER_SETUP_INSTRUCTIONS.md](BROWSER_SETUP_INSTRUCTIONS.md) for Chrome/Chromium and Selenium.
+**"Order failed"** — check the syntax, that the order type matches the current phase, that
+the unit exists and belongs to your power, and that province names are valid. The canonical
+list of what's legal right now is `GET /games/{id}/legal_orders/{power}`.
 
-- **More docs**  
-  [FAQ.md](FAQ.md), [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md), [README_postgres.md](README_postgres.md).
+**Map generation is slow the first time** — maps are cached in memory and at
+`/tmp/diplomacy_map_cache`; subsequent requests are fast. If CairoSVG fails to import,
+install `libcairo2`.
+
+**Bot doesn't respond** — confirm `TELEGRAM_BOT_TOKEN` is set, the bot process is running,
+the API is reachable at `DIPLOMACY_API_URL`, and that you have sent `/register`.
+
+**Tests fail or skip unexpectedly** — check the database URL first (see above), then re-run
+the single test with `pytest tests/test_file.py::test_name -v`.
+
+For production troubleshooting on the EC2 host, see
+[`infra/scripts/BOT_TROUBLESHOOTING.md`](../infra/scripts/BOT_TROUBLESHOOTING.md).
