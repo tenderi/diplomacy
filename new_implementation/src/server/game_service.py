@@ -20,6 +20,7 @@ from engine.game import Game
 from engine.orders.parser import OrderParseError, format_order, parse_order
 from engine.orders.validation import validate
 from engine.serialization import (
+    order_from_dict,
     resolution_to_dict,
     state_from_dict,
     state_to_dict,
@@ -367,6 +368,31 @@ class GameService:
     def last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
         """The most recent adjudication result (``resolution_to_dict``), or ``None``."""
         return self._repo.get_last_resolution(game_id)
+
+    def last_resolution_view(self, game_id: str) -> Optional[dict[str, Any]]:
+        """The most recent adjudication result, decorated so a client can answer
+        "what happened to my orders?" without re-deriving adjudication.
+
+        Passes the canonical ``resolution_to_dict`` shape (``engine.serialization``)
+        through unchanged and adds two convenience fields per result: a flattened
+        ``power`` (already nested inside ``order``, but tedious to dig out per
+        result) and a human-readable ``order_str`` (via ``format_order``). The
+        latter is best-effort: without a ``kind_by_province`` map for the board as
+        it stood *before* this turn's adjudication (not retained after the fact),
+        a fleet at a non-split-coast province may print as ``A`` -- see
+        ``format_order``'s docstring. Returns ``None`` if the game doesn't exist;
+        ``{"results": []}`` if it exists but no turn has been processed yet.
+        """
+        if not self.exists(game_id):
+            return None
+        resolution = self._repo.get_last_resolution(game_id)
+        if resolution is None:
+            return {"results": []}
+        results: list[dict[str, Any]] = []
+        for r in resolution.get("results", []):
+            order = order_from_dict(r["order"])
+            results.append({**r, "power": order.power, "order_str": format_order(order)})
+        return {"results": results}
 
     def order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
         """Per-turn submitted-order history ``{turn: {power: [order_str]}}``."""

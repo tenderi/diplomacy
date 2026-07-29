@@ -115,6 +115,81 @@ def get_game_map_png(game_id: str) -> Response:
     return Response(content=img_bytes, media_type="image/png")
 
 
+@router.get("/games/{game_id}/map/orders", response_class=Response)
+def get_game_orders_map_png(game_id: str) -> Response:
+    """Stream the orders-overlay PNG (board + arrows for pending orders) as bytes.
+
+    Mirrors ``GET /games/{game_id}/map`` -- same view lookup, same rendering
+    inputs, same disk-backed ``Map.render_board_png*``-internal cache instead of
+    a second caching layer here (see ``get_map_preview_png``'s docstring) -- but
+    with order arrows drawn on top. The only prior way to get this image was
+    ``POST .../generate_map/orders``, which returns a server-filesystem path
+    that only a process on the same host can read; that route is left in place
+    for callers that still use it (e.g. the bot's channel auto-post), but a
+    browser needs actual bytes.
+    """
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    svg_path = svg_path_for_map_name(view["map_name"])
+    order_viz = orders_by_power_to_viz(
+        game_service.pending_orders_parsed(game_id), _kind_by_province(view)
+    )
+    try:
+        img_bytes = Map.render_board_png_orders(
+            svg_path,
+            units_for_render(view),
+            order_viz,
+            phase_info=phase_info(view, _turn_of(game_id)),
+            supply_center_control=dict(view["ownership"]),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@router.get("/games/{game_id}/map/resolution", response_class=Response)
+def get_game_resolution_map_png(game_id: str) -> Response:
+    """Stream the resolution-overlay PNG (board + adjudicated order arrows,
+    coloured by result, plus standoff markers) as bytes.
+
+    Same streaming-bytes rationale as ``GET /games/{game_id}/map/orders`` above.
+    Falls back to a plain board PNG when no turn has been processed yet (no
+    ``last_resolution``), matching ``POST .../generate_map/resolution``.
+    """
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    svg_path = svg_path_for_map_name(view["map_name"])
+    resolution = game_service.last_resolution(game_id)
+    try:
+        if not resolution:
+            img_bytes = Map.render_board_png(
+                svg_path,
+                units_for_render(view),
+                phase_info=phase_info(view, _turn_of(game_id)),
+                supply_center_control=dict(view["ownership"]),
+            )
+        else:
+            order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
+            resolution_data = {
+                "conflicts": [
+                    {"province": prov, "result": "standoff"} for prov in view.get("contested", [])
+                ],
+            }
+            img_bytes = Map.render_board_png_resolution(
+                svg_path,
+                units_for_render(view),
+                order_viz,
+                resolution_data,
+                phase_info=phase_info(view, _turn_of(game_id)),
+                supply_center_control=dict(view["ownership"]),
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
+
+
 @router.get("/games/{game_id}/map/history/{turn}", response_class=Response)
 def get_game_map_history_png(game_id: str, turn: int) -> Response:
     """Return the rendered PNG for a historical turn.

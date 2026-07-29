@@ -67,8 +67,15 @@ class TestSpecOnlyFlow:
 		else:
 			# If results is empty, that might be acceptable - just log it
 			print(f"Warning: No results in response: {body}")
-		# 4) Process turn
-		proc = client.post(f"/games/{game_id}/process_turn", headers=_auth_headers)
+		# 4) Process turn. The bearer-authenticated user above is the game's
+		# *creator*, not FRANCE (which was joined via the telegram_id account) --
+		# process_turn now requires bot-secret/admin-token/game-membership (E1d),
+		# so a non-member Bearer token would 403 here. Use the bot-secret path,
+		# same as the join/set_orders calls above.
+		proc = client.post(
+			f"/games/{game_id}/process_turn",
+			headers={"X-Bot-Secret": "test_bot_secret_for_tests"},
+		)
 		assert proc.status_code == 200
 		# 5) Get state and ensure spec fields exist
 		state = client.get(f"/games/{game_id}/state")

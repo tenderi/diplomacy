@@ -153,7 +153,12 @@ def test_adjudication_results_in_state():
     order = "FRANCE F BRE H"
     set_orders_resp = client.post("/games/set_orders", json={"game_id": str(game_id), "power": "FRANCE", "orders": [order], "telegram_id": "u1", "bot_secret": "test_bot_secret_for_tests"})
     assert set_orders_resp.status_code == 200, f"Set orders failed: {set_orders_resp.json()}"
-    client.post(f"/games/{game_id}/process_turn")
+    # process_turn now requires bot-secret/admin-token/game-membership (E1d); the
+    # Bearer-authenticated creator above never joined a power, so use bot-secret.
+    process_resp = client.post(
+        f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"}
+    )
+    assert process_resp.status_code == 200, f"Process turn failed: {process_resp.json()}"
     # Get the game state
     resp = client.get(f"/games/{game_id}/state")
     assert resp.status_code == 200

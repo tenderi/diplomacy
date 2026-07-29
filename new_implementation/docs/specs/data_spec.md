@@ -214,6 +214,69 @@ Consumers of this exact shape: `frontend/src` (React SPA — `GameView.tsx` and 
 the Telegram bot's `api_client.py`, and `src/server/daide/session.py`. There is no legacy
 `powers`-keyed view left to support.
 
+### Resolution-result shapes: `POST .../process_turn` and `GET .../last_resolution`
+
+`POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
+pre-existing `status: "ok"` key is unchanged so existing clients keep working):
+
+```jsonc
+{
+  "status": "ok",
+  "phase": "F1901M",           // GameState.phase_name of the *new* (post-adjudication) phase
+  "game_status": "ACTIVE",     // GameState.status of the new phase -- "status" was already
+                                // taken by the pre-existing "ok" key above
+  "resolution": { "results": [ ... ] }  // the turn just adjudicated -- see below
+}
+```
+
+`GET /games/{id}/last_resolution` (added so a client can re-fetch this after a page
+reload, since the inline `process_turn` response above isn't persisted client-side)
+returns the same `resolution` shape directly, 404 when the game doesn't exist,
+`{"results": []}` when it exists but no turn has been processed yet:
+
+```jsonc
+{
+  "results": [
+    {
+      "order": {"type": "MOVE", "power": "FRANCE", "unit": "PAR", "dest": "BUR", "via_convoy": false},
+      "result": "BOUNCE",       // engine.types.ResultCode -- OK/BOUNCE/CUT/VOID/NO_CONVOY/DISLODGED/DISBAND/BUILD/WAIVE
+      "dislodged": false,
+      "retreat_options": [],
+      "power": "FRANCE",        // convenience: same as order.power, flattened
+      "order_str": "A PAR - BUR"  // convenience: format_order(order), best-effort --
+                                   // without the pre-adjudication board's kind_by_province
+                                   // (not retained), a fleet at a non-split-coast
+                                   // province may print as "A"
+    },
+    ...
+  ]
+}
+```
+
+Both `order` and the bare `result`/`dislodged`/`retreat_options` fields are exactly
+`engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
+passed through unchanged; `power`/`order_str` are the only fields added on top
+(`GameService.last_resolution_view`). This is what a client uses to answer "what
+happened to my orders?" without re-deriving adjudication itself.
+
+### Order/resolution overlay maps: `GET .../map/orders`, `GET .../map/resolution`
+
+`GET /games/{id}/map` streams the current board as PNG bytes. Two more GET routes
+mirror it with overlay arrows drawn on top, so a browser can render them directly
+(the older `POST .../generate_map/orders` and `.../generate_map/resolution` return
+`{"map_path": "/tmp/diplomacy_maps/..."}` — a server-filesystem path, unreachable
+from a browser; both routes are kept for existing server-side callers):
+
+- `GET /games/{id}/map/orders` — the board plus arrows for the current *pending*
+  orders (plain board if none submitted yet).
+- `GET /games/{id}/map/resolution` — the board plus arrows for the *last processed
+  turn's* orders, coloured by `ResultCode`, plus standoff markers (plain board if no
+  turn has been processed yet).
+
+Both return `image/png` bytes with the same 404-on-missing-game behavior as `GET
+.../map`, and lean on `Map.render_board_png*`'s own disk-backed byte cache rather
+than a second caching layer (see `get_map_preview_png`'s docstring in `maps.py`).
+
 ## 5. Validation
 
 Order legality (not grammar — grammar is `orders/parser.py`'s job) is centralized in
