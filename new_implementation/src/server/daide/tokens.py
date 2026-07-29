@@ -184,6 +184,26 @@ POWER_TOKEN_BY_ENGINE_NAME: dict[str, Token] = {
     "TURKEY": TUR,
 }
 
+# DAIDE power token text -> engine power name (D2's reverse direction).
+_ENGINE_NAME_BY_POWER_TOKEN_TEXT: dict[str, str] = {
+    tok.text: name for name, tok in POWER_TOKEN_BY_ENGINE_NAME.items()
+}
+
+
+def engine_power_name(token: Token) -> str:
+    """The `engine.types` power name (e.g. ``"FRANCE"``) for a DAIDE power `Token`.
+
+    Raises ``ValueError`` for any token that is not one of the 7 standard-map
+    power tokens (including, deliberately, ``UNO`` -- "unknown power" is a
+    valid *unit-clause* placeholder in `clauses.py`, but it is never a real
+    engine power, so callers that need a real power must not accept it here).
+    """
+    try:
+        return _ENGINE_NAME_BY_POWER_TOKEN_TEXT[token.text]
+    except KeyError:
+        raise ValueError(f"{token.text!r} is not a DAIDE power token") from None
+
+
 # ---------------------------------------------------------------------------
 # Unit types (0x42)
 # ---------------------------------------------------------------------------
@@ -239,8 +259,25 @@ NYU: Token = _register("NYU", 0x44, 0x12)
 YSC: Token = _register("YSC", 0x44, 0x13)
 
 THX_NOTE_TOKENS: tuple[Token, ...] = (
-    MBV, BPR, CST, ESC, FAR, HSC, NAS, NMB, NMR,
-    NRN, NRS, NSA, NSC, NSF, NSP, NSU, NVR, NYU, YSC,
+    MBV,
+    BPR,
+    CST,
+    ESC,
+    FAR,
+    HSC,
+    NAS,
+    NMB,
+    NMR,
+    NRN,
+    NRS,
+    NSA,
+    NSC,
+    NSF,
+    NSP,
+    NSU,
+    NVR,
+    NYU,
+    YSC,
 )
 
 # ---------------------------------------------------------------------------
@@ -281,6 +318,29 @@ COAST_TOKEN_BY_ENGINE_SUFFIX: dict[str, Token] = {
     "EC": ECS,
     "WC": WCS,
 }
+
+# DAIDE coast token text -> `engine.types.Location.coast` spelling (D2's reverse
+# direction). Only the 4 the standard map actually uses (NCS/SCS/ECS/WCS) have an
+# engine-side meaning; SEC/SWC/NEC/NWC are registered above for MDF completeness
+# but have no engine coast suffix to map back to.
+_ENGINE_COAST_SUFFIX_BY_TOKEN_TEXT: dict[str, str] = {
+    tok.text: suffix for suffix, tok in COAST_TOKEN_BY_ENGINE_SUFFIX.items()
+}
+
+
+def engine_coast_suffix(token: Token) -> str:
+    """The `engine.types.Location.coast` spelling for a DAIDE coast `Token`.
+
+    Raises ``ValueError`` for a coast token the standard map never uses
+    (``SEC``/``SWC``/``NEC``/``NWC``) or for a non-coast token entirely.
+    """
+    try:
+        return _ENGINE_COAST_SUFFIX_BY_TOKEN_TEXT[token.text]
+    except KeyError:
+        raise ValueError(
+            f"{token.text!r} is not one of this map's coast tokens (NCS/SCS/ECS/WCS)"
+        ) from None
+
 
 # ---------------------------------------------------------------------------
 # Seasons / phases (0x47)
@@ -331,8 +391,37 @@ ADM: Token = _register("ADM", 0x48, 0x1D)
 SMR: Token = _register("SMR", 0x48, 0x1E)
 
 COMMAND_TOKENS: tuple[Token, ...] = (
-    CCD, DRW, FRM, GOF, HLO, HST, HUH, IAM, LOD, MAP, MDF, MIS, NME, NOT, NOW,
-    OBS, OFF, ORD, OUT, PRN, REJ, SCO, SLO, SND, SUB, SVE, THX, TME, YES, ADM, SMR,
+    CCD,
+    DRW,
+    FRM,
+    GOF,
+    HLO,
+    HST,
+    HUH,
+    IAM,
+    LOD,
+    MAP,
+    MDF,
+    MIS,
+    NME,
+    NOT,
+    NOW,
+    OBS,
+    OFF,
+    ORD,
+    OUT,
+    PRN,
+    REJ,
+    SCO,
+    SLO,
+    SND,
+    SUB,
+    SVE,
+    THX,
+    TME,
+    YES,
+    ADM,
+    SMR,
 )
 
 # ---------------------------------------------------------------------------
@@ -354,7 +443,19 @@ UNO: Token = _register("UNO", 0x49, 0x0B)
 DSD: Token = _register("DSD", 0x49, 0x0D)
 
 PARAMETER_TOKENS: tuple[Token, ...] = (
-    AOA, BTL, ERR, LVL, MRT, MTL, NPB, NPR, PDA, PTL, RTL, UNO, DSD,
+    AOA,
+    BTL,
+    ERR,
+    LVL,
+    MRT,
+    MTL,
+    NPB,
+    NPR,
+    PDA,
+    PTL,
+    RTL,
+    UNO,
+    DSD,
 )
 
 # ---------------------------------------------------------------------------
@@ -402,9 +503,42 @@ NAR: Token = _register("NAR", 0x4A, 0x25)
 CCL: Token = _register("CCL", 0x4A, 0x26)
 
 PRESS_TOKENS: tuple[Token, ...] = (
-    ALY, AND, BWX, DMZ, ELS, EXP, FCT, FOR, FWD, HOW, IDK, IFF, INS, OCC, ORR,
-    PCE, POB, PRP, QRY, SCD, SRY, SUG, THK, THN, TRY, VSS, WHT, WHY, XDO, XOY,
-    YDO, CHO, BCC, UNT, NAR, CCL,
+    ALY,
+    AND,
+    BWX,
+    DMZ,
+    ELS,
+    EXP,
+    FCT,
+    FOR,
+    FWD,
+    HOW,
+    IDK,
+    IFF,
+    INS,
+    OCC,
+    ORR,
+    PCE,
+    POB,
+    PRP,
+    QRY,
+    SCD,
+    SRY,
+    SUG,
+    THK,
+    THN,
+    TRY,
+    VSS,
+    WHT,
+    WHY,
+    XDO,
+    XOY,
+    YDO,
+    CHO,
+    BCC,
+    UNT,
+    NAR,
+    CCL,
 )
 
 # ---------------------------------------------------------------------------
@@ -499,14 +633,81 @@ SPA: Token = _register("SPA", 0x57, 0x49)
 STP: Token = _register("STP", 0x57, 0x4A)
 
 PROVINCE_TOKENS: tuple[Token, ...] = (
-    BOH, BUR, GAL, RUH, SIL, TYR, UKR,
-    BUD, MOS, MUN, PAR, SER, VIE, WAR,
-    ADR, AEG, BAL, BAR, BLA, EAS, ECH, GOB, GOL, HEL, ION, IRI, MAO, NAO, NTH,
-    NWG, SKA, TYS, WES,
-    ALB, APU, ARM, CLY, FIN, GAS, LVN, NAF, PIC, PIE, PRU, SYR, TUS, WAL, YOR,
-    ANK, BEL, BER, BRE, CON, DEN, EDI, GRE, HOL, KIE, LON, LVP, MAR, NAP, NWY,
-    POR, ROM, RUM, SEV, SMY, SWE, TRI, TUN, VEN,
-    BUL, SPA, STP,
+    BOH,
+    BUR,
+    GAL,
+    RUH,
+    SIL,
+    TYR,
+    UKR,
+    BUD,
+    MOS,
+    MUN,
+    PAR,
+    SER,
+    VIE,
+    WAR,
+    ADR,
+    AEG,
+    BAL,
+    BAR,
+    BLA,
+    EAS,
+    ECH,
+    GOB,
+    GOL,
+    HEL,
+    ION,
+    IRI,
+    MAO,
+    NAO,
+    NTH,
+    NWG,
+    SKA,
+    TYS,
+    WES,
+    ALB,
+    APU,
+    ARM,
+    CLY,
+    FIN,
+    GAS,
+    LVN,
+    NAF,
+    PIC,
+    PIE,
+    PRU,
+    SYR,
+    TUS,
+    WAL,
+    YOR,
+    ANK,
+    BEL,
+    BER,
+    BRE,
+    CON,
+    DEN,
+    EDI,
+    GRE,
+    HOL,
+    KIE,
+    LON,
+    LVP,
+    MAR,
+    NAP,
+    NWY,
+    POR,
+    ROM,
+    RUM,
+    SEV,
+    SMY,
+    SWE,
+    TRI,
+    TUN,
+    VEN,
+    BUL,
+    SPA,
+    STP,
 )
 
 # Engine province code (`engine.map_loader`) -> DAIDE token string, for the
@@ -523,6 +724,27 @@ def daide_province_token(engine_code: str) -> Token:
     code = engine_code.upper()
     text = _ENGINE_TO_DAIDE_PROVINCE.get(code, code)
     return Token.from_str(text)
+
+
+# DAIDE token string -> engine province code (D2's reverse direction of
+# `daide_province_token`), inverting the same 3-entry rename table.
+_DAIDE_TO_ENGINE_PROVINCE: dict[str, str] = {v: k for k, v in _ENGINE_TO_DAIDE_PROVINCE.items()}
+
+# Fast membership check for `engine_province_code` -- built from `PROVINCE_TOKENS`
+# once at import time, same coverage `verify_standard_map_coverage()` checks.
+_PROVINCE_TOKEN_TEXTS: frozenset[str] = frozenset(t.text for t in PROVINCE_TOKENS)
+
+
+def engine_province_code(token: Token) -> str:
+    """The `engine.map_loader` province code for a DAIDE province `Token`.
+
+    Inverse of `daide_province_token`. Raises ``ValueError`` if ``token`` is
+    not one of the registered `PROVINCE_TOKENS` (e.g. a unit-type or order
+    token passed by mistake).
+    """
+    if token.text not in _PROVINCE_TOKEN_TEXTS:
+        raise ValueError(f"{token.text!r} is not a DAIDE province token")
+    return _DAIDE_TO_ENGINE_PROVINCE.get(token.text, token.text)
 
 
 def verify_standard_map_coverage() -> None:
