@@ -25,13 +25,14 @@
   maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
   decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
   Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
-- **Track D — Full DAIDE protocol support: ACTIVE, D1 merged.** Added 2026-07-29 at the
-  maintainer's explicit request ("I want the full DAIDE support as well") after Track C's
-  C4 flagged the current server as a non-conformant text stub. Five PRs (D1-D5) in
-  dependency order — see the Track D section below. **D1 merged (`v2.7.34`, PR #27)** —
-  token vocabulary + DCSP wire framing. D3 (shared draw-vote mechanism) running in
-  parallel. **Next action: D2** (depends on D1, now available); D3 lands independently
-  whenever it finishes.
+- **Track D — Full DAIDE protocol support: ACTIVE, D1+D3 merged.** Added 2026-07-29 at
+  the maintainer's explicit request ("I want the full DAIDE support as well") after
+  Track C's C4 flagged the current server as a non-conformant text stub. Five PRs
+  (D1-D5) in dependency order — see the Track D section below. **D1 merged (`v2.7.34`,
+  PR #27)** — token vocabulary + DCSP wire framing. **D3 merged (`v2.7.35`, PR #29)** —
+  shared draw-vote/concede mechanism, also satisfies Track C's C3. D2 (clause codec) in
+  progress. **Next action: D4** once D2 lands (D4 depends on both D2 and D3; D3 is
+  already available).
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -1043,41 +1044,40 @@ objects.
       multi-coast province, `ruff check` clean, no import of `persistence`/`server` modules
       (this layer stays as pure as D1 — only `engine` and D1's `tokens`/`wire`).
 
-## D3 — `draw-vote` (shared with Track C's C3 — implement once)
+## D3 — `draw-vote` (shared with Track C's C3 — implement once) ✅ MERGED (`v2.7.35`, PR #29)
 
-No DAIDE dependency; can run in parallel with D1. This is C3's engine+persistence+API
-layer (see C3 above for the full rationale — real games mostly end by negotiated draw, not
-18-center solo, and nothing here supports that today).
-
-- [ ] `src/engine/`: a pure way to resolve a `GameState` into a draw among a set of
-      winners (default: all non-eliminated powers with units, matching the historical
-      DAIDE/old-implementation semantic) without going through movement/adjustment
-      adjudication. Distinguish draw-completion from solo-completion in the resulting
-      state (a `GameStatus` addition or a `draw_winners: frozenset[str] | None` field) —
-      clients need to render "draw between X, Y, Z" differently from "X wins".
-- [ ] `src/persistence/`: per-phase draw-vote state (who has voted yes this phase),
-      cleared every processed turn, excluding eliminated powers from quorum — reuse
-      `Game.eliminated_powers`. Persist it the same way `pending_orders` already is (via
-      `GameRepo`), not in a new ad-hoc table, unless the existing shape genuinely can't fit.
-- [ ] `src/server/game_service.py`: `submit_draw_vote(game_id, power, vote)` /
-      `get_draw_votes(game_id)`, auto-finalizing to `GameStatus.COMPLETED` with the right
-      winner set the moment quorum is reached (don't require a second explicit call — a
-      game that reaches unanimity and then sits there because nobody called `finalize` is
-      its own bug class). Also a **concede** path: a single power voluntarily leaves,
-      distinct from a draw — it doesn't end the game, its centers/units are handled per the
-      standard elimination/civil-disorder rule.
-- [ ] `src/server/api/routes/games.py`: `POST /games/{id}/draw_vote`,
-      `GET /games/{id}/draw_vote_status`, `POST /games/{id}/concede` — auth-checked the same
-      way order submission is (only the assigned user for that power).
-- [ ] Tests: engine-level (unanimous non-eliminated survivors → `COMPLETED` with the right
-      winners; one holdout → stays `ACTIVE`; eliminated powers excluded from quorum both
-      ways), a full `GameService`-driven scenario test in the style of Track B V4's
-      `TestResolutionMapAcrossPhases` (small game → stalemate → unanimous draw vote →
-      `COMPLETED`), and API auth tests.
-- [ ] **Done when:** the scenario test passes, engine coverage floor still holds (≥92%),
-      and Track C's C3 checklist above is updated to point here instead of duplicating.
-      (Telegram `/draw` command and a frontend button are **not** part of D3 — those stay
-      open under C3 as client UX, since D3's job is the shared mechanism, not every client.)
+- [x] `src/engine/types.py`/`game.py`: `GameState.winners: frozenset[str] | None`,
+      pure `Game.draw(winners=None)` (defaults to every power with a unit still on the
+      board), `Game.winner()` extended to stay backward compatible (checks `winners`
+      first, falls back to the old ownership-scan). Solo-win path
+      (`_after_moves_settled`) now also populates `winners={solo}`, so solo and draw
+      completions share one representation.
+- [x] `src/persistence/`: `games.draw_votes` JSON column (Alembic `f3a9c17b6d20`,
+      `{power: "yes"}`, mirrors `pending_orders` exactly), cleared every processed turn.
+      New narrow `GameRepo.update_state_json` (state_json/phase_code/status only, no
+      turn-counter bump, no pending-orders clear) for concede's out-of-band mutation —
+      `save_state` would have wrongly disturbed other powers' already-submitted orders.
+- [x] `src/server/game_service.py`: `submit_draw_vote`/`get_draw_votes`/`concede`.
+      Draw-vote finalization reuses `save_state`'s `expected_phase_code` staleness guard
+      (the same cross-process concurrency protection `process_turn` uses) rather than a
+      second ad-hoc write path.
+- [x] `src/server/api/routes/games.py`: `POST /games/{id}/draw_vote`,
+      `GET /games/{id}/draw_vote_status`, `POST /games/{id}/concede`, reusing
+      `orders.py`'s existing `_authorize_power` helper by import rather than duplicating
+      the auth check.
+- [x] Tests: `tests/engine/test_game.py::TestDraw`,
+      `tests/test_game_service.py::TestDrawVoteAndConcede`,
+      `tests/test_api_routes_draw_vote.py` — unanimous-survivors/holdout/eliminated-
+      exclusion at the engine level, a full `GameService`-driven scenario, and API auth
+      tests (non-assigned user gets 403).
+- [x] **Done when — verified independently by the driver against a real local Postgres,
+      not just taken from the subagent's report:** migration applied cleanly to a live
+      DB; `ruff check src/` clean; full suite **1157 passed, 11 skipped, 10 xfailed**;
+      engine coverage 93.42% (≥92), overall 64.03% (≥60). Diff read in full — the
+      concede/draw split (`update_state_json` vs `save_state`) and the
+      quorum-excludes-eliminated-powers logic both matched this section's spec exactly.
+      **Track C's C3 is satisfied by this** — its remaining open item is purely client UX
+      (a Telegram `/draw` command and a frontend button), not the mechanism itself.
 
 ## D4 — `daide-messages-and-server`
 
