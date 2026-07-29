@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, http_bearer
+from .orders import _authorize_power
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
     notify_players, get_process_turn_lock,
@@ -19,6 +20,7 @@ from ..shared import (
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.game_repo import StaleGameError
+from server.game_service import OrderError
 
 router = APIRouter()
 
@@ -58,6 +60,21 @@ class MarkInactiveRequest(BaseModel):
 
 class SpectateRequest(BaseModel):
     """Request for spectate endpoints (join/leave)."""
+    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+    bot_secret: Optional[str] = None
+
+
+class DrawVoteRequest(BaseModel):
+    """Request model for casting a draw vote for a power."""
+    power: str
+    vote: bool
+    telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
+    bot_secret: Optional[str] = None
+
+
+class ConcedeRequest(BaseModel):
+    """Request model for a power conceding (voluntarily leaving) a game."""
+    power: str
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     bot_secret: Optional[str] = None
 
@@ -197,6 +214,65 @@ def get_orders_status(game_id: str) -> Dict[str, Any]:
     if status is None:
         raise HTTPException(status_code=404, detail="Game not found")
     return status
+
+@router.post("/games/{game_id}/draw_vote")
+def submit_draw_vote(
+    game_id: str,
+    req: DrawVoteRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Cast this power's yes/no draw vote for the current phase.
+
+    Only the assigned user for ``power`` may vote it (same auth check as order
+    submission). If this vote reaches quorum -- every non-eliminated power that
+    still has a unit has now voted yes -- the game is finalized as a draw
+    immediately; the response's ``quorum_reached``/``game_status`` reflect that.
+    """
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        result = game_service.submit_draw_vote(game_id, req.power, req.vote)
+    except OrderError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except StaleGameError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    return result
+
+
+@router.get("/games/{game_id}/draw_vote_status")
+def draw_vote_status(game_id: str) -> Dict[str, Any]:
+    """Who's voted yes to draw this phase, how many are needed, and whether
+    quorum is reached. Read-only, no auth required (same as other status-read
+    endpoints, e.g. ``/orders_status``)."""
+    status = game_service.get_draw_votes(game_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return status
+
+
+@router.post("/games/{game_id}/concede")
+def concede_game(
+    game_id: str,
+    req: ConcedeRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """A single power voluntarily leaves the game. Only the assigned user for
+    ``power`` may concede it. Unlike a draw vote, this does not end the game --
+    the remaining powers play on; the conceding power's units are removed and
+    it is picked up by the normal elimination check once it also holds no
+    supply centers."""
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        result = game_service.concede(game_id, req.power)
+    except OrderError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    return result
+
 
 @router.get("/games")
 def list_games() -> Dict[str, Any]:
