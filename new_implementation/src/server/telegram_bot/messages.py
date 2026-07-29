@@ -2,6 +2,7 @@
 Messaging commands for the Telegram bot.
 """
 import logging
+from typing import Any, Dict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -62,8 +63,35 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Broadcast error: {e}")
 
 
+def _sender_power_map(game_id: str) -> Dict[Any, str]:
+    """``sender_user_id`` (a numeric DB id) -> power name, built from ``GET
+    /games/{id}/players``. ``GET /games/{id}/messages`` only returns
+    ``sender_user_id`` (see ``src/server/api/routes/messages.py``), not the
+    sender's power, so callers that want to show who actually sent a message
+    need this lookup -- no new API endpoint required. Returns ``{}`` (rather
+    than raising) if the players lookup fails, so a transient failure here
+    degrades message attribution to "Unknown" instead of hiding the messages
+    entirely.
+    """
+    try:
+        players_list = api_get(f"/games/{game_id}/players")
+    except Exception:
+        return {}
+    return {
+        p["user_id"]: p.get("power", "Unknown")
+        for p in (players_list or [])
+        if p.get("user_id") is not None
+    }
+
+
 async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """View messages for a specific game."""
+    """View messages for a specific game, with sender attribution.
+
+    Diplomacy is all about negotiation, so knowing *who* sent a message
+    matters -- ``[ts] To FRANCE: ...`` alone doesn't say who sent it. Each
+    line now reads ``[ts] GERMANY -> FRANCE: ...`` (sender resolved via
+    ``_sender_power_map``).
+    """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -77,15 +105,19 @@ async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     game_id = args[0]
     try:
         result = api_get(f"/games/{game_id}/messages?telegram_id={user_id}")
-        messages = result.get("messages", [])
-        if not messages:
+        messages_list = result.get("messages", [])
+        if not messages_list:
             await update.message.reply_text("No messages found for this game.")
             return
+
+        sender_power = _sender_power_map(game_id)
+
         lines = [f"Messages for game {game_id}:"]
-        for m in messages:
+        for m in messages_list:
             ts = m["timestamp"]
             recipient = m["recipient_power"] or "ALL"
-            lines.append(f"[{ts}] To {recipient}: {m['text']}")
+            sender = sender_power.get(m.get("sender_user_id"), "Unknown")
+            lines.append(f"[{ts}] {sender} -> {recipient}: {m['text']}")
         await update.message.reply_text("\n".join(lines))
     except Exception as e:
         await update.message.reply_text(f"Error retrieving messages: {e}")

@@ -12,9 +12,10 @@ import time
 import uvicorn
 from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import requests
+from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler,
+    Application, ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
 )
 
@@ -29,7 +30,7 @@ from server.telegram_bot.games import (
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
     show_possible_moves, show_convoy_options, show_convoy_destinations, submit_interactive_order,
-    show_my_orders_menu, resolve_pending_order
+    show_my_orders_menu, resolve_pending_order, run_process_turn
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
 from server.telegram_bot.ui import (
@@ -43,6 +44,49 @@ from server.telegram_bot.channels import set_telegram_bot
 from server.telegram_bot.link_account import link_account
 
 logger = logging.getLogger("diplomacy.telegram_bot.main")
+
+# Registered with Telegram via ``set_my_commands`` (see ``_post_init`` below)
+# so they show up in the "/" autocomplete menu -- previously nothing called
+# ``set_my_commands`` anywhere in the package, so none of the ~27 commands
+# handled below were discoverable unless a player already knew the name.
+# Deliberately curated and ordered by usefulness rather than a dump of all
+# 27: aliases (``/clear``), admin/debug commands, and rarely-used commands
+# (``/orderhistory``, ``/replay``, ``/refresh``, ``/examples``, channel
+# management) are left off this menu -- they still work as commands, they're
+# just not advertised here.
+BOT_COMMANDS: list[BotCommand] = [
+    BotCommand("start", "Welcome message and main menu"),
+    BotCommand("register", "Register yourself with the bot"),
+    BotCommand("help", "Show all available commands"),
+    BotCommand("games", "List the games you are in"),
+    BotCommand("join", "Join a game"),
+    BotCommand("status", "Phase, deadline, and who has submitted orders"),
+    BotCommand("players", "List players in a game and their powers"),
+    BotCommand("selectunit", "Interactive order entry"),
+    BotCommand("order", "Submit orders, e.g. A PAR - BUR"),
+    BotCommand("myorders", "Show your submitted orders"),
+    BotCommand("clearorders", "Clear your submitted orders"),
+    BotCommand("processturn", "Adjudicate the current phase"),
+    BotCommand("draw", "Vote yes to end the game as a draw"),
+    BotCommand("nodraw", "Withdraw a draw vote you cast"),
+    BotCommand("viewmap", "View the current game map"),
+    BotCommand("message", "Send a private message to a power"),
+    BotCommand("broadcast", "Message all players in a game"),
+    BotCommand("messages", "View messages for a game"),
+    BotCommand("wait", "Join the waiting list for auto-matching"),
+    BotCommand("quit", "Leave a game"),
+    BotCommand("link", "Link this Telegram account to a browser account"),
+    BotCommand("rules", "Basic Diplomacy rules and order syntax"),
+]
+
+
+async def _post_init(app: Application) -> None:
+    """Register ``BOT_COMMANDS`` with Telegram so the "/" menu is populated.
+
+    Runs once during ``Application.initialize()`` -- wired in via
+    ``ApplicationBuilder().post_init(_post_init)`` in ``main()`` below.
+    """
+    await app.bot.set_my_commands(BOT_COMMANDS)
 
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -69,6 +113,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "power": power
             })
             await query.edit_message_text(f"🎉 Successfully joined Game {game_id} as {power}!")
+        except requests.HTTPError as e:
+            hint = ""
+            if getattr(e, "response", None) is not None and e.response.status_code == 401:
+                hint = "\n\n💡 Try /register first."
+            await query.edit_message_text(f"❌ Failed to join: {str(e)}{hint}")
         except Exception as e:
             await query.edit_message_text(f"❌ Failed to join: {str(e)}")
 
@@ -325,6 +374,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data.get("pending_orders", {}).pop(game_id, None)
         await query.edit_message_text(f"❌ Selection cancelled for game {game_id}.")
 
+    # /processturn confirmation gate (E3e): "ptforce|" runs the same
+    # adjudication + summary /processturn would have run directly had every
+    # power already submitted; "ptcancel|" just backs out.
+    elif data.startswith("ptforce|"):
+        _, game_id = data.split("|", 1)
+
+        async def _edit(text: str, reply_markup=None, parse_mode=None) -> None:
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+        await run_process_turn(_edit, game_id)
+
+    elif data.startswith("ptcancel|"):
+        _, game_id = data.split("|", 1)
+        await query.edit_message_text(
+            f"❌ Process turn cancelled for game {game_id}. No orders were changed."
+        )
+
     elif data.startswith("view_orders_"):
         parts = data.split("_")
         game_id = parts[2]
@@ -424,7 +490,7 @@ def main():
         print(f"Error: API health check failed: {e}")
         return
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(_post_init).build()
     
     # Set telegram bot instance for channel posting
     set_telegram_bot(app.bot)
