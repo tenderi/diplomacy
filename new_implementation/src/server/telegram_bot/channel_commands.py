@@ -9,7 +9,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .api_client import api_post, api_get
+from .api_client import DEFAULT_API_TIMEOUT, api_post, api_get
 from .game_context import fetch_user_games
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
@@ -101,7 +101,9 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         from .config import API_URL
 
-        result = requests.delete(f"{API_URL}/games/{game_id}/channel/unlink").json()
+        result = requests.delete(
+            f"{API_URL}/games/{game_id}/channel/unlink", timeout=DEFAULT_API_TIMEOUT
+        ).json()
         
         if result.get("status") == "ok":
             await update.message.reply_text(

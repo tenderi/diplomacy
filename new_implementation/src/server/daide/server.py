@@ -50,7 +50,9 @@ class DaideServer:
         self,
         game_service: Any,
         db_service: Optional[Any] = None,
-        host: str = "0.0.0.0",
+        # nosec B104 -- deliberate: the DAIDE listener must accept external client
+        # connections in production; binding loopback would break the protocol.
+        host: str = "0.0.0.0",  # nosec B104
         port: int = DEFAULT_PORT,
         game_id: Optional[str] = None,
     ) -> None:

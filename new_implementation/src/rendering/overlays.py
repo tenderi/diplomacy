@@ -645,7 +645,11 @@ def render_board_png_resolution(
 
     # Generate cache key including resolution data
     cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, orders=orders)
-    cache_key += hashlib.md5(json.dumps(resolution_data, sort_keys=True).encode()).hexdigest()[:8]
+    # Cache key, not a security control -- usedforsecurity=False silences the
+    # weak-hash warning without masking a real crypto misuse.
+    cache_key += hashlib.md5(
+        json.dumps(resolution_data, sort_keys=True).encode(), usedforsecurity=False
+    ).hexdigest()[:8]
 
     # Try to get from cache first
     cached_img = _map_cache.get(cache_key)
