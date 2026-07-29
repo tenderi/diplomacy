@@ -211,9 +211,8 @@ docstring). This is a display-only correction; adjudication always uses the actu
 unit, never the letter in the order string.
 
 Consumers of this exact shape: `frontend/src` (React SPA — `GameView.tsx` and friends),
-the Telegram bot's `api_client.py`, and `daide_protocol.py`. All three were ported in the
-same M6/M7 pass that introduced the shape — there is no legacy `powers`-keyed view left
-to support.
+the Telegram bot's `api_client.py`, and `src/server/daide/session.py`. There is no legacy
+`powers`-keyed view left to support.
 
 ## 5. Validation
 
@@ -225,6 +224,6 @@ second, divergent validation path anywhere in the codebase.
 
 ## 6. Out of scope here
 
-Full DB migration history: `alembic/versions/`. Route-by-route request/response Pydantic
-models: `src/server/models.py` and the route modules themselves. The adjudication
+Full DB migration history: `alembic/versions/`. Route-by-route request/response models: the
+route modules themselves, or the generated OpenAPI schema at `/docs`. The adjudication
 algorithm that produces `Resolution`/next-`GameState`: `adjudication.md`.

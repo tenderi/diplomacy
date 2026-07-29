@@ -1,6 +1,10 @@
-Book/Simulation1Book/Simulation2Book/Simulation3NewsgroupANewsgroupB
-Reading AssignmentsDiplomacy RulesPaper AssignmentLecture Outlines
-THE RULES OF DIPLOMACY
+# The Rules of Diplomacy
+
+> A plain-text transcript of the official rulebook, kept here so rules questions can be
+> grepped and cited. It contains OCR artefacts in the sample-game section (e.g. `Burl` for
+> `Bur`, `yen.` for `Ven.`, `Bull` for `Bul`) — **`old_implementation/rules.pdf` is the
+> authority** where the two disagree. For how this engine implements these rules, see
+> [`adjudication.md`](adjudication.md).
 
 I. PLAYERS AND COUNTRIES
 
@@ -209,6 +213,3 @@ Germany builds F Kiel, Russia removes A Gal., Turkey builds F Smyrna, Austria-Hu
 
 Although Russia lost two supply centers she has to remove only one unit, because one was annihilated during the year. Note that the capture of a supply center permits the raising of only one new unit altogether, not one every year.
 The result in the North was different from that of the previous move because of the German intervention F Den.-Swe., which cut the Russian Support.
-
-Reading AssignmentsDiplomacy RulesPaper AssignmentLecture Outlines
-Book/Simulation1Book/Simulation2Book/Simulation3NewsgroupANewsgroupB

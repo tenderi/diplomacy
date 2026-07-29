@@ -1,47 +1,43 @@
-# Example Game: France vs Germany (Standard Map)
+# Examples
 
-This example demonstrates a minimal game using the standard map, showing server commands and expected state transitions.
+## `demo_perfect_game.py`
 
-## Example Commands
-```
-CREATE_GAME standard
-ADD_PLAYER 1 FRANCE
-ADD_PLAYER 1 GERMANY
-SET_ORDERS 1 FRANCE A PAR - BUR
-SET_ORDERS 1 GERMANY A BER - MUN
-PROCESS_TURN 1
-GET_GAME_STATE 1
+A scripted two-year game that exercises every order type and mechanic, rendering a map
+series for each phase into `test_maps/`. Because the orders are hardcoded it is fully
+deterministic, which makes it the project's end-to-end sanity check: any change in
+adjudication or rendering shows up as a different result.
+
+```bash
+PYTHONPATH=src python examples/demo_perfect_game.py
 ```
 
-## Expected Output
-- Both players are added to the game.
-- Orders are set and processed.
-- The game state reflects the new unit positions after the turn.
+Design and phase-by-phase scenarios:
+[`docs/specs/automated_demo_game_spec.md`](../docs/specs/automated_demo_game_spec.md).
+
+## CLI server session
+
+`Server` (`src/server/server.py`) accepts text commands and is the quickest way to drive the
+engine without HTTP:
+
+```python
+from server.server import Server
+
+server = Server()
+game_id = server.process_command("CREATE_GAME standard")["game_id"]
+server.process_command(f"ADD_PLAYER {game_id} FRANCE")
+server.process_command(f"ADD_PLAYER {game_id} GERMANY")
+server.process_command(f"SET_ORDERS {game_id} FRANCE A PAR - BUR")
+server.process_command(f"SET_ORDERS {game_id} GERMANY A BER - MUN")
+server.process_command(f"PROCESS_TURN {game_id}")
+print(server.process_command(f"GET_GAME_STATE {game_id}"))
+```
+
+Run it with `PYTHONPATH=src` from `new_implementation/`. `standard` is the only supported
+map — `map_name` is recorded on the game row, but the engine always loads
+`maps/standard.map`.
 
 ---
 
-# Example Game: Mini Variant
-
-This example uses the custom `mini_variant` map from `/maps/mini_variant.json`.
-
-## Example Commands
-```
-CREATE_GAME mini_variant
-ADD_PLAYER 1 FRANCE
-SET_ORDERS 1 FRANCE A PAR - MAR
-PROCESS_TURN 1
-GET_GAME_STATE 1
-```
-
-## Expected Output
-- The game uses the custom map.
-- France's unit moves from PAR to MAR if the move is valid in the variant.
-
----
-
-# How to Run Examples
-1. Start the server: `python -m server.server`
-2. Enter the commands above in the server CLI.
-3. Observe the output and game state after each turn.
-
-See the [README.md](../README.md) for more details on running and testing the server.
+> `order_visualization_example.py` is **stale** — it imports `engine.map`, which was split
+> into `src/rendering/` and no longer exists. Use the map endpoints or
+> `demo_perfect_game.py` for order-visualization examples until it is rewritten.
