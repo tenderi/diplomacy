@@ -41,21 +41,6 @@ class TestSvgPathForMapName:
         monkeypatch.setenv("DIPLOMACY_MAP_PATH", "/tmp/custom.svg")
         assert svg_path_for_map_name("standard") == "/tmp/custom.svg"
 
-    def test_standard_v2_falls_back_when_v2_svg_missing(self, monkeypatch, tmp_path):
-        base = tmp_path / "standard.svg"
-        base.write_text("<svg/>")
-        monkeypatch.setenv("DIPLOMACY_MAP_PATH", str(base))
-        # No v2.svg next to it -> falls back to the base path.
-        assert svg_path_for_map_name("standard-v2") == str(base)
-
-    def test_standard_v2_uses_v2_svg_when_present(self, monkeypatch, tmp_path):
-        base = tmp_path / "standard.svg"
-        base.write_text("<svg/>")
-        v2 = tmp_path / "v2.svg"
-        v2.write_text("<svg/>")
-        monkeypatch.setenv("DIPLOMACY_MAP_PATH", str(base))
-        assert svg_path_for_map_name("standard-v2") == str(v2)
-
 
 class TestUnitsForRender:
     def test_groups_by_power_and_strips_coast(self):

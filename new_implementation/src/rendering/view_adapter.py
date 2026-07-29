@@ -18,19 +18,11 @@ from typing import Any
 
 
 def svg_path_for_map_name(map_name: str) -> str:
-    """Resolve a map name (``"standard"``, ``"standard-v2"``) to its SVG file path.
+    """Resolve a map name (``"standard"``) to its SVG file path.
 
     Reads ``DIPLOMACY_MAP_PATH`` (defaulting to ``maps/standard.svg``) for the base
-    map; ``standard-v2`` looks for a sibling ``v2.svg`` and falls back to the base
-    path if that file is missing.
+    map.
     """
-    if map_name == "standard-v2":
-        base_path = os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
-        base_dir = os.path.dirname(base_path) if os.path.dirname(base_path) else "maps"
-        svg_path = os.path.join(base_dir, "v2.svg")
-        if not os.path.exists(svg_path):
-            svg_path = base_path
-        return svg_path
     return os.environ.get("DIPLOMACY_MAP_PATH", "maps/standard.svg")
 
 

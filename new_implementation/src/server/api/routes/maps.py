@@ -23,7 +23,7 @@ router = APIRouter()
 # Map names the renderer actually knows how to draw. ``svg_path_for_map_name``
 # silently falls back to the standard SVG for anything it doesn't recognize
 # (it never raises), so the 404 boundary for an unsupported map name lives here.
-_KNOWN_MAP_NAMES = frozenset({"standard", "standard-v2"})
+_KNOWN_MAP_NAMES = frozenset({"standard"})
 
 
 def _kind_by_province(view: Dict[str, Any]) -> Dict[str, str]:

@@ -84,7 +84,6 @@ def check_file_system_paths(base_path: str) -> Dict[str, Any]:
         "requirements.txt",
         "alembic.ini",
         "maps/standard.svg",
-        "maps/v2.svg",
         "examples/demo_perfect_game.py",
     ]
     files = {}

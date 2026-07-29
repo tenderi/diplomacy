@@ -17,33 +17,38 @@
   **manual end-to-end check** below, which is the acceptance criterion for the whole
   track. It needs a live bot token and a human at a Telegram client, so **it cannot be
   delegated to an agent** — it is the maintainer's to run.
-- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`), V2 (`v2.7.24`) and now
-  **V3 in full** (`v2.7.26` + `v2.7.28`) are merged; V1 was absorbed into PR4.
-- **V3 is now fully done.** Its one open item — narrowing the 25 blanket
+- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`), V2 (`v2.7.24`), V3
+  (`v2.7.26` + `v2.7.28`), and now **V5** (`v2.7.30`) are merged; V1 was absorbed into
+  PR4.
+- **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
   near-identical `except (AttributeError, Exception)` tuples in `icons.py` (not caught by
   the original grep, which searched literally for `"except Exception"`) were narrowed in
   the same pass, so 27 blocks total were fixed. See the V3 section for the per-block
   exception choices and how they were validated.
-- **NEXT TASK: V4** (overlay correctness). **V5 remains as independent filler** — note V5
-  carries the `standard-v2` deletion below, which touches `rendering/map.py`; V3 is now
-  merged so that no longer risks a conflict.
-- **Maintainer decision 2026-07-28: `standard-v2` gets deleted entirely.** It could never
-  have rendered a playable board. Full reasoning and the exact file list are in the V5
-  section — read it there before touching anything named `v2`.
-- **Suite baseline (post-V3-except-narrowing, on `main`):** 852 passed, 11 skipped,
-  10 xfailed — unchanged from the post-PR6 baseline (the except-narrowing changed no
-  behavior on any tested path); ruff clean; engine coverage 92.86%, overall 61.74%.
-  **Frontend baseline:** 99 passed in 21 files; `tsc -b --noEmit` and `npm run build`
-  clean (untouched by this change).
+- **V5 is done (`v2.7.30`).** `standard-v2` is deleted entirely (SVG assets, routes,
+  view-adapter branch, `Map._resolve_svg_path` branch, `health.py` reference, both
+  `test_standard_v2_*` files, plus leftover references outside `src`/`tests` in
+  `examples/demo_perfect_game.py`, `infra/scripts/compare_environments.py`, and
+  `CODEBASE_OVERVIEW.md`), tracked backup cruft under `maps/` is gone, and
+  `test_order_visualization.py` was rewritten pytest-idiomatic (no `__main__` runner, no
+  prints, `tmp_path` instead of a hardcoded output dir); `test_visualization.py` was
+  already clean, no changes needed. See the V5 section for the full file list and
+  verification evidence.
+- **NEXT/IN PROGRESS: V4** (overlay correctness) — being worked concurrently.
+- **Suite baseline (post-V5, on `main`):** 831 passed, 11 skipped, 10 xfailed, 1 warning
+  (only the pre-existing unrelated `StarletteDeprecationWarning`, since V5 removed the
+  suite's last `PytestReturnNotNoneWarning`) — down from 852 by exactly the 21 deleted
+  `test_standard_v2_map*` tests; ruff clean; engine coverage 92.86%, overall 60.36% (both
+  floors pass). Verified independently by the driver, not just from the subagent's report.
 - **A count that looks alarming but is fine:** V2's suite drop (890 → 840) is *entirely*
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-28, end of session. Track A complete (PR1–PR6,
-  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`+`v2.7.28`).
-  `main` is green, no open PRs, no stale branches.
+- **Last updated:** 2026-07-29, mid-session. Track A complete (PR1–PR6,
+  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3/V5 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`+
+  `v2.7.28`/`v2.7.30`); V4 in progress.
 
 ### Where the old trackers went
 
@@ -620,30 +625,45 @@ unfinished except-narrowing was caught rather than assumed done.
 - [ ] **Done when:** a convoyed move with a 2-fleet chain renders one continuous chain,
       dislodged units are visually distinct from successful holds, suite green.
 
-### V5 — Repo hygiene (small; independent — do anytime)
+### V5 — Repo hygiene — ✅ DONE (`v2.7.30`)
 
-- [ ] Delete tracked backup cruft: `maps/standard_backup.svg`,
-      `maps/standard_backup_20250730_145707.svg`, `maps/standard.map.backup`
-      (git history is the backup). Check nothing globs `maps/*` for variants first.
-- [ ] **DELETE `standard-v2` entirely — maintainer decision, 2026-07-28.** Remove
-      `maps/v2.svg` (1.2 MB), `maps/v2/`, the `_KNOWN_MAP_NAMES` entry in
-      `api/routes/maps.py`, the `svg_path_for_map_name` branch in `rendering/view_adapter.py`,
-      the `Map._resolve_svg_path` branch, the `health.py` reference, and both
-      `test_standard_v2_*` files. **It could never have worked:** the renderer locates
-      provinces by SVG path `id` normalized to 3-letter codes, and `standard.svg` has 80
-      such ids while `v2.svg` has **zero** — its 43 ids are layer names (`Backdrop`,
-      `Countries`, `Centres`). A `standard-v2` game renders background art with no province
-      colouring and no units placed; the test only asserted `len(img_bytes) > 0`, which is
-      why it looked fine. Making it real needs the SVG re-authored with per-province
-      geometry — an illustration task, not plumbing. This also removes the suite's last
-      remaining warning (`PytestReturnNotNoneWarning` from `test_standard_v2_map.py`).
-- [ ] Modernize or prune the pre-rewrite print-style test scripts
-      (`test_order_visualization.py`, `test_visualization.py`,
-      `test_standard_v2_map.py`): drop `main()` runners, emoji banners, `sys.path`
-      hacks; keep the actual assertions as plain pytest tests. (`bot_test_runner.py` is
-      already covered by Track A's PR6.)
-- [ ] **Done when:** `tests/` contains only pytest-idiomatic files and `maps/` only
-      shipping assets.
+- [x] Deleted tracked backup cruft: `maps/standard_backup.svg`,
+      `maps/standard_backup_20250730_145707.svg`, `maps/standard.map.backup`. Grepped the
+      whole repo first (code/CI/docs) — the only hits were this tracker file itself and a
+      `.cursor/rules/agent.md` policy note about *creating* future backups, not referencing
+      these specific files.
+- [x] **DELETED `standard-v2` entirely.** Removed `maps/v2.svg` (1.2 MB) and `maps/v2/`
+      (4 files, including the two `.ai` vector originals); the `_KNOWN_MAP_NAMES` entry in
+      `api/routes/maps.py`; the `standard-v2` branch in `view_adapter.svg_path_for_map_name`;
+      the `standard-v2` branch in `board._resolve_svg_path` plus the entire v2-specific
+      text/transform coordinate-parsing branch in `_get_cached_svg_data` (the jdipNS path is
+      now the only parser, and the now-unused `import re` in `board.py` went with it); the
+      `v2_svg` entry in `health.py`'s filesystem check; both `test_standard_v2_*` test files;
+      the two `standard-v2`-specific cases in `test_view_adapter.py` (its `standard`/general
+      tests are untouched). Also cleaned up references the original audit missed because
+      they're outside `src`/`tests`: the `-m standard-v2` CLI option and its resolution
+      branch in `examples/demo_perfect_game.py`, the `maps/v2.svg` entry in
+      `infra/scripts/compare_environments.py`'s file-existence check, and the `v2.svg`/`v2/`
+      row plus stale test-file mentions in `CODEBASE_OVERVIEW.md`.
+      `grep -rn "standard-v2\|v2\.svg\|maps/v2"` across the whole repo (excluding this
+      tracker file) is now empty. Confirmed the still-supported `standard` map still renders
+      correctly post-deletion (722,481-byte PNG through the real `GameService`/API-route
+      path — matches the V0/V2 baseline byte count exactly) and that `standard-v2` now 404s
+      cleanly instead of silently falling back.
+- [x] Modernized `test_order_visualization.py`: rewritten from a `__main__`/emoji-banner
+      script into two plain `pytest.mark.map` tests using `tmp_path` (not a hardcoded
+      `test_maps/` dir) with real assertions (PNG magic bytes + non-zero length + file
+      exists) instead of prints. `test_visualization.py` was inspected and found already
+      pytest-idiomatic — no changes needed. (`test_standard_v2_map.py` was deleted outright
+      per the task above rather than modernized; `bot_test_runner.py` was already covered by
+      Track A's PR6.)
+- [x] **Done when:** confirmed — `tests/` contains only pytest-idiomatic files (in the
+      scope of this task) and `maps/` only ships `standard.svg`/`standard.map`/
+      `mini_variant.json`/`svg.dtd`. Suite: 831 passed, 11 skipped, 10 xfailed, 1 warning
+      (the last remaining `PytestReturnNotNoneWarning` is gone, leaving only an unrelated
+      pre-existing `StarletteDeprecationWarning`); ruff clean; engine coverage 92.86%,
+      overall 60.36% (both floors pass) — re-verified independently by the driver in the
+      agent's worktree, not just taken from its report.
 
 ---
 
