@@ -7,10 +7,19 @@ import uuid
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from engine.serialization import state_to_dict
+from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
+from rendering.map import Map
+from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
+from rendering.view_adapter import phase_info as build_phase_info
+from rendering.view_adapter import svg_path_for_map_name, units_for_render
 from server.game_service import GameService
 
 pytestmark = pytest.mark.database
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_NONTRIVIAL_PNG_BYTES = 5000  # a bare/near-empty board renders far smaller than this
 
 
 @pytest.fixture
@@ -24,6 +33,32 @@ def _new_game(service) -> str:
     gid = f"gs-{uuid.uuid4().hex[:8]}"
     service.create_game(gid)
     return gid
+
+
+def _kind_by_province(view: dict) -> dict:
+    return {
+        u["location"].split("/")[0]: u["kind"]
+        for units in view["units_by_power"].values()
+        for u in units
+    }
+
+
+def _render_resolution_png(service: GameService, gid: str) -> bytes:
+    """Mirror ``server.api.routes.maps.generate_resolution_map`` without the
+    FastAPI/db_service layer: render the board for whatever phase is current,
+    with arrows for the last processed phase's resolution."""
+    view = service.view(gid)
+    resolution = service.last_resolution(gid)
+    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
+    svg_path = svg_path_for_map_name(view["map_name"])
+    return Map.render_board_png_resolution(
+        svg_path,
+        units_for_render(view),
+        order_viz,
+        {"conflicts": [{"province": p, "result": "standoff"} for p in view["contested"]]},
+        phase_info=build_phase_info(view, 0),
+        supply_center_control=dict(view["ownership"]),
+    )
 
 
 class TestLifecycle:
@@ -143,3 +178,135 @@ class TestOrderHistory:
         service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
         service.process_turn(gid)
         assert list(service.order_history(gid)["0"].keys()) == ["FRANCE"]
+
+
+class TestMapRenderingSmoke:
+    """V4 end-to-end smoke test: create -> submit -> orders map -> process ->
+    resolution map, on the standard opening. Extends the resolution-persistence
+    coverage above with the actual PNG-rendering leg of the pipeline."""
+
+    def test_create_submit_orders_map_process_resolution_map(self, service):
+        gid = _new_game(service)
+        service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "A MAR S A PAR - BUR"])
+        service.submit_orders(gid, "GERMANY", ["A MUN H"])
+
+        view = service.view(gid)
+        order_viz = orders_by_power_to_viz(
+            service.pending_orders_parsed(gid), _kind_by_province(view)
+        )
+        svg_path = svg_path_for_map_name(view["map_name"])
+        orders_png = Map.render_board_png_orders(
+            svg_path,
+            units_for_render(view),
+            order_viz,
+            phase_info=build_phase_info(view, 0),
+            supply_center_control=dict(view["ownership"]),
+        )
+        assert orders_png[:8] == _PNG_MAGIC
+        assert len(orders_png) > _NONTRIVIAL_PNG_BYTES
+
+        service.process_turn(gid)
+        resolution_png = _render_resolution_png(service, gid)
+        assert resolution_png[:8] == _PNG_MAGIC
+        assert len(resolution_png) > _NONTRIVIAL_PNG_BYTES
+
+
+class TestResolutionMapAcrossPhases:
+    """V4 task 3: resolution maps for retreat and adjustment phases.
+
+    Rather than playing the full 34-unit standard opening for several turns
+    hoping for an organic dislodgement, this drives a hand-built minimal
+    ``GameState`` through ``GameService.restore_snapshot`` -- a real, public
+    entry point (also used by the snapshot-restore feature) -- so the guaranteed
+    dislodge/build scenario below is small enough to reason about by hand while
+    still exercising the genuine ``GameService.process_turn`` -> engine
+    adjudicator -> ``resolution_dict_to_viz`` -> renderer pipeline throughout.
+
+    Layout: FRANCE (A BUR, A RUH) attacks GERMANY's A MUN with support from RUH
+    (2 vs 1 -> dislodged, retreats to SIL). GERMANY's second unit (A BER) and
+    FRANCE's single starting center (PAR) are only there so neither power is
+    wiped out or hits a 0-center edge case; after MUN changes hands at the Fall
+    recompute, GERMANY has 2 units but 1 center and must disband one in
+    ``W1901A``.
+    """
+
+    def _setup(self, service: GameService) -> str:
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "FRANCE", Location("BUR")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("RUH")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("BER")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY", "BER": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        return gid
+
+    def test_retreat_and_adjustment_resolution_maps_render(self, service):
+        gid = self._setup(service)
+
+        # -- Spring movement: FRANCE dislodges GERMANY's A MUN. --------------
+        service.submit_orders(gid, "FRANCE", ["A BUR - MUN", "A RUH S A BUR - MUN"])
+        service.submit_orders(gid, "GERMANY", ["A MUN H", "A BER H"])
+        out = service.process_turn(gid)
+        assert out["phase"] == "S1901R"
+
+        view = service.view(gid)
+        dislodged = {d["unit"]["location"]: d for d in view["dislodged"]}
+        assert "MUN" in dislodged
+        assert "SIL" in dislodged["MUN"]["retreats"]
+
+        # Sitting in the retreat phase, the resolution map shows the movement
+        # that caused it (the dislodged unit's marker, per the pre-existing
+        # dislodged-position logic in overlays.py).
+        movement_resolution_png = _render_resolution_png(service, gid)
+        assert movement_resolution_png[:8] == _PNG_MAGIC
+        assert len(movement_resolution_png) > _NONTRIVIAL_PNG_BYTES
+
+        # -- Retreat: GERMANY retreats MUN's unit to SIL. --------------------
+        service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
+        out = service.process_turn(gid)
+        assert out["phase"] == "F1901M"
+
+        # Now the last resolution is the retreat itself -- exercises the
+        # "retreat" branch of resolution_dict_to_viz/_draw_retreat_order.
+        retreat_resolution_png = _render_resolution_png(service, gid)
+        assert retreat_resolution_png[:8] == _PNG_MAGIC
+        assert len(retreat_resolution_png) > _NONTRIVIAL_PNG_BYTES
+
+        view = service.view(gid)
+        provinces = {u["location"] for u in view["units"] if u["power"] == "GERMANY"}
+        assert provinces == {"SIL", "BER"}
+
+        # -- Fall movement: both sides hold; MUN's ownership flips to FRANCE. -
+        service.submit_orders(gid, "FRANCE", ["A MUN H", "A RUH H"])
+        service.submit_orders(gid, "GERMANY", ["A SIL H", "A BER H"])
+        out = service.process_turn(gid)
+        assert out["phase"] == "W1901A"  # GERMANY: 2 units, 1 center -> must disband
+
+        view = service.view(gid)
+        assert view["ownership"]["MUN"] == "FRANCE"
+
+        fall_resolution_png = _render_resolution_png(service, gid)
+        assert fall_resolution_png[:8] == _PNG_MAGIC
+        assert len(fall_resolution_png) > _NONTRIVIAL_PNG_BYTES
+
+        # -- Adjustment: GERMANY disbands the extra unit. --------------------
+        service.submit_orders(gid, "GERMANY", ["D A SIL"])
+        out = service.process_turn(gid)
+        assert out["phase"] == "S1902M"
+
+        # Exercises the "destroy" branch of resolution_dict_to_viz for a real
+        # adjustment-phase (Disband) result, not a hand-built Resolution.
+        adjustment_resolution_png = _render_resolution_png(service, gid)
+        assert adjustment_resolution_png[:8] == _PNG_MAGIC
+        assert len(adjustment_resolution_png) > _NONTRIVIAL_PNG_BYTES
+
+        view = service.view(gid)
+        provinces = {u["location"] for u in view["units"] if u["power"] == "GERMANY"}
+        assert provinces == {"BER"}
