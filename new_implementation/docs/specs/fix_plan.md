@@ -20,13 +20,18 @@
 - **Track B — Post-rewrite cleanup: ALL SUB-TRACKS DONE.** V0 (`v2.7.19`), V2
   (`v2.7.24`), V3 (`v2.7.26` + `v2.7.28`), V4 (`v2.7.31`), and V5 (`v2.7.30`) are all
   merged; V1 was absorbed into PR4. **Track B is complete.**
-- **Track C — Security hardening & missing gameplay features: NEW, ACTIVE, nothing
-  started.** Added 2026-07-29 from a direct old-vs-new comparison requested by the
-  maintainer (motivation: old implementation works but has stale deps/vulnerabilities;
-  new implementation should not just port features but close security gaps the old one
-  never had to face as a public HTTP service). Four findings, each verified by reading
-  the actual code, not inferred from docs. **Next action: C1** (cheapest, highest
-  leverage — the CI "security" job is currently a no-op gate).
+- **Track C — Security hardening & missing gameplay features: ACTIVE, nothing merged
+  yet.** Added 2026-07-29 from a direct old-vs-new comparison requested by the
+  maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
+  decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
+  Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
+- **Track D — Full DAIDE protocol support: NEW, ACTIVE, nothing merged yet.** Added
+  2026-07-29 at the maintainer's explicit request ("I want the full DAIDE support as
+  well") after Track C's C4 flagged the current server as a non-conformant text stub.
+  Five PRs (D1-D5) in dependency order — see the Track D section below for the full plan,
+  clean-room/licensing ground rules (old_implementation is AGPL-3.0; this repo has no
+  LICENSE, so it's referenced for wire-format correctness only, never copied), and the
+  D1/D3-can-run-in-parallel note. **Next action: D1 and D3 in parallel.**
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -877,54 +882,265 @@ not a substitute for it.
       (≥92%), and both clients can cast a vote and see the game end without an 18-center
       solo.
 
-## C4 — The "DAIDE" server does not implement the DAIDE protocol — needs a maintainer scope decision
+## C4 — The "DAIDE" server does not implement the DAIDE protocol — **DECISION MADE: (a), implement it**
 
-**Finding:** `src/server/daide_protocol.py` (161 lines total) is a hand-rolled,
-newline-delimited **ASCII text** protocol that happens to reuse a few DAIDE token names
-(`HLO`, `ORD`, `SUB`, `TME`, `PRP`, `REJ`, `ACC`) as literal prefixes matched with
-`str.startswith`. The real DAIDE protocol (used by every existing standalone Diplomacy AI
-— DumbBot, Albert, and the various tournament bots this feature would exist to
-interoperate with) is a **binary** protocol: a 4-byte IM/RM/DM message header, then a
-token stream where every clause (province, power, unit, coast, order type, ...) is encoded
-as a 2-byte token per `docs`/the DAIDE spec, not literal ASCII. `old_implementation`
-carries a from-scratch implementation of that encoding across
-`diplomacy/daide/tokens.py` (440 lines — the full token table),
-`diplomacy/daide/clauses.py` (828 lines — clause parsing/building),
-`diplomacy/daide/messages.py` (240 lines), `diplomacy/daide/requests.py` (829 lines),
-`diplomacy/daide/responses.py` (862 lines), and `diplomacy/daide/notifications.py`
-(492 lines) — essentially 4,900 lines of protocol machinery that the new implementation's
-161-line stub does not have and cannot grow into incrementally, because it's built on the
-wrong wire format from the ground up.
+**Finding (unchanged):** `src/server/daide_protocol.py` (161 lines) is a hand-rolled
+ASCII text protocol reusing a few DAIDE token names as literal string prefixes. The real
+DAIDE protocol is binary (4-byte IM/RM/DM message header, then a token stream where every
+clause is a 2-byte token). No unmodified real-world DAIDE bot can connect to this server
+today.
 
-Concretely: **no unmodified real-world DAIDE bot can connect to this server today.**
-Anything that has exercised `tests/test_daide_protocol.py` has necessarily been testing
-against the same text stub, not real DAIDE framing — that test suite cannot be evidence of
-DAIDE compatibility.
+**Maintainer decision (2026-07-29): (a) — implement the real protocol.** Superseded by
+**Track D**, below, which is the full execution plan. This section is kept only as the
+historical record of the finding; do not duplicate tasks here — see Track D.
 
-This is **not obviously in scope** — `docs/specs/architecture.md` lists DAIDE clients as
-a first-class caller (so someone once intended this), but `CLAUDE.md`'s out-of-scope list
-for "AI-powered analysis" is arguably adjacent (DAIDE's whole purpose is letting external
-AI bots play), and reimplementing ~4,900 lines of binary protocol machinery is a
-multi-week project, not a cleanup task. **Before any agent picks this up:**
+---
 
-- [ ] **Maintainer decision needed:** (a) commit to a real DAIDE implementation ported
-      from `old_implementation/diplomacy/daide/` (biggest lift, but makes the server
-      interoperate with the existing DAIDE bot ecosystem — the reason DAIDE exists at all),
-      (b) keep the current text stub but stop calling it "DAIDE" in code/docs/architecture
-      diagrams — rename to something like a "simple TCP bot protocol" and update
-      `docs/specs/architecture.md:12,19,59,61` accordingly so nobody discovers the mismatch
-      the hard way when a real bot fails to connect, or (c) delete it — `grep -rn
-      "daide" src/ | grep -v __pycache__` first to size the blast radius (routes, tests,
-      docs referencing it) if the answer is "nobody's ever going to plug in a real DAIDE
-      bot."
-- [ ] Whichever option is chosen, update `docs/specs/architecture.md` and this file's
-      "Out of scope" list to make the decision explicit so a future agent doesn't re-open
-      this question from scratch.
-- [ ] If (a): scope it as its own sub-track with its own PRs (token table → clause
-      encode/decode → message framing → request/response mapping onto `GameService`, in
-      that dependency order, each independently testable against fixed byte sequences from
-      the old implementation's own test fixtures in `old_implementation/diplomacy/daide/tests/`
-      before wiring to the live server).
+# Track D — Full DAIDE Protocol Support
+
+## Why this track exists
+
+The maintainer decided C4 should be a real implementation, not a rename or deletion:
+interoperating with the existing DAIDE bot ecosystem (DumbBot, Albert, and other
+standalone Diplomacy AIs that speak this protocol) is a first-class goal, not a nice-to-have.
+
+## Ground rules (read before writing any code)
+
+- **Clean-room, not a port.** `old_implementation` (Philip Paquette's `diplomacy` package)
+  is **AGPL-3.0 licensed**; `new_implementation` — and the repo root — currently ship with
+  **no LICENSE file at all**. Copying its `daide/` source (verbatim or lightly edited)
+  into this repo would drag AGPL's copyleft — including its network-source-disclosure
+  clause, which matters because this runs as a public API on EC2 — into a codebase that
+  has made no such commitment. **Use `old_implementation/diplomacy/daide/` and its
+  `tests/` fixtures only as a read-only reference** to check wire-format correctness
+  (token byte values, message framing, and expected byte sequences are dictated by the
+  external DAIDE specification itself, not by Paquette's creative expression — reproducing
+  the *same required values* for protocol compliance is not the same as copying his code).
+  Write fresh implementations with this codebase's own conventions (frozen dataclasses,
+  type hints, pure functions in the protocol-encoding layer). **Do not `cp`, do not
+  paste function bodies, do not carry over his docstrings/comments/file layout.** If a
+  subagent's diff looks structurally identical to the old file with names changed, that's
+  a sign to rewrite it, not rename it.
+- **DAIDE draw negotiation (`DRW`) needs an engine-level draw mechanism that doesn't exist
+  yet — this is the same gap Track C's C3 already found.** Rather than building a
+  DAIDE-only shadow implementation, **D3 below builds the shared draw/concede mechanism
+  once** (engine + `GameRepo`/`GameService` + generic, non-DAIDE API endpoints), and D4's
+  DAIDE `DRW`/`SLO` support is a thin adapter over it. This closes C3's engine+API layer as
+  a side effect; C3's remaining item after D3 lands is just the Telegram/frontend UX (a
+  `/draw` bot command and a frontend button) — update C3's checklist when D3 merges rather
+  than duplicating the work under two names.
+- **Currently nothing starts a DAIDE server at all** — `daide_protocol.py` has zero
+  importers outside its own test file (confirmed via
+  `grep -rln "daide_protocol\|DAIDEServer" . --include=*.py` excluding `old_implementation`
+  and `tests/test_daide_protocol.py`). This isn't just a wire-format fix; D4 also has to
+  wire a listener into the running app for the first time, following the existing
+  `asyncio.create_task(deadline_scheduler())` pattern in `_api_module.py`'s `lifespan`
+  (`_api_module.py:139`) — use native `asyncio.start_server`, not Tornado (nothing else in
+  this codebase depends on Tornado; don't add it as a dependency for this).
+- **Press (`SND`/`FRM`, the `PRP`/`ALY`/`XDO`/... negotiation grammar) is the deepest part
+  of the real spec and the least essential for interoperability.** Scope it as: syntax-
+  validate bracket structure and forward the token payload opaquely between clients
+  (peer-to-peer negotiation content is the bots' concern, not the server's) rather than
+  deep-parsing the full press grammar. Full press-content parsing is explicitly **out of
+  scope** for this track — note it in `architecture.md` as a known limitation, not a silent
+  gap.
+- **New package location:** `src/server/daide/` (replacing the single
+  `src/server/daide_protocol.py` file), mirroring how `telegram_bot/` is already a
+  subpackage of `src/server/`. Update every importer.
+- Standard map only (matches this codebase's existing "map variants beyond `standard` are
+  out of scope" rule) — the token tables only need `maps/standard.map`'s province set.
+
+## Execution model
+
+Same as Track A: **one Sonnet subagent per PR**, in dependency order, driver
+(the session running this) verifies locally and reads the diff before opening a PR — with
+one addition specific to this track: **the driver must also verify the clean-room rule
+above** (diff the new files against the corresponding old-implementation file by eye; if
+it's a rename-and-tweak, send it back). D1 and D3 have no file overlap and no dependency
+on each other, so they can run **in parallel**; D2 depends on D1; D4 depends on D2 and D3;
+D5 depends on D4.
+
+```
+D1 (wire+tokens) ──► D2 (clauses) ──┐
+                                    ├──► D4 (messages+server) ──► D5 (e2e tests + docs)
+D3 (draw/concede engine) ──────────┘
+```
+
+## Local gates (run before every push — same as Track A/B)
+
+```bash
+cd new_implementation && source venv/bin/activate
+ruff check src/
+PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
+coverage report --include='src/engine/*' --fail-under=92
+coverage report --fail-under=60
+```
+
+## D1 — `daide-wire-protocol`
+
+Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
+
+- [ ] `src/server/daide/tokens.py`: the DAIDE token table (powers, provinces+coasts, unit
+      types, order types, commands, order notes/results, parameters, press tokens) as a
+      `Token` frozen dataclass or `IntEnum`-backed mapping — pick whichever fits this
+      codebase's style better (the engine favors frozen dataclasses + enums; a `bytes <->
+      str` bidirectional mapping is the actual requirement, an `Enum` with a `(str, bytes)`
+      value pair is one reasonable shape). Cross-check every value against
+      `old_implementation/diplomacy/daide/tokens.py` for correctness (they must match — the
+      values are the spec) without copying the file. Include the ASCII-escape convention
+      (single chars outside the known-token table) and the signed 14-bit integer encoding.
+      Cover only the 7 standard powers + `maps/standard.map`'s province set (derive the
+      province list from `engine.map_loader.load_standard_map()`, don't hand-type it a
+      second time — that would be exactly the "duplicate topology source" antipattern
+      `fix_plan.md`'s Track B spent effort eliminating).
+- [ ] `src/server/daide/wire.py`: the DCSP framing layer — `InitialMessage`,
+      `RepresentationMessage`, `DiplomacyMessage`, `FinalMessage`, `ErrorMessage` (or an
+      equivalent `MessageType` + framing-function design; a from-scratch shape is fine, the
+      wire bytes are what must match, not the class hierarchy) — 4-byte header (type, pad,
+      length-hi, length-lo), the IM version/magic-number handshake (`0x00 0x01` version,
+      `0xDA 0x10` magic number), RM as a 4-byte zero-length reply. Async-friendly (reads
+      off an `asyncio.StreamReader`), since D4's server is asyncio-based.
+- [ ] Tests: round-trip every token (`str -> bytes -> str`), the integer encoding at its
+      boundaries (-8192, -1, 0, 8191, and the out-of-range rejection), ASCII escaping for
+      an arbitrary character, and IM/RM/DM/FM/EM framing byte sequences — assert against
+      literal expected byte sequences (write your own, don't import the old test file, but
+      you may read it to *check* your expected values are right).
+- [ ] **Done when:** `ruff check` clean, all round-trip tests pass, and a spot check of ~10
+      province tokens plus all 7 power tokens matches `old_implementation`'s values exactly
+      (proves compliance without needing every single one manually cross-checked).
+
+## D2 — `daide-clauses`
+
+Builds on D1. Still no I/O — this is the encode/decode bridge between DAIDE token streams
+and `engine.types`, analogous to how `orders/parser.py` bridges order strings to `Order`
+objects.
+
+- [ ] `src/server/daide/clauses.py`: encode/decode for:
+      - Province + optional coast → `engine.types.Location` and back (reuse
+        `engine.map_loader` for the coast-validity check, don't hardcode which provinces
+        are bicoastal a second time).
+      - Power name ↔ token.
+      - Unit (type + location) ↔ `engine.types.Unit`.
+      - Turn/season (`SPR`/`SUM`/`FAL`/`AUT`/`WIN`) ↔ `engine.types.Season`/`PhaseType` —
+        note DAIDE's 5-phase-per-year model (movement + retreat + builds, split
+        spring/fall) doesn't map 1:1 onto this engine's `PhaseType` enum; write the mapping
+        table explicitly and comment *why* a given DAIDE season token corresponds to a
+        given engine phase, since this is exactly the kind of subtle invariant that's
+        obvious now and confusing in six months.
+      - Order clauses for every DAIDE order type (`HLD`, `MTO`, `SUP`, `CVY`, `CTO`+`VIA`,
+        `BLD`, `REM`, `WVE`, `RTO`, `DSB`) ↔ the corresponding `engine.types` `Order`
+        variant, going through `engine.orders.parser`/`orders.validation` for the actual
+        legality check rather than re-implementing validation here — this module's job is
+        *shape* translation, not rules.
+- [ ] Tests: every order type round-trips through a real `GameState` fixture (build one via
+      `GameService`/the engine's own test helpers, not a hand-rolled dict) and produces the
+      order string `engine.orders.parser` accepts; province/coast edge cases (STP/SC,
+      BUL/EC, SPA/NC — the multi-coast provinces already special-cased throughout the
+      engine) get explicit tests.
+- [ ] **Done when:** round-trip tests pass for all 9 order clause types across at least one
+      multi-coast province, `ruff check` clean, no import of `persistence`/`server` modules
+      (this layer stays as pure as D1 — only `engine` and D1's `tokens`/`wire`).
+
+## D3 — `draw-vote` (shared with Track C's C3 — implement once)
+
+No DAIDE dependency; can run in parallel with D1. This is C3's engine+persistence+API
+layer (see C3 above for the full rationale — real games mostly end by negotiated draw, not
+18-center solo, and nothing here supports that today).
+
+- [ ] `src/engine/`: a pure way to resolve a `GameState` into a draw among a set of
+      winners (default: all non-eliminated powers with units, matching the historical
+      DAIDE/old-implementation semantic) without going through movement/adjustment
+      adjudication. Distinguish draw-completion from solo-completion in the resulting
+      state (a `GameStatus` addition or a `draw_winners: frozenset[str] | None` field) —
+      clients need to render "draw between X, Y, Z" differently from "X wins".
+- [ ] `src/persistence/`: per-phase draw-vote state (who has voted yes this phase),
+      cleared every processed turn, excluding eliminated powers from quorum — reuse
+      `Game.eliminated_powers`. Persist it the same way `pending_orders` already is (via
+      `GameRepo`), not in a new ad-hoc table, unless the existing shape genuinely can't fit.
+- [ ] `src/server/game_service.py`: `submit_draw_vote(game_id, power, vote)` /
+      `get_draw_votes(game_id)`, auto-finalizing to `GameStatus.COMPLETED` with the right
+      winner set the moment quorum is reached (don't require a second explicit call — a
+      game that reaches unanimity and then sits there because nobody called `finalize` is
+      its own bug class). Also a **concede** path: a single power voluntarily leaves,
+      distinct from a draw — it doesn't end the game, its centers/units are handled per the
+      standard elimination/civil-disorder rule.
+- [ ] `src/server/api/routes/games.py`: `POST /games/{id}/draw_vote`,
+      `GET /games/{id}/draw_vote_status`, `POST /games/{id}/concede` — auth-checked the same
+      way order submission is (only the assigned user for that power).
+- [ ] Tests: engine-level (unanimous non-eliminated survivors → `COMPLETED` with the right
+      winners; one holdout → stays `ACTIVE`; eliminated powers excluded from quorum both
+      ways), a full `GameService`-driven scenario test in the style of Track B V4's
+      `TestResolutionMapAcrossPhases` (small game → stalemate → unanimous draw vote →
+      `COMPLETED`), and API auth tests.
+- [ ] **Done when:** the scenario test passes, engine coverage floor still holds (≥92%),
+      and Track C's C3 checklist above is updated to point here instead of duplicating.
+      (Telegram `/draw` command and a frontend button are **not** part of D3 — those stay
+      open under C3 as client UX, since D3's job is the shared mechanism, not every client.)
+
+## D4 — `daide-messages-and-server`
+
+Depends on D2 and D3. This is the actual protocol surface a bot talks to, plus the first
+real listener.
+
+- [ ] `src/server/daide/session.py` (or similar): per-connection protocol state machine —
+      IM → RM handshake, then `NME`/`IAM` (name / rejoin) resolving to a `GameService`
+      game+power (create-or-join semantics need a design call here: does a DAIDE `NME`
+      create a brand-new game the way the current stub's `HLO` does, or join an existing
+      lobby game? The old implementation assumes a pre-existing server-managed game; this
+      codebase's `GameService.create_game`/`add_player` can support either — pick
+      create-on-first-`NME` to match current stub behavior unless the maintainer says
+      otherwise, and document the choice here once made), `HLO` (power/passcode/level
+      response), `MAP`/`MDF` (map name + full definition — provinces, types, adjacency,
+      supply centers, sourced from `engine.map_loader`, never a second hardcoded table),
+      `SCO` (ownership), `NOW` (positions), `SUB`/`NOT(SUB)`/`GOF` (order submission /
+      un-submission / go-flag) → `GameService.submit_orders`, `THX` (per-order
+      accept/reject notes — map `orders.validation` failures onto the DAIDE order-note
+      token vocabulary from D1), `MIS` (missing orders), `ORD` (post-resolution order
+      results, from `GameService.last_resolution`), `TME` (deadline), `HST` (history),
+      `DRW`/`YES(DRW)`/`SLO` → D3's draw-vote methods, `OUT` (elimination, from
+      `Game.eliminated_powers`), `OFF` (server shutdown/turn-off), `ADM` (admin/chat text),
+      `HUH`/`PRN`/`REJ`/`YES`/`NOT` (protocol-level acks/errors). Minimal `SND`/`FRM` press
+      relay per the "Ground rules" section above (syntax-checked, not deep-parsed).
+- [ ] `src/server/daide/server.py`: `asyncio.start_server`-based TCP listener replacing
+      `daide_protocol.py` (same port 8432; delete the old file, don't leave it as dead
+      code alongside the new package). Broadcasts `NOW`/`ORD`/`OUT`/`SLO`/`DRW`
+      notifications to every connection attached to a game when `GameService.process_turn`
+      runs for that game — needs a connection registry keyed by `game_id`, cleared on
+      disconnect.
+- [ ] `src/server/_api_module.py`: start the DAIDE listener in `lifespan` alongside
+      `deadline_scheduler`, same `asyncio.create_task` pattern (`_api_module.py:139`).
+- [ ] Delete `tests/test_daide_protocol.py` (it only ever tested the fake text stub —
+      same category of "test exercises the workaround, not the real path" as Track A
+      PR1/PR3's findings) once D5's replacement lands; don't delete it mid-D4 if D5 isn't
+      ready, to avoid a coverage gap between PRs.
+- [ ] **Done when:** a raw-socket test (see D5) can complete IM→RM→NME→HLO→MAP→MDF→SCO→
+      NOW→SUB→(driver calls `process_turn`)→ORD against a real `GameService`/Postgres-backed
+      game, `ruff check` clean, coverage floors hold.
+
+## D5 — `daide-e2e-tests-and-docs`
+
+Depends on D4.
+
+- [ ] End-to-end raw-socket test: a real TCP client (plain `socket`/`asyncio` in the test,
+      not a mocked transport) drives one full turn through the real DAIDE byte protocol
+      against a `GameService`/Postgres-backed game — connect, IM/RM, NME, HLO, MAP, MDF,
+      SCO, NOW, submit a real move via SUB, process the turn through `GameService`
+      directly (simulating what the deadline scheduler or another player finishing orders
+      would trigger), and assert the byte-correct ORD/NOW notification arrives on the
+      socket. This is this track's equivalent of Track B V4's byte-identical-PNG
+      verification — proof the wire format actually round-trips end to end, which unit
+      tests on individual layers can't prove by themselves.
+- [ ] Update `docs/specs/architecture.md`: the `DAIDE clients` box in the process diagram
+      is no longer aspirational; expand the package-boundaries listing to show
+      `src/server/daide/` (`tokens.py`, `wire.py`, `clauses.py`, `session.py`, `server.py`)
+      the way `telegram_bot/` is already documented; note the press-content-forwarding
+      limitation from the Ground Rules section explicitly, not silently.
+- [ ] Update this file: mark Track D done with the verification evidence (suite counts,
+      coverage, the byte-level e2e test passing); update C3's checklist to point at D3
+      instead of describing the same work twice; update the top `Status` block.
+- [ ] **Done when:** the e2e test passes against a real Postgres (not sqlite/mocked), full
+      suite green, `ruff check` clean, coverage floors hold, and `architecture.md` reflects
+      what's actually in `src/` (not what's planned) — same bar Track B held itself to.
 
 ---
 
@@ -944,10 +1160,14 @@ multi-week project, not a cleanup task. **Before any agent picks this up:**
       `main`, every landed chunk committed + tagged per CLAUDE.md.
 - [ ] **Track C acceptance:** C1 — `security` CI job actually fails on a real finding
       (demonstrated, then reverted). C2 — brute-force test suite passes for
-      `/auth/login`/`/auth/token`/`/auth/register`. C3 — a game can reach `COMPLETED` by
-      draw vote, not just 18-center solo, from both clients. C4 — maintainer scope
-      decision recorded in this file and in `docs/specs/architecture.md` (code changes
-      only if the decision is "implement it").
+      `/auth/login`/`/auth/token`/`/auth/register`. C3 — satisfied by Track D's D3
+      (engine+API layer); Telegram/frontend UX for the draw vote still open. C4 —
+      decision made and executed via Track D.
+- [ ] **Track D acceptance:** D1-D5 all merged; a real DAIDE bot (or the raw-socket e2e
+      test standing in for one) can complete a full turn — connect, negotiate, submit
+      orders, receive results — against a `GameService`/Postgres-backed game; the DAIDE
+      listener actually starts with the API process; `architecture.md` reflects the real
+      package, not the old text-stub description.
 
 ## Out of scope
 
@@ -955,10 +1175,8 @@ multi-week project, not a cleanup task. **Before any agent picks this up:**
   ever — see "Carried-over facts").
 - Tournaments, Discord, observer/spectator mode, AI-powered analysis (long-standing
   maintainer list — `tournaments.py`, `discord_bot/`, `run_discord_bot.py` are **kept for
-  backward compatibility, not dead code**; don't extend, don't delete). This does not
-  cover DAIDE (Track C's C4) — DAIDE lets *external* bots play via a standard protocol,
-  which is a different concern from this repo's own AI-powered analysis; C4 asks the
-  maintainer to make that scope call explicitly rather than assuming either way.
+  backward compatibility, not dead code**; don't extend, don't delete). DAIDE (Track D)
+  is not part of this exclusion — it's now an explicit, in-progress feature.
 - Rendering redesign (new art, new layout engine, frontend map component). V3 moves
   code; V4 fixes correctness; neither restyles the board.
 - The aspirational spec docs (`dashboard.md`, `visualization_spec.md` §10).
@@ -966,6 +1184,9 @@ multi-week project, not a cleanup task. **Before any agent picks this up:**
 - HTTPS / TLS termination — already tracked as a known infra gap in the root `CLAUDE.md`
   ("No HTTPS yet"), not new work discovered here. C2's brute-force fix reduces the
   in-the-meantime risk; it doesn't replace TLS.
+- **Deep DAIDE press-content parsing** (the full `ALY`/`XDO`/`PRP` negotiation grammar
+  beyond syntax-checked opaque forwarding) — see Track D's Ground Rules. A future track
+  if a maintainer decision opens it up; D4/D5 only need to relay, not understand, press.
 
 ## Risks / notes
 
