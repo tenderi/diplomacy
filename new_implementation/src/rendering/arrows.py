@@ -187,6 +187,21 @@ def _draw_success_checkmark(draw: ImageDraw.ImageDraw, coord: tuple, color: str 
     draw.line([check_points[0], check_points[1], check_points[2]], fill=rgb_color, width=line_width)
 
 
+def _draw_dislodged_marker(draw: ImageDraw.ImageDraw, coord: tuple, color: str | None = None) -> None:
+    """Draw the dislodged-order marker: a heavy hollow ring, distinct from both the
+    green success checkmark and the failure X so a dislodged unit's order doesn't
+    read as either a successful hold or a merely-failed one at a glance.
+    """
+    if color is None:
+        color = _viz_config.get_color("failure")
+    x, y = coord
+    marker_specs = _viz_config.get_marker_specs()
+    size = marker_specs["status_indicator_size"]
+    line_width = marker_specs["status_indicator_line_width"]
+    rgb_color = _convert_color_to_rgb(color)
+    draw.ellipse([x - size, y - size, x + size, y + size], outline=rgb_color, width=line_width + 1)
+
+
 def _draw_failure_x(draw: ImageDraw.ImageDraw, coord: tuple, color: str | None = None) -> None:
     """Draw failure X marker at coordinate using config values.
 
