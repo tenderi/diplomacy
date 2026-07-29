@@ -17,9 +17,9 @@
   **manual end-to-end check** below, which is the acceptance criterion for the whole
   track. It needs a live bot token and a human at a Telegram client, so **it cannot be
   delegated to an agent** — it is the maintainer's to run.
-- **ACTIVE: Track B — Post-rewrite cleanup.** V0 (`v2.7.19`), V2 (`v2.7.24`), V3
-  (`v2.7.26` + `v2.7.28`), and now **V5** (`v2.7.30`) are merged; V1 was absorbed into
-  PR4.
+- **Track B — Post-rewrite cleanup: ALL SUB-TRACKS DONE.** V0 (`v2.7.19`), V2
+  (`v2.7.24`), V3 (`v2.7.26` + `v2.7.28`), V4 (`v2.7.31`), and V5 (`v2.7.30`) are all
+  merged; V1 was absorbed into PR4. **Track B is complete.**
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -36,19 +36,27 @@
   prints, `tmp_path` instead of a hardcoded output dir); `test_visualization.py` was
   already clean, no changes needed. See the V5 section for the full file list and
   verification evidence.
-- **NEXT/IN PROGRESS: V4** (overlay correctness) — being worked concurrently.
-- **Suite baseline (post-V5, on `main`):** 831 passed, 11 skipped, 10 xfailed, 1 warning
-  (only the pre-existing unrelated `StarletteDeprecationWarning`, since V5 removed the
-  suite's last `PytestReturnNotNoneWarning`) — down from 852 by exactly the 21 deleted
-  `test_standard_v2_map*` tests; ruff clean; engine coverage 92.86%, overall 60.36% (both
-  floors pass). Verified independently by the driver, not just from the subagent's report.
+- **V4 is done (`v2.7.31`).** Convoy chains merge into one multi-fleet viz entry;
+  `DISLODGED` gets its own `"dislodged"` status and marker distinct from success/failure;
+  retreat-phase and adjustment-phase resolution maps verified correct with a real
+  dislodge→retreat→ownership-flip→disband scenario driven through `GameService`; E2E
+  smoke extended. See the V4 section for the full detail and verification evidence.
+- **Only remaining item in either track: Track A's manual end-to-end check** (needs a
+  live bot token and a human at a Telegram client — see Track A's "Final acceptance"
+  section — it cannot be delegated to an agent).
+- **Suite baseline (post-V4+V5, on `main`):** 842 passed, 11 skipped, 10 xfailed, 1
+  warning (only the pre-existing unrelated `StarletteDeprecationWarning` — V5 removed the
+  suite's last `PytestReturnNotNoneWarning`); ruff clean; engine coverage 93.02% (≥92),
+  overall 62.43% (≥60). Verified independently by the driver in each subagent's worktree
+  after rebasing onto the other's merged `main`, not just taken from the subagents'
+  reports.
 - **A count that looks alarming but is fine:** V2's suite drop (890 → 840) is *entirely*
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-29, mid-session. Track A complete (PR1–PR6,
-  `v2.7.17`–`v2.7.25`); Track B V0/V2/V3/V5 merged (`v2.7.19`/`v2.7.24`/`v2.7.26`+
-  `v2.7.28`/`v2.7.30`); V4 in progress.
+- **Last updated:** 2026-07-29, mid-session. Track A complete except the manual check
+  (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
+  `v2.7.28`/`v2.7.30`/`v2.7.31`). `main` is green, no open PRs, no stale branches.
 
 ### Where the old trackers went
 
@@ -606,24 +614,56 @@ byte-identical render comparison above), and committed by the driver. That is wh
 section is written from direct inspection rather than from an agent's report — and why the
 unfinished except-narrowing was caught rather than assumed done.
 
-### V4 — Overlay correctness polish
+### V4 — Overlay correctness polish — ✅ DONE (`v2.7.31`)
 
-- [ ] **Merged convoy chains:** in `order_overlay.py`, group all `Convoy` orders sharing
-      the same (origin, dest) into one viz entry whose `convoy_chain` lists every
-      convoying fleet in path order, instead of one single-fleet entry per fleet.
-- [ ] **Dislodged styling:** `_STATUS_BY_CODE` maps `DISLODGED → "success"`, which draws
-      a green check on a unit that just got thrown out. Give dislodgement its own status
-      (the renderer already has dislodged markers + `dislodged_coords` support in
-      `_draw_comprehensive_order_visualization`) and draw retreat arrows from the
-      dislodged-offset position, not the province center.
-- [ ] **Retreat-phase resolution maps:** verify `/games/{id}/generate_map/resolution`
-      renders sensibly for retreat and adjustment phases (the `last_resolution` column
-      persists whatever phase was adjudicated), not just movement.
-- [ ] Keep/extend the E2E smoke: create game → submit orders → orders map → process →
-      resolution map; assert non-trivial PNG sizes and no render warnings in the log
-      (pattern exists in `tests/test_order_overlay.py` + `test_game_service.py`).
-- [ ] **Done when:** a convoyed move with a 2-fleet chain renders one continuous chain,
-      dislodged units are visually distinct from successful holds, suite green.
+- [x] **Merged convoy chains.** `order_overlay.py`'s `orders_by_power_to_viz` and
+      `resolution_dict_to_viz` now group all `Convoy` orders sharing the same
+      `(origin, dest)` — including across different owning powers (allied convoys) —
+      into one viz entry via `_merge_convoy_group`, filed under the first fleet's power.
+      `convoy_chain` lists the fleets in input-list order, not a derived route order:
+      this module only ever sees `Order` objects, never `MapData`'s sea-adjacency graph,
+      so a true topological ordering isn't derivable here without threading the map
+      through — documented inline as a deliberate limitation, not an oversight. A
+      mixed-status group (e.g. one fleet dislodged, a sibling reporting `NO_CONVOY`)
+      collapses to the worst status via a new `_merge_convoy_status` priority order
+      (`success < bounced < failed < dislodged`), so a dislodged fleet's marker is never
+      hidden by a merely-`"failed"` sibling. Single-fleet convoys still produce a
+      one-element chain (regression-tested).
+- [x] **Dislodged styling.** `_STATUS_BY_CODE[ResultCode.DISLODGED]` changed from
+      `"success"` to a new `"dislodged"` status. Traced through `adjudicator/movement.py`
+      to confirm `DISLODGED` can only ever attach to a `Hold` order or a convoying
+      `Convoy` order (never `Move`/`Support*`), so only `_draw_hold_order` and
+      `_draw_convoy_order` needed a new branch (`overlays.py`). New
+      `_draw_dislodged_marker` primitive in `arrows.py` (a heavy hollow ring) is visually
+      distinct from both the green success checkmark and the failure X. Every other
+      `status ==` site in `overlays.py` was checked so `"dislodged"` can't silently fall
+      through to an unhandled branch. **Retreat arrows from the dislodged-offset
+      position turned out to already be implemented** (`overlays.py`'s
+      `_draw_comprehensive_order_visualization` already computed and passed
+      `dislodged_unit_position` into `_draw_retreat_order`, which already preferred it
+      over the province center) — verified working rather than rebuilt.
+- [x] **Retreat-phase and adjustment-phase resolution maps verified correct.**
+      `tests/test_game_service.py::TestResolutionMapAcrossPhases` drives a small
+      hand-built `GameState` (via the real, public `GameService.restore_snapshot`)
+      through a guaranteed dislodge → retreat → ownership-flip → disband scenario
+      spanning `S1901M → S1901R → F1901M → W1901A → S1902M`, rendering and asserting a
+      non-trivial resolution PNG at every phase — including genuine retreat-order and
+      adjustment-disband (`Disband`) resolution renders, not just movement. No
+      adjudication or rendering bugs found in the process.
+- [x] **E2E smoke extended.** `tests/test_game_service.py::TestMapRenderingSmoke` and new
+      PNG-rendering tests in `tests/test_order_overlay.py`
+      (`TestConvoyAndDislodgedRendering`) cover create → submit → orders map → process →
+      resolution map, asserting real PNG magic bytes and non-trivial byte sizes.
+- [x] **Done when — verified, not just claimed:** rendered a real 2-fleet merged convoy
+      chain (LON→HOL via ENG+NTH) and visually confirmed one continuous curved path with
+      two distinct fleet markers, not two overlapping one-fleet arrows; rendered
+      dislodged-hold vs. successful-hold PNGs for the same unit/province and confirmed
+      they differ (424 differing pixels, dislodged case has a visible red ring the
+      success case lacks) — both comparisons are now permanent regression tests, not
+      one-off manual checks. Suite green: 842 passed, 11 skipped, 10 xfailed, 1 warning
+      (only the pre-existing unrelated `StarletteDeprecationWarning`); ruff clean; engine
+      coverage 93.02% (≥92), overall 62.43% (≥60) — re-verified independently by the
+      driver after rebasing onto V5's `main`, not just taken from the subagent's report.
 
 ### V5 — Repo hygiene — ✅ DONE (`v2.7.30`)
 
@@ -677,9 +717,9 @@ unfinished except-narrowing was caught rather than assumed done.
 - [x] `src/rendering/` has zero topology knowledge beyond what it imports from
       `engine.map_loader` (V2); `engine/province_mapping.py` is gone (V2); no rendering
       module over ~800 lines — max is `overlays.py` at 687 (V3).
-- [ ] Overlays: merged convoy chains, distinct dislodged styling, retreat arrows from
-      dislodged positions.
-- [ ] Full suite green **with a DB**, ruff clean, coverage gates hold, CI green on
+- [x] Overlays: merged convoy chains, distinct dislodged styling, retreat arrows from
+      dislodged positions (V4, `v2.7.31`).
+- [x] Full suite green **with a DB**, ruff clean, coverage gates hold, CI green on
       `main`, every landed chunk committed + tagged per CLAUDE.md.
 
 ## Out of scope

@@ -15,7 +15,7 @@ concerns.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from engine.serialization import order_from_dict
 from engine.types import (
@@ -39,11 +39,21 @@ _STATUS_BY_CODE: dict[ResultCode, str] = {
     ResultCode.CUT: "failed",
     ResultCode.VOID: "failed",
     ResultCode.NO_CONVOY: "failed",
-    ResultCode.DISLODGED: "success",
+    ResultCode.DISLODGED: "dislodged",
     ResultCode.DISBAND: "success",
     ResultCode.BUILD: "success",
     ResultCode.WAIVE: "success",
 }
+
+# Merging a convoy chain can combine fleets with different individual statuses
+# (e.g. one fleet dislodged, its siblings reporting NO_CONVOY once the chain
+# breaks). The merged entry gets a single status: the worst one present, so a
+# dislodged fleet's marker isn't hidden by a merely-"failed" sibling.
+_CONVOY_STATUS_PRIORITY: dict[str, int] = {"success": 0, "bounced": 1, "failed": 2, "dislodged": 3}
+
+
+def _merge_convoy_status(statuses: Iterable[str]) -> str:
+    return max(statuses, key=lambda s: _CONVOY_STATUS_PRIORITY.get(s, 0))
 
 
 def _unit_label(province: str, kind_by_province: Optional[dict[str, str]]) -> str:
@@ -123,16 +133,57 @@ def order_to_viz(
     return None
 
 
+def _merge_convoy_group(
+    group: list[tuple[Convoy, str]],
+    kind_by_province: Optional[dict[str, str]],
+) -> Optional[dict[str, Any]]:
+    """Build one merged viz entry for a group of ``Convoy`` orders that share the
+    same ``(origin, dest)`` -- i.e. every fleet convoying the same army on the
+    same route, possibly owned by different powers.
+
+    ``convoy_chain`` lists the fleets in the order they appear in the input list.
+    A true route order (army -> fleet -> fleet -> ... -> dest) would need the sea
+    adjacency graph to walk the chain, but that lives in ``engine.map_loader``'s
+    ``MapData`` -- this module only ever sees ``Order`` objects, never the map, so
+    a topological ordering isn't derivable here. Insertion order is what callers
+    already control (they build the order list), so it's the best available
+    approximation without threading ``MapData`` through this module.
+    """
+    first_order, _ = group[0]
+    merged_status = _merge_convoy_status(status for _, status in group)
+    viz = order_to_viz(first_order, merged_status, kind_by_province)
+    if viz is None:
+        return None
+    viz["convoy_chain"] = [order.unit.province for order, _ in group]
+    return viz
+
+
 def orders_by_power_to_viz(
     orders_by_power: dict[str, list[Order]],
     kind_by_province: Optional[dict[str, str]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Pre-adjudication orders (all ``pending``/``success``) → renderer structure."""
+    """Pre-adjudication orders (all ``pending``/``success``) → renderer structure.
+
+    ``Convoy`` orders sharing an (origin, dest) -- possibly submitted by different
+    powers escorting the same army -- are merged into one multi-fleet chain entry,
+    filed under the first such order's power (the renderer picks convoy arrow color
+    from ``visualization_config``, not the power color, so the filing power only
+    affects which power's order list the entry lives in).
+    """
     out: dict[str, list[dict[str, Any]]] = {}
+    convoy_groups: dict[tuple[str, str], list[tuple[Convoy, str]]] = {}
     for power, orders in orders_by_power.items():
-        viz = [d for o in orders if (d := order_to_viz(o, "success", kind_by_province))]
-        if viz:
-            out[power] = viz
+        for o in orders:
+            if isinstance(o, Convoy):
+                convoy_groups.setdefault((o.origin.province, o.dest.province), []).append((o, "success"))
+                continue
+            viz = order_to_viz(o, "success", kind_by_province)
+            if viz is not None:
+                out.setdefault(power, []).append(viz)
+    for group in convoy_groups.values():
+        viz = _merge_convoy_group(group, kind_by_province)
+        if viz is not None:
+            out.setdefault(group[0][0].power, []).append(viz)
     return out
 
 
@@ -141,8 +192,15 @@ def resolution_dict_to_viz(
     kind_by_province: Optional[dict[str, str]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """A persisted ``resolution_to_dict`` → renderer structure, one arrow per order
-    with the status coloured by its ``OrderResult`` code."""
+    with the status coloured by its ``OrderResult`` code.
+
+    ``Convoy`` orders sharing an (origin, dest) are merged the same way as in
+    ``orders_by_power_to_viz`` -- see ``_merge_convoy_group`` for the chain-order
+    caveat and ``_merge_convoy_status`` for how a mixed-status group collapses to
+    one status.
+    """
     out: dict[str, list[dict[str, Any]]] = {}
+    convoy_groups: dict[tuple[str, str], list[tuple[Convoy, str]]] = {}
     for result_dict in resolution.get("results", []):
         result = OrderResult(
             order=order_from_dict(result_dict["order"]),
@@ -151,7 +209,15 @@ def resolution_dict_to_viz(
             retreat_options=(),
         )
         status = _STATUS_BY_CODE.get(result.result, "success")
-        viz = order_to_viz(result.order, status, kind_by_province)
+        order = result.order
+        if isinstance(order, Convoy):
+            convoy_groups.setdefault((order.origin.province, order.dest.province), []).append((order, status))
+            continue
+        viz = order_to_viz(order, status, kind_by_province)
         if viz is not None:
-            out.setdefault(result.order.power, []).append(viz)
+            out.setdefault(order.power, []).append(viz)
+    for group in convoy_groups.values():
+        viz = _merge_convoy_group(group, kind_by_province)
+        if viz is not None:
+            out.setdefault(group[0][0].power, []).append(viz)
     return out
