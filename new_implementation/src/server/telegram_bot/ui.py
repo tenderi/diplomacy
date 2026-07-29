@@ -269,6 +269,9 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 • `/myorders <game_id>` - View your orders
 • `/clearorders <game_id>` - Clear your orders
 • `/orderhistory <game_id>` - View order history
+• `/draw [game_id]` - Vote yes to end the game as a draw
+• `/nodraw [game_id]` - Withdraw your draw vote
+• `/status [game_id]` - Phase, deadline, and draw-vote tally
 
 *🗺️ Order Types & Examples:*
 • `A Vienna - Trieste` (Army move)

@@ -56,6 +56,21 @@ type GameState = {
   orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
+/**
+ * GET /games/{id}/draw_vote_status response (see GameService.get_draw_votes).
+ * `required` is every surviving power that still has a unit; `votes` is who among
+ * them has voted yes so far. A draw is not the same as a concede -- a concede
+ * removes one power's units but leaves the rest playing on, while a draw (reached
+ * when `votes` covers all of `required`) ends the game immediately.
+ */
+type DrawVoteStatus = {
+  phase: string
+  game_status: string
+  required: string[]
+  votes: string[]
+  missing: string[]
+  quorum_reached: boolean
+}
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
 type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
 /**
@@ -302,6 +317,8 @@ export default function GameView() {
   const [messageRecipient, setMessageRecipient] = useState('')
   const [broadcast, setBroadcast] = useState(false)
   const [sendingMsg, setSendingMsg] = useState(false)
+  const [drawStatus, setDrawStatus] = useState<DrawVoteStatus | null>(null)
+  const [votingDraw, setVotingDraw] = useState(false)
 
   const load = useCallback(() => {
     if (!gameId) return
@@ -336,6 +353,16 @@ export default function GameView() {
       .then((d) => setMessages(d.messages || []))
       .catch(() => {})
   }, [gameId, user, state?.phase])
+
+  useEffect(() => {
+    if (!gameId || !myPower || !state || state.status !== 'ACTIVE') {
+      setDrawStatus(null)
+      return
+    }
+    apiJson<DrawVoteStatus>(`/games/${gameId}/draw_vote_status`)
+      .then(setDrawStatus)
+      .catch(() => setDrawStatus(null))
+  }, [gameId, myPower, state?.status, state?.phase])
 
   useEffect(() => {
     if (!gameId || !myPower) return
@@ -458,6 +485,37 @@ export default function GameView() {
       setError(e instanceof Error ? e.message : 'Process turn failed')
     } finally {
       setProcessing(false)
+    }
+  }
+
+  /** Cast (`vote: true`) or withdraw (`vote: false`) this power's draw vote.
+   * Distinct from a concede: a draw only ends the game once every surviving
+   * power has voted yes -- it never removes anyone's units on its own. */
+  async function handleDrawVote(vote: boolean) {
+    if (!gameId || !myPower) return
+    setVotingDraw(true)
+    setError('')
+    try {
+      const result = await apiJson<{ quorum_reached: boolean; winners?: string[] }>(
+        `/games/${gameId}/draw_vote`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ power: myPower, vote }),
+        }
+      )
+      if (result.quorum_reached) {
+        toast.success('Draw vote reached quorum — the game has ended in a draw.')
+        setDrawStatus(null)
+      } else {
+        toast.success(vote ? 'Draw vote cast' : 'Draw vote withdrawn')
+        const ds = await apiJson<DrawVoteStatus>(`/games/${gameId}/draw_vote_status`)
+        setDrawStatus(ds)
+      }
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Draw vote failed')
+    } finally {
+      setVotingDraw(false)
     }
   }
 
@@ -608,6 +666,31 @@ export default function GameView() {
             )}
           </section>
         </>
+      )}
+
+      {myPower && state.status === 'ACTIVE' && (
+        <section className="mb-6">
+          <h2 className="text-lg font-medium mb-2">Draw vote</h2>
+          {drawStatus ? (
+            <>
+              <p className="text-sm text-muted-foreground mb-2">
+                {drawStatus.votes.length}/{drawStatus.required.length} powers have voted for a draw
+                {drawStatus.votes.length > 0 ? `: ${drawStatus.votes.join(', ')}` : ''}
+              </p>
+              {drawStatus.votes.includes(myPower) ? (
+                <Button variant="outline" onClick={() => handleDrawVote(false)} disabled={votingDraw}>
+                  {votingDraw ? 'Updating...' : 'Withdraw draw vote'}
+                </Button>
+              ) : (
+                <Button onClick={() => handleDrawVote(true)} disabled={votingDraw}>
+                  {votingDraw ? 'Voting...' : 'Vote for draw'}
+                </Button>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading draw-vote status…</p>
+          )}
+        </section>
       )}
 
       {state.status === 'ACTIVE' && (
