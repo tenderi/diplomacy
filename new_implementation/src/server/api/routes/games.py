@@ -13,6 +13,7 @@ import requests
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, http_bearer
 from .orders import _authorize_power
+from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN,
     notify_players, get_process_turn_lock,
@@ -144,6 +145,8 @@ async def process_turn(
                 status_code=400,
                 detail=f"Not all powers have submitted orders: missing {status['missing']}",
             )
+    prev_view = game_service.view(game_id)
+    prev_phase_code = prev_view["phase"] if prev_view else None
     lock = get_process_turn_lock(game_id)
     if lock.locked():
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
@@ -153,6 +156,12 @@ async def process_turn(
         except StaleGameError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+
+    if api_shared.daide_server is not None:
+        try:
+            await api_shared.daide_server.notify_game_processed(game_id, resolved_phase=prev_phase_code)
+        except Exception as e:
+            logger.error(f"DAIDE notify_game_processed failed for {game_id}: {e}")
 
     try:
         row = db_service.get_game_by_game_id(game_id)

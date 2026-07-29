@@ -10,13 +10,16 @@ import os
 import requests
 import pytz
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from persistence.database_service import DatabaseService
 from persistence.game_repo import GameRepo, StaleGameError
 from ..server import Server
 from ..game_service import GameService
+
+if TYPE_CHECKING:
+    from ..daide.server import DaideServer
 
 _shared_logger = logging.getLogger(__name__)
 
@@ -25,6 +28,14 @@ db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)
 # New engine: all game state/adjudication goes through GameService (over GameRepo).
 game_service = GameService(GameRepo(db_service.session_factory))
 server = Server()
+
+# The DAIDE TCP listener. None until `_api_module.py`'s lifespan starts it (or
+# forever None in test contexts that never trigger lifespan / that have no DB
+# configured for it to create a game against). Route modules must read this
+# via `shared.daide_server` (module attribute access), never
+# `from .shared import daide_server` -- the latter freezes the `None` binding
+# captured at import time and never sees the later reassignment below.
+daide_server: "Optional[DaideServer]" = None
 
 # Shared loggers
 logger = logging.getLogger("diplomacy.server.api")
@@ -101,6 +112,36 @@ def notify_players(game_id: int, message: str) -> None:
                 scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
 
 
+def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
+    """Bridge `DaideServer.notify_game_processed` (async) into whatever
+    context a *synchronous* call site (`process_due_deadlines`, run from the
+    scheduler's `async def` loop without an `await`, and directly from tests)
+    happens to run in. No-op when no DAIDE listener is up (`daide_server` is
+    `None` in most test contexts and whenever the listener failed to bind).
+
+    There's no existing sync-calls-async bridge elsewhere in this codebase to
+    mirror (`notify_players`, cited as a precedent when this task was scoped,
+    turned out to be a sync function called from a sync context -- not an
+    actual bridge) -- this is deliberately the smallest one that works both
+    with a running loop (schedule a task, don't block it) and without one
+    (run to completion via `asyncio.run`, e.g. a script or a sync test calling
+    `process_due_deadlines` directly).
+    """
+    if daide_server is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        loop.create_task(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
+        return
+    try:
+        asyncio.run(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
+    except RuntimeError:
+        scheduler_logger.debug("DAIDE notify skipped for %s: no event loop available here", game_id)
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -128,6 +169,8 @@ def process_due_deadlines(now: datetime) -> None:
                     # worker racing to process the same missed deadline, so it isn't
                     # a real guard and has been removed rather than kept for show.
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
+                    prev_view = game_service.view(game_id_str)
+                    prev_phase_code = prev_view["phase"] if prev_view else None
                     try:
                         game_service.process_turn(game_id_str)
                     except StaleGameError:
@@ -137,6 +180,8 @@ def process_due_deadlines(now: datetime) -> None:
                         )
                     except Exception as e:
                         scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
+                    else:
+                        _notify_daide_processed(game_id_str, prev_phase_code)
                     # Direct SQL update to set deadline to NULL for cross-session visibility
                     db_service.update_game_deadline(game_id_val, None)
                     db_service.commit()  # type: ignore
