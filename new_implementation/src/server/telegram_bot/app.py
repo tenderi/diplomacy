@@ -24,7 +24,7 @@ from server.telegram_bot.api_client import api_post, api_get, wait_for_api_healt
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
-    join, quit, replace, wait, status, players
+    join, quit, replace, wait, status, players, draw, nodraw
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
@@ -436,6 +436,8 @@ def main():
     app.add_handler(CommandHandler("games", games))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("players", players))
+    app.add_handler(CommandHandler("draw", draw))
+    app.add_handler(CommandHandler("nodraw", nodraw))
     app.add_handler(CommandHandler("quit", quit))
     app.add_handler(CommandHandler("orders", orders))
     app.add_handler(CommandHandler("order", order))

@@ -216,7 +216,94 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if missing:
             status_text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
 
+    try:
+        draw_status = api_get(f"/games/{game_id}/draw_vote_status")
+    except Exception:
+        draw_status = None
+    if draw_status:
+        draw_votes = draw_status.get("votes", [])
+        draw_required = draw_status.get("required", [])
+        if draw_required:
+            status_text += (
+                f"\n🕊️ **Draw vote:** {len(draw_votes)}/{len(draw_required)} voted for draw"
+            )
+            if draw_votes:
+                status_text += " (" + ", ".join(draw_votes) + ")"
+            status_text += "\n"
+
     await update.message.reply_text(status_text, parse_mode='Markdown')
+
+
+async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vote: bool) -> None:
+    """Shared implementation for ``/draw`` (cast a yes vote) and ``/nodraw``
+    (withdraw a previously cast yes vote), via ``POST /games/{id}/draw_vote``.
+
+    Thin client: all quorum logic (who counts, when the game ends) lives in
+    ``GameService.submit_draw_vote`` -- this only resolves the caller's
+    game/power, posts the vote, and reports the response back.
+    """
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Draw vote failed: No user context.")
+        return
+
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    game_id_arg = args[0] if args else None
+
+    try:
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except Exception as e:
+        await update.message.reply_text(f"Error resolving game: {e}")
+        return
+
+    try:
+        result = api_post(
+            f"/games/{game_id}/draw_vote",
+            {"power": power, "vote": vote, "telegram_id": user_id},
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Draw vote failed: {e}")
+        return
+
+    if result.get("quorum_reached"):
+        winners = result.get("winners") or []
+        winners_text = ", ".join(winners) if winners else "the surviving powers"
+        await update.message.reply_text(
+            f"🕊️ *Draw reached in Game {game_id}!*\n\n"
+            f"The vote hit quorum and the game has ended in a draw among: {winners_text}.",
+            parse_mode='Markdown',
+        )
+        return
+
+    votes = result.get("votes", [])
+    required = result.get("required", [])
+    action = "recorded" if vote else "withdrawn"
+    lines = [f"🗳️ Your draw vote for Game {game_id} has been {action}."]
+    if required:
+        lines.append(f"{len(votes)}/{len(required)} voted for a draw so far.")
+        if votes:
+            lines.append("Voted yes: " + ", ".join(votes))
+    else:
+        lines.append("No draw vote is currently possible (fewer than two surviving powers).")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def draw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /draw command - cast this power's yes vote to end the game as a
+    draw. If this vote completes quorum (every surviving power has voted
+    yes), the game ends immediately."""
+    await _cast_draw_vote(update, context, True)
+
+
+async def nodraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /nodraw command - withdraw this power's previously cast yes
+    vote for a draw (no-op if none was cast)."""
+    await _cast_draw_vote(update, context, False)
 
 
 async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

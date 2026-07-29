@@ -902,14 +902,40 @@ not a substitute for it.
       completes quorum, plus a **concede** path distinct from a draw. Tests: engine-level
       draw resolution, API auth checks, one full `GameService`-driven scenario test.
       </details>
-- [ ] **Clients — still open, not part of D3's scope.** Telegram bot command (e.g. `/draw`
-      to cast a yes vote, `/status` already shows submission state and should grow a
-      "N/7 voted for draw" line once this lands) and a frontend button in the game view.
-      Both are thin — they call D3's existing API, no client-side game logic.
-- [ ] **Done when:** a human can actually cast a draw vote from the Telegram bot or the
+- [x] **Clients — done (`v2.7.47`, branch `draw-vote-clients`).** Both are thin --
+      they only call D3's existing API, no client-side game logic:
+      - Telegram bot: `/draw [game_id]` casts a yes vote, `/nodraw [game_id]` withdraws
+        it (`src/server/telegram_bot/games.py::draw`/`nodraw`, shared impl
+        `_cast_draw_vote`), both resolving game/power via the same
+        `resolve_game_and_power` helper `/status` uses. `/status` grows a "N/M voted
+        for draw" line (`GET /draw_vote_status`, wrapped in try/except so a failure
+        degrades gracefully rather than breaking `/status`). Registered in `app.py`,
+        documented in `ui.py`'s `/help` text and `docs/TELEGRAM_BOT_COMMANDS.md`.
+      - Frontend: a "Draw vote" section in `frontend/src/pages/GameView.tsx` (right
+        after the Orders section), shown only when the logged-in user has a power in
+        the game and the game is still `ACTIVE` (hidden once `COMPLETED`, and shown
+        regardless of `phase_type` -- a draw vote is not phase-restricted the way
+        order submission is). Shows the live tally from `GET /draw_vote_status`, a
+        "Vote for draw" button, and a "Withdraw draw vote" button once this power has
+        voted; reaching quorum surfaces a toast and the phase banner already shows
+        "— game over" once `load()` refetches state. Tests added to
+        `GameView.test.tsx` (tally rendering, casting a vote, control absent for a
+        powerless user).
+      - Python-side tests: `tests/test_draw_vote_bot.py` (8 new tests, no DB
+        dependency, mocks `api_get`/`api_post` the same way
+        `test_interactive_orders.py` does).
+      - **Departure from the brief:** no bot/frontend concede command was added --
+        the C3 checklist text above only calls out draw-vote client UX ("Telegram bot
+        command... and a frontend button"), and concede isn't mentioned in it; adding
+        one would be scope creep beyond what this checklist item asks for.
+      - All gates run and green: `ruff check src/`; full pytest suite (1283 passed,
+        11 skipped, 10 xfailed); engine coverage 93.42% (floor 92%); overall coverage
+        66.02% (floor 60%); `npx tsc -b --noEmit`; `npm run test:run` (21 files, 102
+        tests, 0 failures); `npm run build`.
+- [x] **Done when:** a human can actually cast a draw vote from the Telegram bot or the
       frontend (not just via a raw API call) and see the game end without an 18-center
-      solo. The mechanism itself (engine coverage floor, scenario test, quorum logic) is
-      already done and verified — see D3.
+      solo. The mechanism itself (engine coverage floor, scenario test, quorum logic)
+      was already done and verified in D3; the client paths above are now wired to it.
 
 ## C4 — The "DAIDE" server does not implement the DAIDE protocol — **DECISION MADE: (a), implement it**
 

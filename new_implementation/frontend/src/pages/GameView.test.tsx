@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, within, waitFor } from '@testing-library/react'
+import { render, within, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameView from './GameView'
@@ -288,5 +288,208 @@ describe('GameView — ADJUSTMENT phase', () => {
       expect(within(container).getByText(/No builds or disbands/i)).toBeInTheDocument()
     })
     expect(within(container).queryAllByText(/^Slot \d+$/)).toHaveLength(0)
+  })
+})
+
+/** Fetch stub for the draw-vote tests: /state, /players, /orders, /messages, /legal_orders
+ * plus GET /draw_vote_status and POST /draw_vote. `drawStatusResponses` is consumed in
+ * order across successive GET /draw_vote_status calls (the second call happens after a
+ * vote is cast) -- the last entry is reused for any calls beyond the list. */
+function stubFetchForDrawVote(
+  gameState: Record<string, unknown>,
+  players: Record<string, unknown>[],
+  drawStatusResponses: Record<string, unknown>[],
+  postDrawVoteResponse: Record<string, unknown> = { status: 'recorded', game_status: 'ACTIVE', quorum_reached: false }
+) {
+  let drawStatusCallCount = 0
+  return vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes('/draw_vote_status')) {
+      const body = drawStatusResponses[Math.min(drawStatusCallCount, drawStatusResponses.length - 1)]
+      drawStatusCallCount += 1
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+        text: () => Promise.resolve(JSON.stringify(body)),
+      } as Response)
+    }
+    if (url.includes('/draw_vote') && init?.method === 'POST')
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(postDrawVoteResponse),
+        text: () => Promise.resolve(JSON.stringify(postDrawVoteResponse)),
+      } as Response)
+    if (url.includes('/legal_orders/'))
+      // Real API responses always include `orders_by_unit` (see
+      // src/server/legal_orders.py -- it's set unconditionally for every
+      // phase type), so the mock must too, or GameView's
+      // `Object.entries(legalOrders.orders_by_unit)` throws on render.
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ orders: [], orders_by_unit: {} }),
+        text: () => Promise.resolve('{"orders":[],"orders_by_unit":{}}'),
+      } as Response)
+    if (url.includes('/state'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(gameState),
+        text: () => Promise.resolve(JSON.stringify(gameState)),
+      } as Response)
+    if (url.includes('/players'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(players),
+        text: () => Promise.resolve(JSON.stringify(players)),
+      } as Response)
+    if (url.includes('/orders/'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ orders: [] }),
+        text: () => Promise.resolve('{"orders":[]}'),
+      } as Response)
+    if (url.includes('/messages'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [] }),
+        text: () => Promise.resolve('{"messages":[]}'),
+      } as Response)
+    return Promise.resolve({ ok: false, status: 401 } as Response)
+  })
+}
+
+describe('GameView — draw vote', () => {
+  const franceUnits = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
+  const baseGameState = {
+    game_id: '5',
+    map_name: 'standard',
+    phase: 'S1901M',
+    year: 1901,
+    season: 'SPRING',
+    phase_type: 'MOVEMENT',
+    status: 'ACTIVE',
+    units: franceUnits,
+    units_by_power: { FRANCE: franceUnits },
+    ownership: { PAR: 'FRANCE' },
+    supply_centers: { PAR: 'FRANCE' },
+    dislodged: [],
+    contested: [],
+    players: { FRANCE: { user_id: 1, is_active: true } },
+    orders: {},
+  }
+  const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]
+
+  it('renders the current draw-vote tally for the logged-in user', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetchForDrawVote(baseGameState, francePlayers, [
+        {
+          phase: 'S1901M',
+          game_status: 'ACTIVE',
+          required: ['FRANCE', 'GERMANY', 'ENGLAND'],
+          votes: ['GERMANY'],
+          missing: ['FRANCE', 'ENGLAND'],
+          quorum_reached: false,
+        },
+      ])
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/5']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/1\/3 powers have voted for a draw/)).toBeInTheDocument()
+    })
+    expect(within(container).getByText(/GERMANY/)).toBeInTheDocument()
+    // FRANCE (this user's power) hasn't voted yet -> offered the "vote" action, not "withdraw".
+    expect(within(container).getByRole('button', { name: /vote for draw/i })).toBeInTheDocument()
+  })
+
+  it('casts a draw vote and reflects the updated tally', async () => {
+    const fetchMock = stubFetchForDrawVote(baseGameState, francePlayers, [
+      {
+        phase: 'S1901M', game_status: 'ACTIVE',
+        required: ['FRANCE', 'GERMANY'], votes: [], missing: ['FRANCE', 'GERMANY'],
+        quorum_reached: false,
+      },
+      {
+        phase: 'S1901M', game_status: 'ACTIVE',
+        required: ['FRANCE', 'GERMANY'], votes: ['FRANCE'], missing: ['GERMANY'],
+        quorum_reached: false,
+      },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/5']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/0\/2 powers have voted for a draw/)).toBeInTheDocument()
+    })
+
+    fireEvent.click(within(container).getByRole('button', { name: /vote for draw/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/games/5/draw_vote'),
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) => (url as string).endsWith('/games/5/draw_vote') && (init as RequestInit)?.method === 'POST'
+    )
+    expect(postCall).toBeDefined()
+    expect(JSON.parse((postCall![1] as RequestInit).body as string)).toEqual({
+      power: 'FRANCE',
+      vote: true,
+    })
+
+    await waitFor(() => {
+      expect(within(container).getByText(/1\/2 powers have voted for a draw/)).toBeInTheDocument()
+    })
+    // Having voted, the control now offers withdrawal instead.
+    expect(within(container).getByRole('button', { name: /withdraw draw vote/i })).toBeInTheDocument()
+  })
+
+  it('does not show the draw-vote control for a user with no power in the game', async () => {
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Other' }]
+    const noOwnPowerState = { ...baseGameState, units: [], units_by_power: {} }
+    vi.stubGlobal('fetch', stubFetchForDrawVote(noOwnPowerState, otherPlayers, [
+      { phase: 'S1901M', game_status: 'ACTIVE', required: ['GERMANY'], votes: [], missing: ['GERMANY'], quorum_reached: false },
+    ]))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/5']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText(/Join game/i)).toBeInTheDocument()
+    })
+    expect(within(container).queryByText(/Draw vote/i)).not.toBeInTheDocument()
   })
 })
