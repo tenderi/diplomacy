@@ -25,15 +25,17 @@
   maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
   decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
   Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
-- **Track D — Full DAIDE protocol support: ACTIVE, D1+D2+D3 merged.** Added 2026-07-29
+- **Track D — Full DAIDE protocol support: ACTIVE, D1-D4 merged.** Added 2026-07-29
   at the maintainer's explicit request ("I want the full DAIDE support as well") after
   Track C's C4 flagged the current server as a non-conformant text stub. Five PRs
   (D1-D5) in dependency order — see the Track D section below. **D1 merged (`v2.7.34`,
   PR #27)** — token vocabulary + DCSP wire framing. **D2 merged (`v2.7.37`, PR #31)** —
   clause encode/decode bridge. **D3 merged (`v2.7.35`, PR #29)** — shared draw-vote/
-  concede mechanism, also satisfies Track C's C3. **Next action: D4** — the message-level
-  protocol surface and the first real asyncio TCP listener (both its dependencies are now
-  available).
+  concede mechanism, also satisfies Track C's C3. **D4 merged (`v2.7.40`, PR #33)** —
+  message protocol + the first real asyncio TCP listener; caught and fixed a real
+  production-safety bug in review (eager game-creation on every deploy — see the D4
+  section). **A DAIDE bot can now actually connect and play.** **Next action: D5** —
+  the end-to-end raw-socket proof and the `architecture.md` update.
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -1080,45 +1082,58 @@ Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
       **Track C's C3 is satisfied by this** — its remaining open item is purely client UX
       (a Telegram `/draw` command and a frontend button), not the mechanism itself.
 
-## D4 — `daide-messages-and-server`
+## D4 — `daide-messages-and-server` ✅ MERGED (`v2.7.40`, PR #33)
 
-Depends on D2 and D3. This is the actual protocol surface a bot talks to, plus the first
-real listener.
-
-- [ ] `src/server/daide/session.py` (or similar): per-connection protocol state machine —
-      IM → RM handshake, then `NME`/`IAM` (name / rejoin) resolving to a `GameService`
-      game+power (create-or-join semantics need a design call here: does a DAIDE `NME`
-      create a brand-new game the way the current stub's `HLO` does, or join an existing
-      lobby game? The old implementation assumes a pre-existing server-managed game; this
-      codebase's `GameService.create_game`/`add_player` can support either — pick
-      create-on-first-`NME` to match current stub behavior unless the maintainer says
-      otherwise, and document the choice here once made), `HLO` (power/passcode/level
-      response), `MAP`/`MDF` (map name + full definition — provinces, types, adjacency,
-      supply centers, sourced from `engine.map_loader`, never a second hardcoded table),
-      `SCO` (ownership), `NOW` (positions), `SUB`/`NOT(SUB)`/`GOF` (order submission /
-      un-submission / go-flag) → `GameService.submit_orders`, `THX` (per-order
-      accept/reject notes — map `orders.validation` failures onto the DAIDE order-note
-      token vocabulary from D1), `MIS` (missing orders), `ORD` (post-resolution order
-      results, from `GameService.last_resolution`), `TME` (deadline), `HST` (history),
-      `DRW`/`YES(DRW)`/`SLO` → D3's draw-vote methods, `OUT` (elimination, from
-      `Game.eliminated_powers`), `OFF` (server shutdown/turn-off), `ADM` (admin/chat text),
-      `HUH`/`PRN`/`REJ`/`YES`/`NOT` (protocol-level acks/errors). Minimal `SND`/`FRM` press
-      relay per the "Ground rules" section above (syntax-checked, not deep-parsed).
-- [ ] `src/server/daide/server.py`: `asyncio.start_server`-based TCP listener replacing
-      `daide_protocol.py` (same port 8432; delete the old file, don't leave it as dead
-      code alongside the new package). Broadcasts `NOW`/`ORD`/`OUT`/`SLO`/`DRW`
-      notifications to every connection attached to a game when `GameService.process_turn`
-      runs for that game — needs a connection registry keyed by `game_id`, cleared on
-      disconnect.
-- [ ] `src/server/_api_module.py`: start the DAIDE listener in `lifespan` alongside
-      `deadline_scheduler`, same `asyncio.create_task` pattern (`_api_module.py:139`).
-- [ ] Delete `tests/test_daide_protocol.py` (it only ever tested the fake text stub —
-      same category of "test exercises the workaround, not the real path" as Track A
-      PR1/PR3's findings) once D5's replacement lands; don't delete it mid-D4 if D5 isn't
-      ready, to avoid a coverage gap between PRs.
-- [ ] **Done when:** a raw-socket test (see D5) can complete IM→RM→NME→HLO→MAP→MDF→SCO→
-      NOW→SUB→(driver calls `process_turn`)→ORD against a real `GameService`/Postgres-backed
-      game, `ruff check` clean, coverage floors hold.
+- [x] `src/server/daide/session.py`: per-connection state machine covering the
+      gameplay-critical command surface — `NME`/`IAM`/`HLO`, `MAP`/`MDF`, `SCO`,
+      `NOW`+`MRT`, `SUB`/`THX` (order-note mapping table, `_reason_to_note_token`),
+      `NOT(SUB)`/`GOF`/`NOT(GOF)`, `MIS`, `TME`, `DRW`/`NOT(DRW)` (wired to D3's
+      `submit_draw_vote`), `ADM`, `SND`/`FRM` (syntax-checked opaque relay, per Ground
+      Rules — press grammar itself never parsed), `OUT`, `SLO`, `OFF`,
+      `HUH`/`PRN`/`REJ`/`YES`/`NOT`. **Create-or-join decision made and executed:**
+      create-on-first-successful-`NME`, exactly as this section specified — see the
+      eager-creation finding below for why "first successful NME" (not "first
+      connection" or "listener start") is load-bearing, not cosmetic.
+      **Documented scope limitations** (not silent gaps): `HST` replays submitted
+      order strings only (no historical SCO/NOW reconstruction — `order_history` has
+      no per-phase result/state snapshot to rebuild from); `TME` is an immediate query,
+      not `old_implementation`'s subscribe-to-future-push model (this codebase's
+      `notify_game_processed` push already covers the same need); `GOF`/`NOT(GOF)` are
+      acknowledged only (no per-power ready-gate exists — processing stays HTTP-route/
+      scheduler-triggered).
+- [x] `src/server/daide/server.py`: `asyncio.start_server` listener (`daide_protocol.py`
+      deleted along with its test). Connection registry keyed by `game_id → power →
+      session`, reusable passcodes for `IAM` reconnection, `notify_game_processed`
+      broadcasting `NOW`/`ORD`/`OUT`/`SLO` (diffing `eliminated_powers()` and
+      `view()["status"]` since the last broadcast per game to avoid double-firing).
+- [x] `src/server/_api_module.py`: DAIDE listener started in `lifespan` alongside
+      `deadline_scheduler`; startup failure (port in use, etc.) is logged and swallowed
+      rather than crashing the API — DAIDE is one integration among several, not a
+      prerequisite for the others. Notification hook called from both real
+      `process_turn` call sites (`routes/games.py`'s route, `api/shared.py`'s
+      `process_due_deadlines`) via a small sync/async bridge (`_notify_daide_processed`
+      — schedules a task if a loop is already running, else `asyncio.run`; no prior
+      bridge existed in this codebase to reuse).
+- [x] `tests/test_daide_protocol.py` deleted (tested only the old fake stub).
+- [x] **Real production-safety finding caught in review, fixed before merge:**
+      the first pass had `DaideServer.start()` eagerly call `game_service.create_game()`
+      whenever no `game_id` was supplied — and `_api_module.py` wires `DaideServer` with
+      no `game_id`. Since `CLAUDE.md` documents that this repo **auto-deploys to
+      production on every merge to `main`** (`systemctl restart diplomacy-api`), that
+      would have minted one permanent orphan game row on **every future deploy**,
+      whether or not a DAIDE client ever connected or the socket even bound. Fixed:
+      `start()` now only binds the socket; `DaideServer.ensure_game_id()` (idempotent)
+      creates the game on first successful `NME` only; `IAM` never creates one (`REJ`s
+      immediately if no game exists yet, nothing to reclaim). Covered by
+      `test_start_binds_an_ephemeral_port_and_creates_no_game` and
+      `test_first_successful_nme_creates_the_game_lazily`.
+- [x] **Done when — verified independently by the driver against a real local
+      Postgres, twice (once before, once after the eager-creation fix), not just taken
+      from the subagent's report:** `ruff check src/` clean; `test_daide_session.py` +
+      `test_daide_server.py` 64/64; full suite **1274 passed, 11 skipped, 10 xfailed**
+      (3 consecutive clean reruns, 0 warnings — one run showed 2 GC-timing-related
+      warnings on real-socket tests that did not reproduce); engine coverage 93.42%
+      (≥92), overall 65.77% (≥60). Confirmed no remaining `daide_protocol` importers.
 
 ## D5 — `daide-e2e-tests-and-docs`
 
