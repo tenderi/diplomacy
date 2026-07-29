@@ -25,13 +25,13 @@
   maintainer. Four findings (C1-C4), each verified by reading the actual code. **C4's
   decision is made** (implement real DAIDE — see Track D) and **C3 will be satisfied by
   Track D's D3** (shared draw-vote mechanism); C1 and C2 remain open and unstarted.
-- **Track D — Full DAIDE protocol support: NEW, ACTIVE, nothing merged yet.** Added
-  2026-07-29 at the maintainer's explicit request ("I want the full DAIDE support as
-  well") after Track C's C4 flagged the current server as a non-conformant text stub.
-  Five PRs (D1-D5) in dependency order — see the Track D section below for the full plan,
-  clean-room/licensing ground rules (old_implementation is AGPL-3.0; this repo has no
-  LICENSE, so it's referenced for wire-format correctness only, never copied), and the
-  D1/D3-can-run-in-parallel note. **Next action: D1 and D3 in parallel.**
+- **Track D — Full DAIDE protocol support: ACTIVE, D1 merged.** Added 2026-07-29 at the
+  maintainer's explicit request ("I want the full DAIDE support as well") after Track C's
+  C4 flagged the current server as a non-conformant text stub. Five PRs (D1-D5) in
+  dependency order — see the Track D section below. **D1 merged (`v2.7.34`, PR #27)** —
+  token vocabulary + DCSP wire framing. D3 (shared draw-vote mechanism) running in
+  parallel. **Next action: D2** (depends on D1, now available); D3 lands independently
+  whenever it finishes.
 - **V3 is fully done.** Its one open item — narrowing the 25 blanket
   `except Exception` blocks in `src/rendering/` (`board.py` 8, `svg_paths.py` 7,
   `cache.py` 6, `icons.py` 3, `overlays.py` 1) — landed in `v2.7.28`. Two more
@@ -976,38 +976,40 @@ coverage report --include='src/engine/*' --fail-under=92
 coverage report --fail-under=60
 ```
 
-## D1 — `daide-wire-protocol`
+## D1 — `daide-wire-protocol` ✅ MERGED (`v2.7.34`, PR #27)
 
 Pure protocol layer, stdlib only, zero I/O — same discipline as `src/engine/`.
 
-- [ ] `src/server/daide/tokens.py`: the DAIDE token table (powers, provinces+coasts, unit
-      types, order types, commands, order notes/results, parameters, press tokens) as a
-      `Token` frozen dataclass or `IntEnum`-backed mapping — pick whichever fits this
-      codebase's style better (the engine favors frozen dataclasses + enums; a `bytes <->
-      str` bidirectional mapping is the actual requirement, an `Enum` with a `(str, bytes)`
-      value pair is one reasonable shape). Cross-check every value against
-      `old_implementation/diplomacy/daide/tokens.py` for correctness (they must match — the
-      values are the spec) without copying the file. Include the ASCII-escape convention
-      (single chars outside the known-token table) and the signed 14-bit integer encoding.
-      Cover only the 7 standard powers + `maps/standard.map`'s province set (derive the
-      province list from `engine.map_loader.load_standard_map()`, don't hand-type it a
-      second time — that would be exactly the "duplicate topology source" antipattern
-      `fix_plan.md`'s Track B spent effort eliminating).
-- [ ] `src/server/daide/wire.py`: the DCSP framing layer — `InitialMessage`,
-      `RepresentationMessage`, `DiplomacyMessage`, `FinalMessage`, `ErrorMessage` (or an
-      equivalent `MessageType` + framing-function design; a from-scratch shape is fine, the
-      wire bytes are what must match, not the class hierarchy) — 4-byte header (type, pad,
-      length-hi, length-lo), the IM version/magic-number handshake (`0x00 0x01` version,
-      `0xDA 0x10` magic number), RM as a 4-byte zero-length reply. Async-friendly (reads
-      off an `asyncio.StreamReader`), since D4's server is asyncio-based.
-- [ ] Tests: round-trip every token (`str -> bytes -> str`), the integer encoding at its
-      boundaries (-8192, -1, 0, 8191, and the out-of-range rejection), ASCII escaping for
-      an arbitrary character, and IM/RM/DM/FM/EM framing byte sequences — assert against
-      literal expected byte sequences (write your own, don't import the old test file, but
-      you may read it to *check* your expected values are right).
-- [ ] **Done when:** `ruff check` clean, all round-trip tests pass, and a spot check of ~10
-      province tokens plus all 7 power tokens matches `old_implementation`'s values exactly
-      (proves compliance without needing every single one manually cross-checked).
+- [x] `src/server/daide/tokens.py`: a `Token` frozen dataclass (`text`/`raw`/`number`,
+      `from_str`/`from_int`/`from_bytes` constructors) backing a bidirectional registry —
+      powers, provinces+coasts, unit types, order types, commands, THX order-notes, ORD
+      order-results, HLO parameters, press tokens. ASCII-escape fallback and signed
+      14-bit integer encoding both implemented. Province coverage is asserted against
+      `engine.map_loader.load_standard_map()` via `verify_standard_map_coverage()`
+      (called by the test suite, not at import — keeps the module I/O-free on import),
+      not a second hand-typed list.
+- [x] **Real finding not anticipated in this plan:** this engine's internal province
+      codes `ENG` (English Channel), `BOT` (Gulf of Bothnia), and `LYO` (Gulf of Lyon)
+      collide with DAIDE's own vocabulary — DAIDE reserves `ENG` for the England power
+      token and uses `ECH`/`GOB`/`GOL` for those three seas. `daide_province_token()`
+      applies the translation; documented inline rather than silently papered over.
+- [x] `src/server/daide/wire.py`: `MessageType`/`ErrorCode` `IntEnum`s +
+      `InitialMessage`/`RepresentationMessage`/`DiplomacyMessage`/`FinalMessage`/
+      `ErrorMessage` frozen dataclasses, async `read_message`/`write_message` over
+      `asyncio.StreamReader`/`StreamWriter`. Decode failures raise `DaideWireError`
+      carrying the `ErrorCode` a session layer should echo back.
+- [x] Tests: `tests/test_daide_tokens.py` + `tests/test_daide_wire.py`, 293 tests —
+      token round-trips, integer boundary cases, ASCII escaping, byte-exact IM/RM/DM/FM/EM
+      framing, all written fresh (not copied from `old_implementation`'s test file).
+- [x] **Done when — verified independently by the driver, not just taken from the
+      subagent's report:** checked out the pushed branch into a separate worktree,
+      `ruff check src/` clean, `pytest tests/test_daide_tokens.py tests/test_daide_wire.py`
+      293/293 passed, full suite 1094 passed/52 skipped (no local DB)/10 xfailed —
+      unaffected by the change. Spot-checked all 7 power tokens, ~10 provinces across
+      inland/coastal/sea/bicoastal categories including the three renamed seas, and 7
+      command tokens against `old_implementation/diplomacy/daide/tokens.py`'s byte values
+      by eye — all matched. Diff read in full for the clean-room rule: original docstrings,
+      original class design, no structural resemblance to the old file.
 
 ## D2 — `daide-clauses`
 
