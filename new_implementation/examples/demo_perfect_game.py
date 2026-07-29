@@ -19,7 +19,7 @@ Usage:
     python3 demo_perfect_game.py [--map MAP_NAME] [--color-only-supply-centers] [--log]
 
 Options:
-    --map, --map-name    Map variant to use: "standard" (default) or "standard-v2"
+    --map, --map-name    Map variant to use: "standard" (default)
     --color-only-supply-centers    Color only supply center provinces
     --log, --log-file    Output all log messages to demo.log in the current directory
 
@@ -1577,13 +1577,7 @@ class PerfectDemoGame:
         # Try project_root/maps first
         maps_dir = os.path.join(project_root, "maps")
         
-        if self.map_name == "standard-v2":
-            svg_path = os.path.join(maps_dir, "v2.svg")
-            # Fallback to standard if v2.svg doesn't exist
-            if not os.path.exists(svg_path):
-                svg_path = os.path.join(maps_dir, "standard.svg")
-        else:
-            svg_path = os.path.join(maps_dir, "standard.svg")
+        svg_path = os.path.join(maps_dir, "standard.svg")
         
         # If still not found, try environment variable
         if not os.path.exists(svg_path):
@@ -2200,7 +2194,7 @@ class PerfectDemoGame:
     "-m", "--map", "--map-name",
     "map_name",
     default="standard",
-    type=click.Choice(["standard", "standard-v2"], case_sensitive=False),
+    type=click.Choice(["standard"], case_sensitive=False),
     help="Map variant to use (default: standard)"
 )
 @click.option(
@@ -2223,9 +2217,7 @@ def main(map_name: str, color_only_supply_centers: bool, log_file: bool):
     
     Examples:
       python3 demo_perfect_game.py                    # Run with standard map (default)
-      python3 demo_perfect_game.py -m standard-v2      # Run with standard-v2 map
       python3 demo_perfect_game.py --log               # Run with logging to demo.log
-      python3 demo_perfect_game.py -m standard-v2 --log # Run with v2 map and logging
     """
     # Configure logging to file if requested
     if log_file:

@@ -93,10 +93,6 @@ def environment_health() -> Dict[str, Any]:
                     "exists": (project_root / "maps" / "standard.svg").exists(),
                     "readable": os.access(project_root / "maps" / "standard.svg", os.R_OK) if (project_root / "maps" / "standard.svg").exists() else False,
                 },
-                "v2_svg": {
-                    "exists": (project_root / "maps" / "v2.svg").exists(),
-                    "readable": os.access(project_root / "maps" / "v2.svg", os.R_OK) if (project_root / "maps" / "v2.svg").exists() else False,
-                },
             },
         }
         
