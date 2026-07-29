@@ -96,7 +96,21 @@ def resolve_pending_order(context: ContextTypes.DEFAULT_TYPE, game_id: str, idx:
 
 
 async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Simplified order command that automatically detects the game and power"""
+    """Submit one or more orders, matching docs/TELEGRAM_BOT_COMMANDS.md's
+    ``/order [game_id] <order>; <order>; ...``: an optional leading game id,
+    then semicolon-separated orders (same split rule as ``/orders``).
+
+    A leading token is treated as the game id only when it's purely
+    numeric -- no order string in this grammar starts with a digit (unit
+    orders start with the unit letter ``A``/``F``; build/waive/disband
+    orders are verb-first: ``BUILD``, ``WAIVE``, ``D``), so this can't
+    misparse a legitimate order as carrying a game id.
+
+    Game id omitted: works only when the caller is in exactly one game
+    (``resolve_game_and_power`` raises ``GameContextError`` with a
+    disambiguation prompt otherwise) -- the "auto-detect your game" behavior
+    this command originally had.
+    """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -107,19 +121,29 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if len(args) < 1:
         await update.message.reply_text(
-            "Usage: /order <order>\n\n"
+            "Usage: /order [game_id] <order>; <order>; ...\n\n"
             "Examples:\n"
             "/order A BER - SIL\n"
-            "/order F KIE - DEN\n"
-            "/order A MUN S A BER - SIL\n\n"
-            "This command will automatically detect your game and power."
+            "/order F KIE - DEN; A MUN S A BER - SIL\n"
+            "/order 2 A BER - SIL\n\n"
+            "The game id is only needed if you're in more than one game."
         )
         return
 
-    order_text = " ".join(args)
+    game_id_arg: Optional[str] = None
+    order_args = args
+    if args[0].isdigit():
+        game_id_arg = args[0]
+        order_args = args[1:]
+
+    order_text = " ".join(order_args)
+    order_list = [o.strip() for o in order_text.split(";") if o.strip()]
+    if not order_list:
+        await update.message.reply_text("No orders found in your message.")
+        return
 
     try:
-        game_id, power = resolve_game_and_power(user_id)
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -131,7 +155,7 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         result = api_post("/games/set_orders", {
             "game_id": game_id,
             "power": power,
-            "orders": [order_text],
+            "orders": order_list,
             "telegram_id": user_id
         })
     except Exception as e:
@@ -315,7 +339,15 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process the current turn/phase for a game"""
+    """Process the current turn/phase for a game.
+
+    Checks ``GET /games/{id}/orders_status`` first (the same endpoint
+    ``/status`` already uses). ``POST /process_turn`` defaults to
+    ``require_all=false``, so if any active power hasn't submitted orders
+    yet, processing now would silently turn their units into holds -- this
+    asks for explicit confirmation via an inline button instead of doing
+    that unannounced.
+    """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
@@ -342,41 +374,95 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     try:
-        # The API will automatically restore the game from database if needed
+        orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
+    except Exception:
+        orders_status = None
+
+    missing = orders_status.get("missing", []) if orders_status else []
+    if missing:
+        keyboard = [
+            [InlineKeyboardButton("✅ Process anyway", callback_data=f"ptforce|{game_id}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"ptcancel|{game_id}")],
+        ]
+        await update.message.reply_text(
+            f"⚠️ *Not everyone has submitted orders yet for Game {game_id}.*\n\n"
+            f"⏳ Still waiting on: {', '.join(missing)}\n\n"
+            f"Processing now will treat their units as holding. Continue?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown',
+        )
+        return
+
+    await run_process_turn(update.message.reply_text, game_id)
+
+
+async def run_process_turn(send: Sender, game_id: str) -> None:
+    """Adjudicate ``game_id``'s current phase (``POST /process_turn``) and
+    report a short outcome summary.
+
+    ``send`` is any ``async (text, reply_markup=None, parse_mode=None) ->
+    None`` callable, so this works from both a plain message reply
+    (``processturn``) and a callback-query edit (the "Process anyway"
+    confirmation button in ``app.py``).
+
+    The summary is built from ``dislodged``/``contested`` on ``GET
+    /games/{id}/state`` -- those are the only per-turn outcome fields that
+    exist on this branch. A richer per-order summary (who succeeded, who
+    bounced, why) needs the JSON resolution endpoint that's landing on a
+    separate branch; until then this is deliberately coarse.
+    """
+    try:
         result = api_post(f"/games/{game_id}/process_turn", {})
-
-        if result.get("status") == "ok":
-            # Get updated game state
-            game_state = api_get(f"/games/{game_id}/state")
-
-            if game_state:
-                turn = game_state.get("turn", "Unknown")
-                phase = game_state.get("phase", "Unknown")
-                done = game_state.get("done", False)
-
-                if done:
-                    await update.message.reply_text(
-                        f"🎉 *Turn Processed Successfully!*\n\n"
-                        f"📊 Turn: {turn} | Phase: {phase}\n"
-                        f"🏁 *Game Complete!*\n\n"
-                        f"View the final map with /viewmap {game_id}"
-                    )
-                else:
-                    await update.message.reply_text(
-                        f"✅ *Turn Processed Successfully!*\n\n"
-                        f"📊 Turn: {turn} | Phase: {phase}\n\n"
-                        f"🎮 *Next Phase:* Submit your orders for the next turn\n"
-                        f"🗺️ View updated map: /viewmap {game_id}\n"
-                        f"📋 Submit orders: /order <your orders>"
-                    )
-            else:
-                await update.message.reply_text("✅ Turn processed successfully!")
-        else:
-            error_msg = result.get("detail", "Unknown error")
-            await update.message.reply_text(f"❌ Failed to process turn: {error_msg}")
-
     except Exception as e:
-        await update.message.reply_text(f"Process turn error: {e}")
+        await send(f"❌ Process turn error: {e}")
+        return
+
+    if result.get("status") != "ok":
+        error_msg = result.get("detail", "Unknown error")
+        await send(f"❌ Failed to process turn: {error_msg}")
+        return
+
+    try:
+        game_state = api_get(f"/games/{game_id}/state")
+    except Exception:
+        game_state = None
+
+    if not game_state:
+        await send("✅ Turn processed successfully!")
+        return
+
+    phase = game_state.get("phase", "Unknown")
+    status_value = game_state.get("status", "IN_PROGRESS")
+    dislodged = game_state.get("dislodged", [])
+    contested = game_state.get("contested", [])
+
+    lines = ["✅ *Turn Processed!*", f"📊 New phase: {phase}"]
+
+    if dislodged:
+        lines.append("\n💥 *Dislodged:*")
+        for d in dislodged:
+            unit = d.get("unit", {})
+            kind = unit.get("kind", "?")
+            loc = unit.get("location", "?")
+            power = unit.get("power", "?")
+            retreats = d.get("retreats") or []
+            fate = f"can retreat to {', '.join(retreats)}" if retreats else "no retreats available (disbanded)"
+            lines.append(f"  • {power} {kind} {loc} -- {fate}")
+
+    if contested:
+        lines.append("\n⚔️ *Standoffs:* " + ", ".join(contested))
+
+    if status_value == "COMPLETED":
+        winners = game_state.get("winners") or []
+        winners_text = ", ".join(winners) if winners else "no one"
+        lines.append(f"\n🏁 *Game Complete!* Winners: {winners_text}")
+        lines.append(f"\nView the final map with /viewmap {game_id}")
+    else:
+        lines.append(
+            f"\n🎮 Submit orders for the next phase, or /viewmap {game_id} to see the board."
+        )
+
+    await send("\n".join(lines), parse_mode='Markdown')
 
 
 async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

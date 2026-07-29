@@ -3,6 +3,9 @@
 Every command the Diplomacy bot accepts. Arguments in `<>` are required, `[]` optional.
 Where `[game_id]` is optional, the bot infers it when you are in exactly one game.
 
+Telegram's "/" autocomplete menu lists a curated subset of the most-used commands below;
+every command on this page works when typed, whether or not it's in that menu.
+
 ## Getting started
 
 | Command | Description |
@@ -29,7 +32,8 @@ the web app if you need to re-link.
 | Command | Description |
 |---|---|
 | `/games` | List the games you are in, with your power and the current phase. |
-| `/join <game_id>` | Join a game. Shows a power-selection menu if several are open. |
+| `/join <game_id>` | Shows a menu of available powers to join as. |
+| `/join <game_id> <power>` | Join directly as a specific power, skipping the menu. |
 | `/quit <game_id>` | Leave a game. Your power becomes available for replacement. |
 | `/replace <game_id> <power>` | Take over a vacated power. |
 | `/wait` | Join the waiting list; a new game is created automatically once 7 players are waiting. |
@@ -48,7 +52,7 @@ the web app if you need to re-link.
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
 | `/clearorders [game_id]`, `/clear [game_id]` | Clear your submitted orders so you can resubmit. |
 | `/orderhistory <game_id>` | Orders from previous turns, grouped by turn and power. |
-| `/processturn <game_id>` | Adjudicate the current phase and advance. |
+| `/processturn <game_id>` | Adjudicate the current phase and advance. If some powers haven't submitted yet, asks for confirmation first (their units would otherwise hold silently) and reports a short outcome summary — dislodgements and standoffs — afterwards. |
 
 Separate multiple orders with semicolons. `/selectunit` is the easiest route — it only ever
 offers orders that are legal in the current phase, including retreats and builds.
@@ -77,7 +81,7 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 |---|---|
 | `/message <game_id> <power> <text>` | Private message to one power. |
 | `/broadcast <game_id> <text>` | Message all players. Also posted to the linked channel, if any. |
-| `/messages [game_id]` | Broadcasts plus private messages to and from you. |
+| `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing which power sent it. |
 
 ## Maps
 
