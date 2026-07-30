@@ -155,29 +155,47 @@ A thin client over the HTTP API (`api_client.py`) — it never talks to the engi
 
 React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/games/:id`. Add a component with `npx shadcn@latest add <component>`. Any test touching a `/games/:id` page must wrap it in `<Routes><Route path="/games/:gameId" …>` — a bare `MemoryRouter` leaves `useParams()` unresolved and silently tests the loading spinner.
 
-## Production infrastructure (AWS)
+## Deployment (AWS) — **not currently running**
 
-One `t3.micro` EC2 in **eu-north-1** running nginx + uvicorn + python-telegram-bot + postgresql-16 (Ubuntu 24.04, Python 3.14 from the deadsnakes PPA). Terraform lives in [`new_implementation/infra/terraform/`](new_implementation/infra/terraform/); the bootstrap and operational walkthrough is that directory's `README.md`.
+**There is no production server at the time of writing (confirmed 2026-07-30).** No EC2
+instance, no live systemd units, no GitHub OIDC role. This section describes how to *stand it
+up*, not what is running. Treat every statement below as conditional on someone having done so.
 
-- Secrets are in SSM Parameter Store as SecureStrings (`/diplomacy/*`) — **never in tfstate or the repo**.
-- Terraform state in S3 with native lockfile (Terraform 1.10+, no DynamoDB).
-- Access via SSH (your IP only) and SSM Session Manager. No HTTPS yet — HTTP through nginx on port 80.
-- Systemd units: `diplomacy-api`, `diplomacy-bot`.
+Consequences worth knowing before you reason about anything else:
 
-**Deploy from CI:** every push to `main` that turns `Test Suite` green triggers [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — GitHub OIDC auth, find the EC2 by its `Name=diplomacy` tag, `aws ssm send-command` to run [`infra/scripts/deploy.sh`](new_implementation/infra/scripts/deploy.sh) with the commit SHA, which does `git reset --hard <sha>`, `pip install -r requirements.txt`, `alembic upgrade head`, restarts both units, then smoke-tests `/health`. The IAM trust policy accepts only `repo:tenderi/diplomacy:ref:refs/heads/main` and `repo:tenderi/diplomacy:environment:production`, so no other branch can deploy.
+- **Nothing is deployed, so nothing breaks when you merge.** The `Deploy` workflow is gated off
+  (see below) and does not run.
+- **Security notes elsewhere in this repo that cite the deployment are conditional on it.** In
+  particular: C1's `# nosec` justifications, C2's per-IP rate-limit threat model, and the
+  assumptions that `/tmp` is single-tenant, that nginx proxies only from loopback, and that port
+  8081 (the bot's notification server) is closed by a security group. **None of those hold on a
+  developer machine or in any other deployment.** If you are deciding whether a bind address or a
+  temp path is safe, that reasoning assumed this AWS layout — re-derive it for wherever the code
+  actually runs.
+- `HTTPS/TLS` was never set up even when the instance existed; it served HTTP on port 80.
 
-**Secret rotation** — to rotate any of `/diplomacy/{telegram_bot_token,db_password,jwt_secret,admin_token,bot_secret}`:
+The intended shape, if it is stood up again: one `t3.micro` in **eu-north-1** running nginx +
+uvicorn + python-telegram-bot + postgresql-16 (Ubuntu 24.04, Python 3.14 from the deadsnakes
+PPA); secrets in SSM Parameter Store as SecureStrings under `/diplomacy/*`, never in tfstate or
+the repo; Terraform state in S3 with the native lockfile (Terraform 1.10+, no DynamoDB); access
+by SSH (single IP) and SSM Session Manager; systemd units `diplomacy-api` and `diplomacy-bot`.
+
+**The full bootstrap and operational walkthrough — including secret rotation via
+`infra/scripts/refresh-env.sh` and the CI deploy path — lives in
+[`new_implementation/infra/terraform/README.md`](new_implementation/infra/terraform/README.md).**
+The Terraform, `infra/scripts/deploy.sh`, and `.github/workflows/deploy.yml` are all still in the
+repo and were working code; they are kept so this is a re-apply rather than a rewrite.
+
+**Deploy-on-merge is gated off.** `.github/workflows/deploy.yml` runs only when the repository
+variable `DEPLOY_ENABLED` is set to `true`. It previously triggered on every green `main` push
+and failed **40 times out of 40** on `sts:AssumeRoleWithWebIdentity`, because the OIDC role it
+assumes does not exist — so every merge produced a red workflow that was *expected* to be red,
+which is precisely the condition that trains a maintainer to ignore CI failures. To re-enable
+after standing the infrastructure up:
 
 ```bash
-aws ssm put-parameter --name /diplomacy/<key> --type SecureString \
-  --value '<new-value>' --overwrite --region eu-north-1
-aws ssm start-session --target $(terraform output -raw instance_id) --region eu-north-1
-# inside the session:
-sudo bash /opt/diplomacy/new_implementation/infra/scripts/refresh-env.sh
-sudo systemctl restart diplomacy-api diplomacy-bot
+gh variable set DEPLOY_ENABLED --body true -R tenderi/diplomacy
 ```
-
-`refresh-env.sh` re-reads every `/diplomacy/*` parameter and rewrites `/opt/diplomacy/.env`. The same script runs during the initial EC2 bootstrap, so both code paths stay in sync.
 
 ## Conventions and gotchas
 
