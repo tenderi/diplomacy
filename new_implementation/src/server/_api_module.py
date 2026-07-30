@@ -31,7 +31,7 @@ from .api.shared import deadline_scheduler, db_service
 from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -198,6 +198,7 @@ app.include_router(channels.router, tags=["channels"])
 app.include_router(tournaments.router)
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
+app.include_router(waiting_list.router, tags=["waiting-list"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

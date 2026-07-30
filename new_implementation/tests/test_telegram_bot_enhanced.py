@@ -12,7 +12,6 @@ from typing import Dict, Any, List
 
 from server.telegram_bot.config import get_telegram_token
 from server.telegram_bot.api_client import api_post, api_get
-from server.telegram_bot.games import process_waiting_list
 
 
 class TestTelegramBotFunctions:
@@ -95,38 +94,9 @@ class TestBotCommands:
         mock_get.assert_called_once()
 
 
-class TestProcessWaitingList:
-    """Test waiting list processing functionality."""
-    
-    def test_process_waiting_list_empty(self):
-        """Test processing empty waiting list."""
-        waiting_list = []
-        powers = ['FRANCE', 'GERMANY', 'ENGLAND']
-        notify_callback = Mock()
-        
-        result = process_waiting_list(waiting_list, 3, powers, notify_callback)
-        assert result == (None, None)  # No game created, returns tuple
-    
-    def test_process_waiting_list_enough_players(self):
-        """Test processing waiting list with enough players."""
-        # waiting_list should be list of tuples (telegram_id, full_name)
-        waiting_list = [
-            ('1', 'User1'),
-            ('2', 'User2'),
-            ('3', 'User3')
-        ]
-        powers = ['FRANCE', 'GERMANY', 'ENGLAND']
-        notify_callback = Mock()
-        
-        # Mock api_post function to handle both create and join calls
-        def mock_api_post_func(endpoint, data):
-            if endpoint == "/games/create":
-                return {'game_id': 123}
-            elif endpoint.startswith("/games/123/join"):
-                return {'status': 'ok'}
-            return {}
-        
-        result = process_waiting_list(waiting_list, 3, powers, notify_callback, api_post_func=mock_api_post_func)
-        assert result is not None
-        assert result[0] == 123  # game_id
-        assert len(result[1]) == 3  # assignments
+# `TestProcessWaitingList` was removed with G5. It tested
+# `telegram_bot.games.process_waiting_list`, the bot-side queue-filling function
+# that has moved server-side (the queue is now a Postgres table owned by
+# `/waiting_list/*`, so it survives the restart that a deploy performs and its
+# entries are claimed atomically). Coverage lives in `tests/test_waiting_list.py`
+# and `tests/test_telegram_waiting_list.py`.

@@ -9,11 +9,12 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy import func as sa_func
 import logging
 from .database import (
     GameModel, PlayerModel, OrderModel, TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
-    SpectatorModel,
+    SpectatorModel, WaitingListModel,
     get_session_factory,
     utcnow_naive,
 )
@@ -253,6 +254,135 @@ class DatabaseService:
     def get_players_by_game_id(self, game_id: int) -> List[PlayerModel]:
         with self.session_factory() as session:
             return session.query(PlayerModel).filter_by(game_id=game_id).all()
+
+    # --- Waiting list (automatic game matching) ---
+    def add_to_waiting_list(self, telegram_id: str, full_name: Optional[str] = None) -> bool:
+        """Queue a player. Returns ``False`` if they were already queued.
+
+        ``telegram_id`` is UNIQUE, so this is idempotent by construction: a
+        repeated ``/wait`` cannot claim two slots in the same game.
+        """
+        with self.session_factory() as session:
+            existing = (
+                session.query(WaitingListModel)
+                .filter_by(telegram_id=str(telegram_id))
+                .first()
+            )
+            if existing is not None:
+                return False
+            session.add(
+                WaitingListModel(
+                    telegram_id=str(telegram_id),
+                    full_name=full_name,
+                    joined_at=utcnow_naive(),
+                )
+            )
+            session.commit()
+            return True
+
+    def remove_from_waiting_list(self, telegram_id: str) -> bool:
+        """Dequeue a player. Returns ``False`` if they weren't queued."""
+        with self.session_factory() as session:
+            deleted = (
+                session.query(WaitingListModel)
+                .filter_by(telegram_id=str(telegram_id))
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return bool(deleted)
+
+    def get_waiting_list(self) -> List[Tuple[str, Optional[str]]]:
+        """Everyone queued, longest-waiting first, as ``(telegram_id, full_name)``."""
+        with self.session_factory() as session:
+            rows = (
+                session.query(WaitingListModel.telegram_id, WaitingListModel.full_name)
+                .order_by(WaitingListModel.joined_at, WaitingListModel.id)
+                .all()
+            )
+        return [(str(r[0]), r[1]) for r in rows]
+
+    def count_waiting_list(self) -> int:
+        with self.session_factory() as session:
+            return session.query(WaitingListModel).count()
+
+    def claim_waiting_list_entries(self, count: int) -> List[Tuple[str, Optional[str]]]:
+        """Atomically remove and return the ``count`` longest-waiting entries.
+
+        Returns ``[]`` (claiming nothing) unless at least ``count`` are queued.
+
+        **This is the fix for G5's orphan-game bug.** The old bot-side code read
+        ``waiting_list[:required_size]``, created a game, joined players in a
+        loop, and only then ``clear()``ed the list -- so any failure inside the
+        loop left an orphan game with a partial roster *and* an uncleared queue,
+        and the next ``/wait`` tripped the threshold again and minted another
+        orphan. Claiming first means a failure downstream can re-queue exactly
+        the players it took (see ``requeue_waiting_list_entries``) and can never
+        mint a second game from the same entries. ``clear()`` also dropped an 8th
+        queued player; taking exactly ``count`` holds them for the next game.
+
+        ``FOR UPDATE`` serialises two workers racing to fill the same queue: the
+        loser sees the rows already gone and claims nothing.
+        """
+        if count <= 0:
+            return []
+        with self.session_factory() as session:
+            rows = (
+                session.query(WaitingListModel)
+                .order_by(WaitingListModel.joined_at, WaitingListModel.id)
+                .limit(count)
+                .with_for_update()
+                .all()
+            )
+            if len(rows) < count:
+                session.rollback()
+                return []
+            claimed = [(str(r.telegram_id), r.full_name) for r in rows]
+            for row in rows:
+                session.delete(row)
+            session.commit()
+        return claimed
+
+    def requeue_waiting_list_entries(
+        self, entries: List[Tuple[str, Optional[str]]]
+    ) -> None:
+        """Put claimed entries back after a failed game creation.
+
+        Re-inserted at the *front* of the queue (``joined_at`` preserved is not
+        possible once deleted, so the original wait is approximated by backdating
+        below the current minimum) so players who were nearly in a game are not
+        sent to the back of the line for a server-side failure.
+        """
+        if not entries:
+            return
+        with self.session_factory() as session:
+            earliest = session.query(
+                sa_func.min(WaitingListModel.joined_at)
+            ).scalar()
+            base = earliest or utcnow_naive()
+            for offset, (telegram_id, full_name) in enumerate(entries):
+                already = (
+                    session.query(WaitingListModel)
+                    .filter_by(telegram_id=str(telegram_id))
+                    .first()
+                )
+                if already is not None:
+                    continue
+                session.add(
+                    WaitingListModel(
+                        telegram_id=str(telegram_id),
+                        full_name=full_name,
+                        # microseconds before the current head, order preserved
+                        joined_at=base - timedelta(microseconds=len(entries) - offset),
+                    )
+                )
+            session.commit()
+
+    def clear_waiting_list(self) -> int:
+        """Empty the queue. Returns how many entries were removed (admin/test use)."""
+        with self.session_factory() as session:
+            deleted = session.query(WaitingListModel).delete(synchronize_session=False)
+            session.commit()
+            return int(deleted)
 
     def get_player_telegram_ids(self, game_id: int) -> List[str]:
         """Every linked Telegram ID among a game's players, for notification fan-out.
