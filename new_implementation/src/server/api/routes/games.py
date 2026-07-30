@@ -40,9 +40,20 @@ class SetDeadlineRequest(BaseModel):
     deadline: Optional[datetime]
 
 class JoinGameRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/join``.
+
+    ``game_id`` is **optional and redundant** -- the path is the single source of
+    truth (G6). It used to be required, so omitting it was a 422 even though the
+    value was right there in the URL, *and* supplying a different value than the
+    path was accepted without complaint. Both are fixed: it may be omitted, and a
+    value that disagrees with the path is a 400 rather than silently ignored.
+    Kept in the model at all only because every existing caller sends it (the bot,
+    the demo-game seeder, the web client, and ~40 tests); dropping the field
+    outright would have made Pydantic reject them all.
+    """
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     bot_secret: Optional[str] = None
-    game_id: int
+    game_id: Optional[int] = None  # redundant with the path; validated to agree if sent
     power: str
 
 class QuitGameRequest(BaseModel):
@@ -89,7 +100,19 @@ def create_game(
     _: None = Depends(require_bot_or_user),
 ) -> Dict[str, Any]:
     """Create a new game. The new engine starts it immediately at S1901M with every
-    power's opening units; players then claim powers via add_player/join."""
+    power's opening units; players then claim powers via add_player/join.
+
+    **Authentication is required, deliberately** (G6 decision, recorded
+    2026-07-30). An unauthenticated game-creation endpoint is an obvious spam
+    vector -- each call writes a `games` row with a full serialized `GameState` --
+    and C2 added per-IP rate limiting for exactly that class of abuse. Requiring a
+    Bearer token or `X-Bot-Secret` is the safe default for a public HTTP surface,
+    and every real caller already has one.
+
+    What actually made this feel like a wart was the *error*: an opaque 401
+    "Not authenticated" with no hint that a header was missing. That is fixed in
+    `require_bot_or_user`, which now names both accepted credentials.
+    """
     try:
         game_id = game_service.create_game(map_name=req.map_name)
         return {"game_id": game_id}
@@ -486,6 +509,18 @@ def join_game(
     req: JoinGameRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
+    # The path is the single source of truth for which game this is. A body
+    # `game_id` that disagrees with it is rejected rather than ignored: silently
+    # accepting a mismatch was the one behaviour G6 ruled out, because it makes a
+    # client bug look like a working request that joined the wrong game.
+    if req.game_id is not None and int(req.game_id) != int(game_id):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"game_id in body ({req.game_id}) does not match the URL ({game_id}). "
+                f"The body field is optional -- omit it and the path is used."
+            ),
+        )
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         # Validate power name
