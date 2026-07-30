@@ -51,7 +51,7 @@ a Hypothesis property enforces this. Algorithm writeup:
 | File | Purpose |
 |---|---|
 | `types.py` | Frozen, hashable dataclasses: `Location` (province + optional coast), `Unit`, `DislodgedUnit`, one class per order kind (`Hold`, `Move`, `SupportHold`, `SupportMove`, `Convoy`, `Retreat`, `Disband`, `Build`, `Waive`), `OrderResult`, `Resolution`, `GameState`. Enums: `UnitKind`, `ProvinceType`, `Season`, `PhaseType`, `OrderType`, `ResultCode`, `GameStatus`. |
-| `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types, coast-first-class adjacency, supply centers, home centers, 1901 starting units, province aliases. Query API: `adjacent`, `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`. **The sole topology and alias source** — no hardcoded tables anywhere in the engine. |
+| `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types, coast-first-class adjacency, supply centers, home centers, 1901 starting units, province aliases, and `display_names` (code → full name, from the `=` lines' left-hand side). Query API: `adjacent`, `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`. **The sole topology, alias and display-name source** — no hardcoded tables anywhere in the engine. Note `display_names` is for client *display* only; `aliases` is what the order parser consults, and full names deliberately do not parse. |
 | `orders/parser.py` | One grammar for every order type: coast syntax (`F SPA/SC`), `VIA` convoy, aliases, optional power prefix. `parse_order` / `format_order` round-trip (Hypothesis-checked). |
 | `orders/validation.py` | The single legality path, `validate(order, state, map)` — used by `GameService.submit_orders` and by build legality in `adjudicator/adjustments.py`. |
 | `adjudicator/movement.py` | The heart of the engine: a **Kruijswijk fixed-point resolver**. Per-order UNRESOLVED/GUESSING/RESOLVED state, recursive resolve with dependency-cycle detection, attack/defend/prevent/hold strengths with the correct support-cut exemptions, BFS convoy paths over surviving fleets (multi-route), and cycle-breaking: circular movement succeeds, convoy-entangled cycles apply the **Szykman rule**. |
@@ -100,6 +100,12 @@ Plus denormalized convenience columns (`map_name`, `current_turn`, `phase_code`,
 `state_json`. The legacy `units` / `orders` / `supply_centers` tables remain in the schema
 but are **never read or written** — don't add code that touches them.
 
+`waiting_list` (added by migration `g5a1c2d3e4f5`) holds the automatic-matching queue —
+`telegram_id` UNIQUE, ordered by `joined_at` — so it survives the bot restart every deploy
+performs. It is read and written only through `DatabaseService`'s waiting-list methods, whose
+`claim_waiting_list_entries` removes exactly N rows in one transaction before any game is
+created.
+
 ---
 
 ## 4. Rendering (`src/rendering/`) and maps
@@ -142,12 +148,13 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 
 | Module | Endpoints |
 |---|---|
-| `games.py` | Create/list/get games, join/quit/replace/start, deadline get+set, process turn, snapshots + restore, history, waiting list, draw vote and concede, spectators. |
+| `games.py` | Create/list/get games, join/quit/replace/start, deadline get+set, process turn, snapshots + restore, history, draw vote and concede, spectators. |
 | `orders.py` | Submit orders, get current orders, clear orders, order history, order-submission status, legal orders (whole power or per unit). |
 | `users.py` | Register (persistent + session), list a user's games. |
 | `auth.py` | JWT register/login/token/refresh/me, forgot + reset password, Telegram link code and link/unlink. |
 | `messages.py` | Private messages, broadcasts, message history. |
-| `maps.py` | Board / orders / resolution PNG generation, per-turn map history, map preview. |
+| `maps.py` | Board / orders / resolution PNG generation, per-turn map history, map preview, and `GET /maps/{map}/provinces` — province metadata (full name, type, supply-centre flag, coasts), the one server-side source of display names for both clients. |
+| `waiting_list.py` | Automatic game matching: join/leave the queue, queue status. Owns the `waiting_list` table and creates the game itself when the queue fills, claiming exactly seven entries in one transaction first so a failure cannot orphan a game. This used to be an in-memory global in the Telegram bot. |
 | `channels.py` | Link/unlink Telegram channels, settings, posting maps, results, broadcasts, timelines, proposals, analytics. |
 | `admin.py` | Delete all games, cache management, counts. Requires the admin token. |
 | `dashboard.py` | Service status and restart (systemd), log retrieval (`journalctl`), read-only DB table inspection and stats. Requires the admin token. |
@@ -195,10 +202,11 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `app.py` / `__main__.py` | Entry point: wires command and callback handlers, then runs the polling loop and the notification server in parallel. |
 | `config.py`, `api_client.py` | Token/API-URL config; `api_get`, `api_post`, `api_get_bytes`, `wait_for_api_health`. |
 | `game_context.py` | `resolve_game_and_power(user_id, game_id=None)` + `fetch_user_games` — the one place a command figures out which game and power it is acting on. |
-| `games.py` | `/start`, `/register`, `/games`, `/join`, `/quit`, `/replace`, `/wait`, `/status`, `/players`. |
+| `games.py` | `/start`, `/register`, `/games`, `/join`, `/quit`, `/replace`, `/wait`, `/unwait`, `/status`, `/players`. `/wait` and `/unwait` are thin calls to `/waiting_list/*` — the queue is server state. |
 | `orders.py` | `/order`, `/orders`, `/myorders`, `/clearorders`, `/clear`, `/orderhistory`, `/processturn`, `/selectunit` — interactive unit and move selection via inline keyboards driven by `legal_orders`. |
 | `messages.py`, `maps.py` | `/message`, `/broadcast`, `/messages`; `/map`, `/viewmap`, `/replay`. |
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu); `/debug`. |
+| `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`. Centralised because the same block was copy-pasted into three modules and all copies drifted into teaching syntax the engine rejects; `tests/test_bot_help_text.py` parses each documented order through the real grammar. |
 | `channels.py`, `channel_commands.py` | Posting maps, results, and broadcasts to linked channels; `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings`. |
 | `notifications.py` | A small FastAPI app on port 8081 that the main API webhooks into, pushing notifications to players. |
 
