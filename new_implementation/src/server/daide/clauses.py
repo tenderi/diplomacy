@@ -9,7 +9,7 @@ and `wire.py`.
 
 Clause shapes below are dictated by the external DAIDE specification (cross-checked
 against `old_implementation/diplomacy/daide/clauses.py`, read-only, per Track D's
-Ground Rules in `docs/specs/fix_plan.md` -- not copied; the byte-level shapes are
+Ground Rules in `docs/specs/done_fixes.md` -- not copied; the byte-level shapes are
 the compliance requirement, the code here is original):
 
 - A **province** with no coast is a single token (``PAR``). A province that

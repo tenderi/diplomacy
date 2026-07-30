@@ -25,7 +25,7 @@ focused modules that hold plain module-level functions, matching
   (``_draw_arrow``, curved/dashed/dotted variants, checkmark/X, star) that
   ``overlays.py`` calls. Split out of ``overlays.py`` for the same reason
   ``svg_paths.py`` was split out of ``board.py`` -- also not in the plan's
-  original proposed layout, recorded here and in ``fix_plan.md``.
+  original proposed layout, recorded here and in ``done_fixes.md``.
 - ``rendering.legend`` -- the on-image legend + its mini-icon helpers.
 - ``rendering.icons`` -- army/fleet icon loading and drawing.
 

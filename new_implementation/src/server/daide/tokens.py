@@ -21,7 +21,7 @@ they are the external DAIDE specification, and any compliant client or
 server must use the same values to interoperate. (`old_implementation`'s
 `diplomacy/daide/tokens.py` documents the same table and was used, read-only,
 to cross-check every value here -- see Track D's Ground Rules in
-`docs/specs/fix_plan.md` for why this codebase can't simply import that file.)
+`docs/specs/done_fixes.md` for why this codebase can't simply import that file.)
 
 Province coverage is scoped to `maps/standard.map` (map variants are out of
 scope for this track). This module does **not** hand-maintain a second
@@ -461,7 +461,7 @@ PARAMETER_TOKENS: tuple[Token, ...] = (
 # ---------------------------------------------------------------------------
 # Press (0x4A) -- syntax tokens for the PRP/ALY/... negotiation grammar. Track
 # D scopes press support to opaque, syntax-checked forwarding (see
-# docs/specs/fix_plan.md's Ground Rules), so these are registered for
+# docs/specs/done_fixes.md's Ground Rules), so these are registered for
 # completeness but D1/D2 do not attempt to parse press semantics.
 # ---------------------------------------------------------------------------
 
