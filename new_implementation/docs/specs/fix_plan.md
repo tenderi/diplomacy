@@ -22,7 +22,10 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.56`. `main` green, no open PRs, no stale branches.
+- **Last updated:** 2026-07-30, at `v2.7.58`. `main` green.
+- **Next action: G3** (manual `process_turn` notifies nobody). **G1 is complete** — see its
+  section for the codes-only decision and the second defect it turned up (the `ARMY`/`FLEET`
+  claim, wrong in all three copies of a copy-pasted help block).
 - **Everything automated is done.** Tracks A–E are merged (`v2.7.17`–`v2.7.55`). The engine
   conforms to DATC, every phase is playable from both clients, a game can end by agreement, a
   real DAIDE bot can play a turn over the wire, and a player can see what happened to their
@@ -39,9 +42,9 @@
     production infrastructure that is not running, and the `Deploy` workflow has never
     succeeded. Both need a maintainer decision, not code.
 - **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: **G1 → G3 → G4 → G5 → G2 → G6 → H1 → H2.** G1 is a
-  near-trivial fix to a live user-facing defect; H1/H2 are decisions that cost nothing to
-  make and stop the docs from lying.
+  gates nothing else. Otherwise: ~~G1~~ → **G3 → G4 → G5 → G2 → G6 → H1 → H2.** H1/H2 are
+  decisions that cost nothing to make and stop the docs from lying; all three of their
+  decisions were taken on 2026-07-30 and are recorded in their sections.
 - **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.56`, against a real
   local Postgres):** **1333 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
   coverage **93.42%** (floor 92), overall **68.04%** (floor 60). Track E recorded overall as
@@ -207,33 +210,71 @@ This is adjacent to, but distinct from, the V2 finding that the bot's old
 nothing — but the docstring's aspiration lived on in the *user-facing help text*, which nobody
 re-checked. The docs have been lying since before the rewrite.
 
-- [ ] **Immediate fix — make the help text true.** Rewrite `ui.py`'s `/rules` and `/examples`
-      blocks to use canonical 3-letter codes (`A BER - KIE`, `A MAR S A PAR - BUR`), keeping
-      the parenthetical English gloss that is already there and is genuinely useful
-      ("Army moves from Berlin to Kiel"). Fix the ✅/❌ example at `ui.py:182`, which currently
-      marks an unparseable string as correct. Audit the whole file plus
-      `docs/TELEGRAM_BOT_COMMANDS.md` for the same pattern — E3 already found that file lying
-      about `/join` and `/order`, so treat it as suspect.
-- [ ] **Then decide, and record the decision here: should the engine accept full names?**
-      The natural implementation is one line per province in `maps/standard.map` — the file is
-      already the sole alias source by design, and V2 set the precedent of adding an alias by
-      editing that file rather than introducing a second table. **But there is a real blocker
-      to check first:** 26 of the LHS names are multi-word (`Adriatic Sea`, `English Channel`,
-      `Gulf of Bothnia`), and the order grammar tokenizes on whitespace (`parser._tokenize`),
-      so `A English Channel - NTH` cannot work without changes to tokenization. Single-word
-      names (`Berlin`, `Burgundy`, `Marseilles`) are safe. Options: accept single-word names
-      only (cheap, half-consistent), teach the tokenizer multi-word province names (real
-      grammar work), or accept codes only and rely on G1a's doc fix (cheapest, and arguably
-      right for a game whose entire community writes `A BER - KIE`).
-- [ ] **Guard against a third recurrence.** Add a test that extracts every order-like string
-      from the bot's help text and asserts it parses. The two prior instances of this class of
-      bug (PR1's `spec_from_file_location` tests, PR3's routeless `GameView` test) share a
-      shape: the thing that should have caught it was testing something adjacent. A test that
-      reads the *actual help text* closes it permanently.
-- [ ] **Done when:** every order string shown to a Telegram user parses, asserted by a test
+**Second defect found while fixing this (2026-07-30).** The province names were not the only
+lie in that block. The same "Order Format" text claimed:
+
+> • Use abbreviations: `A`, `F`, `H`, `S`, `C`
+> • Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`
+> • **Important:** Don't mix abbreviations and full names in the same order
+> • Examples: `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅ or `A Berlin HOLD` ❌
+
+Every clause of that is wrong. `parse_order` accepts long **verbs**
+(`_HOLD_WORDS`/`_SUPPORT_WORDS`/`_CONVOY_WORDS`/`_RETREAT_WORDS`/`_DISBAND_WORDS` in
+`orders/parser.py:62-67`) but the unit kind is `A`/`F` only — so `ARMY BER HOLD` fails
+(`expected unit kind 'A' or 'F', got 'ARMY'`), while `A BER HOLD` — the string the docs marked
+❌ — parses fine. The "don't mix" rule was invented and had the truth exactly backwards. Worse,
+that whole block was **copy-pasted into three modules** (`ui.py` twice, `admin.py:94-97`,
+`app.py:207-210`), which is why all four copies were wrong at once.
+
+**Third defect, same block, found by reading the diff (2026-07-30).** `admin.py`'s demo-start
+message built `demo_text` as an implicitly concatenated group where only the *first* fragment
+was an f-string, so its last two lines — `"• Use \`/processturn {game_id}\`…"` — rendered the
+literal text `{game_id}` to the player instead of the number. Pre-existing and unrelated to the
+province names; fixed in the same commit (two `f` prefixes) because it sat inside the text being
+rewritten. Worth noting as a pattern: a partially-f-stringed implicit-concatenation block is
+invisible to Ruff and to every existing test.
+
+**Fixed at `v2.7.58`.** All user-facing order text now lives in one module,
+`telegram_bot/help_text.py`, imported by `ui.py` (`/rules`, `/examples`, `/help`), `admin.py`
+(demo start) and `app.py` (demo help). There is no longer a second copy to drift.
+
+- [x] **Immediate fix — make the help text true.** Done. `/rules`, `/examples`, `/help`, and
+      both demo-game blocks now use canonical codes with the English gloss kept
+      (`` `A BER - KIE` - Army Berlin moves to Kiel ``). The bogus ✅/❌ "don't mix" bullet is
+      gone, replaced by what the grammar actually does. `docs/TELEGRAM_BOT_COMMANDS.md` was
+      audited and found **already correct** (its `### Order syntax` block used codes); it is
+      now covered by the guard test rather than trusted.
+- [x] **Decision: codes only. The engine will not accept full province names.** Recorded
+      2026-07-30, maintainer-confirmed.
+      **Reasoning.** The blocker is real: 26 of the LHS names are multi-word (`Adriatic Sea`,
+      `English Channel`, `Gulf of Bothnia`) and `parser._tokenize` splits on whitespace, so
+      those can never work without genuine grammar changes. That leaves single-word-only
+      support, which is *worse for the beginner it is meant to help*: `A Burgundy - Ruhr` would
+      work while `F English Channel - NTH` failed, and nothing on screen tells you which kind
+      of province you are looking at. A consistent, teachable rule ("provinces are 3-letter
+      codes") beats an inconsistent convenience. The community writes `A BER - KIE`, the
+      single-word aliases that *do* exist already cover the common near-misses (`baltic`,
+      `burg`, `york` — 90 of the 192 alias entries are longer than three characters), and
+      `/selectunit` exists for anyone who does not want to memorise codes.
+      **Consequence for G2:** the display half is still worth doing. Showing `Berlin (BER)` in
+      client output costs nothing and teaches the code, which is the actual fix for the
+      confusion that motivated this. G2's "do not substitute names into the order strings the
+      clients post back" instruction is now load-bearing rather than advisory.
+- [x] **Guard against a third recurrence.** Done — `tests/test_bot_help_text.py` (60 tests).
+      It reflects over every public string constant in `help_text.py`, extracts each
+      backtick-quoted span whose first token is a unit kind or order verb (stripping a leading
+      `/orders <id>` where present), and parses each one through the real
+      `engine.orders.parser`. Plus four targeted assertions: no mixed-case province token in
+      any example (a parse check alone would miss `A baltic - BER`, which *does* parse), no
+      mention of `ARMY`/`FLEET` anywhere, `DEMO_UNITS`' province codes are real, and a
+      **meta-test** that the extractor still flags `A Berlin - Kiel` — without which a broken
+      extractor would make every other assertion vacuously green, which is how the original
+      bug survived.
+      **Mutation-verified**, not just green: reintroducing a full province name fails 2 tests,
+      reintroducing the `ARMY`/`FLEET` claim fails 7, and a bad code in `DEMO_UNITS` fails 1.
+- [x] **Done when:** every order string shown to a Telegram user parses, asserted by a test
       that would fail if the help text regressed; the full-name decision is written down here
-      with its reasoning either way. **Size:** the doc fix is under an hour; the decision is
-      free; full-name *input* support is a separate, larger task if chosen.
+      with its reasoning either way. ✅ All three met at `v2.7.58`.
 
 ## G2 — No full province names anywhere in client output
 
@@ -366,7 +407,17 @@ global with `WAITING_LIST_SIZE = 7`. Three separate defects:
       join fails, or (better, since it needs no delete path) create the game *after* all
       seven joins are known to be possible, and remove exactly the seven players consumed
       rather than clearing the list. Decide and record which.
-- [ ] **Then decide on persistence.** A `waiting_list` table is the obvious answer and makes
+- [ ] **Persistence decision: a `waiting_list` table in Postgres.** Taken 2026-07-30,
+      maintainer-confirmed. The queue must survive `systemctl restart diplomacy-bot`, and the
+      deciding argument is the boundary one rather than the durability one: this module global
+      is one of the last places the bot holds game state, and the bot is meant to be a thin
+      client over the HTTP API. The cheaper "warn on startup" option was rejected because it
+      cannot actually work — the Telegram IDs to warn *are* the state that died with the
+      process. Implementation per `CLAUDE.md`: `persistence/database.py` model + a hand-written
+      Alembic revision + `DatabaseService` methods, exposed through the API so the bot posts
+      to an endpoint instead of appending to a list.
+- [ ] Original framing of that decision, kept for the reasoning it records: A `waiting_list`
+      table is the obvious answer and makes
       the queue survive deploys, but it is a schema change (`persistence/database.py` +
       Alembic + a `DatabaseService` method, per `CLAUDE.md`) and it moves queue state from the
       bot to the server, which is the right side of the boundary — the bot is meant to be a
@@ -420,6 +471,16 @@ spec, and `CLAUDE.md` is loaded into context for every session in this repo, so 
 statement there misleads every future agent before it reads a line of code.
 
 Both tasks are **maintainer decisions**, not implementation work.
+
+**Decision taken 2026-07-30 (maintainer-confirmed), covering both H1 and H2: option (a) —
+the infrastructure is intentionally torn down.** `CLAUDE.md`'s AWS section becomes "how to
+stand it up", with the operational detail living in `infra/terraform/README.md` and a one-line
+pointer left behind; the security notes that depend on the deployment get marked explicitly
+conditional; and `deploy.yml` is gated behind a repository variable rather than deleted, so the
+wiring survives for whenever there is something to deploy again. Rationale: nothing is running,
+so present-tense prose in a file loaded into every agent's context is actively misleading, and a
+workflow that has failed 40/40 times carries no signal. Gating rather than deleting keeps the
+OIDC/SSM deploy path recoverable without re-deriving it.
 
 ## H1 — `CLAUDE.md` documents production infrastructure that is not running
 
