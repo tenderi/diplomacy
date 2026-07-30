@@ -22,6 +22,7 @@ from telegram.ext import (
 # Import directly from modules
 from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import api_post, api_get, wait_for_api_health, _validate_api_url
+from server.telegram_bot.help_text import DEMO_EXAMPLE_ORDERS, DEMO_UNITS, ORDER_FORMAT_NOTES
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
@@ -194,20 +195,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         help_text = (
             f"ℹ️ *Demo Game Help* (ID: {game_id})\n\n"
             "🇩🇪 *You are Germany* - You control:\n"
-            "• A Berlin (Army in Berlin)\n"
-            "• A Munich (Army in Munich)\n"
-            "• F Kiel (Fleet in Kiel)\n\n"
-            "*Example Orders:*\n"
-            f"• `/orders {game_id} A Berlin - Kiel`\n"
-            f"• `/orders {game_id} A Munich - Bohemia`\n"
-            f"• `/orders {game_id} F Kiel - Denmark`\n"
-            f"• `/orders {game_id} A Berlin H` (Hold)\n"
-            f"• `/orders {game_id} A Berlin S A Munich - Kiel` (Support)\n"
-            f"• `/orders {game_id} F Kiel C A Berlin - Denmark` (Convoy)\n\n"
-            "*📝 Order Format:*\n"
-            "• Use abbreviations: `A`, `F`, `H`, `S`, `C`\n"
-            "• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`\n"
-            "• **Don't mix:** `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅\n\n"
+            f"{DEMO_UNITS}\n\n"
+            f"*Example Orders:* (prefix each with `/orders {game_id}`)\n"
+            f"{DEMO_EXAMPLE_ORDERS}\n\n"
+            f"{ORDER_FORMAT_NOTES}\n\n"
             "*Interactive Commands:*\n"
             f"• `/selectunit` - Choose units and orders interactively\n"
             f"• `/processturn {game_id}` - Process the current turn\n"
