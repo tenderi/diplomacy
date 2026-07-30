@@ -27,6 +27,16 @@ class VisualizationConfig:
         "arrows": {
             "arrowhead_size": 18,
             "arrowhead_base_width": 22,
+            # Explicit head dimensions (Track I2). "arrowhead_size" is kept as the
+            # legacy single-number scale that older callers and tests read; these
+            # three describe the barbed head actually drawn. Length > 2 * half_width
+            # on purpose: a head as wide as it is long reads as a blunt stub.
+            "arrowhead_length": 26,
+            "arrowhead_half_width": 9,
+            "arrowhead_notch": 7,
+            # How far each end of an arrow stays clear of the province centre, so the
+            # 32px unit icons at both ends stay visible. Slightly over the icon radius.
+            "unit_clearance": 20,
             "line_width_primary": 6,
             "line_width_secondary": 4,
             "shape": "triangular"

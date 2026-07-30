@@ -2261,3 +2261,125 @@ logged nothing. Each task's section below records its own evidence and mutation 
 *Forward-looking sections (Out of scope, Risks / notes, Carried-over facts) live in
 [`fix_plan.md`](fix_plan.md) only — they are guidance for open work, not history, and are
 deliberately not duplicated here.*
+
+---
+
+# Track I — Map legibility (web viewer + renderer visuals)
+
+## Why this track exists
+
+**F2's first recorded finding, filed by the maintainer on 2026-07-30**, before the rest of F2
+was run: *"the default window is too small to actually see what's going on."* The web client
+renders the map inline inside `AppLayout`'s `max-w-4xl` (896px) column, and the renderer emits
+**1835×1360**. The browser therefore downscales every map to ~47% with `max-w-full h-auto` —
+below the point where a 32px unit icon or an order arrow is readable. The map was never
+clickable, so there was no way to see it at full size at all.
+
+The maintainer additionally invited a visuals overhaul ("if you can come up with a better way
+of creating the arrows etc go for it"), which is I2. F1/F2 remain open and unaffected — this
+track fixes a defect F2 surfaced; it does not complete F2.
+
+## I1 — Full-size map viewing in the web client — **done (`v2.7.66`)**
+
+- [x] The inline map is clickable and opens a full-viewport viewer.
+      `frontend/src/components/MapViewer.tsx`; the inline image is wrapped in a real
+      `<button>` rather than given an `onClick`, so it is tab-reachable and announced.
+- [x] The viewer supports zoom (wheel, buttons, double-click) and drag-to-pan, so a 1835×1360
+      map can be inspected at 1:1 on a 900px-wide column. Bounds are 10%–600%; the viewer
+      **opens fitted to the viewport** and 1:1 is one double-click away, since the inline
+      map's failing is scale, not framing.
+- [x] Keyboard and a11y: `Esc` closes, the trigger is a real focusable control with an
+      accessible name, the dialog is labelled and takes focus. Also `+`/`-`/`0`/`1`.
+      The `keydown` listener is registered in the **capture** phase so `Esc` cannot also
+      reach the game screen behind the overlay.
+- [x] Mobile: pinch/drag work via pointer events rather than mouse-only handlers.
+- [x] **Done when:** the above are covered by Vitest tests and the frontend gates
+      (`tsc -b --noEmit`, `npm run test:run`, `npm run build`) pass **run for real**, not
+      assumed — see `no-node-toolchain-locally` for the toolchain fetch. Ran for real with a
+      local Node 22: **24 files / 158 tests** (was 23/137), `tsc` clean, build green.
+
+**Finding — jsdom has no pointer support, and it fails silently.** `PointerEvent` and
+`Element.setPointerCapture` are both `undefined` under this jsdom. `fireEvent.pointerMove`
+therefore falls back to a bare `Event` that drops `pointerId`/`clientX`/`clientY`, so pan
+deltas compute to `NaN` and a pan test **passes vacuously against a component that ignores
+drags entirely**. `MapViewer.test.tsx` installs a small `PointerEvent` polyfill; without it
+four of its tests are theatre. Production is unaffected — the `setPointerCapture?.()` call is
+optional precisely so jsdom's absence of it is not an error.
+
+**Mutation evidence** (per `verify-fixes-by-mutation`): seven mutations, all caught —
+dropping the pan delta (2 fail), un-anchoring wheel-zoom from the cursor (1), removing scale
+clamping (1), disabling `Esc` (1), removing the pinch branch (1), letting `Fit` keep the pan
+offset (1), and leaking `body.overflow` (1). The first two initially reported "20 passed"
+because the `perl` patterns silently failed to apply — the mutation was never made. **A
+mutation run must confirm the file actually changed**, or it proves nothing; that is the same
+trap as a vacuously-passing test, one level up.
+
+## I2 — Renderer visuals: anti-aliasing and arrow geometry — **done (`v2.7.67`)**
+
+- [x] Overlays are anti-aliased. Every order arrow, curve, dash and marker is drawn through
+      `PIL.ImageDraw`, which does **no** anti-aliasing on `line`/`polygon` — verified
+      empirically: a 3px diagonal black line on white yields exactly two tones, `{0, 255}`.
+      New `src/rendering/antialias.py` draws the overlay onto a **3×** transparent layer and
+      LANCZOS-downscales it onto the board.
+- [x] Arrow geometry is legible: the shaft no longer buries the unit icon it starts from, and
+      the head reads as an arrow rather than a blunt stub.
+- [x] **Done when:** before/after PNGs have been compared by eye (the Risks note below is
+      load-bearing: clear the byte cache first), and the full suite plus coverage floors hold.
+      **1491 passed** (was 1445), engine coverage 93.44%, overall 69.49%.
+
+**Design — a scaling proxy, not 20 rewritten primitives.** Scaling by a constant is affine, so
+any shape built from *absolute* coordinates scales correctly if every coordinate is multiplied
+by the factor — including shapes sized from `visualization_config`, because that arithmetic has
+already happened by the time the values reach `ImageDraw`. `ScaledDraw` multiplies coordinates
+and the `width=` keyword and forwards the call, so all ~20 primitives in `arrows.py` /
+`overlays.py` are untouched. **Rejected:** threading a scale factor through every primitive and
+every config lookup, which would have rewritten all of them. `legend.py` and the phase banner
+deliberately stay off the layer — they are text and axis-aligned boxes, which gain nothing.
+
+**Cost: none measurable.** Cold `render_board_png_orders` on a full 21-unit board, byte cache
+and in-memory cache both cleared, best of 3: **913 ms at `SUPERSAMPLE=1`, 916 ms at 2, 900 ms at
+3.** The render is dominated by the CairoSVG SVG→PNG conversion, so the 9× overlay pixel count
+is inside the noise — and results are byte-cached anyway. No reason to trade quality for speed
+here; if that ever changes, `SUPERSAMPLE` is one constant in `antialias.py`.
+
+**Consolidation.** All four arrow variants (straight, convoy-curved, retreat-dashed, bounce)
+carried their own copy of the same ~14 lines of arrowhead trigonometry. They now share
+`_arrow_geometry` / `_stroke_head` / `_draw_curve_with_head`. Three substantive changes came
+with it: both ends are trimmed clear of the 32px unit icons (was a flat 4px pull-back, which
+put the head *inside* the icon it pointed at and ran a 12px shaft over the icon it came from);
+the head is barbed and longer than wide; and coincident provinces now draw nothing instead of
+an arbitrary stub (`atan2(0, 0)` is 0, so the old code pointed east).
+
+### Findings recorded rather than folded in silently
+
+1. **Every support on the pending-orders map was drawn as cut, and every hold as nothing.**
+   `render_board_png_orders` stamps `status = "pending"` on every order, but hold, support and
+   convoy drawing all tested `status == "success"` and styled everything else as failure. So
+   the map a player opens to check what they just submitted drew each support in failure red
+   with a red "support cut" X struck through it, each convoy red and dashed as though
+   disrupted, and **no hold indicator at all** — a submitted hold looked identical to
+   submitting nothing. Nothing had been adjudicated. Only movement (which spelled out
+   `or status == "pending"`) and retreat (which tested `== "failed"`) were right; two of six
+   paths looking correct is why it survived. Fixed with one shared `_drawn_as_ok` predicate.
+2. **`maps/standard.svg` hardcoded `S1901M` in 2.5em type in the bottom-right corner**, in an
+   element (`id="CurrentPhase"`) that **nothing in the codebase ever populated** (verified by
+   grep across `src/` and `tests/`). Every board therefore claimed Spring 1901 Movement
+   whatever the real phase, duplicating the correct dynamic banner `_draw_phase_info` draws
+   top-right. Emptied in place, with a regression test asserting it stays empty.
+3. **`_get_cached_font`'s fallback ignored the requested size.** `ImageFont.load_default()`
+   with no argument returns a fixed ~11px *bitmap* font, so on any machine without DejaVu
+   every label rendered at one size regardless of the size asked for — and a bitmap font
+   cannot be resized, so overlay text would have downscaled to a third of its intended size.
+   Now `load_default(size=...)`, which returns a scalable font.
+
+**The suite went 1445/1445 green through the entire arrow rewrite.** The rendering tests assert
+only that PNG bytes come back, so they cannot tell a correct arrow from one drawn backwards
+through the middle of a unit icon. `tests/test_arrow_geometry.py` (29) and
+`tests/test_pending_order_styling.py` (17) assert the geometry, the anti-aliasing and the
+status styling directly.
+
+**Mutation evidence:** 14 mutations, all caught after one fix to the tests. **M7 — aiming a
+curved arrow's head along the chord instead of the curve's tangent — initially passed all 27
+tests**, because that test only counted `polygon` calls and never checked the head's direction.
+It now asserts the head axis against the analytic bezier tangent. That is the third recorded
+instance in this project of a test sitting next to the bug rather than on it.

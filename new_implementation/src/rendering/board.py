@@ -199,13 +199,25 @@ def get_dislodged_unit_coordinates(svg_path: str) -> dict[str, tuple[float, floa
 
 
 def _get_cached_font(size: int) -> ImageFont.ImageFont:
-    """Get cached font or load and cache it."""
+    """Get cached font or load and cache it.
+
+    The fallback passes ``size`` through (Track I2). ``load_default()`` with no
+    argument returns a fixed ~11px *bitmap* font, which silently ignored every
+    requested size on any machine without DejaVu installed, and cannot be resized
+    at all -- so text drawn on the supersampled overlay layer would come out at a
+    third of its intended size. ``load_default(size=...)`` returns a scalable
+    FreeTypeFont from Pillow's bundled font instead.
+    """
     global _font_cache
     if size not in _font_cache:
         try:
             _font_cache[size] = ImageFont.truetype("DejaVuSans-Bold.ttf", size)
         except OSError:
-            _font_cache[size] = ImageFont.load_default()
+            try:
+                _font_cache[size] = ImageFont.load_default(size=size)
+            except (OSError, TypeError):
+                # Pillow too old for the size argument, or no bundled font.
+                _font_cache[size] = ImageFont.load_default()
     return _font_cache[size]
 
 
