@@ -22,9 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.62`. `main` green.
-- **Next action: G6** (API ergonomics), then **G3a** and **H1/H2**. **G1, G2, G3, G4 and G5 are
-  complete.** G1 and G3 each turned up a defect bigger than the one recorded:
+- **Last updated:** 2026-07-30, at `v2.7.63`. `main` green.
+- **Next action: G3a** — the only automated work left in this file. Everything else open is
+  Track F, which is the maintainer's to run by hand.
+- **G1–G6 and Track H are complete** (`v2.7.58`–`v2.7.63`); **Track H has been moved to
+  [`done_fixes.md`](done_fixes.md)**. G1 and G3 each turned up a defect bigger than the one
+  recorded:
   - G1's help text also claimed `ARMY`/`FLEET` were valid unit spellings (they are rejected
     outright) and marked a *working* order with ❌ — wrong in all three copies of a copy-pasted
     block.
@@ -33,25 +36,21 @@
     Telegram DM for every event — turn processed, reminders, joins, broadcasts, game end — was
     dead code. Evidence in G3's section.
   - New task **G3a** filed: draw-vote quorum and concession still notify nobody.
-- **Everything automated is done.** Tracks A–E are merged (`v2.7.17`–`v2.7.55`). The engine
-  conforms to DATC, every phase is playable from both clients, a game can end by agreement, a
-  real DAIDE bot can play a turn over the wire, and a player can see what happened to their
-  orders. See [`done_fixes.md`](done_fixes.md).
-- **Three tracks remain, none of them large:**
+- **The port itself is finished.** Tracks A–E are merged (`v2.7.17`–`v2.7.55`) and Track H is
+  archived: the engine conforms to DATC, every phase is playable from both clients, a game can
+  end by agreement, a real DAIDE bot can play a turn over the wire, and a player can see what
+  happened to their orders. See [`done_fixes.md`](done_fixes.md).
+- **Two tracks remain:**
   - **Track F — manual acceptance.** Maintainer-only: needs a live bot token and a human at a
     Telegram client. This is the last thing standing between the project and "the port is
     finished". **Not delegable to an agent.**
-  - **Track G — client & lifecycle gaps (G1–G6, plus G3a).** Originally six findings, each
-    verified against the code on 2026-07-30 with file/line evidence below; five came from
-    Track E's audits, G1 was found while verifying them, and G3a was found while fixing G3.
-    **G1, G2, G3, G4 and G5 are done** (`v2.7.58`–`v2.7.62`); **G6 and G3a remain.**
-  - **Track H — infrastructure & documentation truth (H1–H2).** `CLAUDE.md` documents
-    production infrastructure that is not running, and the `Deploy` workflow has never
-    succeeded. Both need a maintainer decision, not code.
-- **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → ~~G5~~ → ~~G2~~ → **G6 → G3a → H1 → H2.** H1/H2 are
-  decisions that cost nothing to make and stop the docs from lying; all three of their
-  decisions were taken on 2026-07-30 and are recorded in their sections.
+  - **Track G — client & lifecycle gaps.** Originally six findings (G1–G6), each verified
+    against the code on 2026-07-30 with file/line evidence below; five came from Track E's
+    audits, G1 was found while verifying them, and G3a was found while fixing G3. **All six
+    original findings are done** (`v2.7.58`–`v2.7.63`); **only G3a remains.**
+- **Suggested order:** **G3a**, then Track F whenever the maintainer has a Telegram client to
+  hand (it gates nothing else). Completed this session, in order:
+  ~~G1~~ → ~~G3~~ → ~~G4~~ → ~~G5~~ → ~~G2~~ → ~~G6~~ → ~~H1~~ → ~~H2~~.
 - **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.62`, against a real
   local Postgres):** **1435 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
   coverage **93.44%** (floor 92), overall **68.79%** (floor 60). Added since `v2.7.56`'s 1333:
@@ -645,80 +644,29 @@ global with `WAITING_LIST_SIZE = 7`. Three separate defects:
    that class of abuse — but it is recorded as a wart, so it needs a decision rather than a
    quiet assumption.
 
-- [ ] Make `JoinGameRequest.game_id` optional and ignored, with the path as the single source
-      of truth; or, if it must stay, validate that body and path agree and 400 when they do
-      not. **Silently accepting a mismatch is the one option to rule out.** Check every caller
-      before changing the shape: `telegram_bot/games.py:611`, the frontend's join call, and
-      the join tests.
-- [ ] Decide and record whether `/games/create` should stay authenticated. Recommendation:
-      **keep the auth requirement** (it is the safe default for a public HTTP surface and
-      matches C2's threat model) and instead fix whatever made this feel like a wart — most
-      likely that the error is an opaque 401 with no hint that a token is needed.
-- [ ] **Done when:** joining a game needs the id in exactly one place, no caller regressed,
-      and the `/games/create` decision is written down with its reasoning. **Size:** small.
-
----
-
-# Track H — Infrastructure & documentation truth
-
-## Why this track exists
-
-**The maintainer confirmed on 2026-07-30 that there is no production server currently
-running.** That single fact makes a substantial section of the root `CLAUDE.md` describe
-infrastructure that does not exist, and it explains a CI workflow that has failed 40 times out
-of 40. Neither is a regression to chase — but a spec that describes a fiction is worse than no
-spec, and `CLAUDE.md` is loaded into context for every session in this repo, so a wrong
-statement there misleads every future agent before it reads a line of code.
-
-Both tasks are **maintainer decisions**, not implementation work.
-
-**Decision taken 2026-07-30 (maintainer-confirmed), covering both H1 and H2: option (a) —
-the infrastructure is intentionally torn down.** `CLAUDE.md`'s AWS section becomes "how to
-stand it up", with the operational detail living in `infra/terraform/README.md` and a one-line
-pointer left behind; the security notes that depend on the deployment get marked explicitly
-conditional; and `deploy.yml` is gated behind a repository variable rather than deleted, so the
-wiring survives for whenever there is something to deploy again. Rationale: nothing is running,
-so present-tense prose in a file loaded into every agent's context is actively misleading, and a
-workflow that has failed 40/40 times carries no signal. Gating rather than deleting keeps the
-OIDC/SSM deploy path recoverable without re-deriving it.
-
-## H1 — `CLAUDE.md` documents production infrastructure that is not running
-
-**Finding.** `CLAUDE.md`'s "Production infrastructure (AWS)" section describes a running
-`t3.micro` in `eu-north-1` with nginx + uvicorn + the bot + postgresql-16, live systemd units,
-SSM-backed secret rotation, and deploy-on-merge — in the present tense. None of it is running.
-Downstream, C1's `# nosec` justifications, C2's per-IP rate-limit reasoning, and D4's
-orphan-game analysis all cite that infrastructure as live context.
-
-- [ ] Decide which is true going forward: **(a)** the infrastructure is intentionally torn
-      down and `CLAUDE.md` should describe it as "how to stand it up", moving it to the
-      Terraform directory's `README.md` and leaving a one-line pointer; or **(b)** it is
-      meant to be running and standing it back up is real work that belongs in this tracker
-      as its own task.
-- [ ] Whichever is chosen, mark the tense explicitly. The security reasoning that cites the
-      deployment (single-tenant `/tmp`, loopback-only nginx proxy, port 8081 closed by the
-      security group) must stay readable as *conditional on that deployment*, not as a
-      standing guarantee — those are the notes a future agent will lean on when deciding
-      whether a bind or a temp path is safe.
-- [ ] **Done when:** `CLAUDE.md` describes only what is true at the time of writing, and the
-      security notes that depend on the deployment say so. **Size:** under an hour once the
-      decision is made.
-
-## H2 — The `Deploy` workflow has never succeeded
-
-**Finding.** `.github/workflows/deploy.yml` triggers on every `main` push whose `Test Suite`
-goes green, and has failed **40 out of 40 runs** on `sts:AssumeRoleWithWebIdentity` — the
-GitHub OIDC role it assumes does not exist (consistent with H1). Every merge therefore
-produces a red workflow that is *expected* to be red, which is exactly the condition that
-trains a maintainer to ignore CI failures.
-
-- [ ] Decide: disable the workflow (or gate it behind a repository variable) until there is
-      something to deploy, or stand up the OIDC role and make it work. Follows H1 — same
-      underlying decision.
-- [ ] Either way, stop the permanent red. A workflow that always fails carries no
-      information; a disabled workflow with a one-line comment saying why carries some.
-- [ ] **Done when:** the default state of `main` after a merge is either all-green or
-      red-for-a-real-reason. **Size:** minutes, once H1 is decided.
+- [x] Make `JoinGameRequest.game_id` optional, with the path as the single source of truth, and
+      **400 on a mismatch**. Done — both halves, because they fix different bugs: omitting it used
+      to be a 422, and supplying a *different* value than the path was accepted silently.
+      The field is kept in the model (not deleted) purely because ~45 call sites send it — the
+      bot's `join`, `admin.py`'s demo seeder, `app.py`, the frontend, and about forty tests — and
+      Pydantic would reject them all if the key vanished. All were checked; none regressed,
+      since every one already sends a value matching the path.
+- [x] **Decision: `/games/create` stays authenticated.** Taken 2026-07-30. An unauthenticated
+      game-creation endpoint is an obvious spam vector — each call writes a `games` row with a
+      full serialized `GameState` — and C2 added per-IP rate limiting for exactly that class of
+      abuse. Requiring a Bearer token or `X-Bot-Secret` is the safe default for a public HTTP
+      surface, and every real caller already has one.
+      The recommendation's diagnosis was right: what made it *feel* like a wart was the error.
+      `require_bot_or_user` returned a bare `"Not authenticated"` with no hint that a header was
+      missing, so seeding a game by hand looked like a broken endpoint. It now names both
+      accepted credentials, and the decision is recorded in the route's docstring so the next
+      person to hit the 401 does not re-litigate it.
+- [x] **Done when:** joining a game needs the id in exactly one place, no caller regressed,
+      and the `/games/create` decision is written down with its reasoning. ✅ Met at `v2.7.63`.
+      `tests/test_join_game_id_source_of_truth.py` (5 tests): join with no body `game_id`
+      succeeds, join with a matching one still succeeds (the no-regression case), a **mismatch
+      is a 400 and joins nothing in either game**, the 401 names both credentials, and the
+      bot-secret path still creates games.
 
 ---
 
@@ -727,13 +675,16 @@ trains a maintainer to ignore CI failures.
 - [ ] **Track F:** a game plays end-to-end (movement, retreat, build) from both the browser
       and Telegram, run by a human, with F1's five steps checked off and F2's judgement
       recorded.
-- [ ] **Track G:** every order string the bot shows a player parses (G1); full province names
-      reach client output without contaminating the wire format (G2); manual and
-      deadline-triggered turns notify identically, with the matrix documented (G3); no
-      interactive-order menu is unbounded (G4); the waiting list notifies everyone in it and
-      cannot orphan a game (G5); joining needs the game id in one place (G6).
-- [ ] **Track H:** `CLAUDE.md` describes only infrastructure that exists, and `main` stops
-      producing an expected-red workflow on every merge.
+- [x] **Track G's six original findings:** every order string the bot shows a player parses
+      (G1 ✅); full province names reach client output without contaminating the wire format
+      (G2 ✅); manual and deadline-triggered turns notify identically, with the matrix documented
+      (G3 ✅); no interactive-order menu is unbounded (G4 ✅); the waiting list notifies everyone
+      in it and cannot orphan a game (G5 ✅); joining needs the game id in one place (G6 ✅).
+- [ ] **Track G's follow-up (G3a):** a draw vote that ends the game, and a concession, notify
+      all players rather than only the actor. The last automated task in this file.
+- [x] **Track H:** `CLAUDE.md` describes only infrastructure that exists, and `main` stops
+      producing an expected-red workflow on every merge. ✅ `v2.7.63`; section archived in
+      `done_fixes.md`.
 - [ ] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green
       on `main`, every landed chunk committed and tagged per `CLAUDE.md`.
 
@@ -769,6 +720,12 @@ Tracks A–E's acceptance criteria are recorded in [`done_fixes.md`](done_fixes.
   compare two copies of the same stale image.
 - **`visualization_config.json` is live** (since V0) — if arrow styling differs from an old
   screenshot, that is the intended restore, not a regression.
-- **G2 and G1 both touch `engine/map_loader.py` and `maps/standard.map`.** If both are
-  scheduled, do them in one worktree or sequence them; the `.map` file is the sole topology
-  *and* alias source, so two agents editing it in parallel will conflict.
+- **`maps/standard.map` and `engine/map_loader.py` are the sole topology, alias *and* display-name
+  source.** Two agents editing them in parallel will conflict; sequence such tasks or share one
+  worktree. (G1 and G2 were the scheduled pair here; both landed, G2 adding `display_names` from
+  the `=` lines' left-hand side.)
+- **Display names are not parseable aliases, deliberately.** `MapData.display_names` exists for
+  client output only; `aliases` is what `parse_order` consults. Adding a full name to `aliases`
+  would half-implement the full-name input G1 explicitly decided against — it would work for
+  single-word provinces and fail for the 26 multi-word ones. `tests/test_province_display_names.py`
+  asserts `aliases['berlin']` is still `None`.

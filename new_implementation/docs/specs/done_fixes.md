@@ -1682,6 +1682,84 @@ tracks that is still open. See Track F in [`fix_plan.md`](fix_plan.md).
 
 ---
 
+# Track H — Infrastructure & documentation truth
+
+## Why this track exists
+
+**The maintainer confirmed on 2026-07-30 that there is no production server currently
+running.** That single fact makes a substantial section of the root `CLAUDE.md` describe
+infrastructure that does not exist, and it explains a CI workflow that has failed 40 times out
+of 40. Neither is a regression to chase — but a spec that describes a fiction is worse than no
+spec, and `CLAUDE.md` is loaded into context for every session in this repo, so a wrong
+statement there misleads every future agent before it reads a line of code.
+
+Both tasks are **maintainer decisions**, not implementation work.
+
+**Decision taken 2026-07-30 (maintainer-confirmed), covering both H1 and H2: option (a) —
+the infrastructure is intentionally torn down.** `CLAUDE.md`'s AWS section becomes "how to
+stand it up", with the operational detail living in `infra/terraform/README.md` and a one-line
+pointer left behind; the security notes that depend on the deployment get marked explicitly
+conditional; and `deploy.yml` is gated behind a repository variable rather than deleted, so the
+wiring survives for whenever there is something to deploy again. Rationale: nothing is running,
+so present-tense prose in a file loaded into every agent's context is actively misleading, and a
+workflow that has failed 40/40 times carries no signal. Gating rather than deleting keeps the
+OIDC/SSM deploy path recoverable without re-deriving it.
+
+## H1 — `CLAUDE.md` documents production infrastructure that is not running
+
+**Finding.** `CLAUDE.md`'s "Production infrastructure (AWS)" section describes a running
+`t3.micro` in `eu-north-1` with nginx + uvicorn + the bot + postgresql-16, live systemd units,
+SSM-backed secret rotation, and deploy-on-merge — in the present tense. None of it is running.
+Downstream, C1's `# nosec` justifications, C2's per-IP rate-limit reasoning, and D4's
+orphan-game analysis all cite that infrastructure as live context.
+
+- [x] **Decision: (a) — intentionally torn down.** Taken 2026-07-30, maintainer-confirmed.
+      `CLAUDE.md`'s section is now **"Deployment (AWS) — not currently running"** and reads as
+      setup instructions; the operational detail (bootstrap, secret rotation via
+      `refresh-env.sh`, day-to-day commands) lives in `infra/terraform/README.md`, which gained a
+      "Current state: nothing is deployed" header and a "Secret rotation" section so the
+      walkthrough moved rather than being deleted. The Terraform, `deploy.sh` and `deploy.yml`
+      all stay in the repo: standing it back up should be a re-apply, not a rewrite.
+- [x] Tense marked explicitly, and this was the most important half. `CLAUDE.md` now states
+      outright that C1's `# nosec` justifications, C2's per-IP rate-limit threat model, and the
+      single-tenant `/tmp` / loopback-only nginx / port-8081-closed assumptions are **conditional
+      on that deployment and do not hold on a developer machine or anywhere else** — with an
+      instruction to re-derive them for wherever the code actually runs. It also records that
+      HTTPS was never set up even when the instance existed.
+- [x] **Done when:** `CLAUDE.md` describes only what is true at the time of writing, and the
+      security notes that depend on the deployment say so. ✅ Met at `v2.7.63`.
+
+## H2 — The `Deploy` workflow has never succeeded
+
+**Finding.** `.github/workflows/deploy.yml` triggers on every `main` push whose `Test Suite`
+goes green, and has failed **40 out of 40 runs** on `sts:AssumeRoleWithWebIdentity` — the
+GitHub OIDC role it assumes does not exist (consistent with H1). Every merge therefore
+produces a red workflow that is *expected* to be red, which is exactly the condition that
+trains a maintainer to ignore CI failures.
+
+- [x] **Decision: gate it behind a repository variable.** `deploy.yml`'s single job now
+      requires `vars.DEPLOY_ENABLED == 'true'` (unset today, so the job is *skipped* — neutral,
+      not red). Gated rather than deleted so the OIDC/SSM deploy path survives for whenever the
+      infrastructure returns. Re-enable with
+      `gh variable set DEPLOY_ENABLED --body true -R tenderi/diplomacy`, documented both in the
+      workflow's own comment and in `CLAUDE.md`.
+- [x] Permanent red stopped. The `if:` carries a full explanation of *why* it is off — 40/40
+      failures on `sts:AssumeRoleWithWebIdentity` because the OIDC role does not exist — rather
+      than a bare one-liner, since the next reader's first question is whether it is safe to
+      re-enable.
+- [x] **Done when:** the default state of `main` after a merge is either all-green or
+      red-for-a-real-reason. ✅ Met at `v2.7.63`. `DEPLOY_ENABLED` is confirmed unset
+      (`gh variable list` shows only `AWS_DEPLOY_ROLE_ARN` and `AWS_REGION`), so `Deploy` skips
+      instead of failing.
+
+**Track H completed 2026-07-30 at `v2.7.63`.** Both tasks were maintainer decisions
+rather than implementation work, and both were taken the same day: the infrastructure is
+intentionally torn down, `CLAUDE.md` describes how to stand it up rather than what is
+running, and `deploy.yml` is gated behind `DEPLOY_ENABLED` so a merge no longer produces an
+expected-red workflow.
+
+---
+
 *Forward-looking sections (Out of scope, Risks / notes, Carried-over facts) live in
 [`fix_plan.md`](fix_plan.md) only — they are guidance for open work, not history, and are
 deliberately not duplicated here.*
