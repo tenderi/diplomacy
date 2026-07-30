@@ -30,7 +30,8 @@ from server.telegram_bot.games import (
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
-    show_possible_moves, show_convoy_options, show_convoy_destinations, submit_interactive_order,
+    show_possible_moves, show_convoy_options, show_convoy_destinations,
+    show_support_options, show_support_choices, submit_interactive_order,
     show_my_orders_menu, resolve_pending_order, run_process_turn
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
@@ -338,6 +339,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith("selunit|"):
         _, game_id, unit_key = data.split("|", 2)
         await show_possible_moves(query, context, game_id, unit_key)
+
+    elif data.startswith("supopt|"):
+        _, game_id, unit_key = data.split("|", 2)
+        await show_support_options(query, context, game_id, unit_key)
+
+    elif data.startswith("suporig|"):
+        _, game_id, unit_key, target = data.split("|", 3)
+        await show_support_choices(query, context, game_id, unit_key, target)
 
     elif data.startswith("cvopt|"):
         _, game_id, unit_key = data.split("|", 2)
