@@ -343,6 +343,27 @@ def reset_auth_rate_limiters():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_province_name_cache():
+    """Clear the bot's process-wide province-name cache around every test.
+
+    `telegram_bot.orders` fetches `GET /maps/{map}/provinces` once per process and
+    caches it in a module global (G2). Without this, whichever test happens to run
+    first pays the HTTP call and every later test sees a warm cache — so the number
+    of `api_get` calls a bot test observes depends on test *order*. That is exactly
+    how `test_convoy_functions.py`'s `assert_called_once_with` passed locally and
+    failed only when the suite order shifted.
+    """
+    try:
+        from server.telegram_bot.orders import _reset_province_names_cache
+    except ImportError:
+        yield
+        return
+    _reset_province_names_cache()
+    yield
+    _reset_province_names_cache()
+
+
 # Markers for test categorization
 pytestmark = [
     pytest.mark.unit,  # Default to unit tests

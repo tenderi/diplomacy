@@ -97,6 +97,7 @@ class MapData:
     supply_centers: frozenset[str]
     home_centers: dict[str, frozenset[str]]
     aliases: dict[str, str]  # alternate spelling → canonical province code
+    display_names: dict[str, str]  # canonical code → human-readable name ("BER" → "Berlin")
     starting_units: frozenset[Unit]
     initial_ownership: dict[str, str]  # home SC province → owning power
     start_year: int
@@ -158,7 +159,7 @@ def load_map(path: str | Path) -> MapData:
     neutral_scs: set[str] = set()
     starting_units: set[Unit] = set()
     initial_ownership: dict[str, str] = {}
-    alias_groups: list[list[str]] = []
+    alias_groups: list[tuple[str, list[str]]] = []  # (full name, alternate spellings)
     raw_entries: list[_RawEntry] = []
 
     current_power: Optional[str] = None
@@ -195,11 +196,15 @@ def load_map(path: str | Path) -> MapData:
         # (once the province set is known) to the spelling that names a real
         # province — the first token is NOT reliably canonical (e.g. Tyrolia's
         # line lists `trl` first, but the board node is `TYR`).
+        #
+        # The left-hand side is the province's human-readable name and is kept
+        # too, for `display_names` (G2). It used to be discarded, which is why
+        # every client surface could only ever show 3-letter codes.
         if "=" in line:
-            _, _, rhs = line.partition("=")
+            lhs, _, rhs = line.partition("=")
             spellings = rhs.split()
             if spellings:
-                alias_groups.append(spellings)
+                alias_groups.append((lhs.strip(), spellings))
             current_power = None
             continue
 
@@ -236,17 +241,27 @@ def load_map(path: str | Path) -> MapData:
     # whose base is a real (defined) province. Groups that name only impassable
     # provinces (Switzerland) resolve to nothing and are dropped.
     aliases: dict[str, str] = {}
-    for spellings in alias_groups:
+    display_names: dict[str, str] = {}
+    for lhs, spellings in alias_groups:
         canonical: Optional[str] = None
+        canonical_is_bare = False
         for spelling in spellings:
-            base, _c = _split_token(spelling)
+            base, coast = _split_token(spelling)
             if base in defined:
                 canonical = base
+                canonical_is_bare = coast is None
                 break
         if canonical is None:
             continue
         for spelling in spellings:
             aliases[spelling.lower()] = canonical
+        # Display name: take it only from the *bare* province line. Split-coast
+        # provinces have three lines each -- "Bulgaria (east coast)",
+        # "Bulgaria (south coast)", "Bulgaria" -- and all three resolve to BUL,
+        # so without this the coast-qualified name could win and every client
+        # would render plain BUL as "Bulgaria (east coast)".
+        if canonical_is_bare and lhs and canonical not in display_names:
+            display_names[canonical] = lhs
 
     province_types: dict[str, ProvinceType] = {}
     split_coasts: dict[str, list[str]] = {}
@@ -305,6 +320,7 @@ def load_map(path: str | Path) -> MapData:
         supply_centers=supply_centers,
         home_centers=home_centers,
         aliases=aliases,
+        display_names=display_names,
         starting_units=frozenset(starting_units),
         initial_ownership=dict(initial_ownership),
         start_year=start_year,

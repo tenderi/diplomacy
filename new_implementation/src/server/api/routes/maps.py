@@ -73,6 +73,40 @@ def _turn_of(game_id: str) -> int:
     return int(getattr(row, "current_turn", 0) or 0) if row is not None else 0
 
 
+@router.get("/maps/{map_name}/provinces")
+def get_map_provinces(map_name: str) -> Dict[str, Any]:
+    """Province metadata for ``map_name``: code → full name, type, supply-centre flag.
+
+    The one server-side source of province *display* names, so no client ships a
+    name table of its own (G2). Both the web client and the bot read it once and
+    cache; the payload is static per map name.
+
+    **Codes stay the wire format.** These names are for display only -- order
+    strings posted back to the API must remain canonical codes, because the
+    grammar does not accept full names (see G1's decision in `fix_plan.md`: 26 of
+    them are multi-word and `parser._tokenize` splits on whitespace). Substituting
+    a name into an order string produces `unknown province: 'BERLIN'`.
+
+    G2 asked for this to extend "whatever the map/metadata endpoint already
+    returns", but there was no such endpoint -- every other `/maps/*` route
+    returns a PNG -- so this is a new one rather than a field bolted onto the
+    per-game state view, which would ship 75 entries on every poll.
+    """
+    if map_name not in _KNOWN_MAP_NAMES:
+        raise HTTPException(status_code=404, detail=f"Unknown map: {map_name}")
+    map_data = game_service.map
+    provinces = {
+        code: {
+            "name": map_data.display_names.get(code, code),
+            "type": map_data.province_types[code].value,
+            "is_supply_center": code in map_data.supply_centers,
+            "coasts": list(map_data.coasts_of(code)),
+        }
+        for code in sorted(map_data.provinces)
+    }
+    return {"map_name": map_name, "provinces": provinces}
+
+
 @router.get("/maps/{map_name}/preview.png", response_class=Response)
 def get_map_preview_png(map_name: str) -> Response:
     """Return a unit-less, ownership-less board PNG for ``map_name``.
