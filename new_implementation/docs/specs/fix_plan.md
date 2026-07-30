@@ -22,12 +22,15 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.64`. `main` green.
-- **Every automated task in this tracker is done.** Tracks A–E, G and H are complete and
-  archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
-  delegated to an agent** — it needs a live bot token and a human at a Telegram client.
-- **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
-  and it gates nothing.
+- **Last updated:** 2026-07-30, at `v2.7.66`. `main` green.
+- **Open tracks: F** (manual, maintainer-only) and **I** (map legibility, agent-actionable).
+  Tracks A–E, G and H are complete and archived in [`done_fixes.md`](done_fixes.md).
+- **Next action: I2** (renderer anti-aliasing + arrow geometry). I1 landed in `v2.7.66`.
+  **F1/F2 remain the maintainer's** — they need a live bot token and a human at a Telegram
+  client. Nothing gates them and they gate nothing.
+- **Track I was opened by the maintainer on 2026-07-30** as F2's first finding: the inline web
+  map is unreadably small. F2 itself is still unchecked — one defect found is not a judgement
+  pass completed.
 - Completed this session, in order:
   **G1 → G3 → G4 → G5 → G2 → G6 → H1/H2 → G3a** (`v2.7.58`–`v2.7.64`).
   Two of those turned out to be far larger than recorded, and both are worth knowing about:
@@ -55,9 +58,9 @@
   removed from `test_telegram_bot_enhanced.py`, G2's 11 (`test_province_display_names.py`),
   G6's 5 (`test_join_game_id_source_of_truth.py`), and G3a's 5
   (`test_draw_concede_notifications.py`).
-- **Frontend baseline (measured for real at `v2.7.62` with a local Node 22, unchanged since):**
-  **23 test files / 137 tests**, `tsc -b --noEmit` clean, `npm run build` green. Only G2 touched
-  frontend files.
+- **Frontend baseline (measured for real at `v2.7.66` with a local Node 22):**
+  **24 test files / 158 tests**, `tsc -b --noEmit` clean, `npm run build` green. I1 added
+  `MapViewer.test.tsx` (20) and one `GameView` wiring test; before that, 23/137 since G2.
 - **A migration landed this session:** `g5a1c2d3e4f5` (the `waiting_list` table). `alembic heads`
   must return exactly one head — see the carried-over fact below, which this one cost a
   round-trip to learn.
@@ -201,11 +204,75 @@ to use, which no test asserts.
 
 ---
 
+# Track I — Map legibility (web viewer + renderer visuals)
+
+## Why this track exists
+
+**F2's first recorded finding, filed by the maintainer on 2026-07-30**, before the rest of F2
+was run: *"the default window is too small to actually see what's going on."* The web client
+renders the map inline inside `AppLayout`'s `max-w-4xl` (896px) column, and the renderer emits
+**1835×1360**. The browser therefore downscales every map to ~47% with `max-w-full h-auto` —
+below the point where a 32px unit icon or an order arrow is readable. The map was never
+clickable, so there was no way to see it at full size at all.
+
+The maintainer additionally invited a visuals overhaul ("if you can come up with a better way
+of creating the arrows etc go for it"), which is I2. F1/F2 remain open and unaffected — this
+track fixes a defect F2 surfaced; it does not complete F2.
+
+## I1 — Full-size map viewing in the web client — **done (`v2.7.66`)**
+
+- [x] The inline map is clickable and opens a full-viewport viewer.
+      `frontend/src/components/MapViewer.tsx`; the inline image is wrapped in a real
+      `<button>` rather than given an `onClick`, so it is tab-reachable and announced.
+- [x] The viewer supports zoom (wheel, buttons, double-click) and drag-to-pan, so a 1835×1360
+      map can be inspected at 1:1 on a 900px-wide column. Bounds are 10%–600%; the viewer
+      **opens fitted to the viewport** and 1:1 is one double-click away, since the inline
+      map's failing is scale, not framing.
+- [x] Keyboard and a11y: `Esc` closes, the trigger is a real focusable control with an
+      accessible name, the dialog is labelled and takes focus. Also `+`/`-`/`0`/`1`.
+      The `keydown` listener is registered in the **capture** phase so `Esc` cannot also
+      reach the game screen behind the overlay.
+- [x] Mobile: pinch/drag work via pointer events rather than mouse-only handlers.
+- [x] **Done when:** the above are covered by Vitest tests and the frontend gates
+      (`tsc -b --noEmit`, `npm run test:run`, `npm run build`) pass **run for real**, not
+      assumed — see `no-node-toolchain-locally` for the toolchain fetch. Ran for real with a
+      local Node 22: **24 files / 158 tests** (was 23/137), `tsc` clean, build green.
+
+**Finding — jsdom has no pointer support, and it fails silently.** `PointerEvent` and
+`Element.setPointerCapture` are both `undefined` under this jsdom. `fireEvent.pointerMove`
+therefore falls back to a bare `Event` that drops `pointerId`/`clientX`/`clientY`, so pan
+deltas compute to `NaN` and a pan test **passes vacuously against a component that ignores
+drags entirely**. `MapViewer.test.tsx` installs a small `PointerEvent` polyfill; without it
+four of its tests are theatre. Production is unaffected — the `setPointerCapture?.()` call is
+optional precisely so jsdom's absence of it is not an error.
+
+**Mutation evidence** (per `verify-fixes-by-mutation`): seven mutations, all caught —
+dropping the pan delta (2 fail), un-anchoring wheel-zoom from the cursor (1), removing scale
+clamping (1), disabling `Esc` (1), removing the pinch branch (1), letting `Fit` keep the pan
+offset (1), and leaking `body.overflow` (1). The first two initially reported "20 passed"
+because the `perl` patterns silently failed to apply — the mutation was never made. **A
+mutation run must confirm the file actually changed**, or it proves nothing; that is the same
+trap as a vacuously-passing test, one level up.
+
+## I2 — Renderer visuals: anti-aliasing and arrow geometry
+
+- [ ] Overlays are anti-aliased. Every order arrow, curve, dash and marker is drawn through
+      `PIL.ImageDraw`, which does **no** anti-aliasing on `line`/`polygon`, so all of it is
+      jagged at any zoom.
+- [ ] Arrow geometry is legible: the shaft no longer buries the unit icon it starts from, and
+      the head reads as an arrow rather than a blunt stub.
+- [ ] **Done when:** before/after PNGs have been compared by eye (the Risks note below is
+      load-bearing: clear the byte cache first), and the full suite plus coverage floors hold.
+
+---
+
 ## Definition of done (open work)
 
 - [ ] **Track F:** a game plays end-to-end (movement, retreat, build) from both the browser
       and Telegram, run by a human, with F1's five steps checked off and F2's judgement
-      recorded. **This is the only remaining item in this file.**
+      recorded. **This is the only item here that an agent cannot do.**
+- [ ] **Track I:** the map is legible — viewable at full size in the browser (I1, done) and
+      drawn with anti-aliased, readable order arrows (I2).
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all nine tasks
       landed this session (`v2.7.58`–`v2.7.64`), each as its own PR through the required checks.
