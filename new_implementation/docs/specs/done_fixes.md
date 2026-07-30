@@ -2336,6 +2336,12 @@ and the `width=` keyword and forwards the call, so all ~20 primitives in `arrows
 every config lookup, which would have rewritten all of them. `legend.py` and the phase banner
 deliberately stay off the layer — they are text and axis-aligned boxes, which gain nothing.
 
+**Cost: none measurable.** Cold `render_board_png_orders` on a full 21-unit board, byte cache
+and in-memory cache both cleared, best of 3: **913 ms at `SUPERSAMPLE=1`, 916 ms at 2, 900 ms at
+3.** The render is dominated by the CairoSVG SVG→PNG conversion, so the 9× overlay pixel count
+is inside the noise — and results are byte-cached anyway. No reason to trade quality for speed
+here; if that ever changes, `SUPERSAMPLE` is one constant in `antialias.py`.
+
 **Consolidation.** All four arrow variants (straight, convoy-curved, retreat-dashed, bounce)
 carried their own copy of the same ~14 lines of arrowhead trigonometry. They now share
 `_arrow_geometry` / `_stroke_head` / `_draw_curve_with_head`. Three substantive changes came
