@@ -11,6 +11,7 @@ import {
 } from '@/lib/provinceNames'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
+import MapViewer from '@/components/MapViewer'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
@@ -111,6 +112,13 @@ type LastResolution = { results: OrderResultEntry[] }
 /** Which overlay the board image shows: the plain board, currently pending orders, or the
  * last processed turn's adjudicated results (arrows coloured by outcome). */
 type MapMode = 'board' | 'orders' | 'resolution'
+/** Single source for the mode-switch button labels and the viewer's accessible name, so the
+ * dialog announces the same words the player clicked. */
+const MAP_MODE_LABELS: Record<MapMode, string> = {
+  board: 'Board',
+  orders: 'Pending orders',
+  resolution: 'Last resolution',
+}
 /**
  * Response shape of GET /games/{id}/legal_orders/{power} (see server.legal_orders).
  * `orders_by_unit` keys are exactly `${kind} ${location}` (coast included); every string in
@@ -979,13 +987,7 @@ export default function GameView() {
       {mapUrl && (
         <div className="mb-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {(
-              [
-                ['board', 'Board'],
-                ['orders', 'Pending orders'],
-                ['resolution', 'Last resolution'],
-              ] as [MapMode, string][]
-            ).map(([mode, label]) => (
+            {(Object.entries(MAP_MODE_LABELS) as [MapMode, string][]).map(([mode, label]) => (
               <Button
                 key={mode}
                 type="button"
@@ -1000,7 +1002,7 @@ export default function GameView() {
               </Button>
             ))}
           </div>
-          <img src={mapUrl} alt={`Game map (${mapMode})`} className="max-w-full h-auto" />
+          <MapViewer src={mapUrl} alt={`${MAP_MODE_LABELS[mapMode]} — ${state.phase}`} />
         </div>
       )}
 
