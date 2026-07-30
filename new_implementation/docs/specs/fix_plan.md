@@ -22,10 +22,17 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.58`. `main` green.
-- **Next action: G3** (manual `process_turn` notifies nobody). **G1 is complete** — see its
-  section for the codes-only decision and the second defect it turned up (the `ARMY`/`FLEET`
-  claim, wrong in all three copies of a copy-pasted help block).
+- **Last updated:** 2026-07-30, at `v2.7.59`. `main` green.
+- **Next action: G4** (unbounded support keyboards). **G1 and G3 are complete**, and each turned
+  up a defect bigger than the one recorded:
+  - G1's help text also claimed `ARMY`/`FLEET` were valid unit spellings (they are rejected
+    outright) and marked a *working* order with ❌ — wrong in all three copies of a copy-pasted
+    block.
+  - **G3 found that `notify_players` had never sent a single notification in this project's
+    history**, because it read `telegram_id` off `PlayerModel`, which has no such column. Every
+    Telegram DM for every event — turn processed, reminders, joins, broadcasts, game end — was
+    dead code. Evidence in G3's section.
+  - New task **G3a** filed: draw-vote quorum and concession still notify nobody.
 - **Everything automated is done.** Tracks A–E are merged (`v2.7.17`–`v2.7.55`). The engine
   conforms to DATC, every phase is playable from both clients, a game can end by agreement, a
   real DAIDE bot can play a turn over the wire, and a player can see what happened to their
@@ -42,7 +49,7 @@
     production infrastructure that is not running, and the `Deploy` workflow has never
     succeeded. Both need a maintainer decision, not code.
 - **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: ~~G1~~ → **G3 → G4 → G5 → G2 → G6 → H1 → H2.** H1/H2 are
+  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → **G4 → G5 → G2 → G6 → G3a → H1 → H2.** H1/H2 are
   decisions that cost nothing to make and stop the docs from lying; all three of their
   decisions were taken on 2026-07-30 and are recorded in their sections.
 - **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.56`, against a real
@@ -326,25 +333,91 @@ The audit flagged this as needing a deliberate design pass over "who gets told w
 rather than a bolt-on `notify_players` call, and that judgement still holds: the two paths
 have drifted because nobody owns the question.
 
-- [ ] **Write down the notification matrix first** — every event (turn processed, deadline
+**The much larger defect underneath, found while doing this (2026-07-30):
+`notify_players` had never sent a single notification.** It iterated `PlayerModel` rows and read
+`getattr(player, 'telegram_id', None)` — but `telegram_id` is a column on **`UserModel`**;
+`PlayerModel` references a user via `user_id` and has no such column. So the value was
+unconditionally `None`, the `if telegram_id_val is not None` guard never passed, and the function
+returned silently. Empirically:
+
+```python
+sorted(c.name for c in PlayerModel.__table__.columns)
+# ['controlled_supply_centers', 'created_at', 'game_id', 'home_supply_centers', 'id',
+#  'is_active', 'is_eliminated', 'last_order_time', 'orders_submitted', 'power_name', 'user_id']
+hasattr(PlayerModel, 'telegram_id')  # False
+```
+
+That made **every** Telegram DM in the system dead code — turn processed, deadline reminder,
+player joined, game full, game ended, broadcast, quit, admin-replace — all of them. It raised
+nothing and logged nothing, so it was invisible: `getattr` with a default swallows the schema
+mismatch, and the one test that touches this path (`test_api_scheduler.py`'s
+`test_reminder_and_notification`) patches `notify_players` itself and so never executes its body.
+The G3 symptom as recorded was real but understated: the two `process_turn` paths did agree — in
+that neither notified anybody.
+
+Fixed at `v2.7.59` by moving the join into `DatabaseService.get_player_telegram_ids(game_id)`
+(players → users, skipping unlinked users), so no caller has to remember that `telegram_id` is not
+on `PlayerModel`. **Lesson worth keeping:** `getattr(obj, 'field', None)` against an ORM model is
+a silent-failure generator. Prefer direct attribute access, which raises on a schema mismatch.
+
+- [x] **Write down the notification matrix first** — every event (turn processed, deadline
       reminder, deadline missed, player joined, game full, game ended, draw vote reached
       quorum, player conceded/quit) × every channel (Telegram DM to each player, linked
       channel post, web client on next poll). Put it in `docs/specs/architecture.md`, which
       already documents the notification bridge. This is the deliverable that stops the drift;
       the code change is the easy part.
-- [ ] Extract the shared "a turn was processed" fan-out (player DMs + channel notification +
+      Done — `architecture.md` gained a **"Notifications: who gets told what, when"** section:
+      the three delivery surfaces (Telegram DM, linked-channel post, web client on next poll —
+      pull-only, nothing is pushed), a 12-row event × surface table, and four rules for adding
+      a notification. Two rows are honestly marked **nothing**; see the new task below.
+- [x] Extract the shared "a turn was processed" fan-out (player DMs + channel notification +
       channel map post) into one function both call sites use, so the two paths cannot drift
-      again. Note the manual route is `async` and the scheduler path is sync — `shared.py`
-      already has a sync/async bridge pattern (`_notify_daide_processed`, `shared.py:116-140`)
-      to follow rather than invent.
-- [ ] Don't notify the caller twice: they already have the resolution in their response.
-- [ ] Keep every notification best-effort. Both existing paths wrap sends in try/except and
-      log — a Telegram outage must never fail a turn that has already been committed to
-      Postgres.
-- [ ] **Done when:** processing a turn manually and by deadline produce the same
+      again. Done: `shared.notify_turn_processed(game_id, numeric_game_id, *, trigger,
+      game_ended, exclude_telegram_id)`, called by `process_due_deadlines` and by the manual
+      route. `trigger` (`"deadline"`/`"manual"`) changes only the *wording* of the DM — a missed
+      deadline is worth saying out loud — while which surfaces fire is identical by construction.
+      **No sync/async bridge was needed after all:** the helper is plain-sync, which both a sync
+      scheduler and an `async` route can call unchanged. `_notify_daide_processed` bridges the
+      other direction (async callee, sync caller), so it was not the applicable precedent. The
+      blocking cost (`timeout=2` per player) is pre-existing on both paths and is documented in
+      `architecture.md` as a legitimate future change rather than silently altered here.
+- [x] Don't notify the caller twice: they already have the resolution in their response.
+      Done via `exclude_telegram_id`; `_authorize_process_turn` now returns the authorizing
+      player's `telegram_id` (or `None` for bot-secret/admin-token callers, who are not players)
+      instead of `None` unconditionally.
+- [x] Keep every notification best-effort. Unchanged and now centralised: the fan-out wraps the
+      DM loop and the channel post separately, so a channel failure cannot suppress DMs.
+      Asserted by `test_notification_failure_does_not_fail_the_turn`, which makes every
+      `requests.post` raise and checks the phase still advanced.
+- [x] **Done when:** processing a turn manually and by deadline produce the same
       notifications for the six players who did not trigger it, asserted by a test that
       exercises both paths against the same fake notifier, and the matrix is in
-      `architecture.md`. **Size:** small code change, medium design write-up.
+      `architecture.md`. ✅ All met at `v2.7.59`.
+      `tests/test_turn_notifications.py` (4 tests) seeds a real 7-player game and drives both
+      triggers against a patched `requests.post`, comparing *recipient sets* rather than just
+      "something was sent" — a bolt-on `notify_players` on the manual path would satisfy the
+      latter while still drifting on the former. **Mutation-verified:** restoring the
+      `player.telegram_id` read fails 2 of 4, and re-adding the `if game_ended:` guard around
+      the manual fan-out fails 3 of 4.
+
+## G3a — Draw-vote quorum and concession notify nobody (new, 2026-07-30)
+
+**Finding.** Filling in G3's matrix turned up two events with no notification at all.
+`GameService.submit_draw_vote` finalizes the game *inline* the moment quorum is reached (it calls
+`Game.draw()` and `save_state` directly, `game_service.py:213-223`) and returns the outcome only
+to the power that cast the deciding vote. The other six players are told nothing — and because the
+game is now `COMPLETED`, the deadline scheduler skips it
+(`get_games_with_deadlines_and_active_status`), so no later turn-processed fan-out covers for it.
+A game can therefore end by agreement and six of seven players find out by refreshing. `concede`
+(`games.py:344-364`) is the same shape: a power leaves and nobody is told.
+
+Not scheduled as part of G3, whose scope was the `process_turn` drift. Both are one
+`notify_turn_processed`-style call each, now that the fan-out and the matrix exist.
+
+- [ ] Notify all players when a draw vote reaches quorum and the game ends. `notify_turn_processed(..., game_ended=True)` already produces the right message and channel post; the call site is `submit_draw_vote`.
+- [ ] Notify all players when a power concedes (a plain `notify_players`; the game continues, so this is not a turn-processed event).
+- [ ] Consider notifying on a *non-final* draw vote being cast, so players know a vote is in progress rather than discovering the tally via `/status`. Decide and record — this one is a judgement call, not an obvious gap.
+- [ ] Update `architecture.md`'s matrix in the same commit; its two **nothing** rows are what this task removes. **Size:** small.
 
 ## G4 — Support-order keyboards have no size limit
 

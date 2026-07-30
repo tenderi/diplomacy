@@ -163,6 +163,71 @@ then `GameService.process_turn` + `DaideServer.notify_game_processed` (the same 
 HTTP route/deadline scheduler make) push a real `NOW`/`ORD` notification back over that
 same socket.
 
+## Notifications: who gets told what, when
+
+There are three delivery surfaces, and they are not interchangeable:
+
+- **Telegram DM** — `notify_players(numeric_game_id, message, exclude_telegram_id=None)` in
+  `api/shared.py`. POSTs to `DIPLOMACY_NOTIFY_URL` (default `http://localhost:8081/notify`),
+  the small FastAPI server the *bot* runs (`telegram_bot/notifications.py`). Players with a
+  non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not errored.
+- **Linked channel post** — `telegram_bot/channels.py`. Only fires for games that have a
+  channel linked, gated by the per-game `should_auto_post_*` settings; a no-op otherwise.
+- **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
+  below is therefore "visible on next poll" for the browser, and that is not a gap to close
+  with websockets unless someone decides it is.
+
+(`DaideServer.notify_game_processed` is a fourth, protocol-level path — `NOW`/`ORD`/`OUT`/`SLO`
+to connected DAIDE bots. It is orthogonal to the table below and fires from both `process_turn`
+call sites already.)
+
+**The matrix.** This is the deliverable of G3, and it exists because the two `process_turn`
+paths had silently drifted: the deadline path notified everyone and posted to the channel, while
+the manual route notified nobody unless the game had just ended. The failure case was richly
+instrumented and the success case was silent, because nobody owned the question.
+
+| Event | Telegram DM | Channel post | Web client | Where |
+|---|---|---|---|---|
+| **Turn processed** (deadline) | all players | notification + rendered map | next poll | `notify_turn_processed(trigger="deadline")` |
+| **Turn processed** (manual) | all players **except the caller** | notification + rendered map | next poll | `notify_turn_processed(trigger="manual")` |
+| **Game ended** (18 centres, draw, last power) | all players except the caller | notification | next poll | `notify_turn_processed(game_ended=True)` |
+| Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
+| Player joined | all players | — | next poll | `routes/games.py` join |
+| Game full / started | all players | — | next poll | `routes/games.py` join |
+| Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
+| Broadcast message | all players | the broadcast text | next poll | `routes/messages.py` |
+| Private message | recipient only | — | next poll | `routes/messages.py` |
+| Draw vote cast / quorum reached | **nothing** | — | next poll | `routes/games.py` `submit_draw_vote` |
+| Power conceded | **nothing** | — | next poll | `routes/games.py` `concede_game` |
+| Waiting list filled | see `fix_plan.md` G5 | — | — | `telegram_bot/games.py` |
+
+The two **nothing** rows are accurate as of `v2.7.59`, not aspirational. `submit_draw_vote`
+finalizes the game inline the moment quorum is reached (`GameService.submit_draw_vote` calls
+`Game.draw()` and `save_state` directly) and returns the outcome to the *voter* only — the other
+six players are told nothing, and since the game is now `COMPLETED` the deadline scheduler skips
+it (`get_games_with_deadlines_and_active_status`), so no later fan-out covers for it either. A
+power conceding is likewise invisible until someone looks at the board. Both are recorded as open
+tasks in `fix_plan.md` rather than fixed here, because G3's scope was the `process_turn` drift.
+
+**Rules for adding a notification.**
+
+1. **One fan-out per event, shared by every trigger.** `notify_turn_processed` exists so the
+   deadline and manual paths cannot diverge again. If an event can be reached two ways, the
+   second way calls the same function — do not bolt a `notify_players` call onto the new call
+   site.
+2. **Never notify the caller of their own action twice.** A player who presses "process turn"
+   gets the resolution in their HTTP response; `exclude_telegram_id` skips their DM.
+3. **Every send is best-effort.** Wrap and log. A Telegram outage must never fail a turn that
+   is already committed to Postgres — the state change is the contract, the notification is not.
+4. **Update this table in the same commit.** It is the only place the full picture exists.
+
+`notify_turn_processed` is deliberately **synchronous** so the sync scheduler path
+(`process_due_deadlines`) and the `async` HTTP route can share it with no bridge. It therefore
+blocks its caller for up to `timeout=2` per player. That is pre-existing on both paths, not
+introduced by the shared helper; moving it off the event loop is a legitimate future change, and
+`_notify_daide_processed` in the same module shows the sync/async bridge pattern to follow if
+anyone does.
+
 ## Frontend
 
 React 18 + Vite + TypeScript SPA (`frontend/`), Tailwind + shadcn/ui. Consumes the
