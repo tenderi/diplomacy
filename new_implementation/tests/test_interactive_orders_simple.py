@@ -96,7 +96,9 @@ def test_selectunit_command_mock(mock_ctx_get, mock_orders_get):
 
     # Verify both API calls were made
     mock_ctx_get.assert_called_once_with("/users/12345/games")
-    mock_orders_get.assert_called_once_with("/games/1/legal_orders/GERMANY")
+    # `assert_any_call`, not `assert_called_once_with`: the interactive flow now
+    # also fetches province display names once per process (G2).
+    mock_orders_get.assert_any_call("/games/1/legal_orders/GERMANY")
 
     print("✅ /selectunit command tests passed")
 

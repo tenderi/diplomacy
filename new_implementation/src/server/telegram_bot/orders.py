@@ -9,6 +9,7 @@ which is phase-aware (MOVEMENT / RETREAT / ADJUSTMENT) and emits canonical,
 ready-to-submit order strings -- so nothing here re-derives adjacency,
 coasts, or order grammar locally.
 """
+import logging
 from typing import Any, Awaitable, Callable, Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,6 +17,8 @@ from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
 from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
+
+logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
 Sender = Callable[..., Awaitable[None]]
 
@@ -25,6 +28,64 @@ Sender = Callable[..., Awaitable[None]]
 # ---------------------------------------------------------------------------
 
 _VERB_EMOJI = {"H": "🛑", "-": "➡️", "S": "🤝", "C": "🚢", "R": "↩️", "D": "❌"}
+
+# Province code -> full name, fetched once from `GET /maps/standard/provinces` and
+# cached for the process. Empty until the first successful fetch; every consumer
+# falls back to the bare code, which is what the bot showed before G2.
+#
+# **Only single-province button labels get a name.** Full order strings stay in
+# codes: Telegram truncates a button label past 60 characters (`_order_label`
+# already clamps at that), and "Army Marseilles supports Army Paris → Burgundy"
+# does not fit while `A MAR S A PAR - BUR` does. Names go where a code alone is
+# genuinely opaque -- picking a unit, picking whom to support, picking a convoy
+# origin -- which is also where they are cheapest.
+_PROVINCE_NAMES: dict[str, str] = {}
+_PROVINCE_NAMES_FETCHED = False
+
+
+def province_names() -> dict[str, str]:
+    """The cached code -> name table, fetching it on first use.
+
+    Best-effort: a failure caches the empty table for this process rather than
+    retrying on every keystroke, because a missing display name is cosmetic and a
+    per-button HTTP call would not be.
+
+    The caught set is deliberately specific rather than a blanket
+    ``except Exception`` (see ``CLAUDE.md``): a transport failure or a malformed
+    payload should degrade to bare codes, but a genuine programming bug here must
+    still raise instead of silently producing a code-only UI that looks like a
+    server problem. ``OSError`` is the transport case and covers HTTP errors too --
+    ``requests.RequestException`` (hence ``ApiError``) subclasses it.
+    """
+    global _PROVINCE_NAMES_FETCHED
+    if not _PROVINCE_NAMES_FETCHED:
+        _PROVINCE_NAMES_FETCHED = True
+        try:
+            body = api_get("/maps/standard/provinces")
+            _PROVINCE_NAMES.update(
+                {code: info["name"] for code, info in (body.get("provinces") or {}).items()
+                 if info.get("name")}
+            )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            logger.warning("Province display names unavailable; falling back to codes")
+    return _PROVINCE_NAMES
+
+
+def _reset_province_names_cache() -> None:
+    """Test hook: forget the cached table so a test can control what's fetched."""
+    global _PROVINCE_NAMES_FETCHED
+    _PROVINCE_NAMES_FETCHED = False
+    _PROVINCE_NAMES.clear()
+
+
+def _location_label(location: str) -> str:
+    """``"BER"`` -> ``"Berlin (BER)"``; the code stays because orders need it.
+
+    A coast qualifier is kept on the code half: ``"STP/SC"`` ->
+    ``"St Petersburg (STP/SC)"``.
+    """
+    name = province_names().get(location.split("/")[0])
+    return f"{name} ({location})" if name else location
 
 
 def _order_verb(order_str: str) -> str:
@@ -574,7 +635,11 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     for u in units:
         key = f"{u['kind']} {u['location']}"
         emoji = "🛡️" if u["kind"] == "A" else "🚢"
-        keyboard.append([InlineKeyboardButton(f"{emoji} {key}", callback_data=f"selunit|{game_id}|{key}")])
+        # Name + code, so a new player can tell which unit is which without a
+        # province lookup table (G2). `key` stays the callback payload -- it is an
+        # `orders_by_unit` key and must round-trip verbatim.
+        label = f"{emoji} {u['kind']} {_location_label(u['location'])}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"selunit|{game_id}|{key}")])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
 
     phase_header = {
@@ -689,7 +754,7 @@ def _support_label(order_str: str) -> str:
     """
     parts = order_str.split()
     if len(parts) > 6:
-        return f"➡️ supports move to {parts[6]}"
+        return f"➡️ supports move to {_location_label(parts[6])}"
     return "🛡️ supports holding"
 
 
@@ -733,7 +798,10 @@ async def show_support_options(
 
     targets = sorted({t for t in (_support_target(o) for o in support_orders) if t})
     keyboard = [
-        [InlineKeyboardButton(f"🎯 {target}", callback_data=f"suporig|{game_id}|{unit_key}|{target}")]
+        [InlineKeyboardButton(
+            f"🎯 {_location_label(target)}",
+            callback_data=f"suporig|{game_id}|{unit_key}|{target}",
+        )]
         for target in targets
     ]
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
@@ -842,7 +910,10 @@ async def show_convoy_options(
     # "F NTH C A LON - BEL".split() -> ["F","NTH","C","A","LON","-","BEL"]; origin province is index 4.
     origins = sorted({o.split()[4] for o in convoy_orders if len(o.split()) > 4})
     keyboard = [
-        [InlineKeyboardButton(f"🪖 {origin}", callback_data=f"cvorig|{game_id}|{unit_key}|{origin}")]
+        [InlineKeyboardButton(
+            f"🪖 {_location_label(origin)}",
+            callback_data=f"cvorig|{game_id}|{unit_key}|{origin}",
+        )]
         for origin in origins
     ]
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
