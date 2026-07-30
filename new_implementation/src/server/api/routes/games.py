@@ -139,6 +139,29 @@ def add_player(
     return {"status": "ok", "player_id": getattr(player, "id", None)}
 
 
+def _caller_telegram_id(
+    credentials: Optional[HTTPAuthorizationCredentials],
+    telegram_id: Optional[str],
+) -> Optional[str]:
+    """The caller's Telegram id, for skipping their own notification (G3a).
+
+    A player who takes an action gets the outcome in their HTTP response, so
+    DM'ing them the same news is noise -- the same reasoning as
+    ``process_turn``'s ``exclude_telegram_id``.
+
+    Two auth modes, two places to look: the bot passes ``telegram_id`` in the
+    request body, while a browser caller is identified only by their Bearer
+    token, so the id has to be read off the resolved user. Returns ``None`` when
+    neither yields one, which simply means nobody is excluded.
+    """
+    if telegram_id:
+        return str(telegram_id)
+    user = get_current_user_optional(credentials)
+    if user is not None and user.telegram_id:
+        return str(user.telegram_id)
+    return None
+
+
 def _authorize_process_turn(
     game_id: str,
     credentials: Optional[HTTPAuthorizationCredentials],
@@ -352,6 +375,45 @@ def submit_draw_vote(
     except StaleGameError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+
+    # G3a: tell the other players. `submit_draw_vote` finalizes the game inline
+    # the moment quorum is reached and returns the outcome only to the power that
+    # cast the deciding vote -- and because the game is then COMPLETED, the
+    # deadline scheduler skips it (`get_games_with_deadlines_and_active_status`),
+    # so no later turn-processed fan-out covers for it. A game could end by
+    # agreement and six of seven players find out by refreshing.
+    #
+    # Best-effort, like every other notification: a Telegram outage must not fail
+    # a draw already committed to Postgres.
+    try:
+        row = db_service.get_game_by_game_id(game_id)
+        if row is not None:
+            if result.get("quorum_reached"):
+                notify_turn_processed(
+                    game_id,
+                    int(row.id),
+                    trigger="manual",
+                    game_ended=True,
+                    exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                )
+            elif req.vote:
+                # A vote that does *not* end the game is still worth announcing:
+                # otherwise a player only discovers a draw is being negotiated by
+                # running /status, and a draw is the one outcome every power has a
+                # veto over.
+                # Both fields are always lists from `GameService.submit_draw_vote`:
+                # `votes` is the yes-voters, `required` every power that must agree.
+                votes = result.get("votes") or []
+                required = result.get("required") or []
+                notify_players(
+                    int(row.id),
+                    f"{req.power} has voted to end game {game_id} in a draw "
+                    f"({len(votes)}/{len(required)} agreed). "
+                    f"Use /draw to agree or /nodraw to withdraw.",
+                    exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
     return result
 
 
@@ -385,6 +447,22 @@ def concede_game(
     except OrderError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+
+    # G3a: a power leaving changes the board for everyone -- its units come off
+    # immediately -- and used to be invisible until somebody looked. Not a
+    # turn-processed event (the game continues), so a plain `notify_players`
+    # rather than the `notify_turn_processed` fan-out.
+    try:
+        row = db_service.get_game_by_game_id(game_id)
+        if row is not None:
+            notify_players(
+                int(row.id),
+                f"{req.power} has conceded and left game {game_id}. "
+                f"Its units have been removed; the remaining powers play on.",
+                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify concession for game {game_id}: {e}")
     return result
 
 
