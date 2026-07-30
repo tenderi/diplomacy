@@ -197,17 +197,21 @@ instrumented and the success case was silent, because nobody owned the question.
 | Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
 | Broadcast message | all players | the broadcast text | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
-| Draw vote cast / quorum reached | **nothing** | — | next poll | `routes/games.py` `submit_draw_vote` |
-| Power conceded | **nothing** | — | next poll | `routes/games.py` `concede_game` |
+| Draw vote cast (not final) | all players except the voter | — | next poll | `routes/games.py` `submit_draw_vote` |
+| Draw quorum reached → game ends | all players except the voter | notification | next poll | `notify_turn_processed(game_ended=True)` |
+| Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
 
-The two **nothing** rows are accurate as of `v2.7.59`, not aspirational. `submit_draw_vote`
-finalizes the game inline the moment quorum is reached (`GameService.submit_draw_vote` calls
-`Game.draw()` and `save_state` directly) and returns the outcome to the *voter* only — the other
-six players are told nothing, and since the game is now `COMPLETED` the deadline scheduler skips
-it (`get_games_with_deadlines_and_active_status`), so no later fan-out covers for it either. A
-power conceding is likewise invisible until someone looks at the board. Both are recorded as open
-tasks in `fix_plan.md` rather than fixed here, because G3's scope was the `process_turn` drift.
+Those three rows were **`nothing`** until `v2.7.64` (G3a), and the reason is worth keeping:
+`submit_draw_vote` finalizes the game inline the moment quorum is reached
+(`GameService.submit_draw_vote` calls `Game.draw()` and `save_state` directly) and returns the
+outcome to the *voter* only. Because the game is then `COMPLETED`, the deadline scheduler skips it
+(`get_games_with_deadlines_and_active_status`), so **no later turn-processed fan-out covered for
+it** — a game could end by agreement and six of seven players find out by refreshing. A
+concession was likewise invisible until someone looked at the board.
+
+A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
+a veto over, so discovering that one is being negotiated should not require running `/status`.
 
 **Rules for adding a notification.**
 
