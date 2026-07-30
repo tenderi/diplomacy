@@ -22,9 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.60`. `main` green.
-- **Next action: G5** (waiting list). **G1, G3 and G4 are complete.** G1 and G3 each turned
-  up a defect bigger than the one recorded:
+- **Last updated:** 2026-07-30, at `v2.7.61`. `main` green.
+- **Next action: G2** (province display names). **G1, G3, G4 and G5 are complete.** G1 and G3
+  each turned up a defect bigger than the one recorded:
   - G1's help text also claimed `ARMY`/`FLEET` were valid unit spellings (they are rejected
     outright) and marked a *working* order with ❌ — wrong in all three copies of a copy-pasted
     block.
@@ -44,22 +44,24 @@
   - **Track G — client & lifecycle gaps (G1–G6, plus G3a).** Originally six findings, each
     verified against the code on 2026-07-30 with file/line evidence below; five came from
     Track E's audits, G1 was found while verifying them, and G3a was found while fixing G3.
-    **G1, G3 and G4 are done** (`v2.7.58`–`v2.7.60`); **G5, G2, G6 and G3a remain.**
+    **G1, G3, G4 and G5 are done** (`v2.7.58`–`v2.7.61`); **G2, G6 and G3a remain.**
   - **Track H — infrastructure & documentation truth (H1–H2).** `CLAUDE.md` documents
     production infrastructure that is not running, and the `Deploy` workflow has never
     succeeded. Both need a maintainer decision, not code.
 - **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → **G5 → G2 → G6 → G3a → H1 → H2.** H1/H2 are
+  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → ~~G5~~ → **G2 → G6 → G3a → H1 → H2.** H1/H2 are
   decisions that cost nothing to make and stop the docs from lying; all three of their
   decisions were taken on 2026-07-30 and are recorded in their sections.
-- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.60`, against a real
-  local Postgres):** **1407 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
-  coverage **93.42%** (floor 92), overall **68.39%** (floor 60). The 74 added tests since
-  `v2.7.56`'s 1333 are G1's 60 (`test_bot_help_text.py`), G3's 4
-  (`test_turn_notifications.py`) and G4's 10 (`test_support_order_menu.py`). Engine coverage is
-  unchanged to two decimals because none of G1/G3/G4 touched `src/engine/`. Frontend at last
-  measurement: **22 test files / 121 tests**, `tsc` clean, build green (G1/G3/G4 touched no
-  frontend files; a local Node 22 is now fetched, see below).
+- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.61`, against a real
+  local Postgres):** **1424 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
+  coverage **93.42%** (floor 92), overall **68.79%** (floor 60). Added since `v2.7.56`'s 1333:
+  G1's 60 (`test_bot_help_text.py`), G3's 4 (`test_turn_notifications.py`), G4's 10
+  (`test_support_order_menu.py`), G5's 12 (`test_waiting_list.py`) plus a rewritten
+  `test_telegram_waiting_list.py` (4 → 11) and two removed from
+  `test_telegram_bot_enhanced.py`. Engine coverage is unchanged to two decimals because none of
+  G1/G3/G4/G5 touched `src/engine/`. Frontend at last measurement: **22 test files / 121
+  tests**, `tsc` clean, build green (none of G1/G3/G4/G5 touched frontend files; a local Node 22
+  is now fetched, see below).
 
 ---
 
@@ -110,6 +112,13 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
   `Map.clear_map_cache()` and `/tmp/diplomacy_map_cache`, render board/orders/resolution PNGs
   through the real `GameService`/API-route functions, compare sha256. That check caught what
   the test suite could not, twice.
+- **After adding an Alembic revision, check `alembic heads` returns exactly one head.** G5's
+  first revision id collided with the existing `a1b2c3d4e5f7` (M6's state_json migration).
+  Alembic does not fail on the duplicate — it emits a `UserWarning: Revision … is present more
+  than once` and then `upgrade head` dies with "Multiple head revisions are present", which
+  reads like a branching problem rather than a copy-pasted id. Also verify the migration
+  round-trips (`upgrade` → `downgrade -1` → `upgrade`) against a real Postgres; CI runs against a
+  fresh `postgres:14`, so a broken `downgrade` is invisible there.
 - **Pushing to protected `main`:** a bare `git push origin main` is always rejected — the
   required checks (`test`, `frontend`, `security`) have never run on a brand-new SHA. Go
   through a PR, or push to a temp branch, wait for green on that SHA, then fast-forward.
@@ -496,14 +505,33 @@ global with `WAITING_LIST_SIZE = 7`. Three separate defects:
    function: it takes `waiting_list[:required_size]` but then `clear()`s the whole list, so an
    8th queued player is silently dropped rather than held for the next game.
 
-- [ ] **Fix the notification stub first** — it is the smallest change with the most player
-      impact, and independent of the persistence question. Route it through the existing
-      notification path instead of a logging no-op.
-- [ ] **Make `process_waiting_list` recoverable.** Either roll back the created game when a
-      join fails, or (better, since it needs no delete path) create the game *after* all
-      seven joins are known to be possible, and remove exactly the seven players consumed
-      rather than clearing the list. Decide and record which.
-- [ ] **Persistence decision: a `waiting_list` table in Postgres.** Taken 2026-07-30,
+- [x] **Fix the notification stub first** — done. All seven players are DM'd through the same
+      `NOTIFY_URL` path `api/shared.notify_players` uses, each told their own power. Note this
+      only became a *real* fix once G3 was in: `notify_players` itself was a no-op until
+      `v2.7.59`, so routing the stub "through the existing notification path" a day earlier
+      would have swapped one silent path for another.
+      **Also worth recording:** the old tests for this *looked* like proof it worked. They
+      injected a fake `notify_callback` and asserted `len(notified) == 7`, while the production
+      callback only wrote a log line — the injected fake was the only implementation that ever
+      behaved. The new tests assert against the actual HTTP payloads instead.
+- [x] **Make `process_waiting_list` recoverable.** Done, and the recorded decision is the
+      second option — **no delete path was added.** The order is now: (1) atomically *claim*
+      exactly `WAITING_LIST_SIZE` entries, removing them from the queue in one transaction with
+      `FOR UPDATE`; (2) resolve all seven `telegram_id`s to real users, which is the one
+      realistic failure mode; (3) only then create the game and assign powers. Any failure
+      re-queues precisely the entries it claimed, at the front of the queue.
+      **Claiming first is what actually kills the compounding bug.** The old code's failure left
+      an orphan game *and* an uncleared queue, so the next `/wait` tripped the threshold again
+      and minted another orphan — unbounded. Now a failure can produce at most one partially
+      populated game, and never a second from the same players.
+      **Honest residual:** there is no single-game delete in `DatabaseService` (only
+      `delete_all_games`), so a failure that happens *after* `create_game` leaves that one game
+      behind. Validating users before creating anything makes that path very unlikely rather
+      than impossible. Adding a `delete_game` was rejected as scope creep for a
+      now-non-compounding cosmetic leftover; the test asserts the count does not grow on retry.
+      Also fixed: taking exactly seven instead of `clear()`ing means an 8th queued player is
+      held for the next game rather than silently dropped.
+- [x] **Persistence decision: a `waiting_list` table in Postgres.** Taken 2026-07-30,
       maintainer-confirmed. The queue must survive `systemctl restart diplomacy-bot`, and the
       deciding argument is the boundary one rather than the durability one: this module global
       is one of the last places the bot holds game state, and the bot is meant to be a thin
@@ -512,7 +540,7 @@ global with `WAITING_LIST_SIZE = 7`. Three separate defects:
       process. Implementation per `CLAUDE.md`: `persistence/database.py` model + a hand-written
       Alembic revision + `DatabaseService` methods, exposed through the API so the bot posts
       to an endpoint instead of appending to a list.
-- [ ] Original framing of that decision, kept for the reasoning it records: A `waiting_list`
+- [x] Original framing of that decision, kept for the reasoning it records: A `waiting_list`
       table is the obvious answer and makes
       the queue survive deploys, but it is a schema change (`persistence/database.py` +
       Alembic + a `DatabaseService` method, per `CLAUDE.md`) and it moves queue state from the
@@ -520,10 +548,42 @@ global with `WAITING_LIST_SIZE = 7`. Three separate defects:
       thin client and this global is one of the last places it holds game state. Cheaper
       interim option if the maintainer prefers: keep it in memory but tell everyone in the
       queue on startup that it was dropped.
-- [ ] **Done when:** all seven players are notified when a queue fills; a mid-loop failure
+- [x] **Done when:** all seven players are notified when a queue fills; a mid-loop failure
       leaves no orphan game and no lost queue entries (tested by making the join call raise on
       the fourth player); and the persistence decision is recorded here either way.
-      **Size:** small for the first two, medium if persistence is chosen (schema + migration).
+      ✅ Met at `v2.7.61`, with one documented caveat on "no orphan game" — see the recoverability
+      task above: no *compounding* orphan, and at most one from a post-creation failure, because
+      there is no single-game delete path to roll back with.
+
+      **Shipped:**
+      - `WaitingListModel` + Alembic revision `g5a1c2d3e4f5`, verified `upgrade`/`downgrade`/
+        `upgrade` against the real local Postgres (the table is created, dropped and recreated).
+        *Trap hit while writing it:* the first revision id collided with the existing
+        `a1b2c3d4e5f7` (M6's state_json migration), which alembic reports only as
+        "Revision … is present more than once" plus a **multiple heads** error on
+        `upgrade head`. Check `alembic heads` returns exactly one head after adding a revision.
+      - `DatabaseService`: `add_to_waiting_list`, `remove_from_waiting_list`, `get_waiting_list`,
+        `count_waiting_list`, `claim_waiting_list_entries`, `requeue_waiting_list_entries`,
+        `clear_waiting_list`.
+      - `api/routes/waiting_list.py`: `POST /waiting_list/join`, `POST /waiting_list/leave`,
+        `GET /waiting_list`. The server owns the queue and creates the game, so the bot no
+        longer orchestrates game creation at all.
+      - The bot's `WAITING_LIST` global and `process_waiting_list` are **gone**; `wait()` is a
+        thin `api_post` call, and `/unwait` was added — once the queue is durable, a player who
+        changes their mind needs an exit that isn't "wait for the next deploy".
+      - `GET /waiting_list` returns counts only, not who is queued: nobody needs that list and
+        it is not public information.
+
+      **Tests:** `tests/test_waiting_list.py` (12, server-side, incl. the mandated mid-fill
+      failure — `create_player` raises on the 4th player, then the queue is asserted intact and
+      a retry succeeds) and a rewritten `tests/test_telegram_waiting_list.py` (11, the bot as a
+      thin client), including a guard that `WAITING_LIST`/`process_waiting_list` cannot come
+      back. `TestProcessWaitingList` was removed from `test_telegram_bot_enhanced.py`.
+      **Test-harness trap worth keeping:** `api/shared.py` and `routes/waiting_list.py` both do
+      `import requests`, so they share one module object — patching
+      `server.api.shared.requests.post` *and*
+      `server.api.routes.waiting_list.requests.post` in the same `with` block rebinds the same
+      attribute twice and only the inner mock sees any call. One patch covers both.
 
 ## G6 — Two API ergonomics warts
 

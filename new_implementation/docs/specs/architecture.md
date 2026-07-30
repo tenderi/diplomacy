@@ -199,7 +199,7 @@ instrumented and the success case was silent, because nobody owned the question.
 | Private message | recipient only | — | next poll | `routes/messages.py` |
 | Draw vote cast / quorum reached | **nothing** | — | next poll | `routes/games.py` `submit_draw_vote` |
 | Power conceded | **nothing** | — | next poll | `routes/games.py` `concede_game` |
-| Waiting list filled | see `fix_plan.md` G5 | — | — | `telegram_bot/games.py` |
+| Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
 
 The two **nothing** rows are accurate as of `v2.7.59`, not aspirational. `submit_draw_vote`
 finalizes the game inline the moment quorum is reached (`GameService.submit_draw_vote` calls
