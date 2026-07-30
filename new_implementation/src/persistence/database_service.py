@@ -254,6 +254,30 @@ class DatabaseService:
         with self.session_factory() as session:
             return session.query(PlayerModel).filter_by(game_id=game_id).all()
 
+    def get_player_telegram_ids(self, game_id: int) -> List[str]:
+        """Every linked Telegram ID among a game's players, for notification fan-out.
+
+        ``telegram_id`` lives on ``UserModel``, **not** ``PlayerModel`` -- which is
+        exactly the trap that made ``api/shared.py``'s ``notify_players`` a silent
+        no-op for the whole life of the notification system: it iterated
+        ``PlayerModel`` rows and read ``getattr(player, 'telegram_id', None)``, a
+        column that does not exist there, so the guard was unconditionally false
+        and no Telegram DM was ever sent for any event. This method exists so no
+        caller has to remember the join.
+
+        Players with no linked user, or a user who has not linked Telegram, are
+        omitted rather than yielding ``None``.
+        """
+        with self.session_factory() as session:
+            rows = (
+                session.query(UserModel.telegram_id)
+                .join(PlayerModel, PlayerModel.user_id == UserModel.id)
+                .filter(PlayerModel.game_id == game_id)
+                .filter(UserModel.telegram_id.isnot(None))
+                .all()
+            )
+        return [str(r[0]) for r in rows if r[0] is not None and str(r[0]) != ""]
+
     def get_players_by_user_id(self, user_id: int) -> List[PlayerModel]:
         with self.session_factory() as session:
             # Only return active players (user_id is not None and is_active is True)
