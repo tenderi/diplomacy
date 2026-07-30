@@ -70,17 +70,23 @@
   retreat-phase and adjustment-phase resolution maps verified correct with a real
   dislodge→retreat→ownership-flip→disband scenario driven through `GameService`; E2E
   smoke extended. See the V4 section for the full detail and verification evidence.
-- **Track E — Client UX: ACTIVE. E1, E2, E3 all merged; E4 is the only open task.** Added
-  2026-07-30 at the maintainer's request. Two read-only audits (web + Telegram) found the
-  same structural gap from opposite directions: **neither client could tell a player what
-  happened to their orders**, because the resolution the engine computes was discarded by
-  the HTTP layer. **E1** `v2.7.52` (PR #45) — resolution exposed on `process_turn` + a new
-  read endpoint, overlay maps made browser-reachable, and a real authorization hole closed
-  (any logged-in stranger could end a turn for all seven powers). **E2** `v2.7.51` (PR #44)
-  — web game screen restructured. **E3** `v2.7.53` (PR #46) — Telegram, led by
-  `api_client.py` discarding every server error message. **E4** (web results panel + the
-  fleet-reported-as-army defect E1 shipped) is in flight. Suite at `v2.7.53`: **1332 passed,
-  11 skipped, 10 xfailed**, engine 93.42%, overall 68.12%; frontend 21 files / 109 tests.
+- **Track E — Client UX: ALL FOUR TASKS MERGED (E1–E4).** Added 2026-07-30 at the
+  maintainer's request. Two read-only audits (web + Telegram) found the same structural gap
+  from opposite directions: **neither client could tell a player what happened to their
+  orders**, because the resolution the engine computes was discarded by the HTTP layer.
+  **E1** `v2.7.52` (PR #45) — resolution exposed on `process_turn` + a new read endpoint,
+  overlay maps made browser-reachable, and a real authorization hole closed (any logged-in
+  stranger could end a turn for all seven powers). **E2** `v2.7.51` (PR #44) — web game
+  screen restructured. **E3** `v2.7.53` (PR #46) — Telegram, led by `api_client.py`
+  discarding every server error message. **E4** `v2.7.55` (PR #48) — the results panel, the
+  overlay-map switcher, and a fix for the fleet-reported-as-army defect E1 had shipped.
+  **Track E is complete**; its "Known gaps recorded but not yet scheduled" list below is
+  the natural place for a successor to continue.
+- **Suite baseline (post-Track E, on `main` at `v2.7.55`):** **1333 passed, 11 skipped, 10
+  xfailed**; ruff clean; engine coverage 93.42% (≥92), overall 68.24% (≥60); `bandit -ll`
+  and `pip-audit` both exit 0; frontend **22 test files / 121 tests**, `tsc` clean, build
+  green. Verified independently by the driver on each rebased tip against a real local
+  Postgres — not taken from the subagents' reports.
 - **Track A's manual end-to-end check is still outstanding and still cannot be delegated**
   (needs a live bot token and a human at a Telegram client — see Track A's "Final
   acceptance"). Note as of 2026-07-30 the maintainer confirmed **there is no production
@@ -102,7 +108,11 @@
   deleted dead-module tests — 34 in `test_province_mapping.py` plus 16 elsewhere
   exercising the retired `normalize_province_name` / `normalize_order_provinces` / `Map`
   topology-query API. No real coverage was lost.
-- **Last updated:** 2026-07-29, end of session. Track A complete except the manual check
+- **Last updated:** 2026-07-30. **Track E complete** (E1–E4, `v2.7.51`–`v2.7.55`, PRs
+  #44/#45/#46/#48 merged). `main` green, no open PRs, no stale branches. The only
+  unchecked item left in this entire file is Track A's manual end-to-end check.
+
+  Previous entry — 2026-07-29, end of session. Track A complete except the manual check
   (PR1–PR6, `v2.7.17`–`v2.7.25`); Track B fully complete (`v2.7.19`/`v2.7.24`/`v2.7.26`+
   `v2.7.28`/`v2.7.30`/`v2.7.31`); **Track C fully complete** (C4 via Track D, C3 via D3 +
   `v2.7.47`, C2 `v2.7.46`, C1 `v2.7.48` — PRs #38/#39/#40 merged, throwaway #41 closed);
@@ -1554,17 +1564,51 @@ by design — it is only recoverable from the board as it stood *before* adjudic
 
 ## E4 — results comprehension in the web client (depends on E1)
 
-- [ ] Render "what happened to my orders" from E1's resolution endpoint, leading with the
+- [x] Render "what happened to my orders" from E1's resolution endpoint, leading with the
       player's own power and translating result codes into plain language (a player should
       never be shown the raw enum `BOUNCE`), with `dislodged` + `retreat_options` surfaced
-      prominently since a dislodged unit demands action next phase.
-- [ ] Show the resolution and pending-orders overlay maps, unreachable from a browser until
-      E1 added `GET .../map/resolution` and `GET .../map/orders`.
-- [ ] **Fix the fleet-reported-as-army defect E1 shipped** (see the E1 section above) —
+      prominently since a dislodged unit demands action next phase. **Landed** as a "What
+      happened last turn" section plus `frontend/src/lib/resultText.ts`, covering all nine
+      `ResultCode` values, order-type-aware for `OK`, other powers behind a disclosure, and
+      rendering nothing at all before the first turn resolves.
+- [x] Show the resolution and pending-orders overlay maps, unreachable from a browser until
+      E1 added `GET .../map/resolution` and `GET .../map/orders`. **Landed** as a Board /
+      Pending orders / Last resolution switcher on the board image, defaulting to the
+      resolution overlay once a processed turn has results.
+- [x] **Fix the fleet-reported-as-army defect E1 shipped** (see the E1 section above) —
       truthful unit letters, working for a resolution fetched long after the turn, without
       changing the canonical `serialization.py` shape.
-- In flight as of 2026-07-30 on branch `results-panel`. Deliberately kept out of E2 so two
-  agents didn't collide on `GameView.tsx`.
+- [x] **MERGED `v2.7.55` (PR #48). Verified independently by the driver** on the rebased
+      tip: `ruff check src/` clean, **1333 passed, 11 skipped, 10 xfailed**, engine 93.42%
+      (≥92), overall 68.24% (≥60); `npx tsc -b --noEmit` clean, **22 test files / 121 tests
+      passed**, `npm run build` green.
+
+### How E4 fixed E1's defect, and why that approach
+
+**Truthful `order_str` is computed in `process_turn`**, while the pre-adjudication board is
+still in hand, and persisted onto each result inside `last_resolution`;
+`last_resolution_view` prefers the persisted value and falls back to the old best-effort
+rendering only for rows written before the fix.
+
+Reconstructing the board after the fact is **impossible**, which is the load-bearing reason
+for that design: `Game.history` does not survive a `GameRepo` round-trip — `GameService.load`
+builds `Game(map=self._map, state=state_from_dict(sj))` with **no `history` argument**, so it
+is always `()` after a reload (`state_to_dict`/`state_from_dict` cover `GameState`, not
+`Game`). Verified directly by the driver. A successful move also relocates the unit, so the
+current board can't answer it either. No migration was needed: `last_resolution` is a JSONB
+blob and the added key is ignored by `resolution_from_dict` and the map renderer.
+
+**A second, latent instance of the same bug was closed in passing:** the extracted
+`_kind_by_province(state)` helper also folds in `state.dislodged`, because during a retreat
+phase the unit a `Retreat` order names has already been removed from `state.units` — so
+`_humanize_orders` (the pending-orders display added by E1) would have mislabelled retreat
+orders in exactly the same way.
+
+**Driver verification of the regression test, not just of the fix:** the test
+(`test_last_resolution_fleet_order_renders_with_f_not_a`) was re-run with *only* the
+`process_turn` decoration removed and the test itself untouched. It fails with exactly
+`AssertionError: A SEV H` — the bug — and passes once restored. A test that merely passes
+alongside a change proves nothing; this one bites.
 
 ## Known gaps recorded but not yet scheduled
 
@@ -1618,6 +1662,18 @@ by design — it is only recoverable from the board as it stood *before* adjudic
       turn over one real socket end to end and passes against a real Postgres-backed
       game; `_api_module.py`'s `lifespan` starts `DaideServer`; `architecture.md`'s "DAIDE
       protocol support" section documents the real `src/server/daide/` package.
+- [x] **Track E acceptance:** a player can see what happened to their orders from the web
+      client — per-order outcomes in plain language, dislodgements with retreat options, and
+      the resolution overlay map — and the Telegram bot reports dislodgements and standoffs
+      after a turn instead of "Turn Processed Successfully" alone. `process_turn` can no
+      longer be triggered by someone who isn't in the game (E1), the web client no longer
+      offers the action to non-members and confirms it (E2), and server error messages
+      actually reach Telegram users (E3). E1–E4 merged as `v2.7.51`–`v2.7.55`. **Not
+      claimed:** nobody has yet *played* through the restructured UI end to end — the gates
+      are automated tests, `tsc` and a build, and the driver could not render the page (no
+      headless browser on the dev machine, see `no-node-toolchain-locally`). A human
+      judgement pass on the new game screen is worth doing and folds naturally into Track
+      A's outstanding manual check.
 
 ## Out of scope
 
