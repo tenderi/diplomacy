@@ -117,7 +117,8 @@ no topology of its own.
 |---|---|
 | `map.py` | A thin `Map` facade — staticmethod bindings over the modules below, kept so importers didn't have to change. |
 | `board.py`, `svg_paths.py` | SVG loading, province coloring by controlling power, path/coordinate parsing. |
-| `overlays.py`, `arrows.py` | Order and resolution overlays: movement/support/convoy/retreat arrows, hold and dislodged markers, status indicators. |
+| `overlays.py`, `arrows.py` | Order and resolution overlays: movement/support/convoy/retreat arrows, hold and dislodged markers, status indicators. All four arrow variants share one geometry builder (`_arrow_geometry`) and one barbed-head stroker, and both ends are trimmed clear of the unit icons. |
+| `antialias.py` | `PIL.ImageDraw` does no anti-aliasing, so overlays are drawn onto a 3× transparent layer through a coordinate/width-scaling `ScaledDraw` proxy and LANCZOS-downscaled onto the board. The legend and phase banner deliberately bypass it. |
 | `icons.py`, `legend.py`, `cache.py` | Unit icons from `icons/`, the context-aware legend, and the in-memory + on-disk (`/tmp/diplomacy_map_cache`) caches. |
 | `order_overlay.py` | Adapts engine `Order`/`Resolution` objects into the renderer's arrow-primitive dicts. Merges multi-fleet convoy chains into one entry; `DISLODGED` gets its own status. |
 | `view_adapter.py` | Pure helpers turning a `GameService.view` dict into render inputs (`units_for_render`, `phase_info`, `svg_path_for_map_name`). |
@@ -223,6 +224,12 @@ to translate. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/
 Vite proxies API calls to `http://localhost:8000` in dev; `npm run build` outputs to
 `dist/`, which FastAPI serves at `/app`. Tests use Vitest + React Testing Library — see
 [`frontend/docs/TESTING.md`](new_implementation/frontend/docs/TESTING.md).
+
+The board map is rendered server-side at 1835×1360 but the app column is `max-w-4xl` (896px),
+so `components/MapViewer.tsx` wraps the inline image in a button that opens a full-viewport
+zoom/pan viewer (wheel/pinch/buttons, 10%–600%, double-click toggles fit ↔ 1:1, `Esc` closes).
+Note for tests: jsdom implements neither `PointerEvent` nor `setPointerCapture`, so pointer
+tests need the polyfill in `MapViewer.test.tsx` or they silently assert nothing.
 
 ---
 
