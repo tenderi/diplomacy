@@ -16,7 +16,7 @@ from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN, BOT_SECRET,
-    notify_players, get_process_turn_lock,
+    notify_players, notify_turn_processed, get_process_turn_lock,
 )
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
@@ -121,7 +121,7 @@ def _authorize_process_turn(
     credentials: Optional[HTTPAuthorizationCredentials],
     x_bot_secret: Optional[str],
     x_admin_token: Optional[str],
-) -> None:
+) -> Optional[str]:
     """Only the bot-secret path, an admin-token holder, or a user who holds a
     power in this game may end this game's turn early.
 
@@ -131,11 +131,16 @@ def _authorize_process_turn(
     browsing "All games" end a turn early for all seven powers, converting
     everyone's unsubmitted units into holds. Everyone who fails all three
     checks below gets 403.
+
+    Returns the authorizing player's ``telegram_id`` when the caller is a user
+    who holds a power here, else ``None`` (bot-secret and admin-token callers are
+    not players). The route uses it to skip notifying whoever pressed the button
+    -- they get the resolution in their HTTP response instead (G3).
     """
     if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
-        return
+        return None
     if x_admin_token and x_admin_token == ADMIN_TOKEN:
-        return
+        return None
     user = get_current_user_optional(credentials)
     if user is not None:
         row = db_service.get_game_by_game_id(game_id)
@@ -144,7 +149,10 @@ def _authorize_process_turn(
                 game_id=int(row.id), user_id=int(user.id)
             )
             if player is not None:
-                return
+                # Direct attribute access, not getattr-with-default: `telegram_id`
+                # really is a column on UserModel, and defaulting it to None is
+                # what hid this whole bug class in notify_players.
+                return str(user.telegram_id) if user.telegram_id else None
     raise HTTPException(status_code=403, detail="Not authorized to process this game's turn")
 
 
@@ -178,7 +186,7 @@ async def process_turn(
     """
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
-    _authorize_process_turn(game_id, credentials, x_bot_secret, x_admin_token)
+    caller_telegram_id = _authorize_process_turn(game_id, credentials, x_bot_secret, x_admin_token)
     if require_all:
         status = game_service.orders_status(game_id)
         if status and status["missing"]:
@@ -221,14 +229,23 @@ async def process_turn(
                 )
             except Exception as e:
                 logger.debug(f"process_turn: snapshot failed: {e}")
-            if view["status"] != "COMPLETED":
+            game_ended = view["status"] == "COMPLETED"
+            if not game_ended:
                 db_service.update_game_deadline(int(row.id), datetime.now(timezone.utc) + timedelta(hours=24))
             else:
                 db_service.update_game_deadline(int(row.id), None)
-                try:
-                    notify_players(int(row.id), f"Game {game_id} has ended!")
-                except Exception as e:
-                    scheduler_logger.error(f"Failed to notify game end: {e}")
+            # Before G3 this branch notified *only* on game end, so the ordinary
+            # case -- everyone submitted, one player pressed the button -- told the
+            # other six players nothing and posted nothing to the linked channel.
+            # Same fan-out as the deadline path now; the caller is skipped because
+            # the resolution is already in their response below.
+            notify_turn_processed(
+                game_id,
+                int(row.id),
+                trigger="manual",
+                game_ended=game_ended,
+                exclude_telegram_id=caller_telegram_id,
+            )
     except Exception as e:
         scheduler_logger.error(f"process_turn post-processing error: {e}")
     return {
