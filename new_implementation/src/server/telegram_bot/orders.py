@@ -593,13 +593,23 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def show_possible_moves(
     query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str
 ) -> None:
-    """Show non-convoy legal orders for one unit, plus a convoy sub-menu if any exist.
+    """Show a unit's hold/move orders, plus support and convoy sub-menus if any exist.
 
     ``unit_key`` is exactly an ``orders_by_unit`` key, ``"{kind} {location}"``
-    (e.g. ``"F STP/SC"``). Convoy orders are split into a separate
-    "Convoy options" step (``show_convoy_options``) instead of listed inline:
-    an open-water fleet's bucket can contain a full cross product of
-    origin/destination convoy pairs, which would otherwise dominate the menu.
+    (e.g. ``"F STP/SC"``).
+
+    **Both convoys and supports are pushed into sub-menus rather than listed
+    inline**, for the same reason: each is a cross product. A fleet's convoy
+    bucket holds one order per (origin, destination) pair; a unit's support
+    bucket holds one order per (supported unit, its destination) pair, plus one
+    support-hold each. A central army neighbouring several units produces 20-30
+    support orders on its own, which used to be rendered as 20-30 one-per-row
+    buttons in a single message (G4). Convoys got this treatment first; supports
+    were left inline and were the larger of the two.
+
+    What remains at this level is bounded by the board, not by the position:
+    one hold, one move per adjacent province (at most ~8), the two sub-menu
+    buttons, and cancel.
     """
     async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
@@ -626,13 +636,21 @@ async def show_possible_moves(
         return
 
     convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
-    direct_orders = [o for o in bucket if _order_verb(o) != "C"]
+    support_orders = [o for o in bucket if _order_verb(o) == "S"]
+    direct_orders = [o for o in bucket if _order_verb(o) not in ("C", "S")]
 
     context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(direct_orders)
     keyboard = [
         [InlineKeyboardButton(_order_label(s), callback_data=f"ord|{game_id}|{i}")]
         for i, s in enumerate(direct_orders)
     ]
+    if support_orders:
+        keyboard.append(
+            [InlineKeyboardButton(
+                f"🤝 Support options ({len(support_orders)})",
+                callback_data=f"supopt|{game_id}|{unit_key}",
+            )]
+        )
     if convoy_orders:
         keyboard.append(
             [InlineKeyboardButton("🚢 Convoy options", callback_data=f"cvopt|{game_id}|{unit_key}")]
@@ -642,6 +660,144 @@ async def show_possible_moves(
     emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
     await send(
         f"🎯 *Orders for {emoji} {unit_key}*\n\n📊 Game: {game_id} | Power: {power}\n\nChoose an order:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+def _support_target(order_str: str) -> str:
+    """The province being supported, from a support order string.
+
+    ``"A BER S A MUN - KIE".split()`` -> ``["A","BER","S","A","MUN","-","KIE"]``,
+    so the supported unit's province is index 4 -- the same index the convoy
+    helpers use for the convoyed army's origin, because both grammars put the
+    *other* unit's kind at 3 and its location at 4. A split-coast supported
+    fleet keeps its coast here (``"BUL/SC"``); that is correct, since the
+    order string must round-trip verbatim.
+    """
+    parts = order_str.split()
+    return parts[4] if len(parts) > 4 else ""
+
+
+def _support_label(order_str: str) -> str:
+    """Second-level support button label: what this order does to the target.
+
+    Once the supported province is fixed, the only remaining choice is "hold"
+    versus one of its moves, so the label shows just that rather than repeating
+    the full order text. Support-hold (``A BER S A MUN``, 5 tokens) and
+    support-move (``A BER S A MUN - KIE``, 7 tokens) are deliberately rendered
+    differently -- they are different orders and must not read as duplicates.
+    """
+    parts = order_str.split()
+    if len(parts) > 6:
+        return f"➡️ supports move to {parts[6]}"
+    return "🛡️ supports holding"
+
+
+async def show_support_options(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str
+) -> None:
+    """Show the distinct units this unit can support, grouped by their province.
+
+    First level of the support sub-menu, mirroring ``show_convoy_options``: the
+    bucket contains one fully-formed order per (supported unit, destination)
+    pair plus a support-hold per unit, so grouping by the supported province
+    turns a 20-30 button list into one button per neighbour. The callback
+    (``suporig|{game_id}|{unit_key}|{target}``) carries only short province
+    codes, never order text, which is what keeps it inside Telegram's 64-byte
+    ``callback_data`` cap.
+    """
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    try:
+        user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    except Exception as e:
+        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
+
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await send(f"❌ Could not retrieve legal orders: {e}")
+        return
+
+    bucket = data.get("orders_by_unit", {}).get(unit_key, [])
+    support_orders = [o for o in bucket if _order_verb(o) == "S"]
+    if not support_orders:
+        await send(f"❌ No support options found for {unit_key} in game {game_id}.")
+        return
+
+    targets = sorted({t for t in (_support_target(o) for o in support_orders) if t})
+    keyboard = [
+        [InlineKeyboardButton(f"🎯 {target}", callback_data=f"suporig|{game_id}|{unit_key}|{target}")]
+        for target in targets
+    ]
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+
+    emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
+    await send(
+        f"🤝 *Support with {emoji} {unit_key}: choose the unit to support*\n\n"
+        f"📊 Game: {game_id} | Power: {power}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def show_support_choices(
+    query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str, target: str
+) -> None:
+    """Show the support orders available against the unit standing at ``target``.
+
+    Second level. Bounded by the target's own adjacency: one support-hold plus
+    one support-move per province it can reach, so no third level is needed --
+    but hold and move are labelled distinctly (`_support_label`), because
+    "support A MUN to hold" and "support A MUN - KIE" are different orders a
+    player picks between, and rendering them identically would rebuild the
+    original problem one level down.
+    """
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    try:
+        user_id = str(query.from_user.id)
+        _, power = resolve_game_and_power(user_id, game_id)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    except Exception as e:
+        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        return
+
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except Exception as e:
+        await send(f"❌ Could not retrieve legal orders: {e}")
+        return
+
+    bucket = data.get("orders_by_unit", {}).get(unit_key, [])
+    target_orders = [
+        o for o in bucket if _order_verb(o) == "S" and _support_target(o) == target
+    ]
+    if not target_orders:
+        await send(f"❌ No support options found for {unit_key} → {target}.")
+        return
+
+    # Hold-support first, then moves in destination order, so the list reads
+    # predictably rather than in whatever order legal_orders enumerated it.
+    target_orders.sort(key=lambda o: (len(o.split()) > 6, o.split()[6:]))
+
+    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(target_orders)
+    keyboard = [
+        [InlineKeyboardButton(_support_label(s), callback_data=f"ord|{game_id}|{i}")]
+        for i, s in enumerate(target_orders)
+    ]
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+
+    await send(
+        f"🤝 *{unit_key} supports {target}*\n\n📊 Game: {game_id}\n\nChoose what to support:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
