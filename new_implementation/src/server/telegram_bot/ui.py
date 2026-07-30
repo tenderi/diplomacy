@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 
 from .game_context import fetch_user_games
 from .games import register, games, show_available_games, wait
+from .help_text import EXAMPLES_TEXT, HELP_TEXT, RULES_TEXT
 from .orders import show_my_orders_menu
 from .messages import show_messages_menu
 
@@ -150,165 +151,23 @@ async def show_map_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /rules command - show basic Diplomacy rules and order syntax."""
-    rules_text = """
-📜 *Diplomacy Rules & Order Syntax*
-
-*🎯 Basic Rules:*
-• 7 powers compete for control of Europe
-• Each turn has 3 phases: Movement, Retreat, Builds
-• Control supply centers to build units
-• Eliminate other powers to win
-
-*📝 Order Types:*
-• **Move:** `A PAR - BUR` (Army moves from Paris to Burgundy)
-• **Hold:** `A PAR H` (Army holds position)
-• **Support:** `A MAR S A PAR - BUR` (Army in Marseilles supports move from Paris to Burgundy)
-• **Convoy:** `F NTH C A LON - BEL` (Fleet in North Sea convoys Army from London to Belgium)
-• **Move via Convoy:** `A LON - BEL VIA CONVOY` (Army moves via convoy chain)
-
-*🏗️ Build Phase Orders:*
-• **Build:** `BUILD A PAR` (Build army in Paris)
-• **Disband:** `D A MUN` (Disband army in Munich)
-• **Waive:** `WAIVE` (Skip an available build)
-
-*↩️ Retreat Phase Orders:*
-• **Retreat:** `A MUN R SIL` (Retreat dislodged army in Munich to Silesia)
-• **Disband:** `D A MUN` (Disband instead of retreating)
-
-*📋 Order Format:*
-• Use abbreviations: `A`, `F`, `H`, `S`, `C`
-• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`
-• **Important:** Don't mix abbreviations and full names in the same order
-• Examples: `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅ or `A Berlin HOLD` ❌
-
-*🔄 Game Phases:*
-• **Movement** (Spring/Autumn): Submit movement, support, convoy orders
-• **Retreat**: Retreat dislodged units to adjacent provinces, or disband
-• **Builds**: Build, disband, or waive based on supply center control
-
-*💡 Tips:*
-• Units can't move into occupied provinces (except with support)
-• Support can help attacks or defenses
-• Convoy chains allow armies to cross water
-• Supply centers control persists even if units leave
-    """
-    await update.message.reply_text(rules_text, parse_mode='Markdown')
+    await update.message.reply_text(RULES_TEXT, parse_mode='Markdown')
 
 
 async def examples(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /examples command - show order syntax examples."""
-    examples_text = """
-📚 *Order Syntax Examples*
-
-*🎯 Movement Orders:*
-• `A Vienna - Trieste` - Army moves from Vienna to Trieste
-• `F London - North Sea` - Fleet moves from London to North Sea
-• `A Berlin - Kiel` - Army moves from Berlin to Kiel
-
-*🛡️ Hold Orders:*
-• `A Paris H` - Army holds in Paris
-• `F London H` - Fleet holds in London
-
-*🤝 Support Orders:*
-• `A Marseilles S A Paris - Burgundy` - Army in Marseilles supports move from Paris to Burgundy
-• `F Brest S F English Channel - Mid Atlantic` - Fleet in Brest supports fleet move
-• `A Munich S A Berlin` - Army in Munich supports hold in Berlin
-
-*🚢 Convoy Orders:*
-• `F North Sea C A London - Belgium` - Fleet convoys army from London to Belgium
-• `A London - Belgium VIA CONVOY` - Army moves via convoy (requires convoying fleet)
-
-*🏗️ Build Phase Orders:*
-• `BUILD A Paris` - Build army in Paris (requires supply center control)
-• `BUILD F Brest` - Build fleet in Brest
-• `D A Munich` - Disband army in Munich (if you have too many units)
-• `WAIVE` - Skip an available build
-
-*↩️ Retreat Phase Orders:*
-• `A Munich R Silesia` - Retreat dislodged army in Munich to Silesia
-• `D A Munich` - Disband instead of retreating
-
-*📝 Multiple Orders:*
-Separate multiple orders with semicolons:
-• `A Paris - Burgundy; F Brest - English Channel; A Marseilles H`
-
-*💡 Common Patterns:*
-• **Attack:** `A Vienna - Trieste`
-• **Defend:** `A Vienna H`
-• **Support Attack:** `A Budapest S A Vienna - Trieste`
-• **Support Defense:** `A Budapest S A Vienna`
-• **Convoy Attack:** `F North Sea C A London - Belgium` + `A London - Belgium VIA CONVOY`
-    """
-    await update.message.reply_text(examples_text, parse_mode='Markdown')
+    await update.message.reply_text(EXAMPLES_TEXT, parse_mode='Markdown')
 
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help with available commands"""
-    help_text = """
-🏛️ *Diplomacy Bot Commands*
-
-*🎯 Getting Started:*
-• Register - Register as a player
-• My Games - View your current games
-• Join Game - Join a specific game
-• Join Waiting List - Auto-match with others
-
-*🎮 During Games:*
-• My Orders - Submit/view your orders
-• View Map - See current game state
-• Messages - View/send diplomatic messages
-
-*📝 Text Commands:*
-• `/orders <game_id> <orders>` - Submit orders
-• `/order <orders>` - Submit orders (auto-detect game)
-• `/selectunit` - Interactive unit selection
-• `/processturn <game_id>` - Process current turn
-• `/viewmap <game_id>` - View game map
-• `/message <game_id> <power> <text>` - Send message
-• `/broadcast <game_id> <text>` - Message all players
-• `/myorders <game_id>` - View your orders
-• `/clearorders <game_id>` - Clear your orders
-• `/orderhistory <game_id>` - View order history
-• `/draw [game_id]` - Vote yes to end the game as a draw
-• `/nodraw [game_id]` - Withdraw your draw vote
-• `/status [game_id]` - Phase, deadline, and draw-vote tally
-
-*🗺️ Order Types & Examples:*
-• `A Vienna - Trieste` (Army move)
-• `F London - North Sea` (Fleet move)
-• `A Berlin H` (Hold)
-• `A Berlin S A Munich - Kiel` (Support)
-• `F English Channel C A London - Brest` (Convoy)
-• `BUILD A Paris` (Build unit - Builds phase only)
-• `D A Munich` (Disband unit - Builds/Retreat phase only)
-• `WAIVE` (Skip an available build - Builds phase only)
-• `A Munich R Silesia` (Retreat to Silesia - Retreat phase only)
-
-*📝 Order Format Notes:*
-• Use abbreviations: `A`, `F`, `H`, `S`, `C`, `R`, `D`, `BUILD`, `WAIVE`
-• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`, `RETREAT`, `DISBAND`, `BUILD`, `WAIVE`
-• **Important:** Don't mix abbreviations and full names in the same order
-• Examples: `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅ or `A Berlin HOLD` ❌
-
-*🎯 Game Phases:*
-• **Movement** (Spring/Autumn) - Submit movement orders
-• **Retreat** - Retreat dislodged units, or disband (`D`)
-• **Builds** - Build, disband (`D`), or waive (`WAIVE`) based on supply centers
-
-*💡 Tips:*
-• Use `/selectunit` for interactive order selection
-• Use menu buttons for easier navigation
-• Orders are validated in real-time
-• Convoy chains are automatically validated
-    """
-
     # Add inline keyboard with demo button
     keyboard = [
         [InlineKeyboardButton("🎬 Run Perfect Demo Game", callback_data="run_automated_demo")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(help_text, parse_mode='Markdown', reply_markup=reply_markup)
+    await update.message.reply_text(HELP_TEXT, parse_mode='Markdown', reply_markup=reply_markup)
 
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

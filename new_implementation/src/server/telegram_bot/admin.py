@@ -11,6 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ContextTypes
 
 from .api_client import api_post
+from .help_text import DEMO_EXAMPLE_ORDERS, ORDER_FORMAT_NOTES
 from .maps import send_game_map
 from .utils import escape_markdown, safe_markdown_path
 
@@ -85,20 +86,12 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "🗺️ View current map state\n"
             "ℹ️ Get help with demo mode\n\n"
             "*Example Orders:*\n"
-            "• `A Berlin - Kiel` (Army move)\n"
-            "• `A Munich - Bohemia` (Army move)\n"
-            "• `F Kiel - Denmark` (Fleet move)\n"
-            "• `A Berlin H` (Hold)\n"
-            "• `A Berlin S A Munich - Kiel` (Support)\n"
-            "• `F Kiel C A Berlin - Denmark` (Convoy)\n\n"
-            "*📝 Order Format:*\n"
-            "• Use abbreviations: `A`, `F`, `H`, `S`, `C`\n"
-            "• Or full names: `ARMY`, `FLEET`, `HOLD`, `SUPPORT`, `CONVOY`\n"
-            "• **Don't mix:** `A Berlin H` ✅ or `ARMY Berlin HOLD` ✅\n\n"
+            f"{DEMO_EXAMPLE_ORDERS}\n\n"
+            f"{ORDER_FORMAT_NOTES}\n\n"
             "*Interactive Features:*\n"
             "• Use `/selectunit` for guided order selection\n"
-            "• Use `/processturn {game_id}` to advance the game\n"
-            "• Use `/viewmap {game_id}` to see current state"
+            f"• Use `/processturn {game_id}` to advance the game\n"
+            f"• Use `/viewmap {game_id}` to see current state"
         )
 
         if update.callback_query:
