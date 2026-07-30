@@ -935,7 +935,7 @@ describe('GameView — results panel (E4)', () => {
     )
 
     const img = await waitFor(() => {
-      const el = container.querySelector('img[alt^="Game map"]') as HTMLImageElement | null
+      const el = container.querySelector('[data-testid="map-inline"]') as HTMLImageElement | null
       expect(el).not.toBeNull()
       return el as HTMLImageElement
     })
@@ -945,17 +945,45 @@ describe('GameView — results panel (E4)', () => {
 
     fireEvent.click(within(container).getByRole('button', { name: 'Pending orders' }))
     await waitFor(() => {
-      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toContain(
         '/games/10/map/orders?'
       )
     })
 
     fireEvent.click(within(container).getByRole('button', { name: 'Last resolution' }))
     await waitFor(() => {
-      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toContain(
         '/games/10/map/resolution?'
       )
     })
+  })
+
+  // Track I1: the map is downscaled to ~47% in this max-w-4xl column, so it must be
+  // openable at full size. Covered in isolation by MapViewer.test.tsx; this asserts the
+  // game screen actually wires it up, and names the overlay and phase it opened.
+  it('opens the full-size map viewer when the inline map is clicked', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    const trigger = await waitFor(() =>
+      within(container).getByRole('button', { name: 'Enlarge map: Board — S1901M' })
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(trigger)
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Map viewer: Board — S1901M')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close map viewer' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('defaults the map to the resolution overlay once a processed turn has results', async () => {
@@ -987,7 +1015,7 @@ describe('GameView — results panel (E4)', () => {
     )
 
     await waitFor(() => {
-      expect((container.querySelector('img[alt^="Game map"]') as HTMLImageElement).src).toContain(
+      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toContain(
         '/games/10/map/resolution?'
       )
     })
