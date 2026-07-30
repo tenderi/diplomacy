@@ -82,7 +82,9 @@ class TestShowConvoyOptions:
 
         await show_convoy_options(mock_query, mock_context, "test_game_1", "F NTH")
 
-        mock_orders_get.assert_called_once_with("/games/test_game_1/legal_orders/ENGLAND")
+        # `assert_any_call`, not `assert_called_once_with`: the interactive flow now
+        # also fetches province display names once per process (G2).
+        mock_orders_get.assert_any_call("/games/test_game_1/legal_orders/ENGLAND")
         mock_query.edit_message_text.assert_called_once()
         kwargs = mock_query.edit_message_text.call_args.kwargs
         button_texts = [btn.text for row in kwargs["reply_markup"].inline_keyboard for btn in row]

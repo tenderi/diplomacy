@@ -91,7 +91,9 @@ class TestInteractiveOrderInput:
         asyncio.run(selectunit(self.mock_update, self.mock_context))
 
         mock_ctx_get.assert_called_once_with("/users/12345/games")
-        mock_orders_get.assert_called_once_with("/games/1/legal_orders/GERMANY")
+        # `assert_any_call`, not `assert_called_once_with`: the interactive flow now
+        # also fetches province display names once per process (G2).
+        mock_orders_get.assert_any_call("/games/1/legal_orders/GERMANY")
 
         self.mock_message.reply_text.assert_called_once()
         args, kwargs = self.mock_message.reply_text.call_args
@@ -146,7 +148,9 @@ class TestInteractiveOrderInput:
 
         asyncio.run(show_possible_moves(self.mock_query, self.mock_context, "1", "A BER"))
 
-        mock_orders_get.assert_called_once_with("/games/1/legal_orders/GERMANY")
+        # `assert_any_call`, not `assert_called_once_with`: the interactive flow now
+        # also fetches province display names once per process (G2).
+        mock_orders_get.assert_any_call("/games/1/legal_orders/GERMANY")
         self.mock_query.edit_message_text.assert_called_once()
         cached = self.mock_context.user_data["pending_orders"]["1"]
         assert cached == ["A BER H", "A BER - SIL", "A BER - PRU"]
