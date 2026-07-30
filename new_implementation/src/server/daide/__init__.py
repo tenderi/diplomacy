@@ -1,4 +1,4 @@
-"""DAIDE protocol support (Track D, `docs/specs/fix_plan.md`).
+"""DAIDE protocol support (Track D, `docs/specs/done_fixes.md`).
 
 - `tokens` -- the fixed 2-byte token vocabulary and signed-integer/ASCII
   escape encodings.

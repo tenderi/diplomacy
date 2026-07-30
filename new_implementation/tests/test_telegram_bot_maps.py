@@ -3,7 +3,7 @@
 The bot must never import or call ``rendering.map.Map`` -- every map image it
 shows is fetched as PNG bytes from the API (``api_client.api_get_bytes``),
 which does the SVG->PNG rendering server-side. See the "PR 4" section of
-``docs/specs/fix_plan.md``: the pre-rewrite bot called ``Map.render_board_png``
+``docs/specs/done_fixes.md``: the pre-rewrite bot called ``Map.render_board_png``
 directly in five places, including one (``/replay``) that crashed outright
 because the renderer's expected ``{power: [...]}`` unit shape no longer
 matched the new engine's view.

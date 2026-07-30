@@ -51,7 +51,9 @@ messages, vote — enforce that only the assigned user may act for that power. B
   configured — check before trusting a green run.
 - Update the relevant spec under [`docs/specs/`](./docs/specs/) when behaviour changes.
 - [`docs/specs/fix_plan.md`](./docs/specs/fix_plan.md) is the living tracker of what to work
-  on next; keep it current in the same commit as the work.
+  on next; keep it current in the same commit as the work. It holds **open work only** —
+  completed tracks, with their findings and verification evidence, are archived in
+  [`docs/specs/done_fixes.md`](./docs/specs/done_fixes.md).
 
 **Out of scope** unless explicitly requested: tournaments, Discord, observer/spectator mode,
 AI-powered analysis, map variants beyond `standard`, and full DAIDE press-grammar parsing.

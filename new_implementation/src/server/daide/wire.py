@@ -27,7 +27,7 @@ Five message types make up the handshake and payload exchange:
 
 This module is written against `asyncio.StreamReader`/`StreamWriter` because
 the DAIDE listener (Track D's D4) is asyncio-based -- see
-`docs/specs/fix_plan.md`'s Track D Ground Rules for why Tornado (which
+`docs/specs/done_fixes.md`'s Track D Ground Rules for why Tornado (which
 `old_implementation` uses) is not an option here.
 """
 
