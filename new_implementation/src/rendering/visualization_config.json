@@ -2,7 +2,11 @@
   "arrows": {
     "arrowhead_size": 18,
     "arrowhead_base_width": 22,
-    "line_width_primary": 8,
+    "arrowhead_length": 26,
+    "arrowhead_half_width": 9,
+    "arrowhead_notch": 7,
+    "unit_clearance": 20,
+    "line_width_primary": 6,
     "line_width_secondary": 4,
     "outline_width": 2,
     "shape": "triangular"

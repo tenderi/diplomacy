@@ -9,8 +9,9 @@ import hashlib
 import json
 from io import BytesIO
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageFont
 
+from .antialias import DrawTarget, antialiased_overlay
 from .arrows import (
     _draw_arrow,
     _draw_bounce_arrow,
@@ -36,9 +37,31 @@ from .visualization_config import get_config
 
 _viz_config = get_config()
 
+#: Statuses that are *not* an adjudicated failure. The vocabulary the renderer sees is
+#: ``success``/``bounced``/``failed``/``dislodged`` (mapped from ``ResultCode`` in
+#: ``order_overlay``) plus ``pending``, which ``render_board_png_orders`` stamps onto
+#: every order because that map is drawn *before* adjudication.
+_NOT_FAILED = frozenset({"success", "pending"})
+
+
+def _drawn_as_ok(status: str) -> bool:
+    """Whether ``status`` should be drawn in the normal (non-failure) style.
+
+    **Why this exists (Track I2).** Hold, support and convoy drawing all tested
+    ``status == "success"`` and styled everything else as a failure. Because the
+    orders map forces ``status = "pending"``, that classified every *unadjudicated*
+    order as failed: the pending-orders map -- the one a player opens to check what
+    they just submitted -- drew each support in failure red with a red "support cut"
+    X struck through it, each convoy in red and dashed as though disrupted, and no
+    hold indicator at all. Nothing had been resolved yet. Only movement (which
+    spelled out ``or status == "pending"``) and retreat (which tested ``== "failed"``)
+    were right, which is why the bug survived: two of the six paths looked correct.
+    """
+    return status in _NOT_FAILED
+
 
 def _draw_comprehensive_order_visualization(
-    draw: ImageDraw.ImageDraw,
+    draw: DrawTarget,
     orders: dict,
     coords: dict,
     power_colors: dict,
@@ -51,7 +74,7 @@ def _draw_comprehensive_order_visualization(
     Draws in proper visual layer order: hold -> support -> convoy -> movement (primary actions on top)
 
     Args:
-        draw: PIL ImageDraw object
+        draw: ImageDraw or ScaledDraw target (see rendering.antialias)
         orders: Dictionary of power -> list of order dictionaries
         coords: Dictionary of province -> (x, y) coordinates
         power_colors: Dictionary of power -> color
@@ -151,7 +174,7 @@ def _draw_comprehensive_order_visualization(
                 _draw_destroy_order(draw, unit_province, color, coords)
 
 
-def _draw_movement_order(draw: ImageDraw.ImageDraw, from_province: str, to_province: str, color: str, status: str, coords: dict) -> None:
+def _draw_movement_order(draw: DrawTarget, from_province: str, to_province: str, color: str, status: str, coords: dict) -> None:
     """Draw movement order arrow with status indicators"""
     if from_province not in coords or to_province not in coords:
         return
@@ -165,7 +188,7 @@ def _draw_movement_order(draw: ImageDraw.ImageDraw, from_province: str, to_provi
     secondary_width = arrow_specs["line_width_secondary"]
 
     # Choose arrow style based on status
-    if status == "success" or status == "pending":
+    if _drawn_as_ok(status):
         _draw_arrow(draw, from_coord, to_coord, color, width=primary_width, style="solid")
         # Add success checkmark at arrow tip
         if status == "success":
@@ -181,7 +204,7 @@ def _draw_movement_order(draw: ImageDraw.ImageDraw, from_province: str, to_provi
         _draw_failure_x(draw, to_coord, "orange")
 
 
-def _draw_hold_order(draw: ImageDraw.ImageDraw, province: str, color: str, status: str, coords: dict) -> None:
+def _draw_hold_order(draw: DrawTarget, province: str, color: str, status: str, coords: dict) -> None:
     """Draw hold order circle.
 
     ``status == "dislodged"`` reaches this function (rather than the "move" one)
@@ -194,7 +217,7 @@ def _draw_hold_order(draw: ImageDraw.ImageDraw, province: str, color: str, statu
 
     coord = coords[province]
 
-    if status == "success":
+    if _drawn_as_ok(status):
         _draw_circle(draw, coord, color, width=2, style="solid")
     elif status == "dislodged":
         _draw_circle(draw, coord, "red", width=4, style="solid")
@@ -204,7 +227,7 @@ def _draw_hold_order(draw: ImageDraw.ImageDraw, province: str, color: str, statu
 
 
 def _draw_support_order(
-    draw: ImageDraw.ImageDraw,
+    draw: DrawTarget,
     supporter_province: str,
     supported_unit_province: str,
     supported_action: str,
@@ -217,7 +240,7 @@ def _draw_support_order(
     Draw support order with distinct colors for defensive vs offensive support.
 
     Args:
-        draw: PIL ImageDraw object
+        draw: ImageDraw or ScaledDraw target (see rendering.antialias)
         supporter_province: Province of the unit providing support
         supported_unit_province: Province of the unit being supported
         supported_action: "hold" for defensive support, "move" for offensive support
@@ -236,27 +259,27 @@ def _draw_support_order(
         # Defensive Support (Hold Support) - spec section 3.4.4
         arrow_specs = _viz_config.get_arrow_specs()
         marker_specs = _viz_config.get_marker_specs()
-        support_color = _viz_config.get_color("support_defensive") if status == "success" else _viz_config.get_color("failure")
+        support_color = _viz_config.get_color("support_defensive") if _drawn_as_ok(status) else _viz_config.get_color("failure")
 
         # Draw dashed line from supporter to defending unit (light green)
         _draw_arrow(draw, supporter_coord, supported_coord, support_color,
                       width=arrow_specs["line_width_secondary"], style="dashed")
 
         # Draw circle around defending unit in supporting unit's power color
-        if status == "success":
+        if _drawn_as_ok(status):
             circle_diameter = marker_specs["support_circle_diameter"]
             circle_border_width = marker_specs["support_circle_border_width"]
             _draw_circle_at_size(draw, supported_coord, supporting_power_color,
                                    circle_diameter, circle_border_width, style="solid")
 
         # Add red X through support line if cut
-        if status != "success":
+        if not _drawn_as_ok(status):
             _draw_support_cut_indicator(draw, supporter_coord, supported_coord)
 
     elif supported_action == "move" and supported_target:
         # Offensive Support (Move Support) - spec section 3.4.4
         arrow_specs = _viz_config.get_arrow_specs()
-        support_color = _viz_config.get_color("support_offensive") if status == "success" else _viz_config.get_color("failure")
+        support_color = _viz_config.get_color("support_offensive") if _drawn_as_ok(status) else _viz_config.get_color("failure")
 
         if supported_target in coords:
             target_coord = coords[supported_target]
@@ -270,14 +293,14 @@ def _draw_support_order(
                          width=arrow_specs["line_width_secondary"], style="dashed")
 
             # Add red X through support line if cut
-            if status != "success":
+            if not _drawn_as_ok(status):
                 _draw_support_cut_indicator(draw, supporter_coord, supported_coord)
                 if supported_target in coords:
                     _draw_support_cut_indicator(draw, supported_coord, target_coord)
 
 
 def _draw_convoy_order(
-    draw: ImageDraw.ImageDraw,
+    draw: DrawTarget,
     convoyed_army_province: str,
     convoyed_to: str,
     convoy_chain: list[str],
@@ -296,7 +319,7 @@ def _draw_convoy_order(
 
     arrow_specs = _viz_config.get_arrow_specs()
     marker_specs = _viz_config.get_marker_specs()
-    convoy_color_actual = convoy_color if status == "success" else _viz_config.get_color("failure")
+    convoy_color_actual = convoy_color if _drawn_as_ok(status) else _viz_config.get_color("failure")
 
     # Build complete path: army -> fleet1 -> fleet2 -> ... -> destination
     path = [convoyed_army_province]
@@ -317,7 +340,7 @@ def _draw_convoy_order(
         # Draw curved arrow segment using config line width
         _draw_curved_arrow(draw, from_coord, to_coord, convoy_color_actual,
                               width=arrow_specs["line_width_secondary"],
-                              style="solid" if status == "success" else "dashed")
+                              style="solid" if _drawn_as_ok(status) else "dashed")
 
     # Draw circles/markers around convoying fleets in convoy color (per spec).
     # A "dislodged" chain (one of its fleets was displaced) uses the dislodged
@@ -335,7 +358,7 @@ def _draw_convoy_order(
                                        fleet_marker_diameter, fleet_marker_border_width, style="solid")
 
 
-def _draw_build_order(draw: ImageDraw.ImageDraw, province: str, color: str, status: str, coords: dict) -> None:
+def _draw_build_order(draw: DrawTarget, province: str, color: str, status: str, coords: dict) -> None:
     """
     Draw build marker per spec section 3.4.7.
 
@@ -368,7 +391,7 @@ def _draw_build_order(draw: ImageDraw.ImageDraw, province: str, color: str, stat
              fill="white", width=border_width)
 
 
-def _draw_destroy_order(draw: ImageDraw.ImageDraw, province: str, color: str, coords: dict) -> None:
+def _draw_destroy_order(draw: DrawTarget, province: str, color: str, coords: dict) -> None:
     """
     Draw destroy marker per spec section 3.4.8.
 
@@ -402,7 +425,7 @@ def _draw_destroy_order(draw: ImageDraw.ImageDraw, province: str, color: str, co
 
 
 def _draw_retreat_order(
-    draw: ImageDraw.ImageDraw,
+    draw: DrawTarget,
     from_province: str,
     to_province: str,
     color: str,
@@ -444,7 +467,7 @@ def _draw_retreat_order(
                style="dotted", status=arrow_status)
 
 
-def _draw_conflict_marker(draw: ImageDraw.ImageDraw, province: str, strengths: dict, result: str, coords: dict) -> None:
+def _draw_conflict_marker(draw: DrawTarget, province: str, strengths: dict, result: str, coords: dict) -> None:
     """
     Draw battle indicator per spec section 3.4.9.
 
@@ -475,7 +498,7 @@ def _draw_conflict_marker(draw: ImageDraw.ImageDraw, province: str, strengths: d
         draw.text((x + marker_size + 5, y - 10), str(max_strength), fill="black", font=font)
 
 
-def _draw_standoff_indicator(draw: ImageDraw.ImageDraw, province: str, coords: dict) -> None:
+def _draw_standoff_indicator(draw: DrawTarget, province: str, coords: dict) -> None:
     """
     Draw standoff indicator per spec section 3.4.9.
 
@@ -568,7 +591,6 @@ def render_board_png_orders(
     # First render the base map
     base_img_bytes = render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers)
     bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
-    draw = ImageDraw.Draw(bg)
 
     # Get province coordinates for order visualization
     coords = get_svg_province_coordinates(svg_path)
@@ -577,8 +599,10 @@ def render_board_png_orders(
     # Get power colors from config
     power_colors = _get_power_colors_dict()
 
-    # Draw order visualizations
-    _draw_comprehensive_order_visualization(draw, pending_orders, coords, power_colors, units, dislodged_coords)
+    # Draw order visualizations onto a supersampled layer so the arrows come out
+    # anti-aliased -- ImageDraw itself does no anti-aliasing (see rendering.antialias).
+    with antialiased_overlay(bg) as draw:
+        _draw_comprehensive_order_visualization(draw, pending_orders, coords, power_colors, units, dislodged_coords)
 
     # Add orders legend
     active_powers = list(units.keys())
@@ -663,7 +687,6 @@ def render_board_png_resolution(
     # First render the base map with final unit positions (including dislodged units)
     base_img_bytes = render_board_png(svg_path, units, output_path, phase_info=phase_info, supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers)
     bg = Image.open(BytesIO(base_img_bytes)).convert("RGBA")
-    draw = ImageDraw.Draw(bg)
 
     # Get province coordinates
     coords = get_svg_province_coordinates(svg_path)
@@ -672,20 +695,23 @@ def render_board_png_resolution(
     # Get power colors from config
     power_colors = _get_power_colors_dict()
 
-    # Draw order visualizations with status indicators
-    _draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units, dislodged_coords)
+    # Same supersampled layer as the orders map: order arrows *and* the conflict/standoff
+    # markers, since the markers are stars and circles that alias just as badly.
+    with antialiased_overlay(bg) as draw:
+        # Draw order visualizations with status indicators
+        _draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units, dislodged_coords)
 
-    # Draw conflict markers
-    conflicts = resolution_data.get("conflicts", [])
-    for conflict in conflicts:
-        province = conflict.get("province")
-        strengths = conflict.get("strengths", {})
-        result = conflict.get("result", "")
+        # Draw conflict markers
+        conflicts = resolution_data.get("conflicts", [])
+        for conflict in conflicts:
+            province = conflict.get("province")
+            strengths = conflict.get("strengths", {})
+            result = conflict.get("result", "")
 
-        if result == "standoff":
-            _draw_standoff_indicator(draw, province, coords)
-        else:
-            _draw_conflict_marker(draw, province, strengths, result, coords)
+            if result == "standoff":
+                _draw_standoff_indicator(draw, province, coords)
+            else:
+                _draw_conflict_marker(draw, province, strengths, result, coords)
 
     # Note: Dislodged units are already drawn by render_board_png with offset and D marker
 
