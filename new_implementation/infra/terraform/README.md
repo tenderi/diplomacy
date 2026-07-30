@@ -114,6 +114,35 @@ gh variable set AWS_REGION --body "eu-north-1"
 
 From the next push to `main` that turns the **Test Suite** workflow green, the **Deploy** workflow will run and ship the commit via `aws ssm send-command`. No SSH key on the runner, no static AWS credentials.
 
+## Current state: nothing is deployed
+
+**There is no running instance as of 2026-07-30** — no EC2, no live systemd units, and no GitHub
+OIDC role, which is why the `Deploy` workflow failed 40/40 times on
+`sts:AssumeRoleWithWebIdentity` before being gated off. Everything in this file is "how to stand
+it up"; the sections below assume you have.
+
+`.github/workflows/deploy.yml` only runs when the repository variable `DEPLOY_ENABLED` is `true`:
+
+```bash
+gh variable set DEPLOY_ENABLED --body true -R tenderi/diplomacy
+```
+
+## Secret rotation
+
+To rotate any of `/diplomacy/{telegram_bot_token,db_password,jwt_secret,admin_token,bot_secret}`:
+
+```bash
+aws ssm put-parameter --name /diplomacy/<key> --type SecureString \
+  --value '<new-value>' --overwrite --region eu-north-1
+aws ssm start-session --target $(terraform output -raw instance_id) --region eu-north-1
+# inside the session:
+sudo bash /opt/diplomacy/new_implementation/infra/scripts/refresh-env.sh
+sudo systemctl restart diplomacy-api diplomacy-bot
+```
+
+`refresh-env.sh` re-reads every `/diplomacy/*` parameter and rewrites `/opt/diplomacy/.env`. The
+same script runs during the initial EC2 bootstrap, so both code paths stay in sync.
+
 ## Day-to-day operations
 
 | Task | Command |

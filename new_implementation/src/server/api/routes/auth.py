@@ -322,6 +322,12 @@ def require_bot_or_user(
     """Dependency: require either a valid JWT Bearer token or a matching X-Bot-Secret header.
 
     Used on endpoints called by both the browser frontend (Bearer) and the Telegram bot (X-Bot-Secret).
+
+    The 401 names both accepted credentials (G6). It previously said only
+    "Not authenticated", which is what made `/games/create` feel like a wart --
+    seeding a game by hand looked like the endpoint was broken rather than like a
+    missing header. The auth requirement itself is deliberate and stays; see that
+    route's docstring.
     """
     if credentials:
         user_id = _decode_token(credentials.credentials, "access")
@@ -329,7 +335,14 @@ def require_bot_or_user(
             return
     if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
         return
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=(
+            "Not authenticated. This endpoint needs either an 'Authorization: Bearer "
+            "<access_token>' header (register or log in via /auth/register or /auth/login) "
+            "or an 'X-Bot-Secret' header matching DIPLOMACY_BOT_SECRET."
+        ),
+    )
 
 
 def _user_response(user: Any) -> Dict[str, Any]:

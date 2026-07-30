@@ -36,7 +36,25 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Gated off until there is something to deploy (H2, 2026-07-30).
+    #
+    # There is no production server: no EC2 instance and, critically, no GitHub
+    # OIDC role for this workflow to assume. It therefore failed 40 times out of
+    # 40 on sts:AssumeRoleWithWebIdentity, so every merge to main produced a red
+    # workflow that was *expected* to be red -- exactly the condition that trains
+    # a maintainer to ignore CI failures. A permanently-failing workflow carries
+    # no information; a disabled one with a comment carries some.
+    #
+    # This is gated rather than deleted so the OIDC/SSM deploy path survives for
+    # whenever the infrastructure is stood back up. To re-enable:
+    #
+    #     gh variable set DEPLOY_ENABLED --body true -R tenderi/diplomacy
+    #
+    # See CLAUDE.md's "Deployment (AWS)" section and
+    # new_implementation/infra/terraform/README.md.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     environment: production
 
     steps:
