@@ -22,8 +22,8 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.59`. `main` green.
-- **Next action: G4** (unbounded support keyboards). **G1 and G3 are complete**, and each turned
+- **Last updated:** 2026-07-30, at `v2.7.60`. `main` green.
+- **Next action: G5** (waiting list). **G1, G3 and G4 are complete.** G1 and G3 each turned
   up a defect bigger than the one recorded:
   - G1's help text also claimed `ARMY`/`FLEET` were valid unit spellings (they are rejected
     outright) and marked a *working* order with ❌ — wrong in all three copies of a copy-pasted
@@ -41,23 +41,25 @@
   - **Track F — manual acceptance.** Maintainer-only: needs a live bot token and a human at a
     Telegram client. This is the last thing standing between the project and "the port is
     finished". **Not delegable to an agent.**
-  - **Track G — client & lifecycle gaps (G1–G6).** Six findings, each verified against the
-    code on 2026-07-30 with file/line evidence below. Five were recorded by Track E's audits
-    and left unscheduled; **G1 is new and is the highest-impact item in this file** — the bot's
-    own `/rules` and `/examples` teach order syntax the engine rejects outright.
+  - **Track G — client & lifecycle gaps (G1–G6, plus G3a).** Originally six findings, each
+    verified against the code on 2026-07-30 with file/line evidence below; five came from
+    Track E's audits, G1 was found while verifying them, and G3a was found while fixing G3.
+    **G1, G3 and G4 are done** (`v2.7.58`–`v2.7.60`); **G5, G2, G6 and G3a remain.**
   - **Track H — infrastructure & documentation truth (H1–H2).** `CLAUDE.md` documents
     production infrastructure that is not running, and the `Deploy` workflow has never
     succeeded. Both need a maintainer decision, not code.
 - **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → **G4 → G5 → G2 → G6 → G3a → H1 → H2.** H1/H2 are
+  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → **G5 → G2 → G6 → G3a → H1 → H2.** H1/H2 are
   decisions that cost nothing to make and stop the docs from lying; all three of their
   decisions were taken on 2026-07-30 and are recorded in their sections.
-- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.56`, against a real
-  local Postgres):** **1333 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
-  coverage **93.42%** (floor 92), overall **68.04%** (floor 60). Track E recorded overall as
-  68.24% — the small drift is measurement noise between runs, not lost coverage; both are well
-  clear of the floor. Frontend at last measurement: **22 test files / 121 tests**, `tsc` clean,
-  build green (not re-run here — no Node on this machine by default, see below).
+- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.60`, against a real
+  local Postgres):** **1407 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
+  coverage **93.42%** (floor 92), overall **68.39%** (floor 60). The 74 added tests since
+  `v2.7.56`'s 1333 are G1's 60 (`test_bot_help_text.py`), G3's 4
+  (`test_turn_notifications.py`) and G4's 10 (`test_support_order_menu.py`). Engine coverage is
+  unchanged to two decimals because none of G1/G3/G4 touched `src/engine/`. Frontend at last
+  measurement: **22 test files / 121 tests**, `tsc` clean, build green (G1/G3/G4 touched no
+  frontend files; a local Node 22 is now fetched, see below).
 
 ---
 
@@ -434,19 +436,40 @@ The fix is a known-good pattern already in this file: `show_convoy_options`
 via its own short callback namespace (`cvopt|`, `cvorig|`), carrying province codes and never
 order text — which is what keeps callbacks under Telegram's 64-byte cap.
 
-- [ ] Split supports out of `direct_orders` the same way convoys already are, behind a
-      "🤝 Support options" button, grouped first by the province being supported.
-- [ ] Give it its own callback namespace (`supopt|`, `suporig|`) alongside `cvopt|`/`cvorig|`,
-      and register the handlers where the convoy ones are registered. Carry province codes
-      only, never order text — the index-into-cache scheme exists for this reason
-      (`orders.py:68`).
-- [ ] Handle `SupportHold` and `SupportMove` distinctly in the second level: supporting
-      `A BER` to hold and supporting `A BER - SIL` are different orders a player chooses
-      between, and flattening them into one list rebuilds the problem one level down.
-- [ ] **Done when:** the worst-case unit in a mid-game position offers a first-level menu of
+- [x] Split supports out of `direct_orders` the same way convoys already are, behind a
+      "🤝 Support options" button, grouped first by the province being supported. Done —
+      `show_support_options` (`orders.py`). The button shows the count
+      (`🤝 Support options (24)`) so the player knows the sub-menu is worth opening.
+- [x] Give it its own callback namespace (`supopt|`, `suporig|`) alongside `cvopt|`/`cvorig|`,
+      and register the handlers where the convoy ones are registered. Done, in `app.py`'s
+      `button_callback` immediately above the convoy branches. Payloads carry only
+      `game_id`/`unit_key`/province — asserted to stay inside Telegram's 64-byte
+      `callback_data` cap by `test_support_submenu_callbacks_carry_provinces_not_order_text`.
+      Convenient accident worth recording: the support grammar puts the *other* unit's
+      location at token index 4, exactly where the convoy grammar puts the convoyed army's
+      origin, so `_support_target` and the convoy helpers index identically.
+- [x] Handle `SupportHold` and `SupportMove` distinctly in the second level. Done via
+      `_support_label`: once the supported province is fixed, buttons read
+      `🛡️ supports holding` vs `➡️ supports move to DEN` rather than repeating the full order
+      text. **No third level is needed** and this is not a fudge — level two is bounded by the
+      *target's* own adjacency (one hold plus one move per province it can reach, ~6 worst
+      case), so it cannot rebuild the problem. What would have rebuilt it is rendering the two
+      kinds identically, which the test pins.
+- [x] **Done when:** the worst-case unit in a mid-game position offers a first-level menu of
       bounded size (hold/move/support-submenu/convoy-submenu/cancel), tested with a
       hand-built bucket containing many supports; existing convoy tests still pass.
-      **Size:** small, and mechanical — the pattern is already written.
+      ✅ Met at `v2.7.60`. `tests/test_support_order_menu.py` (10 tests) builds a bucket of 27
+      legal orders (24 of them supports across six neighbours) and asserts the first level is
+      **5 buttons**, plus the sharper property that *8× the supports adds zero buttons* —
+      which a "just cap the list at 20" fix would fail. Existing convoy tests
+      (`test_convoy_functions.py`, `test_interactive_orders.py`) unchanged and green.
+      **Mutation-verified:** putting supports back in `direct_orders` fails 2 of 10, removing
+      `show_support_choices`' sort fails 2, and labelling hold/move identically fails 2.
+      One test-quality note worth keeping: the sort mutation initially **passed**, because the
+      first fixture emitted supports already hold-first and destination-sorted, making the
+      cache/label alignment assertion vacuous. The fixture now emits them deliberately
+      unsorted (destinations descending, hold last) — `legal_orders` promises no ordering, so
+      that is also the more honest input.
 
 ## G5 — `WAITING_LIST` is an in-memory global, and its notifications never fire
 
