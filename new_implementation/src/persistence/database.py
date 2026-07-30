@@ -110,6 +110,34 @@ class LinkCodeModel(Base):
     user = relationship("UserModel", back_populates="link_codes")
 
 
+class WaitingListModel(Base):
+    """Players queued for automatic game matching (the Telegram bot's ``/wait``).
+
+    This used to be ``telegram_bot/games.py``'s ``WAITING_LIST`` module global, a
+    plain in-memory list (G5). Two consequences made that untenable: the bot is
+    restarted on every deploy, so a partially filled queue silently vanished and
+    the players in it waited forever for a game that would never be created; and
+    it put game state in the bot, which is meant to be a thin client over the
+    HTTP API. The queue now lives here, server-side, and the bot posts to
+    ``/waiting_list/join``.
+
+    ``telegram_id`` is unique, so a double ``/wait`` is a no-op rather than two
+    slots for one person. Ordering is by ``joined_at`` (FIFO), so filling a queue
+    consumes exactly the longest-waiting ``WAITING_LIST_SIZE`` entries and an
+    8th queued player is held for the next game rather than dropped.
+    """
+    __tablename__ = 'waiting_list'
+
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(String(255), unique=True, nullable=False)
+    full_name = Column(String(255), nullable=True)
+    joined_at = Column(DateTime, default=utcnow_naive, nullable=False)
+
+    __table_args__ = (
+        Index('ix_waiting_list_joined_at', 'joined_at'),
+    )
+
+
 class PasswordResetTokenModel(Base):
     """One-time tokens for password reset (forgot password flow)."""
     __tablename__ = 'password_reset_tokens'

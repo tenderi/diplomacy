@@ -26,7 +26,7 @@ from server.telegram_bot.help_text import DEMO_EXAMPLE_ORDERS, DEMO_UNITS, ORDER
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
-    join, quit, replace, wait, status, players, draw, nodraw
+    join, quit, replace, wait, leave_waiting_list, status, players, draw, nodraw
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
@@ -76,6 +76,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("broadcast", "Message all players in a game"),
     BotCommand("messages", "View messages for a game"),
     BotCommand("wait", "Join the waiting list for auto-matching"),
+    BotCommand("unwait", "Leave the waiting list"),
     BotCommand("quit", "Leave a game"),
     BotCommand("link", "Link this Telegram account to a browser account"),
     BotCommand("rules", "Basic Diplomacy rules and order syntax"),
@@ -521,6 +522,7 @@ def main():
     app.add_handler(CommandHandler("replay", replay))
     app.add_handler(CommandHandler("replace", replace))
     app.add_handler(CommandHandler("wait", wait))
+    app.add_handler(CommandHandler("unwait", leave_waiting_list))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("refresh", refresh_keyboard))
     app.add_handler(CommandHandler("help", show_help))

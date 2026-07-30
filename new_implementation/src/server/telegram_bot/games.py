@@ -2,8 +2,7 @@
 Game management commands for the Telegram bot.
 """
 import logging
-import random
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import requests
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -15,9 +14,12 @@ from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
 
-# --- In-memory waiting list for automated game creation ---
-WAITING_LIST: List[Tuple[str, str]] = []  # List of (telegram_id, full_name)
-WAITING_LIST_SIZE = 7  # Standard Diplomacy
+# The waiting list is **server state**, not bot state (G5). It used to be a
+# module global here, which meant every deploy silently dropped a partially
+# filled queue and left the queued players waiting for a game that would never
+# be created. It now lives in Postgres behind `/waiting_list/*`; this module just
+# calls the API, like every other bot command.
+WAITING_LIST_SIZE = 7  # Standard Diplomacy; mirrors the server's own constant for display only
 POWERS = ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"]
 
 
@@ -561,117 +563,89 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Replace error: {e}")
 
 
-def process_waiting_list(
-    waiting_list: List[Tuple[str, str]],
-    required_size: int,
-    powers: List[str],
-    notify_callback,
-    api_post_func=None
-) -> Tuple[Optional[str], Optional[List[Tuple[Tuple[str, str], str]]]]:
-    """
-    Process the waiting list: if enough players, create a game, assign powers, and notify users.
-    
-    Args:
-        waiting_list: List of (telegram_id, full_name) tuples (will be modified - cleared if game created)
-        required_size: Number of players required to create a game
-        powers: List of power names to assign
-        notify_callback: Function(telegram_id: str, message: str) to notify players
-        api_post_func: Function(endpoint: str, json: dict) to make API calls (defaults to api_post)
-    
-    Returns:
-        Tuple of (game_id, assignments) if game created, (None, None) otherwise.
-        assignments is a list of ((telegram_id, full_name), power) tuples.
-    """
-    if api_post_func is None:
-        from .api_client import api_post
-        api_post_func = api_post
-    
-    # Check if enough players
-    if len(waiting_list) < required_size:
-        return (None, None)
-    
-    # Get required number of players
-    players = waiting_list[:required_size]
-    random.shuffle(players)
-    assigned_powers = list(zip(players, powers))
-    
-    try:
-        # Create game
-        game_resp = api_post_func("/games/create", {"map_name": "standard"})
-        game_id = game_resp.get("game_id")
-        
-        if not game_id:
-            logger.error("Failed to create game: no game_id in response")
-            return (None, None)
-        
-        # Add all players
-        for (player_id, player_name), power in assigned_powers:
-            api_post_func(
-                f"/games/{game_id}/join",
-                {"telegram_id": player_id, "game_id": int(game_id), "power": power}
-            )
-        
-        # Notify all players
-        for (player_id, player_name), power in assigned_powers:
-            try:
-                notify_callback(
-                    player_id,
-                    f"🎮 Game {game_id} created! You've been assigned {power}.\n\nUse /games to see your game."
-                )
-            except Exception as e:
-                logger.warning(f"Failed to notify player {player_id}: {e}")
-        
-        # Clear waiting list (remove the players we just used)
-        waiting_list.clear()
-        
-        logger.info(f"Created game {game_id} with {len(assigned_powers)} players from waiting list")
-        return (game_id, assigned_powers)
-        
-    except Exception as e:
-        logger.error(f"Error creating game from waiting list: {e}")
-        return (None, None)
-
-
 async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Add user to waiting list and process if enough players.
+    """Join the automatic-matching queue; the server creates a game when it fills.
+
+    A thin wrapper over ``POST /waiting_list/join`` (G5). Everything this used to
+    do locally -- holding the queue in a module global, deciding when it was full,
+    creating the game, assigning powers, and "notifying" players through a
+    callback that only wrote a log line -- now happens server-side, where the
+    queue survives a restart and filling it is atomic. The six players who were
+    already queued are DM'd by the server; this reply is only for the one who
+    just tipped it over.
     """
     user = update.effective_user
     if not user or not update.message:
         if update.message:
             await update.message.reply_text("Wait command failed: No user context.")
         return
-    
+
     user_id = str(user.id)
     full_name = f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
-    
-    # Check if user is already in waiting list
-    if any(uid == user_id for uid, _ in WAITING_LIST):
-        await update.message.reply_text("⏳ You're already on the waiting list!")
-        return
-    
-    # Add to waiting list
-    WAITING_LIST.append((user_id, full_name))
-    await update.message.reply_text(
-        f"⏳ Added to waiting list! ({len(WAITING_LIST)}/{WAITING_LIST_SIZE} players)\n\n"
-        f"When {WAITING_LIST_SIZE} players join, a new game will be created automatically."
-    )
-    
-    # If enough players, create a new game
-    if len(WAITING_LIST) >= WAITING_LIST_SIZE:
-        def notify_callback(telegram_id: str, message: str) -> None:
-            # Notification will be handled by the bot's notification system
-            logger.info(f"Would notify {telegram_id}: {message}")
-        
-        game_id, assignments = process_waiting_list(
-            WAITING_LIST,
-            WAITING_LIST_SIZE,
-            POWERS,
-            notify_callback
+
+    try:
+        result = api_post(
+            "/waiting_list/join", {"telegram_id": user_id, "full_name": full_name}
         )
-        
-        if game_id:
-            # Waiting list is already cleared by process_waiting_list
-            await update.message.reply_text(f"🎮 Game {game_id} created! All players have been notified.")
-        else:
-            await update.message.reply_text("Error creating game from waiting list. Please try again.")
+    except Exception as e:
+        logger.error(f"Failed to join waiting list for {user_id}: {e}")
+        await update.message.reply_text(
+            "❌ Could not join the waiting list right now. Please try again.\n\n"
+            "If you haven't registered yet, use 🎯 Register first."
+        )
+        return
+
+    if result.get("game_created"):
+        assignments = result.get("assignments") or {}
+        your_power = next(
+            (power for power, tid in assignments.items() if str(tid) == user_id), None
+        )
+        power_line = f"You've been assigned *{your_power}*.\n\n" if your_power else ""
+        await update.message.reply_text(
+            f"🎮 *Game {result.get('game_id')} created!*\n\n"
+            f"{power_line}"
+            f"All {WAITING_LIST_SIZE} players have been notified.\n"
+            f"Use /games to see your game and /selectunit to order.",
+            parse_mode='Markdown',
+        )
+        return
+
+    size = result.get("size", 0)
+    required = result.get("required", WAITING_LIST_SIZE)
+    if result.get("status") == "already_queued":
+        await update.message.reply_text(
+            f"⏳ You're already on the waiting list! ({size}/{required} players)"
+        )
+        return
+
+    await update.message.reply_text(
+        f"⏳ Added to waiting list! ({size}/{required} players)\n\n"
+        f"When {required} players join, a new game will be created automatically.\n"
+        f"You'll get a message here when it starts."
+    )
+
+
+async def leave_waiting_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Leave the automatic-matching queue (``/unwait``).
+
+    Added with G5: once the queue is durable, a player who changes their mind
+    needs a way out, and previously the only "exit" was the bot restarting.
+    """
+    user = update.effective_user
+    if not user or not update.message:
+        return
+
+    try:
+        result = api_post("/waiting_list/leave", {"telegram_id": str(user.id)})
+    except Exception as e:
+        logger.error(f"Failed to leave waiting list for {user.id}: {e}")
+        await update.message.reply_text("❌ Could not leave the waiting list right now.")
+        return
+
+    if result.get("status") == "removed":
+        await update.message.reply_text(
+            f"✅ Removed from the waiting list. "
+            f"({result.get('size', 0)}/{result.get('required', WAITING_LIST_SIZE)} still waiting)"
+        )
+    else:
+        await update.message.reply_text("You weren't on the waiting list.")
