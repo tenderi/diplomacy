@@ -22,9 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.61`. `main` green.
-- **Next action: G2** (province display names). **G1, G3, G4 and G5 are complete.** G1 and G3
-  each turned up a defect bigger than the one recorded:
+- **Last updated:** 2026-07-30, at `v2.7.62`. `main` green.
+- **Next action: G6** (API ergonomics), then **G3a** and **H1/H2**. **G1, G2, G3, G4 and G5 are
+  complete.** G1 and G3 each turned up a defect bigger than the one recorded:
   - G1's help text also claimed `ARMY`/`FLEET` were valid unit spellings (they are rejected
     outright) and marked a *working* order with ❌ — wrong in all three copies of a copy-pasted
     block.
@@ -44,24 +44,24 @@
   - **Track G — client & lifecycle gaps (G1–G6, plus G3a).** Originally six findings, each
     verified against the code on 2026-07-30 with file/line evidence below; five came from
     Track E's audits, G1 was found while verifying them, and G3a was found while fixing G3.
-    **G1, G3, G4 and G5 are done** (`v2.7.58`–`v2.7.61`); **G2, G6 and G3a remain.**
+    **G1, G2, G3, G4 and G5 are done** (`v2.7.58`–`v2.7.62`); **G6 and G3a remain.**
   - **Track H — infrastructure & documentation truth (H1–H2).** `CLAUDE.md` documents
     production infrastructure that is not running, and the `Deploy` workflow has never
     succeeded. Both need a maintainer decision, not code.
 - **Suggested order:** F1 is the maintainer's whenever they have a Telegram client to hand and
-  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → ~~G5~~ → **G2 → G6 → G3a → H1 → H2.** H1/H2 are
+  gates nothing else. Otherwise: ~~G1~~ → ~~G3~~ → ~~G4~~ → ~~G5~~ → ~~G2~~ → **G6 → G3a → H1 → H2.** H1/H2 are
   decisions that cost nothing to make and stop the docs from lying; all three of their
   decisions were taken on 2026-07-30 and are recorded in their sections.
-- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.61`, against a real
-  local Postgres):** **1424 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
-  coverage **93.42%** (floor 92), overall **68.79%** (floor 60). Added since `v2.7.56`'s 1333:
+- **Suite baseline to hold (re-measured 2026-07-30 on `main` at `v2.7.62`, against a real
+  local Postgres):** **1435 passed, 11 skipped, 10 xfailed**, 2 warnings; ruff clean; engine
+  coverage **93.44%** (floor 92), overall **68.79%** (floor 60). Added since `v2.7.56`'s 1333:
   G1's 60 (`test_bot_help_text.py`), G3's 4 (`test_turn_notifications.py`), G4's 10
   (`test_support_order_menu.py`), G5's 12 (`test_waiting_list.py`) plus a rewritten
   `test_telegram_waiting_list.py` (4 → 11) and two removed from
-  `test_telegram_bot_enhanced.py`. Engine coverage is unchanged to two decimals because none of
-  G1/G3/G4/G5 touched `src/engine/`. Frontend at last measurement: **22 test files / 121
-  tests**, `tsc` clean, build green (none of G1/G3/G4/G5 touched frontend files; a local Node 22
-  is now fetched, see below).
+  `test_telegram_bot_enhanced.py`, and G2's 11 (`test_province_display_names.py`).
+- **Frontend baseline (re-measured for real at `v2.7.62`, with a local Node 22):** **23 test
+  files / 137 tests**, `tsc -b --noEmit` clean, `npm run build` green. G2 added
+  `provinceNames.test.ts` (16 tests). Everything before G2 touched no frontend files.
 
 ---
 
@@ -81,7 +81,15 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
 - **No Node toolchain on this dev machine by default.** Frontend gates (`tsc`, Vitest,
   `npm run build`) cannot run until a local Node 22 is fetched, despite `CLAUDE.md`
   documenting them as normal gates. An agent that reports "could not run the frontend gates"
-  is being honest, not lazy — install the toolchain and re-run them yourself.
+  is being honest, not lazy — install the toolchain and re-run them yourself. This works and
+  needs no root (G2 used it to run the frontend gates for real):
+
+  ```bash
+  curl -fsSLO https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz
+  tar xf node-v22.14.0-linux-x64.tar.xz
+  export PATH="$PWD/node-v22.14.0-linux-x64/bin:$PATH"
+  cd new_implementation/frontend && npm ci
+  ```
 - **Coverage floors:** engine ≥92% (`--include='src/engine/*'`), overall ≥60%. The engine
   floor has **under a point of headroom** and is deliberately not ratcheted tighter: a tighter
   floor makes ordinary dead-code deletion fail CI.
@@ -307,22 +315,58 @@ This is the display half of G1's input half. It is not a defect (codes are unamb
 what experienced players use); it is a new-player comprehension cost. Do G1's doc fix first —
 it is what actually unblocks a confused beginner.
 
-- [ ] Add `display_names: dict[str, str]` (canonical code → full name) to `MapData`, populated
-      in the existing `=`-line parse. Keep it a plain field on the frozen dataclass, mirroring
-      `aliases`, so the engine gains no I/O and the `.map` file stays the sole source. Note
-      the engine-purity property test may need to see this is stdlib-only data.
-- [ ] Expose it once, server-side, rather than shipping a copy per client: extend whatever the
-      map/metadata endpoint already returns rather than inventing a new route, and let both
-      clients read it.
-- [ ] Use it where a name helps and a code does not: web roster/order/resolution rows
-      (`Berlin (BER)`, not one or the other), bot inline-keyboard button labels
-      (`_order_label` in `telegram_bot/orders.py`). **Do not** substitute names into the order
-      *strings* the clients post back — those must stay canonical, and G1's finding is exactly
-      what happens when display and wire formats blur.
-- [ ] **Done when:** a new player can read the board and the order menus without a province
+- [x] Add `display_names: dict[str, str]` (canonical code → full name) to `MapData`, populated
+      in the existing `=`-line parse. Done — a plain field beside `aliases`, no new I/O, and the
+      `.map` file stays the sole source. All 75 provinces are covered.
+      **The one real subtlety:** split-coast provinces have *three* `=` lines each
+      (`Bulgaria (east coast)`, `Bulgaria (south coast)`, `Bulgaria`) and all three resolve to
+      the same canonical `BUL`, so taking whichever came first would render a plain `BUL` unit
+      as "Bulgaria (east coast)". The display name is therefore only taken from the line whose
+      matched spelling has **no coast**; a test asserts no name contains "coast".
+- [x] Expose it once, server-side, rather than shipping a copy per client. Done as
+      **`GET /maps/{map_name}/provinces`** (code → name, type, supply-centre flag, coasts),
+      read once and cached by both clients.
+      **Deviation, recorded:** this task said to extend the existing map/metadata endpoint
+      rather than invent a route — but **there is no such endpoint.** Every other `/maps/*`
+      route returns a PNG. The alternative was adding the table to the per-game state view,
+      which would ship 75 entries on every poll, so a new static route is the cheaper choice.
+- [x] Use it where a name helps and a code does not, and **never** in the order strings the
+      clients post back. Done, with a deliberate limit on *where*:
+      - **Web** (`frontend/src/lib/provinceNames.ts`): the resolution panel keeps the canonical
+        order string and adds a **second, muted line** glossing it — `A BER - KIE` with
+        "Army Berlin → Kiel" beneath. Retreat options render as `Silesia (SIL)`. Nothing
+        rewrites an order.
+      - **Bot** (`telegram_bot/orders.py`): names go on **single-province** buttons only — unit
+        selection, support targets, convoy origins, support destinations.
+      - **Not** on full order-string buttons. `_order_label` clamps at Telegram's 60-character
+        limit, and "Army Marseilles supports Army Paris → Burgundy" does not fit while
+        `A MAR S A PAR - BUR` does. A truncated order label is worse than a terse one. This is
+        the one place the task's letter (`_order_label`) and its intent diverge, so it is
+        written down rather than quietly skipped.
+      Both surfaces show **name *and* code** (`Berlin (BER)`), never one alone: a player needs
+      the code to type an order, and needs the name to know what they are looking at.
+- [x] **Done when:** a new player can read the board and the order menus without a province
       lookup table, no client hardcodes a name table of its own, and the strings posted to the
-      API are byte-identical to today's. **Size:** small-to-medium, mostly touching two client
-      surfaces.
+      API are byte-identical to today's. ✅ Met at `v2.7.62`.
+      Neither client hardcodes a name: both read `/maps/standard/provinces`, whose source is the
+      `.map` file. Wire format is unchanged — asserted by
+      `test_display_names_are_not_registered_as_parseable_aliases` (`aliases['berlin']` is still
+      `None` and `A Berlin - Kiel` still raises), by `test_bot_order_labels_stay_in_codes`, and
+      by a frontend test that the gloss contains no province code a player could paste.
+
+      **Tests:** `tests/test_province_display_names.py` (11 — engine field, coast subtlety,
+      endpoint shape, bot label fallback, fetch-once caching) and
+      `frontend/src/lib/provinceNames.test.ts` (16 — pure functions).
+
+      **A test-isolation bug this surfaced, worth keeping:** the bot caches the name table in a
+      module global, so whichever test ran first paid the HTTP call and every later test saw a
+      warm cache — making the `api_get` call count observed by a bot test depend on test
+      *order*. `test_convoy_functions.py`'s `assert_called_once_with` failed for exactly this
+      reason. Fixed with an autouse `conftest.py` fixture that resets the cache around every
+      test, plus `assert_any_call` at the four sites that counted calls.
+
+      Frontend gates run for real this time (local Node 22 fetched): **23 test files /
+      137 tests**, `tsc` clean, `npm run build` green.
 
 ## G3 — A manually processed turn notifies nobody
 

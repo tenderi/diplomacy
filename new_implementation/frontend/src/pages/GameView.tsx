@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { apiJson, apiFetch, API_BASE, ApiError } from '@/api/client'
+import {
+  glossOrder,
+  provinceLabel,
+  provinceNamesFromResponse,
+  type ProvinceInfo,
+  type ProvinceNames,
+} from '@/lib/provinceNames'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -362,35 +369,52 @@ function BuildOrdersSection({
  * ordering unit was dislodged — a prominent call-out with its retreat options, since a
  * dislodged unit demands action next phase. `showPower` prefixes the owning power for
  * the "other powers" list, where it isn't otherwise obvious. */
-function ResultList({ entries, showPower = false }: { entries: OrderResultEntry[]; showPower?: boolean }) {
+function ResultList({
+  entries,
+  showPower = false,
+  provinceNames = {},
+}: {
+  entries: OrderResultEntry[]
+  showPower?: boolean
+  provinceNames?: ProvinceNames
+}) {
   return (
     <ul className="space-y-2">
-      {entries.map((r, i) => (
-        <li key={i} className="border-b border-border/50 pb-2 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">
-              {showPower ? `${r.power}: ` : ''}
-              {r.order_str}
-            </span>
-            <span
-              className={cn(
-                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-                resultBadgeClass(r.result)
-              )}
-            >
-              {describeResult(r)}
-            </span>
-          </div>
-          {r.dislodged && (
-            <p className="mt-1 text-amber-700 dark:text-amber-400">
-              This unit was dislodged and must retreat or disband next phase
-              {r.retreat_options.length > 0
-                ? ` — retreat options: ${r.retreat_options.join(', ')}.`
-                : ' — no legal retreat is available; it will be disbanded.'}
-            </p>
-          )}
-        </li>
-      ))}
+      {entries.map((r, i) => {
+        // A readable second line, never a replacement: the canonical order string
+        // stays exactly as the engine produced it, because that is what a player
+        // would retype and full province names do not parse (G1/G2).
+        const gloss = glossOrder(r.order_str, provinceNames)
+        return (
+          <li key={i} className="border-b border-border/50 pb-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">
+                {showPower ? `${r.power}: ` : ''}
+                {r.order_str}
+              </span>
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
+                  resultBadgeClass(r.result)
+                )}
+              >
+                {describeResult(r)}
+              </span>
+            </div>
+            {gloss && <p className="text-xs text-muted-foreground">{gloss}</p>}
+            {r.dislodged && (
+              <p className="mt-1 text-amber-700 dark:text-amber-400">
+                This unit was dislodged and must retreat or disband next phase
+                {r.retreat_options.length > 0
+                  ? ` — retreat options: ${r.retreat_options
+                      .map((opt) => provinceLabel(opt, provinceNames))
+                      .join(', ')}.`
+                  : ' — no legal retreat is available; it will be disbanded.'}
+              </p>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -408,9 +432,11 @@ function ResultList({ entries, showPower = false }: { entries: OrderResultEntry[
 function ResultsSection({
   resolution,
   myPower,
+  provinceNames = {},
 }: {
   resolution: LastResolution | null
   myPower: string | null
+  provinceNames?: ProvinceNames
 }) {
   if (!resolution || resolution.results.length === 0) return null
 
@@ -422,7 +448,7 @@ function ResultsSection({
       <h2 className="text-lg font-medium mb-2">What happened last turn</h2>
       {myPower ? (
         mine.length > 0 ? (
-          <ResultList entries={mine} />
+          <ResultList entries={mine} provinceNames={provinceNames} />
         ) : (
           <p className="text-sm text-muted-foreground mb-2">
             {myPower} had no orders recorded for that turn.
@@ -439,7 +465,7 @@ function ResultsSection({
             Other powers&apos; results ({others.length})
           </summary>
           <div className="mt-2">
-            <ResultList entries={others} showPower />
+            <ResultList entries={others} showPower provinceNames={provinceNames} />
           </div>
         </details>
       )}
@@ -490,6 +516,10 @@ export default function GameView() {
   const [mapModeTouched, setMapModeTouched] = useState(false)
   /** Ticks every 30s so the deadline countdown doesn't go stale while the tab sits open. */
   const [now, setNow] = useState(() => Date.now())
+  /** Province code -> full name, so the UI can read `Berlin (BER)` instead of `BER` (G2).
+   * Static per map, so it is fetched once and never refreshed; `{}` until it arrives, which
+   * every consumer renders correctly by falling back to the code. */
+  const [provinceNames, setProvinceNames] = useState<ProvinceNames>({})
 
   const load = useCallback(() => {
     if (!gameId) return
@@ -535,6 +565,15 @@ export default function GameView() {
   // Fetch the last processed turn's outcomes for the "what happened" panel. Unauthenticated
   // (like orders_status/deadline below) so any viewer, not just a logged-in power, can see
   // it. `{"results": []}` before any turn has processed is not an error.
+  // Province display names are the same for every game on a given map, so this runs
+  // once on mount rather than per phase. A failure is non-fatal: every consumer falls
+  // back to the bare province code, which is what the UI showed before G2.
+  useEffect(() => {
+    apiJson<{ provinces?: Record<string, ProvinceInfo> }>('/maps/standard/provinces')
+      .then((body) => setProvinceNames(provinceNamesFromResponse(body)))
+      .catch(() => setProvinceNames({}))
+  }, [])
+
   useEffect(() => {
     if (!gameId || !state) {
       setResolution(null)
@@ -907,7 +946,11 @@ export default function GameView() {
         </Card>
       )}
 
-      <ResultsSection resolution={resolution} myPower={myPower ?? null} />
+      <ResultsSection
+        resolution={resolution}
+        myPower={myPower ?? null}
+        provinceNames={provinceNames}
+      />
 
       <section className="mb-6">
         <h2 className="text-lg font-medium mb-2">Players</h2>
