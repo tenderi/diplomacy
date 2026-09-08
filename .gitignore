@@ -111,6 +111,8 @@ diplomacy/games
 # Outputs
 out*
 zzz*
+# ...but the bot's durable-queue module is source, not output (bit CI once)
+!new_implementation/src/server/telegram_bot/outbox.py
 
 # Mac
 *.DS_Store
