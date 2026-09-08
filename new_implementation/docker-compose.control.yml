@@ -1,0 +1,60 @@
+# CONTROL LAYER — runs on the VPS, alongside the p2p control layer.
+#
+# The Telegram bot and the browser client. No database, no engine, no
+# renderer. This host holds a Telegram token and one shared secret; the game
+# and every player's data live on the home server. If this host is lost the
+# bot's local queue (bot_data) is the only state on it, and it holds at most a
+# few not-yet-delivered orders and messages.
+#
+# Both services reach the API at DIPLOMACY_API_URL over the WireGuard tunnel
+# the p2p stack already established (10.8.0.2 is the home end). Plain HTTP
+# inside the tunnel is deliberate: WireGuard encrypts and authenticates the
+# peer, and the bot secret is the second lock.
+#
+# Usage:  docker compose -f docker-compose.control.yml up -d
+services:
+  diplomacy_bot:
+    build:
+      context: .
+      dockerfile: docker/bot.Dockerfile
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      # Must match DIPLOMACY_BOT_SECRET in the home server's .env exactly.
+      - DIPLOMACY_BOT_SECRET=${DIPLOMACY_BOT_SECRET:?set DIPLOMACY_BOT_SECRET in .env}
+      - DIPLOMACY_API_URL=${DIPLOMACY_API_URL:-http://10.8.0.2:8000}
+      - DIPLOMACY_BOT_DATA_DIR=/data
+      - DIPLOMACY_NOTIFY_POLL_SECONDS=${DIPLOMACY_NOTIFY_POLL_SECONDS:-3}
+      - DIPLOMACY_OUTBOX_POLL_SECONDS=${DIPLOMACY_OUTBOX_POLL_SECONDS:-5}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # The durable outbox: orders and messages waiting for the home server,
+      # and the per-user games cache. Survives restarts and rebuilds.
+      - bot_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: always
+
+  diplomacy_web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    environment:
+      # host:port of the API across the tunnel (no scheme).
+      - DIPLOMACY_API_UPSTREAM=${DIPLOMACY_API_UPSTREAM:-10.8.0.2:8000}
+    ports:
+      # Plain HTTP. Put a TLS terminator (Caddy with a real hostname is the
+      # least work) in front before exposing logins to the world; see
+      # docs/DEPLOYMENT.md. WEB_BIND lets you keep it on loopback until then.
+      - ${WEB_BIND:-0.0.0.0}:${WEB_PORT:-80}:80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: always
+
+volumes:
+  bot_data:

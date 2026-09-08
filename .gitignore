@@ -86,6 +86,8 @@ celerybeat-schedule
 # dotenv
 .env
 .env*
+!.env.example
+!.env.control.example
 
 # virtualenv
 .venv
@@ -149,3 +151,9 @@ test_maps/
 
 # Node
 node_modules/
+
+# Telegram bot durable outbox (local dev default; the container uses a volume)
+bot_data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

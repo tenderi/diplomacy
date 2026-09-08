@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from server.api import app
 from server.api import shared as api_shared
+from tests.reliability_helpers import OutboxProbe
 
 pytestmark = [pytest.mark.integration, pytest.mark.database]
 
@@ -69,13 +70,9 @@ def _seeded_game(client: TestClient) -> tuple[str, list[tuple[dict, str]]]:
     return game_id, users
 
 
-def _recipients(mock: Any) -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for call in mock.call_args_list:
-        payload = call.kwargs.get("json") or {}
-        if "telegram_id" in payload:
-            out.setdefault(str(payload["telegram_id"]), []).append(payload.get("message", ""))
-    return out
+def _recipients(probe: OutboxProbe) -> dict[str, list[str]]:
+    """telegram_id -> messages queued in ``bot_outbox`` during the probe."""
+    return probe.by_recipient()
 
 
 def test_a_non_final_draw_vote_is_announced_to_the_others() -> None:
@@ -88,7 +85,7 @@ def test_a_non_final_draw_vote_is_announced_to_the_others() -> None:
     game_id, users = _seeded_game(client)
     voter_headers, voter_tg = users[0]
 
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(
             f"/games/{game_id}/draw_vote",
             json={"power": POWERS[0], "vote": True},
@@ -113,7 +110,7 @@ def test_reaching_draw_quorum_tells_everyone_the_game_ended() -> None:
 
     # Six votes, then the seventh completes quorum.
     for power, (headers, _tg) in list(zip(POWERS, users))[:-1]:
-        with patch("server.api.shared.requests.post"):
+        with OutboxProbe():
             r = client.post(
                 f"/games/{game_id}/draw_vote",
                 json={"power": power, "vote": True},
@@ -123,7 +120,7 @@ def test_reaching_draw_quorum_tells_everyone_the_game_ended() -> None:
         assert r.json()["quorum_reached"] is False, power
 
     last_headers, last_tg = users[-1]
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(
             f"/games/{game_id}/draw_vote",
             json={"power": POWERS[-1], "vote": True},
@@ -148,7 +145,7 @@ def test_conceding_tells_the_remaining_players() -> None:
     game_id, users = _seeded_game(client)
     conceder_headers, conceder_tg = users[2]
 
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(
             f"/games/{game_id}/concede",
             json={"power": POWERS[2]},
@@ -174,13 +171,13 @@ def test_withdrawing_a_draw_vote_is_not_announced() -> None:
     game_id, users = _seeded_game(client)
     headers, _tg = users[0]
 
-    with patch("server.api.shared.requests.post"):
+    with OutboxProbe():
         client.post(
             f"/games/{game_id}/draw_vote",
             json={"power": POWERS[0], "vote": True},
             headers=headers,
         )
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(
             f"/games/{game_id}/draw_vote",
             json={"power": POWERS[0], "vote": False},
@@ -195,7 +192,7 @@ def test_a_notification_failure_does_not_fail_the_draw() -> None:
     client = TestClient(app)
     game_id, users = _seeded_game(client)
 
-    with patch("server.api.shared.requests.post", side_effect=OSError("telegram down")):
+    with patch.object(api_shared.db_service, "enqueue_bot_notification", side_effect=OSError("db down")):
         for power, (headers, _tg) in zip(POWERS, users):
             resp = client.post(
                 f"/games/{game_id}/draw_vote",

@@ -315,6 +315,23 @@ def resolve_user_or_telegram(
     return user
 
 
+def require_bot_secret(x_bot_secret: Optional[str] = Header(None)) -> None:
+    """Dependency: the caller must present ``X-Bot-Secret`` matching ``DIPLOMACY_BOT_SECRET``.
+
+    Stricter than ``require_bot_or_user``: a logged-in browser user is *not*
+    enough. Used by ``/bot/outbox``, which hands out other players' pending
+    DMs and lets the caller mark them delivered -- only the bot has any
+    business there. With no secret configured the endpoints are simply closed
+    (401), never open.
+    """
+    if BOT_SECRET and x_bot_secret and x_bot_secret == BOT_SECRET:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated: this endpoint requires the 'X-Bot-Secret' header.",
+    )
+
+
 def require_bot_or_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),

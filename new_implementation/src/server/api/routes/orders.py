@@ -3,12 +3,14 @@
 Orders are validated by the engine and stored per power in ``games.pending_orders``
 via ``GameService``; they are consumed and cleared when the turn is processed.
 """
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Body, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
+from ..client_timestamp import normalize_client_timestamp
 from ..shared import db_service, game_service, logger, BOT_SECRET
 
 router = APIRouter()
@@ -21,6 +23,44 @@ class SetOrdersRequest(BaseModel):
     orders: list[str]
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     bot_secret: Optional[str] = None
+    # When the player composed these orders (ISO-8601 UTC). The bot sends it on
+    # every submission; see ``_refuse_if_stale``.
+    client_timestamp: Optional[datetime] = None
+
+
+def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None:
+    """Refuse an order write composed before the current phase began.
+
+    The bot queues order submissions while the home server is unreachable and
+    replays them later. If the deadline passed in between, the turn was
+    adjudicated without those orders, and replaying them now would submit
+    last phase's intentions against this phase's board -- most would fail
+    validation on a moved unit, but a hold or a support for a unit that
+    stayed put would be silently accepted for a turn the player never saw.
+
+    So: if the request carries a ``client_timestamp`` older than
+    ``games.phase_started_at``, reject it with 409 and a message the bot can
+    show verbatim. The player loses nothing silently -- they are told exactly
+    which orders did not make it and why. Requests without a timestamp (the
+    browser, older clients) are unaffected, as are games whose
+    ``phase_started_at`` is still NULL (created before the column existed).
+    """
+    if client_timestamp is None:
+        return
+    composed_at = normalize_client_timestamp(client_timestamp)
+    row = db_service.get_game_by_game_id(game_id)
+    started = getattr(row, "phase_started_at", None) if row is not None else None
+    if started is None or composed_at >= started:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"These orders were composed at {composed_at:%Y-%m-%d %H:%M} UTC, but the "
+            f"turn was processed at {started:%Y-%m-%d %H:%M} UTC and game {game_id} is "
+            f"now in phase {getattr(row, 'phase_code', '?')}. They were NOT applied -- "
+            f"check the new board and submit fresh orders."
+        ),
+    )
 
 
 def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_secret):
@@ -46,6 +86,7 @@ def set_orders(
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
     if not game_service.exists(str(req.game_id)):
         raise HTTPException(status_code=404, detail="Game not found")
+    _refuse_if_stale(str(req.game_id), req.client_timestamp)
     try:
         raw = game_service.submit_orders(str(req.game_id), req.power, req.orders)
     except Exception as e:
@@ -128,6 +169,7 @@ def get_orders_for_power(
 class ClearOrdersRequest(BaseModel):
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
+    client_timestamp: Optional[datetime] = None
 
 
 @router.post("/games/{game_id}/orders/{power}/clear")
@@ -139,5 +181,8 @@ def clear_orders_for_power(
 ) -> Dict[str, str]:
     """Clear a power's pending orders. Only the assigned user may clear them."""
     _authorize_power(credentials, str(game_id), power, req.telegram_id, req.bot_secret)
+    # A queued "clear" that arrives after the phase moved on would wipe orders
+    # the player entered for the *new* phase (e.g. from the browser).
+    _refuse_if_stale(str(game_id), req.client_timestamp)
     game_service.clear_orders(str(game_id), power)
     return {"status": "ok"}

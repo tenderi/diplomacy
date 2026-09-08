@@ -1,0 +1,10 @@
+# Runtime dependencies of the Telegram bot ONLY (the control layer on the VPS).
+#
+# The bot is a thin client over the HTTP API: it never imports the engine,
+# the renderer, SQLAlchemy, or FastAPI. Keeping this list separate from
+# requirements.txt is what keeps the VPS image small and, more importantly,
+# keeps every server-side dependency (and secret) off the public host.
+#
+# Pins mirror requirements.txt; bump both together.
+python-telegram-bot>=22.0,<23.0
+requests>=2.31.0,<3.0.0

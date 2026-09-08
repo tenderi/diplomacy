@@ -13,11 +13,15 @@ module is the single place that logic lives now.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import requests
 
-from .api_client import api_get
+from .api_client import ApiUnreachableError, api_get
+from .outbox import get_outbox
+
+logger = logging.getLogger("diplomacy.telegram_bot.game_context")
 
 __all__ = ["GameContextError", "fetch_user_games", "resolve_game_and_power"]
 
@@ -47,6 +51,16 @@ def fetch_user_games(user_id: str) -> list[dict[str, Any]]:
     ``telegram_id`` yet) is treated as "zero games" rather than propagated,
     matching how several call sites already handled it ad hoc before this
     module existed.
+
+    **Offline fallback.** Every successful answer is cached in the bot's
+    local SQLite store. If the server is unreachable and a cached answer
+    exists, the cache is returned instead of raising -- this is what lets
+    ``/order A PAR - BUR`` resolve *which power you hold* and reach the
+    durable queue while the home server is down, rather than failing on the
+    lookup before the order is ever queued. Only the ``(game_id, power)``
+    pairs are load-bearing for that, and they change rarely. With no cache
+    (a player the bot has never resolved before) the unreachable error is
+    raised as usual.
     """
     try:
         response = api_get(f"/users/{user_id}/games")
@@ -54,7 +68,21 @@ def fetch_user_games(user_id: str) -> list[dict[str, Any]]:
         if e.response is not None and e.response.status_code == 404:
             return []
         raise
-    return response.get("games", []) if response else []
+    except ApiUnreachableError:
+        cached = get_outbox().cached_user_games(user_id)
+        if cached is None:
+            raise
+        games, fetched_at = cached
+        logger.info(
+            "API unreachable; using cached games for user %s from %s", user_id, fetched_at.isoformat()
+        )
+        return games
+    games = response.get("games", []) if response else []
+    try:
+        get_outbox().cache_user_games(user_id, games)
+    except Exception as e:  # a cache write must never break a command
+        logger.warning("Could not cache games for user %s: %s", user_id, e)
+    return games
 
 
 def resolve_game_and_power(user_id: str, game_id: Optional[str] = None) -> tuple[str, str]:

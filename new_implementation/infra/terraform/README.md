@@ -1,4 +1,9 @@
-# Diplomacy infrastructure (single EC2, eu-north-1)
+# Diplomacy infrastructure (single EC2, eu-north-1) — **SUPERSEDED**
+
+> **This layout is no longer the deployment target.** Production runs split across a VPS
+> (bot + web) and the home server (API + Postgres) over WireGuard; see
+> [`../../docs/DEPLOYMENT.md`](../../docs/DEPLOYMENT.md). This Terraform is kept as
+> reference only and is not exercised; `.github/workflows/deploy.yml` stays gated off.
 
 Cheapest viable production setup: one `t3.micro` EC2 in the default VPC running PostgreSQL + FastAPI + the Telegram bot. Free for 12 months on the AWS free tier, ~$10–15/month after.
 
