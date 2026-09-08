@@ -27,12 +27,11 @@ never mint a second game from the same entries.
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .auth import require_bot_or_user
-from ..shared import NOTIFY_URL, db_service, game_service, logger, notify_players
+from ..shared import db_service, game_service, logger, notify_players, notify_user
 
 router = APIRouter()
 
@@ -55,25 +54,13 @@ class WaitingListRequest(BaseModel):
 
 
 def _notify(telegram_id: str, message: str) -> None:
-    """Best-effort DM through the bot's notification server.
+    """DM one queued player through the durable outbox.
 
     The same path ``api/shared.notify_players`` uses. Replaces G5's
     logging-only ``notify_callback``, which is why nobody in the queue was ever
     told their game had started.
     """
-    try:
-        telegram_id_int = int(telegram_id)
-    except (TypeError, ValueError):
-        logger.debug("Skipping waiting-list notification for non-numeric id %r", telegram_id)
-        return
-    try:
-        requests.post(
-            NOTIFY_URL,
-            json={"telegram_id": telegram_id_int, "message": message},
-            timeout=2,
-        )
-    except Exception as e:
-        logger.warning(f"Failed to notify waiting-list player {telegram_id}: {e}")
+    notify_user(telegram_id, message)
 
 
 def try_fill_waiting_list() -> Optional[Dict[str, Any]]:

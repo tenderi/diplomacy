@@ -1,15 +1,31 @@
 """
 API client utilities for communicating with the Diplomacy API server.
+
+Two kinds of call live here:
+
+- ``api_get`` / ``api_post`` / ``api_get_bytes`` -- plain request/response.
+  Used for reads and for interactive writes where a player can simply retry
+  (joining a game, the waiting list). When the server is unreachable they
+  raise ``ApiUnreachableError``, whose ``str()`` is already fit to show.
+
+- ``api_post_reliable`` -- for writes that must **never be lost**: orders and
+  diplomatic messages. The request is written to the durable ``outbox`` first,
+  then attempted; if the server cannot be reached the player is told it is
+  queued, and ``drain_outbox_once`` (run from the bot's background loop)
+  delivers it later, in order, with the original ``client_timestamp`` and an
+  ``Idempotency-Key`` so a retry can never apply twice.
 """
 import logging
 import os
 import random
 import time
 import requests
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, Literal, Optional
 from urllib.parse import urlparse
 
 from .config import API_URL
+from .outbox import OutboxEntry, get_outbox
 
 # BOT_SECRET is used to authenticate telegram_id-based requests to the API.
 # Must match DIPLOMACY_BOT_SECRET on the server.
@@ -22,6 +38,36 @@ BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
 DEFAULT_API_TIMEOUT = 10
 
 logger = logging.getLogger("diplomacy.telegram_bot.api_client")
+
+# HTTP statuses that mean "the server is not able to answer right now", as
+# opposed to "the server answered no". Only these (plus transport errors) put
+# a queued write back in the queue; anything else is a definitive answer.
+TRANSIENT_STATUSES = frozenset({502, 503, 504})
+
+UNREACHABLE_MESSAGE = (
+    "⚠️ The game server is unreachable right now (the link to the home server "
+    "is down). Orders and messages you send are queued and delivered "
+    "automatically when it is back -- see /queue. Everything else will work "
+    "again once the server is reachable."
+)
+
+
+class ApiUnreachableError(requests.ConnectionError):
+    """The API could not be reached at all (connection refused, DNS, timeout).
+
+    Raised in place of the raw ``requests`` transport error so that every
+    ``except Exception as e: reply_text(f"...: {e}")`` handler in the bot shows
+    a player something useful instead of a urllib3 stack. Subclasses
+    ``requests.ConnectionError`` (hence ``OSError``) so call sites that already
+    catch those keep working.
+    """
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(UNREACHABLE_MESSAGE)
+        self.cause = cause
+
+    def __str__(self) -> str:
+        return UNREACHABLE_MESSAGE
 
 
 def _validate_api_url(url: str) -> None:
@@ -119,9 +165,12 @@ def api_post(endpoint: str, json_data: dict) -> dict:
     payload = dict(json_data)
     if "telegram_id" in payload and BOT_SECRET:
         payload.setdefault("bot_secret", BOT_SECRET)
-    resp = requests.post(
-        f"{API_URL}{endpoint}", json=payload, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
-    )
+    try:
+        resp = requests.post(
+            f"{API_URL}{endpoint}", json=payload, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
+        )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachableError(e) from e
     _raise_for_status(resp)
     return resp.json()
 
@@ -142,9 +191,12 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
         params["telegram_id"] = telegram_id
         if BOT_SECRET:
             params["bot_secret"] = BOT_SECRET
-    resp = requests.get(
-        f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=DEFAULT_API_TIMEOUT
-    )
+    try:
+        resp = requests.get(
+            f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=DEFAULT_API_TIMEOUT
+        )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachableError(e) from e
     _raise_for_status(resp)
     return resp.json()
 
@@ -155,7 +207,125 @@ def api_get_bytes(endpoint: str) -> bytes:
     Mirrors ``api_get``'s auth handling (``X-Bot-Secret`` header via
     ``_bot_headers()``); unlike ``api_get`` the response is not JSON-decoded.
     """
-    resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
+    try:
+        resp = requests.get(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachableError(e) from e
     _raise_for_status(resp)
     return resp.content
+
+
+# ---------------------------------------------------------------------------
+# Reliable writes: the durable outbox
+# ---------------------------------------------------------------------------
+
+DeliveryStatus = Literal["delivered", "queued", "rejected"]
+
+
+@dataclass
+class DeliveryResult:
+    """What became of one outbox entry after a delivery attempt.
+
+    ``delivered``: the server accepted it; ``response`` is its JSON body.
+    ``queued``: the server could not be reached (or answered 502/503/504);
+    the entry stays in the outbox and ``drain_outbox_once`` will retry.
+    ``rejected``: the server answered with a 4xx; ``error`` is its ``detail``.
+    """
+    status: DeliveryStatus
+    entry: OutboxEntry
+    response: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+def attempt_delivery(entry: OutboxEntry) -> DeliveryResult:
+    """One delivery attempt for ``entry``; records the outcome in the outbox.
+
+    Adds the two fields that make a replay safe: ``client_timestamp`` (when the
+    player composed it -- the entry's ``created_at``, *not* now) in the body,
+    and ``Idempotency-Key`` in the headers. ``bot_secret`` is injected exactly
+    as ``api_post`` does.
+    """
+    outbox = get_outbox()
+    outbox.mark_inflight(entry.id)
+    payload = dict(entry.payload)
+    payload.setdefault("client_timestamp", entry.created_at.isoformat())
+    if "telegram_id" in payload and BOT_SECRET:
+        payload.setdefault("bot_secret", BOT_SECRET)
+    headers = {**_bot_headers(), "Idempotency-Key": entry.key}
+    try:
+        resp = requests.post(
+            f"{API_URL}{entry.endpoint}", json=payload, headers=headers, timeout=DEFAULT_API_TIMEOUT
+        )
+    except (requests.ConnectionError, requests.Timeout) as e:
+        error = f"{type(e).__name__}: {e}"
+        next_at = outbox.mark_retry(entry.id, error)
+        logger.warning("Outbox #%d not delivered (%s); retry after %s", entry.id, type(e).__name__, next_at.isoformat())
+        return DeliveryResult("queued", outbox.get(entry.id) or entry, error=error)
+    if resp.status_code in TRANSIENT_STATUSES:
+        error = f"HTTP {resp.status_code}"
+        outbox.mark_retry(entry.id, error)
+        logger.warning("Outbox #%d got %s; will retry", entry.id, error)
+        return DeliveryResult("queued", outbox.get(entry.id) or entry, error=error)
+    try:
+        _raise_for_status(resp)
+    except ApiError as e:
+        outbox.mark_rejected(entry.id, str(e))
+        logger.info("Outbox #%d rejected by server: %s", entry.id, e)
+        return DeliveryResult("rejected", outbox.get(entry.id) or entry, error=str(e))
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {"result": body}
+    outbox.mark_delivered(entry.id, body)
+    if resp.headers.get("Idempotent-Replayed"):
+        logger.info("Outbox #%d had already been applied; server replayed its response", entry.id)
+    logger.info("Outbox #%d delivered: %s", entry.id, entry.description)
+    return DeliveryResult("delivered", outbox.get(entry.id) or entry, response=body)
+
+
+def api_post_reliable(
+    endpoint: str, json_data: dict, *, chat_id: int, description: str
+) -> DeliveryResult:
+    """POST a write that must never be lost.
+
+    The request is recorded in the durable outbox **before** the attempt, so a
+    crash or a dead link at any point leaves it queued rather than gone. The
+    caller gets back exactly one of ``delivered`` / ``queued`` / ``rejected``
+    and should tell the player which; for ``queued`` the background replayer
+    (``drain_outbox_once``) later DMs the player with the eventual result.
+
+    ``description`` is the human phrase used in those messages, e.g.
+    ``"orders for game 12 (FRANCE): A PAR - BUR"``.
+    """
+    entry = get_outbox().enqueue(chat_id, endpoint, json_data, description)
+    return attempt_delivery(entry)
+
+
+def queued_reply(outcome: DeliveryResult) -> str:
+    """The reply a player sees when their write had to be queued."""
+    entry = outcome.entry
+    return (
+        f"📮 The game server is unreachable right now, so I have queued your "
+        f"{entry.description}\n\n"
+        f"Sent at {entry.sent_at_label()}. It will be delivered automatically, in "
+        f"order, as soon as the server is back, and I will message you with the "
+        f"result. /queue shows what is waiting."
+    )
+
+
+def drain_outbox_once(limit: int = 100) -> list[DeliveryResult]:
+    """Retry every due entry, in id order, stopping at the first that is still
+    unreachable so nothing overtakes an older write. Returns the results of
+    the entries that *finished* (delivered or rejected) so the caller can
+    report them to their players.
+    """
+    finished: list[DeliveryResult] = []
+    for entry in get_outbox().due(limit=limit):
+        result = attempt_delivery(entry)
+        if result.status == "queued":
+            break
+        finished.append(result)
+    return finished
 

@@ -95,6 +95,9 @@ Everything has a working default. To avoid exporting variables each session, put
 | `DIPLOMACY_JWT_SECRET` | JWT signing secret — **must** be set in production |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (bot process only) |
 | `DIPLOMACY_API_URL` | API base URL used by the bot (default `http://localhost:8000`) |
+| `DIPLOMACY_BOT_SECRET` | Shared secret between bot and API; also arms `Idempotency-Key` replay and the `/bot/outbox` endpoints |
+| `DIPLOMACY_BOT_DATA_DIR` | Where the bot keeps its durable queue (`outbox.sqlite3`; default `bot_data/`, git-ignored) |
+| `DIPLOMACY_NOTIFY_POLL_SECONDS` / `DIPLOMACY_OUTBOX_POLL_SECONDS` | Bot poll intervals for pulling notifications / replaying its queue (defaults 3 / 5) |
 | `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`; restrict in production) |
 | `DIPLOMACY_MAP_PATH` | Path to the map SVG (default `maps/standard.svg`) |
 | `DIPLOMACY_LOG_LEVEL` / `DIPLOMACY_LOG_FILE` | Log level (default `INFO`); log to a file instead of stdout |
@@ -129,12 +132,16 @@ The app runs at **http://localhost:5173**; Vite proxies API routes to the backen
 
 ## 6. Run the Telegram bot (optional)
 
-The API server must already be running.
-
 ```bash
 export TELEGRAM_BOT_TOKEN=your-token-from-BotFather
 PYTHONPATH=src python -m server.telegram_bot
 ```
+
+The bot starts whether or not the API is up. With the API down, reads answer with a clear
+"server unreachable" message and writes (orders, messages) are queued in
+`bot_data/outbox.sqlite3` and delivered once the API answers — a convenient way to exercise
+the queue locally is to stop uvicorn, send `/order A PAR H`, check `/queue`, then start it
+again. Production runs the bot on a separate host; see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Commands: [TELEGRAM_BOT_COMMANDS.md](TELEGRAM_BOT_COMMANDS.md).
 

@@ -14,9 +14,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from persistence.database import GameModel, PlayerModel
+from persistence.database import GameModel, PlayerModel, utcnow_naive
 
 __all__ = ["GameRepo", "StaleGameError"]
+
+
+def _stamp_phase_start(row: GameModel, new_phase_code: str) -> None:
+    """Record when a phase began, on the write that changes ``phase_code``.
+
+    Compared against the bot's ``client_timestamp`` on order submission (see
+    ``GameModel.phase_started_at``). Stamped whenever the code actually changes,
+    and also when the column is still ``NULL`` (a game created before the
+    column existed gets a value on its next write of any kind), never on a
+    same-phase rewrite such as ``concede`` -- a power leaving mid-phase does
+    not make everyone else's in-flight orders stale.
+    """
+    if row.phase_started_at is None or row.phase_code != new_phase_code:
+        row.phase_started_at = utcnow_naive()
 
 
 class StaleGameError(RuntimeError):
@@ -139,6 +153,7 @@ class GameRepo:
                 current_year=state_json.get("year", 1901),
                 current_season=str(state_json.get("season", "SPRING")).capitalize(),
                 current_phase=str(state_json.get("phase_type", "MOVEMENT")).capitalize(),
+                phase_started_at=utcnow_naive(),
             )
             session.add(row)
             session.flush()  # assign the integer PK
@@ -179,6 +194,7 @@ class GameRepo:
                     "concurrently"
                 )
             row.state_json = state_json
+            _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code
             row.status = status
             if last_resolution is not None:
@@ -212,6 +228,7 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.state_json = state_json
+            _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code
             row.status = "active"
             row.pending_orders = {}
@@ -251,6 +268,7 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.state_json = state_json
+            _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code
             row.status = status
             row.updated_at = datetime.now(timezone.utc)

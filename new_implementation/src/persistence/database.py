@@ -61,6 +61,16 @@ class GameModel(Base):
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
+    # When the current ``phase_code`` began (naive UTC). Set on creation and every
+    # time the phase changes (``GameRepo.save_state`` / ``restore_state`` /
+    # ``update_state_json``). The bot sends the wall-clock time an order was
+    # *composed* (``client_timestamp``) with every order submission, and a
+    # submission composed before this instant was written against a board that
+    # no longer exists -- the turn was processed while the message sat in the
+    # bot's offline queue -- so ``POST /games/set_orders`` refuses it (409) rather
+    # than applying last phase's orders to this phase's units. Nullable only for
+    # rows created before the column existed; those games skip the check.
+    phase_started_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow_naive)
     updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
     
@@ -135,6 +145,83 @@ class WaitingListModel(Base):
 
     __table_args__ = (
         Index('ix_waiting_list_joined_at', 'joined_at'),
+    )
+
+
+class BotOutboxModel(Base):
+    """Server-to-bot notifications waiting to be delivered (the *server-side outbox*).
+
+    The API used to ``requests.post`` every player DM straight at a small HTTP
+    server the bot ran on port 8081, with a two-second timeout and the failure
+    merely logged. That was fine while both processes shared one EC2 host; it is
+    not fine now that the bot lives on a VPS and reaches the API over a
+    WireGuard tunnel to a home server on a residential connection. A tunnel
+    hiccup during a deadline meant every "turn processed" DM for that game was
+    gone for good.
+
+    Now every notification is *committed here first*, in the same database the
+    game state lives in, and the bot **pulls** it: ``GET /bot/outbox`` returns
+    undelivered rows in id order, the bot sends each one to Telegram, and
+    ``POST /bot/outbox/ack`` marks them delivered. Nothing is deleted until the
+    bot says it went out, so an outage of any length only delays delivery. The
+    bot renders ``created_at`` into the message when delivery was late, so a
+    player can tell a reminder that arrived on time from one that was held up.
+
+    ``kind`` is ``"dm"`` today and exists so channel posts can join the same
+    queue later without a schema change. ``payload`` is spare JSON for the same
+    reason. ``attempts``/``last_error`` record permanent Telegram-side failures
+    (user blocked the bot, chat not found) that the bot reports back via the
+    ack endpoint; such rows are marked delivered with the error kept, so they
+    stop being retried but stay auditable.
+    """
+    __tablename__ = 'bot_outbox'
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(32), nullable=False, default='dm')
+    telegram_id = Column(String(64), nullable=False)
+    message = Column(Text, nullable=False)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+    delivered_at = Column(DateTime, nullable=True)
+    attempts = Column(Integer, default=0, nullable=False)
+    last_error = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index('ix_bot_outbox_delivered_at_id', 'delivered_at', 'id'),
+    )
+
+
+class IdempotencyKeyModel(Base):
+    """Stored responses for requests the bot may deliver more than once.
+
+    The bot keeps every write it makes on a player's behalf (orders, messages)
+    in a durable local queue and retries until the API acknowledges it. A retry
+    is only safe if the *first* attempt cannot have been applied invisibly --
+    and it can: a request that reached the API but whose response was lost to
+    a dropped tunnel looks, from the bot's side, exactly like one that never
+    arrived. Replaying it blind would post the same broadcast twice.
+
+    So the bot stamps each queued write with a UUID ``Idempotency-Key`` header,
+    and ``server.api.idempotency.IdempotencyMiddleware`` stores the first
+    response under that key and replays it verbatim to any later request
+    bearing the same key. Only honoured for callers presenting the bot secret
+    (``X-Bot-Secret``): the key space is otherwise a way for an anonymous
+    client to fill this table or to read back a stored response.
+
+    Rows are purged after ``IDEMPOTENCY_RETENTION_DAYS`` by the deadline
+    scheduler; a queued request older than that has long since been either
+    delivered or reported as failed to the player.
+    """
+    __tablename__ = 'idempotency_keys'
+
+    key = Column(String(128), primary_key=True)
+    endpoint = Column(String(255), nullable=False)
+    status_code = Column(Integer, nullable=False)
+    response_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+
+    __table_args__ = (
+        Index('ix_idempotency_keys_created_at', 'created_at'),
     )
 
 

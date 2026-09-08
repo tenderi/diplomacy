@@ -49,9 +49,14 @@ deadline. The channel sees the public board, not anyone's intentions.
 - **Persistence**: channel link and settings hang off the game row (`channel_id`,
   `channel_settings`); channel messages and analytics have their own tables via
   `DatabaseService`.
-- **Hooks**: the API notifies the bot's notification server (port 8081) on turn processing,
-  phase change, deadline reminders, broadcasts, and game end; the bot fans those out to the
-  linked channel.
+- **Hooks**: the API queues player DMs in the `bot_outbox` table (pulled by the bot) on turn
+  processing, deadline reminders, broadcasts, and game end. **Channel auto-posting from the
+  server side has never actually fired**: `channels.py` posts through a module-level `Bot`
+  that only the bot process sets (`set_telegram_bot`), and the API process never has one, so
+  every `post_*_to_channel` call from `api/shared.py` / `routes/messages.py` logs "Telegram
+  bot not initialized" and returns. Making it work means routing channel posts through the
+  outbox with a `kind` other than `"dm"` (the schema already allows it) and having the bot
+  render them — an open item, not a regression of the split.
 
 ### Proposals
 

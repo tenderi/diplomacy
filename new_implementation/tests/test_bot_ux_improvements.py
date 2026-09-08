@@ -36,6 +36,7 @@ from server.telegram_bot.api_client import ApiError, api_get, api_post
 from server.telegram_bot.games import join, players, register
 from server.telegram_bot.messages import messages
 from server.telegram_bot.orders import order, processturn, run_process_turn
+from tests.reliability_helpers import delivered
 
 pytestmark = pytest.mark.unit
 
@@ -492,7 +493,7 @@ class TestBotCommandRegistration:
 
 
 class TestOrderMatchesDocs:
-    @patch("server.telegram_bot.orders.api_post")
+    @patch("server.telegram_bot.orders.api_post_reliable")
     @patch("server.telegram_bot.game_context.api_get")
     def test_order_accepts_leading_game_id_and_semicolons(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = {
@@ -501,12 +502,12 @@ class TestOrderMatchesDocs:
                 {"game_id": "2", "power": "GERMANY"},
             ]
         }
-        mock_post.return_value = {
+        mock_post.return_value = delivered({
             "results": [
                 {"success": True, "order": "A BER - SIL"},
                 {"success": True, "order": "A MUN S A BER - SIL"},
             ]
-        }
+        })
         update, context, message = _make_update_and_context(
             args=["2", "A", "BER", "-", "SIL;", "A", "MUN", "S", "A", "BER", "-", "SIL"]
         )
@@ -519,11 +520,11 @@ class TestOrderMatchesDocs:
         assert payload["power"] == "GERMANY"
         assert payload["orders"] == ["A BER - SIL", "A MUN S A BER - SIL"]
 
-    @patch("server.telegram_bot.orders.api_post")
+    @patch("server.telegram_bot.orders.api_post_reliable")
     @patch("server.telegram_bot.game_context.api_get")
     def test_order_without_game_id_still_autodetects(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
-        mock_post.return_value = {"results": [{"success": True, "order": "A PAR H"}]}
+        mock_post.return_value = delivered({"results": [{"success": True, "order": "A PAR H"}]})
         update, context, message = _make_update_and_context(args=["A", "PAR", "H"])
 
         asyncio.run(order(update, context))

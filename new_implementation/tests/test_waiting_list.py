@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 from server.api import app
 from server.api import shared as api_shared
 from server.api.routes.waiting_list import WAITING_LIST_SIZE
+from tests.reliability_helpers import OutboxProbe
 
 pytestmark = [pytest.mark.integration, pytest.mark.database]
 
@@ -79,21 +80,13 @@ def _auth_join(client: TestClient, telegram_id: str) -> Any:
     )
 
 
-def _notified(mock: Any) -> dict[str, list[str]]:
-    """telegram_id -> every message it received, from a patched `requests.post`.
+def _notified(probe: OutboxProbe) -> dict[str, list[str]]:
+    """telegram_id -> every message queued for it in ``bot_outbox``.
 
-    **One patch covers both modules.** `api/shared.py` and
-    `routes/waiting_list.py` each do `import requests`, so they reference the
-    same module object; patching `server.api.shared.requests.post` and
-    `server.api.routes.waiting_list.requests.post` in the same `with` block
-    rebinds the same attribute twice and only the inner mock ever sees a call.
+    Notifications are outbox rows now, not ``requests.post`` calls, so the
+    old two-module patching subtlety is gone with the patch.
     """
-    out: dict[str, list[str]] = {}
-    for call in mock.call_args_list:
-        payload = call.kwargs.get("json") or {}
-        if "telegram_id" in payload:
-            out.setdefault(str(payload["telegram_id"]), []).append(payload.get("message", ""))
-    return out
+    return probe.by_recipient()
 
 
 def _assigned_power(messages: list[str]) -> str:
@@ -129,7 +122,7 @@ def test_filling_the_queue_notifies_everyone_in_it() -> None:
     for telegram_id in ids[:-1]:
         assert _join(client, telegram_id)["game_created"] is False
 
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         result = _join(client, ids[-1])
 
     assert result["game_created"] is True
@@ -148,7 +141,7 @@ def test_filling_the_queue_notifies_everyone_in_it() -> None:
 def test_queue_is_emptied_by_a_successful_fill() -> None:
     client = TestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE)]
-    with patch("server.api.shared.requests.post"):
+    with OutboxProbe():
         for telegram_id in ids:
             _join(client, telegram_id)
     assert client.get("/waiting_list").json()["size"] == 0
@@ -171,7 +164,7 @@ def test_an_eighth_player_is_held_for_the_next_game_not_dropped() -> None:
         assert api_shared.db_service.add_to_waiting_list(telegram_id, "Seeded")
     assert api_shared.db_service.count_waiting_list() == WAITING_LIST_SIZE + 1
 
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         created = try_fill_waiting_list()
 
     assert created is not None
@@ -217,7 +210,7 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
         return real_create_player(*args, **kwargs)
 
     with patch.object(api_shared.db_service, "create_player", side_effect=flaky_create_player), \
-         patch("server.api.shared.requests.post"):
+         OutboxProbe():
         result = _join(client, ids[-1])
 
     assert result["game_created"] is False, "reported success despite a mid-fill failure"
@@ -227,7 +220,7 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
     assert queued == set(ids), f"queue was corrupted by the failure: {queued}"
 
     # And the retry works, rather than compounding the problem.
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         retry = _join(client, ids[-1])
     assert retry["game_created"] is True, "the queue could not recover"
     assert set(_notified(mock_post)) == set(ids)

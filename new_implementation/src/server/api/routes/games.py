@@ -9,14 +9,13 @@ from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone, timedelta
 
-import requests
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
-    db_service, game_service, logger, scheduler_logger, NOTIFY_URL, ADMIN_TOKEN, BOT_SECRET,
-    notify_players, notify_turn_processed, get_process_turn_lock,
+    db_service, game_service, logger, scheduler_logger, ADMIN_TOKEN, BOT_SECRET,
+    notify_players, notify_user, notify_turn_processed, get_process_turn_lock,
 )
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
@@ -617,19 +616,8 @@ def join_game(
         db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
-        try:
-            if telegram_id_val:
-                try:
-                    telegram_id_int = int(telegram_id_val)
-                    requests.post(
-                        NOTIFY_URL,
-                        json={"telegram_id": telegram_id_int, "message": f"You have joined game {game_id} as {req.power}."},
-                        timeout=2,
-                    )
-                except (ValueError, TypeError):
-                    pass
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify joining player: {e}")
+        if telegram_id_val:
+            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power}.")
         # Get player model for return value
         player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         player_id = player_model.id if player_model else user.id
@@ -691,20 +679,9 @@ def quit_game(
         except Exception:
             pass
         # Notification logic (only if user has telegram_id)
-        try:
-            telegram_id_val = getattr(user, "telegram_id", None)
-            if telegram_id_val:
-                try:
-                    telegram_id_int = int(telegram_id_val)
-                    requests.post(
-                        NOTIFY_URL,
-                        json={"telegram_id": telegram_id_int, "message": f"You have quit game {game_id}."},
-                        timeout=2,
-                    )
-                except (ValueError, TypeError):
-                    pass
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify quitting player: {e}")
+        telegram_id_val = getattr(user, "telegram_id", None)
+        if telegram_id_val:
+            notify_user(telegram_id_val, f"You have quit game {game_id}.")
         try:
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
             notify_players(game_id, f"Player {user.full_name or getattr(user, 'telegram_id', None) or 'Player'} has left game {game_id} (power {power_name}).")
