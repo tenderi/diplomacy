@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from tests.reliability_helpers import delivered
 from server.telegram_bot.orders import (
     selectunit,
     show_possible_moves,
@@ -178,11 +179,11 @@ class TestInteractiveOrderInput:
         ]
         assert any("Convoy options" in t for t in button_texts)
 
-    @patch('server.telegram_bot.orders.api_post')
+    @patch('server.telegram_bot.orders.api_post_reliable')
     @patch('server.telegram_bot.game_context.api_get')
     def test_submit_interactive_order_success(self, mock_ctx_get, mock_api_post):
         mock_ctx_get.return_value = self.sample_user_games
-        mock_api_post.return_value = {"results": [{"success": True, "order": "A BER - SIL"}]}
+        mock_api_post.return_value = delivered({"results": [{"success": True, "order": "A BER - SIL"}]})
 
         asyncio.run(submit_interactive_order(self.mock_query, "1", "A BER - SIL"))
 
@@ -198,11 +199,11 @@ class TestInteractiveOrderInput:
         call_args = self.mock_query.edit_message_text.call_args[0][0]
         assert "Order Submitted Successfully!" in call_args
 
-    @patch('server.telegram_bot.orders.api_post')
+    @patch('server.telegram_bot.orders.api_post_reliable')
     @patch('server.telegram_bot.game_context.api_get')
     def test_submit_interactive_order_failure(self, mock_ctx_get, mock_api_post):
         mock_ctx_get.return_value = self.sample_user_games
-        mock_api_post.return_value = {"results": [{"success": False, "error": "Invalid move"}]}
+        mock_api_post.return_value = delivered({"results": [{"success": False, "error": "Invalid move"}]})
 
         asyncio.run(submit_interactive_order(self.mock_query, "1", "A BER - INVALID"))
 
@@ -246,13 +247,13 @@ class TestInteractiveOrderInput:
 class TestInteractiveOrderIntegration:
     """Integration-style test for the complete select -> show -> submit flow."""
 
-    @patch('server.telegram_bot.orders.api_post')
+    @patch('server.telegram_bot.orders.api_post_reliable')
     @patch('server.telegram_bot.orders.api_get')
     @patch('server.telegram_bot.game_context.api_get')
     def test_complete_interactive_flow(self, mock_ctx_get, mock_orders_get, mock_api_post):
         mock_ctx_get.return_value = {"games": [{"game_id": 1, "power": "GERMANY"}]}
         mock_orders_get.return_value = _movement_legal_orders()
-        mock_api_post.return_value = {"results": [{"success": True, "order": "A BER - SIL"}]}
+        mock_api_post.return_value = delivered({"results": [{"success": True, "order": "A BER - SIL"}]})
 
         mock_query = Mock()
         mock_query.from_user = Mock()

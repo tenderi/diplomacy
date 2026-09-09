@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from .api_client import api_post, api_get
+from .api_client import api_get, api_post, api_post_reliable, queued_reply
 from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
@@ -156,6 +156,28 @@ def resolve_pending_order(context: ContextTypes.DEFAULT_TYPE, game_id: str, idx:
     return cached[idx]
 
 
+def format_order_results(results: list[dict[str, Any]]) -> str:
+    """``✅ A PAR - BUR`` / ``❌ A PAR - MOS  Error: ...`` lines for a
+    ``POST /games/set_orders`` response. Shared by the three submission paths
+    and by the outbox replayer's delivery report, so a queued submission is
+    reported exactly as an immediate one would have been.
+    """
+    lines = []
+    for r in results:
+        if r.get("success"):
+            lines.append(f"✅ {r['order']}")
+        else:
+            lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
+    return "\n".join(lines)
+
+
+def _orders_description(game_id: str, power: str, order_list: list[str]) -> str:
+    joined = "; ".join(order_list)
+    if len(joined) > 80:
+        joined = joined[:79] + "…"
+    return f"orders for game {game_id} ({power}): {joined}"
+
+
 async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Submit one or more orders, matching docs/TELEGRAM_BOT_COMMANDS.md's
     ``/order [game_id] <order>; <order>; ...``: an optional leading game id,
@@ -212,30 +234,24 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Order error: {e}")
         return
 
-    try:
-        result = api_post("/games/set_orders", {
-            "game_id": game_id,
-            "power": power,
-            "orders": order_list,
-            "telegram_id": user_id
-        })
-    except Exception as e:
-        await update.message.reply_text(f"Order error: {e}")
+    outcome = api_post_reliable(
+        "/games/set_orders",
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
+        chat_id=user.id,
+        description=_orders_description(game_id, power, order_list),
+    )
+    if outcome.status == "queued":
+        await update.message.reply_text(queued_reply(outcome))
+        return
+    if outcome.status == "rejected":
+        await update.message.reply_text(f"Order error: {outcome.error}")
         return
 
-    results = result.get("results", [])
+    results = (outcome.response or {}).get("results", [])
     if not results:
         await update.message.reply_text("No orders were processed.")
         return
-
-    response_lines = []
-    for r in results:
-        if r["success"]:
-            response_lines.append(f"✅ {r['order']}")
-        else:
-            response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
-
-    await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
+    await update.message.reply_text("Order results:\n" + format_order_results(results))
 
 
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -267,26 +283,24 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No orders found in your message.")
         return
 
-    try:
-        result = api_post(
-            "/games/set_orders",
-            {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
-        )
-    except Exception as e:
-        await update.message.reply_text(f"Order error: {e}")
+    outcome = api_post_reliable(
+        "/games/set_orders",
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
+        chat_id=user.id,
+        description=_orders_description(game_id, power, order_list),
+    )
+    if outcome.status == "queued":
+        await update.message.reply_text(queued_reply(outcome))
+        return
+    if outcome.status == "rejected":
+        await update.message.reply_text(f"Order error: {outcome.error}")
         return
 
-    results = result.get("results", [])
+    results = (outcome.response or {}).get("results", [])
     if not results:
         await update.message.reply_text("No orders were processed.")
         return
-    response_lines = []
-    for r in results:
-        if r["success"]:
-            response_lines.append(f"✅ {r['order']}")
-        else:
-            response_lines.append(f"❌ {r['order']}\n   Error: {r['error']}")
-    await update.message.reply_text("Order results:\n" + "\n".join(response_lines))
+    await update.message.reply_text("Order results:\n" + format_order_results(results))
 
 
 async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -342,13 +356,20 @@ async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Error clearing orders: {e}")
         return
 
-    try:
-        # telegram_id must be present so api_post injects bot_secret into the
-        # body -- the clear route requires it for auth. Without this the
-        # request 401s (the bug this rewrite fixes).
-        api_post(f"/games/{game_id}/orders/{power}/clear", {"telegram_id": user_id})
-    except Exception as e:
-        await update.message.reply_text(f"Error clearing orders: {e}")
+    # telegram_id must be present so the client injects bot_secret into the
+    # body -- the clear route requires it for auth. Without this the
+    # request 401s (the bug this rewrite fixes).
+    outcome = api_post_reliable(
+        f"/games/{game_id}/orders/{power}/clear",
+        {"telegram_id": user_id},
+        chat_id=user.id,
+        description=f"clearing orders for game {game_id} ({power})",
+    )
+    if outcome.status == "queued":
+        await update.message.reply_text(queued_reply(outcome))
+        return
+    if outcome.status == "rejected":
+        await update.message.reply_text(f"Error clearing orders: {outcome.error}")
         return
 
     await update.message.reply_text("Your orders for this turn have been cleared.")
@@ -983,18 +1004,20 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         await query.edit_message_text(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
-    try:
-        result = api_post("/games/set_orders", {
-            "game_id": game_id,
-            "power": power,
-            "orders": [order_text],
-            "telegram_id": user_id
-        })
-    except Exception as e:
-        await query.edit_message_text(f"❌ Error submitting order: {e}")
+    outcome = api_post_reliable(
+        "/games/set_orders",
+        {"game_id": game_id, "power": power, "orders": [order_text], "telegram_id": user_id},
+        chat_id=query.from_user.id,
+        description=_orders_description(game_id, power, [order_text]),
+    )
+    if outcome.status == "queued":
+        await query.edit_message_text(queued_reply(outcome))
+        return
+    if outcome.status == "rejected":
+        await query.edit_message_text(f"❌ Error submitting order: {outcome.error}")
         return
 
-    results = result.get("results", [])
+    results = (outcome.response or {}).get("results", [])
     if results and results[0]["success"]:
         await query.edit_message_text(
             f"✅ *Order Submitted Successfully!*\n\n"

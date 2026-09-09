@@ -7,7 +7,7 @@ from typing import Any, Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from .api_client import api_post, api_get
+from .api_client import api_get, api_post_reliable, queued_reply
 from .game_context import fetch_user_games
 
 logger = logging.getLogger("diplomacy.telegram_bot.messages")
@@ -27,15 +27,20 @@ async def message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     game_id, power = args[0], args[1].upper()
     text = " ".join(args[2:])
-    try:
-        result = api_post(f"/games/{game_id}/message",
-                         {"telegram_id": user_id, "recipient_power": power, "text": text})
-        if result.get("status") == "ok":
-            await update.message.reply_text(f"Message sent to {power} in game {game_id}.")
-        else:
-            await update.message.reply_text(f"Message failed: {result}")
-    except Exception as e:
-        await update.message.reply_text(f"Message error: {e}")
+    # Reliable: the message is written to the durable outbox before the
+    # attempt, so an unreachable server queues it rather than losing it.
+    outcome = api_post_reliable(
+        f"/games/{game_id}/message",
+        {"telegram_id": user_id, "recipient_power": power, "text": text},
+        chat_id=user.id,
+        description=f"message to {power} in game {game_id}: {_excerpt(text)}",
+    )
+    if outcome.status == "delivered":
+        await update.message.reply_text(f"Message sent to {power} in game {game_id}.")
+    elif outcome.status == "queued":
+        await update.message.reply_text(queued_reply(outcome))
+    else:
+        await update.message.reply_text(f"Message error: {outcome.error}")
 
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -52,15 +57,24 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     game_id = args[0]
     text = " ".join(args[1:])
-    try:
-        result = api_post(f"/games/{game_id}/broadcast",
-                         {"telegram_id": user_id, "text": text})
-        if result.get("status") == "ok":
-            await update.message.reply_text(f"Broadcast sent in game {game_id}.")
-        else:
-            await update.message.reply_text(f"Broadcast failed: {result}")
-    except Exception as e:
-        await update.message.reply_text(f"Broadcast error: {e}")
+    outcome = api_post_reliable(
+        f"/games/{game_id}/broadcast",
+        {"telegram_id": user_id, "text": text},
+        chat_id=user.id,
+        description=f"broadcast in game {game_id}: {_excerpt(text)}",
+    )
+    if outcome.status == "delivered":
+        await update.message.reply_text(f"Broadcast sent in game {game_id}.")
+    elif outcome.status == "queued":
+        await update.message.reply_text(queued_reply(outcome))
+    else:
+        await update.message.reply_text(f"Broadcast error: {outcome.error}")
+
+
+def _excerpt(text: str, limit: int = 60) -> str:
+    """A short quote of the message for queue listings and delivery reports."""
+    text = " ".join(text.split())
+    return f'"{text}"' if len(text) <= limit else f'"{text[: limit - 1]}…"'
 
 
 def _sender_power_map(game_id: str) -> Dict[Any, str]:

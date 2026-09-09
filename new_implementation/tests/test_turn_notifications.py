@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from server.api import app, process_due_deadlines
 from server.api import shared as api_shared
+from tests.reliability_helpers import OutboxProbe
 
 REQUIRED_POWERS = [
     "ENGLAND", "FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY",
@@ -96,14 +97,14 @@ def _seeded_game(client: TestClient) -> tuple[str, int, list[tuple[dict, str]]]:
     return str(game_id), row_id, users
 
 
-def _recipients(mock: Any) -> set[str]:
-    """The telegram_ids a patched `requests.post` was asked to notify."""
-    found = set()
-    for call in mock.call_args_list:
-        payload = call.kwargs.get("json") or {}
-        if "telegram_id" in payload:
-            found.add(str(payload["telegram_id"]))
-    return found
+def _recipients(probe: OutboxProbe) -> set[str]:
+    """The telegram_ids queued in the server-side outbox during the probe.
+
+    Notifications used to be a ``requests.post`` at the bot's port-8081
+    server that a test could mock; now they are ``bot_outbox`` rows the bot
+    pulls, so the probe reads the table instead. Same question, same answer.
+    """
+    return probe.recipients()
 
 
 @pytest.mark.integration
@@ -115,7 +116,7 @@ def test_manual_and_deadline_triggers_notify_the_same_players() -> None:
     # --- manual trigger -------------------------------------------------
     game_id, _row_id, users = _seeded_game(client)
     caller_headers, caller_tg = users[0]
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(f"/games/{game_id}/process_turn", headers=caller_headers)
         assert resp.status_code == 200, resp.text
         manual_recipients = _recipients(mock_post)
@@ -136,7 +137,7 @@ def test_manual_and_deadline_triggers_notify_the_same_players() -> None:
     )
     assert resp.status_code == 200, resp.text
 
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
         deadline_recipients = _recipients(mock_post)
 
@@ -163,16 +164,14 @@ def test_manual_trigger_notifies_the_ordinary_case_not_only_game_end() -> None:
     """
     client = TestClient(app)
     game_id, _row_id, users = _seeded_game(client)
-    with patch("server.api.shared.requests.post") as mock_post:
+    with OutboxProbe() as mock_post:
         resp = client.post(f"/games/{game_id}/process_turn", headers=users[0][0])
         assert resp.status_code == 200, resp.text
         recipients = _recipients(mock_post)
 
     assert resp.json()["game_status"] != "COMPLETED", "fixture game ended unexpectedly"
     assert recipients, "an ordinary processed turn notified nobody (the G3 bug)"
-    messages = [
-        (c.kwargs.get("json") or {}).get("message", "") for c in mock_post.call_args_list
-    ]
+    messages = mock_post.messages()
     assert any("processed" in m for m in messages), messages
     assert not any("has ended" in m for m in messages), (
         "a mid-game turn should not claim the game ended"
@@ -192,7 +191,7 @@ def test_reminder_flag_is_reset_by_both_triggers() -> None:
     game_id, row_id, users = _seeded_game(client)
 
     api_shared.reminder_sent[row_id] = True
-    with patch("server.api.shared.requests.post"):
+    with OutboxProbe():
         resp = client.post(f"/games/{game_id}/process_turn", headers=users[0][0])
     assert resp.status_code == 200, resp.text
     assert api_shared.reminder_sent.get(row_id) is False, (
@@ -203,12 +202,12 @@ def test_reminder_flag_is_reset_by_both_triggers() -> None:
 @pytest.mark.integration
 @pytest.mark.database
 def test_notification_failure_does_not_fail_the_turn() -> None:
-    """A Telegram outage must never fail a turn already committed to Postgres."""
+    """A failure to *queue* the notification must never fail a turn already committed."""
     client = TestClient(app)
     game_id, _row_id, users = _seeded_game(client)
     before = client.get(f"/games/{game_id}/state").json()["phase"]
 
-    with patch("server.api.shared.requests.post", side_effect=OSError("telegram down")):
+    with patch.object(api_shared.db_service, "enqueue_bot_notification", side_effect=OSError("db down")):
         resp = client.post(f"/games/{game_id}/process_turn", headers=users[0][0])
 
     assert resp.status_code == 200, resp.text

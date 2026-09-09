@@ -28,6 +28,10 @@ except ImportError:
 # Set a test bot secret so /users/persistent_register works in tests.
 # Uses setdefault so it doesn't override a value set in the real environment.
 os.environ.setdefault("DIPLOMACY_BOT_SECRET", "test_bot_secret_for_tests")
+# The bot's durable outbox (server/telegram_bot/outbox.py) opens a SQLite file
+# under DIPLOMACY_BOT_DATA_DIR on first use. Point it at a throwaway directory
+# so handler tests never write bot_data/ into the working tree.
+os.environ.setdefault("DIPLOMACY_BOT_DATA_DIR", tempfile.mkdtemp(prefix="diplomacy-bot-test-"))
 
 # Initialize database schema BEFORE importing any database-dependent modules
 # This ensures schema exists before pytest imports test modules that might connect to DB

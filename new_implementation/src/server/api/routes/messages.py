@@ -7,10 +7,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
-import requests
+from datetime import datetime
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
-from ..shared import db_service, scheduler_logger, logger, NOTIFY_URL, notify_players, BOT_SECRET
+from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
+from ..shared import db_service, scheduler_logger, logger, notify_players, notify_user, BOT_SECRET
 from persistence.database import MessageModel
 
 router = APIRouter()
@@ -21,11 +22,17 @@ class SendMessageRequest(BaseModel):
     bot_secret: Optional[str] = None
     recipient_power: Optional[str] = None
     text: str
+    # When the sender actually composed the message (ISO-8601, UTC). Sent by
+    # the bot for every message so one that waited in its offline queue is
+    # stored -- and shown to the recipient -- with the time it was written,
+    # not the time the tunnel came back. See ``server.api.client_timestamp``.
+    client_timestamp: Optional[datetime] = None
 
 class SendBroadcastRequest(BaseModel):
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
     text: str
+    client_timestamp: Optional[datetime] = None
 
 # --- Message Endpoints ---
 @router.post("/games/{game_id}/message")
@@ -53,7 +60,14 @@ def send_private_message(
                 status_code=400,
                 detail=f"Cannot send a private message to {req.recipient_power}: no player is assigned to that power.",
             )
-        msg = db_service.create_message(game_id=int(game_model.id), sender_user_id=int(user.id), recipient_power=req.recipient_power, text=req.text)  # type: ignore
+        sent_at = normalize_client_timestamp(req.client_timestamp)
+        msg = db_service.create_message(
+            game_id=int(game_model.id),  # type: ignore
+            sender_user_id=int(user.id),  # type: ignore
+            recipient_power=req.recipient_power,
+            text=req.text,
+            timestamp=sent_at,
+        )
         # Private message notification
         try:
             recipient_user_id = getattr(recipient_player, "user_id", None)
@@ -61,18 +75,15 @@ def send_private_message(
                 recipient_user = db_service.get_user_by_id(recipient_user_id)
                 recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
                 if recipient_telegram_id is not None:
-                    try:
-                        telegram_id_int = int(recipient_telegram_id)
-                        requests.post(
-                            NOTIFY_URL,
-                            json={"telegram_id": telegram_id_int, "message": f"New private message in game {game_id} from {user.full_name or getattr(user, 'telegram_id', None)}: {req.text}"},
-                            timeout=2,
-                        )
-                    except (ValueError, TypeError):
-                        pass
+                    notify_user(
+                        recipient_telegram_id,
+                        f"New private message in game {game_id} from "
+                        f"{user.full_name or getattr(user, 'telegram_id', None)}"
+                        f"{sent_at_suffix(sent_at)}: {req.text}",
+                    )
         except Exception as e:
             scheduler_logger.error(f"Failed to notify private message: {e}")
-        return {"status": "ok", "message_id": msg.id}
+        return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
     except HTTPException:
         raise
     except Exception as e:
@@ -90,10 +101,26 @@ def send_broadcast_message(
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
-        msg = db_service.create_message(game_id=game_id, sender_user_id=int(user.id), recipient_power=None, text=req.text)  # type: ignore
-        # Broadcast message notification
+        sent_at = normalize_client_timestamp(req.client_timestamp)
+        msg = db_service.create_message(
+            game_id=game_id,
+            sender_user_id=int(user.id),  # type: ignore
+            recipient_power=None,
+            text=req.text,
+            timestamp=sent_at,
+        )
+        # Broadcast message notification. The sender is excluded: they have
+        # the bot's own "Broadcast sent" confirmation (or, for a queued
+        # broadcast, its "delivered" report), and hearing their own words back
+        # as a DM was noise.
         try:
-            notify_players(game_id, f"Broadcast in game {game_id} from {user.full_name or getattr(user, 'telegram_id', None)}: {req.text}")
+            notify_players(
+                game_id,
+                f"Broadcast in game {game_id} from "
+                f"{user.full_name or getattr(user, 'telegram_id', None)}"
+                f"{sent_at_suffix(sent_at)}: {req.text}",
+                exclude_telegram_id=getattr(user, "telegram_id", None),
+            )
         except Exception as e:
             scheduler_logger.error(f"Failed to notify broadcast message: {e}")
         
@@ -113,7 +140,7 @@ def send_broadcast_message(
         except Exception as e:
             logger.debug(f"Channel integration check failed for broadcast: {e}")
         
-        return {"status": "ok", "message_id": msg.id}
+        return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
     except HTTPException:
         raise
     except Exception as e:

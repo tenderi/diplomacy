@@ -13,6 +13,7 @@ The live, authoritative endpoint list is the generated OpenAPI schema at
 | `SQLALCHEMY_DATABASE_URL` | PostgreSQL connection URL. |
 | `DIPLOMACY_JWT_SECRET` | JWT signing secret. |
 | `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`). |
+| `DIPLOMACY_BOT_SECRET` | Shared with the Telegram bot; gates `telegram_id` auth, `/bot/*`, and `Idempotency-Key` replay. |
 | `DIPLOMACY_LOG_LEVEL` / `DIPLOMACY_LOG_FILE` | Log level (default `INFO`); file instead of stdout. |
 
 Logs cover startup and shutdown, every processed command, errors, and game state changes
@@ -64,12 +65,29 @@ submitted; the deadline scheduler never passes it.
 per-unit variant), the phase-aware enumeration of everything legal right now — what the
 frontend and the bot's interactive order UI are built on.
 
+Order and clear requests accept an optional `client_timestamp` (ISO-8601 UTC, the time the
+player composed them). One older than the game's `phase_started_at` is refused with **409**
+and a `detail` the bot shows verbatim — the turn was processed without it.
+
 ### Messages, maps, channels
 
-Private messages, broadcasts, and message history under `/games/{id}`. Board, orders, and
+Private messages, broadcasts, and message history under `/games/{id}`. Both send routes
+accept `client_timestamp`; the message is stored with it and the notification says
+"(sent HH:MM UTC)" when it was delayed. Board, orders, and
 resolution PNGs via `/games/{id}/map` and `/games/{id}/generate_map[/orders|/resolution]`,
 plus `/games/{id}/map/history/{turn}` and `/maps/{map_name}/preview.png`. Channel linking,
 settings, posting, and analytics under `/games/{id}/channel/…`.
+
+### Bot outbox and idempotency
+
+`GET /bot/outbox?limit=&after_id=` returns undelivered player notifications oldest first;
+`POST /bot/outbox/ack {"delivered": [ids], "failed": {id: error}}` marks them done;
+`GET /bot/outbox/stats` counts what is waiting. All three require `X-Bot-Secret` — a JWT is
+**not** accepted. Server code creates rows through `api/shared.notify_user`, never directly.
+
+Any mutating request that carries both `X-Bot-Secret` and an `Idempotency-Key` header has its
+first response stored (statuses below 500) and replayed to every later request with the same
+key, marked `Idempotent-Replayed: true`. This is how the bot's retry queue is safe.
 
 ### Admin, dashboard, health
 

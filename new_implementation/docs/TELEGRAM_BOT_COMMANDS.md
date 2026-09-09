@@ -83,6 +83,23 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 | `/message <game_id> <power> <text>` | Private message to one power. |
 | `/broadcast <game_id> <text>` | Message all players. Also posted to the linked channel, if any. |
 | `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing which power sent it. |
+| `/queue` | Whether the game server is reachable, and your orders/messages still waiting to be delivered to it, with the time you sent each. |
+
+### When the game server is unreachable
+
+The bot runs on a different machine from the game server. If the link between them is down
+when you send orders or a message, the bot replies that it has **queued** the command with
+the time you sent it, delivers it automatically once the server is back, and messages you
+with the result. Nothing is lost. Two things to know:
+
+- A message is recorded with the time you *wrote* it, and the recipient sees that time.
+- Orders that could not be delivered before the turn was processed are **not** applied to
+  the next turn; the bot tells you exactly which ones did not make it.
+
+Everything else (maps, status, joining) needs the server and simply reports that it is
+unreachable until it returns. Notifications from the server (turn processed, reminders,
+messages to you) are held on the server side and arrive when the link is back, prefixed with
+the time they were created if they were delayed.
 
 ## Maps
 

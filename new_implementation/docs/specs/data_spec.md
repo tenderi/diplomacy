@@ -175,6 +175,15 @@ engine rewrite; see `database.py` for the full model list. `DatabaseService`
 (`database_service.py`) remains the DAL for all of these; only game *state* itself was
 carved out into `GameRepo` + `GameService`.
 
+Added by the split deployment (migration `h6b2c3d4e5f6`, Track J):
+
+| Table / column | Purpose |
+|---|---|
+| `bot_outbox` | Server → player notifications waiting for the bot: `kind` (`dm`), `telegram_id`, `message`, `payload` (spare JSON), `created_at`, `delivered_at` (NULL = pending), `attempts`, `last_error`. The bot pulls and acks; delivered rows are purged after 7 days. |
+| `idempotency_keys` | First response stored per bot-supplied `Idempotency-Key`: `key`, `endpoint`, `status_code`, `response_json`, `created_at`. Purged after 7 days. |
+| `games.phase_started_at` | When the current `phase_code` began; stamped by `GameRepo` on every phase change. Order submissions with a `client_timestamp` older than this are refused (409). |
+| `messages.timestamp` | Now the time the message was *composed* when the client sends `client_timestamp`; otherwise now. |
+
 ## 4. The HTTP API view shape
 
 `GameService.view(game_id)` (`src/server/game_service.py`) is the **single** place that

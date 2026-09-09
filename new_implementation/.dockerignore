@@ -1,0 +1,34 @@
+# Build context is new_implementation/. Keep the images small and, more to the
+# point, keep secrets and local state out of them.
+.git
+.gitignore
+.env
+.env.*
+venv/
+*venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+coverage.xml
+tests/
+test_maps/
+examples/
+docs/
+infra/
+frontend/node_modules/
+frontend/dist/
+bot_data/
+*.sqlite3*
+diplomacy.db
+*.log
+*.md
+install_home.sh
+install_vps.sh
+upgrade.sh
+upgrade_control.sh
+setup_database.sh
+install_prerequisites.sh

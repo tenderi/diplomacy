@@ -14,10 +14,16 @@ import logging
 from .database import (
     GameModel, PlayerModel, OrderModel, TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
-    SpectatorModel, WaitingListModel,
+    SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel,
     get_session_factory,
     utcnow_naive,
 )
+
+# How long a stored idempotent response and a delivered outbox row are kept
+# before the scheduler purges them. A queued bot request older than this has
+# long since been delivered or reported as failed to the player.
+IDEMPOTENCY_RETENTION_DAYS = 7
+OUTBOX_DELIVERED_RETENTION_DAYS = 7
 
 
 class DatabaseService:
@@ -579,14 +585,34 @@ class DatabaseService:
             session.commit()
 
     # --- Messages ---
-    def create_message(self, game_id: int, sender_user_id: int, recipient_power: Optional[str], text: str):
+    def create_message(
+        self,
+        game_id: int,
+        sender_user_id: int,
+        recipient_power: Optional[str],
+        text: str,
+        timestamp: Optional[datetime] = None,
+    ):
+        """Store a diplomatic message.
+
+        ``timestamp`` is the moment the message was *composed*, when the caller
+        knows it -- the bot passes the time a player typed the message, which
+        can be much earlier than now if it sat in the bot's offline queue while
+        the home server was unreachable. Defaults to now. Must be naive UTC
+        (see ``utcnow_naive``); an aware value is normalised here so no caller
+        can store a shifted time.
+        """
+        if timestamp is None:
+            timestamp = utcnow_naive()
+        elif timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
         with self.session_factory() as session:
             msg = MessageModel(
                 game_id=game_id,
                 sender_user_id=sender_user_id,
                 recipient_power=recipient_power,
                 text=text,
-                timestamp=utcnow_naive(),
+                timestamp=timestamp,
             )
             session.add(msg)
             session.commit()
@@ -1199,6 +1225,176 @@ class DatabaseService:
                 .first()
                 is not None
             )
+
+    # --- Bot outbox (server -> bot notifications) ---
+    #
+    # See ``BotOutboxModel``: every player DM is committed here and pulled by the
+    # bot, so a bot or tunnel outage delays notifications instead of dropping them.
+
+    def enqueue_bot_notification(
+        self,
+        telegram_id: str | int,
+        message: str,
+        *,
+        kind: str = "dm",
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Queue one notification for the bot to deliver. Returns the row id."""
+        with self.session_factory() as session:
+            row = BotOutboxModel(
+                kind=kind,
+                telegram_id=str(telegram_id),
+                message=message,
+                payload=payload,
+                created_at=utcnow_naive(),
+            )
+            session.add(row)
+            session.commit()
+            return int(row.id)
+
+    def fetch_pending_bot_notifications(
+        self, limit: int = 50, *, after_id: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Undelivered notifications, oldest first.
+
+        ``after_id`` lets a caller page past rows it already holds (and lets
+        tests scope themselves to rows created after a checkpoint).
+        """
+        with self.session_factory() as session:
+            rows = (
+                session.query(BotOutboxModel)
+                .filter(BotOutboxModel.delivered_at.is_(None))
+                .filter(BotOutboxModel.id > int(after_id))
+                .order_by(BotOutboxModel.id)
+                .limit(max(1, min(int(limit), 500)))
+                .all()
+            )
+            return [
+                {
+                    "id": int(r.id),
+                    "kind": r.kind,
+                    "telegram_id": r.telegram_id,
+                    "message": r.message,
+                    "payload": r.payload,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "attempts": int(r.attempts or 0),
+                }
+                for r in rows
+            ]
+
+    def max_bot_outbox_id(self) -> int:
+        """Highest outbox id so far (0 when empty). A checkpoint for tests."""
+        with self.session_factory() as session:
+            value = session.query(sa_func.max(BotOutboxModel.id)).scalar()
+            return int(value or 0)
+
+    def ack_bot_notifications(
+        self,
+        delivered_ids: List[int],
+        failed: Optional[Dict[int, str]] = None,
+    ) -> int:
+        """Mark rows delivered.
+
+        ``failed`` maps id -> error for rows Telegram rejected *permanently*
+        (user blocked the bot, chat not found). They are marked delivered too --
+        retrying cannot help -- but keep ``last_error`` so the failure is
+        auditable rather than silently absorbed. Transient failures are simply
+        not acked and come back on the next pull. Returns rows updated.
+        """
+        failed = failed or {}
+        ids = {int(i) for i in delivered_ids} | {int(i) for i in failed}
+        if not ids:
+            return 0
+        now = utcnow_naive()
+        with self.session_factory() as session:
+            rows = (
+                session.query(BotOutboxModel)
+                .filter(BotOutboxModel.id.in_(ids))
+                .filter(BotOutboxModel.delivered_at.is_(None))
+                .all()
+            )
+            for row in rows:
+                row.delivered_at = now
+                row.attempts = int(row.attempts or 0) + 1
+                error = failed.get(int(row.id))
+                if error:
+                    row.last_error = error[:2000]
+            session.commit()
+            return len(rows)
+
+    def record_bot_notification_attempt(self, notification_id: int, error: str) -> None:
+        """Note a transient delivery failure without acking the row."""
+        with self.session_factory() as session:
+            row = session.get(BotOutboxModel, int(notification_id))
+            if row is None:
+                return
+            row.attempts = int(row.attempts or 0) + 1
+            row.last_error = error[:2000]
+            session.commit()
+
+    def purge_delivered_bot_notifications(
+        self, older_than_days: int = OUTBOX_DELIVERED_RETENTION_DAYS
+    ) -> int:
+        cutoff = utcnow_naive() - timedelta(days=older_than_days)
+        with self.session_factory() as session:
+            n = (
+                session.query(BotOutboxModel)
+                .filter(BotOutboxModel.delivered_at.isnot(None))
+                .filter(BotOutboxModel.delivered_at < cutoff)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return int(n)
+
+    # --- Idempotency keys (bot -> server retried writes) ---
+    #
+    # See ``IdempotencyKeyModel`` and ``server.api.idempotency``.
+
+    def get_idempotent_response(self, key: str) -> Optional[Dict[str, Any]]:
+        """The stored ``{status_code, response_json, endpoint}`` for ``key``, or None."""
+        with self.session_factory() as session:
+            row = session.get(IdempotencyKeyModel, key)
+            if row is None:
+                return None
+            return {
+                "status_code": int(row.status_code),
+                "response_json": row.response_json,
+                "endpoint": row.endpoint,
+            }
+
+    def store_idempotent_response(
+        self, key: str, endpoint: str, status_code: int, response_json: Any
+    ) -> bool:
+        """Store the first response for ``key``. Returns False if one already
+        exists (a concurrent duplicate won the race; the stored one stands)."""
+        from sqlalchemy.exc import IntegrityError
+        with self.session_factory() as session:
+            session.add(
+                IdempotencyKeyModel(
+                    key=key,
+                    endpoint=endpoint[:255],
+                    status_code=int(status_code),
+                    response_json=response_json,
+                    created_at=utcnow_naive(),
+                )
+            )
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                return False
+            return True
+
+    def purge_idempotency_keys(self, older_than_days: int = IDEMPOTENCY_RETENTION_DAYS) -> int:
+        cutoff = utcnow_naive() - timedelta(days=older_than_days)
+        with self.session_factory() as session:
+            n = (
+                session.query(IdempotencyKeyModel)
+                .filter(IdempotencyKeyModel.created_at < cutoff)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return int(n)
 
     # --- Misc helpers --- 
     def execute_query(self, sql: str) -> None:

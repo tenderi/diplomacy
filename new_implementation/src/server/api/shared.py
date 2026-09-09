@@ -7,7 +7,6 @@ multiple route modules to avoid circular imports and ensure consistency.
 import asyncio
 import logging
 import os
-import requests
 import pytz
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, TYPE_CHECKING
@@ -47,8 +46,9 @@ if not scheduler_logger.hasHandlers():
     handler.setFormatter(formatter)
     scheduler_logger.addHandler(handler)
 
-# Notification service URL
-NOTIFY_URL = os.environ.get("DIPLOMACY_NOTIFY_URL", "http://localhost:8081/notify")
+# There is deliberately no NOTIFY_URL any more. Player notifications are not
+# pushed at the bot; they are committed to the ``bot_outbox`` table (see
+# ``notify_user`` below) and the bot pulls them over ``GET /bot/outbox``.
 
 # In-memory reminder tracking
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
@@ -90,12 +90,48 @@ def game_view(game_id: str) -> Optional[Dict[str, Any]]:
     return game_service.view(str(game_id))
 
 
+def notify_user(telegram_id: Any, message: str) -> Optional[int]:
+    """Queue one Telegram DM for the bot to deliver. Returns the outbox row id.
+
+    **This is the only way server code may notify a player.** It writes the
+    notification to ``bot_outbox`` -- the same Postgres the game state is in --
+    and returns immediately; the bot on the VPS pulls the row over
+    ``GET /bot/outbox`` and acks it once Telegram has accepted the message. So a
+    bot restart, a VPS reboot, or a dropped WireGuard tunnel of any length
+    *delays* the DM rather than losing it, and the bot prefixes the original
+    time to anything it delivers late.
+
+    The previous mechanism was a ``requests.post`` to a small HTTP server the
+    bot ran on port 8081, ``timeout=2``, failure logged and forgotten. That was
+    tolerable when both processes shared one host; it is not now that they sit
+    on opposite ends of a residential uplink. It also blocked the event loop
+    for up to two seconds per player from inside the deadline scheduler.
+
+    Non-numeric ids (test fixtures like ``"u1"``) are skipped, not errored,
+    exactly as before. A database failure here is logged and swallowed: the
+    caller has already committed a state change, and the notification is not
+    the contract (rule 3 in ``docs/specs/architecture.md``).
+    """
+    try:
+        telegram_id_int = int(telegram_id)
+    except (TypeError, ValueError):
+        scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id}")
+        return None
+    try:
+        row_id = db_service.enqueue_bot_notification(telegram_id_int, message)
+    except Exception as e:
+        scheduler_logger.error(f"Failed to queue notification for telegram_id {telegram_id}: {e}")
+        return None
+    scheduler_logger.info(f"Queued notification #{row_id} for telegram_id {telegram_id}: {message}")
+    return row_id
+
+
 def notify_players(
     game_id: int,
     message: str,
     exclude_telegram_id: Optional[str] = None,
 ) -> None:
-    """Notify all players in a game.
+    """Notify all players in a game, via ``notify_user`` (the durable outbox).
 
     ``exclude_telegram_id`` skips one player -- used by the manual
     ``process_turn`` route, whose caller already has the resolution in their HTTP
@@ -116,20 +152,7 @@ def notify_players(
     for telegram_id_val in telegram_ids:
         if exclude_telegram_id is not None and str(telegram_id_val) == str(exclude_telegram_id):
             continue
-        try:
-            # Only send notification if telegram_id is numeric (skip test IDs like "u1")
-            telegram_id_int = int(telegram_id_val)
-            requests.post(
-                NOTIFY_URL,
-                json={"telegram_id": telegram_id_int, "message": message},
-                timeout=2,
-            )
-            scheduler_logger.info(f"Notified telegram_id {telegram_id_val} for game {game_id}: {message}")
-        except ValueError:
-            # Skip non-numeric telegram_ids (test IDs)
-            scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id_val}")
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify telegram_id {telegram_id_val}: {e}")
+        notify_user(telegram_id_val, message)
 
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
@@ -229,11 +252,10 @@ def notify_turn_processed(
     ``docs/specs/architecture.md``.
 
     Synchronous on purpose, so the sync scheduler path and the ``async`` route
-    can share it unchanged. It blocks its caller for up to ``timeout=2`` per
-    player, which is pre-existing behaviour on both paths (the deadline fan-out
-    already ran inside the scheduler's event loop, and the manual route already
-    called ``notify_players`` synchronously for game-end) -- not something this
-    change introduced. Every send is best-effort and logged.
+    can share it unchanged. Since notifications became outbox inserts
+    (``notify_user``) that costs one short database write per player rather
+    than the two-second HTTP timeout it used to risk. Every send is
+    best-effort and logged.
     """
     if game_ended:
         player_message = f"Game {game_id} has ended!"
@@ -351,20 +373,48 @@ def check_and_send_reminders(now: datetime) -> None:
         scheduler_logger.error(f"Error in deadline scheduler: {e}")
 
 
+# The scheduler loop runs every 30 s; housekeeping every 120th tick (~1 h).
+_HOUSEKEEPING_EVERY_TICKS = 120
+
+
+def run_housekeeping() -> None:
+    """Purge delivered outbox rows and expired idempotency keys.
+
+    Both tables only ever grow otherwise. Split out so it can be called
+    directly by tests; failures are logged, never raised, because a purge is
+    never worth a scheduler crash.
+    """
+    try:
+        purged_outbox = db_service.purge_delivered_bot_notifications()
+        purged_keys = db_service.purge_idempotency_keys()
+        if purged_outbox or purged_keys:
+            scheduler_logger.info(
+                "Housekeeping: purged %d delivered notifications, %d idempotency keys",
+                purged_outbox, purged_keys,
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Housekeeping failed: {e}")
+
+
 async def deadline_scheduler() -> None:
     """
     Background task that checks all games with deadlines every 30 seconds.
     If a game's deadline has passed, processes the turn and clears the deadline.
     Sends reminders 10 minutes before deadline and notifies players after turn processing.
-    On startup, immediately process any missed deadlines.
+    On startup, immediately process any missed deadlines. Roughly hourly it also
+    runs ``run_housekeeping``.
     """
     # On startup: process any missed deadlines immediately
     now = datetime.now(timezone.utc)
     process_due_deadlines(now)
+    tick = 0
     # Main loop
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
         now = datetime.now(timezone.utc)
         process_due_deadlines(now)
         check_and_send_reminders(now)
+        tick += 1
+        if tick % _HOUSEKEEPING_EVERY_TICKS == 0:
+            run_housekeeping()
 

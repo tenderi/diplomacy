@@ -152,6 +152,7 @@ HELP_TEXT = f"""
 • `/draw [game_id]` - Vote yes to end the game as a draw
 • `/nodraw [game_id]` - Withdraw your draw vote
 • `/status [game_id]` - Phase, deadline, and draw-vote tally
+• `/queue` - Orders/messages waiting for the game server, if it is unreachable
 • `/rules`, `/examples` - Order syntax reference
 
 *🗺️ Order Types & Examples:*

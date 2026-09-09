@@ -6,10 +6,6 @@ All command handlers are organized in the telegram_bot package.
 """
 import asyncio
 import logging
-import os
-import threading
-import time
-import uvicorn
 from datetime import datetime
 
 import requests
@@ -21,7 +17,9 @@ from telegram.ext import (
 
 # Import directly from modules
 from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
-from server.telegram_bot.api_client import api_post, api_get, wait_for_api_health, _validate_api_url
+from server.telegram_bot.api_client import (
+    api_post, api_get, api_post_reliable, queued_reply, wait_for_api_health, _validate_api_url,
+)
 from server.telegram_bot.help_text import DEMO_EXAMPLE_ORDERS, DEMO_UNITS, ORDER_FORMAT_NOTES
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
@@ -40,7 +38,9 @@ from server.telegram_bot.ui import (
     rules, examples
 )
 from server.telegram_bot.admin import start_demo_game, run_automated_demo, debug_command
-from server.telegram_bot.notifications import fastapi_app, notify
+from server.telegram_bot.notifications import (
+    queue_status, start_background_loops, stop_background_loops,
+)
 from server.telegram_bot.channel_commands import link_channel, unlink_channel, channel_info, channel_settings
 from server.telegram_bot.channels import set_telegram_bot
 from server.telegram_bot.link_account import link_account
@@ -77,6 +77,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("messages", "View messages for a game"),
     BotCommand("wait", "Join the waiting list for auto-matching"),
     BotCommand("unwait", "Leave the waiting list"),
+    BotCommand("queue", "Orders/messages waiting for the game server"),
     BotCommand("quit", "Leave a game"),
     BotCommand("link", "Link this Telegram account to a browser account"),
     BotCommand("rules", "Basic Diplomacy rules and order syntax"),
@@ -84,12 +85,20 @@ BOT_COMMANDS: list[BotCommand] = [
 
 
 async def _post_init(app: Application) -> None:
-    """Register ``BOT_COMMANDS`` with Telegram so the "/" menu is populated.
+    """Register ``BOT_COMMANDS`` with Telegram and start the background loops.
 
     Runs once during ``Application.initialize()`` -- wired in via
-    ``ApplicationBuilder().post_init(_post_init)`` in ``main()`` below.
+    ``ApplicationBuilder().post_init(_post_init)`` in ``main()`` below. The
+    loops (``notifications.py``) are what deliver server notifications to
+    players and replay the durable outbox; they need the running event loop,
+    which is why they start here and not in ``main()``.
     """
     await app.bot.set_my_commands(BOT_COMMANDS)
+    start_background_loops(app)
+
+
+async def _post_shutdown(app: Application) -> None:
+    await stop_background_loops(app)
 
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -459,40 +468,58 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         game_id = parts[2]
         power = parts[3]
 
-        try:
-            api_post("/games/set_orders", {
-                "game_id": game_id,
-                "power": power,
-                "orders": [],
-                "telegram_id": user_id
-            })
-
+        outcome = api_post_reliable(
+            "/games/set_orders",
+            {"game_id": game_id, "power": power, "orders": [], "telegram_id": user_id},
+            chat_id=query.from_user.id,
+            description=f"clearing orders for game {game_id} ({power})",
+        )
+        if outcome.status == "queued":
+            await query.edit_message_text(queued_reply(outcome))
+        elif outcome.status == "rejected":
+            await query.edit_message_text(f"❌ Error clearing orders: {outcome.error}")
+        else:
             await query.edit_message_text(
                 f"🗑️ *Orders Cleared*\n\n"
                 f"✅ All orders for {power} in Game {game_id} have been cleared.\n\n"
                 f"💡 Use Submit Orders to add new orders.",
                 parse_mode='Markdown'
             )
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error clearing orders: {e}")
 
 
 def main():
-    """Main entry point for the Telegram bot."""
+    """Main entry point for the Telegram bot.
+
+    The bot must come up -- and stay up -- whether or not the API is reachable.
+    It runs on a VPS and the API on a home server across a tunnel; if the bot
+    refused to start until the API answered, an outage at the wrong moment
+    would take *both* halves down and nothing would queue anything. So the
+    startup health check is informational: it logs, and the bot starts
+    regardless. Reads fail with a clear message until the link returns;
+    writes go to the durable outbox and are delivered when it does.
+    """
     if not TELEGRAM_TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN environment variable not set.")
         return
 
-    # Validate and wait for API health before starting the bot
     try:
         _validate_api_url(API_URL)
-        wait_for_api_health()
-    except Exception as e:
-        print(f"Error: API health check failed: {e}")
+    except ValueError as e:
+        print(f"Error: {e}")
         return
+    try:
+        wait_for_api_health(max_attempts=3)
+    except RuntimeError as e:
+        logger.warning("API not reachable at startup (%s); starting anyway and queuing writes", e)
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(_post_init).build()
-    
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_TOKEN)
+        .post_init(_post_init)
+        .post_shutdown(_post_shutdown)
+        .build()
+    )
+
     # Set telegram bot instance for channel posting
     set_telegram_bot(app.bot)
 
@@ -529,6 +556,7 @@ def main():
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("examples", examples))
     app.add_handler(CommandHandler("link", link_account))
+    app.add_handler(CommandHandler("queue", queue_status))
     app.add_handler(CommandHandler("link_channel", link_channel))
     app.add_handler(CommandHandler("unlink_channel", unlink_channel))
     app.add_handler(CommandHandler("channel_info", channel_info))
@@ -538,48 +566,8 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
 
-    # Attach the running app to the notify endpoint for access
-    notify.telegram_app = app
-
-    # Enhanced debugging for container environment
     logging.basicConfig(level=logging.INFO, force=True)
-
-    # Log all environment variables for debugging
-    logger.info("=== TELEGRAM BOT STARTUP DEBUG ===")
-    logger.info(f"All environment variables containing 'BOT': "
-                f"{[(k, v) for k, v in os.environ.items() if 'BOT' in k.upper()]}")
-
-    bot_only_raw = os.environ.get("BOT_ONLY", "NOT_SET")
-    bot_only = bot_only_raw.lower() == "true"
-
-    logger.info(f"BOT_ONLY raw value: '{bot_only_raw}'")
-    logger.info(f"BOT_ONLY after .lower(): '{bot_only_raw.lower()}'")
-    logger.info(f"Final bot_only boolean: {bot_only}")
-    logger.info("=== END DEBUG ===")
-
-    # Also print to stdout for container logs
-    print(f"🤖 BOT_ONLY environment variable: '{bot_only_raw}'")
-    print(f"🤖 Detected bot_only mode: {bot_only}")
-
-    def start_notify_server():
-        """Start the notification API server in a separate thread."""
-        try:
-            # Bind loopback-only by default: the API's NOTIFY_URL default is
-            # http://localhost:8081/notify (server/api/shared.py), both systemd units
-            # (diplomacy-api, diplomacy-bot) run on the same EC2 host, and the /notify
-            # endpoint (notifications.py) has no auth -- unlike _api_module.py (behind
-            # nginx) and daide/server.py (needs external DAIDE clients), this one has no
-            # reason to accept connections from outside the host. Override via env if a
-            # future deployment genuinely splits the two processes across hosts.
-            notify_host = os.environ.get("DIPLOMACY_NOTIFY_HOST", "127.0.0.1")
-            uvicorn.run(fastapi_app, host=notify_host, port=8081, log_level="info")
-        except OSError as e:
-            if e.errno == 98:  # Address already in use
-                logger.warning(f"Port 8081 already in use, notification server not started: {e}")
-                logger.info("Notification endpoint may be available on main API server")
-            else:
-                logger.error(f"Failed to start notification server: {e}")
-                raise
+    logger.info("Diplomacy bot starting; API at %s", API_URL)
 
     def run_bot():
         """Run the telegram bot with proper error handling."""
@@ -600,7 +588,7 @@ def main():
             except RuntimeError:
                 # No event loop is set, which is fine - run_polling() will create one
                 pass
-        
+
         try:
             # Use close_loop=False to prevent event loop closure issues during shutdown
             app.run_polling(close_loop=False)
@@ -624,38 +612,8 @@ def main():
             logger.error(f"Unexpected error during bot execution: {e}")
             raise
 
-    if bot_only:
-        # BOT_ONLY mode: Run telegram bot + notification API (main API runs separately)
-        print("Starting in BOT_ONLY mode")
-
-        notify_thread = threading.Thread(target=start_notify_server, daemon=True)
-        notify_thread.start()
-
-        # Wait a bit for the server to start
-        time.sleep(2)
-
-        # Start telegram bot polling - this will block
-        run_bot()
-    else:
-        # When BOT_ONLY=false, main API is running separately
-        # Only start notification server if explicitly requested
-        start_notify = os.environ.get("START_NOTIFY_SERVER", "false").lower() == "true"
-        
-        if start_notify:
-            print("Starting in standalone mode with notification server")
-            # Start notification server in background thread
-            notify_thread = threading.Thread(target=start_notify_server, daemon=True)
-            notify_thread.start()
-            # Wait a bit for the server to start
-            time.sleep(2)
-        else:
-            print("Starting in standalone mode (notification server disabled - main API handles notifications)")
-            logger.info("Notification server not started (main API should handle /notify endpoint)")
-
-        # Start telegram bot polling in main thread - this will block
-        print("Starting Telegram bot polling...")
-        run_bot()
-
+    print("Starting Telegram bot polling...")
+    run_bot()
 
 if __name__ == "__main__":
     main()
