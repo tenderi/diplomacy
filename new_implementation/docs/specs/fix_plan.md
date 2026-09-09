@@ -22,7 +22,15 @@
 
 ## Status
 
-- **Last updated:** 2026-09-08, at `v2.7.68`. `main` green.
+- **Last updated:** 2026-09-09, at `v2.7.68` (PR #61 open, CI green).
+- **Track K opened 2026-09-09: the pre-deletion audit of `old_implementation/`.** The
+  maintainer asked whether the legacy tree can go. **Answer: yes, after K0** — nothing in it is
+  imported, the engine is a clean-room rewrite, and removing it also removes the only AGPL code
+  from a repo that ships no LICENSE. The audit compared it feature-by-feature against the new
+  code and found **two real behavioural gaps (K1, K2), one test-coverage gap (K3), and a list
+  of old features that were dropped without ever being decided on (K4–K7)**. K1 is a bug in
+  the *new* code that the audit surfaced, not a legacy feature; it is the one item here worth
+  doing before anything else.
 - **Track J — Split deployment (VPS bot/web + home API) landed as `v2.7.68`** and is archived
   in [`done_fixes.md`](done_fixes.md). Production is now two Docker Compose stacks over the
   `p2p` WireGuard tunnel; player writes are queued durably on the VPS and server notifications
@@ -30,12 +38,11 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–J are complete and
-  archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
-  delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
-  since Track J, shell access to the two hosts).
-- **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
-  and it gates nothing.
+- **Tracks A–E and G–J are complete** and archived in [`done_fixes.md`](done_fixes.md).
+  Open: **Track K** (agent-doable; K1 first, K0 whenever the maintainer says "delete") and
+  **Track F** (maintainer-only — a live bot token, a Telegram client, and since Track J shell
+  access to the two hosts).
+- **Next action: K1**, then K0 on the maintainer's word, then F1.
 - **Track I (map legibility) was opened by the maintainer on 2026-07-30** as F2's first finding
   — the inline web map was unreadably small — and landed as `v2.7.66` (I1, full-size viewer)
   and `v2.7.67` (I2, renderer visuals). **F2 itself is still unchecked**: one defect found and
@@ -185,6 +192,196 @@ delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Tra
 
 ---
 
+# Track K — Retire `old_implementation/`: what the audit found (2026-09-09)
+
+## Why this track exists
+
+The maintainer asked whether `old_implementation/` (Philip Paquette's AGPL `diplomacy`
+package: DATC engine, Tornado websocket server, Python client, React UI, DAIDE adapter,
+webdiplomacy.net integration, 14 map variants) is safe to delete, and whether everything
+relevant has been learned from it. It stays in git history either way.
+
+**Verdict: safe to delete, once K0 is done.** Verified 2026-09-09 by reading code, not
+docstrings:
+
+- Nothing under `new_implementation/` imports from it. Every mention is a docstring or a spec
+  cross-reference (`daide/{clauses,wire,session,tokens}.py`, `tests/datc/*.py`,
+  `tests/test_daide_*.py`, `docs/specs/diplomacy_rules.md`, `CLAUDE.md`,
+  `CODEBASE_OVERVIEW.md`).
+- The engine is a clean-room rewrite (Track D's ground rules; DATC tests written from the
+  spec, "semantics only, no code copied"). The port's gap analysis (Track C, 2026-07-29) and
+  Tracks A–J since have already mined it for behaviour.
+- **Licensing improves.** The old tree is AGPL-3.0 (plus DPjudge MIT) and this repo ships no
+  LICENSE; `CLAUDE.md` already says "read it, never copy from it". Deleting it makes the repo
+  unambiguously the maintainer's own code.
+
+The rest of this track is *what is not in the new code*. Everything below was checked against
+`new_implementation/src` at `v2.7.68`; each item says where. Items are ordered by how much
+they matter to a game actually being played, not by size.
+
+## K0 — Pre-deletion moves (do these in the same commit as the `git rm`)
+
+- [ ] **Move `old_implementation/rules.pdf` to `new_implementation/docs/reference/rules.pdf`.**
+      `docs/specs/diplomacy_rules.md` is an OCR transcript that names the PDF as "the
+      authority where the two disagree" and `CLAUDE.md` tells rule questions to cross-check it.
+      It is the official rulebook, not AGPL code; it is the one file that must survive.
+- [ ] Update the pointers: `CLAUDE.md` (repository layout, "Game rule questions"),
+      `CODEBASE_OVERVIEW.md` (three places), `docs/specs/diplomacy_rules.md` line 5, and the
+      docstrings in `src/server/daide/{clauses,wire,session,tokens}.py`,
+      `tests/test_daide_tokens.py`, `tests/test_daide_wire.py`, `tests/datc/*.py`. Replace
+      "see `old_implementation/...`" with "see `git show v2.7.68:old_implementation/...`" so
+      the cross-check stays reproducible without the tree.
+- [ ] Drop the two `.gitignore` lines that only exist for the old tree (`diplomacy/games`,
+      `!diplomacy/maps/convoy_paths_cache.pkl`).
+- [ ] Delete `new_implementation/maps/mini_variant.json` at the same time — nothing reads it
+      (`grep -rn mini_variant src tests` is empty); it is a leftover from the same era.
+- [ ] Do **not** copy `old_implementation/diplomacy/tests/network/{1,2,3}.json` (three
+      recorded real games used as replay-regression fixtures). They are useful *as an idea*
+      (K3) but they are data shipped under the AGPL tree; generate our own.
+
+## K1 — A deadline-triggered turn drops the deadline and takes no snapshot (bug, new code)
+
+**Finding.** The two `process_turn` triggers have drifted again — the same class of bug G3
+fixed for notifications, one layer down:
+
+- Manual `POST /games/{id}/process_turn` (`routes/games.py:262-281`) writes a
+  `MapSnapshotModel` for the turn just processed and **re-arms the deadline to now+24h**.
+- The scheduler path (`api/shared.py:process_due_deadlines`, line ~328) calls
+  `game_service.process_turn`, then `update_game_deadline(id, None)`, and takes **no
+  snapshot**.
+
+So the first missed deadline in a game is also its last: the game has no deadline afterwards
+until a human sets one with `/deadline`, and `GET /games/{id}/history/{turn}`,
+`/map/history/{turn}` and the bot's `/replay` have a hole for every turn the scheduler
+processed. The old engine re-armed its per-phase `deadline` on every phase, unconditionally.
+
+- [ ] Move snapshot creation and deadline re-arm into the shared post-turn path
+      (`notify_turn_processed` is the precedent: one fan-out, both triggers) so they cannot
+      drift a third time. Re-arm from a per-game phase length (K2), defaulting to the current
+      24 h.
+- [ ] Extend `tests/test_turn_notifications.py`'s two-trigger comparison to assert the
+      snapshot row and the new deadline exist after *both* triggers.
+
+## K2 — No per-game phase length; 24 h is hardcoded
+
+`CreateGameRequest` (`routes/games.py:28`) takes `map_name` and `initial_phase` only. The old
+`CreateGame` took `deadline` (seconds per phase, default 300) and re-applied it every phase;
+the new code sets 24 h once on start (`games.py:279`) and on manual processing. There is no
+way to run a fast game (10-minute phases) or a slow one (48 h) without a human re-setting
+`/deadline` after every turn.
+
+- [ ] `games.phase_length_seconds` (nullable = "no automatic deadline"), set at creation and
+      editable via the existing `/deadline` route; the shared post-turn path (K1) re-arms
+      from it. Surface it in `/games/create` (bot and web) and in `/status`.
+
+## K3 — Tests: DATC 6.A gaps, the old 6.K cases, and no full-game replay regression
+
+- [ ] **DATC 6.A.4, 6.A.6–6.A.12 have no named test.** `tests/datc/test_datc_6a_basic.py`
+      names 6.A.1/2/3/5 and then four generically-named tests; the old suite named all twelve.
+      Some are almost certainly covered by validation tests elsewhere (6.A.9 fleets must
+      follow coasts, 6.A.10 support on unreachable destination, 6.A.11/12 simple bounces),
+      but "almost certainly" is exactly what the DATC ids exist to remove. Add one named test
+      per case, cross-checked against `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py`.
+- [ ] **Old 6.K.1–6.K.2** (Paquette's own additions, beyond the DATC's A–J): civil disorder
+      when a power disbands *some* but not all of the units it must remove — the remainder
+      must be auto-disbanded by the distance rule. `test_datc_6j_civil_disorder.py` covers
+      6.J.1–11 (all-or-nothing); the partial case is untested. Add it.
+- [ ] **No recorded-game replay regression.** The old suite replayed three real games
+      (`tests/network/{1,2,3}.json`, ~900 KB) through the server and diffed every phase.
+      Nothing in the new suite plays more than a handful of phases against fixed expected
+      states. Record one full game through the new API (`simple_ai` self-play is enough),
+      store it as a fixture, and assert the replay reproduces every phase's units, centres and
+      resolution byte-for-byte. This is the test that would catch a resolver regression the
+      DATC cases do not exercise in combination.
+
+## K4 — Per-phase history is lossy
+
+The old `get_phase_history` returned, for every past phase, the state, the orders, the
+**results**, and the messages sent during it. The new code keeps:
+
+- orders per turn — yes (`games.order_history`, `GET .../orders/history`);
+- state per turn — only when a snapshot was taken (see K1);
+- **results per turn — only the latest** (`games.last_resolution`; `turn_history` table
+  exists but is never written — `grep -rn "TurnHistoryModel(" src` is empty);
+- **messages — no phase attribution** (`MessageModel` has `timestamp` only; the old
+  `Message` carried `phase`).
+
+So "what happened in turn 3" is answerable for the board and the orders but not for the
+outcomes, and "what was said during F1902M" is not answerable at all. The web client's
+results panel (`GameView.tsx`, E4) reads `last_resolution` only.
+
+- [ ] Persist the resolution per turn (write `turn_history`, or a `resolutions` JSON column
+      keyed like `order_history`), and expose `GET .../history/{turn}` with orders +
+      resolution + snapshot together.
+- [ ] Add `messages.phase_code` (stamped from the game's phase at send time — note the bot
+      now sends `client_timestamp`, so stamp from the phase that was current *then*, i.e.
+      compare against `phase_started_at`).
+
+## K5 — Saved-game export/import
+
+Old: `utils/export.py` (`to_saved_game_format` / `from_saved_game_format`), a stable JSON
+format, and "Load a game from disk" in the web UI; also how the K3 fixtures were made. New:
+`grep -rln "saved_game\|export" src` is empty. A game cannot leave the database or be shared
+as a file. Depends on K4 for the format to be complete.
+
+- [ ] `GET /games/{id}/export` (JSON: map, players, every phase's state/orders/resolution/
+      messages) and an admin-only `POST /games/import`. Then K3's fixture is just an export.
+
+## K6 — Game options the old server had and the new one dropped without a decision
+
+None of these were rejected anywhere in `done_fixes.md`; they simply were not ported.
+**Each needs a maintainer yes/no** before any code — most are "not for this project", but
+that should be written down once so the question stops being re-asked.
+
+| Old feature | Where it lived | New equivalent | Decide |
+|---|---|---|---|
+| Private games (`registration_password`) | `CreateGame` | none — every game is joinable by anyone | |
+| `n_controls`: start with fewer than 7 humans, rest as dummies in civil disorder (`CD_DUMMIES`) | `CreateGame`, `SetDummyPowers` | `required_powers = 7` hardcoded (`games.py:634`); a power with no player just holds forever, no start gate | |
+| Process as soon as all orders are in (old default), with a per-player **wait flag** (`SetWaitFlag`, `ALWAYS_WAIT`/`REAL_TIME`) | server | manual `/processturn` (with a "missing powers" confirmation) or the 24 h deadline; no wait flag | |
+| Rule switches the old *engine* honoured: `BUILD_ANY`, `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`, `CIVIL_DISORDER` | `engine/game.py` | none; standard rules only | |
+| Press rules `NO_PRESS` / `PUBLIC_PRESS` (a no-press game is a common variant) | server | messaging is always on | |
+| `MULTIPLE_POWERS_PER_PLAYER` | server | one power per user per game | |
+| Expert setup: `SetUnits`/`SetCenters`/`ClearUnits`/`SetGameState`, `state` at creation (puzzles, DATC-style scenarios by hand) | server | `POST .../restore/{snapshot_id}` only | |
+| Delete one game (`DeleteGame`) | server | `/admin/delete_all_games` only (the waiting-list tests call the missing single delete a "documented residual") | |
+| Observer / omniscient roles | server | spectator routes exist but are on the out-of-scope list | |
+
+- [ ] Maintainer: fill the "Decide" column. Anything marked yes becomes its own task here;
+      anything marked no moves to *Out of scope* below with the date.
+
+## K7 — Order grammar accepts less than the old one (probably fine, but say so)
+
+`README_COMMANDS.txt` listed "recommended" and "other possible" syntaxes. The new parser
+(`engine/orders/parser.py`, probed 2026-09-09) accepts every *recommended* form and rejects
+these alternates: unit-less orders (`PAR H`, `IRI - MAO`, `WAL S LON`, `NWG C NWY - EDI`),
+verb-first retreats/removals (`RETREAT IRO - MAO`, `REMOVE F LIV`), and explicit multi-hop
+convoy routes (`IRI - MAO - NAO - NWG`). Full province names were rejected by design in G1.
+
+- [ ] Decide once: keep the grammar strict (one canonical form, which is what the bot's
+      interactive order UI and `legal_orders` emit anyway — the recommended answer), or accept
+      unit-less orders by inferring the unit from the board. If strict, add the rejected
+      forms to `help_text.py`'s "not accepted" examples so `tests/test_bot_help_text.py`
+      pins it.
+
+## Recorded as *not* wanted (so nobody re-audits them)
+
+Old features that exist only in the legacy tree and are, per the standing out-of-scope list
+or by their nature, not coming across: the 13 non-standard map variants and the `USE`/`MAP`
+map-file directives; the Tornado websocket protocol and the Python client library
+(`diplomacy.client`) — REST + DAIDE cover programmatic play; the webdiplomacy.net
+integration; SVG output from the renderer (the new renderer emits PNG); the Sphinx docs;
+observer/omniscient games beyond the existing spectator routes; DAIDE press parsing
+(permanent, see `architecture.md`).
+
+## Definition of done (Track K)
+
+- [ ] K1 fixed with the two-trigger test extended.
+- [ ] K0 done in the same commit that removes `old_implementation/`, `rules.pdf` relocated,
+      every pointer updated, suite green.
+- [ ] K6's table has a decision in every row.
+- [ ] K2–K5, K7: either landed or moved under *Out of scope* with the maintainer's decision.
+
+---
+
 # Track F — Manual acceptance (maintainer-only)
 
 ## Why this track exists
@@ -253,6 +450,8 @@ to use, which no test asserts.
 
 ## Definition of done (open work)
 
+- [ ] **Track K:** `old_implementation/` removed with K0's moves done, K1 fixed, and every
+      K6 row decided. Agent-doable except the decisions.
 - [ ] **Track F:** a game plays end-to-end (movement, retreat, build) from both the browser
       and Telegram, run by a human, with F1's five steps checked off and F2's judgement
       recorded. **This is the only item here that an agent cannot do.**
