@@ -6,8 +6,9 @@ Per-module reference for the repository. For working conventions and commands se
 
 A full implementation of the board game **Diplomacy**: a rules engine, a FastAPI REST
 server, a Telegram bot (the primary player interface), a React browser client, a DAIDE
-protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and Terraform-based
-AWS deployment. Python 3.14.
+protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a two-host
+Docker deployment (bot + web on a VPS, API + Postgres at home, joined by WireGuard).
+Python 3.14.
 
 - **`new_implementation/`** — the active codebase, what runs in production.
 - **`old_implementation/`** — legacy AGPL codebase (DATC engine, websocket server, React UI,
@@ -30,7 +31,8 @@ diplomacy/
 │   ├── frontend/            # React 18 + Vite + TypeScript SPA
 │   ├── maps/                # standard.map (topology) + standard.svg + mini_variant.json
 │   ├── examples/            # demo_perfect_game.py + order visualization example
-│   ├── infra/               # Terraform (AWS) + operational scripts
+│   ├── docker/              # api / bot / web Dockerfiles + nginx template (see docs/DEPLOYMENT.md)
+│   ├── infra/               # Legacy Terraform (AWS, superseded) + operational scripts
 │   ├── alembic/             # Database migrations
 │   ├── docs/                # User docs + specs/
 │   └── icons/               # Unit icon PNGs
@@ -163,8 +165,12 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
 `shared.py` holds the `db_service` / `game_service` singletons, `game_view(game_id)`,
-loggers, notification helpers, and the **deadline scheduler**: a background async task that
-processes turns whose deadline has passed and notifies players.
+loggers, `notify_user` / `notify_players` (which write `bot_outbox` rows — server code never
+talks to Telegram), and the **deadline scheduler**: a background async task that processes
+turns whose deadline has passed, notifies players, and hourly purges delivered outbox rows
+and expired idempotency keys. `bot_outbox.py` (route) is the bot's pull endpoint for those
+rows; `idempotency.py` is the middleware that replays a stored response for a repeated
+`Idempotency-Key`; `client_timestamp.py` normalises the composed-at time the bot sends.
 
 ### Auth
 
@@ -200,16 +206,17 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 
 | File | Purpose |
 |---|---|
-| `app.py` / `__main__.py` | Entry point: wires command and callback handlers, then runs the polling loop and the notification server in parallel. |
-| `config.py`, `api_client.py` | Token/API-URL config; `api_get`, `api_post`, `api_get_bytes`, `wait_for_api_health`. |
-| `game_context.py` | `resolve_game_and_power(user_id, game_id=None)` + `fetch_user_games` — the one place a command figures out which game and power it is acting on. |
+| `app.py` / `__main__.py` | Entry point: wires command and callback handlers, starts the two background loops from `post_init`, runs polling. Starts even when the API is unreachable. |
+| `config.py`, `api_client.py` | Token/API-URL config; `api_get`, `api_post`, `api_get_bytes` (raise `ApiUnreachableError` with a player-ready message), and **`api_post_reliable`** + `drain_outbox_once` — the durable-queue write path for orders and messages. |
+| `outbox.py` | The SQLite durable queue (`DIPLOMACY_BOT_DATA_DIR/outbox.sqlite3`): pending/inflight/delivered/rejected entries with backoff, plus the per-user games cache. |
+| `game_context.py` | `resolve_game_and_power(user_id, game_id=None)` + `fetch_user_games` — the one place a command figures out which game and power it is acting on; falls back to the cached answer when the API is unreachable so orders can still be queued. |
 | `games.py` | `/start`, `/register`, `/games`, `/join`, `/quit`, `/replace`, `/wait`, `/unwait`, `/status`, `/players`. `/wait` and `/unwait` are thin calls to `/waiting_list/*` — the queue is server state. |
 | `orders.py` | `/order`, `/orders`, `/myorders`, `/clearorders`, `/clear`, `/orderhistory`, `/processturn`, `/selectunit` — interactive unit and move selection via inline keyboards driven by `legal_orders`. |
 | `messages.py`, `maps.py` | `/message`, `/broadcast`, `/messages`; `/map`, `/viewmap`, `/replay`. |
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu); `/debug`. |
 | `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`. Centralised because the same block was copy-pasted into three modules and all copies drifted into teaching syntax the engine rejects; `tests/test_bot_help_text.py` parses each documented order through the real grammar. |
 | `channels.py`, `channel_commands.py` | Posting maps, results, and broadcasts to linked channels; `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings`. |
-| `notifications.py` | A small FastAPI app on port 8081 that the main API webhooks into, pushing notifications to players. |
+| `notifications.py` | The two background loops: pull `GET /bot/outbox` and DM players (ack after Telegram accepts; late ones prefixed with their original time), and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
 
 Command reference:
 [`docs/TELEGRAM_BOT_COMMANDS.md`](new_implementation/docs/TELEGRAM_BOT_COMMANDS.md).
@@ -258,10 +265,15 @@ looks falsely green. CI always provides a fresh `postgres:14` container.
 
 ## 10. Infrastructure
 
-`infra/terraform/` provisions one `t3.micro` EC2 in eu-north-1 (nginx + uvicorn +
-Telegram bot + postgresql-16), with secrets in SSM Parameter Store and state in S3. Deploys
-run from GitHub Actions over OIDC + `ssm send-command`. Full walkthrough:
-[`infra/terraform/README.md`](new_implementation/infra/terraform/README.md).
+Production is two Docker Compose stacks joined by the `p2p` repo's WireGuard tunnel:
+`docker-compose.control.yml` on the VPS (`diplomacy_bot`, `diplomacy_web`) and
+`docker-compose.yml` on the home server (`postgres`, `diplomacy_api`). Dockerfiles and the
+nginx template are under `docker/`; `install_home.sh`, `install_vps.sh`, `upgrade.sh` and
+`upgrade_control.sh` mirror p2p's scripts. Full walkthrough:
+[`docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).
+
+`infra/terraform/` is the **superseded** single-EC2 AWS layout (never left running), kept as
+reference; its README is not the deployment guide.
 
 `infra/scripts/` holds `deploy.sh`, `refresh-env.sh`, `start_api_server.py`,
 `run_bot_with_logs.sh`, `setup_test_db.sh`, `reset_database.py`, `migrate_database.py`,
@@ -318,7 +330,7 @@ WAIVE                  # Waive a build
 | HTTP client | httpx + requests |
 | Testing | pytest, pytest-asyncio, pytest-mock, coverage, Hypothesis (engine properties) |
 | Frontend | React 18, Vite, TypeScript, Tailwind, shadcn/ui, Vitest, React Testing Library |
-| Infrastructure | Terraform (AWS), systemd, nginx |
+| Infrastructure | Docker Compose (VPS + home server), WireGuard (shared with p2p), nginx; legacy Terraform (AWS) |
 | Linting | Ruff (strict, pinned version — CI pins to avoid new-release rule-set breakage) |
 
 ---

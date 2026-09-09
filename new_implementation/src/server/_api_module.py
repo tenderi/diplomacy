@@ -30,8 +30,10 @@ from .api import shared as _api_shared
 from .api.shared import deadline_scheduler, db_service
 from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 
+from .api.idempotency import IdempotencyMiddleware
+
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list, bot_outbox
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -186,6 +188,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Replay-safe writes for the bot's retry queue. Reads ``BOT_SECRET`` and
+# ``db_service`` through ``_api_shared`` at request time so tests that
+# monkeypatch either see the change.
+app.add_middleware(
+    IdempotencyMiddleware,
+    get_db=lambda: _api_shared.db_service,
+    get_secret=lambda: _api_shared.BOT_SECRET,
+)
+
 # Register all route modules
 app.include_router(games.router)
 app.include_router(orders.router)
@@ -199,6 +210,7 @@ app.include_router(tournaments.router)
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
 app.include_router(waiting_list.router, tags=["waiting-list"])
+app.include_router(bot_outbox.router, tags=["bot-outbox"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

@@ -341,7 +341,7 @@ class TestServiceExecution:
             from server.telegram_bot.messages import message
             from server.telegram_bot.ui import show_main_menu
             from server.telegram_bot.admin import start_demo_game
-            from server.telegram_bot.notifications import fastapi_app
+            from server.telegram_bot.notifications import start_background_loops
             from server.telegram_bot.channel_commands import link_channel
             from server.telegram_bot.channels import set_telegram_bot
         except ImportError as e:

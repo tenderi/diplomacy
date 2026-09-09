@@ -167,10 +167,14 @@ same socket.
 
 There are three delivery surfaces, and they are not interchangeable:
 
-- **Telegram DM** — `notify_players(numeric_game_id, message, exclude_telegram_id=None)` in
-  `api/shared.py`. POSTs to `DIPLOMACY_NOTIFY_URL` (default `http://localhost:8081/notify`),
-  the small FastAPI server the *bot* runs (`telegram_bot/notifications.py`). Players with a
-  non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not errored.
+- **Telegram DM** — `notify_user(telegram_id, message)` and
+  `notify_players(numeric_game_id, message, exclude_telegram_id=None)` in `api/shared.py`.
+  These **write a row to the `bot_outbox` table** and return; the bot pulls undelivered rows
+  over `GET /bot/outbox` every few seconds and acks them (`POST /bot/outbox/ack`) once
+  Telegram has accepted the message. Server code never talks to Telegram and never pushes
+  at the bot (the port-8081 `/notify` server is gone — see *Split deployment* below).
+  Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
+  errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
 - **Linked channel post** — `telegram_bot/channels.py`. Only fires for games that have a
   channel linked, gated by the per-game `should_auto_post_*` settings; a no-op otherwise.
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
@@ -221,16 +225,61 @@ a veto over, so discovering that one is being negotiated should not require runn
    site.
 2. **Never notify the caller of their own action twice.** A player who presses "process turn"
    gets the resolution in their HTTP response; `exclude_telegram_id` skips their DM.
-3. **Every send is best-effort.** Wrap and log. A Telegram outage must never fail a turn that
-   is already committed to Postgres — the state change is the contract, the notification is not.
+3. **Every send is best-effort at the call site, durable after it.** Wrap and log. A failure
+   to *queue* (the database is down) must never fail a turn that is already committed to
+   Postgres — the state change is the contract, the notification is not. But once queued, a
+   notification is never dropped: only the bot's ack removes it.
 4. **Update this table in the same commit.** It is the only place the full picture exists.
 
 `notify_turn_processed` is deliberately **synchronous** so the sync scheduler path
-(`process_due_deadlines`) and the `async` HTTP route can share it with no bridge. It therefore
-blocks its caller for up to `timeout=2` per player. That is pre-existing on both paths, not
-introduced by the shared helper; moving it off the event loop is a legitimate future change, and
-`_notify_daide_processed` in the same module shows the sync/async bridge pattern to follow if
-anyone does.
+(`process_due_deadlines`) and the `async` HTTP route can share it with no bridge. Since
+notifications became outbox inserts that costs one short database write per player, not the
+two-second HTTP timeout the old push path risked.
+
+## Split deployment and message reliability (Track J)
+
+The bot and the browser client run on a **VPS**; the API and Postgres run on the **home
+server**; a WireGuard tunnel (shared with the `p2p` repo) joins them. The tunnel will be down
+at times, and a deadline may pass while it is. The contract is that **no player message is
+ever lost in either direction** — only delayed, and always with the original time preserved.
+
+**Player → server** (`telegram_bot/outbox.py`, `api_client.api_post_reliable`). Orders and
+diplomatic messages are written to a SQLite queue on the VPS *before* the first attempt.
+Outcomes are exactly `delivered` / `queued` / `rejected`; the handler shows the matching
+reply, and a background loop (`notifications.outbox_replay_loop`) retries queued entries
+strictly in id order — stopping at the first that is still unreachable so nothing overtakes
+an older write — and DMs each result. Each request carries:
+
+- **`client_timestamp`** — when the player composed it (the entry's creation time).
+  `api/client_timestamp.py` normalises it to naive UTC, clamps far-future values, refuses
+  ones older than 30 days. `MessageModel.timestamp` stores it; the recipient's notification
+  gains "(sent HH:MM UTC)" when delivery was noticeably late. **Order submissions composed
+  before `games.phase_started_at` are refused with 409** (`routes/orders.py::_refuse_if_stale`)
+  — the turn was adjudicated without them, and applying last phase's orders to this phase's
+  board would be worse than telling the player. `phase_started_at` is stamped by `GameRepo`
+  on every write that changes `phase_code`.
+- **`Idempotency-Key`** — a UUID per entry. `api/idempotency.py` stores the first response
+  (status + JSON) and replays it, with `Idempotent-Replayed: true`, to any later request with
+  the same key. Honoured only with `X-Bot-Secret`, only for mutating methods, only for
+  responses below 500 (a 5xx should be retried, a 4xx is a definitive answer to relay).
+  Keys expire after 7 days (`run_housekeeping`).
+
+`game_context.fetch_user_games` caches each user's games/powers in the same SQLite file and
+falls back to the cache when the API is unreachable, which is what lets `/order A PAR - BUR`
+resolve *which power you hold* and reach the queue while the server is down.
+
+**Server → player** (`bot_outbox` table, `routes/bot_outbox.py`,
+`notifications.notification_loop`). Described in the section above. Delivery is
+at-least-once: a row is acked only after Telegram accepts the message, so a crash between
+send and ack can repeat a DM. Permanent Telegram failures (user blocked the bot, chat not
+found) are acked as failed with the error kept on the row. Delivered rows are purged after
+7 days.
+
+**What the bot needs to run:** `python-telegram-bot`, `requests`, and a writable
+`DIPLOMACY_BOT_DATA_DIR`. Nothing else — no database URL, no engine, no FastAPI. The Docker
+image installs `requirements-bot.txt` only; `tests/test_execution_context.py` and the image
+build are what keep that boundary honest. The bot starts and stays up whether or not the API
+is reachable; that is the whole point.
 
 ## Frontend
 

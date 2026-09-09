@@ -22,10 +22,18 @@
 
 ## Status
 
-- **Last updated:** 2026-07-30, at `v2.7.67`. `main` green.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–I are complete and
+- **Last updated:** 2026-09-08, at `v2.7.68`. `main` green.
+- **Track J — Split deployment (VPS bot/web + home API) landed as `v2.7.68`** and is archived
+  in [`done_fixes.md`](done_fixes.md). Production is now two Docker Compose stacks over the
+  `p2p` WireGuard tunnel; player writes are queued durably on the VPS and server notifications
+  in Postgres, so a dropped link never loses a message. The full operational guide is
+  [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
+  `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
+  the maintainer's, recorded under Track F below as F3/F4.
+- **Every automated task in this tracker is done again.** Tracks A–E and G–J are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
-  delegated to an agent** — it needs a live bot token and a human at a Telegram client.
+  delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
+  since Track J, shell access to the two hosts).
 - **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
   and it gates nothing.
 - **Track I (map legibility) was opened by the maintainer on 2026-07-30** as F2's first finding
@@ -83,7 +91,19 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
 - **DB-dependent tests skip silently** without `SQLALCHEMY_DATABASE_URL`. A local Postgres is
   configured for this repo (see `.env` and the `local-postgres-for-m6` memory). **A skip means
   something is wrong, not that the DB is unavailable — never trust a green local run without
-  a DB.**
+  a DB.** If the system Postgres is not running and cannot be started, `initdb` + `pg_ctl` as
+  the ordinary user on another port works (Track J was validated that way); note that
+  `alembic/env.py` *overrides* `SQLALCHEMY_DATABASE_URL` from `.env`, so the migration must be
+  run with `.env` moved aside.
+- **The bot never talks to the server except through `api_client`, and player *writes* go
+  through `api_post_reliable`** (Track J). It enqueues to a SQLite outbox before attempting
+  and returns `delivered`/`queued`/`rejected`; the server side answers a repeated
+  `Idempotency-Key` from its stored response and refuses order submissions whose
+  `client_timestamp` predates `games.phase_started_at`. Server code notifies players only via
+  `api/shared.notify_user` (a `bot_outbox` row the bot pulls) — there is no push and no port
+  8081. A new write path that bypasses either half of this quietly reintroduces message loss.
+  The bot image installs `requirements-bot.txt` only; `channels.py`'s lazy `api.shared`
+  imports are the one tolerated seam and are caught.
 - **No Node toolchain on this dev machine by default.** Frontend gates (`tsc`, Vitest,
   `npm run build`) cannot run until a local Node 22 is fetched, despite `CLAUDE.md`
   documenting them as normal gates. An agent that reports "could not run the frontend gates"
@@ -194,6 +214,27 @@ to use, which no test asserts.
       [`done_fixes.md`](done_fixes.md) — start a **"Track J"** rather than reopening either.
       Track I is precedent for how this goes: it began as one F2 complaint about map size and
       turned up three further renderer defects on the way.)
+
+## F3 — Bring the split deployment up on the two hosts (Track J follow-through)
+
+- [ ] On `kattotuuletin.local`: `./install_home.sh`, fill `.env`, `docker compose up -d`,
+      confirm `curl http://10.8.0.2:8000/healthz` from the VPS.
+- [ ] On the VPS: `./install_vps.sh`, `TELEGRAM_BOT_TOKEN` + the printed bot secret,
+      `docker compose -f docker-compose.control.yml up -d`; confirm TCP 80 is permitted by the
+      UpCloud network firewall (separate from `ufw`).
+- [ ] Exercise the queue for real: stop `wg-quick@wg0` at home, send `/order` and `/message`
+      from Telegram, check `/queue`, restart the tunnel, confirm the delivered reports arrive
+      and the message shows its original time.
+- [ ] Decide what to do with the home server's existing p2p `docker-compose.yml` stack: both
+      stacks bind the tunnel address on different ports (8081 vs 8000), so they coexist.
+
+## F4 — TLS in front of the web frontend
+
+- [ ] A hostname for the VPS, Caddy (or certbot + nginx) terminating TLS in front of
+      `diplomacy_web`, `WEB_BIND=127.0.0.1`, and `DIPLOMACY_PASSWORD_RESET_BASE_URL` at home
+      set to the `https://` URL. The login form must not stay on plain HTTP once anyone but
+      the maintainer uses it. Was "known infra gap" under *Out of scope* below; it now has a
+      concrete place to live.
 
 ## F2 — Human judgement pass on the restructured web game screen
 

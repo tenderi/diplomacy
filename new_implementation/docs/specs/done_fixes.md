@@ -27,6 +27,7 @@
 | **C — Security & gameplay gaps** | CI gate, brute-force limits, draw/concede, DAIDE decision (C1–C4) | `v2.7.46`–`v2.7.48` |
 | **D — Full DAIDE protocol** | Real binary wire protocol + listener (D1–D5) | `v2.7.34`–`v2.7.43` |
 | **E — Client UX** | Resolution exposure + both client surfaces (E1–E4) | `v2.7.51`–`v2.7.55` |
+| **J — Split deployment** | Bot + web on the VPS, API at home, no message ever lost (J1–J4) | `v2.7.68` |
 
 Track A's *manual* end-to-end acceptance check was never completed and did **not** move here —
 it is Track F in `fix_plan.md`.
@@ -2383,3 +2384,151 @@ curved arrow's head along the chord instead of the curve's tangent — initially
 tests**, because that test only counted `polygon` calls and never checked the head's direction.
 It now asserts the head axis against the analytic bezier tangent. That is the third recorded
 instance in this project of a test sitting next to the bug rather than on it.
+
+
+---
+
+# Track J — Split deployment: bot + web on the VPS, API at home, no message ever lost
+
+## Why this track exists
+
+The maintainer asked (2026-09-08) for the frontend — the Telegram bot and the browser client —
+to be separated from the game service the way the `p2p` repo split its Telegram bot onto a
+VPS, using **the same VPS**, with the service itself on the home server
+`kattotuuletin.local`, and with one hard requirement: *"In case of flaky connection between
+VPS and my home server, the bot should just queue the messages with original timestamp and
+send them to the server when possible. No message should ever be lost."*
+
+There was no production deployment to migrate from (Track H). What existed was a single-host
+design in which the API `requests.post`ed every player DM at a FastAPI server the bot ran on
+port 8081, with `timeout=2` and the failure logged and forgotten, and in which the bot exited
+at startup if the API did not answer its health check. Both of those are exactly wrong for
+two hosts on opposite ends of a residential uplink.
+
+## What landed (`v2.7.68`)
+
+### J1 — Server → player notifications are durable and pulled
+
+- `bot_outbox` table (`BotOutboxModel`, migration `h6b2c3d4e5f6`). `api/shared.notify_user`
+  writes a row; `notify_players` loops over it. Every former `requests.post(NOTIFY_URL, …)`
+  site (`shared.py`, `routes/games.py` join/quit, `routes/messages.py` private message,
+  `routes/waiting_list.py`) now goes through it. `NOTIFY_URL` is gone.
+- `routes/bot_outbox.py`: `GET /bot/outbox`, `POST /bot/outbox/ack`, `GET /bot/outbox/stats`,
+  all behind a new `require_bot_secret` dependency (a browser JWT is *not* accepted — the
+  endpoint hands out other players' pending DMs).
+- The bot's `notifications.py` is rewritten: no listener; a loop pulls every 3 s, sends, and
+  acks only what Telegram accepted. Permanent Telegram failures (`Forbidden`, `BadRequest`)
+  are acked as failed with the error kept; transient ones (`NetworkError`, `TimedOut`,
+  `RetryAfter`) stop the batch so ordering holds. Late deliveries are prefixed
+  `⏱ Delayed notification (from HH:MM UTC):`.
+- Housekeeping in the deadline scheduler purges delivered rows and expired idempotency keys
+  hourly.
+
+### J2 — Player → server writes are durable, ordered, replay-safe, and timestamped
+
+- `telegram_bot/outbox.py`: a SQLite queue (WAL, `synchronous=FULL`) under
+  `DIPLOMACY_BOT_DATA_DIR`. States pending/inflight/delivered/rejected; exponential backoff
+  5→60 s; in-flight entries reset to pending on restart; per-chat listing for `/queue`.
+- `api_client.api_post_reliable` enqueues *before* the first attempt and returns exactly one
+  of `delivered`/`queued`/`rejected`; `drain_outbox_once` retries in id order and stops at
+  the first transient failure. Transport errors and 502/503/504 are transient; any other
+  4xx/5xx is final. The five write paths that matter — `/message`, `/broadcast`, `/order`,
+  `/orders`, the interactive `submit_interactive_order`, `/clearorders`, and the inline
+  clear-orders button — use it. Everything else keeps `api_post`/`api_get`, which now raise
+  `ApiUnreachableError` whose `str()` is a player-ready sentence.
+- Each request carries `Idempotency-Key` (a UUID) and `client_timestamp` (the entry's
+  creation time). `api/idempotency.py` (Starlette middleware) stores the first response and
+  replays it with `Idempotent-Replayed: true`; only with `X-Bot-Secret`, only mutating
+  methods, only statuses below 500. `api/client_timestamp.py` normalises to naive UTC, clamps
+  far-future values, refuses >30 days old.
+- `messages.timestamp` is the composed-at time; the recipient's notification says
+  `(sent HH:MM UTC)` when it was delayed. **A broadcast no longer echoes to its sender** —
+  rule 2 of the notification matrix applied; the sender has the bot's own confirmation.
+- **Stale orders are refused, not applied.** `games.phase_started_at` (stamped by `GameRepo`
+  on every write that changes `phase_code`, including `create`) is compared with
+  `client_timestamp` in `POST /games/set_orders` and `.../clear`; older → 409 with a detail
+  the bot shows verbatim. The alternative — applying last phase's orders to this phase's
+  board — would have been silent data corruption dressed up as reliability.
+- `game_context.fetch_user_games` caches per-user games/powers in the same SQLite file and
+  falls back to it when unreachable, so `/order A PAR - BUR` still resolves the power and
+  reaches the queue while the server is down. Without this the queue was unreachable for
+  exactly the commands it existed for.
+- `/queue` command; `/order`-style replies say "queued … Sent at HH:MM UTC … I will message
+  you with the result".
+- The bot starts even when the API is down (`wait_for_api_health(max_attempts=3)` is now
+  informational). The old `BOT_ONLY` / `START_NOTIFY_SERVER` branches are gone.
+
+### J3 — Deployment, mirroring `p2p`
+
+- `docker/api.Dockerfile` (python:3.14-slim + libcairo2; entrypoint runs `alembic upgrade
+  head`), `docker/bot.Dockerfile` (installs **`requirements-bot.txt` only**:
+  `python-telegram-bot` + `requests`; heartbeat-file healthcheck), `docker/web.Dockerfile`
+  (node:22 build with `VITE_API_URL=/api` → nginx serving the SPA and proxying `/api/` to
+  the tunnel address; template in `docker/web-nginx.conf.template`).
+- `docker-compose.yml` (home: `postgres`, `diplomacy_api` published on `127.0.0.1` and
+  `${WG_IP:-10.8.0.2}` only, DAIDE on loopback) and `docker-compose.control.yml` (VPS:
+  `diplomacy_bot` with a `bot_data` volume, `diplomacy_web` on `${WEB_PORT:-80}`).
+  `.env.example` / `.env.control.example`; `.gitignore` un-ignores exactly those two.
+- `install_home.sh` (Arch; generates the four secrets, verifies wg0 and p2p's docker
+  drop-in rather than duplicating them), `install_vps.sh` (Debian), `upgrade.sh`,
+  `upgrade_control.sh`. Reuses p2p's tunnel end to end: nothing new is opened at home.
+- `docs/DEPLOYMENT.md` is the operational guide; CLAUDE.md's "Deployment (AWS)" section is
+  replaced; `infra/terraform/README.md` carries a SUPERSEDED banner; the Terraform and
+  `deploy.yml` (still gated off) are kept as reference.
+
+### J4 — Tests and docs
+
+- New: `test_bot_outbox.py` (10), `test_api_client_reliable.py` (15),
+  `test_bot_reliable_handlers.py` (9), `test_bot_outbox_api.py` (7), `test_idempotency.py`
+  (5), `test_client_timestamp.py` (11). `tests/reliability_helpers.py` provides
+  `OutboxProbe` (read the outbox table between two points, the way tests used to read a
+  mocked `requests.post`) and `delivered()`/`queued()`/`rejected()` result builders.
+- Rewritten to the probe: `test_turn_notifications.py`, `test_draw_concede_notifications.py`,
+  `test_waiting_list.py`. Retargeted to `api_post_reliable`: two tests in
+  `test_bot_ux_improvements.py`, three in `test_interactive_orders.py`.
+  `test_execution_context.py` imports `start_background_loops` instead of the dead
+  `fastapi_app`.
+- `conftest.py` points `DIPLOMACY_BOT_DATA_DIR` at a temp dir so no test writes `bot_data/`.
+- Specs: `architecture.md` (Notifications rewritten; new *Split deployment and message
+  reliability* section), `data_spec.md` (new tables/columns), `telegram_channel_integration.md`
+  (see finding below), `TELEGRAM_BOT_COMMANDS.md` (`/queue` + the offline behaviour),
+  `LOCAL_DEVELOPMENT.md`, `src/server/README.md`, `CODEBASE_OVERVIEW.md`, `README.md`.
+
+## Findings recorded rather than folded in silently
+
+- **Server-side channel auto-posting has never fired in any deployment.** `channels.py`
+  posts through a module-level `Bot` set only by the bot process; the API process never
+  sets it, so every `post_*_to_channel` call from `api/shared.py` and `routes/messages.py`
+  logs "Telegram bot not initialized" and returns `None`. The split changes nothing here;
+  the fix is a non-`dm` outbox `kind` (the schema already allows it) rendered by the bot.
+  Recorded in `telegram_channel_integration.md`; not done, since it is a pre-existing gap
+  outside the request.
+- **`int("8176578_6") == 81765786`.** `notify_players`' "skip non-numeric ids" guard is
+  `int()`-based, and Python's `int()` accepts underscores. Test ids built from
+  `f"…_{seq}"` were therefore *not* skipped, and were queued under a different string than
+  the test compared against. Tests now build purely numeric ids. The guard itself was left
+  as-is: real Telegram ids never contain underscores, and tightening it to `isdigit()` was a
+  behaviour change with no production case behind it.
+- **`alembic/env.py` overrides `SQLALCHEMY_DATABASE_URL` from `.env` unconditionally**, the
+  opposite of `python-dotenv`'s default everywhere else in the repo. Validating the migration
+  on a scratch Postgres required moving `.env` aside for the duration. Noted in *Carried-over
+  facts*; not changed, because changing precedence silently would surprise the local setup
+  that relies on it.
+- **`GameRepo.save_state` sets `updated_at = datetime.now(timezone.utc)`** — a tz-aware value
+  into a naive column, the very pattern `CLAUDE.md` warns shifts timestamps on non-UTC
+  connections. `phase_started_at` deliberately uses `utcnow_naive()` instead of reusing
+  `updated_at`. `updated_at` was left alone; it is not read for anything load-bearing.
+
+## Verification
+
+- Full suite against a real (scratch) Postgres 18: **1548 passed, 11 skipped, 10 xfailed**;
+  engine coverage 93.44 % (floor 92), overall 70.91 % (floor 60); ruff clean.
+- Migration chain: `upgrade head` from an empty database, `downgrade -1`, `upgrade head`
+  again, all clean; `\d bot_outbox` and `games.phase_started_at` verified.
+- The bot package imports in a venv containing only `requirements-bot.txt`, with
+  `sqlalchemy`, `fastapi` and `engine` absent from `sys.modules` afterwards — the boundary
+  the Docker image depends on.
+- Not verified here (no Docker or Node on the dev machine): the three image builds and the
+  compose files under a real daemon. Both compose files were written against p2p's known-good
+  patterns and `bash -n`-checked scripts; the frontend build is exercised by CI's `frontend`
+  job. **F3 in `fix_plan.md` is the on-host verification.**

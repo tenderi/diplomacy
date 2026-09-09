@@ -82,6 +82,10 @@ ruff check src/ && ruff format src/
 cd frontend && npm install && npm run dev  # :5173, proxies /auth /games /users to :8000
 npm run build                              # → frontend/dist; API serves it at /app when present
 npm run test:run                           # Vitest + React Testing Library
+
+# Production (see docs/DEPLOYMENT.md)
+docker compose up -d                                   # home server: postgres + API
+docker compose -f docker-compose.control.yml up -d     # VPS: bot + web
 ```
 
 **Local gates before every push** (mirrors CI):
@@ -102,14 +106,22 @@ DB-dependent tests need `SQLALCHEMY_DATABASE_URL` (or `DIPLOMACY_DATABASE_URL`);
 
 ## Architecture
 
-Five components, all over one Postgres database:
+Five components, all over one Postgres database. In production the first two run on a
+**VPS** and everything else on the **home server**, joined by a WireGuard tunnel (see
+[Deployment](#deployment-vps--home-server)):
 
 ```
-Telegram Bot ──┐
-React SPA ─────┼──► FastAPI (:8000) ──► GameService ──► GameRepo ──► Postgres
+Telegram Bot ──┐  (VPS)
+React SPA ─────┼──► FastAPI (:8000) ──► GameService ──► GameRepo ──► Postgres   (home)
 DAIDE clients ─┘         │                   │
                          └── engine.Game (pure logic, no I/O) ──► src/rendering (PNG maps)
 ```
+
+The bot never receives pushes. The API writes player notifications to the `bot_outbox`
+table and the bot pulls them; the bot keeps its own durable SQLite queue of player writes
+(orders, messages) and replays them with an `Idempotency-Key` and the original
+`client_timestamp` when the API is unreachable. `docs/specs/architecture.md` §Notifications
+and §Split deployment have the full contract.
 
 Full writeups: [`docs/specs/architecture.md`](new_implementation/docs/specs/architecture.md) (packages, boundaries, DAIDE), [`docs/specs/adjudication.md`](new_implementation/docs/specs/adjudication.md) (the resolver), [`docs/specs/data_spec.md`](new_implementation/docs/specs/data_spec.md) (types, serialization, DB columns, API view shape).
 
@@ -149,53 +161,43 @@ FastAPI app assembled in `_api_module.py`:
 
 ### Telegram bot (`src/server/telegram_bot/`)
 
-A thin client over the HTTP API (`api_client.py`) — it never talks to the engine or DB, and never renders maps locally. Entry point is `app.py` / `__main__.py`; **there must never be a `telegram_bot.py` module**, which shadows the package and breaks `python -m server.telegram_bot`. Command modules are split by domain (`games`, `orders`, `messages`, `maps`, `admin`, `channels`, `channel_commands`, `ui`), plus `game_context.py` (`resolve_game_and_power`) and `notifications.py`, which runs a small FastAPI server on port 8081 that the main API webhooks into.
+A thin client over the HTTP API (`api_client.py`) — it never talks to the engine or DB, and never renders maps locally. Its only dependencies are `python-telegram-bot` and `requests` (`requirements-bot.txt`; the Docker image installs nothing else — keep it that way). Entry point is `app.py` / `__main__.py`; **there must never be a `telegram_bot.py` module**, which shadows the package and breaks `python -m server.telegram_bot`. Command modules are split by domain (`games`, `orders`, `messages`, `maps`, `admin`, `channels`, `channel_commands`, `ui`), plus `game_context.py` (`resolve_game_and_power`, with a per-user cache so it resolves offline).
+
+**Reliability (Track J).** `outbox.py` is a SQLite-backed durable queue under `DIPLOMACY_BOT_DATA_DIR`. Writes that must never be lost — orders and diplomatic messages — go through `api_client.api_post_reliable`, which enqueues *before* attempting and returns `delivered` / `queued` / `rejected`; the handler shows the matching reply. `notifications.py` runs two background loops from `post_init`: one pulls `GET /bot/outbox` and DMs players (acking only after Telegram accepts), one replays the local queue in order and DMs each result. There is no port 8081 and no inbound listener of any kind. When adding a new player *write*, use `api_post_reliable`; reads and retryable interactive actions (join, waiting list) keep using `api_post`/`api_get`, which raise `ApiUnreachableError` with a player-ready message.
 
 ### Frontend (`frontend/`)
 
 React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/games/:id`. Add a component with `npx shadcn@latest add <component>`. Any test touching a `/games/:id` page must wrap it in `<Routes><Route path="/games/:gameId" …>` — a bare `MemoryRouter` leaves `useParams()` unresolved and silently tests the loading spinner.
 
-## Deployment (AWS) — **not currently running**
+## Deployment (VPS + home server)
 
-**There is no production server at the time of writing (confirmed 2026-07-30).** No EC2
-instance, no live systemd units, no GitHub OIDC role. This section describes how to *stand it
-up*, not what is running. Treat every statement below as conditional on someone having done so.
+Production is **split across two hosts**, the same shape as the `p2p` repo, and reuses that
+repo's WireGuard tunnel (VPS `10.8.0.1`, home `10.8.0.2`):
 
-Consequences worth knowing before you reason about anything else:
+- **VPS — control layer** (`docker-compose.control.yml`): `diplomacy_bot` (the Telegram bot,
+  `docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
+  built SPA and proxying `/api/` across the tunnel, `docker/web.Dockerfile`). Holds a Telegram
+  token and `DIPLOMACY_BOT_SECRET`. Nothing else.
+- **Home server `kattotuuletin.local` — game layer** (`docker-compose.yml`): `postgres` and
+  `diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint). The API is
+  published on loopback and on the tunnel address only — never a bare `8000:8000`.
 
-- **Nothing is deployed, so nothing breaks when you merge.** The `Deploy` workflow is gated off
-  (see below) and does not run.
-- **Security notes elsewhere in this repo that cite the deployment are conditional on it.** In
-  particular: C1's `# nosec` justifications, C2's per-IP rate-limit threat model, and the
-  assumptions that `/tmp` is single-tenant, that nginx proxies only from loopback, and that port
-  8081 (the bot's notification server) is closed by a security group. **None of those hold on a
-  developer machine or in any other deployment.** If you are deciding whether a bind address or a
-  temp path is safe, that reasoning assumed this AWS layout — re-derive it for wherever the code
-  actually runs.
-- `HTTPS/TLS` was never set up even when the instance existed; it served HTTP on port 80.
+Scripts, all in `new_implementation/`: `install_home.sh` (Arch; generates the secrets and
+prints the bot secret to copy to the VPS), `install_vps.sh` (Debian), `upgrade.sh`,
+`upgrade_control.sh`. `.env.example` / `.env.control.example` are the two env files, and the
+separation is the point: no database URL or JWT secret ever goes to the VPS.
 
-The intended shape, if it is stood up again: one `t3.micro` in **eu-north-1** running nginx +
-uvicorn + python-telegram-bot + postgresql-16 (Ubuntu 24.04, Python 3.14 from the deadsnakes
-PPA); secrets in SSM Parameter Store as SecureStrings under `/diplomacy/*`, never in tfstate or
-the repo; Terraform state in S3 with the native lockfile (Terraform 1.10+, no DynamoDB); access
-by SSH (single IP) and SSM Session Manager; systemd units `diplomacy-api` and `diplomacy-bot`.
+**The full operational guide — setup, ports and the UpCloud firewall, TLS, monitoring,
+troubleshooting — is [`new_implementation/docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).**
 
-**The full bootstrap and operational walkthrough — including secret rotation via
-`infra/scripts/refresh-env.sh` and the CI deploy path — lives in
-[`new_implementation/infra/terraform/README.md`](new_implementation/infra/terraform/README.md).**
-The Terraform, `infra/scripts/deploy.sh`, and `.github/workflows/deploy.yml` are all still in the
-repo and were working code; they are kept so this is a re-apply rather than a rewrite.
+**No message is ever lost across the tunnel.** Player writes are queued durably on the VPS
+and replayed with the original timestamp; server notifications are committed to Postgres and
+pulled by the bot. See the Telegram bot section above and `docs/specs/architecture.md`.
 
-**Deploy-on-merge is gated off.** `.github/workflows/deploy.yml` runs only when the repository
-variable `DEPLOY_ENABLED` is set to `true`. It previously triggered on every green `main` push
-and failed **40 times out of 40** on `sts:AssumeRoleWithWebIdentity`, because the OIDC role it
-assumes does not exist — so every merge produced a red workflow that was *expected* to be red,
-which is precisely the condition that trains a maintainer to ignore CI failures. To re-enable
-after standing the infrastructure up:
-
-```bash
-gh variable set DEPLOY_ENABLED --body true -R tenderi/diplomacy
-```
+Things that are *not* automated: deploy-on-merge (the AWS workflow in
+`.github/workflows/deploy.yml` stays gated off; run `./upgrade.sh` / `./upgrade_control.sh` on
+the hosts), and TLS (see `docs/DEPLOYMENT.md`). The Terraform under `infra/terraform/` describes
+the previous single-EC2 layout, which never ran in anger; it is kept as reference only.
 
 ## Conventions and gotchas
 

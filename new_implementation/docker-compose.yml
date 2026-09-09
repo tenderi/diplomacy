@@ -1,0 +1,79 @@
+# GAME LAYER — runs on the HOME server (kattotuuletin.local).
+#
+# Postgres and the FastAPI server. Nothing here talks to Telegram or listens
+# on the public internet. The API is published on loopback and on this host's
+# WireGuard address only, so the bot and the web frontend on the VPS reach it
+# across the tunnel and nothing else can.
+#
+# The tunnel is the same wg0 the p2p stack already runs (VPS 10.8.0.1, home
+# 10.8.0.2). p2p's install.sh also installed the docker.service drop-in that
+# orders Docker after wg-quick@wg0, which this stack relies on: the API port
+# binding to 10.8.0.2 fails if the interface does not exist yet.
+#
+# Usage:  docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=diplomacy
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (install_home.sh generates one)}
+      - POSTGRES_DB=diplomacy_db
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diplomacy -d diplomacy_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: always
+
+  diplomacy_api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      - SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy:${POSTGRES_PASSWORD}@postgres:5432/diplomacy_db
+      - DIPLOMACY_ENVIRONMENT=production
+      - DIPLOMACY_JWT_SECRET=${DIPLOMACY_JWT_SECRET:?set DIPLOMACY_JWT_SECRET in .env}
+      - DIPLOMACY_ADMIN_TOKEN=${DIPLOMACY_ADMIN_TOKEN:?set DIPLOMACY_ADMIN_TOKEN in .env}
+      # Shared with the bot on the VPS; must match its DIPLOMACY_BOT_SECRET exactly.
+      - DIPLOMACY_BOT_SECRET=${DIPLOMACY_BOT_SECRET:?set DIPLOMACY_BOT_SECRET in .env}
+      # Where the browser client lives (the VPS); used in password-reset links.
+      - DIPLOMACY_PASSWORD_RESET_BASE_URL=${DIPLOMACY_PASSWORD_RESET_BASE_URL:-}
+      # The web frontend proxies same-origin through nginx, so CORS is not
+      # needed for it; keep this tight anyway.
+      - DIPLOMACY_CORS_ORIGINS=${DIPLOMACY_CORS_ORIGINS:-http://localhost:5173}
+      - DIPLOMACY_LOG_LEVEL=${DIPLOMACY_LOG_LEVEL:-INFO}
+      - DIPLOMACY_SMTP_HOST=${DIPLOMACY_SMTP_HOST:-}
+      - DIPLOMACY_SMTP_PORT=${DIPLOMACY_SMTP_PORT:-587}
+      - DIPLOMACY_SMTP_USE_TLS=${DIPLOMACY_SMTP_USE_TLS:-1}
+      - DIPLOMACY_SMTP_USER=${DIPLOMACY_SMTP_USER:-}
+      - DIPLOMACY_SMTP_PASSWORD=${DIPLOMACY_SMTP_PASSWORD:-}
+      - DIPLOMACY_SMTP_FROM=${DIPLOMACY_SMTP_FROM:-}
+    ports:
+      # NEVER a bare "8000:8000": that binds every interface, including the
+      # LAN. Loopback for local checks, the WireGuard address for the VPS.
+      # If wg0 is down the second bind fails and the container restart-loops
+      # until it is up -- loud, and the right behaviour.
+      - 127.0.0.1:8000:8000
+      - ${WG_IP:-10.8.0.2}:8000:8000
+      # DAIDE (AI bots over TCP). Loopback only unless DAIDE_BIND says
+      # otherwise; it has no place on the tunnel.
+      - ${DAIDE_BIND:-127.0.0.1}:8432:8432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: always
+
+volumes:
+  pg_data:
