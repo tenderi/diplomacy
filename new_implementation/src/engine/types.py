@@ -379,14 +379,6 @@ class Resolution:
 
     results: tuple[OrderResult, ...] = ()
 
-    def for_unit(self, loc: Location) -> Optional[OrderResult]:
-        """Return the result whose order acts on the unit at ``loc``, if any."""
-        for r in self.results:
-            unit_loc = getattr(r.order, "unit", None) or getattr(r.order, "location", None)
-            if unit_loc == loc:
-                return r
-        return None
-
 
 # ---------------------------------------------------------------------------
 # GameState

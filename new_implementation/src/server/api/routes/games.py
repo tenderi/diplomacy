@@ -682,7 +682,6 @@ def quit_game(
                 raise HTTPException(status_code=404, detail="Player not found in game")
         # Unassign the user from the player slot
         try:
-            db_service.delete_orders_by_player_id(int(player.id))  # type: ignore
             player.user_id = None  # type: ignore
             setattr(player, 'is_active', False)  # type: ignore
             db_service.update_player_is_active(int(player.id), False)  # type: ignore

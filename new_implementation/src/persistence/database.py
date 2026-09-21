@@ -632,13 +632,6 @@ def create_database_schema(database_url: str):
     return create_engine(database_url)
 
 
-def clear_database(database_url: str):
-    """Clear all data from the database (for migration)"""
-    engine = create_engine(database_url)
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-    return engine
-
 
 def get_session_factory(database_url: str):
     """Get a session factory for database operations"""

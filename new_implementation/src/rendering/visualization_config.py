@@ -249,16 +249,3 @@ def get_config() -> VisualizationConfig:
         _config_instance = VisualizationConfig()
     return _config_instance
 
-
-def reload_config() -> VisualizationConfig:
-    """
-    Force reload the configuration from file.
-    Useful after config changes or for testing.
-    
-    Returns:
-        New VisualizationConfig instance
-    """
-    global _config_instance
-    _config_instance = VisualizationConfig()
-    return _config_instance
-

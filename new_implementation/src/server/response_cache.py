@@ -265,14 +265,13 @@ class ResponseCache:
 # Global response cache instance
 _response_cache = ResponseCache()
 
-def cached_response(ttl: int = None, key_params: list = None, invalidate_on: list = None):
+def cached_response(ttl: int = None, key_params: list = None):
     """
     Decorator for caching API responses.
     
     Args:
         ttl: Time-to-live in seconds (uses default if None)
         key_params: List of parameter names to include in cache key
-        invalidate_on: List of endpoints that should invalidate this cache
     """
     def decorator(func: Callable) -> Callable:
         @wraps(func)
