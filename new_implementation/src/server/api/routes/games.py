@@ -37,9 +37,12 @@ class AddPlayerRequest(BaseModel):
 
 class SetDeadlineRequest(BaseModel):
     deadline: Optional[datetime]
-    # The bot sends the caller's id so the route can check they are in the game
-    # and leave them out of the "deadline set" fan-out (they get the reply).
+    # The bot sends the caller's id (+ bot_secret, injected by api_post) so the
+    # route can check they are in the game and leave them out of the
+    # "deadline set" fan-out (they get the reply). A browser caller is the
+    # Bearer user.
     telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
 
 class JoinGameRequest(BaseModel):
     """Body for ``POST /games/{game_id}/join``.
@@ -793,7 +796,8 @@ def get_deadline(game_id: str) -> dict[str, Optional[str]]:
 def set_deadline(
     game_id: str,
     req: SetDeadlineRequest,
-    _: None = Depends(require_bot_or_user),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> dict[str, Optional[str]]:
     """Set the deadline for a game.
 
@@ -806,16 +810,15 @@ def set_deadline(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
-    if req.telegram_id is not None:
-        # Bot path: the secret proves the request came from the bot, not that
-        # this player belongs here. Same membership rule as process_turn.
-        user = db_service.get_user_by_telegram_id(req.telegram_id)
-        member = (
-            db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
-            if user is not None else None
-        )
-        if member is None:
-            raise HTTPException(status_code=403, detail="You are not a player in this game.")
+    # Whoever the caller is -- Bearer user, or telegram_id + bot_secret -- they
+    # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
+    # could omit telegram_id and set any game's deadline unchecked.
+    user = resolve_user_or_telegram(
+        credentials, req.telegram_id, bot_secret=req.bot_secret or x_bot_secret
+    )
+    member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
+    if member is None:
+        raise HTTPException(status_code=403, detail="You are not a player in this game.")
     try:
         db_service.update_game_deadline(int(game.id), req.deadline)
     except Exception as e:
@@ -837,7 +840,7 @@ def set_deadline(
             )
         else:
             text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."
-        notify_players(int(game.id), text, exclude_telegram_id=req.telegram_id)
+        notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
     except Exception as e:
         scheduler_logger.error(f"Failed to notify deadline change for game {game_id}: {e}")
     return {"status": "ok", "deadline": req.deadline.isoformat() if req.deadline else None}

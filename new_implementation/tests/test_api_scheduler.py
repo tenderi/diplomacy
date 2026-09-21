@@ -13,16 +13,29 @@ from unittest.mock import patch
 def _auth_headers(client: TestClient) -> dict:
     """Register a fresh user and return Bearer auth headers for it.
 
-    ``/games/create`` and ``POST /games/{id}/deadline`` both require
-    ``require_bot_or_user`` (Bearer token or X-Bot-Secret); a plain unauthenticated
-    call gets 401, not the endpoint's own logic, so every test below that hits
-    either of those needs a real token.
+    ``/games/create`` requires ``require_bot_or_user`` (Bearer token or
+    X-Bot-Secret); a plain unauthenticated call gets 401, not the endpoint's own
+    logic, so every test below that hits it needs a real token.
     """
     email = f"sched_{int(time.time() * 1000000)}@example.com"
     reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
     if reg.status_code != 200:
         pytest.skip("Database not available for scheduler test")
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+
+def _create_game_as_player(client: TestClient, headers: dict) -> str:
+    """Create a game and seat its creator as FRANCE.
+
+    ``POST /games/{id}/deadline`` is for the game's *players* (Track T): a
+    Bearer user who merely created the game is not one until they join.
+    """
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    game_id = resp.json()["game_id"]
+    join = client.post(f"/games/{game_id}/join", json={"power": "FRANCE"}, headers=headers)
+    assert join.status_code == 200, join.text
+    return game_id
 
 
 def test_scheduler_status():
@@ -37,9 +50,7 @@ def test_deadline_endpoints():
     client = TestClient(app)
     headers = _auth_headers(client)
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    assert resp.status_code == 200
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     # Set a deadline
     deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": deadline}, headers=headers)
@@ -67,8 +78,7 @@ def test_deadline_past_on_startup():
     client = TestClient(app)
     headers = _auth_headers(client)
     # Create a game
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     # Set a deadline in the past
     past_deadline = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": past_deadline}, headers=headers)
@@ -87,10 +97,8 @@ def test_overlapping_deadlines():
     client = TestClient(app)
     headers = _auth_headers(client)
     # Create two games
-    resp1 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game1_id = resp1.json()["game_id"]
-    resp2 = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game2_id = resp2.json()["game_id"]
+    game1_id = _create_game_as_player(client, headers)
+    game2_id = _create_game_as_player(client, headers)
     # Set deadlines a few seconds apart
     now = datetime.datetime.now(datetime.timezone.utc)
     deadline1 = (now + datetime.timedelta(seconds=2)).isoformat()
@@ -121,8 +129,7 @@ def test_reminder_and_notification():
     """
     client = TestClient(app)
     headers = _auth_headers(client)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     # Set a deadline 11 minutes from now (reminder window opens at 10 min out).
     now = datetime.datetime.now(datetime.timezone.utc)
     deadline = (now + datetime.timedelta(minutes=11)).isoformat()
@@ -140,8 +147,7 @@ def test_deadline_set_to_now():
     """Test that a deadline set to now is processed immediately."""
     client = TestClient(app)
     headers = _auth_headers(client)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now}, headers=headers)
     assert resp.status_code == 200
@@ -160,8 +166,7 @@ def test_manual_processing_never_imposes_a_deadline():
     holding -- then clear it, so alternate phases had an auto-deadline."""
     client = TestClient(app)
     headers = _auth_headers(client)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
 
     resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
@@ -174,8 +179,7 @@ def test_manual_processing_spends_an_explicit_deadline():
     phase is processed by hand it is cleared rather than carried over."""
     client = TestClient(app)
     headers = _auth_headers(client)
-    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
-    game_id = resp.json()["game_id"]
+    game_id = _create_game_as_player(client, headers)
     future = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)).isoformat()
     assert client.post(f"/games/{game_id}/deadline", json={"deadline": future}, headers=headers).status_code == 200
     assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is not None

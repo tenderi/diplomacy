@@ -6,10 +6,9 @@ HTTP API. That lookup used to be reimplemented inline at ~19 call sites
 across ``orders.py``, ``games.py``, ``ui.py``, ``messages.py``, and
 ``channel_commands.py`` -- copy-pasted, and in three spots (``orders.py``
 ``/myorders``, ``/clearorders``, ``/orderhistory``) pointed at the wrong,
-dead endpoint (``GET /users/{id}``, which reads the in-memory
-``user_sessions`` dict that is only ever populated by ``POST
-/users/register``, a route the bot never calls -- so it always 404s). This
-module is the single place that logic lives now.
+dead endpoint (``GET /users/{id}``, an in-memory session store the bot never
+populated -- so it always 404'd; removed in Track T). This module is the
+single place that logic lives now.
 """
 from __future__ import annotations
 

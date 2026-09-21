@@ -64,7 +64,12 @@ def _as(tg, **extra):
     return {"telegram_id": tg, "bot_secret": BOT_SECRET, **extra}
 
 
+_BOT = {"X-Bot-Secret": BOT_SECRET}
+
+
 class TestQuit:
+    BOT = _BOT
+
     def test_quit_clears_user_id_and_marks_inactive(self, client):
         game_id, a = _game_with_france(client)
         r = client.post(f"/games/{game_id}/quit", json=_as(a))
@@ -83,7 +88,7 @@ class TestQuit:
         assert client.post(f"/games/{game_id}/draw_vote", json=_as(a, power="FRANCE", vote=True)).status_code == 403
         assert client.post(f"/games/{game_id}/concede", json=_as(a, power="FRANCE")).status_code == 403
         assert client.post(f"/games/{game_id}/quit", json=_as(a, power="FRANCE")).status_code == 403
-        assert client.get(f"/users/{a}/games").json()["games"] == []
+        assert client.get(f"/users/{a}/games", headers=self.BOT).json()["games"] == []
 
     def test_pending_orders_survive_a_quit_for_the_replacement(self, client):
         game_id, a = _game_with_france(client)
@@ -94,6 +99,8 @@ class TestQuit:
 
 
 class TestFillingAVacatedSeat:
+    BOT = _BOT
+
     def test_replace_assigns_the_new_user(self, client):
         game_id, a = _game_with_france(client)
         client.post(f"/games/{game_id}/quit", json=_as(a))
@@ -105,7 +112,7 @@ class TestFillingAVacatedSeat:
         # The replacement holds the power; the quitter does not.
         assert client.post("/games/set_orders", json=_as(b, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
         assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 403
-        assert client.get(f"/users/{b}/games").json()["games"][0]["power"] == "FRANCE"
+        assert client.get(f"/users/{b}/games", headers=self.BOT).json()["games"][0]["power"] == "FRANCE"
 
     def test_join_takes_over_a_vacant_seat(self, client):
         """The web client lists a vacated seat as "Open" and offers it in the
