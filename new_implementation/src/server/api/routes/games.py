@@ -7,7 +7,7 @@ player management (join/quit/replace), deadlines, snapshots, and history.
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
@@ -37,6 +37,9 @@ class AddPlayerRequest(BaseModel):
 
 class SetDeadlineRequest(BaseModel):
     deadline: Optional[datetime]
+    # The bot sends the caller's id so the route can check they are in the game
+    # and leave them out of the "deadline set" fan-out (they get the reply).
+    telegram_id: Optional[str] = None
 
 class JoinGameRequest(BaseModel):
     """Body for ``POST /games/{game_id}/join``.
@@ -789,10 +792,40 @@ def set_deadline(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    if req.telegram_id is not None:
+        # Bot path: the secret proves the request came from the bot, not that
+        # this player belongs here. Same membership rule as process_turn.
+        user = db_service.get_user_by_telegram_id(req.telegram_id)
+        member = (
+            db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
+            if user is not None else None
+        )
+        if member is None:
+            raise HTTPException(status_code=403, detail="You are not a player in this game.")
     try:
         db_service.update_game_deadline(int(game.id), req.deadline)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    # A new deadline gets its own 10-minute reminder, even if the previous one
+    # for this phase already fired (extending a deadline after the reminder).
+    api_shared.reminder_sent[int(game.id)] = False
+    invalidate_cache(f"games/{game_id}")
+
+    # Everyone plays to the same clock, so everyone hears it change. Best-effort,
+    # like every other notification; the write above is already committed.
+    try:
+        if req.deadline is not None:
+            aware = req.deadline if req.deadline.tzinfo else req.deadline.replace(tzinfo=timezone.utc)
+            when = aware.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            text = (
+                f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
+                f"is processed automatically when it passes."
+            )
+        else:
+            text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."
+        notify_players(int(game.id), text, exclude_telegram_id=req.telegram_id)
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify deadline change for game {game_id}: {e}")
     return {"status": "ok", "deadline": req.deadline.isoformat() if req.deadline else None}
 
 @router.get("/games/{game_id}/history/{turn}")

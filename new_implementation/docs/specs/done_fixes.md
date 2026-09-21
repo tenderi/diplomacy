@@ -2730,9 +2730,19 @@ waits for a human → 24h again.
       matches the care the bot already takes not to hold units silently, and a solo repo's
       casual games are processed by hand. Either way, add the deadline to the "turn
       processed" DM so players know when the next one is.
-- [ ] Give one client a way to set/clear a deadline (`/deadline` in the bot is the obvious
+- [x] Give one client a way to set/clear a deadline (`/deadline` in the bot is the obvious
       one), or delete the route if (a) is chosen and nobody wants deadlines at all.
-      **Still open — moved to `fix_plan.md` as F5**, since it is a second maintainer call.
+      **Maintainer chose the command (`v2.7.73`):** `/deadline <game_id> <hours>` sets
+      `now + hours` (UTC, ≤ 30 days), `/deadline <game_id> clear` removes it,
+      `/deadline <game_id>` shows it. The game id is required because `/deadline 12` would
+      be ambiguous between game 12 and twelve hours. `POST /games/{id}/deadline` now takes an
+      optional `telegram_id`: the route checks that user is a player in the game (the bot
+      secret proves the request came from the bot, not that the player belongs there),
+      announces the change to the other players, and resets the 10-minute reminder flag so an
+      extended deadline gets its own reminder. `/status` prints the deadline as
+      `2026-09-22 14:00 UTC (in 23h 59m)` via `format_deadline` instead of raw ISO-8601.
+      Tests: `tests/test_deadline_command.py` (14) and one fan-out/membership round-trip in
+      `test_turn_notifications.py`.
 
 ## What landed
 
@@ -2745,6 +2755,6 @@ waits for a human → 24h again.
 
 ## Verification
 
-- Full suite against the local Postgres: **1591 passed, 11 skipped, 10 xfailed** (was 1589);
-  ruff clean; engine coverage 93.48 % (floor 92), overall 71.20 % (floor 60). Frontend
-  untouched.
+- `v2.7.72`: **1591 passed, 11 skipped, 10 xfailed** (was 1589). `v2.7.73`: **1606 passed**
+  (+15); ruff clean; engine coverage 93.48 % (floor 92), overall 71.35 % (floor 60). Frontend
+  untouched by both.
