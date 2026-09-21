@@ -2,6 +2,7 @@
 Game management commands for the Telegram bot.
 """
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 import requests
@@ -226,7 +227,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception:
         deadline = None
     if deadline:
-        status_text += f"⏰ **Deadline:** {deadline}\n"
+        status_text += f"⏰ **Deadline:** {format_deadline(deadline)}\n"
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
@@ -329,6 +330,126 @@ async def nodraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /nodraw command - withdraw this power's previously cast yes
     vote for a draw (no-op if none was cast)."""
     await _cast_draw_vote(update, context, False)
+
+
+def format_deadline(iso: str, now: Optional[datetime] = None) -> str:
+    """``2026-09-22 14:00 UTC (in 23h 59m)`` from the API's ISO-8601 deadline.
+
+    The API stores deadlines as naive UTC (see ``DatabaseService.
+    update_game_deadline``) and returns them without an offset, so a bare
+    timestamp is read as UTC. Falls back to the raw string if it won't parse.
+    """
+    try:
+        when = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    when = when.astimezone(timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    remaining = when - now
+    if remaining <= timedelta(0):
+        relative = "passed"
+    else:
+        total_minutes = int(remaining.total_seconds() // 60)
+        hours, minutes = divmod(total_minutes, 60)
+        days, hours = divmod(hours, 24)
+        parts = [f"{days}d"] if days else []
+        if hours or days:
+            parts.append(f"{hours}h")
+        parts.append(f"{minutes}m")
+        relative = "in " + " ".join(parts)
+    return f"{when:%Y-%m-%d %H:%M} UTC ({relative})"
+
+
+_DEADLINE_USAGE = (
+    "Usage:\n"
+    "  /deadline <game_id> <hours> - orders due in that many hours; the turn is "
+    "processed automatically when it passes\n"
+    "  /deadline <game_id> clear - remove the deadline (process by hand)\n"
+    "  /deadline <game_id> - show the current deadline"
+)
+
+
+async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /deadline -- show, set or clear a game's order deadline.
+
+    The game id is required (unlike ``/draw``), because ``/deadline 12`` would
+    be ambiguous between game 12 and twelve hours. Setting goes through
+    ``POST /games/{id}/deadline`` with the caller's ``telegram_id``, so the
+    server checks membership and tells the other players. Deadlines are never
+    imposed by the server (Track N): this command is the only way a game gets
+    one, and it is spent when its phase is processed.
+    """
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Deadline command failed: No user context.")
+        return
+    user_id = str(user.id)
+    args = context.args if context.args is not None else []
+    if not args:
+        await update.message.reply_text(_DEADLINE_USAGE)
+        return
+
+    try:
+        game_id, _power = resolve_game_and_power(user_id, args[0])
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except Exception as e:
+        await update.message.reply_text(f"Error resolving game: {e}")
+        return
+
+    if len(args) == 1:
+        try:
+            data = api_get(f"/games/{game_id}/deadline")
+        except Exception as e:
+            await update.message.reply_text(f"Could not read the deadline for game {game_id}: {e}")
+            return
+        current = data.get("deadline") if data else None
+        if current:
+            await update.message.reply_text(f"⏰ Deadline for game {game_id}: {format_deadline(current)}")
+        else:
+            await update.message.reply_text(
+                f"Game {game_id} has no deadline; the turn is processed by hand "
+                f"(/processturn). Set one with /deadline {game_id} <hours>."
+            )
+        return
+
+    arg = args[1].lower()
+    if arg in ("clear", "none", "off", "remove"):
+        new_deadline: Optional[datetime] = None
+    else:
+        try:
+            hours = float(arg.rstrip("h"))
+        except ValueError:
+            await update.message.reply_text(_DEADLINE_USAGE)
+            return
+        if not 0 < hours <= 24 * 30:
+            await update.message.reply_text("Hours must be more than 0 and at most 720 (30 days).")
+            return
+        new_deadline = datetime.now(timezone.utc) + timedelta(hours=hours)
+
+    try:
+        result = api_post(
+            f"/games/{game_id}/deadline",
+            {"deadline": new_deadline.isoformat() if new_deadline else None, "telegram_id": user_id},
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Could not set the deadline: {e}")
+        return
+
+    stored = result.get("deadline") if result else None
+    if stored:
+        await update.message.reply_text(
+            f"⏰ Deadline for game {game_id} set: {format_deadline(stored)}.\n"
+            f"The turn is processed automatically when it passes; everyone has been told."
+        )
+    else:
+        await update.message.reply_text(
+            f"Deadline for game {game_id} removed; the turn will be processed by hand."
+        )
 
 
 async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
