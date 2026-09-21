@@ -1,0 +1,153 @@
+"""Track P: quitting actually vacates the seat, and the seat can be filled again.
+
+Until v2.7.75 both ``/quit`` and ``/replace`` assigned ``player.user_id`` on the
+detached row ``get_player_by_game_id_and_power`` returns and then called the
+no-op ``DatabaseService.commit()`` -- so ``is_active`` changed and ``user_id``
+silently did not. A quitter still held the power (orders, draw votes and
+concession all authorized), ``/replace`` refused with "already assigned"
+(wrapped in a 500), and the quitter's own re-join said "already_joined".
+"""
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from server.api import app
+from server.api.shared import db_service
+from tests.conftest import _get_db_url
+
+BOT_SECRET = "test_bot_secret_for_tests"
+
+pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def _register_and_login(client, prefix):
+    email = f"{prefix}_{int(time.time() * 1000000)}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    assert reg.status_code == 200, reg.text
+    return {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+
+def _telegram_user(client, name):
+    tg = f"{name}_{int(time.time() * 1000000)}"
+    r = client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": name})
+    assert r.status_code == 200, r.text
+    return tg
+
+
+def _game_with_france(client):
+    """A game where telegram user ``a`` holds FRANCE. Returns ``(game_id, a)``."""
+    headers = _register_and_login(client, "qr")
+    game_id = client.post("/games/create", json={"map_name": "standard"}, headers=headers).json()["game_id"]
+    a = _telegram_user(client, "quitter")
+    r = client.post(f"/games/{game_id}/join", json={"telegram_id": a, "bot_secret": BOT_SECRET, "power": "FRANCE"})
+    assert r.status_code == 200 and r.json()["status"] == "ok", r.text
+    return game_id, a
+
+
+def _seat(client, game_id, power):
+    return next(p for p in client.get(f"/games/{game_id}/players").json() if p["power"] == power)
+
+
+def _as(tg, **extra):
+    return {"telegram_id": tg, "bot_secret": BOT_SECRET, **extra}
+
+
+class TestQuit:
+    def test_quit_clears_user_id_and_marks_inactive(self, client):
+        game_id, a = _game_with_france(client)
+        r = client.post(f"/games/{game_id}/quit", json=_as(a))
+        assert r.status_code == 200, r.text
+        seat = _seat(client, game_id, "FRANCE")
+        assert seat["user_id"] is None
+        assert seat["is_active"] is False
+        # The DAL agrees (no cache in between).
+        row = db_service.get_player_by_game_id_and_power(game_id=int(game_id), power="FRANCE")
+        assert row.user_id is None and row.is_active is False
+
+    def test_quitter_can_no_longer_act_for_the_power(self, client):
+        game_id, a = _game_with_france(client)
+        assert client.post(f"/games/{game_id}/quit", json=_as(a)).status_code == 200
+        assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 403
+        assert client.post(f"/games/{game_id}/draw_vote", json=_as(a, power="FRANCE", vote=True)).status_code == 403
+        assert client.post(f"/games/{game_id}/concede", json=_as(a, power="FRANCE")).status_code == 403
+        assert client.post(f"/games/{game_id}/quit", json=_as(a, power="FRANCE")).status_code == 403
+        assert client.get(f"/users/{a}/games").json()["games"] == []
+
+    def test_pending_orders_survive_a_quit_for_the_replacement(self, client):
+        game_id, a = _game_with_france(client)
+        r = client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"]))
+        assert r.status_code == 200
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        assert client.get(f"/games/{game_id}/state").json()["orders"] == {"FRANCE": ["A PAR - BUR"]}
+
+
+class TestFillingAVacatedSeat:
+    def test_replace_assigns_the_new_user(self, client):
+        game_id, a = _game_with_france(client)
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        b = _telegram_user(client, "replacer")
+        r = client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE"))
+        assert r.status_code == 200, r.text
+        seat = _seat(client, game_id, "FRANCE")
+        assert seat["user_id"] is not None and seat["is_active"] is True
+        # The replacement holds the power; the quitter does not.
+        assert client.post("/games/set_orders", json=_as(b, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
+        assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 403
+        assert client.get(f"/users/{b}/games").json()["games"][0]["power"] == "FRANCE"
+
+    def test_join_takes_over_a_vacant_seat(self, client):
+        """The web client lists a vacated seat as "Open" and offers it in the
+        join dropdown; that must not come back as 409 "Power already taken"."""
+        game_id, a = _game_with_france(client)
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        b = _telegram_user(client, "joiner")
+        r = client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE"))
+        assert r.status_code == 200 and r.json()["status"] == "ok", r.text
+        assert _seat(client, game_id, "FRANCE")["user_id"] is not None
+        # And only one FRANCE row exists -- the seat was reused, not duplicated.
+        assert [p["power"] for p in client.get(f"/games/{game_id}/players").json()].count("FRANCE") == 1
+
+    def test_quitter_can_come_back(self, client):
+        game_id, a = _game_with_france(client)
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        r = client.post(f"/games/{game_id}/join", json=_as(a, power="FRANCE"))
+        assert r.status_code == 200 and r.json()["status"] == "ok", r.text
+        assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
+
+    def test_replace_of_a_held_seat_is_400_not_500(self, client):
+        game_id, _a = _game_with_france(client)
+        b = _telegram_user(client, "intruder")
+        r = client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE"))
+        assert r.status_code == 400, r.text
+        assert "already assigned" in r.json()["detail"]
+
+    def test_join_of_a_held_seat_is_still_409(self, client):
+        game_id, _a = _game_with_france(client)
+        b = _telegram_user(client, "latecomer")
+        r = client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE"))
+        assert r.status_code == 409
+
+
+class TestJoinCompletedGame:
+    def test_join_refused_once_the_game_has_ended(self, client):
+        from engine.serialization import state_to_dict
+        from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
+        from server.api.shared import game_service
+
+        game_id, _a = _game_with_france(client)
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}),
+            ownership={"PAR": "FRANCE"},
+        )
+        game_service.restore_snapshot(game_id, state_to_dict(state), phase_code="S1901M")
+        assert game_service.submit_draw_vote(game_id, "FRANCE", True)["quorum_reached"] is True
+        b = _telegram_user(client, "late")
+        r = client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY"))
+        assert r.status_code == 409, r.text

@@ -2824,3 +2824,51 @@ the `Channel*Model` ORM classes (schema-coupled; the channels feature is live).
   11 skipped); ruff clean; engine coverage **93.81 %** (was 93.48; floor 92), overall
   **72.01 %** (was 71.35; floor 60). Frontend untouched.
 - Rendering byte-compare as above.
+
+---
+
+# Track P — `/quit` never vacated the seat, `/replace` never filled it (`v2.7.75`)
+
+## Why this track exists
+
+Found 2026-09-21 by probing the join/quit/replace lifecycle over HTTP. Both routes assigned
+`player.user_id` on the *detached* row `get_player_by_game_id_and_power` returns, then called
+`DatabaseService.commit()` — a documented no-op — so `is_active` (written through
+`update_player_is_active`, which has its own session) changed and `user_id` silently did not.
+The exact pattern the deadline route's docstring warns about, in two more places.
+
+| After `/quit` | Before |
+|---|---|
+| quitter submits orders / draw-votes / concedes for the power | **200**, still authorized |
+| `/replace` by someone else | **500** wrapping a 400 "already assigned" (`except Exception` swallowed the `HTTPException`) |
+| quitter re-joins | "already_joined" |
+| `/join` the seat | 409 "Power already taken" (the row exists) |
+| `/users/{id}/games` | hid it — the only thing that looked right, because it filters on `is_active` |
+
+Had quit worked, `/replace` would have flipped `is_active` to true *without assigning the
+user* — same bug, other direction. Nobody hit it because the seat was never vacant. And with
+seats never vacant, `_authorize_power`'s `int(player.user_id)` had never met a `NULL`; it
+would have been a 500.
+
+## What landed
+
+- [x] `DatabaseService.assign_player_seat(player_id, user_id, is_active)`: one committed
+      session. `/quit` and the admin `mark_inactive` route vacate with `(None, False)`;
+      `/replace` and `/join`-on-a-vacant-seat fill with `(uid, True)`.
+- [x] `/join`: a seat row with `user_id NULL` is vacant and is taken over rather than
+      refused. The web client already listed such seats as "Open" and offered them in the
+      join dropdown — which then 409'd. The bot's join menu now also treats them as open.
+- [x] `_authorize_power` (orders, draw vote, concede) and the `/quit` ownership check treat a
+      `NULL` seat as held by nobody (403, not `int(None)`).
+- [x] `/replace`: `except HTTPException: raise` before the generic handler; invalidates the
+      game and user caches; announces the takeover to the other players. `/quit` invalidates
+      the game cache too (the cached `/players` list used to show the quitter for 60 s).
+- [x] `/join` refuses a `COMPLETED` game (409), in the spirit of Track L.
+- [x] `tests/test_quit_and_replace.py` (9): the whole flow over HTTP, including the DAL row.
+- [x] Docs: `architecture.md`, `TELEGRAM_BOT_COMMANDS.md`.
+
+## Verification
+
+- Full suite against the local Postgres: **1609 passed, 0 skipped, 10 xfailed** (was 1600);
+  ruff clean; engine coverage 93.81 % (floor 92), overall 72.03 % (floor 60). Frontend
+  untouched (its "Open" seats now work as designed).
