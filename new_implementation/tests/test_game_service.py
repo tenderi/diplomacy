@@ -477,3 +477,88 @@ class TestDrawVoteAndConcede:
         view = service.view(gid)
         assert view["orders"].get("GERMANY", []) == []
         assert service.get_draw_votes(gid)["votes"] == []
+
+
+class TestPhaseAwareOrders:
+    """Track K: orders that do not belong to the current phase are refused at
+    submit time with a reason, and ``orders_status`` only waits on powers that
+    actually have something to order this phase.
+
+    Same hand-built two-power layout as ``TestResolutionMapAcrossPhases``:
+    FRANCE dislodges GERMANY's A MUN in S1901M, so S1901R has exactly one
+    dislodged unit (Germany's) and FRANCE has nothing to retreat.
+    """
+
+    def _setup(self, service: GameService) -> str:
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "FRANCE", Location("BUR")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("RUH")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("BER")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY", "BER": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        return gid
+
+    def _to_retreat_phase(self, service: GameService) -> str:
+        gid = self._setup(service)
+        service.submit_orders(gid, "FRANCE", ["A BUR - MUN", "A RUH S A BUR - MUN"])
+        service.submit_orders(gid, "GERMANY", ["A MUN H", "A BER H"])
+        assert service.process_turn(gid)["phase"] == "S1901R"
+        return gid
+
+    def test_build_typed_during_movement_is_refused_with_the_phase(self, service):
+        gid = self._setup(service)
+        # PAR is a vacant, owned French home centre: the only thing wrong with
+        # this build is *when* it was typed. Before Track K it was accepted,
+        # stored, listed as pending, and dropped by the movement adjudicator.
+        results = service.submit_orders(gid, "FRANCE", ["BUILD A PAR", "WAIVE"])
+        assert [r["ok"] for r in results] == [False, False]
+        assert "movement phase (S1901M)" in results[0]["reason"]
+        assert "movement phase (S1901M)" in results[1]["reason"]
+        assert service.view(gid)["orders"].get("FRANCE", []) == []
+
+    def test_move_typed_during_retreat_is_refused_with_the_phase(self, service):
+        gid = self._to_retreat_phase(service)
+        results = service.submit_orders(gid, "FRANCE", ["A RUH - KIE", "A MUN H"])
+        assert [r["ok"] for r in results] == [False, False]
+        assert "retreat phase (S1901R)" in results[0]["reason"]
+        assert "retreat and disband" in results[0]["reason"]
+        # The real retreat still goes through, so the gate is not over-eager.
+        results = service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
+        assert results == [{"order": "A MUN R SIL", "ok": True, "reason": None}]
+
+    def test_orders_status_waits_only_on_the_dislodged_power(self, service):
+        gid = self._to_retreat_phase(service)
+        status = service.orders_status(gid)
+        assert status["phase"] == "S1901R"
+        # FRANCE has two units on the board but nothing to retreat: it must
+        # not be "missing" (and ``require_all`` must not block on it).
+        assert status["active_powers"] == ["GERMANY"]
+        assert status["missing"] == ["GERMANY"]
+        service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
+        assert service.orders_status(gid)["missing"] == []
+
+    def test_orders_status_in_adjustment_waits_only_on_powers_with_a_delta(self, service):
+        gid = self._to_retreat_phase(service)
+        service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
+        assert service.process_turn(gid)["phase"] == "F1901M"
+        # Fall: everyone holds. MUN is now French-occupied and is captured at
+        # the Fall recompute: FRANCE 2 units / 2 centres (PAR, MUN), GERMANY
+        # 2 units / 1 centre (BER) -> only GERMANY has an adjustment to make.
+        service.submit_orders(gid, "FRANCE", ["A MUN H", "A RUH H"])
+        service.submit_orders(gid, "GERMANY", ["A SIL H", "A BER H"])
+        assert service.process_turn(gid)["phase"] == "W1901A"
+        status = service.orders_status(gid)
+        assert status["active_powers"] == ["GERMANY"]
+        assert status["missing"] == ["GERMANY"]
+        # A movement order typed into the build phase is refused, not waived.
+        results = service.submit_orders(gid, "GERMANY", ["A SIL - MUN"])
+        assert results[0]["ok"] is False
+        assert "adjustment phase (W1901A)" in results[0]["reason"]

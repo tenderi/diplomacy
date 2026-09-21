@@ -294,6 +294,26 @@ path used by `GameService.submit_orders` (pre-check before an order is accepted 
 `pending_orders`) and by `adjudicator/adjustments.py` (build legality). There is no
 second, divergent validation path anywhere in the codebase.
 
+The first check is the **phase**: an order whose kind has no meaning in
+`state.phase_type` is refused before any unit or topology check, with a reason that names
+the phase (`a move order is not accepted during the retreat phase (S1901R); only retreat and
+disband (for dislodged units) orders are`). Movement takes Hold / Move / SupportHold /
+SupportMove / Convoy; Retreat takes Retreat / Disband; Adjustment takes Build / Disband /
+Waive. The adjudicators already ignore orders from the wrong phase, so without this gate a
+build typed during a movement phase, or a move typed during a retreat or build phase, was
+accepted with `ok=True`, stored, shown as pending, and then dropped without a word — which
+for an adjustment phase meant a player's build was silently waived. Interactive menus never
+offered such orders (`legal_orders.py` is phase-aware); the gate covers free-text input
+from every client.
+
+`GameService.orders_status` (and so `GET /games/{id}/orders_status` and
+`process_turn?require_all=true`) counts only the powers that have a decision to make this
+phase, via `server.legal_orders.powers_with_orders_to_give`: every power with a unit in a
+movement phase, only powers with a dislodged unit in a retreat phase, and in an adjustment
+phase only powers that must disband or that are owed a build and have a vacant owned home
+centre to put it on. A power `legal_orders_for_power` would offer nothing but `WAIVE` is
+not waited on.
+
 ## 6. Out of scope here
 
 Full DB migration history: `alembic/versions/`. Route-by-route request/response models: the
