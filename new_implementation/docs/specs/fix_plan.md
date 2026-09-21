@@ -22,7 +22,11 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.78`. `main` green.
+- **Last updated:** 2026-09-21, at `v2.7.79`. `main` green.
+- **Track T — auth sweep, landed as `v2.7.79`** and is archived in
+  [`done_fixes.md`](done_fixes.md). `GET /users/{id}/games` was anonymous (and cached, so the
+  fix had to be a dependency); `POST /deadline` let any Bearer user set any game's deadline;
+  two dead anonymous session routes were an unbounded memory sink.
 - **Track S — waiting-list writes accepted any browser account, landed as `v2.7.78`** and is
   archived in [`done_fixes.md`](done_fixes.md). Any Bearer token could enqueue or dequeue an
   arbitrary telegram id; the routes now require the bot secret, as their docstring intended.
@@ -73,7 +77,7 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–S are complete and
+- **Every automated task in this tracker is done again.** Tracks A–E and G–T are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
@@ -103,9 +107,9 @@
   from both clients, a game can end by agreement or concession *and everyone is told*, a real
   DAIDE bot can play a turn over the wire, and a player can see what happened to their orders.
   What is unverified is whether the whole thing is *pleasant to use*, which is exactly Track F.
-- **Suite baseline to hold (measured 2026-09-21 at `v2.7.78`, against a real local
-  Postgres):** **1617 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
-  **93.8%** (floor 92), overall **72%** (floor 60). Track S added 1; Track R added 3; Track Q added 4; Track P added 9; Track O removed 21 tests and added 3;
+- **Suite baseline to hold (measured 2026-09-21 at `v2.7.79`, against a real local
+  Postgres):** **1619 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
+  **93.8%** (floor 92), overall **72%** (floor 60). Track T net +2; Track S added 1; Track R added 3; Track Q added 4; Track P added 9; Track O removed 21 tests and added 3;
   Track N added 17, M 1, L 13, K 27 (see
   `done_fixes.md`); Track J had it at 1548 at `v2.7.68`, Track I at 1491 at `v2.7.67`.
   Track I added 46: I2's `test_arrow_geometry.py` (29) and `test_pending_order_styling.py` (17);
@@ -183,6 +187,12 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
   if the `try` body raises one, or the route's own 404/403/400 comes out as a 500 with the
   real status embedded in the text. And **never assert `status_code in [..., 500]`** in a
   test — fifteen such assertions hid exactly this for the whole life of the project (Track Q).
+- **`require_bot_or_user` proves the caller is *someone*, not *the person the request acts
+  on*.** Any route that takes a `telegram_id` or `power` from the body must resolve the
+  caller (`resolve_user_or_telegram`) and check membership/ownership itself, or use
+  `require_bot_secret` when only the bot may call it. And **a check inside a
+  `@cached_response` route runs only on cache misses** — auth there must be a dependency
+  (Tracks R–T found five routes between them).
 - **Every `datetime` column is a naive `TIMESTAMP`.** Use
   `persistence.database.utcnow_naive()`, which returns **naive UTC on purpose** — handing
   Postgres a tz-aware value makes it convert to the session timezone and store it shifted,
