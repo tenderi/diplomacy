@@ -523,6 +523,8 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
                 "full_name": getattr(user, 'full_name', None) if user else None,
             })
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -768,6 +770,8 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         invalidate_cache(f"games/{game_id}")
         notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
         return {"status": "ok", "game_id": game_id, "power": power}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -780,6 +784,8 @@ def get_deadline(game_id: str) -> dict[str, Optional[str]]:
             raise HTTPException(status_code=404, detail="Game not found")
         deadline_value = getattr(game, 'deadline', None)
         return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -844,6 +850,8 @@ def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
         if not snapshot:
             raise HTTPException(status_code=404, detail="No game state found for this turn.")
         return {"game_id": game_id, "turn": turn, "phase": snapshot.phase, "state": snapshot.state}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -890,6 +898,8 @@ def get_game_snapshots(game_id: str) -> Dict[str, Any]:
                 "created_at": snap.created_at.isoformat() if hasattr(snap, 'created_at') and snap.created_at else None
             })
         return {"status": "ok", "snapshots": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

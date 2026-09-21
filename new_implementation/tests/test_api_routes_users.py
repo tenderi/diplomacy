@@ -123,7 +123,7 @@ class TestGetUserGames:
         """Test getting games for non-existent user."""
         resp = client.get("/users/nonexistent_user/games")
         # May return 404 or 500 depending on error handling
-        assert resp.status_code in [404, 500]
+        assert resp.status_code == 404, resp.text
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_me_games_with_bearer(self, client):

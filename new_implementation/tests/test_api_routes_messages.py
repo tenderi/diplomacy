@@ -55,7 +55,7 @@ class TestSendPrivateMessage:
             "recipient_power": "GERMANY",
             "text": "Hello!"
         })
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()
             assert data["status"] == "ok"
@@ -75,7 +75,7 @@ class TestSendPrivateMessage:
             "recipient_power": "FRANCE",
             "text": "Hello!"
         })
-        assert resp.status_code in [403, 500]
+        assert resp.status_code == 403, resp.text
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_send_private_message_missing_recipient(self, client):
@@ -92,7 +92,7 @@ class TestSendPrivateMessage:
             "recipient_power": None,
             "text": "Hello!"
         })
-        assert resp.status_code in [400, 500]
+        assert resp.status_code == 400, resp.text
 
 
 @pytest.mark.unit
@@ -113,7 +113,7 @@ class TestSendBroadcast:
             "bot_secret": BOT_SECRET,
             "text": "Hello everyone!"
         })
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()
             assert data["status"] == "ok"
@@ -134,7 +134,7 @@ class TestGetGameMessages:
         client.post(f"/games/{game_id}/join", json={"telegram_id": "msg_user", "bot_secret": BOT_SECRET, "game_id": game_id, "power": "FRANCE"})
 
         resp = client.get(f"/games/{game_id}/messages", params={"telegram_id": "msg_user", "bot_secret": BOT_SECRET})
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()
             assert "messages" in data
@@ -147,7 +147,7 @@ class TestGetGameMessages:
         game_id = _create_game(client, headers)
 
         resp = client.get(f"/games/{game_id}/messages")
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()
             assert "messages" in data

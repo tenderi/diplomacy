@@ -151,3 +151,42 @@ class TestJoinCompletedGame:
         b = _telegram_user(client, "late")
         r = client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY"))
         assert r.status_code == 409, r.text
+
+
+class TestMessagingAndVacantSeats:
+    def test_private_message_to_a_vacated_seat_is_refused(self, client):
+        game_id, a = _game_with_france(client)
+        b = _telegram_user(client, "leaver")
+        assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
+        assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
+        r = client.post(f"/games/{game_id}/message", json=_as(a, recipient_power="GERMANY", text="anyone there?"))
+        assert r.status_code == 400, r.text
+        assert "no player is assigned" in r.json()["detail"]
+
+    def test_power_names_are_case_insensitive_on_every_seat_lookup(self, client):
+        game_id, a = _game_with_france(client)
+        b = _telegram_user(client, "reader")
+        assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
+        # Orders for "france"...
+        r = client.post("/games/set_orders", json=_as(a, game_id=game_id, power="france", orders=["A PAR H"]))
+        assert r.status_code == 200, r.text
+        # ...and a private message to "germany", stored upper-cased so the
+        # recipient's inbox filter (which compares against GERMANY) finds it.
+        r = client.post(f"/games/{game_id}/message", json=_as(a, recipient_power="germany", text="psst"))
+        assert r.status_code == 200, r.text
+        inbox = client.get(f"/games/{game_id}/messages", params={"telegram_id": b, "bot_secret": BOT_SECRET}).json()["messages"]
+        assert [m["text"] for m in inbox if m["recipient_power"] == "GERMANY"] == ["psst"]
+
+
+class TestRoutesDoNotWrapTheirOwn404s:
+    """``except Exception`` handlers used to catch the route's own ``HTTPException``
+    and re-raise it as a 500 with the real status embedded in the text."""
+
+    def test_players_of_missing_game_is_404(self, client):
+        r = client.get("/games/nonexistent/players")
+        assert r.status_code == 404, r.text
+
+    def test_history_of_missing_turn_is_404(self, client):
+        game_id, _a = _game_with_france(client)
+        r = client.get(f"/games/{game_id}/history/99")
+        assert r.status_code == 404, r.text
