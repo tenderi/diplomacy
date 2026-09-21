@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.70`. `main` green.
+- **Last updated:** 2026-09-21, at `v2.7.71`. `main` green.
+- **Track M — Concession releases the power's supply centres landed as `v2.7.71`** and is
+  archived in [`done_fixes.md`](done_fixes.md). **Reverses a D3 design decision** ("concede
+  never touches ownership"): a conceded power kept its centres, so next Winter the engine owed
+  it builds, `/status` waited on the player who had just left, and a `BUILD` walked them back
+  into a game the web client said they could not undo leaving.
 - **Track L — No writes on a finished game landed as `v2.7.70`** and is archived in
   [`done_fixes.md`](done_fixes.md). A `COMPLETED` game used to accept orders, "process"
   turns (and DM everyone about it), record draw votes and let a power concede — the last of
@@ -42,7 +47,7 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–L are complete and
+- **Every automated task in this tracker is done again.** Tracks A–E and G–M are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
@@ -72,9 +77,9 @@
   from both clients, a game can end by agreement or concession *and everyone is told*, a real
   DAIDE bot can play a turn over the wire, and a player can see what happened to their orders.
   What is unverified is whether the whole thing is *pleasant to use*, which is exactly Track F.
-- **Suite baseline to hold (measured 2026-09-21 at `v2.7.70`, against a real local
-  Postgres):** **1588 passed, 11 skipped, 10 xfailed**; ruff clean; engine coverage
-  **93.5%** (floor 92), overall **71%** (floor 60). Track L added 13, Track K 27 (see
+- **Suite baseline to hold (measured 2026-09-21 at `v2.7.71`, against a real local
+  Postgres):** **1589 passed, 11 skipped, 10 xfailed**; ruff clean; engine coverage
+  **93.5%** (floor 92), overall **71%** (floor 60). Track M added 1, Track L 13, Track K 27 (see
   `done_fixes.md`); Track J had it at 1548 at `v2.7.68`, Track I at 1491 at `v2.7.67`.
   Track I added 46: I2's `test_arrow_geometry.py` (29) and `test_pending_order_styling.py` (17);
   I1 was frontend-only. Tests added between `v2.7.56`'s 1333 and `v2.7.64`'s 1445: G1's 60 (`test_bot_help_text.py`), G3's 4

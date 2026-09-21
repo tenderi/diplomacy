@@ -2660,3 +2660,47 @@ checked `state.status`, so every write path still went through on a `COMPLETED` 
 - Full suite against the local Postgres: **1588 passed, 11 skipped, 10 xfailed** (was 1575);
   ruff clean; engine coverage 93.48 % (floor 92), overall 71.19 % (floor 60).
 - Frontend untouched (no route shape changed; a 409 surfaces through the existing error path).
+
+---
+
+# Track M — Concession releases the power's supply centres (`v2.7.71`)
+
+## Why this track exists
+
+Found 2026-09-21 by probing what a conceded power can still do. `concede` removed the
+power's units but deliberately left `ownership` alone (D3: "SC ownership is only ever
+recomputed by the Fall-settle capture rule, which will naturally leave a unit-less power's
+centers unclaimed until someone occupies them"). That premise was wrong: ownership persists
+until a unit physically stands on a centre, so a conceded power still *owned* its home
+centres and at the next Winter the adjudicator owed it `centers - 0` builds. Concretely:
+
+- `orders_status` in `W1901A` listed the player who had just conceded as **missing**, so
+  `/status` nagged them and `require_all` blocked on them;
+- `legal_orders` offered them `BUILD A PAR` / `WAIVE`, and `submit_orders` accepted the build
+  — a way back into a game the web dialog had just told them they "cannot undo" leaving;
+- `concede` returned `eliminated: False` although the player was gone.
+
+## M1 — release the centres — done
+
+- [x] `GameService.concede`: `ownership` loses every entry owned by the conceding power, in
+      the same `update_state_json` write as the units. Nobody else's centres move; the
+      neutral centres are captured later the ordinary way (Fall settle).
+      `eliminated_powers()` now reports the power immediately, so the response says
+      `eliminated: True`.
+- [x] Player-facing copy updated to say so: the concession DM (`routes/games.py`) and the
+      web client's Concede dialog (`GameView.tsx`).
+- [x] Tests: `test_concede_does_not_end_the_game` had asserted the old behaviour by name
+      (`ownership["MUN"] == "GERMANY"  # untouched by concede`) and is corrected; new
+      `test_conceded_power_gets_no_builds_and_is_not_waited_on` drives S1901M → W1901A and
+      checks `orders_status`, the refusal and its reason.
+- [x] Spec: `architecture.md` §Notifications records the change and the reason.
+
+**Design decision changed:** D3's "concede never touches ownership" is reversed. `/quit`
+(seat vacated, board untouched, replaceable) remains the way to leave without affecting the
+board.
+
+## Verification
+
+- Full suite against the local Postgres: **1589 passed, 11 skipped, 10 xfailed** (was 1588);
+  ruff clean; engine coverage 93.48 % (floor 92), overall 71.19 % (floor 60). Frontend:
+  `tsc` clean, 24 files / 158 tests, build green.
