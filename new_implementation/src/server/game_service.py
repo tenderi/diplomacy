@@ -27,6 +27,7 @@ from engine.serialization import (
     unit_to_dict,
 )
 from engine.types import GameState, PhaseType
+from server.legal_orders import powers_with_orders_to_give
 
 __all__ = ["GameService", "OrderError", "StaleGameError"]
 
@@ -417,15 +418,22 @@ class GameService:
 
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
         """Which powers have submitted orders for the current phase, and which
-        still control at least one unit and haven't. ``None`` if the game doesn't
+        still have something to order and haven't. ``None`` if the game doesn't
         exist. A power counts as "submitted" once it has a ``pending_orders`` entry
-        for this phase, even an empty one (0 valid orders still means it acted)."""
+        for this phase, even an empty one (0 valid orders still means it acted).
+
+        ``active_powers`` is phase-shaped (``powers_with_orders_to_give``): in a
+        retreat phase only powers with a dislodged unit are expected to act, in
+        an adjustment phase only powers with a build or disband to make. Before
+        this, every power with a unit was "missing" in every phase, so a retreat
+        phase told the one player who had to retreat that six others were still
+        being waited on, and ``require_all`` blocked on them."""
         sj = self._repo.get_state_json(game_id)
         if sj is None:
             return None
         state = state_from_dict(sj)
         submitted = set(self._repo.get_pending_orders(game_id).keys())
-        active_powers = sorted({u.power for u in state.units})
+        active_powers = sorted(powers_with_orders_to_give(self._map, state))
         return {
             "phase": state.phase_name,
             "active_powers": active_powers,

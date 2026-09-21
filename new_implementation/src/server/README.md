@@ -54,8 +54,10 @@ GameState-native view — see [`data_spec.md`](../../docs/specs/data_spec.md) §
 `players`; `deadline` (GET and POST); `process_turn`; `history/{turn}`; `snapshot`,
 `snapshots`, and `restore/{snapshot_id}`; `draw_vote`, `draw_vote_status`, `concede`.
 
-`POST /process_turn` accepts `require_all=true` to refuse processing until every power has
-submitted; the deadline scheduler never passes it.
+`POST /process_turn` accepts `require_all=true` to refuse processing until every power that
+has something to order this phase has submitted (only the dislodged powers in a retreat
+phase, only powers with a build or disband to make in an adjustment phase); the deadline
+scheduler never passes it.
 
 ### Orders
 

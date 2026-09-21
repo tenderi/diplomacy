@@ -60,7 +60,7 @@ from engine.types import (
     UnitKind,
 )
 
-__all__ = ["legal_orders_for_power"]
+__all__ = ["legal_orders_for_power", "powers_with_orders_to_give"]
 
 
 def legal_orders_for_power(map: MapData, state: GameState, power: str) -> dict[str, Any]:
@@ -111,6 +111,39 @@ def legal_orders_for_power(map: MapData, state: GameState, power: str) -> dict[s
     out["orders_by_unit"] = {k: sorted(set(v)) for k, v in orders_by_unit.items()}
     out["orders"] = sorted(set(flat))
     return out
+
+
+def powers_with_orders_to_give(map: MapData, state: GameState) -> frozenset[str]:
+    """The powers that have at least one decision to make in the current phase.
+
+    This is what "everyone has submitted" should mean, and it is phase-shaped:
+
+    - **MOVEMENT** -- every power with a unit on the board.
+    - **RETREAT** -- only powers with a dislodged unit. Everyone else has
+      nothing to order, so a status report that lists them as "waiting on"
+      (or a ``require_all`` gate that blocks on them) is simply wrong.
+    - **ADJUSTMENT** -- powers that must disband, plus powers entitled to
+      build that actually have a legal build available. A power whose
+      ``centers - units`` delta is zero has nothing to do; one that is owed a
+      build but has no vacant owned home centre can only waive, which the
+      adjudicator does for it anyway.
+
+    Same delta and same ``legal_builds`` filter as ``legal_orders_for_power``,
+    so a power is listed here exactly when that function would hand it a
+    non-empty menu (``WAIVE`` alone does not count).
+    """
+    if state.phase_type is PhaseType.MOVEMENT:
+        return frozenset(u.power for u in state.units)
+    if state.phase_type is PhaseType.RETREAT:
+        return frozenset(du.power for du in state.dislodged)
+
+    powers = {u.power for u in state.units} | set(state.ownership.values())
+    out: set[str] = set()
+    for power in powers:
+        delta = len(state.centers_of(power)) - len(state.units_of(power))
+        if delta < 0 or (delta > 0 and legal_builds(power, state, map)):
+            out.add(power)
+    return frozenset(out)
 
 
 # ---------------------------------------------------------------------------
