@@ -7,7 +7,7 @@ player management (join/quit/replace), deadlines, snapshots, and history.
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
@@ -279,10 +279,14 @@ async def process_turn(
             except Exception as e:
                 logger.debug(f"process_turn: snapshot failed: {e}")
             game_ended = view["status"] == "COMPLETED"
-            if not game_ended:
-                db_service.update_game_deadline(int(row.id), datetime.now(timezone.utc) + timedelta(hours=24))
-            else:
-                db_service.update_game_deadline(int(row.id), None)
+            # A deadline is scoped to the phase it was set for: whatever was
+            # pending is now spent, and nothing new is imposed (Track N: until
+            # v2.7.72 this re-armed a hard-coded +24h that nobody had asked
+            # for, after which the scheduler would process the next phase with
+            # missing powers' units holding, then clear it -- so alternate
+            # phases had an auto-deadline and didn't). Deadlines exist only
+            # when set explicitly via POST /games/{id}/deadline.
+            db_service.update_game_deadline(int(row.id), None)
             # Before G3 this branch notified *only* on game end, so the ordinary
             # case -- everyone submitted, one player pressed the button -- told the
             # other six players nothing and posted nothing to the linked channel.
