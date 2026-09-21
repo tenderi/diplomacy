@@ -332,3 +332,25 @@ def test_requeue_is_idempotent() -> None:
     db.requeue_waiting_list_entries(entries)
     db.requeue_waiting_list_entries(entries)
     assert db.count_waiting_list() == 1
+
+
+@pytest.mark.integration
+def test_a_browser_account_cannot_queue_or_dequeue_a_telegram_id() -> None:
+    """Track S: a Bearer token is free via /auth/register, so ``require_bot_or_user``
+    let any browser account enqueue -- or kick out -- an arbitrary telegram_id.
+    The queue is the bot's; only the bot secret may write it."""
+    client = TestClient(app)
+    telegram_id = _register(client, "victim")
+    assert _join(client, telegram_id)["status"] == "queued"
+    stranger = client.post(
+        "/auth/register",
+        json={"email": f"wl_stranger_{int(time.time() * 1000000)}@example.com", "password": "testpass123"},
+    )
+    headers = {"Authorization": f"Bearer {stranger.json()['access_token']}"}
+
+    resp = client.post("/waiting_list/leave", json={"telegram_id": telegram_id}, headers=headers)
+    assert resp.status_code == 401, resp.text
+    assert client.get("/waiting_list").json()["size"] >= 1
+
+    resp = client.post("/waiting_list/join", json={"telegram_id": telegram_id}, headers=headers)
+    assert resp.status_code == 401, resp.text
