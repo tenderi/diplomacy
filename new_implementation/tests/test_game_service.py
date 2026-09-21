@@ -440,15 +440,16 @@ class TestDrawVoteAndConcede:
         assert result["status"] == "ok"
         assert result["power"] == "GERMANY"
         assert result["game_status"] == "ACTIVE"
-        # GERMANY still "owns" MUN (concede never touches ownership) so it is
-        # not yet reported eliminated -- that only happens once the vacated
-        # center is actually recaptured by someone else at a Fall settle.
-        assert result["eliminated"] is False
+        # Units *and* centers go (Track M): with neither, GERMANY is eliminated
+        # at once. Before, MUN stayed German and the engine owed GERMANY a
+        # build at the next Winter -- a way back into a game it had left.
+        assert result["eliminated"] is True
 
         view = service.view(gid)
         assert view["status"] == "ACTIVE"
         assert "GERMANY" not in {u["power"] for u in view["units"]}
-        assert view["ownership"]["MUN"] == "GERMANY"  # untouched by concede
+        assert "MUN" not in view["ownership"]  # neutral, like BEL at game start
+        assert view["ownership"]["PAR"] == "FRANCE"  # nobody else's centers move
 
         # RUSSIA marches into the now-empty MUN and holds through Fall.
         service.submit_orders(gid, "FRANCE", ["A PAR H"])
@@ -460,12 +461,44 @@ class TestDrawVoteAndConcede:
         service.submit_orders(gid, "RUSSIA", ["A MUN H"])
         service.process_turn(gid)
 
-        # Fall settled: MUN flips to RUSSIA: GERMANY now has neither units nor
-        # centers, so eliminated_powers() picks it up.
+        # Fall settled: the neutral MUN is captured by RUSSIA the normal way.
         game = service.load(gid)
         assert game.state.ownership["MUN"] == "RUSSIA"
         assert "GERMANY" in game.eliminated_powers()
         assert game.state.status is GameStatus.ACTIVE  # concede never ends the game
+
+    def test_conceded_power_gets_no_builds_and_is_not_waited_on(self, service):
+        """The loophole itself: S1901M concede -> W1901A must not owe FRANCE a
+        build, list it as missing, or accept one from it."""
+        gid = _new_game(service)
+        state = GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=frozenset(
+                {
+                    Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                    Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                    Unit(UnitKind.ARMY, "ITALY", Location("ROM")),
+                }
+            ),
+            # ITALY owns two centers but has one unit, so a real W1901A happens.
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY", "ROM": "ITALY", "NAP": "ITALY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        service.concede(gid, "FRANCE")
+        for _ in ("spring", "fall"):
+            service.submit_orders(gid, "GERMANY", ["A MUN H"])
+            service.submit_orders(gid, "ITALY", ["A ROM H"])
+            out = service.process_turn(gid)
+        assert out["phase"] == "W1901A"
+
+        status = service.orders_status(gid)
+        assert status["active_powers"] == ["ITALY"]
+        assert "FRANCE" not in status["missing"]
+        results = service.submit_orders(gid, "FRANCE", ["BUILD A PAR"])
+        assert results[0]["ok"] is False
+        assert "not currently owned by FRANCE" in results[0]["reason"]
 
     def test_concede_clears_the_conceding_powers_pending_orders_and_vote(self, service):
         gid = self._three_power_stalemate(service)
