@@ -217,6 +217,14 @@ concession was likewise invisible until someone looked at the board.
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
+**Conceding removes the power's units *and* releases its supply centres** (they become
+neutral, like the unowned centres at game start), so `Game.eliminated_powers()` reports it at
+once. D3 originally left ownership untouched, expecting the centres to sit "unclaimed"; in
+fact ownership persists until a unit stands there, so at the next Winter the engine owed the
+conceded power builds, `orders_status` waited on the player who had just left, and a `BUILD`
+walked them back in. Changed in `v2.7.71` (Track M). `/quit` is the other path: the seat is
+vacated for a replacement and the board is untouched.
+
 **A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once

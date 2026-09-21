@@ -274,13 +274,17 @@ class GameService:
         """``power`` voluntarily leaves the game.
 
         Distinct from a draw: this does **not** end the game -- the remaining
-        powers play on. Removes all of ``power``'s units from the board;
-        supply-center ownership is left untouched (SC ownership is only ever
-        recomputed by the engine's normal Fall-settle capture rule, which will
-        naturally leave a unit-less power's centers unclaimed until someone
-        occupies them -- duplicating that logic here would risk diverging from
-        it). Once ``power`` also holds no centers, ``Game.eliminated_powers()``
-        reports it as eliminated on the next check, same as any other wipeout.
+        powers play on. Removes all of ``power``'s units from the board **and
+        releases its supply centers** (they become neutral, exactly like the
+        unowned centers at game start, until someone occupies one at a Fall
+        settle). Both halves matter: until ``v2.7.71`` only the units went, on
+        the theory that the centers would sit "unclaimed" -- but ownership
+        persists until a unit physically stands there, so at the next Winter
+        the engine owed the conceded power ``centers - 0`` builds,
+        ``orders_status`` waited on the player who had just quit, and
+        ``BUILD A PAR`` walked them back into a game the web client had told
+        them they could not undo leaving. With no units and no centers,
+        ``Game.eliminated_powers()`` reports ``power`` eliminated at once.
 
         Written via a dedicated ``GameRepo.update_state_json`` (not
         ``save_state``): conceding mid-phase is not a phase transition, so it
@@ -294,7 +298,8 @@ class GameService:
         power = power.upper()
 
         remaining_units = frozenset(u for u in game.state.units if u.power != power)
-        new_state = replace(game.state, units=remaining_units)
+        remaining_ownership = {p: o for p, o in game.state.ownership.items() if o != power}
+        new_state = replace(game.state, units=remaining_units, ownership=remaining_ownership)
         self._repo.update_state_json(
             game_id,
             state_to_dict(new_state),
