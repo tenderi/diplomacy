@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.71`. `main` green.
+- **Last updated:** 2026-09-21, at `v2.7.72`. `main` green.
+- **Track N — deadlines are never imposed landed as `v2.7.72`** (maintainer chose option
+  (a)) and is archived in [`done_fixes.md`](done_fixes.md). The manual `process_turn` route no
+  longer re-arms a hard-coded +24h; a deadline exists only when set explicitly and is spent
+  when its phase is processed. **One bullet stays open, under Track F below as F5**: no client
+  can set a deadline, so `POST /games/{id}/deadline` is unreachable from either UI.
 - **Track M — Concession releases the power's supply centres landed as `v2.7.71`** and is
   archived in [`done_fixes.md`](done_fixes.md). **Reverses a D3 design decision** ("concede
   never touches ownership"): a conceded power kept its centres, so next Winter the engine owed
@@ -47,13 +52,12 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–M are complete and
+- **Every automated task in this tracker is done again.** Tracks A–E and G–N are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
 - **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
-  and it gates nothing. **Track N (deadline cadence) is a one-line maintainer decision** that
-  an agent can then implement — see its section.
+  and it gates nothing.
 - **Track I (map legibility) was opened by the maintainer on 2026-07-30** as F2's first finding
   — the inline web map was unreadably small — and landed as `v2.7.66` (I1, full-size viewer)
   and `v2.7.67` (I2, renderer visuals). **F2 itself is still unchecked**: one defect found and
@@ -78,9 +82,9 @@
   from both clients, a game can end by agreement or concession *and everyone is told*, a real
   DAIDE bot can play a turn over the wire, and a player can see what happened to their orders.
   What is unverified is whether the whole thing is *pleasant to use*, which is exactly Track F.
-- **Suite baseline to hold (measured 2026-09-21 at `v2.7.71`, against a real local
-  Postgres):** **1589 passed, 11 skipped, 10 xfailed**; ruff clean; engine coverage
-  **93.5%** (floor 92), overall **71%** (floor 60). Track M added 1, Track L 13, Track K 27 (see
+- **Suite baseline to hold (measured 2026-09-21 at `v2.7.72`, against a real local
+  Postgres):** **1591 passed, 11 skipped, 10 xfailed**; ruff clean; engine coverage
+  **93.5%** (floor 92), overall **71%** (floor 60). Track N added 2, M 1, L 13, K 27 (see
   `done_fixes.md`); Track J had it at 1548 at `v2.7.68`, Track I at 1491 at `v2.7.67`.
   Track I added 46: I2's `test_arrow_geometry.py` (29) and `test_pending_order_styling.py` (17);
   I1 was frontend-only. Tests added between `v2.7.56`'s 1333 and `v2.7.64`'s 1445: G1's 60 (`test_bot_help_text.py`), G3's 4
@@ -255,6 +259,14 @@ to use, which no test asserts.
       the maintainer uses it. Was "known infra gap" under *Out of scope* below; it now has a
       concrete place to live.
 
+## F5 — Decide whether anyone wants explicit deadlines (left over from Track N)
+
+- [ ] `POST /games/{id}/deadline` works and the scheduler honours it (one-shot, per phase),
+      but **no client exposes it** — neither the bot nor the web UI can set or clear one.
+      Either add `/deadline <game_id> <hours>` to the bot (and the deadline to the
+      "turn processed" DM), or delete the route, the scheduler's processing branch and the
+      10-minute reminder as dead code. A maintainer call; both are small.
+
 ## F2 — Human judgement pass on the restructured web game screen
 
 - [ ] Play the F1 game through the browser and judge the E2/E4 layout as a *player*: is the
@@ -267,34 +279,6 @@ to use, which no test asserts.
 - [ ] **Done when:** the maintainer has an opinion on record here. Cosmetic complaints become
       new tasks in this file (see F1's note on where to put them); "it's fine" is a valid and
       useful outcome to write down.
-
----
-
-# Track N — Deadline cadence is inconsistent between the two processing paths (open, maintainer decision)
-
-## Why this track exists
-
-Found 2026-09-21 while reading the scheduler. Neither client can set a deadline
-(`POST /games/{id}/deadline` exists; nothing calls it). The only deadline a real game ever
-gets is the **hard-coded `+24h`** that the manual `process_turn` route imposes after every
-turn it processes (`routes/games.py`, unchanged since `v2.0.0`). When that fires, the
-scheduler processes the turn — missing powers' units hold, with no confirmation, unlike the
-bot's `/processturn` which asks first — then **clears** the deadline and sets no new one
-(`api/shared.py` `process_due_deadlines`; `tests/test_api_scheduler.py` asserts the `None`).
-So a game alternates: processed by hand → 24h auto-deadline → auto-processed → no deadline →
-waits for a human → 24h again.
-
-## N1 — decide the cadence (maintainer)
-
-- [ ] Pick one: **(a)** never impose a deadline nobody asked for — drop the `+24h` from the
-      manual route, and have the scheduler re-arm only when the game had an explicit
-      deadline (needs a per-game interval, i.e. a column); or **(b)** make 24h/phase the
-      cadence — both paths set `+24h`, documented as the rule. **Recommendation: (a)** — it
-      matches the care the bot already takes not to hold units silently, and a solo repo's
-      casual games are processed by hand. Either way, add the deadline to the "turn
-      processed" DM so players know when the next one is.
-- [ ] Give one client a way to set/clear a deadline (`/deadline` in the bot is the obvious
-      one), or delete the route if (a) is chosen and nobody wants deadlines at all.
 
 ---
 

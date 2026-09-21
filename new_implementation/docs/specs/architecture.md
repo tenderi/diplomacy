@@ -217,6 +217,13 @@ concession was likewise invisible until someone looked at the board.
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
+**Deadlines are never imposed.** A game has a deadline only when one was set explicitly via
+`POST /games/{id}/deadline`, and it is scoped to that phase: both processing paths clear it
+once the phase is adjudicated and neither sets a new one (Track N, `v2.7.72`). Until then
+the manual `process_turn` route re-armed a hard-coded +24h after every turn — a deadline
+nobody had asked for, after which the scheduler processed the next phase with the missing
+powers' units holding, then cleared it, so alternate phases had an auto-deadline and didn't.
+
 **Conceding removes the power's units *and* releases its supply centres** (they become
 neutral, like the unowned centres at game start), so `Game.eliminated_powers()` reports it at
 once. D3 originally left ownership untouched, expecting the centres to sit "unclaimed"; in
