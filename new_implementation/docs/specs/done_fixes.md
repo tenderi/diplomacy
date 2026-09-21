@@ -2945,3 +2945,28 @@ the three `POST /generate_map*` routes — anonymous disk writers (a snapshot ro
 - Full suite against the local Postgres: **1616 passed, 0 skipped, 10 xfailed** (was 1613);
   ruff clean; engine coverage 93.81 % (floor 92), overall 72.06 % (floor 60). Frontend
   untouched.
+
+---
+
+# Track S — Waiting-list writes accepted any browser account (`v2.7.78`)
+
+## Why this track exists
+
+Continuing the 2026-09-21 bug hunt into the auto-match queue. `POST /waiting_list/join` and
+`/leave` were gated on `require_bot_or_user`, and take the affected `telegram_id` from the
+body — so a Bearer token (free via `/auth/register`) let any browser account queue an
+arbitrary telegram id, or kick anyone out of the queue. The routes' own docstring already
+said the queue "exists for the Telegram bot … the bot is trusted to pass the right id and is
+the only caller"; `require_bot_secret` — written for exactly this distinction — was one
+import away.
+
+## What landed
+
+- [x] Both write routes use `require_bot_secret`. The read-only `GET /waiting_list` is
+      unchanged (it returns counts only).
+- [x] `tests/test_waiting_list.py`: a Bearer account gets 401 on both and the queue is intact.
+
+## Verification
+
+- Full suite against the local Postgres: **1617 passed, 0 skipped, 10 xfailed** (was 1616);
+  ruff clean; coverage floors hold. Frontend untouched (it never used these routes).
