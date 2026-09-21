@@ -196,6 +196,7 @@ instrumented and the success case was silent, because nobody owned the question.
 | **Turn processed** (manual) | all players **except the caller** | notification + rendered map | next poll | `notify_turn_processed(trigger="manual")` |
 | **Game ended** (18 centres, draw, last power) | all players except the caller | notification | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
+| Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
 | Player joined | all players | — | next poll | `routes/games.py` join |
 | Game full / started | all players | — | next poll | `routes/games.py` join |
 | Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
@@ -218,7 +219,8 @@ A non-final draw vote is announced too, deliberately: a draw is the one outcome 
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
 **Deadlines are never imposed.** A game has a deadline only when one was set explicitly via
-`POST /games/{id}/deadline`, and it is scoped to that phase: both processing paths clear it
+`POST /games/{id}/deadline` — the bot's `/deadline <game_id> <hours|clear>` (F5, `v2.7.73`)
+is the one client that does — and it is scoped to that phase: both processing paths clear it
 once the phase is adjudicated and neither sets a new one (Track N, `v2.7.72`). Until then
 the manual `process_turn` route re-armed a hard-coded +24h after every turn — a deadline
 nobody had asked for, after which the scheduler processed the next phase with the missing

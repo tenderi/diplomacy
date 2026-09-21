@@ -143,6 +143,7 @@ HELP_TEXT = f"""
 • `/order <orders>` - Submit orders (auto-detect game)
 • `/selectunit` - Interactive unit selection
 • `/processturn <game_id>` - Process current turn
+• `/deadline <game_id> <hours|clear>` - Set or remove the order deadline (auto-processes when it passes)
 • `/viewmap <game_id>` - View game map
 • `/message <game_id> <power> <text>` - Send message
 • `/broadcast <game_id> <text>` - Message all players
