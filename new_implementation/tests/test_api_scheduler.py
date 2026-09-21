@@ -151,3 +151,35 @@ def test_deadline_set_to_now():
     client2 = TestClient(app)
     resp = client2.get(f"/games/{game_id}/deadline")
     assert resp.json()["deadline"] is None
+
+
+def test_manual_processing_never_imposes_a_deadline():
+    """Track N (a): a game with no deadline stays that way after a manual
+    process_turn. Until v2.7.72 the route re-armed a hard-coded +24h, after which
+    the scheduler would process the next phase with missing powers' units
+    holding -- then clear it, so alternate phases had an auto-deadline."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
+    game_id = resp.json()["game_id"]
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+    resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
+    assert resp.status_code == 200, resp.text
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+
+def test_manual_processing_spends_an_explicit_deadline():
+    """An explicitly set deadline is scoped to the phase it was set for: once the
+    phase is processed by hand it is cleared rather than carried over."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
+    game_id = resp.json()["game_id"]
+    future = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)).isoformat()
+    assert client.post(f"/games/{game_id}/deadline", json={"deadline": future}, headers=headers).status_code == 200
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is not None
+
+    resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
+    assert resp.status_code == 200, resp.text
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
