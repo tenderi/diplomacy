@@ -441,10 +441,6 @@ class DatabaseService:
                 game_id_int = game_id
             return session.query(PlayerModel).filter_by(game_id=game_id_int, power_name=power).first()
 
-    def get_player_count_by_game_id(self, game_id: int) -> int:
-        with self.session_factory() as session:
-            return session.query(PlayerModel).filter_by(game_id=game_id).count()
-
     def update_player_is_active(self, player_id: int, is_active: bool) -> None:
         with self.session_factory() as session:
             player = session.query(PlayerModel).filter_by(id=player_id).first()
@@ -478,18 +474,6 @@ class DatabaseService:
         with self.session_factory() as session:
             return self._get_game_model_by_game_id_string(session, str(game_id))
     
-    def get_game_current_turn(self, game_id: str | int) -> int:
-        """Get the current_turn for a game by game_id string. Returns 0 if not found.
-        This method queries fresh to ensure we get the latest committed value."""
-        with self.session_factory() as session:
-            # Query directly for current_turn column to get fresh value
-            result = session.query(GameModel.current_turn).filter(
-                GameModel.game_id == str(game_id)
-            ).first()
-            if result:
-                return result[0]
-            return 0
-
     def get_all_games(self) -> List[GameModel]:
         with self.session_factory() as session:
             return session.query(GameModel).all()
@@ -550,35 +534,6 @@ class DatabaseService:
                 self.logger.warning(f"increment_game_current_turn: game not found for game_id={game_id}")
 
     # --- Orders ---
-    def get_orders_by_player_id(self, player_id: int) -> List[OrderModel]:
-        with self.session_factory() as session:
-            player = session.query(PlayerModel).filter_by(id=player_id).first()
-            if not player:
-                return []
-            return session.query(OrderModel).filter_by(game_id=player.game_id, power_name=player.power_name).all()
-    
-    def get_order_history(self, game_id: str | int) -> List[OrderModel]:
-        """Get all orders for a game across all turns."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                return []
-            return session.query(OrderModel).filter_by(game_id=game_model.id).order_by(OrderModel.turn_number, OrderModel.power_name).all()
-
-    def delete_orders_by_player_id(self, player_id: int) -> None:
-        with self.session_factory() as session:
-            player = session.query(PlayerModel).filter_by(id=player_id).first()
-            if player:
-                session.query(OrderModel).filter_by(game_id=player.game_id, power_name=player.power_name).delete()
-                session.commit()
-
-    def check_if_player_has_orders_for_turn(self, player_id: int, turn: int) -> bool:
-        with self.session_factory() as session:
-            player = session.query(PlayerModel).filter_by(id=player_id).first()
-            if not player:
-                return False
-            return session.query(OrderModel).filter_by(game_id=player.game_id, power_name=player.power_name, turn_number=turn).count() > 0
-
     def delete_all_orders(self) -> None:
         with self.session_factory() as session:
             session.query(OrderModel).delete()
@@ -1208,19 +1163,6 @@ class DatabaseService:
                 return False
             return (
                 session.query(SpectatorModel)
-                .filter_by(game_id=game_model.id, user_id=user_id)
-                .first()
-                is not None
-            )
-
-    def is_player_in_game(self, game_id: str | int, user_id: int) -> bool:
-        """Return True if user is a player (has a power) in the game."""
-        with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, str(game_id))
-            if not game_model:
-                return False
-            return (
-                session.query(PlayerModel)
                 .filter_by(game_id=game_model.id, user_id=user_id)
                 .first()
                 is not None

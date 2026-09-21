@@ -196,21 +196,3 @@ class TestShowConvoyDestinations:
         mock_query.edit_message_text.assert_called_once()
         call_args = mock_query.edit_message_text.call_args[0][0]
         assert "error" in call_args.lower()
-
-
-@pytest.mark.integration
-@pytest.mark.telegram
-class TestConvoyFunctionsIntegration:
-    """Integration tests for convoy functions with a real API server."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires running API server")
-    async def test_convoy_options_with_real_game(self):
-        """Test convoy options with a real game state (requires API server)."""
-        pass
-
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires running API server")
-    async def test_convoy_destinations_with_real_game(self):
-        """Test convoy destinations with a real game state (requires API server)."""
-        pass

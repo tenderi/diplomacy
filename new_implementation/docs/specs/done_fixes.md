@@ -2758,3 +2758,69 @@ waits for a human → 24h again.
 - `v2.7.72`: **1591 passed, 11 skipped, 10 xfailed** (was 1589). `v2.7.73`: **1606 passed**
   (+15); ruff clean; engine coverage 93.48 % (floor 92), overall 71.35 % (floor 60). Frontend
   untouched by both.
+
+---
+
+# Track O — Dead tests and dead code (`v2.7.74`)
+
+## Why this track exists
+
+Maintainer asked (2026-09-21) for a pass over useless tests and dead code. Method: the
+suite's 11 permanent skips, `coverage --sort=cover`, `vulture` at 60 % confidence with every
+candidate confirmed by a whole-repo grep (src, tests, frontend, alembic, docs), and a read of
+every `assert True`. `tournaments.py`, `discord_bot/`, spectator routes and the legacy
+`units`/`orders`/`supply_centers` ORM models were left alone per `CLAUDE.md`.
+
+## What was removed
+
+**Tests (11 permanent skips → 0):**
+- `tests/test_demo_game_management.py`, `tests/test_demo_integration.py` (13 tests). Six were
+  guarded by `_has_demo_map()` on a `maps/demo.json` that does not exist and never will (map
+  variants are out of scope) — and forcing the guard showed them rotten underneath (401s: they
+  predate auth on `/games/create`). Six more asserted on a `dict.get` expression written
+  inside the test, importing no production code. The one real one duplicated
+  `test_api_routes_users.py::test_get_user_games_success`.
+- Five empty `pass` bodies under `@pytest.mark.skip` (`test_convoy_functions.py` ×2 "requires
+  running API server", `test_api_routes_maps.py` ×3 "requires game in memory"). The three map
+  ones promised success-path tests for `POST /games/{id}/generate_map[/orders|/resolution]`
+  that never existed, and those routes had **no** success-path test — so they were written for
+  real: each asserts a non-trivial PNG on disk and no `render_warnings` (a warning means the
+  route handed back the blank fallback board).
+- `test_bot_map_generation.py`, `test_map_with_units.py`, `test_map_opacity_font.py`: each
+  rendered a PNG into the git-ignored `tests/test_maps/` for a human to look at, then
+  `assert True`. Rendering is covered by `test_game_service.py::TestMapRenderingSmoke`,
+  `test_arrow_geometry.py`, `test_pending_order_styling.py` and the new route tests.
+- `tests/test_execution_context.py`: a trailing `assert True` after `pytest.fail`-guarded
+  imports.
+- `src/client.py` (a 15-line wrapper over `Server.process_command`, used by one test) is
+  gone; that test now drives `Server` directly as `tests/test_server_command_flow.py`.
+
+**Production code, all with zero references outside their definition:**
+- `DatabaseService.get_player_count_by_game_id`, `get_game_current_turn`, `is_player_in_game`,
+  and four methods over the legacy `orders` table that `CLAUDE.md` says is never read or
+  written: `get_orders_by_player_id`, `get_order_history` (the DAL one — `GameService.
+  order_history` is unrelated and stays), `delete_orders_by_player_id`,
+  `check_if_player_has_orders_for_turn`. The `/quit` route's call to
+  `delete_orders_by_player_id` was a no-op against an always-empty table and is gone; pending
+  orders live in `games.pending_orders` and are deliberately left for a replacement player.
+- `persistence.database.clear_database`, `GameRepo.list_game_ids`,
+  `visualization_config.reload_config`, `Resolution.for_unit` (engine; `data_spec.md` §2 no
+  longer mentions it).
+- `rendering/arrows.py`: `_draw_dotted_arrow`, `_draw_glowing_circle`, `_draw_cross` and
+  `_lighten_color` (only `_draw_glowing_circle` used it), plus their `map.py` facade
+  re-exports. **PNG bytes compared before and after** (board, pending-orders and resolution
+  renders, cache cleared): identical.
+- Unused parameters: `cached_response(invalidate_on=...)`, `post_broadcast_to_channel(
+  create_thread=...)`.
+
+**Left alone, on purpose:** `get_waiting_list`/`clear_waiting_list`, `max_bot_outbox_id`,
+`record_bot_notification_attempt` (DAL surface reached only from tests, but they are the
+tested seam of live features); `is_spectator` and the tournament DAL (kept-for-compat areas);
+the `Channel*Model` ORM classes (schema-coupled; the channels feature is live).
+
+## Verification
+
+- Full suite against the local Postgres: **1600 passed, 0 skipped, 10 xfailed** (was 1606 /
+  11 skipped); ruff clean; engine coverage **93.81 %** (was 93.48; floor 92), overall
+  **72.01 %** (was 71.35; floor 60). Frontend untouched.
+- Rendering byte-compare as above.

@@ -36,6 +36,26 @@ def _create_game(client, headers):
     return resp.json()["game_id"]
 
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_NONTRIVIAL_PNG_BYTES = 5000  # a bare/near-empty board renders far smaller than this
+
+
+def _assert_rendered(resp, suffix: str) -> None:
+    """The route wrote a real, non-trivial PNG where it says it did, with no
+    render warnings (a warning means the primary render failed and the route
+    handed back a blank fallback board -- see ``_render_and_save``)."""
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["phase_code"] == "S1901M"
+    assert "render_warnings" not in data, data.get("render_warnings")
+    assert suffix in data["map_path"]
+    with open(data["map_path"], "rb") as f:
+        png = f.read()
+    assert png[:8] == _PNG_MAGIC
+    assert len(png) > _NONTRIVIAL_PNG_BYTES
+
+
 @pytest.mark.unit
 class TestGenerateMap:
     """Test generate map endpoint."""
@@ -44,13 +64,13 @@ class TestGenerateMap:
         """Test generating map for non-existent game."""
         resp = client.post("/games/nonexistent/generate_map")
         assert resp.status_code == 404
-    
-    @pytest.mark.skip(reason="Requires game in memory and map file")
+
+    @pytest.mark.map
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_generate_map_success(self, client):
-        """Test successful map generation."""
-        # This would require setting up a game in memory and map files
-        # Skipping for now as it requires file system setup
-        pass
+        headers = _register_and_login(client, "genmap")
+        game_id = _create_game(client, headers)
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map"), f"game_{game_id}_S1901M")
 
 
 @pytest.mark.unit
@@ -61,12 +81,22 @@ class TestGenerateOrdersMap:
         """Test generating orders map for non-existent game."""
         resp = client.post("/games/nonexistent/generate_map/orders")
         assert resp.status_code == 404
-    
-    @pytest.mark.skip(reason="Requires game in memory and map file")
-    def test_generate_orders_map_success(self, client):
-        """Test successful orders map generation."""
-        # This would require setting up a game in memory and map files
-        pass
+
+    @pytest.mark.map
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_generate_orders_map_success_with_pending_orders(self, client):
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "genmap_orders", "full_name": "Maps"})
+        headers = _register_and_login(client, "genmap_orders")
+        game_id = _create_game(client, headers)
+        join = client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "genmap_orders", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        assert join.status_code == 200, join.text
+        submit = client.post("/games/set_orders", json={
+            "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR", "F BRE - MAO"],
+            "telegram_id": "genmap_orders", "bot_secret": BOT_SECRET,
+        })
+        assert submit.status_code == 200, submit.text
+        assert all(r["success"] for r in submit.json()["results"])
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map/orders"), "_orders_")
 
 
 @pytest.mark.unit
@@ -77,12 +107,21 @@ class TestGenerateResolutionMap:
         """Test generating resolution map for non-existent game."""
         resp = client.post("/games/nonexistent/generate_map/resolution")
         assert resp.status_code == 404
+
+    @pytest.mark.map
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_generate_resolution_map_success_before_and_after_a_turn(self, client):
+        headers = _register_and_login(client, "genmap_res")
+        game_id = _create_game(client, headers)
+        # No turn processed yet: falls back to a plain board, still a real PNG.
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map/resolution"), "_resolution_")
+        processed = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
+        assert processed.status_code == 200, processed.text
+        resp = client.post(f"/games/{game_id}/generate_map/resolution")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["phase_code"] == "F1901M"
+        assert "render_warnings" not in resp.json()
     
-    @pytest.mark.skip(reason="Requires game in memory and map file")
-    def test_generate_resolution_map_success(self, client):
-        """Test successful resolution map generation."""
-        # This would require setting up a game in memory and map files
-        pass
 
 
 @pytest.mark.unit

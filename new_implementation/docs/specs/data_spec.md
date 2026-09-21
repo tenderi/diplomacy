@@ -84,8 +84,7 @@ Resolution(results: tuple[OrderResult, ...] = ())
 `ResultCode`: `OK`, `BOUNCE`, `CUT`, `VOID`, `NO_CONVOY`, `DISLODGED`, `DISBAND`,
 `BUILD`, `WAIVE` — see `types.py`'s enum docstring for the precise meaning of each; the
 convoy-specific distinction between `VOID`/`DISLODGED`/`NO_CONVOY`/`OK` is covered in
-`adjudication.md` §6. `Resolution.for_unit(loc)` looks up the result for whichever order
-acted on the unit at `loc`.
+`adjudication.md` §6.
 
 ### `GameState`
 
