@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .auth import require_bot_or_user
+from .auth import require_bot_secret
 from ..shared import db_service, game_service, logger, notify_players, notify_user
 
 router = APIRouter()
@@ -44,10 +44,12 @@ class WaitingListRequest(BaseModel):
 
     ``telegram_id`` is required: this endpoint exists for the Telegram bot, whose
     queue is keyed by Telegram identity, and a browser user has no place in a
-    Telegram auto-match queue. Authentication is separate
-    (``require_bot_or_user``) -- being authenticated does not let you queue
-    somebody else, because the bot is trusted to pass the right id and is the
-    only caller.
+    Telegram auto-match queue. The routes therefore require the bot secret
+    (``require_bot_secret``), not merely *some* credential: the bot is trusted
+    to pass the caller's own id and is the only caller. Until ``v2.7.78``
+    (Track S) they took ``require_bot_or_user``, under which any freshly
+    registered browser account could queue or dequeue an arbitrary
+    ``telegram_id``.
     """
     telegram_id: str
     full_name: Optional[str] = None
@@ -147,7 +149,7 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
 @router.post("/waiting_list/join")
 def join_waiting_list(
     req: WaitingListRequest,
-    _: None = Depends(require_bot_or_user),
+    _: None = Depends(require_bot_secret),
 ) -> Dict[str, Any]:
     """Queue a player, creating a game immediately if that fills the queue.
 
@@ -177,7 +179,7 @@ def join_waiting_list(
 @router.post("/waiting_list/leave")
 def leave_waiting_list(
     req: WaitingListRequest,
-    _: None = Depends(require_bot_or_user),
+    _: None = Depends(require_bot_secret),
 ) -> Dict[str, Any]:
     """Remove a player from the queue."""
     removed = db_service.remove_from_waiting_list(req.telegram_id)
