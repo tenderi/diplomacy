@@ -33,7 +33,7 @@ def test_persistent_user_registration_and_multi_game():
     resp = client.post(f"/games/{game_id2}/join", json={"telegram_id": "12345", "bot_secret": "test_bot_secret_for_tests", "game_id": int(game_id2), "power": "GERMANY"})
     assert resp.status_code == 200
     # List user games
-    resp = client.get("/users/12345/games")
+    resp = client.get("/users/12345/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
     assert resp.status_code == 200
     games = resp.json()["games"]
     assert any(str(g["game_id"]) == str(game_id1) and g["power"] == "FRANCE" for g in games)
@@ -42,7 +42,7 @@ def test_persistent_user_registration_and_multi_game():
     resp = client.post(f"/games/{game_id1}/quit", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "12345", "game_id": int(game_id1)})
     assert resp.status_code == 200
     # List user games again
-    resp = client.get("/users/12345/games")
+    resp = client.get("/users/12345/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
     games = resp.json()["games"]
     assert not any(str(g["game_id"]) == str(game_id1) for g in games)
     assert any(str(g["game_id"]) == str(game_id2) for g in games)

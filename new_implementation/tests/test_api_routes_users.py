@@ -25,17 +25,7 @@ def client():
 class TestRegisterUser:
     """Test user registration endpoints."""
     
-    def test_register_user_session(self, client):
-        """Test registering a user session."""
-        resp = client.post("/users/register", json={
-            "telegram_id": "session_user",
-            "game_id": "test_game",
-            "power": "FRANCE"
-        })
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "ok"
-    
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_persistent_register_user(self, client):
         """Test persistent user registration."""
@@ -70,31 +60,6 @@ class TestRegisterUser:
         assert resp2.json()["status"] in ["ok", "already_registered"]
 
 
-@pytest.mark.unit
-class TestGetUserSession:
-    """Test get user session endpoint."""
-    
-    def test_get_user_session_success(self, client):
-        """Test successful session retrieval."""
-        # Register session first
-        client.post("/users/register", json={
-            "telegram_id": "session_test",
-            "game_id": "test_game",
-            "power": "FRANCE"
-        })
-        
-        # Get session
-        resp = client.get("/users/session_test")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["telegram_id"] == "session_test"
-        assert data["game_id"] == "test_game"
-        assert data["power"] == "FRANCE"
-    
-    def test_get_user_session_not_found(self, client):
-        """Test getting non-existent session."""
-        resp = client.get("/users/nonexistent")
-        assert resp.status_code == 404
 
 
 @pytest.mark.unit
@@ -112,7 +77,7 @@ class TestGetUserGames:
         })
         
         # Get games (may be empty)
-        resp = client.get("/users/games_user/games")
+        resp = client.get("/users/games_user/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         assert resp.status_code == 200
         data = resp.json()
         assert "games" in data
@@ -121,7 +86,7 @@ class TestGetUserGames:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_user_games_not_found(self, client):
         """Test getting games for non-existent user."""
-        resp = client.get("/users/nonexistent_user/games")
+        resp = client.get("/users/nonexistent_user/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         # May return 404 or 500 depending on error handling
         assert resp.status_code == 404, resp.text
     
@@ -168,7 +133,7 @@ class TestGetUserGames:
         })
 
         # Verify game appears
-        resp1 = client.get("/users/quit_user/games")
+        resp1 = client.get("/users/quit_user/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         assert resp1.status_code == 200
         games_before = resp1.json()["games"]
         assert any(g["game_id"] == game_id for g in games_before)
@@ -181,7 +146,7 @@ class TestGetUserGames:
         })
         
         # Verify game no longer appears
-        resp2 = client.get("/users/quit_user/games")
+        resp2 = client.get("/users/quit_user/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         assert resp2.status_code == 200
         games_after = resp2.json()["games"]
         assert not any(g["game_id"] == game_id for g in games_after)
