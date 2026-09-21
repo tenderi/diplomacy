@@ -14,7 +14,7 @@ from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
 from rendering.view_adapter import phase_info as build_phase_info
 from rendering.view_adapter import svg_path_for_map_name, units_for_render
-from server.game_service import GameService
+from server.game_service import GameOverError, GameService, OrderError
 
 pytestmark = pytest.mark.database
 
@@ -562,3 +562,62 @@ class TestPhaseAwareOrders:
         results = service.submit_orders(gid, "GERMANY", ["A SIL - MUN"])
         assert results[0]["ok"] is False
         assert "adjustment phase (W1901A)" in results[0]["reason"]
+
+
+class TestGameOverGuard:
+    """Track L: no write goes through on a COMPLETED game."""
+
+    def _drawn(self, service: GameService) -> str:
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        service.submit_draw_vote(gid, "FRANCE", True)
+        assert service.submit_draw_vote(gid, "GERMANY", True)["quorum_reached"] is True
+        return gid
+
+    def test_every_write_raises_game_over_error(self, service):
+        gid = self._drawn(service)
+        with pytest.raises(GameOverError, match="drawn between FRANCE, GERMANY"):
+            service.submit_orders(gid, "FRANCE", ["A PAR H"])
+        with pytest.raises(GameOverError):
+            service.process_turn(gid)
+        with pytest.raises(GameOverError):
+            service.submit_draw_vote(gid, "FRANCE", False)
+        with pytest.raises(GameOverError):
+            service.concede(gid, "FRANCE")
+        # ...and the final board is exactly as the draw left it.
+        view = service.view(gid)
+        assert view["status"] == "COMPLETED"
+        assert view["winners"] == ["FRANCE", "GERMANY"]
+        assert len(view["units"]) == 2
+        assert view["orders"] == {}
+
+    def test_game_over_error_is_not_an_order_error(self, service):
+        # Routes map OrderError to 404 "not found"; a finished game is found.
+        assert not issubclass(GameOverError, OrderError)
+
+    def test_solo_win_message_names_the_winner(self, service):
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}),
+            ownership={"PAR": "FRANCE"},
+            status=GameStatus.COMPLETED,
+            winners=frozenset({"FRANCE"}),
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        with pytest.raises(GameOverError, match="won by FRANCE"):
+            service.submit_orders(gid, "FRANCE", ["WAIVE"])
+
+    def test_orders_status_lists_nobody(self, service):
+        gid = self._drawn(service)
+        status = service.orders_status(gid)
+        assert status["active_powers"] == []
+        assert status["missing"] == []

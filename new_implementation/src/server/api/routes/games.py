@@ -20,7 +20,7 @@ from ..shared import (
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.game_repo import StaleGameError
-from server.game_service import OrderError
+from server.game_service import GameOverError, OrderError
 
 router = APIRouter()
 
@@ -247,7 +247,11 @@ async def process_turn(
     async with lock:
         try:
             turn_result = game_service.process_turn(game_id)
-        except StaleGameError as e:
+        except (StaleGameError, GameOverError) as e:
+            # Both are "the game is not where you think it is": another process
+            # already advanced the phase, or the game has ended. Before the
+            # GameOverError guard, processing a finished game "succeeded" with an
+            # empty resolution and then DMed every player "turn processed".
             raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
 
@@ -371,7 +375,7 @@ def submit_draw_vote(
         result = game_service.submit_draw_vote(game_id, req.power, req.vote)
     except OrderError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except StaleGameError as e:
+    except (StaleGameError, GameOverError) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
 
@@ -445,6 +449,8 @@ def concede_game(
         result = game_service.concede(game_id, req.power)
     except OrderError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except GameOverError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
 
     # G3a: a power leaving changes the board for everyone -- its units come off

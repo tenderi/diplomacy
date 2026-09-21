@@ -2619,3 +2619,44 @@ connected defects in what "your orders were accepted" and "everyone has submitte
   (floor 60).
 - Frontend untouched, but the gates were run anyway with the system Node 26:
   `tsc -b --noEmit` clean, 24 files / 158 tests, `npm run build` green.
+
+---
+
+# Track L — No writes on a finished game (`v2.7.70`)
+
+## Why this track exists
+
+Found 2026-09-21 by probing `GameService` on a game that had just ended by draw. Nothing
+checked `state.status`, so every write path still went through on a `COMPLETED` game:
+
+| Write on a finished game | Before |
+|---|---|
+| `submit_orders` | accepted, stored, shown as pending in both clients |
+| `orders_status` | listed powers as "missing" → bot `/status`: "Waiting on: GERMANY" |
+| `process_turn` | "succeeded" with an empty resolution; the route then snapshotted, reset the deadline and DMed every player "turn processed" — on every press |
+| `submit_draw_vote` | "recorded" |
+| `concede` | **removed the power's units from the final board** |
+
+## L1 — `GameOverError` on every write path — done
+
+- [x] `server/game_service.py`: `GameOverError(ValueError)` and a `_require_active` guard
+      at the top of `submit_orders`, `process_turn`, `submit_draw_vote` and `concede`. The
+      message names the outcome (`won by FRANCE` / `drawn between FRANCE, GERMANY`).
+      Deliberately not an `OrderError` subclass: `draw_vote` and `concede` map `OrderError`
+      to 404, and a finished game is very much found. `clear_orders` is left alone (harmless).
+- [x] Routes: `set_orders`, `process_turn`, `draw_vote`, `concede` → **409**. The bot's
+      `_raise_for_status` already shows a JSON `detail` verbatim, so no bot change.
+- [x] DAIDE: the dispatch loop answers `REJ (…)` to `SUB` / `DRW` / `NOT (DRW)` after the
+      game ends; before, the exception would have propagated out of the handler.
+- [x] `powers_with_orders_to_give` returns the empty set for a `COMPLETED` state, so
+      `orders_status` waits on nobody.
+- [x] Tests (+13): `tests/test_api_game_over.py` (6, real HTTP round-trips through auth),
+      `test_game_service.py::TestGameOverGuard` (4), `test_daide_session.py::TestGameOver` (3).
+- [x] Spec: `architecture.md` §Notifications gains the "a COMPLETED game accepts no writes"
+      paragraph.
+
+## Verification
+
+- Full suite against the local Postgres: **1588 passed, 11 skipped, 10 xfailed** (was 1575);
+  ruff clean; engine coverage 93.48 % (floor 92), overall 71.19 % (floor 60).
+- Frontend untouched (no route shape changed; a 409 surfaces through the existing error path).
