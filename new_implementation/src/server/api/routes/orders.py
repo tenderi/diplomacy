@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..client_timestamp import normalize_client_timestamp
 from ..shared import db_service, game_service, logger, BOT_SECRET
+from server.game_service import GameOverError
 
 router = APIRouter()
 
@@ -89,6 +90,8 @@ def set_orders(
     _refuse_if_stale(str(req.game_id), req.client_timestamp)
     try:
         raw = game_service.submit_orders(str(req.game_id), req.power, req.orders)
+    except GameOverError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except Exception as e:
         logger.exception(f"set_orders failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

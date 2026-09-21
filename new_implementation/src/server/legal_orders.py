@@ -48,6 +48,7 @@ from engine.types import (
     Disband,
     DislodgedUnit,
     GameState,
+    GameStatus,
     Hold,
     Location,
     Move,
@@ -128,10 +129,14 @@ def powers_with_orders_to_give(map: MapData, state: GameState) -> frozenset[str]
       build but has no vacant owned home centre can only waive, which the
       adjudicator does for it anyway.
 
+    A COMPLETED game returns the empty set whatever its phase.
+
     Same delta and same ``legal_builds`` filter as ``legal_orders_for_power``,
     so a power is listed here exactly when that function would hand it a
     non-empty menu (``WAIVE`` alone does not count).
     """
+    if state.status is GameStatus.COMPLETED:
+        return frozenset()  # nobody has anything left to order
     if state.phase_type is PhaseType.MOVEMENT:
         return frozenset(u.power for u in state.units)
     if state.phase_type is PhaseType.RETREAT:

@@ -336,6 +336,40 @@ class TestDraw:
         assert any(f == [t.DRW] for f in eng_broadcast_frames)
 
 
+class TestGameOver:
+    """Once the game has ended, well-formed write commands get REJ rather than
+    an unhandled ``GameOverError`` tearing the session down."""
+
+    async def _drawn_game(self, service: GameService) -> tuple[DaideSession, FakeWriter, str]:
+        session, writer, _server, gid = _identified_session(service)
+        for power in ("ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
+            service.concede(gid, power)
+        await _dispatch(session, writer, t.DRW)  # sole survivor: quorum of one
+        view = service.view(gid)
+        assert view is not None and view["status"] == "COMPLETED"
+        return session, writer, gid
+
+    async def test_sub_after_game_over_is_rejected(self, service: GameService) -> None:
+        session, writer, gid = await self._drawn_game(service)
+        clause = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.HLD)
+        frames = await _dispatch(session, writer, t.SUB, *clause)
+        assert frames == [[t.REJ, t.OPEN_PAREN, t.SUB, *clause, t.CLOSE_PAREN]]
+        assert service.view(gid)["orders"] == {}
+
+    async def test_drw_and_not_drw_after_game_over_are_rejected(self, service: GameService) -> None:
+        session, writer, _gid = await self._drawn_game(service)
+        assert (await _dispatch(session, writer, t.DRW)) == [[t.REJ, t.OPEN_PAREN, t.DRW, t.CLOSE_PAREN]]
+        not_drw = [t.NOT, t.OPEN_PAREN, t.DRW, t.CLOSE_PAREN]
+        assert (await _dispatch(session, writer, *not_drw)) == [
+            [t.REJ, t.OPEN_PAREN, *not_drw, t.CLOSE_PAREN]
+        ]
+
+    async def test_reads_still_work_after_game_over(self, service: GameService) -> None:
+        session, writer, _gid = await self._drawn_game(service)
+        frames = await _dispatch(session, writer, t.NOW)
+        assert frames[0][0] == t.NOW
+
+
 # ---------------------------------------------------------------------------
 # MIS / TME
 # ---------------------------------------------------------------------------
