@@ -234,6 +234,15 @@ conceded power builds, `orders_status` waited on the player who had just left, a
 walked them back in. Changed in `v2.7.71` (Track M). `/quit` is the other path: the seat is
 vacated for a replacement and the board is untouched.
 
+**Seat writes go through `DatabaseService.assign_player_seat`** (`v2.7.75`, Track P), never
+through attribute assignment on a row returned by a DAL getter — those rows are detached the
+moment the getter's session closes, and `DatabaseService.commit()` is a documented no-op, so
+such writes are silently discarded. `/quit` and `/replace` both did exactly that for
+`user_id`, which meant a quitter still held the power (orders, votes, concession all
+authorized) and the seat could never be filled. A vacant seat is a row with `user_id NULL`
+and `is_active False`; `/join` takes it over the same way `/replace` does, since the web
+client already lists such seats as "Open"; `_authorize_power` treats it as held by nobody.
+
 **A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once

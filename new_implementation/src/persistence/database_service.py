@@ -448,6 +448,29 @@ class DatabaseService:
                 player.is_active = is_active
                 session.commit()
 
+    def assign_player_seat(self, player_id: int, user_id: Optional[int], is_active: bool) -> bool:
+        """Set who holds a power's seat, in one committed session.
+
+        ``(None, False)`` vacates it (quit, admin mark-inactive); ``(uid, True)``
+        fills it (replace). Returns ``False`` if no such player row.
+
+        Exists because both ``/quit`` and ``/replace`` used to assign
+        ``player.user_id`` on the *detached* row ``get_player_by_game_id_and_power``
+        returns and then call the no-op ``commit()`` -- so ``is_active`` (written
+        through ``update_player_is_active``) changed and ``user_id`` silently did
+        not. A quitter therefore still held the power (orders, votes, concede all
+        authorized), the seat could never be replaced ("already assigned"), and a
+        replacement would have flipped ``is_active`` without taking the seat.
+        """
+        with self.session_factory() as session:
+            player = session.query(PlayerModel).filter_by(id=player_id).first()
+            if player is None:
+                return False
+            player.user_id = user_id
+            player.is_active = is_active
+            session.commit()
+            return True
+
     # --- Games ---
     def get_game_by_id(self, game_id: int) -> Optional[GameModel]:
         with self.session_factory() as session:
