@@ -137,6 +137,8 @@ def restart_service(req: Dict[str, str]) -> Dict[str, Any]:
             )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Timeout restarting service")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -172,6 +174,8 @@ def get_service_logs(service: str, lines: int = 100) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail=f"Failed to get logs: {result.stderr}")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Timeout getting logs")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

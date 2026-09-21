@@ -2872,3 +2872,43 @@ would have been a 500.
 - Full suite against the local Postgres: **1609 passed, 0 skipped, 10 xfailed** (was 1600);
   ruff clean; engine coverage 93.81 % (floor 92), overall 72.03 % (floor 60). Frontend
   untouched (its "Open" seats now work as designed).
+
+---
+
+# Track Q — Routes that 500'd their own 404s; messaging edge cases (`v2.7.76`)
+
+## Why this track exists
+
+Continuing the 2026-09-21 bug hunt into messaging. Two findings, one of which turned out to
+be a pattern:
+
+- **Fifteen API tests accepted a 500** (`assert resp.status_code in [200, 500]` and
+  friends): a test that cannot fail on the failure it exists to catch. Tightening every one
+  exposed two routes — `GET /games/{id}/players` and `GET /games/{id}/history/{turn}` —
+  whose `except Exception` handler caught the route's own `HTTPException(404)` and re-raised
+  it as a 500 with `"404: …"` embedded in the text. `/replace` had the same shape (fixed in
+  Track P). A scan of every route found seven `try` blocks that raise an `HTTPException`
+  inside and have only a generic 500 handler; all seven now re-raise `HTTPException` first.
+- **A private message to a vacated seat** (the row exists, `user_id NULL` since Track P)
+  was stored with nobody to read it and no notification; now 400 like a never-joined
+  power. And **power names were matched case-sensitively** on every seat lookup
+  (`create_player` upper-cases; `get_player_by_game_id_and_power` compared verbatim), so
+  `"france"` was "Player not found" for orders / votes / concede and "no player is
+  assigned" for messages. Normalised once, in the DAL; the message's `recipient_power` is
+  stored upper-cased so the recipient's inbox filter (which compares against the
+  upper-cased seat) finds it.
+
+## What landed
+
+- [x] `except HTTPException: raise` in the seven swallowing routes (`games.py`: players,
+      mark_inactive, deadline GET, history, snapshots; `dashboard.py`: restart, logs).
+- [x] `get_player_by_game_id_and_power` upper-cases `power`; `/message` upper-cases and
+      refuses a seat with no user.
+- [x] The 15 tolerant assertions are exact (`== 200` etc.); +4 tests in
+      `test_quit_and_replace.py`.
+
+## Verification
+
+- Full suite against the local Postgres: **1613 passed, 0 skipped, 10 xfailed** (was 1609);
+  ruff clean; engine coverage 93.81 % (floor 92), overall 71.98 % (floor 60). Frontend
+  untouched.
