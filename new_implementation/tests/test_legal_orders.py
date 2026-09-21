@@ -25,7 +25,7 @@ from engine.types import (
     Unit,
     UnitKind,
 )
-from server.legal_orders import legal_orders_for_power
+from server.legal_orders import legal_orders_for_power, powers_with_orders_to_give
 from tests.datc.harness import Harness
 
 pytestmark = pytest.mark.unit
@@ -345,3 +345,79 @@ class TestFleetLetterTrap:
                 f"fleet at {province} emitted a non-'F'-prefixed order: {s!r}"
             )
         assert not any(s.startswith(f"A {province}") for s in data["orders"])
+
+
+# ---------------------------------------------------------------------------
+# 7. Who actually has to act this phase (feeds ``GameService.orders_status``).
+# ---------------------------------------------------------------------------
+
+
+class TestPowersWithOrdersToGive:
+    def test_movement_every_power_with_a_unit(self) -> None:
+        state = _initial_movement_state()
+        assert powers_with_orders_to_give(_MAP, state) == frozenset(
+            {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+        )
+
+    def test_movement_eliminated_power_excluded(self) -> None:
+        state = _initial_movement_state()
+        state = replace(state, units=frozenset(u for u in state.units if u.power != "ITALY"))
+        assert "ITALY" not in powers_with_orders_to_give(_MAP, state)
+
+    def test_retreat_only_the_dislodged_power(self) -> None:
+        state = _retreat_state()
+        # Germany has units on the board but nothing to retreat.
+        assert powers_with_orders_to_give(_MAP, state) == frozenset({"FRANCE"})
+
+    def test_adjustment_build_and_disband_only(self) -> None:
+        build = _build_state()  # France delta +2, everyone else owns SCs, no units
+        # The other six powers own their home centres and field no units, so
+        # they are all owed builds too and all have vacant home centres.
+        assert powers_with_orders_to_give(_MAP, build) == frozenset(
+            {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
+        )
+        disband = _disband_state()
+        assert "FRANCE" in powers_with_orders_to_give(_MAP, disband)
+
+    def test_adjustment_balanced_power_excluded(self) -> None:
+        balanced = _balanced_state()
+        assert "FRANCE" not in powers_with_orders_to_give(_MAP, balanced)
+
+    def test_adjustment_build_owed_but_no_vacant_home_centre_excluded(self) -> None:
+        # France owns 4 centres (BEL captured) but all three home centres are
+        # occupied: delta +1, zero legal builds -> nothing to decide but WAIVE,
+        # which the adjudicator applies anyway.
+        ownership = dict(_MAP.initial_ownership)
+        ownership["BEL"] = "FRANCE"
+        state = GameState(
+            year=1901,
+            season=Season.WINTER,
+            phase_type=PhaseType.ADJUSTMENT,
+            units=frozenset(
+                {
+                    Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                    Unit(UnitKind.ARMY, "FRANCE", Location("MAR")),
+                    Unit(UnitKind.FLEET, "FRANCE", Location("BRE")),
+                }
+            ),
+            ownership=ownership,
+        )
+        assert legal_orders_for_power(_MAP, state, "FRANCE")["orders"] == ["WAIVE"]
+        assert "FRANCE" not in powers_with_orders_to_give(_MAP, state)
+
+    def test_agrees_with_legal_orders_menu(self) -> None:
+        """Listed exactly when ``legal_orders_for_power`` offers a real choice."""
+        for state in (_initial_movement_state(), _retreat_state(), _build_state(),
+                      _disband_state(), _balanced_state()):
+            expected = set()
+            candidates = (
+                {u.power for u in state.units}
+                | {du.power for du in state.dislodged}
+                | set(state.ownership.values())
+            )
+            for power in candidates:
+                menu = [o for o in legal_orders_for_power(_MAP, state, power)["orders"]
+                        if o != "WAIVE"]
+                if menu:
+                    expected.add(power)
+            assert powers_with_orders_to_give(_MAP, state) == frozenset(expected), state.phase_name

@@ -62,8 +62,67 @@ def _can_reach_province(map: MapData, frm: Location, kind: UnitKind, dest_provin
     return any(loc.province == dest_province for loc in map.fleet_moves(frm))
 
 
+# Which order shapes belong to which phase. Anything else is refused up front:
+# the adjudicators ignore orders from the wrong phase, so accepting one at
+# submit time would store it, show it as pending, and then drop it without a
+# word -- a build typed during a movement phase, or a move typed during a
+# retreat phase, would look accepted and do nothing.
+_ORDERS_BY_PHASE: dict[PhaseType, tuple[type, ...]] = {
+    PhaseType.MOVEMENT: (Hold, Move, SupportHold, SupportMove, Convoy),
+    PhaseType.RETREAT: (Retreat, Disband),
+    PhaseType.ADJUSTMENT: (Build, Disband, Waive),
+}
+
+_PHASE_LABEL: dict[PhaseType, str] = {
+    PhaseType.MOVEMENT: "movement",
+    PhaseType.RETREAT: "retreat",
+    PhaseType.ADJUSTMENT: "adjustment",
+}
+
+_ORDER_LABEL: dict[type, str] = {
+    Hold: "hold",
+    Move: "move",
+    SupportHold: "support",
+    SupportMove: "support",
+    Convoy: "convoy",
+    Retreat: "retreat",
+    Disband: "disband",
+    Build: "build",
+    Waive: "waive",
+}
+
+_ACCEPTED_LABEL: dict[PhaseType, str] = {
+    PhaseType.MOVEMENT: "hold, move, support and convoy",
+    PhaseType.RETREAT: "retreat and disband (for dislodged units)",
+    PhaseType.ADJUSTMENT: "build, disband and waive",
+}
+
+
+def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
+    """Refuse an order whose kind does not belong to ``state.phase_type``."""
+    if isinstance(order, _ORDERS_BY_PHASE[state.phase_type]):
+        return None
+    kind = _ORDER_LABEL[type(order)]
+    phase = _PHASE_LABEL[state.phase_type]
+    return ValidationResult(
+        False,
+        f"a {kind} order is not accepted during the {phase} phase "
+        f"({state.phase_name}); only {_ACCEPTED_LABEL[state.phase_type]} orders are",
+    )
+
+
 def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
-    """Validate ``order`` against the current ``state`` and ``map`` topology."""
+    """Validate ``order`` against the current ``state`` and ``map`` topology.
+
+    The first check is the phase: an order whose kind has no meaning in
+    ``state.phase_type`` is rejected before anything else is looked at, so a
+    player is told *why* rather than having it silently ignored at
+    adjudication (see ``_ORDERS_BY_PHASE``).
+    """
+    phase_error = _check_phase(order, state)
+    if phase_error is not None:
+        return phase_error
+
     if isinstance(order, Waive):
         return ValidationResult(True)
 
