@@ -52,7 +52,8 @@
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
 - **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
-  and it gates nothing.
+  and it gates nothing. **Track N (deadline cadence) is a one-line maintainer decision** that
+  an agent can then implement — see its section.
 - **Track I (map legibility) was opened by the maintainer on 2026-07-30** as F2's first finding
   — the inline web map was unreadably small — and landed as `v2.7.66` (I1, full-size viewer)
   and `v2.7.67` (I2, renderer visuals). **F2 itself is still unchecked**: one defect found and
@@ -266,6 +267,34 @@ to use, which no test asserts.
 - [ ] **Done when:** the maintainer has an opinion on record here. Cosmetic complaints become
       new tasks in this file (see F1's note on where to put them); "it's fine" is a valid and
       useful outcome to write down.
+
+---
+
+# Track N — Deadline cadence is inconsistent between the two processing paths (open, maintainer decision)
+
+## Why this track exists
+
+Found 2026-09-21 while reading the scheduler. Neither client can set a deadline
+(`POST /games/{id}/deadline` exists; nothing calls it). The only deadline a real game ever
+gets is the **hard-coded `+24h`** that the manual `process_turn` route imposes after every
+turn it processes (`routes/games.py`, unchanged since `v2.0.0`). When that fires, the
+scheduler processes the turn — missing powers' units hold, with no confirmation, unlike the
+bot's `/processturn` which asks first — then **clears** the deadline and sets no new one
+(`api/shared.py` `process_due_deadlines`; `tests/test_api_scheduler.py` asserts the `None`).
+So a game alternates: processed by hand → 24h auto-deadline → auto-processed → no deadline →
+waits for a human → 24h again.
+
+## N1 — decide the cadence (maintainer)
+
+- [ ] Pick one: **(a)** never impose a deadline nobody asked for — drop the `+24h` from the
+      manual route, and have the scheduler re-arm only when the game had an explicit
+      deadline (needs a per-game interval, i.e. a column); or **(b)** make 24h/phase the
+      cadence — both paths set `+24h`, documented as the rule. **Recommendation: (a)** — it
+      matches the care the bot already takes not to hold units silently, and a solo repo's
+      casual games are processed by hand. Either way, add the deadline to the "turn
+      processed" DM so players know when the next one is.
+- [ ] Give one client a way to set/clear a deadline (`/deadline` in the bot is the obvious
+      one), or delete the route if (a) is chosen and nobody wants deadlines at all.
 
 ---
 
