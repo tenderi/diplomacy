@@ -10,10 +10,11 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from ..shared import db_service, game_service
+from .auth import require_bot_or_user
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
 from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
@@ -314,7 +315,7 @@ def _render_and_save(
 
 
 @router.post("/games/{game_id}/generate_map")
-def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
+def generate_map_for_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
     """Generate and save a map image for the current game state."""
     view = game_service.view(game_id)
     if view is None:
@@ -335,7 +336,7 @@ def generate_map_for_snapshot(game_id: str) -> Dict[str, Any]:
 
 
 @router.post("/games/{game_id}/generate_map/orders")
-def generate_orders_map(game_id: str) -> Dict[str, Any]:
+def generate_orders_map(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
     """Generate an orders map: the board plus arrows for the current pending orders.
 
     Renders a plain board when no orders have been submitted yet.
@@ -350,7 +351,7 @@ def generate_orders_map(game_id: str) -> Dict[str, Any]:
 
 
 @router.post("/games/{game_id}/generate_map/resolution")
-def generate_resolution_map(game_id: str) -> Dict[str, Any]:
+def generate_resolution_map(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
     """Generate a resolution map: the board after the last processed turn, with each
     adjudicated order's arrow coloured by its result plus standoff markers.
 

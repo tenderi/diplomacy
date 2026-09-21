@@ -2912,3 +2912,36 @@ be a pattern:
 - Full suite against the local Postgres: **1613 passed, 0 skipped, 10 xfailed** (was 1609);
   ruff clean; engine coverage 93.81 % (floor 92), overall 71.98 % (floor 60). Frontend
   untouched.
+
+---
+
+# Track R — `POST /restore` took no credentials (`v2.7.77`)
+
+## Why this track exists
+
+Continuing the 2026-09-21 bug hunt into snapshot restore. `POST /games/{id}/restore/{snapshot_id}`
+overwrites the live `state_json`, clears pending orders and draw votes — and required **no
+authentication at all**. nginx proxies `/api/` to the public internet, so anyone could rewind
+any game to any earlier snapshot. No client calls it (it is a moderation tool), and no test
+covered it. A scan of every write route for missing auth also turned up `POST /snapshot` and
+the three `POST /generate_map*` routes — anonymous disk writers (a snapshot row / a PNG under
+`/tmp/diplomacy_maps` per call). `POST /start` is an auth-less no-op and was left alone.
+
+## What landed
+
+- [x] `/restore/{snapshot_id}`: `X-Admin-Token` required (403 otherwise), same mechanism as
+      the other moderation routes; players are DMed that the game was rolled back to which
+      phase and that pending orders were cleared.
+- [x] `/snapshot`, `/generate_map`, `/generate_map/orders`, `/generate_map/resolution`:
+      `require_bot_or_user`.
+- [x] `tests/test_quit_and_replace.py::TestRestoreIsAdminOnly` (3): anonymous / bot / wrong
+      token refused and the game untouched; an admin restore actually rewinds, clears orders
+      and notifies; snapshot and generate_map need a caller. The map-route tests now send the
+      bot secret.
+- [x] `src/server/README.md` says which credential each needs.
+
+## Verification
+
+- Full suite against the local Postgres: **1616 passed, 0 skipped, 10 xfailed** (was 1613);
+  ruff clean; engine coverage 93.81 % (floor 92), overall 72.06 % (floor 60). Frontend
+  untouched.
