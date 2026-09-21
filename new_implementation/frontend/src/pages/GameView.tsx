@@ -1161,9 +1161,9 @@ export default function GameView() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Concede as {myPower}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    All of {myPower}&apos;s units are removed from the board immediately. The
-                    other six powers keep playing — this is not a draw and does not end the
-                    game. This cannot be undone.
+                    All of {myPower}&apos;s units are removed from the board immediately and
+                    its supply centres become neutral. The other six powers keep playing —
+                    this is not a draw and does not end the game. This cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

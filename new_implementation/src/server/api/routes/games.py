@@ -463,7 +463,8 @@ def concede_game(
             notify_players(
                 int(row.id),
                 f"{req.power} has conceded and left game {game_id}. "
-                f"Its units have been removed; the remaining powers play on.",
+                f"Its units have been removed and its supply centres are now neutral; "
+                f"the remaining powers play on.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
             )
     except Exception as e:
