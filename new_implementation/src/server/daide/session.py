@@ -84,6 +84,7 @@ from server.daide import clauses, wire
 from server.daide import tokens as t
 from server.daide.tokens import Token
 from server.daide.wire import DaideWireError
+from server.game_service import GameOverError
 
 __all__ = [
     "DaideSession",
@@ -610,6 +611,11 @@ class DaideSession:
             await handler(self, args, tokens_)
         except SessionProtocolError:
             await self._send(t.HUH, t.OPEN_PAREN, command, t.ERR, *args, t.CLOSE_PAREN)
+        except GameOverError:
+            # SUB / DRW / NOT(DRW) after the game has ended: well-formed, just
+            # not acceptable any more. REJ is DAIDE's answer for that; the
+            # alternative was an unhandled exception tearing the session down.
+            await self._send(t.REJ, *_echo(tokens_))
 
     # -- command handlers -----------------------------------------------------
 
