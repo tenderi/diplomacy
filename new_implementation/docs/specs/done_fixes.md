@@ -2704,3 +2704,47 @@ board.
 - Full suite against the local Postgres: **1589 passed, 11 skipped, 10 xfailed** (was 1588);
   ruff clean; engine coverage 93.48 % (floor 92), overall 71.19 % (floor 60). Frontend:
   `tsc` clean, 24 files / 158 tests, build green.
+
+---
+
+# Track N — Deadlines are never imposed (`v2.7.72`)
+
+## Why this track exists
+
+Found 2026-09-21 while reading the scheduler. Neither client can set a deadline
+(`POST /games/{id}/deadline` exists; nothing calls it). The only deadline a real game ever
+gets is the **hard-coded `+24h`** that the manual `process_turn` route imposes after every
+turn it processes (`routes/games.py`, unchanged since `v2.0.0`). When that fires, the
+scheduler processes the turn — missing powers' units hold, with no confirmation, unlike the
+bot's `/processturn` which asks first — then **clears** the deadline and sets no new one
+(`api/shared.py` `process_due_deadlines`; `tests/test_api_scheduler.py` asserts the `None`).
+So a game alternates: processed by hand → 24h auto-deadline → auto-processed → no deadline →
+waits for a human → 24h again.
+
+## N1 — decide the cadence (maintainer) — decided: (a)
+
+- [x] Pick one: **(a)** never impose a deadline nobody asked for — drop the `+24h` from the
+      manual route, and have the scheduler re-arm only when the game had an explicit
+      deadline (needs a per-game interval, i.e. a column); or **(b)** make 24h/phase the
+      cadence — both paths set `+24h`, documented as the rule. **Recommendation: (a)** — it
+      matches the care the bot already takes not to hold units silently, and a solo repo's
+      casual games are processed by hand. Either way, add the deadline to the "turn
+      processed" DM so players know when the next one is.
+- [ ] Give one client a way to set/clear a deadline (`/deadline` in the bot is the obvious
+      one), or delete the route if (a) is chosen and nobody wants deadlines at all.
+      **Still open — moved to `fix_plan.md` as F5**, since it is a second maintainer call.
+
+## What landed
+
+- [x] `routes/games.py` `process_turn`: the `+24h` re-arm is gone; the pending deadline (if
+      any) is cleared whether or not the game ended, same as the scheduler already did.
+- [x] `tests/test_api_scheduler.py`: `test_manual_processing_never_imposes_a_deadline` and
+      `test_manual_processing_spends_an_explicit_deadline`.
+- [x] `architecture.md` §Notifications: "Deadlines are never imposed" paragraph.
+- [x] Nothing else promised an automatic deadline — no doc, help text or UI string did.
+
+## Verification
+
+- Full suite against the local Postgres: **1591 passed, 11 skipped, 10 xfailed** (was 1589);
+  ruff clean; engine coverage 93.48 % (floor 92), overall 71.20 % (floor 60). Frontend
+  untouched.
