@@ -60,7 +60,7 @@ class TestRestartService:
         """Test service restart (may succeed or fail depending on permissions)."""
         mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
         resp = client.post("/dashboard/api/services/restart", json={"service": "diplomacy"}, headers=admin_headers)
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
 
     def test_restart_service_no_auth(self, client):
         """Restart endpoint requires admin auth."""
@@ -77,7 +77,7 @@ class TestServiceLogs:
         """Test successful log retrieval."""
         mock_subprocess.return_value = MagicMock(stdout="Log line 1\nLog line 2", returncode=0)
         resp = client.get("/dashboard/api/logs/diplomacy", params={"lines": 10}, headers=admin_headers)
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
 
     def test_get_service_logs_invalid_service(self, client, admin_headers):
         """Test getting logs for invalid service returns 400."""

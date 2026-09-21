@@ -54,17 +54,20 @@ def send_private_message(
         # Validate recipient power exists in game and has a player assigned
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
             raise HTTPException(status_code=400, detail="Recipient power required for private message")
-        recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=req.recipient_power)
-        if not recipient_player:
+        recipient_power = req.recipient_power.upper()
+        recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=recipient_power)
+        # A seat whose player quit still has a row, with no user: nobody would
+        # ever read the message, so say so instead of storing it silently.
+        if recipient_player is None or recipient_player.user_id is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot send a private message to {req.recipient_power}: no player is assigned to that power.",
+                detail=f"Cannot send a private message to {recipient_power}: no player is assigned to that power.",
             )
         sent_at = normalize_client_timestamp(req.client_timestamp)
         msg = db_service.create_message(
             game_id=int(game_model.id),  # type: ignore
             sender_user_id=int(user.id),  # type: ignore
-            recipient_power=req.recipient_power,
+            recipient_power=recipient_power,
             text=req.text,
             timestamp=sent_at,
         )

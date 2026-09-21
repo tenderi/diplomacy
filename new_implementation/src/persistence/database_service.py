@@ -424,7 +424,14 @@ class DatabaseService:
             return session.query(PlayerModel).filter_by(game_id=game_id, user_id=user_id).first()
 
     def get_player_by_game_id_and_power(self, game_id: int | str, power: str) -> Optional[PlayerModel]:
-        """Get player by game_id (can be numeric id or string game_id) and power."""
+        """Get player by game_id (can be numeric id or string game_id) and power.
+
+        ``power`` is matched case-insensitively: ``create_player`` stores it
+        upper-cased, and every route that takes a power from a request body
+        (orders, draw vote, concede, private message) resolves the seat through
+        here, so ``"france"`` must find FRANCE rather than "Player not found".
+        """
+        power = power.upper()
         with self.session_factory() as session:
             # If game_id is string, look up the numeric id first
             if isinstance(game_id, str):

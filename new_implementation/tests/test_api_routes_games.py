@@ -76,7 +76,7 @@ class TestAddPlayer:
         # Add player - may fail if game not in memory
         resp = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         # May return 200 or 500 depending on game state
-        assert resp.status_code in [200, 500]
+        assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()
             assert data["status"] == "ok"
@@ -140,7 +140,7 @@ class TestGetPlayers:
         """Test getting players for non-existent game."""
         resp = client.get("/games/nonexistent/players")
         # May return 404 or 500 depending on error handling
-        assert resp.status_code in [404, 500]
+        assert resp.status_code == 404, resp.text
 
 
 @pytest.mark.unit
@@ -405,7 +405,7 @@ class TestGameHistory:
         # Get history (may be empty if no turns processed)
         resp = client.get(f"/games/{game_id}/history/0")
         # May return 200, 404, or 500 depending on game state and database
-        assert resp.status_code in [200, 404, 500]
+        assert resp.status_code in [200, 404], resp.text
 
 
 @pytest.mark.unit

@@ -74,7 +74,7 @@ class TestSetOrders:
             "telegram_id": "user2",
             "bot_secret": BOT_SECRET
         })
-        assert resp.status_code in [403, 500]
+        assert resp.status_code == 403, resp.text
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_orders_invalid_order(self, client):
@@ -223,7 +223,7 @@ class TestGetOrdersForPower:
         game_id = _create_game(client, headers)
 
         resp = client.get(f"/games/{game_id}/orders/FRANCE")
-        assert resp.status_code in [404, 500]
+        assert resp.status_code == 404, resp.text
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_for_power_still_rejects_wrong_bearer_user(self, client):
@@ -267,4 +267,4 @@ class TestClearOrders:
         client.post(f"/games/{game_id_int}/join", json={"telegram_id": "user7", "bot_secret": BOT_SECRET, "game_id": game_id_int, "power": "FRANCE"})
 
         resp = client.post(f"/games/{game_id_int}/orders/FRANCE/clear", json={"telegram_id": "user8", "bot_secret": BOT_SECRET})
-        assert resp.status_code in [403, 500]
+        assert resp.status_code == 403, resp.text
