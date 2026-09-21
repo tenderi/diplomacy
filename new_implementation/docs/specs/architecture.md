@@ -217,6 +217,17 @@ concession was likewise invisible until someone looked at the board.
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
+**A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
+`submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
+an `OrderError` — routes map that to 404, and a finished game is found) once
+`state.status is COMPLETED`; the routes answer **409** with a message naming the outcome
+(`game 12 is drawn between FRANCE, GERMANY; no further orders or votes are accepted`), the bot
+shows that `detail` verbatim, and the DAIDE session answers `REJ`. `orders_status` reports no
+active or missing powers. Until `v2.7.70` (Track L) every one of those writes went through:
+orders were stored and shown as pending, `process_turn` "succeeded" with an empty resolution
+and then DMed every player "turn processed" each time it was pressed, a draw vote was
+"recorded", and a concession removed the power's units from the *final* board.
+
 **Rules for adding a notification.**
 
 1. **One fan-out per event, shared by every trigger.** `notify_turn_processed` exists so the

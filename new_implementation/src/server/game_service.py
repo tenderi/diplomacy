@@ -26,14 +26,23 @@ from engine.serialization import (
     state_to_dict,
     unit_to_dict,
 )
-from engine.types import GameState, PhaseType
+from engine.types import GameState, GameStatus, PhaseType
 from server.legal_orders import powers_with_orders_to_give
 
-__all__ = ["GameService", "OrderError", "StaleGameError"]
+__all__ = ["GameService", "GameOverError", "OrderError", "StaleGameError"]
 
 
 class OrderError(ValueError):
     """A submitted order was ill-formed or illegal for the current state."""
+
+
+class GameOverError(ValueError):
+    """A write was attempted against a game that has already ended.
+
+    Deliberately *not* an ``OrderError`` subclass: routes map ``OrderError`` to
+    404 ("game not found"), and a finished game is very much found. Callers map
+    this to 409 -- the request conflicts with the game's state.
+    """
 
 
 class GameService:
@@ -77,12 +86,14 @@ class GameService:
         """Validate and store ``power``'s orders for the current phase.
 
         Returns one result dict per order (``{order, ok, reason}``). Raises
-        ``OrderError`` only if the game does not exist. Individual illegal orders
-        are reported (``ok=False``) but do not abort the batch.
+        ``OrderError`` if the game does not exist and ``GameOverError`` if it
+        has ended. Individual illegal orders are reported (``ok=False``) but do
+        not abort the batch.
         """
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
         power = power.upper()
         state = game.state
 
@@ -128,6 +139,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
 
         pending = self._repo.get_pending_orders(game_id)
         orders = []
@@ -198,6 +210,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
         power = power.upper()
 
         votes = self._repo.get_draw_votes(game_id)
@@ -277,6 +290,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
         power = power.upper()
 
         remaining_units = frozenset(u for u in game.state.units if u.power != power)
@@ -475,6 +489,26 @@ def _initial_state(map: MapData) -> GameState:
         units=map.starting_units,
         ownership=dict(map.initial_ownership),
     )
+
+
+def _require_active(game: Game, game_id: str) -> None:
+    """Refuse a write once the game is over.
+
+    Every write path (orders, turn processing, draw votes, concession) used to
+    go straight through on a COMPLETED game: orders were accepted and shown as
+    pending, ``process_turn`` "succeeded" with an empty resolution -- and the
+    route around it then snapshotted, reset the deadline and DMed every player
+    "turn processed" each time -- a draw vote was "recorded", and a concession
+    removed the power's units from the *final* board.
+    """
+    if game.state.status is GameStatus.COMPLETED:
+        winners = sorted(game.state.winners or ())
+        outcome = (
+            f"won by {winners[0]}" if len(winners) == 1
+            else f"drawn between {', '.join(winners)}" if winners
+            else "over"
+        )
+        raise GameOverError(f"game {game_id} is {outcome}; no further orders or votes are accepted")
 
 
 def _dislodged_view(du: Any) -> dict[str, Any]:
