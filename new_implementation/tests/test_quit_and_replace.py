@@ -33,8 +33,14 @@ def _register_and_login(client, prefix):
     return {"Authorization": f"Bearer {reg.json()['access_token']}"}
 
 
+_tg_seq = 0
+
+
 def _telegram_user(client, name):
-    tg = f"{name}_{int(time.time() * 1000000)}"
+    # Numeric, like a real Telegram id: ``notify_players`` skips non-numeric ids.
+    global _tg_seq
+    _tg_seq += 1
+    tg = str(int(time.time() * 1000) % 10**9 * 10 + _tg_seq % 10)
     r = client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": name})
     assert r.status_code == 200, r.text
     return tg
@@ -190,3 +196,48 @@ class TestRoutesDoNotWrapTheirOwn404s:
         game_id, _a = _game_with_france(client)
         r = client.get(f"/games/{game_id}/history/99")
         assert r.status_code == 404, r.text
+
+
+class TestRestoreIsAdminOnly:
+    """Track R: ``POST /games/{id}/restore/{snapshot_id}`` rewinds a game and used
+    to take no credentials at all -- and nginx proxies ``/api/`` to the internet."""
+
+    ADMIN = {"X-Admin-Token": "changeme"}  # conftest's default admin token
+    BOT = {"X-Bot-Secret": BOT_SECRET}
+
+    def _game_with_snapshot(self, client):
+        game_id, a = _game_with_france(client)
+        snap = client.post(f"/games/{game_id}/snapshot", headers=self.BOT)
+        assert snap.status_code == 200, snap.text
+        snapshot_id = snap.json()["snapshot_id"]
+        # Move the game on: process S1901M -> F1901M, leave a pending order.
+        assert client.post(f"/games/{game_id}/process_turn", headers=self.BOT).status_code == 200
+        assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"
+        assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
+        return game_id, snapshot_id
+
+    def test_anonymous_and_ordinary_users_are_refused(self, client):
+        game_id, snapshot_id = self._game_with_snapshot(client)
+        assert client.post(f"/games/{game_id}/restore/{snapshot_id}").status_code == 403
+        assert client.post(f"/games/{game_id}/restore/{snapshot_id}", headers=self.BOT).status_code == 403
+        assert client.post(f"/games/{game_id}/restore/{snapshot_id}", headers={"X-Admin-Token": "wrong"}).status_code == 403
+        assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"  # untouched
+
+    def test_admin_restore_rewinds_clears_orders_and_tells_players(self, client):
+        from tests.reliability_helpers import OutboxProbe
+
+        game_id, snapshot_id = self._game_with_snapshot(client)
+        with OutboxProbe() as probe:
+            r = client.post(f"/games/{game_id}/restore/{snapshot_id}", headers=self.ADMIN)
+            assert r.status_code == 200, r.text
+            texts = probe.messages()
+        state = client.get(f"/games/{game_id}/state").json()
+        assert state["phase"] == "S1901M"
+        assert state["orders"] == {}
+        assert any("rolled back" in t and "S1901M" in t for t in texts)
+
+    def test_snapshot_and_generate_map_need_a_caller(self, client):
+        game_id, _a = _game_with_france(client)
+        assert client.post(f"/games/{game_id}/snapshot").status_code == 401
+        assert client.post(f"/games/{game_id}/generate_map").status_code == 401
+        assert client.post(f"/games/{game_id}/generate_map", headers=self.BOT).status_code == 200

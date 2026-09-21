@@ -13,6 +13,7 @@ from server.api import app
 from tests.conftest import _get_db_url
 
 BOT_SECRET = "test_bot_secret_for_tests"
+_BOT = {"X-Bot-Secret": BOT_SECRET}  # generate_map* and snapshot need an authenticated caller
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ class TestGenerateMap:
     
     def test_generate_map_game_not_found(self, client):
         """Test generating map for non-existent game."""
-        resp = client.post("/games/nonexistent/generate_map")
+        resp = client.post("/games/nonexistent/generate_map", headers=_BOT)
         assert resp.status_code == 404
 
     @pytest.mark.map
@@ -70,7 +71,7 @@ class TestGenerateMap:
     def test_generate_map_success(self, client):
         headers = _register_and_login(client, "genmap")
         game_id = _create_game(client, headers)
-        _assert_rendered(client.post(f"/games/{game_id}/generate_map"), f"game_{game_id}_S1901M")
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map", headers=_BOT), f"game_{game_id}_S1901M")
 
 
 @pytest.mark.unit
@@ -79,7 +80,7 @@ class TestGenerateOrdersMap:
     
     def test_generate_orders_map_game_not_found(self, client):
         """Test generating orders map for non-existent game."""
-        resp = client.post("/games/nonexistent/generate_map/orders")
+        resp = client.post("/games/nonexistent/generate_map/orders", headers=_BOT)
         assert resp.status_code == 404
 
     @pytest.mark.map
@@ -96,7 +97,7 @@ class TestGenerateOrdersMap:
         })
         assert submit.status_code == 200, submit.text
         assert all(r["success"] for r in submit.json()["results"])
-        _assert_rendered(client.post(f"/games/{game_id}/generate_map/orders"), "_orders_")
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map/orders", headers=_BOT), "_orders_")
 
 
 @pytest.mark.unit
@@ -105,7 +106,7 @@ class TestGenerateResolutionMap:
     
     def test_generate_resolution_map_game_not_found(self, client):
         """Test generating resolution map for non-existent game."""
-        resp = client.post("/games/nonexistent/generate_map/resolution")
+        resp = client.post("/games/nonexistent/generate_map/resolution", headers=_BOT)
         assert resp.status_code == 404
 
     @pytest.mark.map
@@ -114,10 +115,10 @@ class TestGenerateResolutionMap:
         headers = _register_and_login(client, "genmap_res")
         game_id = _create_game(client, headers)
         # No turn processed yet: falls back to a plain board, still a real PNG.
-        _assert_rendered(client.post(f"/games/{game_id}/generate_map/resolution"), "_resolution_")
+        _assert_rendered(client.post(f"/games/{game_id}/generate_map/resolution", headers=_BOT), "_resolution_")
         processed = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert processed.status_code == 200, processed.text
-        resp = client.post(f"/games/{game_id}/generate_map/resolution")
+        resp = client.post(f"/games/{game_id}/generate_map/resolution", headers=_BOT)
         assert resp.status_code == 200, resp.text
         assert resp.json()["phase_code"] == "F1901M"
         assert "render_warnings" not in resp.json()
@@ -263,7 +264,7 @@ class TestGetGameMapHistoryPng:
         """A snapshot taken via POST /snapshot is fetchable as a PNG at its turn."""
         headers = _register_and_login(client, "maphist_ok")
         game_id = _create_game(client, headers)
-        snap = client.post(f"/games/{int(game_id)}/snapshot")
+        snap = client.post(f"/games/{int(game_id)}/snapshot", headers=_BOT)
         assert snap.status_code == 200, snap.text
         turn = snap.json()["turn"]
 

@@ -856,8 +856,8 @@ def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/snapshot")
-def save_game_snapshot(game_id: str) -> Dict[str, Any]:
-    """Save a snapshot of the current game state"""
+def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
+    """Save a snapshot of the current game state. Any authenticated caller."""
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -904,8 +904,17 @@ def get_game_snapshots(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/games/{game_id}/restore/{snapshot_id}")
-def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
-    """Restore a game's live state to a previous snapshot.
+def restore_game_snapshot(
+    game_id: str,
+    snapshot_id: int,
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Restore a game's live state to a previous snapshot. **Admin only.**
+
+    Rewinding a game discards every player's position since the snapshot, so it
+    is gated on ``X-Admin-Token`` like the other moderation actions -- until
+    ``v2.7.77`` (Track R) this route took no credentials at all, and nginx
+    proxies ``/api/`` to the public internet. The players are told afterwards.
 
     Only snapshots taken after PR5 carry ``state_json`` (the raw serialized
     ``GameState``, the only shape ``state_from_dict`` can rebuild a ``Game`` from).
@@ -913,6 +922,8 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
     ``units``/``supply_centers`` -- now fails loudly with 409 instead of the old
     stub's silent no-op.
     """
+    if not x_admin_token or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Admin token required to restore a snapshot")
     row = db_service.get_game_by_game_id(game_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -930,6 +941,14 @@ def restore_game_snapshot(game_id: str, snapshot_id: int) -> Dict[str, Any]:
     except ValueError as e:
         raise HTTPException(status_code=500, detail=f"Corrupt snapshot: {e}") from e
     invalidate_cache(f"games/{game_id}")
+    try:
+        notify_players(
+            int(row.id),
+            f"Game {game_id} has been rolled back by an admin to phase {snapshot.phase_code}. "
+            f"Pending orders and draw votes were cleared -- check the board and submit fresh orders.",
+        )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify restore for game {game_id}: {e}")
     return {"status": "ok", "snapshot_id": snapshot_id, "phase_code": snapshot.phase_code}
 
 @router.get("/games/{game_id}/debug/unit_locations")
