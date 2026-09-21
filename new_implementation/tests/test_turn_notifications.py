@@ -213,3 +213,49 @@ def test_notification_failure_does_not_fail_the_turn() -> None:
     assert resp.status_code == 200, resp.text
     after = client.get(f"/games/{game_id}/state").json()["phase"]
     assert after != before, "the turn did not advance despite returning 200"
+
+
+@pytest.mark.integration
+def test_setting_a_deadline_tells_everyone_but_the_setter_and_rearms_the_reminder() -> None:
+    """F5: ``POST /games/{id}/deadline`` from the bot (``telegram_id`` in the
+    body) fans out to the other players, refuses a non-member, and resets the
+    10-minute reminder flag so an extended deadline gets its own reminder."""
+    client = TestClient(app)
+    game_id, row_id, users = _seeded_game(client)
+    setter_headers, setter_tg = users[0]
+    everyone = {tg for _h, tg in users}
+    future = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)).isoformat()
+
+    api_shared.reminder_sent[row_id] = True  # pretend the previous deadline's reminder fired
+    with OutboxProbe() as probe:
+        resp = client.post(
+            f"/games/{game_id}/deadline",
+            json={"deadline": future, "telegram_id": setter_tg},
+            headers={"X-Bot-Secret": "test_bot_secret_for_tests"},
+        )
+        assert resp.status_code == 200, resp.text
+        recipients = _recipients(probe)
+        texts = probe.messages()
+    assert recipients == everyone - {setter_tg}
+    assert any("Deadline for game" in t and "processed automatically" in t for t in texts)
+    assert api_shared.reminder_sent[row_id] is False
+
+    # Clearing is announced too, with the opposite promise.
+    with OutboxProbe() as probe:
+        resp = client.post(
+            f"/games/{game_id}/deadline",
+            json={"deadline": None, "telegram_id": setter_tg},
+            headers={"X-Bot-Secret": "test_bot_secret_for_tests"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert any("removed" in t and "by hand" in t for t in probe.messages())
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+    # A registered user who is not in this game cannot set its deadline via the bot.
+    _outsider_headers, outsider_tg = _register(client, "outsider")
+    resp = client.post(
+        f"/games/{game_id}/deadline",
+        json={"deadline": future, "telegram_id": outsider_tg},
+        headers={"X-Bot-Secret": "test_bot_secret_for_tests"},
+    )
+    assert resp.status_code == 403, resp.text

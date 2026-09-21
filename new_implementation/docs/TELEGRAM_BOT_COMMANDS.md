@@ -42,6 +42,9 @@ the web app if you need to re-link.
 | `/status [game_id]` | Current phase, deadline, who has submitted orders, and the draw-vote tally. |
 | `/draw [game_id]` | Vote yes to end the game as a draw. If your vote completes quorum — every surviving power has voted yes — the game ends immediately. |
 | `/nodraw [game_id]` | Withdraw a draw vote you previously cast. |
+| `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; nothing sets one for you. |
+| `/deadline <game_id> clear` | Remove the deadline; the turn is then processed by hand with `/processturn`. |
+| `/deadline <game_id>` | Show the current deadline. |
 
 ## Orders
 
