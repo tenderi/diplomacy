@@ -25,8 +25,7 @@ diplomacy/
 │   │   ├── engine/          # PURE rules core — stdlib only, no I/O
 │   │   ├── persistence/     # SQLAlchemy models + DAL
 │   │   ├── rendering/       # SVG→PNG map rendering
-│   │   ├── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
-│   │   └── client.py        # Minimal CLI client
+│   │   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
 │   ├── tests/               # ~62 top-level files + tests/datc/ + tests/engine/
 │   ├── frontend/            # React 18 + Vite + TypeScript SPA
 │   ├── maps/                # standard.map (topology) + standard.svg + mini_variant.json
@@ -253,10 +252,10 @@ venv active and Postgres up. CI enforces coverage: `--fail-under=60` overall, an
 | **Game service** | `test_game_service.py` (including resolution maps across every phase), `test_order_overlay.py`, `test_view_adapter.py`, `test_legal_orders.py`. |
 | **API routes** | `test_api_routes_*.py`, `test_api_spec_shapes.py`, `test_api_games_list.py`, `test_api_scheduler.py`, `test_api_routes_draw_vote.py`. |
 | **Auth** | `test_auth.py`, `test_authorization.py`, `test_user_registration.py`. |
-| **Rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_map_with_units.py`, `test_map_opacity_font.py` (`map` marker). |
-| **Telegram bot** | `test_telegram_*.py`, `test_game_context.py`, `test_selectunit_phases.py`, `test_interactive_orders*.py`, `test_bot_map_generation.py`, `test_channel_*.py`. |
+| **Rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_arrow_geometry.py`, `test_pending_order_styling.py` (`map` marker). |
+| **Telegram bot** | `test_telegram_*.py`, `test_game_context.py`, `test_selectunit_phases.py`, `test_interactive_orders*.py`, `test_channel_*.py`. |
 | **DAIDE** | `test_daide_tokens.py`, `test_daide_wire.py`, `test_daide_clauses.py`, `test_daide_session.py`, `test_daide_server.py` (including an end-to-end raw-socket test over one continuous TCP connection). |
-| **Server / persistence / other** | `test_server*.py`, `test_client.py`, `test_execution_context.py`, `test_persistence_database_service.py`, `test_errors.py`, `test_response_cache.py`, `test_deployment_infrastructure.py`, `test_demo_*.py`. |
+| **Server / persistence / other** | `test_server*.py`, `test_execution_context.py`, `test_persistence_database_service.py`, `test_errors.py`, `test_response_cache.py`, `test_deployment_infrastructure.py`. |
 
 **DB-dependent tests skip silently without `SQLALCHEMY_DATABASE_URL`** — a no-DB local run
 looks falsely green. CI always provides a fresh `postgres:14` container.

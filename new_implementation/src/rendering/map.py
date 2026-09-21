@@ -49,18 +49,14 @@ from .arrows import (
     _draw_bounce_arrow,
     _draw_circle,
     _draw_circle_at_size,
-    _draw_cross,  # noqa: F401
     _draw_curved_arrow,
     _draw_dashed_circle,
     _draw_dashed_line,
-    _draw_dotted_arrow,  # noqa: F401
     _draw_dotted_line,
     _draw_failure_x,
-    _draw_glowing_circle,  # noqa: F401
     _draw_star,
     _draw_success_checkmark,
     _draw_support_cut_indicator,
-    _lighten_color,  # noqa: F401
 )
 from .board import (
     KNOWN_POWER_NAMES,  # noqa: F401

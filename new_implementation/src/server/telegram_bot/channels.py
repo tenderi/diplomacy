@@ -114,7 +114,6 @@ def post_broadcast_to_channel(
     message: str, 
     power: Optional[str] = None,
     reply_to_message_id: Optional[int] = None,
-    create_thread: bool = False
 ) -> Optional[int]:
     """
     Post a broadcast message to a Telegram channel with optional threading support.
@@ -125,7 +124,6 @@ def post_broadcast_to_channel(
         message: Message text to post
         power: Optional power name for formatting
         reply_to_message_id: Optional message ID to reply to (for threading)
-        create_thread: If True, create a new discussion thread (requires topic/forum channel)
         
     Returns:
         Message ID of the posted message, or None if failed
