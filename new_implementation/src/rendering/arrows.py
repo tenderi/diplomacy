@@ -252,25 +252,6 @@ def _draw_bounce_arrow(draw: DrawTarget, from_coord: tuple, to_coord: tuple, col
     _draw_curve_with_head(draw, from_coord, to_coord, color, width, bow=40, steps=30)
 
 
-def _draw_dotted_arrow(draw: DrawTarget, from_coord: tuple, to_coord: tuple, color: str, width: int = 2) -> None:
-    """Draw dotted arrow for retreat orders"""
-    arrow_specs = _viz_config.get_arrow_specs()
-    outline_width = arrow_specs.get("outline_width", 2)
-    outline_color = (0, 0, 0)  # Black
-    total_width = width + outline_width * 2
-
-    geo = _arrow_geometry(from_coord, to_coord, casing=outline_width)
-    if geo is None:
-        return
-
-    # Long dashes rather than the config "dotted" style: a retreat has to stay
-    # distinguishable from a convoy at a glance, and this is the only arrow that
-    # uses this spacing.
-    for stroke_color, stroke_width in ((outline_color, total_width), (color, width)):
-        _draw_dashed_line(draw, geo.start[0], geo.start[1], geo.shaft_end[0], geo.shaft_end[1],
-                          stroke_color, stroke_width, dash=8, gap=8)
-    _stroke_head(draw, geo, color, outline_color)
-
 
 def _draw_success_checkmark(draw: DrawTarget, coord: tuple, color: str | None = None) -> None:
     """Draw success checkmark at coordinate using config values.
@@ -454,27 +435,6 @@ def _draw_circle_at_size(draw: DrawTarget, coord: tuple, color: str, diameter: i
                     outline=rgb_color, width=width)
 
 
-def _draw_glowing_circle(draw: DrawTarget, coord: tuple, color: str, width: int = 4) -> None:
-    """Draw glowing circle for build orders"""
-    x, y = coord
-    radius = 20
-
-    # Draw outer glow (lighter color)
-    glow_color = _lighten_color(color)
-    draw.ellipse([x - radius - 2, y - radius - 2, x + radius + 2, y + radius + 2], outline=glow_color, width=width)
-
-    # Draw inner circle
-    draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline=color, width=width)
-
-
-def _draw_cross(draw: DrawTarget, coord: tuple, color: str, width: int = 4) -> None:
-    """Draw red cross for destroy orders"""
-    x, y = coord
-    size = 15
-
-    # Draw X
-    draw.line([x - size, y - size, x + size, y + size], fill=color, width=width)
-    draw.line([x - size, y + size, x + size, y - size], fill=color, width=width)
 
 
 def _draw_curved_arrow(draw: DrawTarget, from_coord: tuple, to_coord: tuple, color: str, width: int = 2, style: str = "solid") -> None:
@@ -549,31 +509,3 @@ def _draw_dashed_circle(draw: DrawTarget, x: float, y: float, radius: float, col
 
         draw.line([start_x, start_y, end_x, end_y], fill=color, width=width)
 
-
-def _lighten_color(color: str) -> str:
-    """Lighten a color for glow effects"""
-    # Simple color lightening - add white component
-    if color.startswith("#"):
-        # Convert hex to RGB
-        r = int(color[1:3], 16)
-        g = int(color[3:5], 16)
-        b = int(color[5:7], 16)
-
-        # Lighten by adding white
-        r = min(255, int(r + (255 - r) * 0.5))
-        g = min(255, int(g + (255 - g) * 0.5))
-        b = min(255, int(b + (255 - b) * 0.5))
-
-        return f"#{r:02x}{g:02x}{b:02x}"
-    else:
-        # For named colors, return a lighter version
-        light_colors = {
-            "red": "#ff8080",
-            "blue": "#8080ff",
-            "green": "#80ff80",
-            "yellow": "#ffff80",
-            "purple": "#ff80ff",
-            "orange": "#ffc080",
-            "brown": "#d4a574",
-        }
-        return light_colors.get(color.lower(), color)

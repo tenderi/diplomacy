@@ -273,7 +273,3 @@ class GameRepo:
             row.status = status
             row.updated_at = datetime.now(timezone.utc)
             session.commit()
-
-    def list_game_ids(self) -> list[str]:
-        with self._session_factory() as session:
-            return [r.game_id for r in session.query(GameModel).all()]

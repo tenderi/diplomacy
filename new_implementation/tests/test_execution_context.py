@@ -347,9 +347,6 @@ class TestServiceExecution:
         except ImportError as e:
             pytest.fail(f"Import failed in service context: {e}")
 
-        # All imports should succeed
-        assert True
-
 
 class TestTelegramBotMainEntryPoint:
     """
