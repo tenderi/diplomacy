@@ -556,9 +556,12 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
     if not game_state:
         return f"Could not retrieve game {game_id}.", None
 
-    # Bare list, not {"players": [...]}.
+    # Bare list, not {"players": [...]}. A seat whose player quit still has a
+    # row but no user_id -- it is open, and /join takes it over.
     players_data = api_get(f"/games/{game_id}/players")
-    taken_powers = {player.get('power') for player in (players_data or [])}
+    taken_powers = {
+        player.get('power') for player in (players_data or []) if player.get('user_id') is not None
+    }
 
     keyboard = []
     for power in POWERS:

@@ -618,16 +618,25 @@ def join_game(
         valid_powers = {'ENGLAND', 'FRANCE', 'GERMANY', 'RUSSIA', 'TURKEY', 'AUSTRIA', 'ITALY'}
         if req.power.upper() not in valid_powers:
             raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
+        view = game_service.view(str(game_id))
+        if view is not None and view["status"] == "COMPLETED":
+            raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
         # Check if already joined
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
             return {"status": "already_joined", "player_id": existing.id}
-        # Check if power is taken
+        # Check if power is taken. A seat row with no user is *vacant* (its
+        # player quit, or an admin marked it inactive): joining it is the
+        # ordinary way back in -- the web client lists such seats as "Open",
+        # and /replace is the same operation under another name.
         taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
-        if taken:
+        if taken is not None and taken.user_id is not None:
             raise HTTPException(status_code=409, detail="Power already taken")
-        # Assign the power to this user (players table only; state is engine-owned).
-        db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
+        if taken is not None:
+            db_service.assign_player_seat(int(taken.id), int(user.id), True)  # type: ignore
+        else:
+            # Assign the power to this user (players table only; state is engine-owned).
+            db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
@@ -673,24 +682,19 @@ def quit_game(
             player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
             if player is None:
                 raise HTTPException(status_code=404, detail="Power not found in game")
-            if int(player.user_id) != int(user.id):  # type: ignore
+            if player.user_id is None or int(player.user_id) != int(user.id):  # type: ignore
                 raise HTTPException(status_code=403, detail="You are not authorized to quit this power.")
         else:
             # If no power specified, find player by user_id
             player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
             if player is None:
                 raise HTTPException(status_code=404, detail="Player not found in game")
-        # Unassign the user from the player slot
-        try:
-            player.user_id = None  # type: ignore
-            setattr(player, 'is_active', False)  # type: ignore
-            db_service.update_player_is_active(int(player.id), False)  # type: ignore
-            db_service.commit()
-            telegram_id_val = getattr(user, "telegram_id", None)
-            if telegram_id_val:
-                invalidate_cache(f"users/{telegram_id_val}")
-        except Exception:
-            pass
+        # Vacate the seat: user_id -> NULL, is_active -> False, one commit.
+        db_service.assign_player_seat(int(player.id), None, False)
+        telegram_id_val = getattr(user, "telegram_id", None)
+        if telegram_id_val:
+            invalidate_cache(f"users/{telegram_id_val}")
+        invalidate_cache(f"games/{game_id}")  # the cached /players list must not show them
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
@@ -728,13 +732,24 @@ def replace_player(
         already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if already_in_game:
             raise HTTPException(status_code=400, detail="User is already in the game")
-        # Assign user to the player slot
-        player.user_id = user.id  # type: ignore
-        setattr(player, 'is_active', True)  # type: ignore
-        db_service.update_player_is_active(int(player.id), True)  # type: ignore
-        db_service.commit()
-        db_service.refresh(player)
+        # Fill the seat: user_id -> user, is_active -> True, one commit.
+        db_service.assign_player_seat(int(player.id), int(user.id), True)  # type: ignore
+        telegram_id_val = getattr(user, "telegram_id", None)
+        if telegram_id_val:
+            invalidate_cache(f"users/{telegram_id_val}")
+        invalidate_cache(f"games/{game_id}")
+        try:
+            notify_players(
+                game_id,
+                f"{user.full_name or telegram_id_val or 'A new player'} has taken over "
+                f"{req.power.upper()} in game {game_id}.",
+                exclude_telegram_id=telegram_id_val,
+            )
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify replacement for game {game_id}: {e}")
         return {"status": "ok", "message": "Player replaced successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -744,19 +759,13 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     if req.admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
     try:
-        from persistence.database import PlayerModel
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         if not player:
             raise HTTPException(status_code=404, detail="Player not found")
         if getattr(player, 'is_active', True) is False and player.user_id is None:
             return {"status": "already_inactive"}
-        with db_service.session_factory() as session:
-            player_to_update = session.query(PlayerModel).filter_by(id=player.id).first()
-            if player_to_update:
-                player_to_update.user_id = None  # type: ignore
-                player_to_update.is_active = False  # type: ignore
-                session.commit()
-                session.refresh(player_to_update)
+        db_service.assign_player_seat(int(player.id), None, False)
+        invalidate_cache(f"games/{game_id}")
         notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
         return {"status": "ok", "game_id": game_id, "power": power}
     except Exception as e:

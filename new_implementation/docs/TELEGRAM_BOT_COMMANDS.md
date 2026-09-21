@@ -34,8 +34,8 @@ the web app if you need to re-link.
 | `/games` | List the games you are in, with your power and the current phase. |
 | `/join <game_id>` | Shows a menu of available powers to join as. |
 | `/join <game_id> <power>` | Join directly as a specific power, skipping the menu. |
-| `/quit <game_id>` | Leave a game. Your power becomes available for replacement. |
-| `/replace <game_id> <power>` | Take over a vacated power. |
+| `/quit <game_id>` | Leave a game. Your seat is vacated — units and any orders you submitted stay exactly as they are for whoever takes it over — and you can no longer act for that power (or see it under `/games`). |
+| `/replace <game_id> <power>` | Take over a vacated power. `/join <game_id> <power>` on a vacated seat does the same thing. |
 | `/wait` | Join the waiting list; a new game is created automatically once 7 players are waiting, and everyone in the queue is messaged with their assigned power. The queue is stored server-side, so it survives a bot restart. |
 | `/unwait` | Leave the waiting list. |
 | `/players [game_id]` | List all players and their powers. |

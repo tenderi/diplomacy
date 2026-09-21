@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.74`. `main` green.
+- **Last updated:** 2026-09-21, at `v2.7.75`. `main` green.
+- **Track P — `/quit` never vacated the seat landed as `v2.7.75`** and is archived in
+  [`done_fixes.md`](done_fixes.md). Both `/quit` and `/replace` wrote `user_id` on a detached
+  ORM row (the pattern the deadline docstring warns about), so a quitter kept full control of
+  the power and a seat could never be filled. Seat writes now go through
+  `DatabaseService.assign_player_seat`; `/join` takes over a vacant seat.
 - **Track O — dead tests and dead code landed as `v2.7.74`** and is archived in
   [`done_fixes.md`](done_fixes.md). The suite's 11 permanent skips are gone (0 skipped now —
   **a skip in a local run is unambiguously a missing DB**), three PNG-to-disk eyeball scripts
@@ -58,7 +63,7 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–O are complete and
+- **Every automated task in this tracker is done again.** Tracks A–E and G–P are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
@@ -88,9 +93,9 @@
   from both clients, a game can end by agreement or concession *and everyone is told*, a real
   DAIDE bot can play a turn over the wire, and a player can see what happened to their orders.
   What is unverified is whether the whole thing is *pleasant to use*, which is exactly Track F.
-- **Suite baseline to hold (measured 2026-09-21 at `v2.7.74`, against a real local
-  Postgres):** **1600 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
-  **93.8%** (floor 92), overall **72%** (floor 60). Track O removed 21 tests and added 3;
+- **Suite baseline to hold (measured 2026-09-21 at `v2.7.75`, against a real local
+  Postgres):** **1609 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
+  **93.8%** (floor 92), overall **72%** (floor 60). Track P added 9; Track O removed 21 tests and added 3;
   Track N added 17, M 1, L 13, K 27 (see
   `done_fixes.md`); Track J had it at 1548 at `v2.7.68`, Track I at 1491 at `v2.7.67`.
   Track I added 46: I2's `test_arrow_geometry.py` (29) and `test_pending_order_styling.py` (17);
@@ -159,6 +164,11 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
   `f"{kind} {location}"` with coast (`"F STP/SC"`); the grammar is verb-first for builds and
   disbands (`D A PAR`, `BUILD F BRE`). `WAIVE` has no unit and appears only in the flat
   `orders` list.
+- **Never write to an ORM row returned by a `DatabaseService` getter.** Those rows are
+  detached once the getter's session closes, and `DatabaseService.commit()` is a documented
+  no-op, so `row.x = y; db_service.commit()` is silently discarded. This has now bitten three
+  routes (`POST /deadline`, `/quit`, `/replace` — the last two for the whole life of the
+  project, see Track P). Add a DAL method that opens its own session and commits.
 - **Every `datetime` column is a naive `TIMESTAMP`.** Use
   `persistence.database.utcnow_naive()`, which returns **naive UTC on purpose** — handing
   Postgres a tz-aware value makes it convert to the session timezone and store it shifted,

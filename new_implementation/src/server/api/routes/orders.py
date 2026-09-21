@@ -70,7 +70,9 @@ def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_sec
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
         raise HTTPException(status_code=404, detail="Player not found")
-    if int(player.user_id) != int(user.id):  # type: ignore
+    # A vacated seat (after /quit) has user_id NULL: nobody is authorized for it
+    # until someone takes it over with /replace.
+    if player.user_id is None or int(player.user_id) != int(user.id):  # type: ignore
         raise HTTPException(status_code=403, detail="You are not authorized to act for this power.")
     return user, player
 
@@ -164,7 +166,8 @@ def get_orders_for_power(
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
         raise HTTPException(status_code=404, detail="Player not found")
-    if user is None or int(getattr(player, "user_id", -1)) != int(user.id):
+    holder = getattr(player, "user_id", None)
+    if user is None or holder is None or int(holder) != int(user.id):
         raise HTTPException(status_code=403, detail="You are not authorized to view orders for this power.")
     return {"power": power, "orders": view["orders"].get(power.upper(), [])}
 
