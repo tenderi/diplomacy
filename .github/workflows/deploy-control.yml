@@ -1,0 +1,145 @@
+name: Deploy control layer
+
+# Deploys the CONTROL layer (Telegram bot + web frontend, docker-compose.control.yml)
+# to the VPS over SSH after the Test Suite is green on main, and injects the
+# secrets it needs -- TELEGRAM_BOT_TOKEN and DIPLOMACY_BOT_SECRET -- from GitHub
+# repository secrets into the host's .env. Nothing else lives in that file that
+# GitHub should know about (see .env.control.example: no database URL, no JWT
+# secret, no admin token on the VPS by design).
+#
+# The GAME layer (API + Postgres on the home server) is NOT deployed here: the
+# home server sits behind a residential connection and a WireGuard tunnel that
+# GitHub cannot reach. It is upgraded by hand with ./upgrade.sh on the host.
+#
+# Gated on the DEPLOY_CONTROL_ENABLED repository variable so that, until the SSH
+# secrets below exist, every merge does not produce an expected-red workflow
+# (the lesson of the AWS deploy workflow, H2). To enable:
+#
+#   gh secret set VPS_SSH_KEY      -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy      # private key of a deploy key
+#   gh secret set VPS_HOST_KEY     -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
+#   gh secret set DIPLOMACY_BOT_SECRET -R tenderi/diplomacy                             # same value as the home server's .env
+#   gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
+#
+# Optional variables (defaults in "Resolve target"): VPS_HOST, VPS_USER, VPS_REPO_DIR.
+# The deploy key's public half goes into ~/.ssh/authorized_keys of VPS_USER on the VPS.
+# TELEGRAM_BOT_TOKEN is already a repository secret.
+
+on:
+  workflow_run:
+    workflows: ["Test Suite"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (commit SHA or tag). Defaults to current main."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-control
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: >-
+      vars.DEPLOY_CONTROL_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    environment: production
+
+    steps:
+      - name: Resolve target
+        id: target
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            sha="${{ inputs.ref }}"
+          elif [ -n "${{ github.event.workflow_run.head_sha }}" ]; then
+            sha="${{ github.event.workflow_run.head_sha }}"
+          else
+            sha="main"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}" >> "$GITHUB_OUTPUT"
+          echo "user=${{ vars.VPS_USER || 'tenderi' }}" >> "$GITHUB_OUTPUT"
+          echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy/new_implementation' }}" >> "$GITHUB_OUTPUT"
+          echo "Will deploy $sha to ${{ vars.VPS_USER || 'tenderi' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
+
+      - name: Check required secrets
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DIPLOMACY_BOT_SECRET: ${{ secrets.DIPLOMACY_BOT_SECRET }}
+        run: |
+          missing=""
+          for name in VPS_SSH_KEY VPS_HOST_KEY TELEGRAM_BOT_TOKEN DIPLOMACY_BOT_SECRET; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing -- see the header of this workflow"
+            exit 1
+          fi
+
+      - name: Set up SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pinned host key from a secret, not ssh-keyscan at deploy time: a
+          # scan would trust whatever answers on the address that day.
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DIPLOMACY_BOT_SECRET: ${{ secrets.DIPLOMACY_BOT_SECRET }}
+          SHA: ${{ steps.target.outputs.sha }}
+          REPO_DIR: ${{ steps.target.outputs.repo_dir }}
+          TARGET: ${{ steps.target.outputs.user }}@${{ steps.target.outputs.host }}
+        run: |
+          # The secrets travel on stdin, never in the remote command line, so they
+          # are not visible in `ps` on the VPS. The remote script:
+          #   1. checks out the exact SHA the Test Suite passed on;
+          #   2. creates .env from .env.control.example if it does not exist, then
+          #      replaces only the two secret lines, leaving the operator's other
+          #      settings (WEB_BIND, poll intervals) as they are;
+          #   3. rebuilds and restarts through upgrade_control.sh, which also
+          #      checks the tunnel to the home server and nginx.
+          printf '%s\n%s\n' "$TELEGRAM_BOT_TOKEN" "$DIPLOMACY_BOT_SECRET" | \
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" \
+            "SHA='$SHA' REPO_DIR='$REPO_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          IFS= read -r TELEGRAM_BOT_TOKEN
+          IFS= read -r DIPLOMACY_BOT_SECRET
+          eval "cd $REPO_DIR"
+          echo "==> Checking out $SHA"
+          git fetch --quiet origin
+          git checkout --quiet --detach "$SHA"
+          [ -f .env ] || cp .env.control.example .env
+          chmod 600 .env
+          set_var() {  # set_var NAME VALUE -- replace the line or append it
+            if grep -q "^$1=" .env; then
+              awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' .env > .env.tmp && mv .env.tmp .env
+            else
+              printf '%s=%s\n' "$1" "$2" >> .env
+            fi
+          }
+          set_var TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
+          set_var DIPLOMACY_BOT_SECRET "$DIPLOMACY_BOT_SECRET"
+          chmod 600 .env
+          # upgrade_control.sh skips its `git pull` on a detached HEAD; the checkout
+          # above is what pins the deployed SHA.
+          ./upgrade_control.sh
+          REMOTE
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

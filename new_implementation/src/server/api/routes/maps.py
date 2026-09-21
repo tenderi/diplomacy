@@ -294,7 +294,7 @@ def _render_and_save(
             svg_path, {}, phase_info={"year": None, "season": None, "phase": None, "phase_code": None},
             supply_center_control=None,
         )
-    # nosec B108 -- fixed, documented map-render scratch dir; single-tenant EC2 host,
+    # nosec B108 -- fixed, documented map-render scratch dir; single-tenant container,
     # no other local users, so no multi-user /tmp collision/symlink risk.
     os.makedirs("/tmp/diplomacy_maps", exist_ok=True)  # nosec B108
     phase_code = view["phase"]

@@ -31,7 +31,7 @@ diplomacy/
 │   ├── maps/                # standard.map (topology) + standard.svg + mini_variant.json
 │   ├── examples/            # demo_perfect_game.py + order visualization example
 │   ├── docker/              # api / bot / web Dockerfiles + nginx template (see docs/DEPLOYMENT.md)
-│   ├── infra/               # Legacy Terraform (AWS, superseded) + operational scripts
+│   ├── infra/scripts/       # Operational scripts (DB maintenance, test runners)
 │   ├── alembic/             # Database migrations
 │   ├── docs/                # User docs + specs/
 │   └── icons/               # Unit icon PNGs
@@ -271,12 +271,13 @@ nginx template are under `docker/`; `install_home.sh`, `install_vps.sh`, `upgrad
 `upgrade_control.sh` mirror p2p's scripts. Full walkthrough:
 [`docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).
 
-`infra/terraform/` is the **superseded** single-EC2 AWS layout (never left running), kept as
-reference; its README is not the deployment guide.
+`.github/workflows/deploy-control.yml` deploys the VPS control layer after a green Test Suite
+on `main`, injecting `TELEGRAM_BOT_TOKEN` and `DIPLOMACY_BOT_SECRET` from repository secrets
+(gated on `DEPLOY_CONTROL_ENABLED`; setup in `docs/DEPLOYMENT.md`). The home server is
+upgraded by hand. The AWS/Terraform layout that preceded the split was removed in `v2.7.80`.
 
-`infra/scripts/` holds `deploy.sh`, `refresh-env.sh`, `start_api_server.py`,
-`run_bot_with_logs.sh`, `setup_test_db.sh`, `reset_database.py`, `migrate_database.py`,
-`add_database_indexes.py`, `diagnose_bot.sh` + `BOT_TROUBLESHOOTING.md`, `fix_sudoers.sh`,
+`infra/scripts/` holds `start_api_server.py`, `run_bot_with_logs.sh`, `setup_test_db.sh`,
+`reset_database.py`, `migrate_database.py`, `add_database_indexes.py`,
 `compare_environments.py`, and the test runners.
 
 ---
@@ -329,7 +330,7 @@ WAIVE                  # Waive a build
 | HTTP client | httpx + requests |
 | Testing | pytest, pytest-asyncio, pytest-mock, coverage, Hypothesis (engine properties) |
 | Frontend | React 18, Vite, TypeScript, Tailwind, shadcn/ui, Vitest, React Testing Library |
-| Infrastructure | Docker Compose (VPS + home server), WireGuard (shared with p2p), nginx; legacy Terraform (AWS) |
+| Infrastructure | Docker Compose (VPS + home server), WireGuard (shared with p2p), nginx; GitHub Actions deploy for the VPS |
 | Linting | Ruff (strict, pinned version — CI pins to avoid new-release rule-set breakage) |
 
 ---

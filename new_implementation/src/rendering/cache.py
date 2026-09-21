@@ -22,7 +22,7 @@ class MapCache:
     """Comprehensive map caching system for performance optimization."""
 
     # nosec B108 -- documented cache location (CLAUDE.md: "cached ... at
-    # /tmp/diplomacy_map_cache"); the app runs on a single-tenant EC2 host with no
+    # /tmp/diplomacy_map_cache"); the app runs in its own container with no
     # other local users, so there is no multi-user /tmp collision/symlink risk here.
     def __init__(self, max_size: int = 100, cache_dir: str = "/tmp/diplomacy_map_cache") -> None:  # nosec B108
         self.max_size = max_size

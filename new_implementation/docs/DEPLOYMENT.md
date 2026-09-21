@@ -145,6 +145,36 @@ docker compose -f docker-compose.control.yml logs -f diplomacy_bot
 Migrations run in the API container's entrypoint on every start. The bot's
 queue lives in the `bot_data` volume and is untouched by rebuilds.
 
+### Deploy-on-merge for the VPS (GitHub Actions)
+
+`.github/workflows/deploy-control.yml` deploys the control layer automatically after the
+Test Suite is green on `main` (or on demand via *Run workflow*). It SSHes into the VPS,
+checks out the exact SHA that passed, writes **`TELEGRAM_BOT_TOKEN` and
+`DIPLOMACY_BOT_SECRET` from GitHub repository secrets into `.env`** (replacing only those
+two lines — `WEB_BIND`, poll intervals and anything else you set stay as they are), and
+runs `./upgrade_control.sh`. The secrets travel over stdin, never in a command line.
+
+The home server is deliberately *not* deployed this way: GitHub cannot reach it through the
+tunnel. Keep using `./upgrade.sh` there.
+
+One-time setup, from a machine that can already SSH into the VPS:
+
+```bash
+# 1. A dedicated deploy key for GitHub (no passphrase), installed for the VPS user.
+ssh-keygen -t ed25519 -f ~/.ssh/diplomacy_deploy -N "" -C "github-actions-deploy"
+ssh-copy-id -i ~/.ssh/diplomacy_deploy.pub tenderi@87.58.144.64
+
+# 2. Secrets and the gate. TELEGRAM_BOT_TOKEN is already set.
+gh secret set VPS_SSH_KEY          -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy
+gh secret set VPS_HOST_KEY         -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
+gh secret set DIPLOMACY_BOT_SECRET -R tenderi/diplomacy   # paste the value from the home server's .env
+gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
+```
+
+Optional repository variables override the defaults: `VPS_HOST` (`87.58.144.64`),
+`VPS_USER` (`tenderi`), `VPS_REPO_DIR` (`~/diplomacy/new_implementation`). Until
+`DEPLOY_CONTROL_ENABLED` is `true` the workflow is skipped, not red.
+
 ## Monitoring
 
 - `/queue` in Telegram: server reachability, this player's queued writes, and
@@ -182,12 +212,3 @@ queue lives in the `bot_data` volume and is untouched by rebuilds.
   at the head of the queue is being refused with a *transient* status
   (502/503/504) -- the API is up but unhealthy, most likely Postgres. Check
   `docker compose logs diplomacy_api` at home.
-
-## What the old AWS deployment was
-
-Until this split, `infra/terraform/` described a single EC2 instance running
-nginx + uvicorn + the bot + Postgres, deployed from CI over OIDC/SSM. It was
-never left running (see `docs/specs/done_fixes.md`, Track H). The Terraform and
-`infra/scripts/deploy.sh` are kept in the tree as reference but are
-**superseded by this document**; nothing in them is exercised, and
-`.github/workflows/deploy.yml` stays gated off.
