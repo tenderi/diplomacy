@@ -172,22 +172,23 @@ class TestRetreat:
             Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
             retreats=(Location("BUR"), Location("GAS"), Location("PIC")),
         )
-        state = _state([], dislodged=[du])
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
         order = Retreat("FRANCE", Location("PAR"), Location("BUR"))
         assert validate(order, state, m).ok is True
 
     def test_retreat_no_dislodged_unit_rejected(self, m):
-        state = _state([])
+        state = _state([], phase_type=PhaseType.RETREAT)
         order = Retreat("FRANCE", Location("PAR"), Location("BUR"))
         result = validate(order, state, m)
         assert result.ok is False
+        assert "no dislodged unit" in result.reason
 
     def test_retreat_non_adjacent_rejected(self, m):
         du = DislodgedUnit(
             Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
             retreats=(Location("BUR"), Location("GAS"), Location("PIC")),
         )
-        state = _state([], dislodged=[du])
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
         order = Retreat("FRANCE", Location("PAR"), Location("MOS"))
         result = validate(order, state, m)
         assert result.ok is False
@@ -214,45 +215,128 @@ class TestDisband:
 
 
 class TestBuild:
+    def _state(self, units, ownership):
+        return _state(units, ownership=ownership, phase_type=PhaseType.ADJUSTMENT)
+
     def test_build_on_home_center_ok(self, m):
-        state = _state([], ownership={"PAR": "FRANCE"})
+        state = self._state([], ownership={"PAR": "FRANCE"})
         order = Build("FRANCE", Location("PAR"), UnitKind.ARMY)
         assert validate(order, state, m).ok is True
 
     def test_build_on_non_home_rejected(self, m):
-        state = _state([], ownership={"BEL": "FRANCE"})
+        state = self._state([], ownership={"BEL": "FRANCE"})
         order = Build("FRANCE", Location("BEL"), UnitKind.ARMY)
         result = validate(order, state, m)
         assert result.ok is False
         assert "home" in result.reason
 
     def test_build_on_occupied_center_rejected(self, m):
-        state = _state(
+        state = self._state(
             [Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))], ownership={"PAR": "FRANCE"}
         )
         order = Build("FRANCE", Location("PAR"), UnitKind.ARMY)
         result = validate(order, state, m)
         assert result.ok is False
+        assert "occupied" in result.reason
 
     def test_build_fleet_needs_coast_on_split_coast_home(self, m):
-        state = _state([], ownership={"STP": "RUSSIA"})
+        state = self._state([], ownership={"STP": "RUSSIA"})
         order = Build("RUSSIA", Location("STP"), UnitKind.FLEET)
         result = validate(order, state, m)
         assert result.ok is False
+        assert "coast" in result.reason
 
     def test_build_fleet_with_coast_ok(self, m):
-        state = _state([], ownership={"STP": "RUSSIA"})
+        state = self._state([], ownership={"STP": "RUSSIA"})
         order = Build("RUSSIA", Location("STP", "SC"), UnitKind.FLEET)
         assert validate(order, state, m).ok is True
 
     def test_build_fleet_on_landlocked_rejected(self, m):
-        state = _state([], ownership={"MOS": "RUSSIA"})
+        state = self._state([], ownership={"MOS": "RUSSIA"})
         order = Build("RUSSIA", Location("MOS"), UnitKind.FLEET)
         result = validate(order, state, m)
         assert result.ok is False
+        assert "landlocked" in result.reason
 
 
 class TestWaive:
-    def test_waive_always_ok(self, m):
-        state = _state([])
+    def test_waive_ok_in_adjustment(self, m):
+        state = _state([], phase_type=PhaseType.ADJUSTMENT)
         assert validate(Waive("FRANCE"), state, m).ok is True
+
+
+class TestPhaseGate:
+    """An order whose kind has no meaning in the current phase is refused with
+    a reason that names the phase -- *before* any unit/topology check, so the
+    player is told why instead of having the adjudicator drop it silently."""
+
+    PAR_ARMY = Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            Hold("FRANCE", Location("PAR")),
+            Move("FRANCE", Location("PAR"), Location("BUR")),
+            SupportHold("FRANCE", Location("PAR"), Location("BUR")),
+            SupportMove("FRANCE", Location("PAR"), Location("BUR"), Location("MUN")),
+            Convoy("FRANCE", Location("PAR"), Location("BRE"), Location("LON")),
+            Build("FRANCE", Location("PAR"), UnitKind.ARMY),
+            Waive("FRANCE"),
+        ],
+    )
+    def test_non_retreat_orders_refused_in_retreat_phase(self, m, order):
+        # The unit really is there and the move really is adjacent: only the
+        # phase is wrong, and that is what the reason must say.
+        state = _state([self.PAR_ARMY], ownership={"PAR": "FRANCE"},
+                       phase_type=PhaseType.RETREAT)
+        result = validate(order, state, m)
+        assert result.ok is False
+        assert "retreat phase" in result.reason
+        assert "S1901R" in result.reason
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            Retreat("FRANCE", Location("PAR"), Location("BUR")),
+            Disband("FRANCE", Location("PAR")),
+            Build("FRANCE", Location("BRE"), UnitKind.FLEET),
+            Waive("FRANCE"),
+        ],
+    )
+    def test_non_movement_orders_refused_in_movement_phase(self, m, order):
+        # BRE is a vacant, owned home centre, so the build would otherwise pass;
+        # PAR holds a French army, so the disband would otherwise pass.
+        state = _state([self.PAR_ARMY], ownership={"PAR": "FRANCE", "BRE": "FRANCE"})
+        result = validate(order, state, m)
+        assert result.ok is False
+        assert "movement phase" in result.reason
+        assert "S1901M" in result.reason
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            Hold("FRANCE", Location("PAR")),
+            Move("FRANCE", Location("PAR"), Location("BUR")),
+            Retreat("FRANCE", Location("PAR"), Location("BUR")),
+        ],
+    )
+    def test_movement_and_retreat_orders_refused_in_adjustment_phase(self, m, order):
+        state = _state([self.PAR_ARMY], ownership={"PAR": "FRANCE"},
+                       phase_type=PhaseType.ADJUSTMENT)
+        result = validate(order, state, m)
+        assert result.ok is False
+        assert "adjustment phase" in result.reason
+        assert "S1901A" in result.reason
+
+    def test_reason_names_the_offending_order_kind(self, m):
+        state = _state([self.PAR_ARMY], phase_type=PhaseType.RETREAT)
+        result = validate(Move("FRANCE", Location("PAR"), Location("BUR")), state, m)
+        assert result.reason.startswith("a move order is not accepted")
+
+    def test_phase_is_checked_before_the_unit(self, m):
+        # No unit anywhere: in the right phase that is the complaint; in the
+        # wrong phase the phase is, because it is the thing the player can fix.
+        empty = _state([], phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Hold("FRANCE", Location("PAR")), empty, m)
+        assert "adjustment phase" in result.reason
+        assert "no unit" not in result.reason

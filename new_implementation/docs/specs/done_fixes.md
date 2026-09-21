@@ -2532,3 +2532,90 @@ two hosts on opposite ends of a residential uplink.
   compose files under a real daemon. Both compose files were written against p2p's known-good
   patterns and `bash -n`-checked scripts; the frontend build is exercised by CI's `frontend`
   job. **F3 in `fix_plan.md` is the on-host verification.**
+
+---
+
+# Track K — Phase-aware order acceptance (`v2.7.69`)
+
+## Why this track exists
+
+Opened 2026-09-21 by a bug hunt after the tracker reported nothing agent-doable left. Two
+connected defects in what "your orders were accepted" and "everyone has submitted" mean:
+
+- **`validate()` never looked at the phase.** `A PAR - PIC` typed during a retreat phase,
+  `BUILD A PAR` typed during a movement phase with Paris vacant, `WAIVE` at any time — all
+  came back `ok=True`, were stored in `pending_orders`, showed up under the power's pending
+  orders in both clients, counted the power as "submitted", and were then dropped by the
+  adjudicator without a word. `legal_orders.py`'s own module docstring recorded the worst
+  case — a movement order typed into an adjustment phase "*passes* validation and then gets
+  silently dropped … waiving a player's build with no error anywhere" — and fixed it for the
+  interactive **menus** only. Free-text input (bot `/order`, the browser textbox, DAIDE `SUB`)
+  still went straight through.
+- **`orders_status` was not phase-aware.** `active_powers` was "every power with a unit" in
+  every phase. In a retreat phase with one dislodged unit, `/status` said "Waiting on:" the
+  six powers with nothing to retreat, `/processturn` warned that processing "will treat
+  their units as holding", and `process_turn?require_all=true` refused until each of them
+  had submitted an empty order set. Same in an adjustment phase for every balanced power.
+
+## K1 — `validate()` refuses orders from the wrong phase — done
+
+- [x] `engine/orders/validation.py`: a `_check_phase` gate runs **first**, before any unit or
+      topology check, from a single `_ORDERS_BY_PHASE` table (Movement: Hold / Move /
+      SupportHold / SupportMove / Convoy; Retreat: Retreat / Disband; Adjustment: Build /
+      Disband / Waive). The reason names the offending kind, the phase and its code, and
+      what *is* accepted: `a move order is not accepted during the retreat phase (S1901R);
+      only retreat and disband (for dislodged units) orders are`. Checked first on purpose:
+      with no unit anywhere and the wrong phase, the phase is the thing the player can fix.
+- [x] `tests/engine/test_validation.py`: the Retreat/Build/Waive tests had been building
+      their states with the fixture's default `MOVEMENT` phase — they were only ever passing
+      because the gate did not exist. Rewritten to use the right phase, plus a
+      `TestPhaseGate` class (16 cases) that asserts every out-of-phase kind is refused in
+      each phase, that the reason names the phase and code, and that the phase is checked
+      before the unit.
+- [x] Only two callers exist (`GameService.submit_orders`, `adjudicate_adjustments`' build
+      check, which always runs in an adjustment state), so nothing else moved.
+
+## K2 — `orders_status` waits only on powers with something to order — done
+
+- [x] `server/legal_orders.py`: new pure `powers_with_orders_to_give(map, state)`.
+      Movement → powers with a unit; Retreat → powers with a dislodged unit; Adjustment →
+      powers that must disband, plus powers owed a build that have at least one legal build
+      (same delta and same `legal_builds` filter the menu uses). A power the menu would hand
+      nothing but `WAIVE` is not waited on — the adjudicator waives for it anyway.
+- [x] `GameService.orders_status` uses it for `active_powers`/`missing`, so
+      `GET /games/{id}/orders_status`, `process_turn?require_all=true`, the bot's `/status`
+      and the `/processturn` "still waiting on" confirmation all inherit the fix with no
+      client change.
+- [x] `tests/test_legal_orders.py::TestPowersWithOrdersToGive` (7), including a property
+      that the helper lists a power exactly when `legal_orders_for_power` offers it a
+      non-`WAIVE` choice, and `tests/test_game_service.py::TestPhaseAwareOrders` (4)
+      driving a real game S1901M → S1901R → F1901M → W1901A through `GameService` and
+      checking both the refusals and `orders_status` at each phase.
+- [x] Specs: `data_spec.md` §5 documents the gate and the phase-shaped `orders_status`;
+      `src/server/README.md` corrects what `require_all` waits for.
+
+## Findings recorded rather than folded in silently
+
+- **The local dev Postgres was four migrations behind `head`** (`c3d4e5f6a7b9` →
+  `h6b2c3d4e5f6`), so the first baseline run failed with `column "draw_votes" … does not
+  exist` on `main`. `alembic upgrade head` fixed it; nothing in the repo was wrong. Worth
+  knowing because the failure reads like a code bug.
+- **`_adjustment_orders` reports `slots: delta`** for builds even when fewer vacant home
+  centres exist. Cosmetic — the adjudicator caps at valid builds regardless — left alone.
+- **Link-code and password-reset `expires_at`** are written tz-aware into naive `TIMESTAMP`
+  columns and compared against a tz-aware `now`. Both conversions use the same session
+  timezone so the round-trip is self-consistent; not the deadline bug. Left alone.
+
+- **Two pytest runs overlapping on the same machine can fail
+  `test_retreat_and_adjustment_resolution_maps_render`** — they share the on-disk renderer
+  cache (`/tmp/diplomacy_map_cache`) and the one Postgres. Seen once here when a baseline
+  run and a gate run overlapped; the test passes on its own every time, on `main` and with
+  Track K. Not a code defect; don't run two suites at once.
+
+## Verification
+
+- Full suite against the local Postgres: **1575 passed, 11 skipped, 10 xfailed** (was 1548;
+  +27 = 16 + 7 + 4); ruff clean; engine coverage **93.48 %** (floor 92), overall **71.10 %**
+  (floor 60).
+- Frontend untouched, but the gates were run anyway with the system Node 26:
+  `tsc -b --noEmit` clean, 24 files / 158 tests, `npm run build` green.
