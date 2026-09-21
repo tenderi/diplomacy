@@ -2970,3 +2970,43 @@ import away.
 
 - Full suite against the local Postgres: **1617 passed, 0 skipped, 10 xfailed** (was 1616);
   ruff clean; coverage floors hold. Frontend untouched (it never used these routes).
+
+---
+
+# Track T — Auth sweep: "someone" vs "this person" (`v2.7.79`)
+
+## Why this track exists
+
+Tracks R and S each found a route whose credential check proved the caller was *someone*
+rather than *the person the request acts on*. This is the systematic pass over the rest:
+every write route gated on `require_bot_or_user` that then acts on a body-supplied identity,
+and every read route that hands out per-user data without asking who is reading.
+
+- **`GET /users/{telegram_id}/games` was anonymous** — which games any Telegram user plays,
+  and as which power, for anyone who could guess (or enumerate) the id. Now the bot secret,
+  or a Bearer user reading their own linked id. **The check is a dependency, not a body
+  check**: the route is wrapped in `@cached_response`, which answers from cache *before* the
+  function body runs, so a check inside the function would have been skipped on every hit
+  after the first. Tested exactly that way (bot warms the cache, anonymous still 401).
+- **`POST /games/{id}/deadline`** (`v2.7.73`) checked membership only when the bot supplied a
+  `telegram_id`; a Bearer user could omit it and set any game's deadline. Now every caller is
+  resolved (`resolve_user_or_telegram`; bot secret accepted from body or header) and must hold
+  a power in the game.
+- **`POST /users/register` and `GET /users/{telegram_id}`** were an anonymous, unbounded
+  in-memory `user_sessions` dict that nothing ever read (`game_context.py` documented the bot
+  pointing at it as "always 404s"). A free memory sink for anyone on the internet; deleted
+  with their three tests.
+
+## What landed
+
+- [x] `require_bot_or_self` dependency on `GET /users/{telegram_id}/games`.
+- [x] `set_deadline` resolves the caller and requires membership for everyone; the scheduler
+      tests now seat the creator before setting a deadline (a creator is not a player).
+- [x] Session routes removed. `tests/test_auth_sweep.py` (5); eight existing test calls now
+      send the bot secret.
+
+## Verification
+
+- Full suite against the local Postgres: **1619 passed, 0 skipped, 10 xfailed** (was 1617,
+  −3 +5); ruff clean; engine coverage 93.81 % (floor 92), overall 72.04 % (floor 60).
+  Frontend untouched (it uses `/users/me/games`).

@@ -377,15 +377,19 @@ class TestDeadlineEndpoints:
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_deadline(self, client):
-        """Test setting game deadline."""
+        """Test setting game deadline -- by a player in the game (Track T)."""
         # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
+        tg = f"dl_{int(datetime.now().timestamp() * 1000000)}"
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": "Deadline"})
+        join = client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"})
+        assert join.status_code == 200, join.text
         
         # Set deadline
         future_time = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-        resp = client.post(f"/games/{game_id}/deadline", json={"deadline": future_time})
-        assert resp.status_code == 200
+        resp = client.post(f"/games/{game_id}/deadline", json={"deadline": future_time, "telegram_id": tg, "bot_secret": BOT_SECRET})
+        assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["status"] == "ok"
         assert "deadline" in data

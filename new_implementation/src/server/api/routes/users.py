@@ -3,22 +3,18 @@ User management API routes.
 
 This module contains all endpoints related to user registration and session management.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
-from .auth import get_current_user
+from .auth import get_current_user, get_current_user_optional, http_bearer
 from ..shared import db_service, BOT_SECRET
 from ...response_cache import cached_response
 
 router = APIRouter()
 
 # --- Request Models ---
-class RegisterUserRequest(BaseModel):
-    telegram_id: str
-    game_id: str
-    power: str
-
 class RegisterPersistentUserRequest(BaseModel):
     telegram_id: str
     full_name: Optional[str] = None
@@ -31,31 +27,7 @@ class RegisterPersistentUserRequest(BaseModel):
             raise ValueError("telegram_id is required and cannot be empty or whitespace")
         return v.strip()
 
-class UserSession(BaseModel):
-    telegram_id: str
-    game_id: Optional[str] = None
-    power: Optional[str] = None
-
-# In-memory user sessions (for bot integration)
-user_sessions: dict[str, UserSession] = {}
-
 # --- User Endpoints ---
-@router.post("/users/register")
-def register_user(req: RegisterUserRequest) -> Dict[str, str]:
-    """Register a user session for Telegram integration."""
-    user_sessions[req.telegram_id] = UserSession(
-        telegram_id=req.telegram_id, game_id=req.game_id, power=req.power
-    )
-    return {"status": "ok"}
-
-@router.get("/users/{telegram_id}")
-def get_user_session(telegram_id: str) -> UserSession:
-    """Get a user's session info."""
-    session = user_sessions.get(telegram_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="User session not found")
-    return session
-
 @router.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
     """Register a user persistently in the database. Requires bot_secret (only the Telegram bot may call this)."""
@@ -111,10 +83,39 @@ def get_me_games(current_user: Any = Depends(get_current_user)) -> Dict[str, Any
     return _user_games_response(current_user)
 
 
+def require_bot_or_self(
+    telegram_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+) -> None:
+    """Dependency: the bot (``X-Bot-Secret``), or a Bearer user whose linked
+    telegram id is the one in the path.
+
+    A dependency rather than a check inside the route on purpose: the route is
+    wrapped in ``@cached_response``, which answers from cache *before* the
+    function body runs, so an in-body check would be skipped for every hit
+    after the first. Dependencies run before the wrapper.
+    """
+    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+        return
+    me = get_current_user_optional(credentials)
+    if me is None or str(getattr(me, "telegram_id", None)) != str(telegram_id):
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated: X-Bot-Secret, or a Bearer token for this telegram id, required",
+        )
+
+
 @router.get("/users/{telegram_id}/games")
 @cached_response(ttl=60, key_params=["telegram_id"])
-def get_user_games(telegram_id: str) -> Dict[str, Any]:
-    """Get all games a user is participating in (only active players). Uses telegram_id (Telegram bot)."""
+def get_user_games(telegram_id: str, _: None = Depends(require_bot_or_self)) -> Dict[str, Any]:
+    """Get all games a user is participating in (only active players). Uses telegram_id (Telegram bot).
+
+    The bot presents ``X-Bot-Secret`` (``api_get`` always sends it); a browser
+    session may read only its own linked telegram id. Anonymous callers get 401
+    -- until ``v2.7.79`` (Track T) which games a given Telegram user plays, and
+    as which power, was readable by anyone who could guess the id.
+    """
     try:
         user = db_service.get_user_by_telegram_id(telegram_id)
         if user is None:
