@@ -361,19 +361,50 @@ _DEADLINE_USAGE = (
     "  /deadline <game_id> <hours> - orders due in that many hours; the turn is "
     "processed automatically when it passes\n"
     "  /deadline <game_id> clear - remove the deadline (process by hand)\n"
-    "  /deadline <game_id> - show the current deadline"
+    "  /deadline <game_id> - show the current deadline\n"
+    "  /deadline <game_id> propose <hours|clear> [vote_hours] - start a majority "
+    "vote to change it instead of setting it unilaterally\n"
+    "  /deadline <game_id> vote <yes|no> - vote on a pending proposal\n"
+    "  /deadline <game_id> withdraw - cancel your own pending proposal"
 )
 
 
+def _format_proposal(game_id: str, proposal: dict) -> str:
+    what = f"{proposal['value_hours']}h" if proposal.get("value_hours") is not None else "clearing it"
+    needed = proposal["needed_for_majority"]
+    yes = proposal["yes_votes"]
+    no = proposal["no_votes"]
+    lines = [
+        f"🗳️ *Deadline proposal for game {game_id}*",
+        f"{proposal['proposed_by']} proposes: {what}",
+        f"✅ Yes ({len(yes)}/{needed} needed): {', '.join(yes) or 'none'}",
+        f"❌ No: {', '.join(no) or 'none'}",
+    ]
+    if proposal.get("vote_deadline"):
+        lines.append(f"⏱ Vote closes: {format_deadline(proposal['vote_deadline'])}")
+    lines.append(f"Vote with /deadline {game_id} vote yes|no.")
+    return "\n".join(lines)
+
+
 async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /deadline -- show, set or clear a game's order deadline.
+    """Handle /deadline -- show, set, clear, or majority-vote-propose a game's
+    order deadline.
 
     The game id is required (unlike ``/draw``), because ``/deadline 12`` would
     be ambiguous between game 12 and twelve hours. Setting goes through
     ``POST /games/{id}/deadline`` with the caller's ``telegram_id``, so the
     server checks membership and tells the other players. Deadlines are never
-    imposed by the server (Track N): this command is the only way a game gets
-    one, and it is spent when its phase is processed.
+    imposed by the server (Track N): this command (or a resolved
+    ``propose``/``vote``) is the only way a game gets one, and it is spent
+    when its phase is processed.
+
+    ``<hours>``/``clear`` set it unilaterally, same as always -- any single
+    player still can, nothing here removes that. ``propose``/``vote``/
+    ``withdraw`` are the alternative for a table that would rather decide the
+    pace together: they need the caller's *power*, not just their telegram id
+    (only the assigned player for a power may propose or vote it), so they
+    resolve it via ``resolve_game_and_power`` where the plain set/clear path
+    above does not bother.
     """
     user = update.effective_user
     if not user or not update.message:
@@ -387,7 +418,7 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        game_id, _power = resolve_game_and_power(user_id, args[0])
+        game_id, power = resolve_game_and_power(user_id, args[0])
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -407,11 +438,86 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             await update.message.reply_text(
                 f"Game {game_id} has no deadline; the turn is processed by hand "
-                f"(/processturn). Set one with /deadline {game_id} <hours>."
+                f"(/processturn). Set one with /deadline {game_id} <hours>, or propose "
+                f"one for a vote with /deadline {game_id} propose <hours>."
             )
+        proposal = data.get("pending_proposal") if data else None
+        if proposal:
+            await update.message.reply_text(_format_proposal(game_id, proposal), parse_mode='Markdown')
         return
 
     arg = args[1].lower()
+
+    if arg == "propose":
+        if len(args) < 3:
+            await update.message.reply_text(_DEADLINE_USAGE)
+            return
+        value_arg = args[2].lower()
+        hours: Optional[float] = None
+        if value_arg not in ("clear", "none", "off", "remove"):
+            try:
+                hours = float(value_arg.rstrip("h"))
+            except ValueError:
+                await update.message.reply_text(_DEADLINE_USAGE)
+                return
+            if not 0 < hours <= 24 * 30:
+                await update.message.reply_text("Hours must be more than 0 and at most 720 (30 days).")
+                return
+        vote_hours: Optional[float] = None
+        if len(args) >= 4:
+            try:
+                vote_hours = float(args[3].rstrip("h"))
+            except ValueError:
+                await update.message.reply_text(_DEADLINE_USAGE)
+                return
+        try:
+            result = api_post(
+                f"/games/{game_id}/deadline/propose",
+                {"power": power, "hours": hours, "vote_hours": vote_hours, "telegram_id": user_id},
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Could not propose a deadline change: {e}")
+            return
+        if result.get("status") == "accepted":
+            await update.message.reply_text(
+                f"✅ Applied immediately -- {power} is the only active power in game {game_id}."
+            )
+        else:
+            await update.message.reply_text(_format_proposal(game_id, result), parse_mode='Markdown')
+        return
+
+    if arg == "vote":
+        if len(args) < 3 or args[2].lower() not in ("yes", "no", "y", "n"):
+            await update.message.reply_text(f"Usage: /deadline {game_id} vote yes|no")
+            return
+        vote = args[2].lower() in ("yes", "y")
+        try:
+            result = api_post(
+                f"/games/{game_id}/deadline/vote",
+                {"power": power, "vote": vote, "telegram_id": user_id},
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Could not cast your vote: {e}")
+            return
+        status = result.get("status")
+        if status == "accepted":
+            what = f"{result['value_hours']}h" if result.get("value_hours") is not None else "no deadline"
+            await update.message.reply_text(f"✅ Proposal passed. Game {game_id}'s deadline is now {what}.")
+        elif status == "rejected":
+            await update.message.reply_text(f"❌ Proposal for game {game_id} was voted down; nothing changed.")
+        else:
+            await update.message.reply_text(_format_proposal(game_id, result), parse_mode='Markdown')
+        return
+
+    if arg == "withdraw":
+        try:
+            result = api_post(f"/games/{game_id}/deadline/withdraw", {"power": power, "telegram_id": user_id})
+        except Exception as e:
+            await update.message.reply_text(f"Could not withdraw the proposal: {e}")
+            return
+        await update.message.reply_text(f"Withdrew {power}'s deadline proposal for game {game_id}.")
+        return
+
     if arg in ("clear", "none", "off", "remove"):
         new_deadline: Optional[datetime] = None
     else:

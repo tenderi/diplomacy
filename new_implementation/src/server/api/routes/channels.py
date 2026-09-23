@@ -83,13 +83,6 @@ class CreateThreadRequest(BaseModel):
     phase: Optional[str] = None
 
 
-class ProposalRequest(BaseModel):
-    telegram_id: str
-    proposal_text: str
-    power: str
-    proposal_title: Optional[str] = None
-
-
 @router.post("/games/{game_id}/channel/link")
 def link_channel_to_game(
     game_id: str,
@@ -326,102 +319,6 @@ def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) ->
         raise
     except Exception as e:
         logger.exception(f"Error creating discussion thread for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/games/{game_id}/channel/proposal")
-def post_proposal(game_id: str, req: ProposalRequest) -> Dict[str, Any]:
-    """Queue a proposal with voting buttons for the linked channel. See
-    ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
-    rather than posting inline.
-
-    **The posting half only.** Tapping a vote button reaches
-    ``app.py``'s ``vote_proposal_*`` callback, which acknowledges the tap but
-    does not persist or tally it -- that was already a documented stub before
-    this fix (`"will be enhanced with database"`) and remains one;
-    ``GET .../channel/proposal/{message_id}`` still always answers zero votes
-    in every category. Posting the proposal now actually reaches the channel,
-    which it never did; counting the votes on it is untouched, separate work.
-    """
-    try:
-        from ...telegram_bot.utils import escape_markdown
-
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
-
-        power_emoji = {
-            "AUSTRIA": "🇦🇹", "ENGLAND": "🇬🇧", "FRANCE": "🇫🇷", "GERMANY": "🇩🇪",
-            "ITALY": "🇮🇹", "RUSSIA": "🇷🇺", "TURKEY": "🇹🇷",
-        }
-        emoji = power_emoji.get(req.power, "")
-        safe_title = escape_markdown(req.proposal_title) if req.proposal_title else None
-        safe_text = escape_markdown(req.proposal_text)
-        title = safe_title or "PROPOSAL"
-        formatted = (
-            f"📢 **{title}: {safe_title or 'Diplomatic Proposal'}**\n"
-            f"{emoji} **{req.power}** proposes:\n\n"
-            f"{safe_text}\n\n"
-            f"💬 Vote using the buttons below:"
-        )
-        buttons = [[
-            {"text": "👍 Support", "callback_data": f"vote_proposal_{game_id}_support"},
-            {"text": "👎 Oppose", "callback_data": f"vote_proposal_{game_id}_oppose"},
-            {"text": "🤔 Undecided", "callback_data": f"vote_proposal_{game_id}_undecided"},
-        ]]
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, formatted, kind="channel_text",
-            payload={"parse_mode": "Markdown", "buttons": buttons},
-        )
-
-        return {
-            "status": "queued",
-            "message": f"Proposal queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting proposal to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/games/{game_id}/channel/proposal/{message_id}")
-def get_proposal_results_endpoint(game_id: str, message_id: int) -> Dict[str, Any]:
-    """Get voting results for a proposal message.
-
-    **Unfixed, deliberately, unlike the rest of this file.** No vote is ever
-    actually recorded anywhere -- ``app.py``'s ``vote_proposal_*`` callback
-    acknowledges a tap and does not persist it (its own comment: "will be
-    enhanced with database"). There is no wrong-process bug to route around
-    here; there is simply no data. Wiring a real tally (a votes table, a
-    write from the callback, a read here) is a feature to build, not a
-    channel-posting bug to fix -- left for whoever picks up Track X4's
-    proposal-voting half in ``fix_plan.md``.
-    """
-    try:
-        from ...telegram_bot.channels import get_proposal_results
-        
-        # Get channel info
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
-        channel_id = channel_info.get("channel_id")
-        
-        # Get results
-        results = get_proposal_results(channel_id, message_id)
-        
-        return {
-            "status": "ok",
-            "results": results
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting proposal results for game {game_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -528,6 +528,35 @@ class DatabaseService:
             game.phase_length_seconds = phase_length_seconds
             session.commit()
 
+    def get_pending_deadline_proposal(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """The in-flight deadline-change proposal for this game, or ``None`` if
+        there isn't one (or the game doesn't exist)."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model:
+                return None
+            return game_model.pending_deadline_proposal
+
+    def set_pending_deadline_proposal(self, game_id: str, proposal: Optional[Dict[str, Any]]) -> None:
+        """Set (or, with ``None``, clear) the pending deadline proposal."""
+        with self.session_factory() as session:
+            game_model = self._get_game_model_by_game_id_string(session, game_id)
+            if not game_model:
+                raise ValueError(f"game {game_id} not found")
+            game_model.pending_deadline_proposal = proposal
+            session.commit()
+
+    def get_games_with_pending_deadline_proposals(self) -> List[GameModel]:
+        """Every game with a deadline proposal currently in flight. For the
+        scheduler's expiry sweep -- most games return here empty, most of the
+        time."""
+        with self.session_factory() as session:
+            return (
+                session.query(GameModel)
+                .filter(GameModel.pending_deadline_proposal.isnot(None))
+                .all()
+            )
+
     def get_phase_code_at(self, game_id: int, when: datetime) -> Optional[str]:
         """The phase this game was in at ``when``, or None if undeterminable.
 

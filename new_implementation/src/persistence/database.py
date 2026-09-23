@@ -72,6 +72,12 @@ class GameModel(Base):
     # means "use the 24 h default"; ``0`` is meaningless here since no code path
     # arms one from this value automatically.
     phase_length_seconds = Column(Integer, nullable=True)
+    # An in-flight majority vote to change (or clear) the deadline -- see
+    # api.shared's deadline-proposal functions. NULL means no proposal is
+    # currently pending; only one may be pending at a time. Shape:
+    # {"proposed_by": power, "value_hours": float|None, "votes": {power: "yes"|"no"},
+    #  "vote_deadline": iso|None, "created_at": iso}.
+    pending_deadline_proposal = Column(JSON, nullable=True)
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
