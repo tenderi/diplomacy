@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.82`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.83`. `main` green.
 - **VPS facts, verified over SSH 2026-09-23:** the only login user is **`root`** (there is no
   `tenderi` account; `PermitRootLogin prohibit-password`, keys only). The control stack is
   **already running** there from `/root/diplomacy`, checked out on the old **`vps-split`**
@@ -38,7 +38,11 @@
   `VPS_SSH_KEY` is not in `/root/.ssh/authorized_keys` (which holds only the maintainer's two
   personal keys). It also exposed a bug fixed in `v2.7.82`: a manual run with no `ref` input
   sent the literal branch name `main`, and the VPS checkout has no local `main` branch, so
-  `git checkout --detach main` would have failed; it now sends `github.sha`.
+  `git checkout --detach main` would have failed; it now sends `github.sha`. Once the key was
+  installed, the next run (`35836927483`) failed with `unable to read tree`: the VPS clone is
+  **single-branch** (`remote.origin.fetch` covers only `vps-split`), so `git fetch origin`
+  never brought main's commits. Fixed in `v2.7.83`: fetch the target itself and check out
+  `FETCH_HEAD`.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
   in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
   `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;

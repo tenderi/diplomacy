@@ -121,8 +121,10 @@ jobs:
           IFS= read -r DIPLOMACY_BOT_SECRET
           eval "cd $REPO_DIR"
           echo "==> Checking out $SHA"
-          git fetch --quiet origin
-          git checkout --quiet --detach "$SHA"
+          # Fetch the target itself: the clone may be single-branch (the VPS one
+          # was cloned on vps-split), so a plain `git fetch origin` can miss it.
+          git fetch --quiet origin "$SHA"
+          git checkout --quiet --detach FETCH_HEAD
           [ -f .env ] || cp .env.control.example .env
           chmod 600 .env
           set_var() {  # set_var NAME VALUE -- replace the line or append it
