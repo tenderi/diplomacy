@@ -1,7 +1,8 @@
 """DATC section 6.G — Convoying to adjacent places / convoy + move combinations.
 
 Outcomes cross-checked against the DATC document (Lucas B. Kruijswijk) and the
-reference resolver in ``old_implementation/diplomacy/tests/test_datc.py``
+legacy tree's reference resolver (``git show
+v2.7.68:old_implementation/diplomacy/tests/test_datc.py``)
 (``test_6_g_*``); semantics only, no code copied (that module is AGPL).
 
 Every assertion below encodes the DATC author's **preferred** ruling: the

@@ -1,7 +1,7 @@
 """DATC section 6.J — civil disorder / removals (winter adjustment removals).
 
 Outcomes cross-checked against the DATC document and the reference resolver in
-old_implementation (semantics only; no code copied).
+the legacy tree (semantics only; no code copied; `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` if a case is ever disputed).
 
 Home supply centers (maps/standard.map): FRANCE = BRE MAR PAR;
 RUSSIA = MOS SEV STP WAR; ITALY = NAP ROM VEN.

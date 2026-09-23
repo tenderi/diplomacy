@@ -1,7 +1,7 @@
 """DATC section 6.C — circular movement.
 
 Outcomes cross-checked against the DATC document (Kruijswijk) and the
-reference resolver in old_implementation (semantics only; no code copied).
+reference resolver in the legacy tree (semantics only; no code copied; `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` if a case is ever disputed).
 """
 
 from __future__ import annotations

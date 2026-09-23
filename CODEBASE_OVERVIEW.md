@@ -10,9 +10,11 @@ protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a si
 Docker deployment (Postgres, API, bot and web on one VPS, deployed on every green merge).
 Python 3.14.
 
-- **`new_implementation/`** — the active codebase, what runs in production.
-- **`old_implementation/`** — legacy AGPL codebase (DATC engine, websocket server, React UI,
-  full DAIDE adapter, 15+ map variants, `rules.pdf`). Reference only; never copied from.
+`new_implementation/` is the whole codebase, what runs in production. It started as a
+clean-room rewrite of `old_implementation/` (Philip Paquette's AGPL `diplomacy` package — a
+DATC engine, websocket server, React UI, and DAIDE adapter), which was removed in Track W
+(`v2.7.91`) after an audit found nothing here imports from it; `git show
+v2.7.68:old_implementation/<path>` still reads any file from it out of git history.
 
 ---
 
@@ -28,14 +30,13 @@ diplomacy/
 │   │   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
 │   ├── tests/               # ~62 top-level files + tests/datc/ + tests/engine/
 │   ├── frontend/            # React 18 + Vite + TypeScript SPA
-│   ├── maps/                # standard.map (topology) + standard.svg + mini_variant.json
+│   ├── maps/                # standard.map (topology) + standard.svg
 │   ├── examples/            # demo_perfect_game.py + order visualization example
 │   ├── docker/              # api / bot / web Dockerfiles + nginx template (see docs/DEPLOYMENT.md)
 │   ├── infra/scripts/       # Operational scripts (DB maintenance, test runners)
 │   ├── alembic/             # Database migrations
-│   ├── docs/                # User docs + specs/
+│   ├── docs/                # User docs + specs/ + reference/rules.pdf
 │   └── icons/               # Unit icon PNGs
-└── old_implementation/      # Legacy codebase (reference only)
 ```
 
 ---
@@ -336,16 +337,18 @@ WAIVE                  # Waive a build
 
 ---
 
-## 13. Old implementation
+## 13. Old implementation (removed, Track W)
 
-`old_implementation/` is the original open-source engine, preserved for reference and
-**not actively used**. It contains `diplomacy/engine/` (DATC-compliant `Game`, `map`,
-`power`, `renderer`), `diplomacy/server/` (websocket server), `diplomacy/client/`,
-`diplomacy/web/` (React UI), `diplomacy/daide/` (full DAIDE implementation),
-`diplomacy/maps/` (15+ variants), Sphinx docs, and `rules.pdf` — the official rulebook, and
-the authority for any rules question.
+`old_implementation/` was the original open-source engine this project started as a
+clean-room rewrite of: `diplomacy/engine/` (DATC-compliant `Game`, `map`, `power`,
+`renderer`), `diplomacy/server/` (websocket server), `diplomacy/client/`, `diplomacy/web/`
+(React UI), `diplomacy/daide/` (full DAIDE implementation), `diplomacy/maps/` (15+ variants),
+Sphinx docs, and `rules.pdf` (the official rulebook — relocated to
+`new_implementation/docs/reference/rules.pdf` before the rest was removed). A pre-deletion
+audit (`v2.7.90`) found nothing under `new_implementation/` imports from it, so it was deleted
+in `v2.7.91`; `git show v2.7.68:old_implementation/<path>` still reads any file from it.
 
-| Aspect | Old | New |
+| Aspect | Old (removed) | New |
 |---|---|---|
 | Server protocol | WebSockets (asyncio) | REST (FastAPI) + DAIDE TCP |
 | Client | React web UI + Python async client | Telegram bot + React SPA |
@@ -353,4 +356,4 @@ the authority for any rules question.
 | Database | File-based / in-memory | PostgreSQL + SQLAlchemy |
 | Maps | 15+ variants | `standard` only |
 | Python | 3.5–3.7 | 3.14 |
-| License | AGPL-3.0 | none (do not copy from `old_implementation`) |
+| License | AGPL-3.0 | none |

@@ -1,8 +1,9 @@
 """DATC section 6.D — supports and dislodges.
 
 34 cases (6.D.1-6.D.34). Outcomes are cross-checked against the DATC document
-and the reference resolver in old_implementation (semantics only; no code
-copied, per AGPL). Where DATC states a preferred rule variant, the preferred
+and the legacy tree's reference resolver (semantics only; no code copied;
+`git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` if a case
+is ever disputed). Where DATC states a preferred rule variant, the preferred
 choice is followed and noted in the docstring.
 """
 

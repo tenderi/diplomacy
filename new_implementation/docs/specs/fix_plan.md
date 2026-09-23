@@ -22,20 +22,22 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.90`. `main` green.
-- **Track W — recovered uncommitted work from `origin/vps-split`, landed as `v2.7.90`.**
-  `cfa8d93` (the audit referenced two entries below) was never merged, but real code
+- **Last updated:** 2026-09-23, at `v2.7.91`. `main` green.
+- **Track W — recovered uncommitted work from `origin/vps-split` (`v2.7.90`) plus W0
+  (`v2.7.91`).** `cfa8d93` (the audit referenced below) was never merged, but real code
   implementing four of its findings was sitting **uncommitted** on `vps-split` and was
   recovered, ported onto current `main`, and adapted where the two had diverged (see W1
-  below). Implements W2 (per-game `phase_length_seconds`, explicit-arm only),
-  W3 (DATC 6.A naming gaps, 6.K.1/6.K.2, a full-game-replay regression fixture),
-  W4 (`resolution_history`, `messages.phase_code`, a working `/history/{turn}` —
-  found and fixed a *second*, unrelated bug: it read columns that don't exist on
-  `MapSnapshotModel` and had 500'd for its entire existence), and W5
-  (admin-only `GET /games/{id}/export` / `POST /games/import`). W0, W1's deadline
-  half, W6 and W7 remain open below. Uses "W" rather than the recovered commit's own
-  "K" numbering because this file's Track K (phase-aware order acceptance, `v2.7.69`)
-  already used that letter for something unrelated.
+  below): W2 (per-game `phase_length_seconds`, explicit-arm only), W3 (DATC 6.A naming
+  gaps, 6.K.1/6.K.2, a full-game-replay regression fixture), W4 (`resolution_history`,
+  `messages.phase_code`, a working `/history/{turn}` — found and fixed a *second*,
+  unrelated bug: it read columns that don't exist on `MapSnapshotModel` and had 500'd for
+  its entire existence), and W5 (admin-only `GET /games/{id}/export` / `POST
+  /games/import`). **W0 landed as `v2.7.91`**: `old_implementation/` is deleted (the audit's
+  own verdict was "safe to delete"), `rules.pdf` relocated to `docs/reference/`, every
+  pointer updated, full suite green afterwards. Only W6 and W7 remain, both
+  maintainer-decision tables. Uses "W" rather than the recovered commit's own "K"
+  numbering because this file's Track K (phase-aware order acceptance, `v2.7.69`) already
+  used that letter for something unrelated.
 - **Track V — the whole stack on one VPS, landed as `v2.7.85`** and is archived in
   [`done_fixes.md`](done_fixes.md). The maintainer chose to retire the VPS + home-server
   split: `docker-compose.yml` now runs `postgres`, `diplomacy_api`, `diplomacy_bot` and
@@ -289,24 +291,24 @@ on `origin/vps-split` on 2026-09-23, recovered, ported onto `main` (which had mo
 and landed as `v2.7.90` (Track W above). The rest of the audit is below, unchanged from
 `cfa8d93` except renumbered and K1 split in two.
 
-## W0 — Pre-deletion moves (do these in the same commit as the `git rm`)
+## W0 — Pre-deletion moves and deletion — **done, `v2.7.91`**
 
-`old_implementation/` was not deleted in Track W; this remains open.
-
-- [ ] **Move `old_implementation/rules.pdf` to `new_implementation/docs/reference/rules.pdf`.**
-      `docs/specs/diplomacy_rules.md` is an OCR transcript that names the PDF as "the
-      authority where the two disagree" and `CLAUDE.md` tells rule questions to cross-check it.
-      It is the official rulebook, not AGPL code; it is the one file that must survive.
-- [ ] Update the pointers: `CLAUDE.md` (repository layout, "Game rule questions"),
-      `CODEBASE_OVERVIEW.md` (three places), `docs/specs/diplomacy_rules.md` line 5, and the
-      docstrings in `src/server/daide/{clauses,wire,session,tokens}.py`,
-      `tests/test_daide_tokens.py`, `tests/test_daide_wire.py`, `tests/datc/*.py`. Replace
-      "see `old_implementation/...`" with "see `git show v2.7.68:old_implementation/...`" so
-      the cross-check stays reproducible without the tree.
-- [ ] Drop the two `.gitignore` lines that only exist for the old tree (`diplomacy/games`,
+- [x] Moved `old_implementation/rules.pdf` to `new_implementation/docs/reference/rules.pdf`
+      (`git mv`, history preserved) and repointed `docs/specs/diplomacy_rules.md`.
+- [x] Updated the pointers: `CLAUDE.md` (repository layout, "Game rule questions"),
+      `CODEBASE_OVERVIEW.md` (three places), and every docstring with a literal
+      `old_implementation/<path>` reference (`src/server/daide/{clauses,wire}.py`,
+      `tests/test_daide_tokens.py`, `tests/datc/*.py`) now reads
+      `git show v2.7.68:old_implementation/<path>`, reproducible without the tree.
+      Bare name-drops with no path (`session.py`, `tokens.py`, `test_daide_wire.py`, the
+      historical Track W/`done_fixes.md` narrative) were left as prose — nothing there was a
+      broken pointer.
+- [x] Dropped the two `.gitignore` lines that only existed for the old tree (`diplomacy/games`,
       `!diplomacy/maps/convoy_paths_cache.pkl`).
-- [ ] Delete `new_implementation/maps/mini_variant.json` at the same time — nothing reads it
-      (`grep -rn mini_variant src tests` is empty); it is a leftover from the same era.
+- [x] Deleted `new_implementation/maps/mini_variant.json` — nothing read it
+      (`grep -rln mini_variant` was empty outside itself).
+- [x] `git rm -r old_implementation/`. Full suite green afterwards (1634 passed, 10 xfailed) —
+      confirmed the audit's "nothing imports from it" finding for real, not just by grep.
 
 ## W1 — A deadline-triggered turn took no snapshot (bug, new code) — **half fixed**
 
@@ -368,8 +370,8 @@ convoy routes (`IRI - MAO - NAO - NWG`). Full province names were rejected by de
 
 ## Definition of done (Track W)
 
-- [ ] W0 done in the same commit that removes `old_implementation/`, `rules.pdf` relocated,
-      every pointer updated, suite green.
+- [x] W0 done (`v2.7.91`): `old_implementation/` removed, `rules.pdf` relocated, every
+      pointer updated, suite green.
 - [ ] W6's table has a decision in every row.
 - [ ] W7: either landed or moved under *Out of scope* with the maintainer's decision.
 
@@ -458,8 +460,8 @@ to use, which no test asserts.
 - [ ] **Track F:** a game plays end-to-end (movement, retreat, build) from both the browser
       and Telegram, run by a human, with F1's five steps checked off and F2's judgement
       recorded. **This is the only item here that an agent cannot do.**
-- [ ] **Track W:** W0 done (`old_implementation/` removed), W6's decision table filled in,
-      W7 decided. W1–W5's code landed as `v2.7.90`; only the maintainer-decision items remain.
+- [ ] **Track W:** W0 done (`old_implementation/` removed, `v2.7.91`). W6's decision table
+      filled in and W7 decided are the only items left, both maintainer-only.
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all eleven tasks
       landed this session (`v2.7.58`–`v2.7.67`), each as its own PR through the required checks.

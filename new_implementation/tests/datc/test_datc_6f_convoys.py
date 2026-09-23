@@ -1,7 +1,8 @@
 """DATC section 6.F — Convoys, including all convoy paradoxes.
 
 Outcomes cross-checked against the DATC document (Lucas B. Kruijswijk) and the
-reference resolver in ``old_implementation/diplomacy/tests/test_datc.py``
+legacy tree's reference resolver (``git show
+v2.7.68:old_implementation/diplomacy/tests/test_datc.py``)
 (``test_6_f_*``); semantics only, no code copied (that module is AGPL).
 
 Vocabulary note: this engine's ``Convoy`` order only ever reports
