@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.83`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.84`. `main` green.
 - **VPS facts, verified over SSH 2026-09-23:** the only login user is **`root`** (there is no
   `tenderi` account; `PermitRootLogin prohibit-password`, keys only). The control stack is
   **already running** there from `/root/diplomacy`, checked out on the old **`vps-split`**
@@ -42,7 +42,14 @@
   installed, the next run (`35836927483`) failed with `unable to read tree`: the VPS clone is
   **single-branch** (`remote.origin.fetch` covers only `vps-split`), so `git fetch origin`
   never brought main's commits. Fixed in `v2.7.83`: fetch the target itself and check out
-  `FETCH_HEAD`.
+  `FETCH_HEAD`. The next run (`35837781241`) checked out `c3ffa47` and then died with
+  `DIPLOMACY_BOT_SECRET: unbound variable`: the step piped the secrets into ssh *and* gave
+  it a heredoc, the heredoc won, and the remote `read`s consumed script lines, so the VPS
+  `.env` was left with `TELEGRAM_BOT_TOKEN=IFS= read -r DIPLOMACY_BOT_SECRET`. **The running
+  bot kept its startup token and was not restarted, but that `.env` must not be used to
+  recreate the containers** until a green deploy rewrites it. Fixed in `v2.7.84` (secrets
+  prepended to the script stream as `printf %q` assignments) with a test that executes the
+  real step against a fake `ssh` and a single-branch clone.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
   in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
   `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;
