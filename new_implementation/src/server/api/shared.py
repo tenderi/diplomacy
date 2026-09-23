@@ -313,6 +313,205 @@ def next_deadline(
     return (now or datetime.now(timezone.utc)) + timedelta(seconds=phase_length_seconds)
 
 
+class DeadlineProposalError(ValueError):
+    """A deadline-proposal request that cannot be honoured given the game's
+    current state (already one pending, none pending, wrong power, game
+    missing). Routes map this to a 400/404; caller identity/authorization is
+    checked separately, before any of these functions are called."""
+
+
+def deadline_proposal_view(proposal: Dict[str, Any], active: frozenset[str]) -> Dict[str, Any]:
+    """The proposal, decorated with tallies against the current active-power set."""
+    votes = proposal.get("votes") or {}
+    yes = sorted(p for p, v in votes.items() if v == "yes" and p in active)
+    no = sorted(p for p, v in votes.items() if v == "no" and p in active)
+    return {
+        "proposed_by": proposal.get("proposed_by"),
+        "value_hours": proposal.get("value_hours"),
+        "yes_votes": yes,
+        "no_votes": no,
+        "active_powers": sorted(active),
+        "needed_for_majority": len(active) // 2 + 1 if active else 0,
+        "vote_deadline": proposal.get("vote_deadline"),
+        "created_at": proposal.get("created_at"),
+    }
+
+
+def _deadline_vote_outcome(votes: Dict[str, str], active: frozenset[str]) -> Optional[str]:
+    """``"accepted"``, ``"rejected"``, or ``None`` (still undecided).
+
+    Majority, not unanimity, of ``active`` -- the same population a draw
+    vote's quorum uses (non-eliminated, with a unit). "Rejected" fires the
+    moment a yes-majority becomes mathematically impossible (enough no-votes
+    that the remaining undecided powers voting yes couldn't reach it), so a
+    proposal that will obviously never pass doesn't sit pending forever
+    without an expiry set.
+    """
+    n = len(active)
+    if n == 0:
+        return None
+    needed = n // 2 + 1
+    yes = sum(1 for p, v in votes.items() if v == "yes" and p in active)
+    no = sum(1 for p, v in votes.items() if v == "no" and p in active)
+    if yes >= needed:
+        return "accepted"
+    if no > n - needed:
+        return "rejected"
+    return None
+
+
+def _apply_deadline_proposal(numeric_game_id: int, value_hours: Optional[float]) -> None:
+    """``value_hours=None`` means the proposal was to clear the deadline."""
+    if value_hours is None:
+        db_service.update_game_deadline(numeric_game_id, None)
+    else:
+        db_service.update_game_deadline(
+            numeric_game_id, datetime.now(timezone.utc) + timedelta(hours=value_hours)
+        )
+
+
+def propose_deadline(
+    game_id: str,
+    numeric_game_id: int,
+    power: str,
+    value_hours: Optional[float],
+    vote_hours: Optional[float],
+) -> Dict[str, Any]:
+    """Start a majority vote to change (or, with ``value_hours=None``, clear)
+    this game's deadline.
+
+    Only one proposal may be pending per game at a time -- a second attempt is
+    refused until the first resolves (majority, its own expiry, or the
+    proposer withdrawing it via ``withdraw_deadline_proposal``). The
+    proposer's own yes vote is cast automatically, the same way casting the
+    deciding draw-vote is the whole action in
+    ``GameService.submit_draw_vote`` -- there is no separate "now confirm it"
+    step. Unlike a draw vote this needs only a majority, not unanimity, of the
+    same active-power population (see ``_deadline_vote_outcome``): a pace
+    change should move with most of the table, not require the one holdout to
+    agree, the way ending the game outright does.
+    """
+    power = power.upper()
+    active = game_service.active_powers(game_id)
+    if active is None:
+        raise DeadlineProposalError(f"game {game_id} not found")
+    if power not in active:
+        raise DeadlineProposalError(f"{power} is not an active power in game {game_id}")
+    if db_service.get_pending_deadline_proposal(game_id) is not None:
+        raise DeadlineProposalError(
+            f"A deadline proposal is already pending in game {game_id}; it must "
+            f"resolve or be withdrawn (/deadline {game_id} withdraw) first."
+        )
+    if vote_hours is not None and vote_hours <= 0:
+        raise DeadlineProposalError("vote_hours must be > 0 if given")
+
+    now = datetime.now(timezone.utc)
+    proposal: Dict[str, Any] = {
+        "proposed_by": power,
+        "value_hours": value_hours,
+        "votes": {power: "yes"},
+        "vote_deadline": (now + timedelta(hours=vote_hours)).isoformat() if vote_hours else None,
+        "created_at": now.isoformat(),
+    }
+    # A one-active-power edge case resolves on the spot.
+    if _deadline_vote_outcome(proposal["votes"], active) == "accepted":
+        _apply_deadline_proposal(numeric_game_id, value_hours)
+        return {"status": "accepted", **deadline_proposal_view(proposal, active)}
+    db_service.set_pending_deadline_proposal(game_id, proposal)
+    return {"status": "pending", **deadline_proposal_view(proposal, active)}
+
+
+def vote_on_deadline_proposal(
+    game_id: str, numeric_game_id: int, power: str, vote: bool
+) -> Dict[str, Any]:
+    """Cast (or change) ``power``'s yes/no vote on the pending deadline
+    proposal. Resolves immediately once a majority is reached either way:
+    ``"accepted"`` applies the proposed deadline and clears the proposal;
+    ``"rejected"`` (a yes-majority is no longer mathematically possible)
+    clears it with nothing changed.
+    """
+    power = power.upper()
+    active = game_service.active_powers(game_id)
+    if active is None:
+        raise DeadlineProposalError(f"game {game_id} not found")
+    proposal = db_service.get_pending_deadline_proposal(game_id)
+    if proposal is None:
+        raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
+    if power not in active:
+        raise DeadlineProposalError(f"{power} is not an active power in game {game_id}")
+
+    votes = dict(proposal.get("votes") or {})
+    votes[power] = "yes" if vote else "no"
+    proposal["votes"] = votes
+
+    outcome = _deadline_vote_outcome(votes, active)
+    if outcome == "accepted":
+        db_service.set_pending_deadline_proposal(game_id, None)
+        _apply_deadline_proposal(numeric_game_id, proposal.get("value_hours"))
+        return {"status": "accepted", **deadline_proposal_view(proposal, active)}
+    if outcome == "rejected":
+        db_service.set_pending_deadline_proposal(game_id, None)
+        return {"status": "rejected", **deadline_proposal_view(proposal, active)}
+    db_service.set_pending_deadline_proposal(game_id, proposal)
+    return {"status": "pending", **deadline_proposal_view(proposal, active)}
+
+
+def withdraw_deadline_proposal(game_id: str, power: str) -> Dict[str, Any]:
+    """Cancel the pending proposal. Only its original proposer may."""
+    power = power.upper()
+    proposal = db_service.get_pending_deadline_proposal(game_id)
+    if proposal is None:
+        raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
+    if proposal.get("proposed_by") != power:
+        raise DeadlineProposalError(
+            f"Only {proposal.get('proposed_by')}, who proposed it, can withdraw it"
+        )
+    db_service.set_pending_deadline_proposal(game_id, None)
+    active = game_service.active_powers(game_id) or frozenset()
+    return {"status": "withdrawn", **deadline_proposal_view(proposal, active)}
+
+
+def expire_deadline_proposals(now: datetime) -> None:
+    """Clear any pending deadline proposal whose own vote window has passed
+    without reaching majority.
+
+    Called from the scheduler loop alongside ``process_due_deadlines``:
+    failing a stalled vote here is the only way one with no majority yet and
+    an expiry set ever resolves on its own. A proposal with no expiry
+    (``vote_hours`` omitted at propose time) is untouched -- it simply stays
+    pending until it reaches majority or someone withdraws it, same as a draw
+    vote never expires on its own either.
+    """
+    try:
+        for game in db_service.get_games_with_pending_deadline_proposals():
+            proposal = game.pending_deadline_proposal or {}
+            vote_deadline_raw = proposal.get("vote_deadline")
+            if not vote_deadline_raw:
+                continue
+            try:
+                vote_deadline = datetime.fromisoformat(vote_deadline_raw)
+            except ValueError:
+                continue
+            if vote_deadline.tzinfo is None:
+                vote_deadline = vote_deadline.replace(tzinfo=pytz.UTC)
+            if vote_deadline > now:
+                continue
+            game_id_str = str(game.game_id)
+            db_service.set_pending_deadline_proposal(game_id_str, None)
+            try:
+                notify_players(
+                    int(game.id),
+                    f"The deadline proposal in game {game_id_str} (from "
+                    f"{proposal.get('proposed_by')}) expired without a majority; nothing changed.",
+                )
+            except Exception as e:
+                scheduler_logger.error(
+                    f"Failed to notify expired deadline proposal for game {game_id_str}: {e}"
+                )
+    except Exception as e:
+        scheduler_logger.error(f"Error expiring deadline proposals: {e}")
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -459,12 +658,14 @@ async def deadline_scheduler() -> None:
     Background task that checks all games with deadlines every 30 seconds.
     If a game's deadline has passed, processes the turn and clears the deadline.
     Sends reminders 10 minutes before deadline and notifies players after turn processing.
-    On startup, immediately process any missed deadlines. Roughly hourly it also
-    runs ``run_housekeeping``.
+    Also expires any deadline-change proposal whose own vote window has passed
+    without a majority. On startup, immediately process any missed deadlines.
+    Roughly hourly it also runs ``run_housekeeping``.
     """
     # On startup: process any missed deadlines immediately
     now = datetime.now(timezone.utc)
     process_due_deadlines(now)
+    expire_deadline_proposals(now)
     tick = 0
     # Main loop
     while True:
@@ -472,6 +673,7 @@ async def deadline_scheduler() -> None:
         now = datetime.now(timezone.utc)
         process_due_deadlines(now)
         check_and_send_reminders(now)
+        expire_deadline_proposals(now)
         tick += 1
         if tick % _HOUSEKEEPING_EVERY_TICKS == 0:
             run_housekeeping()

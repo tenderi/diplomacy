@@ -207,6 +207,20 @@ class GameService:
 
     # -- draw / concede -----------------------------------------------------
 
+    def active_powers(self, game_id: str) -> Optional[frozenset[str]]:
+        """Powers still in the game: non-eliminated, with at least one unit.
+        ``None`` if the game doesn't exist.
+
+        The same population ``_draw_quorum`` computes for draw-vote quorum,
+        exposed publicly so other majority-vote mechanisms (deadline-change
+        proposals) use the identical definition of "who's still playing"
+        rather than a second, driftable one.
+        """
+        game = self.load(game_id)
+        if game is None:
+            return None
+        return self._draw_quorum(game)
+
     def _draw_quorum(self, game: Game) -> frozenset[str]:
         """Powers that must vote yes for a draw: non-eliminated, with a unit."""
         eliminated = game.eliminated_powers()
