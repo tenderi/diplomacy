@@ -22,7 +22,15 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.94`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.96`. `main` green.
+- **Track Y — majority-vote deadline proposals, landed `v2.7.96`.** The maintainer,
+  after reviewing Track X's channel proposal-voting stub, decided that feature wasn't
+  worth finishing (it was never reachable from any real bot command anyway) and asked
+  for the effort redirected: `/deadline` can still be set unilaterally by any single
+  player exactly as before, but now also supports `propose`/`vote`/`withdraw` for a
+  table that would rather change the pace by majority agreement. See the Track Y
+  section below for the full design (majority not unanimity, one proposal pending at a
+  time, an optional per-proposal vote expiry).
 - **Track X — Telegram bot command audit, prompted by a maintainer report that
   Help -> Run Perfect Demo Game failed — complete**, `v2.7.92`–`v2.7.94`. See the
   Track X section below for the full writeup — the short version: two menu items were
@@ -31,8 +39,8 @@
   more manually-triggered channel posts) turned out to have been silently non-functional
   since it was written, for a third, independent reason each time (wrong process, wrong
   async convention, or both) — now fixed and verified against a live server, not just unit
-  tests. What's left (proposal-vote tallying) was already a documented stub before this
-  track, not a wrong-process bug — recorded as open work, not silently dropped.
+  tests. Proposal-vote *tallying* (a documented stub before this track, not a
+  wrong-process bug) was later removed outright rather than finished — see Track Y0.
 - **Track W — recovered uncommitted work from `origin/vps-split` (`v2.7.90`) plus W0
   (`v2.7.91`).** `cfa8d93` (the audit referenced below) was never merged, but real code
   implementing four of its findings was sitting **uncommitted** on `vps-split` and was
@@ -289,6 +297,84 @@ delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Tra
 
 ---
 
+# Track Y — majority-vote deadline proposals
+
+## Why this track exists
+
+While reviewing Track X's findings the maintainer decided the channel
+proposal-with-voting feature (X4's posting half, the tally half left as a
+documented stub) wasn't worth finishing — nothing in the bot's real commands
+ever exposed a way to trigger it in the first place — and redirected the same
+effort at something with an actual precedent already asked for: letting a
+table change the game's deadline by agreement instead of any one player doing
+it unilaterally.
+
+## Y0 — Remove the channel proposal-voting stub — **done, `v2.7.95`**
+
+- [x] Deleted `post_proposal_with_voting`/`get_proposal_results` from
+      `telegram_bot/channels.py`, `POST/GET .../channel/proposal[/{id}]` from
+      `api/routes/channels.py`, the `vote_proposal_*` callback branch from
+      `app.py`, and `tests/test_channel_voting.py` (which only tested the two
+      removed functions). The rest of Track X4's channel-posting fix
+      (broadcast/thread/timeline/dashboard/battle_results) is untouched — this
+      only removes the one feature with a stub tally, not the pattern.
+
+## Y1 — Majority-vote deadline proposals — **done, `v2.7.96`**
+
+**Design**, settled with the maintainer before writing any code (there was no
+existing precedent to default to — a draw vote requires unanimity, this
+doesn't):
+
+- **Majority, not unanimity**, of the same active-power population a draw
+  vote's quorum already uses (non-eliminated, with a unit —
+  `GameService.active_powers`, extracted from `_draw_quorum` so both share one
+  definition of "who's still playing"). A yes-majority applies the proposal
+  immediately; a no-majority (mathematically no yes-majority can still be
+  reached) rejects it immediately, so a doomed proposal with no expiry set
+  doesn't sit pending forever.
+- **Any player may propose; only one proposal pending per game at a time** — a
+  second attempt is refused (400) until the first resolves or its proposer
+  withdraws it (`POST .../deadline/withdraw`, proposer-only).
+- **An optional per-proposal vote expiry** (`vote_hours`, distinct from the
+  deadline value itself, `hours`, being proposed). Omitted, the proposal never
+  expires on its own, matching how a draw vote never does either. Set, and
+  unreached by the time it passes, the scheduler's expiry sweep
+  (`api.shared.expire_deadline_proposals`, called from `deadline_scheduler`
+  alongside `process_due_deadlines`) fails it with nothing changed — the same
+  "fails closed" choice as a majority-no.
+- **The existing unilateral `POST .../deadline` is untouched.** Any single
+  player can still set or clear the deadline outright, exactly as before
+  (Track N); proposing is an alternative for a table that wants to decide
+  together, not a replacement.
+
+**Implementation:**
+
+- [x] `games.pending_deadline_proposal` (JSON, nullable; migration
+      `j8d4e5f6a7b8`): `{proposed_by, value_hours (null = "clear"), votes:
+      {power: "yes"|"no"}, vote_deadline (null = no expiry), created_at}`.
+- [x] `GameService.active_powers(game_id)` — public, wraps `_draw_quorum` so
+      draw-vote quorum and deadline-proposal majority can't define "active
+      power" two different ways.
+- [x] `api.shared.propose_deadline` / `vote_on_deadline_proposal` /
+      `withdraw_deadline_proposal` / `expire_deadline_proposals`, and three new
+      routes (`POST .../deadline/{propose,vote,withdraw}`); `GET .../deadline`
+      now also returns `pending_proposal`.
+- [x] Bot: `/deadline <id> propose <hours|clear> [vote_hours]`,
+      `/deadline <id> vote yes|no`, `/deadline <id> withdraw`, folded into the
+      existing `/deadline` command (which needs the caller's *power* for these
+      three, unlike plain set/clear, so it resolves it via
+      `resolve_game_and_power` where the old path didn't bother). `HELP_TEXT`
+      updated.
+- [x] `tests/test_deadline_voting.py` (API-level: propose, majority accept,
+      majority reject, clearing via vote, withdraw authorization, per-power
+      vote authorization, expiry sweep, no-expiry-never-fires) and
+      `tests/test_deadline_command.py`'s new `TestDeadlineProposeVoteWithdraw`
+      (bot-level, mocked HTTP). Verified the majority-threshold tests are not
+      vacuous by mutation (`n // 2 + 1` → `n // 2`: two tests failed as
+      expected, then reverted).
+
+---
+
 # Track X — Telegram bot command audit
 
 ## Why this track exists
@@ -410,6 +496,13 @@ could trigger and see fail.
       pure formatters. It would only resurface if the proposal-voting tally (above)
       or some future caller went back to calling `channels.py`'s post functions
       directly instead of going through `bot_outbox`.
+
+**Superseded, `v2.7.95` (Track Y0):** the maintainer decided the proposal-voting
+feature above wasn't worth finishing — the "left open for whoever picks it up" item
+just above — and had it removed outright instead: `POST/GET .../channel/proposal[/{id}]`,
+`post_proposal_with_voting`/`get_proposal_results`, and the `vote_proposal_*`
+callback are gone. The other five routes fixed in this track (broadcast, thread,
+timeline, dashboard, battle_results) are untouched and still work as described above.
 
 ---
 
@@ -597,9 +690,11 @@ to use, which no test asserts.
 - [ ] **Track W:** W0 done (`old_implementation/` removed, `v2.7.91`). W6's decision table
       filled in and W7 decided are the only items left, both maintainer-only.
 - [x] **Track X:** complete, `v2.7.92`–`v2.7.94`. Proposal-vote tallying (a
-      documented stub predating this track, not a wrong-process bug) remains
-      genuinely unimplemented — a feature to build, not fixable by this track's
-      pattern; not tracked as a numbered item since nothing regressed it.
+      documented stub predating this track, not a wrong-process bug) was left
+      unimplemented, then removed outright rather than finished (Track Y0).
+- [x] **Track Y:** complete, `v2.7.95`–`v2.7.96`. Channel proposal-voting stub
+      removed; majority-vote deadline proposals landed alongside the existing
+      unilateral `/deadline` set/clear, unchanged.
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all eleven tasks
       landed this session (`v2.7.58`–`v2.7.67`), each as its own PR through the required checks.

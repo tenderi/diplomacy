@@ -155,6 +155,171 @@ class TestDeadlineCommand:
         assert "You are not a player in this game." in message.reply_text.call_args[0][0]
 
 
+class TestDeadlineProposeVoteWithdraw:
+    """The majority-vote alternative to a unilateral set: /deadline <id>
+    propose|vote|withdraw. Unlike plain set/clear these need the caller's
+    *power*, resolved from the same ``/users/{id}/games`` lookup."""
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_propose_hours_posts_power_and_hours(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "pending", "proposed_by": "FRANCE", "value_hours": 24.0,
+            "yes_votes": ["FRANCE"], "no_votes": [], "active_powers": ["FRANCE", "GERMANY"],
+            "needed_for_majority": 2, "vote_deadline": None,
+        }
+        update, context, message = _make_update_and_context(args=["1", "propose", "24"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/propose",
+            {"power": "FRANCE", "hours": 24.0, "vote_hours": None, "telegram_id": "12345"},
+        )
+        text = message.reply_text.call_args[0][0]
+        assert "FRANCE" in text and "24.0h" in text
+        assert "1/2 needed" in text
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_propose_clear_sends_null_hours(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "pending", "proposed_by": "FRANCE", "value_hours": None,
+            "yes_votes": ["FRANCE"], "no_votes": [], "active_powers": ["FRANCE", "GERMANY"],
+            "needed_for_majority": 2, "vote_deadline": None,
+        }
+        update, context, message = _make_update_and_context(args=["1", "propose", "clear"])
+
+        asyncio.run(deadline(update, context))
+
+        body = mock_post.call_args[0][1]
+        assert body["hours"] is None
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_propose_with_vote_hours(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "pending", "proposed_by": "FRANCE", "value_hours": 6.0,
+            "yes_votes": ["FRANCE"], "no_votes": [], "active_powers": ["FRANCE", "GERMANY"],
+            "needed_for_majority": 2, "vote_deadline": "2099-01-01T00:00:00",
+        }
+        update, context, message = _make_update_and_context(args=["1", "propose", "6", "2"])
+
+        asyncio.run(deadline(update, context))
+
+        body = mock_post.call_args[0][1]
+        assert body["hours"] == 6.0 and body["vote_hours"] == 2.0
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_propose_accepted_immediately_is_announced(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "accepted", "value_hours": 24.0}
+        update, context, message = _make_update_and_context(args=["1", "propose", "24"])
+
+        asyncio.run(deadline(update, context))
+
+        assert "Applied immediately" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_propose_bad_hours_is_usage_not_a_post(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        update, context, message = _make_update_and_context(args=["1", "propose", "soon"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_not_called()
+        assert "Usage" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_vote_yes_posts_true(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "pending", "proposed_by": "GERMANY", "value_hours": 12.0,
+            "yes_votes": ["GERMANY", "FRANCE"], "no_votes": [], "active_powers": ["FRANCE", "GERMANY"],
+            "needed_for_majority": 2, "vote_deadline": None,
+        }
+        update, context, message = _make_update_and_context(args=["1", "vote", "yes"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/vote", {"power": "FRANCE", "vote": True, "telegram_id": "12345"}
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_vote_accepted_reports_the_new_deadline(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "accepted", "value_hours": 12.0}
+        update, context, message = _make_update_and_context(args=["1", "vote", "yes"])
+
+        asyncio.run(deadline(update, context))
+
+        text = message.reply_text.call_args[0][0]
+        assert "passed" in text and "12.0h" in text
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_vote_rejected_is_reported(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "rejected"}
+        update, context, message = _make_update_and_context(args=["1", "vote", "no"])
+
+        asyncio.run(deadline(update, context))
+
+        assert "voted down" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_vote_bad_arg_is_usage_not_a_post(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        update, context, message = _make_update_and_context(args=["1", "vote", "maybe"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_not_called()
+        assert "Usage" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_withdraw_posts_power(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "withdrawn"}
+        update, context, message = _make_update_and_context(args=["1", "withdraw"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/withdraw", {"power": "FRANCE", "telegram_id": "12345"}
+        )
+        assert "Withdrew" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_get')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_pending_proposal_shown_alongside_plain_deadline_view(self, mock_ctx_get, mock_get):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_get.return_value = {
+            "status": "ok", "deadline": None,
+            "pending_proposal": {
+                "proposed_by": "GERMANY", "value_hours": 6.0, "yes_votes": ["GERMANY"],
+                "no_votes": [], "needed_for_majority": 2, "vote_deadline": None,
+            },
+        }
+        update, context, message = _make_update_and_context(args=["1"])
+
+        asyncio.run(deadline(update, context))
+
+        texts = [c.args[0] for c in message.reply_text.call_args_list]
+        assert any("no deadline" in t for t in texts)
+        assert any("GERMANY" in t and "6.0h" in t for t in texts)
+
+
 class TestStatusShowsFormattedDeadline:
     @patch('server.telegram_bot.games.api_get')
     @patch('server.telegram_bot.game_context.api_get')
