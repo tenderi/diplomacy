@@ -178,10 +178,12 @@ it exists, a failed upload makes the run exit non-zero with an `ERROR:` line
 ### One-time Proton Drive setup
 
 rclone logs in as a whole Proton account, and Proton has no scoped tokens, so
-whoever controls the VPS can read that account's entire drive. **Use a
-separate, backups-only Proton account** (the free tier is enough), so a
-compromise of the public host exposes Diplomacy dumps and nothing else. Then,
-over SSH on the VPS:
+whoever controls the VPS can read and delete that account's entire drive.
+A separate, backups-only Proton account (the free tier is enough) would limit
+a compromise of the public host to the Diplomacy dumps; production uses the
+maintainer's own account, a choice made knowingly (keep `rclone.conf` at mode
+600, and if the stack ever leaves this host, `rclone config delete proton`
+and end the session in Proton's account settings). Then, over SSH on the VPS:
 
 ```bash
 rclone config

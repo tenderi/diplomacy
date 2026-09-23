@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.87`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.88`. `main` green.
 - **Track V — the whole stack on one VPS, landed as `v2.7.85`** and is archived in
   [`done_fixes.md`](done_fixes.md). The maintainer chose to retire the VPS + home-server
   split: `docker-compose.yml` now runs `postgres`, `diplomacy_api`, `diplomacy_bot` and
@@ -313,8 +313,8 @@ to use, which no test asserts.
       (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); it held the Telegram
       token by mistake, and nothing reads it any more.
 - [ ] **Maintainer:** connect off-host backups. Decided 2026-09-23: Proton Drive, via rclone
-      on the VPS, with a **separate backups-only Proton account** (rclone holds a full-account
-      login and the VPS is the public host). `backup.sh` and rclone are in place since
+      on the VPS, signed in to the maintainer's **own paid Proton account** (chosen 2026-09-23
+      over a backups-only account, accepting that the VPS then holds a full-drive login). `backup.sh` and rclone are in place since
       `v2.7.87`; rclone 1.75.1 is installed on the VPS; what is left is the interactive
       `rclone config` (remote `proton`, type `protondrive`, password + 2FA), `rclone mkdir proton:diplomacy-backups` and one `./backup.sh`
       showing `off-host copy done` — the exact steps are in `docs/DEPLOYMENT.md` §Backups.
