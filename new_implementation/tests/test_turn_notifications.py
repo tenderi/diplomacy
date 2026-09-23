@@ -1,4 +1,4 @@
-"""Both `process_turn` triggers must notify the same people (G3).
+"""Both `process_turn` triggers must do the same things (G3, K1).
 
 Before this, the two paths told players wildly different amounts:
 
@@ -17,6 +17,14 @@ driving both triggers against the *same* fake notifier and comparing recipients.
 The interesting assertion is not "a notification was sent" but "the same set of
 players is reached either way, minus the caller" — a bolt-on `notify_players` call
 on the manual path would satisfy the former while still drifting on the latter.
+
+**K1 found the same two paths still diverging one layer down**, in everything
+`notify_turn_processed` did *not* cover: the manual route wrote a snapshot and
+re-armed the deadline; the scheduler wrote no snapshot and set the deadline to
+NULL. Both now go through `shared.after_turn_processed`, and
+`test_both_triggers_snapshot_and_rearm_the_deadline` pins that too — the failure
+it guards against is silent (a game that quietly stops having deadlines, and a
+history with holes in it), which is exactly why it needs a test.
 """
 from __future__ import annotations
 
@@ -213,3 +221,59 @@ def test_notification_failure_does_not_fail_the_turn() -> None:
     assert resp.status_code == 200, resp.text
     after = client.get(f"/games/{game_id}/state").json()["phase"]
     assert after != before, "the turn did not advance despite returning 200"
+
+
+@pytest.mark.integration
+@pytest.mark.database
+def test_both_triggers_snapshot_and_rearm_the_deadline() -> None:
+    """K1: a processed turn is snapshotted and re-armed, whichever trigger ran.
+
+    The scheduler path used to do neither, so the first missed deadline in a game
+    was also its last, and `/history/{turn}` had a hole for every turn processed
+    that way. Asserted per trigger against the *same* expectations, in the same
+    shape as the notification comparison above, so a future change that fixes one
+    path and not the other fails here.
+    """
+    client = TestClient(app)
+
+    def snapshot_turns(gid: str) -> set[int]:
+        return {s["turn"] for s in client.get(f"/games/{gid}/snapshots").json()["snapshots"]}
+
+    def deadline_of(gid: str) -> str | None:
+        return client.get(f"/games/{gid}/deadline").json()["deadline"]
+
+    # --- manual trigger -------------------------------------------------
+    game_id, _row_id, users = _seeded_game(client)
+    with OutboxProbe():
+        assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
+    manual_snapshots = snapshot_turns(game_id)
+    manual_deadline = deadline_of(game_id)
+
+    # --- deadline trigger -----------------------------------------------
+    game_id2, _row2, users2 = _seeded_game(client)
+    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
+    assert client.post(
+        f"/games/{game_id2}/deadline", json={"deadline": past}, headers=users2[0][0]
+    ).status_code == 200
+    with OutboxProbe():
+        process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
+    deadline_snapshots = snapshot_turns(game_id2)
+    deadline_deadline = deadline_of(game_id2)
+
+    assert manual_snapshots, "the manual trigger recorded no snapshot"
+    assert deadline_snapshots, "the deadline trigger recorded no snapshot (the K1 bug)"
+    assert manual_snapshots == deadline_snapshots, (
+        f"the two triggers snapshot different turns: {manual_snapshots} vs {deadline_snapshots}"
+    )
+
+    assert manual_deadline is not None
+    assert deadline_deadline is not None, (
+        "the deadline trigger left the game with no deadline, so it would never process again"
+    )
+
+    # And the turn is genuinely reconstructable afterwards: board, orders, outcomes.
+    turn = max(manual_snapshots)
+    history = client.get(f"/games/{game_id}/history/{turn}").json()
+    assert history["state"] is not None and history["phase_code"]
+    prior = client.get(f"/games/{game_id}/history/{turn - 1}").json()
+    assert prior["resolution"] is not None, "the processed turn's outcomes were not kept"

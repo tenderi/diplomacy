@@ -10,6 +10,19 @@ import pytest
 from unittest.mock import patch
 
 
+def _as_utc(iso: str) -> datetime.datetime:
+    """Parse an API deadline string as an aware UTC datetime.
+
+    `games.deadline` is a naive UTC column (see `utcnow_naive`), so the API
+    renders it without an offset; comparing it to `now(timezone.utc)` needs the
+    tzinfo put back rather than assumed.
+    """
+    parsed = datetime.datetime.fromisoformat(iso)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed
+
+
 def _auth_headers(client: TestClient) -> dict:
     """Register a fresh user and return Bearer auth headers for it.
 
@@ -73,13 +86,102 @@ def test_deadline_past_on_startup():
     past_deadline = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": past_deadline}, headers=headers)
     assert resp.status_code == 200
+    before = client.get(f"/games/{game_id}/state").json()["phase"]
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
     # Re-query with a new client/session to avoid stale cache
     client2 = TestClient(app)
     resp = client2.get(f"/games/{game_id}/deadline")
     assert resp.status_code == 200
-    assert resp.json()["deadline"] is None
+    assert client2.get(f"/games/{game_id}/state").json()["phase"] != before
+
+    # The deadline is **re-armed for the new phase**, not cleared. This asserted
+    # `is None` until K1, which is the bug it was pinning: the scheduler set the
+    # deadline to NULL after processing, so the first missed deadline in a game
+    # was also its last -- every later turn waited for a human. The manual route
+    # re-armed +24h; only this path did not.
+    new_deadline = resp.json()["deadline"]
+    assert new_deadline is not None, "the scheduler left the game with no deadline (the K1 bug)"
+    assert _as_utc(new_deadline) > datetime.datetime.now(datetime.timezone.utc)
+
+
+def test_deadline_is_not_rearmed_when_the_game_has_no_phase_length():
+    """`phase_length_seconds=0` means "no automatic deadline" (the old NO_DEADLINE).
+
+    The turn still processes when a deadline is set by hand and passes; what must
+    not happen is a new deadline appearing on its own afterwards.
+    """
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    resp = client.post(
+        "/games/create",
+        json={"map_name": "standard", "initial_phase": "Movement", "phase_length_seconds": 0},
+        headers=headers,
+    )
+    game_id = resp.json()["game_id"]
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
+    client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=headers)
+    before = client.get(f"/games/{game_id}/state").json()["phase"]
+    process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
+
+    client2 = TestClient(app)
+    assert client2.get(f"/games/{game_id}/state").json()["phase"] != before, "the turn did not process"
+    assert client2.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+
+def test_phase_length_drives_the_next_deadline():
+    """A game's phase length is re-applied after every processed turn (K2).
+
+    Before this, 24 h was hardcoded in the manual process-turn route and nothing
+    re-armed at all on the scheduler path, so a fast game (10-minute phases) was
+    impossible without a human re-setting /deadline after every single turn.
+    """
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    resp = client.post(
+        "/games/create",
+        json={"map_name": "standard", "initial_phase": "Movement", "phase_length_seconds": 600},
+        headers=headers,
+    )
+    game_id = resp.json()["game_id"]
+
+    # Armed at creation, ~10 minutes out.
+    first = client.get(f"/games/{game_id}/deadline").json()
+    assert first["phase_length_seconds"] == 600
+    now = datetime.datetime.now(datetime.timezone.utc)
+    assert datetime.timedelta(minutes=9) < _as_utc(first["deadline"]) - now < datetime.timedelta(minutes=11)
+
+    past = (now - datetime.timedelta(minutes=1)).isoformat()
+    client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=headers)
+    process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
+
+    client2 = TestClient(app)
+    after = _as_utc(client2.get(f"/games/{game_id}/deadline").json()["deadline"])
+    # The *new* phase gets another 10 minutes, not 24 hours.
+    assert datetime.timedelta(minutes=9) < after - datetime.datetime.now(datetime.timezone.utc) < datetime.timedelta(minutes=11)
+
+
+def test_phase_length_can_be_changed_on_a_running_game():
+    """POST /deadline with phase_length_seconds re-arms the current phase too."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    game_id = client.post(
+        "/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers
+    ).json()["game_id"]
+
+    resp = client.post(
+        f"/games/{game_id}/deadline", json={"phase_length_seconds": 300}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["phase_length_seconds"] == 300
+    remaining = _as_utc(resp.json()["deadline"]) - datetime.datetime.now(datetime.timezone.utc)
+    assert datetime.timedelta(minutes=4) < remaining < datetime.timedelta(minutes=6)
+
+    assert client.post(
+        f"/games/{game_id}/deadline", json={"phase_length_seconds": -1}, headers=headers
+    ).status_code == 400
 
 
 def test_overlapping_deadlines():
@@ -103,10 +205,13 @@ def test_overlapping_deadlines():
     process_due_deadlines(now + datetime.timedelta(seconds=10))
     # Re-query with a new client/session to avoid stale cache
     client2 = TestClient(app)
-    resp = client2.get(f"/games/{game1_id}/deadline")
-    assert resp.json()["deadline"] is None
-    resp = client2.get(f"/games/{game2_id}/deadline")
-    assert resp.json()["deadline"] is None
+    # Both games processed and both got a fresh deadline for their new phase
+    # (they were asserted to be `None` here until K1 -- see
+    # test_deadline_past_on_startup for why that was the bug, not the contract).
+    for gid in (game1_id, game2_id):
+        deadline = client2.get(f"/games/{gid}/deadline").json()["deadline"]
+        assert deadline is not None, f"game {gid} was left with no deadline"
+        assert _as_utc(deadline) > datetime.datetime.now(datetime.timezone.utc)
 
 
 def test_reminder_and_notification():
@@ -145,9 +250,11 @@ def test_deadline_set_to_now():
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now}, headers=headers)
     assert resp.status_code == 200
+    before = client.get(f"/games/{game_id}/state").json()["phase"]
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
     # Re-query with a new client/session to avoid stale cache
     client2 = TestClient(app)
-    resp = client2.get(f"/games/{game_id}/deadline")
-    assert resp.json()["deadline"] is None
+    assert client2.get(f"/games/{game_id}/state").json()["phase"] != before
+    # Re-armed for the next phase rather than cleared (K1).
+    assert client2.get(f"/games/{game_id}/deadline").json()["deadline"] is not None

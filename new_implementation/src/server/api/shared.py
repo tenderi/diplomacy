@@ -16,6 +16,7 @@ from persistence.database_service import DatabaseService
 from persistence.game_repo import GameRepo, StaleGameError
 from ..server import Server
 from ..game_service import GameService
+from ..response_cache import invalidate_cache
 
 if TYPE_CHECKING:
     from ..daide.server import DaideServer
@@ -52,6 +53,11 @@ if not scheduler_logger.hasHandlers():
 
 # In-memory reminder tracking
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
+
+# How long a phase lasts when a game does not say (``games.phase_length_seconds``
+# is NULL). 24 h is what the manual process-turn route hardcoded before K2, so
+# every pre-existing game keeps exactly the cadence it had.
+DEFAULT_PHASE_LENGTH_SECONDS = 24 * 60 * 60
 
 # Admin token
 _ADMIN_TOKEN_DEFAULT = "changeme"
@@ -284,6 +290,102 @@ def notify_turn_processed(
         _post_turn_to_channel(game_id, f"Game {game_id} has ended.")
 
 
+def next_deadline(
+    phase_length_seconds: Optional[int], now: Optional[datetime] = None
+) -> Optional[datetime]:
+    """When the phase starting now should be processed, or ``None`` for never.
+
+    ``None`` length means the 24 h default; ``0`` (or negative, defensively) means
+    the game has no automatic deadline and only advances when somebody processes
+    it by hand. See ``GameModel.phase_length_seconds``.
+    """
+    if phase_length_seconds is None:
+        phase_length_seconds = DEFAULT_PHASE_LENGTH_SECONDS
+    if phase_length_seconds <= 0:
+        return None
+    return (now or datetime.now(timezone.utc)) + timedelta(seconds=phase_length_seconds)
+
+
+def after_turn_processed(
+    game_id: str,
+    numeric_game_id: int,
+    *,
+    trigger: str,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Everything that must happen after a turn is adjudicated, for **both** triggers.
+
+    Snapshot the new board, re-arm the deadline, then fan out the notifications
+    (``notify_turn_processed``). Call this and nothing else; the two triggers had
+    already drifted twice by the time it existed:
+
+    - **G3** found the *notifications* diverging: the deadline path DM'd everyone
+      and posted to the linked channel, the manual route notified nobody unless
+      the game had just ended. Fixed by ``notify_turn_processed``.
+    - **K4/K1** found the other two halves still diverging underneath it. The
+      manual route wrote a ``MapSnapshotModel`` and re-armed the deadline to
+      +24 h; the scheduler wrote no snapshot and set the deadline to ``NULL``.
+      So the *first missed deadline in a game was also its last* -- the game
+      stopped having deadlines until a human set one -- and ``/history/{turn}``,
+      ``/map/history/{turn}`` and the bot's ``/replay`` had a hole for every turn
+      the scheduler processed. The old engine re-armed its per-phase deadline
+      unconditionally on every phase.
+
+    Ordering is deliberate: snapshot first (it is what makes the turn
+    reconstructable), deadline second (players are about to be told orders are
+    due, so it must already be set when they read it), notifications last.
+    Every step is best-effort and logged -- the turn is already committed to
+    Postgres, and none of this may undo it.
+    """
+    # Before anything reads the new board: the cached `/games/{id}/state` (30 s
+    # TTL) still holds the *previous* phase. The manual route invalidated it and
+    # the scheduler did not, so a deadline-processed turn served a stale board to
+    # every client for half a minute -- including the players who had just been
+    # DM'd "the turn has been processed" (K1, same divergence as the snapshot and
+    # the deadline).
+    invalidate_cache(f"games/{game_id}")
+
+    view = game_view(game_id)
+    if view is None:
+        scheduler_logger.error("after_turn_processed: game %s vanished mid-turn", game_id)
+        return
+    game_ended = view["status"] == "COMPLETED"
+
+    try:
+        meta = game_service.meta(game_id) or {}
+        db_service.create_game_snapshot(
+            game_id=numeric_game_id,
+            turn=int(meta.get("current_turn", 0) or 0),
+            year=view["year"],
+            season=view["season"],
+            phase=view["phase_type"],
+            phase_code=view["phase"],
+            game_state=view,
+            state_json=game_service.state_json(game_id),
+        )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to snapshot game {game_id} after its turn: {e}")
+
+    try:
+        if game_ended:
+            db_service.update_game_deadline(numeric_game_id, None)
+        else:
+            meta = game_service.meta(game_id) or {}
+            db_service.update_game_deadline(
+                numeric_game_id, next_deadline(meta.get("phase_length_seconds"))
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to re-arm the deadline for game {game_id}: {e}")
+
+    notify_turn_processed(
+        game_id,
+        numeric_game_id,
+        trigger=trigger,
+        game_ended=game_ended,
+        exclude_telegram_id=exclude_telegram_id,
+    )
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -324,13 +426,12 @@ def process_due_deadlines(now: datetime) -> None:
                         scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
                     else:
                         _notify_daide_processed(game_id_str, prev_phase_code)
-                    # Direct SQL update to set deadline to NULL for cross-session visibility
-                    db_service.update_game_deadline(game_id_val, None)
-                    db_service.commit()  # type: ignore
-                    # Player DMs + channel notification + channel map post, shared
-                    # verbatim with the manual `POST /games/{id}/process_turn`
-                    # route so the two triggers cannot drift apart again (G3).
-                    notify_turn_processed(
+                    # Snapshot + deadline re-arm + player DMs + channel posts,
+                    # shared verbatim with the manual `POST /games/{id}/process_turn`
+                    # route so the two triggers cannot drift apart again (G3, K1).
+                    # This used to clear the deadline outright, which is why a game
+                    # stopped having deadlines after its first missed one.
+                    after_turn_processed(
                         game_id_str,
                         game_id_val,  # type: ignore[arg-type]
                         trigger="deadline",

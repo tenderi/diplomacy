@@ -498,6 +498,45 @@ class DatabaseService:
         with self.session_factory() as session:
             return session.query(GameModel).count()
 
+    def update_game_phase_length(self, game_id: int, phase_length_seconds: Optional[int]) -> None:
+        """Set how long each phase of this game lasts (seconds; 0 = no automatic
+        deadline, None = fall back to the default). Re-read after every processed
+        turn by ``api.shared.after_turn_processed`` to compute the next deadline.
+        """
+        with self.session_factory() as session:
+            game = session.query(GameModel).filter_by(id=game_id).first()
+            if game is None:
+                return
+            game.phase_length_seconds = phase_length_seconds
+            session.commit()
+
+    def get_phase_code_at(self, game_id: int, when: datetime) -> Optional[str]:
+        """The phase this game was in at ``when``, or None if undeterminable.
+
+        Used to stamp ``messages.phase_code`` from the time a message was
+        *composed* rather than the time it arrived -- the bot queues messages
+        while the home server is unreachable, so the two can be different phases
+        (see ``api.client_timestamp``).
+
+        Derived from the snapshot trail: every processed turn writes a
+        ``MapSnapshotModel`` whose ``phase_code`` is the phase that *began* then,
+        so the phase in effect at ``when`` is the newest snapshot at or before it.
+        With no snapshot that old, the message predates the first processed turn
+        and belongs to the game's opening phase, which is what the caller passes
+        as the current phase when this returns None for a fresh game.
+        """
+        if when.tzinfo is not None:
+            when = when.astimezone(timezone.utc).replace(tzinfo=None)
+        with self.session_factory() as session:
+            snap = (
+                session.query(MapSnapshotModel)
+                .filter(MapSnapshotModel.game_id == game_id)
+                .filter(MapSnapshotModel.created_at <= when)
+                .order_by(MapSnapshotModel.created_at.desc(), MapSnapshotModel.id.desc())
+                .first()
+            )
+            return str(snap.phase_code) if snap is not None else None
+
     def get_games_with_deadlines_and_active_status(self) -> List[GameModel]:
         """Get all active games that may have deadlines."""
         with self.session_factory() as session:
@@ -592,6 +631,7 @@ class DatabaseService:
         recipient_power: Optional[str],
         text: str,
         timestamp: Optional[datetime] = None,
+        phase_code: Optional[str] = None,
     ):
         """Store a diplomatic message.
 
@@ -601,6 +641,10 @@ class DatabaseService:
         the home server was unreachable. Defaults to now. Must be naive UTC
         (see ``utcnow_naive``); an aware value is normalised here so no caller
         can store a shifted time.
+
+        ``phase_code`` is the game phase the message was written in, so a game
+        log can be read phase by phase (K4). Callers resolve it from
+        ``timestamp`` via ``get_phase_code_at``.
         """
         if timestamp is None:
             timestamp = utcnow_naive()
@@ -613,6 +657,7 @@ class DatabaseService:
                 recipient_power=recipient_power,
                 text=text,
                 timestamp=timestamp,
+                phase_code=phase_code,
             )
             session.add(msg)
             session.commit()

@@ -90,6 +90,16 @@ class GameRepo:
                 return None
             return dict(row.last_resolution)
 
+    def get_resolution_history(self, game_id: str) -> dict[str, dict[str, Any]]:
+        """Per-turn adjudication results ``{turn: resolution_dict}`` (empty before
+        the first processed turn, and for turns processed before this column
+        existed)."""
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None or not row.resolution_history:
+                return {}
+            return {k: dict(v) for k, v in dict(row.resolution_history).items()}
+
     def get_order_history(self, game_id: str) -> dict[str, dict[str, list[str]]]:
         """Per-turn submitted-order history ``{turn: {power: [order_str]}}`` (empty
         before the first processed turn)."""
@@ -110,6 +120,9 @@ class GameRepo:
                 "phase_code": row.phase_code,
                 "status": row.status,
                 "deadline": row.deadline,
+                "phase_length_seconds": row.phase_length_seconds,
+                "phase_started_at": row.phase_started_at,
+                "current_turn": int(row.current_turn or 0),
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -134,6 +147,7 @@ class GameRepo:
         state_json: dict[str, Any],
         phase_code: str,
         game_id: Optional[str] = None,
+        phase_length_seconds: Optional[int] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -154,6 +168,7 @@ class GameRepo:
                 current_season=str(state_json.get("season", "SPRING")).capitalize(),
                 current_phase=str(state_json.get("phase_type", "MOVEMENT")).capitalize(),
                 phase_started_at=utcnow_naive(),
+                phase_length_seconds=phase_length_seconds,
             )
             session.add(row)
             session.flush()  # assign the integer PK
@@ -172,6 +187,7 @@ class GameRepo:
         expected_phase_code: Optional[str] = None,
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
+        resolution_history_entry: Optional[dict[str, Any]] = None,
     ) -> None:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
         adjudication ``last_resolution`` is stored for later resolution-map rendering,
@@ -199,11 +215,20 @@ class GameRepo:
             row.status = status
             if last_resolution is not None:
                 row.last_resolution = last_resolution
+            turn_key = str(int(row.current_turn or 0))
             if order_history_entry:
-                turn_key = str(int(row.current_turn or 0))
                 history = dict(row.order_history or {})
                 history[turn_key] = order_history_entry
                 row.order_history = history
+            if resolution_history_entry is not None:
+                # Keyed by the turn being *left behind*, exactly like
+                # ``order_history`` -- so ``order_history[t]`` and
+                # ``resolution_history[t]`` are the orders and their outcomes for
+                # the same turn (K4). ``last_resolution`` still holds the newest
+                # one; this is the one that survives the next turn.
+                resolutions = dict(row.resolution_history or {})
+                resolutions[turn_key] = resolution_history_entry
+                row.resolution_history = resolutions
             row.current_turn = int(row.current_turn or 0) + 1
             row.current_year = state_json.get("year", row.current_year)
             row.current_season = str(state_json.get("season", "SPRING")).capitalize()
@@ -272,6 +297,32 @@ class GameRepo:
             row.phase_code = phase_code
             row.status = status
             row.updated_at = datetime.now(timezone.utc)
+            session.commit()
+
+    def set_histories(
+        self,
+        game_id: str,
+        *,
+        order_history: Optional[dict[str, Any]] = None,
+        resolution_history: Optional[dict[str, Any]] = None,
+        current_turn: Optional[int] = None,
+    ) -> None:
+        """Overwrite the per-turn histories wholesale, for importing a saved game.
+
+        Not part of normal play -- ``save_state`` appends one turn at a time.
+        ``current_turn`` is restored alongside them so the next processed turn
+        keys its history entry correctly rather than overwriting turn 0.
+        """
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            if order_history is not None:
+                row.order_history = dict(order_history)
+            if resolution_history is not None:
+                row.resolution_history = dict(resolution_history)
+            if current_turn is not None:
+                row.current_turn = int(current_turn)
             session.commit()
 
     def list_game_ids(self) -> list[str]:
