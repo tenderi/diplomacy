@@ -3062,3 +3062,11 @@ workflow once by hand.
   AWS-era deployment tests were 36 and their replacement is 17, +1 token test); ruff clean;
   engine coverage 93.81 % (floor 92), overall 72.02 % (floor 60). `bash -n` on the four host
   scripts; the workflow parses as YAML. Frontend untouched.
+
+## Follow-up (`v2.7.82`)
+
+The first real run showed that a `workflow_dispatch` with no `ref` input resolved the target
+to the literal string `main`. The VPS clone has no local `main` branch (it had only ever been
+on `vps-split`), so `git checkout --detach main` would fail, and on a host that did have one
+it would deploy a stale local branch instead of what GitHub dispatched. The fallback is now
+`${{ github.sha }}`; `test_manual_run_resolves_a_commit_not_a_branch_name` pins it.

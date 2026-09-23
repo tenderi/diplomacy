@@ -142,6 +142,11 @@ class TestDeployControlWorkflow:
         assert "./upgrade_control.sh" in workflow
         assert "concurrency:" in workflow
 
+    def test_manual_run_resolves_a_commit_not_a_branch_name(self, workflow: str) -> None:
+        # The VPS checkout has no local `main` branch; `git checkout --detach main` fails there.
+        assert 'sha="main"' not in workflow
+        assert "${{ github.sha }}" in workflow
+
     def test_no_aws_remains(self) -> None:
         assert not (WORKFLOWS / "deploy.yml").exists(), "the AWS deploy workflow was removed in v2.7.80"
         assert not (PROJECT_ROOT / "infra" / "terraform").exists()
