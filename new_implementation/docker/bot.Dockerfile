@@ -1,11 +1,11 @@
-# CONTROL LAYER — the Telegram bot. Runs on the VPS.
+# The Telegram bot.
 #
 # Build context is new_implementation/. Only the bot package and its two
 # dependencies go in (requirements-bot.txt): no engine, no SQLAlchemy, no
-# FastAPI, no database URL. The bot is a thin client over the API on the home
-# server, reached over WireGuard, and its only local state is the durable
-# outbox in /data (a named volume) -- the queue that guarantees a player's
-# orders and messages survive the tunnel being down.
+# FastAPI, no database URL. The bot is a thin client over the API container,
+# and its only local state is the durable outbox in /data (a named volume) --
+# the queue that guarantees a player's orders and messages survive the API
+# being down (a restart, a deploy, a crash).
 FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

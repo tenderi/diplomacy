@@ -1,8 +1,8 @@
 """``client_timestamp``: when a player actually did the thing they are asking for.
 
-The Telegram bot runs on a VPS and reaches this API over a tunnel to a home
-server. When the tunnel is down the bot does not drop a player's orders or
-messages; it queues them and delivers later. What arrives here may therefore be
+When this API is unreachable (a deploy, a crash; until v2.7.85 also a
+WireGuard tunnel to another host) the Telegram bot does not drop a player's
+orders or messages; it queues them and delivers later. What arrives here may therefore be
 minutes or hours old, and two things must survive that delay:
 
 1. A message should be stored with the time it was *written*, so the recipient

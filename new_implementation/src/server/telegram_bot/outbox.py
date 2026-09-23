@@ -1,9 +1,10 @@
 """The bot's durable outbox: writes that must reach the server, kept until they do.
 
-The bot runs on a VPS; the API runs on a home server across a WireGuard
-tunnel that will, sooner or later, be down when a player presses send. The
-rule this module exists to enforce is simple: **a player's orders or message
-are never lost because the link was down.** They are written *here* -- a
+The bot and the API are separate containers, and the API will, sooner or
+later, be down when a player presses send: every deploy restarts it, and it
+can crash. (Until v2.7.85 it also sat across a WireGuard tunnel on another
+host.) The rule this module exists to enforce is simple: **a player's orders
+or message are never lost because the API was unreachable.** They are written *here* -- a
 SQLite file on a Docker volume -- before the first delivery attempt, and stay
 until the server has either accepted them or definitively rejected them.
 Either way the player is told what happened, with the time they originally

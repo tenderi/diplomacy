@@ -1,10 +1,10 @@
 """Replay-safe writes for the bot's durable queue (``Idempotency-Key``).
 
-The bot on the VPS never drops a player's write. If the home server cannot be
+The bot never drops a player's write. If the API cannot be
 reached it stores the request locally and retries until the API answers. That
 retry loop is only correct if a request can be repeated without being applied
 twice -- and a request *can* be applied yet look undelivered: the API commits
-the broadcast, the tunnel drops before the response gets back, the bot sees a
+the broadcast, the connection drops before the response gets back, the bot sees a
 timeout. Without this middleware the retry would post the broadcast again.
 
 So the bot stamps every queued write with a fresh UUID in an

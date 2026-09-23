@@ -1,18 +1,18 @@
-# nginx site for the Diplomacy browser client (VPS).
+# nginx site for the Diplomacy browser client.
 #
 # Rendered from this template by the official nginx image's envsubst hook.
-# ${DIPLOMACY_API_UPSTREAM} is host:port of the API on the home server, over
-# WireGuard (default 10.8.0.2:8000).
+# ${DIPLOMACY_API_UPSTREAM} is host:port of the API (default diplomacy_api:8000,
+# the compose service on the same Docker network).
 # Everything else that starts with $ is an nginx variable and is left alone.
 
-# Resolve the upstream once at start; the tunnel address never changes, and
-# a variable in proxy_pass would make nginx try to resolve it per request.
-upstream diplomacy_api {
-    server ${DIPLOMACY_API_UPSTREAM};
-    keepalive 8;
-}
-
 server {
+    # Resolve the API through Docker's DNS per request (cached 10s) rather than
+    # once at start: `docker compose up -d` can recreate the API container with
+    # a new address while this one keeps running, and a start-time `upstream`
+    # would keep proxying to the old one (502 until nginx is restarted).
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $diplomacy_api ${DIPLOMACY_API_UPSTREAM};
+
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
@@ -20,23 +20,24 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Map PNGs are rendered on the home server and can be a few MB.
+    # Map PNGs are rendered by the API and can be a few MB.
     client_max_body_size 10M;
 
     # The container healthcheck (and the upgrade script) hit this; it does
-    # not touch the tunnel, so a down home server does not mark nginx unhealthy.
+    # not touch the API, so a restarting API does not mark nginx unhealthy.
     location = /healthz {
         default_type text/plain;
         return 200 "ok\n";
     }
 
     # Same-origin API: /api/<path> -> <upstream>/<path>. The SPA is built with
-    # VITE_API_URL=/api. When the home server is unreachable this returns 502
-    # and the client shows its error state; nothing to queue on a read path.
+    # VITE_API_URL=/api. When the API is down this returns 502 and the client
+    # shows its error state; nothing to queue on a read path. With a variable
+    # in proxy_pass nginx no longer strips the prefix itself, hence the rewrite.
     location /api/ {
-        proxy_pass http://diplomacy_api/;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$diplomacy_api;
         proxy_http_version 1.1;
-        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

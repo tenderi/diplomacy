@@ -2,15 +2,15 @@
 
 This module used to be a FastAPI app on port 8081 that the API ``POST``ed
 player notifications at. That worked only because both processes shared one
-host; across the VPS/home split it would have lost every DM sent while the
-tunnel was down, and it made the bot the one component that needed an inbound
+host; across the VPS/home split of v2.7.68-v2.7.84 it would have lost every
+DM sent while the tunnel was down, and it made the bot the one component that needed an inbound
 port. It is gone. Nothing listens here any more. Instead:
 
 **Notification loop** (server -> player). Every ``NOTIFY_POLL_SECONDS`` the
 bot asks the API for undelivered rows (``GET /bot/outbox``), sends each to its
 Telegram chat, and acks the ones Telegram accepted (``POST /bot/outbox/ack``).
-The server commits every notification to Postgres first, so a tunnel outage
-of any length only delays them; when the link returns, one poll drains the
+The server commits every notification to Postgres first, so an API or bot
+outage of any length only delays them; when both are up, one poll drains the
 backlog in order. A notification delivered noticeably late is prefixed with
 the time it was created so the player can tell.
 
