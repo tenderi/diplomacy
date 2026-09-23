@@ -35,11 +35,11 @@ boundaries, [`adjudication.md`](./docs/specs/adjudication.md) for the resolver, 
 
 ## Deployment
 
-Production is split across two hosts, like the `p2p` repo: the Telegram bot and the browser
-client on a small public VPS, the API and Postgres on the home server, joined by WireGuard.
-Player writes are queued durably on the VPS and server notifications in Postgres, so a
-dropped link delays messages but never loses them. See
-[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+Production is one UpCloud VPS running the whole stack from `docker-compose.yml`: Postgres,
+the API, the Telegram bot and nginx serving the browser client (only nginx is public). Every
+green merge to `main` deploys it. Player writes are queued durably by the bot and server
+notifications in Postgres, so an API restart or deploy delays messages but never loses them.
+See [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 
 ## Authorization
 

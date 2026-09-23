@@ -1,4 +1,4 @@
-"""Bot handlers when the home server is unreachable (Track J).
+"""Bot handlers when the API is unreachable (Track J).
 
 The player must get a "queued" reply -- never a stack trace and never silence
 -- and the write must be in the durable outbox. ``requests`` is mocked at the

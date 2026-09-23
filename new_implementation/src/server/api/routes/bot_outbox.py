@@ -2,16 +2,16 @@
 
 Server code never talks to Telegram and never talks to the bot. It writes a
 row to ``bot_outbox`` (``api/shared.notify_user``) and returns. The bot, from
-its own side of the WireGuard tunnel, polls here every few seconds:
+its own container, polls here every few seconds:
 
     GET  /bot/outbox?limit=50        -> undelivered rows, oldest first
     POST /bot/outbox/ack             -> {"delivered": [ids], "failed": {id: error}}
 
 Pull rather than push, deliberately. Push needs the *server* to know where the
-bot is and to retry on its own schedule; pull needs nothing but the tunnel to
+bot is and to retry on its own schedule; pull needs nothing but the API to
 be up at some point, and the same poll that delivers a fresh notification
 drains everything that accumulated while the link was down. It also means the
-home server exposes no notification-shaped surface at all -- the bot is the
+API exposes no notification-shaped surface at all -- the bot is the
 only caller, authenticated by ``X-Bot-Secret`` (``require_bot_secret``; a
 browser JWT is not accepted).
 

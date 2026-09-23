@@ -84,8 +84,7 @@ npm run build                              # → frontend/dist; API serves it at
 npm run test:run                           # Vitest + React Testing Library
 
 # Production (see docs/DEPLOYMENT.md)
-docker compose up -d                                   # home server: postgres + API
-docker compose -f docker-compose.control.yml up -d     # VPS: bot + web
+./upgrade.sh          # on the VPS: build + start the whole stack, verify (deploy.yml runs this)
 ```
 
 **Local gates before every push** (mirrors CI):
@@ -106,13 +105,12 @@ DB-dependent tests need `SQLALCHEMY_DATABASE_URL` (or `DIPLOMACY_DATABASE_URL`);
 
 ## Architecture
 
-Five components, all over one Postgres database. In production the first two run on a
-**VPS** and everything else on the **home server**, joined by a WireGuard tunnel (see
-[Deployment](#deployment-vps--home-server)):
+Five components, all over one Postgres database, all running as containers on one VPS in
+production (see [Deployment](#deployment-one-vps)):
 
 ```
-Telegram Bot ──┐  (VPS)
-React SPA ─────┼──► FastAPI (:8000) ──► GameService ──► GameRepo ──► Postgres   (home)
+Telegram Bot ──┐
+React SPA ─────┼──► FastAPI (:8000) ──► GameService ──► GameRepo ──► Postgres
 DAIDE clients ─┘         │                   │
                          └── engine.Game (pure logic, no I/O) ──► src/rendering (PNG maps)
 ```
@@ -120,8 +118,8 @@ DAIDE clients ─┘         │                   │
 The bot never receives pushes. The API writes player notifications to the `bot_outbox`
 table and the bot pulls them; the bot keeps its own durable SQLite queue of player writes
 (orders, messages) and replays them with an `Idempotency-Key` and the original
-`client_timestamp` when the API is unreachable. `docs/specs/architecture.md` §Notifications
-and §Split deployment have the full contract.
+`client_timestamp` when the API is unreachable (a restart, a deploy). `docs/specs/architecture.md`
+§Notifications and §Deployment have the full contract.
 
 Full writeups: [`docs/specs/architecture.md`](new_implementation/docs/specs/architecture.md) (packages, boundaries, DAIDE), [`docs/specs/adjudication.md`](new_implementation/docs/specs/adjudication.md) (the resolver), [`docs/specs/data_spec.md`](new_implementation/docs/specs/data_spec.md) (types, serialization, DB columns, API view shape).
 
@@ -169,39 +167,37 @@ A thin client over the HTTP API (`api_client.py`) — it never talks to the engi
 
 React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/games/:id`. Add a component with `npx shadcn@latest add <component>`. Any test touching a `/games/:id` page must wrap it in `<Routes><Route path="/games/:gameId" …>` — a bare `MemoryRouter` leaves `useParams()` unresolved and silently tests the loading spinner.
 
-## Deployment (VPS + home server)
+## Deployment (one VPS)
 
-Production is **split across two hosts**, the same shape as the `p2p` repo, and reuses that
-repo's WireGuard tunnel (VPS `10.8.0.1`, home `10.8.0.2`):
+Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the checkout is
+`/root/diplomacy`), running `new_implementation/docker-compose.yml`: `postgres`,
+`diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint), `diplomacy_bot`
+(`docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
+built SPA and proxying `/api/` to the API, `docker/web.Dockerfile`). **Only nginx is public.**
+The API is published on `127.0.0.1` only — never a bare `8000:8000` — and Postgres not at all;
+the bot and nginx reach the API by service name. p2p's bot shares the VPS and is not ours.
 
-- **VPS — control layer** (`docker-compose.control.yml`): `diplomacy_bot` (the Telegram bot,
-  `docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
-  built SPA and proxying `/api/` across the tunnel, `docker/web.Dockerfile`). Holds a Telegram
-  token and `DIPLOMACY_BOT_SECRET`. Nothing else.
-- **Home server `kattotuuletin.local` — game layer** (`docker-compose.yml`): `postgres` and
-  `diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint). The API is
-  published on loopback and on the tunnel address only — never a bare `8000:8000`.
+Scripts, all in `new_implementation/`: `install.sh` (first-time host setup: Docker, swap,
+`.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
+prints one), `upgrade.sh` (build, restart, verify; fails if the API or site is down),
+`backup.sh` (nightly `pg_dump`). Every secret except the Telegram token is generated **on the
+host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from the same
+`.env`, so it cannot drift.
 
-Scripts, all in `new_implementation/`: `install_home.sh` (Arch; generates the secrets and
-prints the bot secret to copy to the VPS), `install_vps.sh` (Debian), `upgrade.sh`,
-`upgrade_control.sh`. `.env.example` / `.env.control.example` are the two env files, and the
-separation is the point: no database URL or JWT secret ever goes to the VPS.
+**The full operational guide — setup, ports and the UpCloud firewall, TLS, backups,
+monitoring, troubleshooting — is [`new_implementation/docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).**
 
-**The full operational guide — setup, ports and the UpCloud firewall, TLS, monitoring,
-troubleshooting — is [`new_implementation/docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).**
-
-**No message is ever lost across the tunnel.** Player writes are queued durably on the VPS
+**No player write is lost while the API is down.** Player writes are queued durably by the bot
 and replayed with the original timestamp; server notifications are committed to Postgres and
 pulled by the bot. See the Telegram bot section above and `docs/specs/architecture.md`.
 
-**Deploy-on-merge exists for the VPS only:** `.github/workflows/deploy-control.yml` SSHes in
-after a green Test Suite on `main`, injects `TELEGRAM_BOT_TOKEN` and `DIPLOMACY_BOT_SECRET`
-from GitHub repository secrets into the host's `.env`, and runs `./upgrade_control.sh`. It is
-gated on the `DEPLOY_CONTROL_ENABLED` variable until the SSH secrets exist (setup commands in
-`docs/DEPLOYMENT.md`). The home server is upgraded by hand with `./upgrade.sh` — GitHub cannot
-reach it. Not automated: TLS (see `docs/DEPLOYMENT.md`). There is no AWS anywhere any more:
-the single-EC2 Terraform layout and its OIDC/SSM deploy workflow were removed in `v2.7.80`
-(they never ran in anger; `done_fixes.md` Track H has the history).
+**Deploy-on-merge:** `.github/workflows/deploy.yml` SSHes in as `root` after a green Test
+Suite on `main`, checks out that exact SHA, writes `TELEGRAM_BOT_TOKEN` (the only secret
+GitHub holds for the host) into `.env`, and runs `./upgrade.sh`. Gated on the
+`DEPLOY_CONTROL_ENABLED` variable (the name predates the single-host layout). Not automated:
+TLS (see `docs/DEPLOYMENT.md`). History: the stack ran split across the VPS and a home server
+over WireGuard until `v2.7.85` (Track V), and on a Terraform/EC2 layout before `v2.7.80`
+(Track H); neither remains.
 
 ## Conventions and gotchas
 

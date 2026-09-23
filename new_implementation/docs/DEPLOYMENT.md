@@ -1,41 +1,58 @@
-# Deployment: VPS control layer + home game layer
+# Deployment: the whole stack on one VPS
 
-Diplomacy runs split across **two hosts**, the same shape as the `p2p` repo:
-
-- **Control layer** — the Telegram bot and the browser client, on the small
-  public VPS that already runs p2p's bot. It holds a Telegram token and one
-  shared secret. No database, no engine, no player data.
-- **Game layer** — Postgres and the FastAPI server, on the home server
-  (`kattotuuletin.local`). Everything that matters lives here.
-
-They meet over the **WireGuard tunnel p2p already established** (VPS
-`10.8.0.1`, home `10.8.0.2`). Nothing new is opened at home, and the only
-thing crossing the tunnel is the API's HTTP.
+Diplomacy runs on **one host**, the UpCloud VPS (`87.58.144.64`, Debian/Ubuntu,
+1 vCPU / 2 GB + 2 GB swap), from a single `docker-compose.yml`. The same VPS
+also runs p2p's bot, which this stack does not touch.
 
 ```
-  VPS (public IP)                             Home server (kattotuuletin)
-  ┌───────────────────────────────────┐       ┌──────────────────────────────────┐
-  │ diplomacy_bot                     │       │ diplomacy_api  :8000             │
-  │  - Telegram long polling          │  WG   │  - FastAPI + engine + renderer   │
-  │  - durable outbox (SQLite, /data) │◄─────►│  - bot_outbox table (Postgres)   │
-  │  - pulls GET /bot/outbox          │       │  - DAIDE :8432 (loopback)        │
-  │ diplomacy_web  :80                │       │ postgres                         │
-  │  - nginx: SPA + /api/ -> :8000    │       │                                  │
-  │ wg0 10.8.0.1                      │       │ wg0 10.8.0.2 (dials out)         │
-  └───────────────────────────────────┘       └──────────────────────────────────┘
+  Players                         VPS (87.58.144.64)
+  ─────────                       ┌────────────────────────────────────────────────┐
+  Telegram app ── Telegram ─────► │ diplomacy_bot   long-polls Telegram;           │
+                                  │                 durable queue (SQLite, /data)  │
+                                  │        │ http://diplomacy_api:8000             │
+                                  │        ▼                                       │
+  Browser ──── http://…:80 ─────► │ diplomacy_web   nginx: SPA + /api/ ──► API     │
+                                  │ diplomacy_api   FastAPI + engine + renderer    │
+                                  │                 127.0.0.1:8000, DAIDE :8432    │
+                                  │ postgres        not published; pg_data volume  │
+                                  └────────────────────────────────────────────────┘
 ```
 
-## Why it is split, and what "no message is ever lost" means
+Only nginx is reachable from the internet. The API is published on loopback
+only (for `upgrade.sh` and debugging); the bot and nginx reach it by its
+compose service name. Postgres is not published at all.
 
-The home server sits on a residential connection. The tunnel *will* be down at
-some point when a player presses send, and a deadline *will* pass while it is.
-The split is designed so that costs nothing but latency:
+Until `v2.7.85` the stack was split across the VPS (bot + web) and a home
+server (API + Postgres) joined by p2p's WireGuard tunnel. That layout was
+retired for simplicity: one host, one `.env`, every merge deploys everything.
+`done_fixes.md` Track V has the history.
+
+## Secrets
+
+All live in `new_implementation/.env` on the VPS (mode 600).
+
+| Key | Where it comes from |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | The `TELEGRAM_BOT_TOKEN` repository secret; the deploy workflow writes it on every run. |
+| `POSTGRES_PASSWORD`, `DIPLOMACY_JWT_SECRET`, `DIPLOMACY_ADMIN_TOKEN`, `DIPLOMACY_BOT_SECRET` | Generated **on the host** by `ensure_env.sh` the first time they are blank. They never leave the host; GitHub does not have them. |
+
+`DIPLOMACY_BOT_SECRET` is what the bot sends as `X-Bot-Secret` and the API
+checks. Both containers read it from the same `.env`, so it cannot drift.
+`ensure_env.sh` also regenerates it if it ever equals the Telegram token, and
+removes the old tunnel keys (`DIPLOMACY_API_URL`, `DIPLOMACY_API_UPSTREAM`,
+`WG_IP`) left from the two-host layout.
+
+## What "no message is ever lost" means
+
+The API restarts on every deploy, and it can crash. That costs players
+nothing but latency:
 
 **Player → server (orders, messages).** The bot writes every such command to a
-durable SQLite queue on the VPS *before* the first delivery attempt
-(`src/server/telegram_bot/outbox.py`). If the API is unreachable the player is
-told, immediately, that it is queued and when it was sent; a background loop
-retries in order and DMs the result. Each queued request carries:
+durable SQLite queue *before* the first delivery attempt
+(`src/server/telegram_bot/outbox.py`, in the `bot_data` volume). If the API is
+unreachable the player is told, immediately, that it is queued and when it
+was sent; a background loop retries in order and DMs the result. Each queued
+request carries:
 
 - `client_timestamp` — when the player composed it. A message is stored with
   that time, not the delivery time, and the recipient's notification says
@@ -56,159 +73,147 @@ Delivered late, it is prefixed with the time it was created.
 `/queue` in Telegram shows what is waiting and whether the server is
 reachable.
 
-## Sizing
-
-The VPS already hosts p2p's bot and is sized for it (1 vCPU / 1 GB). The
-diplomacy bot idles on a long-poll socket and two short polls; nginx serves a
-few hundred KB of static files. Budget another ~150 MB RAM. The home server
-does everything else: Postgres plus the API (map rendering is the only
-CPU-noticeable work).
-
-## First-time setup
-
-### 1. Home server (game layer)
-
-`~/p2p/install.sh` must already have run here: it set up Docker, wg0, the
-WireGuard watchdog, and the `docker.service` drop-in that waits for wg0.
+## First-time setup (a fresh host)
 
 ```bash
 git clone https://github.com/tenderi/diplomacy.git ~/diplomacy
 cd ~/diplomacy/new_implementation
-./install_home.sh
+./install.sh        # Docker, a 2 GB swap file if none, .env + secrets, nightly backup
 ```
 
-Generates `POSTGRES_PASSWORD`, `DIPLOMACY_JWT_SECRET`, `DIPLOMACY_ADMIN_TOKEN`
-and `DIPLOMACY_BOT_SECRET` into `.env` and **prints the bot secret** -- the
-VPS needs the same value. Then edit `.env`:
-
-- `DIPLOMACY_PASSWORD_RESET_BASE_URL` / `DIPLOMACY_CORS_ORIGINS` — the URL the
-  web client is served from (the VPS).
-- `WG_IP` — this host's tunnel address (default `10.8.0.2`).
+Put the bot token in `.env` (`TELEGRAM_BOT_TOKEN=` from @BotFather), or let
+the deploy workflow write it. Optionally set `DIPLOMACY_PASSWORD_RESET_BASE_URL`
+and `DIPLOMACY_CORS_ORIGINS` to the site's public URL (e.g.
+`http://87.58.144.64`). Then:
 
 ```bash
-docker compose up -d          # builds the API image, runs migrations, starts
-curl -sS http://127.0.0.1:8000/healthz
+./upgrade.sh        # build, start (migrations run in the API entrypoint), verify
 ```
 
-### 2. VPS (control layer)
+### Ports and the UpCloud firewall
 
-```bash
-git clone https://github.com/tenderi/diplomacy.git ~/diplomacy
-cd ~/diplomacy/new_implementation
-./install_vps.sh
-```
+The site needs **inbound TCP 80** (and 443 once TLS is set up). UpCloud applies
+a network-level firewall in front of the host, separate from `ufw`; on a trial
+account it cannot be edited. Check that 80/443 are permitted before assuming
+nginx is broken -- a `tcpdump -ni any tcp port 80` that shows nothing is the
+signature. Nothing else needs to be open: the bot dials out to Telegram.
 
-Edit `.env`: `TELEGRAM_BOT_TOKEN` from @BotFather and the
-`DIPLOMACY_BOT_SECRET` printed at home. **The two secrets must match exactly.**
-
-```bash
-docker compose -f docker-compose.control.yml up -d
-curl -sS http://10.8.0.2:8000/healthz     # the API, over the tunnel
-curl -sS http://127.0.0.1/healthz         # nginx
-```
-
-Then message the bot.
-
-### 3. Ports and the UpCloud firewall
-
-The tunnel needs nothing beyond what p2p opened (UDP 33500). The **web
-frontend needs inbound TCP 80** (and 443 once TLS is set up) on the VPS.
-UpCloud applies a network-level firewall in front of the host, separate from
-`ufw`; on a trial account it cannot be edited. Check that 80/443 are permitted
-before assuming nginx is broken -- a `tcpdump -ni any tcp port 80` that shows
-nothing is the same signature p2p's README describes for UDP.
-
-### 4. TLS
+### TLS
 
 Nothing here terminates TLS. The login form must not stay on plain HTTP once
 anyone but you uses it. The least-effort path is a hostname pointed at the
 VPS and Caddy in front of `diplomacy_web` (Caddy fetches certificates on its
-own); set `WEB_BIND=127.0.0.1` in the VPS `.env` so nginx only answers to
-Caddy, and set `DIPLOMACY_PASSWORD_RESET_BASE_URL` at home to the `https://`
-URL.
+own); set `WEB_BIND=127.0.0.1` in `.env` so nginx only answers to Caddy, and
+set `DIPLOMACY_PASSWORD_RESET_BASE_URL` to the `https://` URL.
 
-## Running
+## Deploy-on-merge (GitHub Actions)
 
-```bash
-# --- home ---
-docker compose up -d
-docker compose logs -f diplomacy_api
-docker compose up -d --build diplomacy_api     # after editing src/
-./upgrade.sh                                   # pull, rebuild, restart, verify
+`.github/workflows/deploy.yml` deploys automatically after the Test Suite is
+green on `main` (or on demand: *Run workflow*, optionally with a SHA or tag).
+It SSHes in as `root`, fetches and checks out the exact SHA that passed
+(detached), writes `TELEGRAM_BOT_TOKEN` into `.env` (only that line), and runs
+`./upgrade.sh`, which:
 
-# --- VPS ---
-docker compose -f docker-compose.control.yml up -d
-docker compose -f docker-compose.control.yml logs -f diplomacy_bot
-./upgrade_control.sh
-```
+1. runs `ensure_env.sh` (fills any missing secret);
+2. `docker compose build` -- a failed build leaves the running stack alone;
+3. `docker compose up -d --remove-orphans`;
+4. installs the nightly backup cron job if missing;
+5. waits for `http://127.0.0.1:8000/healthz` and checks
+   `http://127.0.0.1/api/healthz` (nginx → API), and **fails the workflow** if
+   either does not answer.
 
-Migrations run in the API container's entrypoint on every start. The bot's
-queue lives in the `bot_data` volume and is untouched by rebuilds.
+The token travels on stdin, never in a command line.
 
-### Deploy-on-merge for the VPS (GitHub Actions)
-
-`.github/workflows/deploy-control.yml` deploys the control layer automatically after the
-Test Suite is green on `main` (or on demand via *Run workflow*). It SSHes into the VPS,
-checks out the exact SHA that passed, writes **`TELEGRAM_BOT_TOKEN` and
-`DIPLOMACY_BOT_SECRET` from GitHub repository secrets into `.env`** (replacing only those
-two lines — `WEB_BIND`, poll intervals and anything else you set stay as they are), and
-runs `./upgrade_control.sh`. The secrets travel over stdin, never in a command line.
-
-The home server is deliberately *not* deployed this way: GitHub cannot reach it through the
-tunnel. Keep using `./upgrade.sh` there.
-
-One-time setup, from a machine that can already SSH into the VPS:
+One-time setup (done on 2026-09-23), from a machine that can SSH into the VPS:
 
 ```bash
-# 1. A dedicated deploy key for GitHub (no passphrase), installed for the VPS user.
+# 1. A dedicated deploy key for GitHub (no passphrase), installed for root.
 ssh-keygen -t ed25519 -f ~/.ssh/diplomacy_deploy -N "" -C "github-actions-deploy"
-ssh-copy-id -i ~/.ssh/diplomacy_deploy.pub root@87.58.144.64
+cat ~/.ssh/diplomacy_deploy.pub | ssh root@87.58.144.64 'cat >> ~/.ssh/authorized_keys'
 
 # 2. Secrets and the gate. TELEGRAM_BOT_TOKEN is already set.
-gh secret set VPS_SSH_KEY          -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy
-gh secret set VPS_HOST_KEY         -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
-gh secret set DIPLOMACY_BOT_SECRET -R tenderi/diplomacy   # paste the value from the home server's .env
+gh secret set VPS_SSH_KEY  -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy
+gh secret set VPS_HOST_KEY -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519 87.58.144.64 2>/dev/null)"
 gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
 ```
 
-Optional repository variables override the defaults: `VPS_HOST` (`87.58.144.64`),
-`VPS_USER` (`root` — the VPS has no other login user; the stack runs from `/root/diplomacy`), `VPS_REPO_DIR` (`~/diplomacy/new_implementation`). Until
-`DEPLOY_CONTROL_ENABLED` is `true` the workflow is skipped, not red.
+The gate's name predates the single-host layout. Optional repository
+variables override the defaults: `VPS_HOST` (`87.58.144.64`), `VPS_USER`
+(`root` — the VPS has no other login user), `VPS_REPO_DIR`
+(`~/diplomacy/new_implementation`). Until `DEPLOY_CONTROL_ENABLED` is `true`
+the workflow is skipped, not red. The `DIPLOMACY_BOT_SECRET` repository secret
+from the two-host layout is no longer read and can be deleted.
+
+## Running by hand
+
+On the VPS, in `/root/diplomacy/new_implementation`:
+
+```bash
+./upgrade.sh                           # the same thing the workflow runs
+docker compose ps
+docker compose logs -f diplomacy_bot   # or diplomacy_api, diplomacy_web, postgres
+docker compose restart diplomacy_bot
+```
+
+The deploy leaves the checkout on a detached SHA; `upgrade.sh` by hand there
+rebuilds that SHA without pulling. `git checkout main` first to pull.
+
+## Backups
+
+`backup.sh` writes `pg_dump | gzip` to `/var/backups/diplomacy/` and keeps 14
+days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override). `/etc/cron.d/diplomacy-backup`
+runs it nightly at 03:17 UTC, logging to `/var/log/diplomacy-backup.log`;
+`upgrade.sh` (re)installs that job on every deploy. The backups are on the
+same disk as the database -- copy them off the host, or enable UpCloud's
+server backups, if the games matter.
+
+Restore into an empty database:
+
+```bash
+docker compose stop diplomacy_api diplomacy_bot
+docker compose exec -T postgres dropdb -U diplomacy diplomacy_db
+docker compose exec -T postgres createdb -U diplomacy diplomacy_db
+gunzip -c /var/backups/diplomacy/diplomacy-<stamp>.sql.gz \
+  | docker compose exec -T postgres psql -q -U diplomacy diplomacy_db
+docker compose up -d
+```
 
 ## Monitoring
 
 - `/queue` in Telegram: server reachability, this player's queued writes, and
   the last few delivered/refused ones.
-- **Home:** `docker compose ps`, `curl http://127.0.0.1:8000/healthz`,
-  `sudo wg show` (last handshake).
-- **VPS:** `docker compose -f docker-compose.control.yml logs diplomacy_bot`
-  logs `API unreachable; player writes are being queued locally` once when
-  the link drops and `API reachable again; N queued write(s) waiting` once
-  when it returns, not on every poll.
-- Pending server-side notifications: from the VPS,
-  `curl -H "X-Bot-Secret: $DIPLOMACY_BOT_SECRET" http://10.8.0.2:8000/bot/outbox/stats`.
-- The bot container's healthcheck watches a heartbeat file both background
-  loops touch; a wedged bot is restarted by Docker.
+- `docker compose ps` -- all four services report `healthy` (Postgres, the
+  API and nginx have healthchecks; the bot's watches a heartbeat file both of
+  its background loops touch, so a wedged bot is restarted by Docker).
+- `docker compose logs diplomacy_bot` logs `API unreachable; player writes are
+  being queued locally` once when the API drops and `API reachable again; N
+  queued write(s) waiting` once when it returns, not on every poll.
+- Pending notifications:
+  `curl -H "X-Bot-Secret: $(grep ^DIPLOMACY_BOT_SECRET= .env | cut -d= -f2-)" http://127.0.0.1:8000/bot/outbox/stats`.
 
 ## Troubleshooting
 
-- **Bot replies "The game server is unreachable right now".** The tunnel or
-  the API is down. Writes are queued; reads fail until it returns. On the
-  VPS: `sudo wg show`, `ping 10.8.0.2`. At home: `systemctl status
-  wg-quick@wg0`, `docker compose ps`, `docker compose logs diplomacy_api`.
-- **`diplomacy_api` restart-loops with a bind error.** wg0 is not up, so
-  `10.8.0.2` does not exist yet. `sudo systemctl start wg-quick@wg0`. If it
-  happens on every reboot the docker.service drop-in is missing -- re-run
-  `~/p2p/install.sh`.
-- **401 "requires the 'X-Bot-Secret' header" in the bot log.**
-  `DIPLOMACY_BOT_SECRET` differs between the two `.env` files.
+- **Bot replies "The game server is unreachable right now".** The API is
+  down or restarting. Writes are queued; reads fail until it returns.
+  `docker compose ps`, `docker compose logs diplomacy_api`.
+- **The site returns 502 on `/api/…`.** Same cause, seen from nginx. nginx
+  resolves the API per request, so a recreated API container is picked up
+  within 10 seconds without restarting nginx.
+- **401 "requires the 'X-Bot-Secret' header" in the bot log.** The bot and
+  API disagree on `DIPLOMACY_BOT_SECRET`, which should be impossible with one
+  `.env`: a container is running from an older `.env`. `docker compose up -d`
+  recreates it.
 - **A queued order was refused: "composed at ... but the turn was processed
-  at ...".** Working as designed: the deadline passed while the link was down.
+  at ...".** Working as designed: the deadline passed while the API was down.
   The player is told; the orders were not applied to the new phase.
 - **A notification arrived twice.** The bot sent it, then could not reach the
   API to ack it, so the row came back on the next poll. At-least-once is the
   deliberate side of this trade.
 - **`/queue` shows attempts climbing but the server is reachable.** The entry
   at the head of the queue is being refused with a *transient* status
-  (502/503/504) -- the API is up but unhealthy, most likely Postgres. Check
-  `docker compose logs diplomacy_api` at home.
+  (502/503/504) -- the API is up but unhealthy, most likely Postgres.
+  `docker compose logs diplomacy_api postgres`.
+- **The deploy failed at "API not healthy after 90s".** Usually a migration
+  error: `docker compose logs diplomacy_api` shows the Alembic traceback. The
+  old containers were already replaced, so fix forward (or deploy an older
+  SHA via *Run workflow*).

@@ -22,39 +22,25 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.84`. `main` green.
-- **VPS facts, verified over SSH 2026-09-23:** the only login user is **`root`** (there is no
-  `tenderi` account; `PermitRootLogin prohibit-password`, keys only). The control stack is
-  **already running** there from `/root/diplomacy`, checked out on the old **`vps-split`**
-  branch (`3b6452e`), next to p2p's `p2p-downloader_bot`; its `.env` has both secrets set.
-  That branch carried two commits never merged to `main`: `3b6452e` (silence httpx so the bot
-  token is not logged on every API call — **brought to main in `v2.7.81`** with a guard test),
-  and `cfa8d93` (a docs-only "Track K — audit of old_implementation before deleting it" in
-  `fix_plan.md`, whose letter collides with this file's Track K and which was **not** merged;
-  it is still on `origin/vps-split` if wanted). `deploy-control.yml` now defaults `VPS_USER` to
-  `root`; its first run will move the VPS off `vps-split` onto a detached `main` SHA.
-- **Deploy gate enabled 2026-09-23** (all four secrets + `DEPLOY_CONTROL_ENABLED=true`). First
-  manual run (`35835941512`) failed at SSH, `Permission denied (publickey)`: the public half of
-  `VPS_SSH_KEY` is not in `/root/.ssh/authorized_keys` (which holds only the maintainer's two
-  personal keys). It also exposed a bug fixed in `v2.7.82`: a manual run with no `ref` input
-  sent the literal branch name `main`, and the VPS checkout has no local `main` branch, so
-  `git checkout --detach main` would have failed; it now sends `github.sha`. Once the key was
-  installed, the next run (`35836927483`) failed with `unable to read tree`: the VPS clone is
-  **single-branch** (`remote.origin.fetch` covers only `vps-split`), so `git fetch origin`
-  never brought main's commits. Fixed in `v2.7.83`: fetch the target itself and check out
-  `FETCH_HEAD`. The next run (`35837781241`) checked out `c3ffa47` and then died with
-  `DIPLOMACY_BOT_SECRET: unbound variable`: the step piped the secrets into ssh *and* gave
-  it a heredoc, the heredoc won, and the remote `read`s consumed script lines, so the VPS
-  `.env` was left with `TELEGRAM_BOT_TOKEN=IFS= read -r DIPLOMACY_BOT_SECRET`. **The running
-  bot kept its startup token and was not restarted, but that `.env` must not be used to
-  recreate the containers** until a green deploy rewrites it. Fixed in `v2.7.84` (secrets
-  prepended to the script stream as `printf %q` assignments) with a test that executes the
-  real step against a fake `ssh` and a single-branch clone.
+- **Last updated:** 2026-09-23, at `v2.7.85`. `main` green.
+- **Track V — the whole stack on one VPS, landed as `v2.7.85`** and is archived in
+  [`done_fixes.md`](done_fixes.md). The maintainer chose to retire the VPS + home-server
+  split: `docker-compose.yml` now runs `postgres`, `diplomacy_api`, `diplomacy_bot` and
+  `diplomacy_web` on the VPS, only nginx public. Every secret but the Telegram token is
+  generated on the host (`ensure_env.sh`); `deploy.yml` (renamed from `deploy-control.yml`)
+  deploys everything on each green merge and fails if the API or the site does not answer.
+  The home database held **no games** (`GET /games` → `[]`, checked over the tunnel before
+  the switch), so nothing was migrated. Remaining host chores are F3 below.
+- **VPS facts (2026-09-23):** login is **`root`** only (keys only); checkout at
+  `/root/diplomacy`, a **single-branch** clone of `vps-split` (the workflow fetches its target
+  by SHA, so that no longer matters); 1 vCPU, 1.8 GB RAM, **2 GB swap added** for Track V;
+  p2p's `p2p-downloader_bot` shares the host. Deploy-on-merge has been live since `v2.7.84`
+  (the `v2.7.82`–`v2.7.84` fixes that got it there are under Track U in `done_fixes.md`).
+  `cfa8d93` (a docs-only "Track K — audit of old_implementation", letter collides with this
+  file's Track K) was never merged and is still on `origin/vps-split` if wanted.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
-  in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
-  `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;
-  gated on `DEPLOY_CONTROL_ENABLED` until the maintainer adds the SSH secrets (F3). The
-  Terraform/EC2/OIDC layout and its workflow are gone. `config.py` no longer logs the token.
+  in [`done_fixes.md`](done_fixes.md). The Terraform/EC2/OIDC layout and its workflow are
+  gone; the workflow itself was reshaped for one host in Track V. `config.py` no longer logs the token.
 - **Track T — auth sweep, landed as `v2.7.79`** and is archived in
   [`done_fixes.md`](done_fixes.md). `GET /users/{id}/games` was anonymous (and cached, so the
   fix had to be a dependency); `POST /deadline` let any Bearer user set any game's deadline;
@@ -103,16 +89,12 @@
   and the `/processturn` confirmation) waits only on powers that actually have something to
   order this phase. Found by a bug hunt, not by F1 — F1/F2 remain unchecked.
 - **Track J — Split deployment (VPS bot/web + home API) landed as `v2.7.68`** and is archived
-  in [`done_fixes.md`](done_fixes.md). Production is now two Docker Compose stacks over the
-  `p2p` WireGuard tunnel; player writes are queued durably on the VPS and server notifications
-  in Postgres, so a dropped link never loses a message. The full operational guide is
-  [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
-  `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
-  the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–U are complete and
+  in [`done_fixes.md`](done_fixes.md). The two-host layout itself was retired in Track V; its
+  reliability contract (the bot's durable queue, `client_timestamp`, `Idempotency-Key`, the
+  pulled `bot_outbox`) stays, because the API is still down during every deploy.
+- **Every automated task in this tracker is done again.** Tracks A–E and G–V are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
-  delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
-  since Track J, shell access to the two hosts).
+  delegated to an agent** — it needs a live bot token and a human at a Telegram client.
 - **Next action: F1**, whenever the maintainer has a Telegram client to hand. Nothing gates it
   and it gates nothing.
 - **Track I (map legibility) was opened by the maintainer on 2026-07-30** as F2's first finding
@@ -312,29 +294,29 @@ to use, which no test asserts.
       Track I is precedent for how this goes: it began as one F2 complaint about map size and
       turned up three further renderer defects on the way.)
 
-## F3 — Bring the split deployment up on the two hosts (Track J follow-through)
+## F3 — Single-host follow-through (Track V)
 
-- [ ] On `kattotuuletin.local`: `./install_home.sh`, fill `.env`, `docker compose up -d`,
-      confirm `curl http://10.8.0.2:8000/healthz` from the VPS.
-- [ ] On the VPS: `./install_vps.sh`, `TELEGRAM_BOT_TOKEN` + the printed bot secret,
-      `docker compose -f docker-compose.control.yml up -d`; confirm TCP 80 is permitted by the
-      UpCloud network firewall (separate from `ufw`).
-- [ ] Exercise the queue for real: stop `wg-quick@wg0` at home, send `/order` and `/message`
-      from Telegram, check `/queue`, restart the tunnel, confirm the delivered reports arrive
-      and the message shows its original time.
-- [ ] Decide what to do with the home server's existing p2p `docker-compose.yml` stack: both
-      stacks bind the tunnel address on different ports (8081 vs 8000), so they coexist.
-- [ ] Turn on deploy-on-merge for the VPS (`v2.7.80`): install a deploy key for `root` on
-      the VPS, set `VPS_SSH_KEY`, `VPS_HOST_KEY`, `DIPLOMACY_BOT_SECRET` and
-      `DEPLOY_CONTROL_ENABLED=true` — the exact commands are in `docs/DEPLOYMENT.md`
-      §"Deploy-on-merge for the VPS". `TELEGRAM_BOT_TOKEN` is already set (2026-09-21). Then
-      *Run workflow* on "Deploy control layer" once by hand and watch it.
+- [ ] First single-host deploy green, all four containers healthy, the bot's 401s gone, the
+      site answering on `http://87.58.144.64/` and `/api/healthz`. (Agent can verify over
+      SSH; tick when done.)
+- [ ] Exercise the queue for real: `docker compose stop diplomacy_api`, send `/order` and
+      `/message` from Telegram, check `/queue`, `docker compose start diplomacy_api`, confirm
+      the delivered reports arrive and the message shows its original time.
+- [ ] **Maintainer, at home:** stop the old game-layer stack on `kattotuuletin.local`
+      (`cd ~/diplomacy/new_implementation && docker compose down` — keep the `pg_data`
+      volume until sure; it held no games). p2p's own stack and tunnel there are untouched.
+- [ ] **Maintainer:** delete the now-unused `DIPLOMACY_BOT_SECRET` repository secret
+      (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); it held the Telegram
+      token by mistake, and nothing reads it any more.
+- [ ] **Maintainer:** decide on off-host backups. `backup.sh` keeps 14 nightly dumps on the
+      VPS's own disk; UpCloud server backups, or copying `/var/backups/diplomacy` elsewhere,
+      would survive losing the VPS.
 
 ## F4 — TLS in front of the web frontend
 
 - [ ] A hostname for the VPS, Caddy (or certbot + nginx) terminating TLS in front of
-      `diplomacy_web`, `WEB_BIND=127.0.0.1`, and `DIPLOMACY_PASSWORD_RESET_BASE_URL` at home
-      set to the `https://` URL. The login form must not stay on plain HTTP once anyone but
+      `diplomacy_web`, `WEB_BIND=127.0.0.1`, and `DIPLOMACY_PASSWORD_RESET_BASE_URL` in the
+      VPS `.env` set to the `https://` URL. The login form must not stay on plain HTTP once anyone but
       the maintainer uses it. Was "known infra gap" under *Out of scope* below; it now has a
       concrete place to live.
 
