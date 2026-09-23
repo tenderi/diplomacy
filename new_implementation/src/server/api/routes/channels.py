@@ -249,31 +249,42 @@ def post_map_to_channel(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/channel/broadcast")
 def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dict[str, Any]:
-    """Post a broadcast message to the linked channel with optional threading."""
+    """Queue a broadcast message for the linked channel, with optional threading.
+
+    Queued onto ``bot_outbox``, not posted synchronously -- see
+    ``api.shared._post_turn_to_channel``'s docstring for why every channel
+    post goes through there now instead of calling ``telegram_bot.channels``
+    directly (it only has a live ``Bot`` instance inside the bot's own
+    container). No ``message_id`` comes back; the send happens on the bot's
+    next poll.
+    """
     try:
-        from ...telegram_bot.channels import post_broadcast_to_channel
-        
-        # Get channel info
+        from ...telegram_bot.utils import escape_markdown
+
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
         channel_id = channel_info.get("channel_id")
-        
-        # Post broadcast to channel
-        message_id = post_broadcast_to_channel(
-            channel_id=channel_id,
-            game_id=game_id,
-            message=req.message,
-            power=req.power,
-            reply_to_message_id=req.reply_to_message_id
+
+        # req.message is free text a caller supplied -- escape it before
+        # folding it into a Markdown-formatted post, or an unescaped
+        # `_`/`*`/`` ` ``/`[` in it 400s the whole send.
+        safe_message = escape_markdown(req.message)
+        if req.power:
+            formatted = f"📢 **{req.power}** → All Powers\n\n{safe_message}"
+        else:
+            formatted = f"📢 **PUBLIC BROADCAST**\n\n{safe_message}"
+
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, formatted, kind="channel_text",
+            payload={"parse_mode": "Markdown", "reply_to_message_id": req.reply_to_message_id},
         )
-        
+
         return {
-            "status": "ok",
-            "message": f"Broadcast posted to channel {channel_id}",
+            "status": "queued",
+            "message": f"Broadcast queued for channel {channel_id}",
             "channel_id": channel_id,
-            "message_id": message_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
@@ -284,30 +295,32 @@ def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dic
 
 @router.post("/games/{game_id}/channel/thread")
 def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) -> Dict[str, Any]:
-    """Create a discussion thread for a specific phase or topic."""
+    """Queue creation of a discussion thread (forum topic) for the linked channel.
+
+    Queued, like every other channel post (see ``/channel/broadcast``'s
+    docstring) -- and unlike the others, genuinely fire-and-forget rather than
+    just decoupled: creating a forum topic only makes sense from inside the
+    bot's own process (nothing here has a ``Bot`` instance to call
+    ``create_forum_topic`` on even synchronously), and nothing downstream
+    reads a thread id back yet, so none is returned. If a future caller needs
+    one, that's a bot-to-server report-back this route doesn't have.
+    """
     try:
-        from ...telegram_bot.channels import create_discussion_thread
-        
-        # Get channel info
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
         channel_id = channel_info.get("channel_id")
-        
-        # Create thread
-        thread_id = create_discussion_thread(
-            channel_id=channel_id,
-            game_id=game_id,
-            topic=req.topic,
-            phase=req.phase
+
+        title = f"{req.topic} - {req.phase}" if req.phase else req.topic
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, title, kind="channel_create_thread",
         )
-        
+
         return {
-            "status": "ok",
-            "message": f"Discussion thread created in channel {channel_id}",
+            "status": "queued",
+            "message": f"Discussion thread queued for channel {channel_id}",
             "channel_id": channel_id,
-            "thread_id": thread_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
@@ -318,31 +331,55 @@ def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) ->
 
 @router.post("/games/{game_id}/channel/proposal")
 def post_proposal(game_id: str, req: ProposalRequest) -> Dict[str, Any]:
-    """Post a proposal with voting to the linked channel."""
+    """Queue a proposal with voting buttons for the linked channel. See
+    ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
+    rather than posting inline.
+
+    **The posting half only.** Tapping a vote button reaches
+    ``app.py``'s ``vote_proposal_*`` callback, which acknowledges the tap but
+    does not persist or tally it -- that was already a documented stub before
+    this fix (`"will be enhanced with database"`) and remains one;
+    ``GET .../channel/proposal/{message_id}`` still always answers zero votes
+    in every category. Posting the proposal now actually reaches the channel,
+    which it never did; counting the votes on it is untouched, separate work.
+    """
     try:
-        from ...telegram_bot.channels import post_proposal_with_voting
-        
-        # Get channel info
+        from ...telegram_bot.utils import escape_markdown
+
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
         channel_id = channel_info.get("channel_id")
-        
-        # Post proposal
-        message_id = post_proposal_with_voting(
-            channel_id=channel_id,
-            game_id=game_id,
-            proposal_text=req.proposal_text,
-            power=req.power,
-            proposal_title=req.proposal_title
+
+        power_emoji = {
+            "AUSTRIA": "🇦🇹", "ENGLAND": "🇬🇧", "FRANCE": "🇫🇷", "GERMANY": "🇩🇪",
+            "ITALY": "🇮🇹", "RUSSIA": "🇷🇺", "TURKEY": "🇹🇷",
+        }
+        emoji = power_emoji.get(req.power, "")
+        safe_title = escape_markdown(req.proposal_title) if req.proposal_title else None
+        safe_text = escape_markdown(req.proposal_text)
+        title = safe_title or "PROPOSAL"
+        formatted = (
+            f"📢 **{title}: {safe_title or 'Diplomatic Proposal'}**\n"
+            f"{emoji} **{req.power}** proposes:\n\n"
+            f"{safe_text}\n\n"
+            f"💬 Vote using the buttons below:"
         )
-        
+        buttons = [[
+            {"text": "👍 Support", "callback_data": f"vote_proposal_{game_id}_support"},
+            {"text": "👎 Oppose", "callback_data": f"vote_proposal_{game_id}_oppose"},
+            {"text": "🤔 Undecided", "callback_data": f"vote_proposal_{game_id}_undecided"},
+        ]]
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, formatted, kind="channel_text",
+            payload={"parse_mode": "Markdown", "buttons": buttons},
+        )
+
         return {
-            "status": "ok",
-            "message": f"Proposal posted to channel {channel_id}",
+            "status": "queued",
+            "message": f"Proposal queued for channel {channel_id}",
             "channel_id": channel_id,
-            "message_id": message_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
@@ -353,7 +390,17 @@ def post_proposal(game_id: str, req: ProposalRequest) -> Dict[str, Any]:
 
 @router.get("/games/{game_id}/channel/proposal/{message_id}")
 def get_proposal_results_endpoint(game_id: str, message_id: int) -> Dict[str, Any]:
-    """Get voting results for a proposal message."""
+    """Get voting results for a proposal message.
+
+    **Unfixed, deliberately, unlike the rest of this file.** No vote is ever
+    actually recorded anywhere -- ``app.py``'s ``vote_proposal_*`` callback
+    acknowledges a tap and does not persist it (its own comment: "will be
+    enhanced with database"). There is no wrong-process bug to route around
+    here; there is simply no data. Wiring a real tally (a votes table, a
+    write from the callback, a read here) is a feature to build, not a
+    channel-posting bug to fix -- left for whoever picks up Track X4's
+    proposal-voting half in ``fix_plan.md``.
+    """
     try:
         from ...telegram_bot.channels import get_proposal_results
         
@@ -404,33 +451,30 @@ def get_timeline(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/channel/timeline")
 def post_timeline_update(game_id: str) -> Dict[str, Any]:
-    """Manually post timeline update to the linked channel."""
+    """Queue a timeline update for the linked channel. See ``/channel/broadcast``'s
+    docstring for why this queues onto ``bot_outbox`` rather than posting inline."""
     try:
-        from ...telegram_bot.channels import post_timeline_update_to_channel
-        
-        # Get channel info
+        from ...telegram_bot.channels import format_historical_timeline
+
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
         channel_id = channel_info.get("channel_id")
 
         game_state_dict = _legacy_state_dict(game_id)
         if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        # Post timeline
-        message_id = post_timeline_update_to_channel(
-            channel_id=channel_id,
-            game_id=game_id,
-            game_state=game_state_dict
+        formatted = format_historical_timeline(game_state_dict)
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
         )
-        
+
         return {
-            "status": "ok",
-            "message": f"Timeline update posted to channel {channel_id}",
+            "status": "queued",
+            "message": f"Timeline update queued for channel {channel_id}",
             "channel_id": channel_id,
-            "message_id": message_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
@@ -441,22 +485,21 @@ def post_timeline_update(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/channel/dashboard")
 def post_player_dashboard(game_id: str) -> Dict[str, Any]:
-    """Manually post player status dashboard to the linked channel."""
+    """Queue the player status dashboard for the linked channel. See
+    ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
+    rather than posting inline."""
     try:
-        from ...telegram_bot.channels import post_player_dashboard_to_channel
-        
-        # Get channel info
+        from ...telegram_bot.channels import format_player_dashboard
+
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
         channel_id = channel_info.get("channel_id")
 
         game_state_dict = _legacy_state_dict(game_id)
         if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        # Get players data
         players_data = None
         try:
             row = db_service.get_game_by_game_id(game_id)
@@ -474,19 +517,16 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Could not get players data for dashboard: {e}")
 
-        # Post dashboard
-        message_id = post_player_dashboard_to_channel(
-            channel_id=channel_id,
-            game_id=game_id,
-            game_state=game_state_dict,
-            players_data=players_data
+        formatted = format_player_dashboard(game_state_dict, players_data)
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
         )
-        
+
         return {
-            "status": "ok",
-            "message": f"Player dashboard posted to channel {channel_id}",
+            "status": "queued",
+            "message": f"Player dashboard queued for channel {channel_id}",
             "channel_id": channel_id,
-            "message_id": message_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
@@ -497,39 +537,39 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
 
 @router.post("/games/{game_id}/channel/battle_results")
 def post_battle_results(game_id: str) -> Dict[str, Any]:
-    """Manually post formatted battle results to the linked channel."""
+    """Queue formatted battle results for the linked channel. See
+    ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
+    rather than posting inline."""
     try:
-        from ...telegram_bot.channels import post_battle_results_to_channel
+        from ...telegram_bot.channels import format_battle_results
 
-        # Get channel info
         channel_info = db_service.get_game_channel_info(game_id)
         if not channel_info:
             raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-
         channel_id = channel_info.get("channel_id")
 
         game_state_dict = _legacy_state_dict(game_id)
         if game_state_dict is None:
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        # Order history is not retained per-turn under the new engine.
+        # order_history/previous_supply_centers are left None: game_service now
+        # does retain per-turn order/resolution history (Track W, v2.7.90), but
+        # its {turn: {power: [order_str]}} shape doesn't match what
+        # format_battle_results expects here and adapting it is unstarted --
+        # not "the engine doesn't have this" any more, just not plumbed through.
         previous_supply_centers = None
         order_history = None
 
-        # Post battle results
-        message_id = post_battle_results_to_channel(
-            channel_id=channel_id,
-            game_id=game_id,
-            game_state=game_state_dict,
-            order_history=order_history,
-            previous_supply_centers=previous_supply_centers
+        formatted = format_battle_results(game_state_dict, order_history, previous_supply_centers)
+        outbox_id = db_service.enqueue_bot_notification(
+            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
         )
-        
+
         return {
-            "status": "ok",
-            "message": f"Battle results posted to channel {channel_id}",
+            "status": "queued",
+            "message": f"Battle results queued for channel {channel_id}",
             "channel_id": channel_id,
-            "message_id": message_id
+            "outbox_id": outbox_id,
         }
     except HTTPException:
         raise
