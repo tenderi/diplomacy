@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.85`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.86`. `main` green.
 - **Track V — the whole stack on one VPS, landed as `v2.7.85`** and is archived in
   [`done_fixes.md`](done_fixes.md). The maintainer chose to retire the VPS + home-server
   split: `docker-compose.yml` now runs `postgres`, `diplomacy_api`, `diplomacy_bot` and
@@ -296,9 +296,13 @@ to use, which no test asserts.
 
 ## F3 — Single-host follow-through (Track V)
 
-- [ ] First single-host deploy green, all four containers healthy, the bot's 401s gone, the
-      site answering on `http://87.58.144.64/` and `/api/healthz`. (Agent can verify over
-      SSH; tick when done.)
+- [x] First single-host deploy green (run `35850765609`, `b64a4ee`, 2026-09-23): all four
+      containers healthy, `ensure_env.sh` replaced the token-valued bot secret and dropped
+      the tunnel keys, `GET /bot/outbox` with the bot's secret → 200 and no poll failures
+      since, `127.0.0.1/api/healthz` via nginx OK, API at 139 MB RSS, `backup.sh` run by hand
+      wrote a 22-table dump. Ports 80/8000/8432/5432 all unreachable from the internet: the
+      VPS `.env` has **`WEB_BIND=127.0.0.1`** (set before Track V), so the site is private
+      until F4 (TLS) or until the maintainer sets `WEB_BIND=0.0.0.0` and allows TCP 80.
 - [ ] Exercise the queue for real: `docker compose stop diplomacy_api`, send `/order` and
       `/message` from Telegram, check `/queue`, `docker compose start diplomacy_api`, confirm
       the delivered reports arrive and the message shows its original time.
