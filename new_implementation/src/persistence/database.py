@@ -57,7 +57,21 @@ class GameModel(Base):
     # appended each process_turn. Powers the /orders/history endpoint (state itself is
     # a single snapshot and does not retain past orders).
     order_history = Column(JSON, nullable=True)
+    # ``{turn_number_str: resolution_to_dict(...)}``, appended alongside
+    # ``order_history`` on every processed turn. ``last_resolution`` holds only
+    # the newest one and is overwritten each turn, so before this column existed
+    # "what happened in turn 3" was unanswerable once turn 4 had run -- the
+    # orders survived (``order_history``) but their outcomes did not.
+    resolution_history = Column(JSON, nullable=True)
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
+    # How long each phase lasts, in seconds, for a caller that wants to arm an
+    # automatic deadline explicitly (``POST /games/{id}/deadline`` with
+    # ``phase_length_seconds`` and no ``deadline``). Purely a convenience for
+    # that one call -- nothing re-arms a deadline automatically after a turn is
+    # processed (Track N: deadlines exist only when set explicitly). ``NULL``
+    # means "use the 24 h default"; ``0`` is meaningless here since no code path
+    # arms one from this value automatically.
+    phase_length_seconds = Column(Integer, nullable=True)
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
@@ -407,7 +421,15 @@ class MessageModel(Base):
     recipient_power = Column(String(20), nullable=True)
     text = Column(Text, nullable=False)  # Actual column name is 'text', not 'content'
     timestamp = Column(DateTime, nullable=False)  # Actual column name is 'timestamp', not 'created_at'
-    
+    # The game phase this message was *written* in (``S1901M``), so a game log
+    # can answer "what was said during F1902M". Resolved from ``timestamp``
+    # (which is the composed-at time, not the arrival time -- see
+    # ``api.client_timestamp``), so a message the bot queued across a phase
+    # boundary is attributed to the phase the player was actually looking at.
+    # NULL for messages written before this column existed, and whenever the
+    # phase cannot be determined.
+    phase_code = Column(String(10), nullable=True)
+
     # Constraints and indexes
     __table_args__ = (
         Index('ix_messages_game', 'game_id'),

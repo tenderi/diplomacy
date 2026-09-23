@@ -33,7 +33,7 @@ from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 from .api.idempotency import IdempotencyMiddleware
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list, bot_outbox
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list, bot_outbox, archive
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -211,6 +211,7 @@ app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
 app.include_router(waiting_list.router, tags=["waiting-list"])
 app.include_router(bot_outbox.router, tags=["bot-outbox"])
+app.include_router(archive.router, tags=["archive"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")
