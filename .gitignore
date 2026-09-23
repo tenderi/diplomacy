@@ -87,7 +87,6 @@ celerybeat-schedule
 .env
 .env*
 !.env.example
-!.env.control.example
 
 # virtualenv
 .venv

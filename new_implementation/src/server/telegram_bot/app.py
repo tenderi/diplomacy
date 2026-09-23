@@ -492,9 +492,9 @@ def main():
     """Main entry point for the Telegram bot.
 
     The bot must come up -- and stay up -- whether or not the API is reachable.
-    It runs on a VPS and the API on a home server across a tunnel; if the bot
-    refused to start until the API answered, an outage at the wrong moment
-    would take *both* halves down and nothing would queue anything. So the
+    The API is a separate container that restarts on every deploy; if the bot
+    refused to start until the API answered, an API outage at the wrong moment
+    would take the bot down too and nothing would queue anything. So the
     startup health check is informational: it logs, and the bot starts
     regardless. Reads fail with a clear message until the link returns;
     writes go to the durable outbox and are delivered when it does.

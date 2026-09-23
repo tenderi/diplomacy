@@ -583,7 +583,7 @@ class DatabaseService:
         ``timestamp`` is the moment the message was *composed*, when the caller
         knows it -- the bot passes the time a player typed the message, which
         can be much earlier than now if it sat in the bot's offline queue while
-        the home server was unreachable. Defaults to now. Must be naive UTC
+        the API was unreachable. Defaults to now. Must be naive UTC
         (see ``utcnow_naive``); an aware value is normalised here so no caller
         can store a shifted time.
         """

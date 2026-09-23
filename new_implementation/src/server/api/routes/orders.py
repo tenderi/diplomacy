@@ -32,7 +32,7 @@ class SetOrdersRequest(BaseModel):
 def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None:
     """Refuse an order write composed before the current phase began.
 
-    The bot queues order submissions while the home server is unreachable and
+    The bot queues order submissions while the API is unreachable and
     replays them later. If the deadline passed in between, the turn was
     adjudicated without those orders, and replaying them now would submit
     last phase's intentions against this phase's board -- most would fail

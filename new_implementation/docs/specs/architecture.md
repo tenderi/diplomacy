@@ -172,7 +172,7 @@ There are three delivery surfaces, and they are not interchangeable:
   These **write a row to the `bot_outbox` table** and return; the bot pulls undelivered rows
   over `GET /bot/outbox` every few seconds and acks them (`POST /bot/outbox/ack`) once
   Telegram has accepted the message. Server code never talks to Telegram and never pushes
-  at the bot (the port-8081 `/notify` server is gone — see *Split deployment* below).
+  at the bot (the port-8081 `/notify` server is gone — see *Deployment and message reliability* below).
   Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
   errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
 - **Linked channel post** — `telegram_bot/channels.py`. Only fires for games that have a
@@ -273,15 +273,21 @@ and then DMed every player "turn processed" each time it was pressed, a draw vot
 notifications became outbox inserts that costs one short database write per player, not the
 two-second HTTP timeout the old push path risked.
 
-## Split deployment and message reliability (Track J)
+## Deployment and message reliability (Tracks J, V)
 
-The bot and the browser client run on a **VPS**; the API and Postgres run on the **home
-server**; a WireGuard tunnel (shared with the `p2p` repo) joins them. The tunnel will be down
-at times, and a deadline may pass while it is. The contract is that **no player message is
-ever lost in either direction** — only delayed, and always with the original time preserved.
+All four services — `postgres`, `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx) —
+run from one `docker-compose.yml` on one VPS; only nginx is public, and the bot and nginx
+reach the API by its compose service name (`docs/DEPLOYMENT.md`). From `v2.7.68` to
+`v2.7.84` the bot and nginx ran on the VPS and the API and Postgres on a home server across a
+WireGuard tunnel; that layout was retired in Track V, but the reliability contract it
+produced stays, because the API is still a separate process that is down during every deploy
+and after any crash, and a deadline may pass while it is. The contract is that **no player
+message is ever lost in either direction** — only delayed, and always with the original time
+preserved.
 
 **Player → server** (`telegram_bot/outbox.py`, `api_client.api_post_reliable`). Orders and
-diplomatic messages are written to a SQLite queue on the VPS *before* the first attempt.
+diplomatic messages are written to a SQLite queue (the `bot_data` volume) *before* the first
+attempt.
 Outcomes are exactly `delivered` / `queued` / `rejected`; the handler shows the matching
 reply, and a background loop (`notifications.outbox_replay_loop`) retries queued entries
 strictly in id order — stopping at the first that is still unreachable so nothing overtakes
