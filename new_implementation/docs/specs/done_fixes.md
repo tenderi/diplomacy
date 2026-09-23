@@ -3070,3 +3070,11 @@ to the literal string `main`. The VPS clone has no local `main` branch (it had o
 on `vps-split`), so `git checkout --detach main` would fail, and on a host that did have one
 it would deploy a stale local branch instead of what GitHub dispatched. The fallback is now
 `${{ github.sha }}`; `test_manual_run_resolves_a_commit_not_a_branch_name` pins it.
+
+Once the deploy key was in place, the next run failed with `fatal: unable to read tree`. The
+VPS clone had been made single-branch on `vps-split` (`remote.origin.fetch` =
+`+refs/heads/vps-split:...`), so `git fetch origin` never brought `main`'s commits. `v2.7.83`
+fetches the target itself (`git fetch origin "$SHA"`, which GitHub serves for any reachable
+SHA, tag or branch) and checks out `FETCH_HEAD`; verified on a fresh
+`--single-branch -b vps-split` clone for both a SHA and a tag. `test_fetches_the_target_itself`
+pins it.
