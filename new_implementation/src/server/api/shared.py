@@ -16,6 +16,7 @@ from persistence.database_service import DatabaseService
 from persistence.game_repo import GameRepo, StaleGameError
 from ..server import Server
 from ..game_service import GameService
+from ..response_cache import invalidate_cache
 
 if TYPE_CHECKING:
     from ..daide.server import DaideServer
@@ -52,6 +53,12 @@ if not scheduler_logger.hasHandlers():
 
 # In-memory reminder tracking
 reminder_sent: dict[int, bool] = {}  # game_id -> bool
+
+# How long a phase lasts when a game does not say (``games.phase_length_seconds``
+# is NULL). Used only by the explicit ``POST /games/{id}/deadline`` route as the
+# default for ``next_deadline`` below -- nothing arms a deadline from this
+# automatically (Track N: deadlines exist only when set explicitly).
+DEFAULT_PHASE_LENGTH_SECONDS = 24 * 60 * 60
 
 # Admin token
 _ADMIN_TOKEN_DEFAULT = "changeme"
@@ -284,6 +291,24 @@ def notify_turn_processed(
         _post_turn_to_channel(game_id, f"Game {game_id} has ended.")
 
 
+def next_deadline(
+    phase_length_seconds: Optional[int], now: Optional[datetime] = None
+) -> Optional[datetime]:
+    """When a phase armed right now should be processed, or ``None`` for never.
+
+    Used only by ``POST /games/{id}/deadline`` when the caller passes
+    ``phase_length_seconds`` with no explicit ``deadline`` -- an explicit ask for
+    "a deadline this far out", not an automatic re-arm (Track N: nothing arms a
+    deadline after a turn is processed on its own). ``None`` length means the
+    24 h default; ``0`` (or negative, defensively) means no deadline at all.
+    """
+    if phase_length_seconds is None:
+        phase_length_seconds = DEFAULT_PHASE_LENGTH_SECONDS
+    if phase_length_seconds <= 0:
+        return None
+    return (now or datetime.now(timezone.utc)) + timedelta(seconds=phase_length_seconds)
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -324,7 +349,36 @@ def process_due_deadlines(now: datetime) -> None:
                         scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
                     else:
                         _notify_daide_processed(game_id_str, prev_phase_code)
-                    # Direct SQL update to set deadline to NULL for cross-session visibility
+                        # The cached `/games/{id}/state` (30 s TTL) still holds the
+                        # *previous* phase otherwise -- the manual `process_turn`
+                        # route invalidates it and this path did not, so a
+                        # deadline-processed turn served a stale board to every
+                        # client for up to 30 seconds.
+                        invalidate_cache(f"games/{game_id_str}")
+                        # Snapshot the new board so `/history/{turn}` and the
+                        # bot's `/replay` have something for this turn -- before
+                        # this, only the manual route (`routes/games.py`) ever
+                        # wrote a snapshot, so any turn advanced by a missed
+                        # deadline left a permanent hole.
+                        try:
+                            new_view = game_service.view(game_id_str)
+                            meta = game_service.meta(game_id_str) or {}
+                            if new_view is not None:
+                                db_service.create_game_snapshot(
+                                    game_id=game_id_val,
+                                    turn=int(meta.get("current_turn", 0) or 0),
+                                    year=new_view["year"],
+                                    season=new_view["season"],
+                                    phase=new_view["phase_type"],
+                                    phase_code=new_view["phase"],
+                                    game_state=new_view,
+                                    state_json=game_service.state_json(game_id_str),
+                                )
+                        except Exception as e:
+                            scheduler_logger.error(f"Failed to snapshot game {game_id_str} after its turn: {e}")
+                    # Direct SQL update to set deadline to NULL for cross-session visibility.
+                    # Deadlines exist only when set explicitly via
+                    # POST /games/{id}/deadline (Track N) -- this path never re-arms one.
                     db_service.update_game_deadline(game_id_val, None)
                     db_service.commit()  # type: ignore
                     # Player DMs + channel notification + channel map post, shared

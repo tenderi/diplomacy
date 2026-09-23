@@ -22,7 +22,20 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.88`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.90`. `main` green.
+- **Track W — recovered uncommitted work from `origin/vps-split`, landed as `v2.7.90`.**
+  `cfa8d93` (the audit referenced two entries below) was never merged, but real code
+  implementing four of its findings was sitting **uncommitted** on `vps-split` and was
+  recovered, ported onto current `main`, and adapted where the two had diverged (see W1
+  below). Implements W2 (per-game `phase_length_seconds`, explicit-arm only),
+  W3 (DATC 6.A naming gaps, 6.K.1/6.K.2, a full-game-replay regression fixture),
+  W4 (`resolution_history`, `messages.phase_code`, a working `/history/{turn}` —
+  found and fixed a *second*, unrelated bug: it read columns that don't exist on
+  `MapSnapshotModel` and had 500'd for its entire existence), and W5
+  (admin-only `GET /games/{id}/export` / `POST /games/import`). W0, W1's deadline
+  half, W6 and W7 remain open below. Uses "W" rather than the recovered commit's own
+  "K" numbering because this file's Track K (phase-aware order acceptance, `v2.7.69`)
+  already used that letter for something unrelated.
 - **Track V — the whole stack on one VPS, landed as `v2.7.85`** and is archived in
   [`done_fixes.md`](done_fixes.md). The maintainer chose to retire the VPS + home-server
   split: `docker-compose.yml` now runs `postgres`, `diplomacy_api`, `diplomacy_bot` and
@@ -36,8 +49,8 @@
   by SHA, so that no longer matters); 1 vCPU, 1.8 GB RAM, **2 GB swap added** for Track V;
   p2p's `p2p-downloader_bot` shares the host. Deploy-on-merge has been live since `v2.7.84`
   (the `v2.7.82`–`v2.7.84` fixes that got it there are under Track U in `done_fixes.md`).
-  `cfa8d93` (a docs-only "Track K — audit of old_implementation", letter collides with this
-  file's Track K) was never merged and is still on `origin/vps-split` if wanted.
+  `cfa8d93` (a docs-only "Track K — audit of old_implementation") itself was never merged;
+  the code it inspired was recovered separately as Track W above.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
   in [`done_fixes.md`](done_fixes.md). The Terraform/EC2/OIDC layout and its workflow are
   gone; the workflow itself was reshaped for one host in Track V. `config.py` no longer logs the token.
@@ -264,6 +277,104 @@ delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Tra
 
 ---
 
+# Track W — the rest of the pre-deletion audit of `old_implementation/`
+
+## Why this track exists
+
+`cfa8d93` (2026-09-09, never merged) audited `old_implementation/` feature-by-feature and
+found items K0–K7 (its own numbering; see the Status entry above for why this file uses
+"W"). Uncommitted code implementing K1's snapshot half, K2, K3, K4 and K5 was found sitting
+on `origin/vps-split` on 2026-09-23, recovered, ported onto `main` (which had moved on
+44 commits, including retiring the split-VPS deployment those commits were written against),
+and landed as `v2.7.90` (Track W above). The rest of the audit is below, unchanged from
+`cfa8d93` except renumbered and K1 split in two.
+
+## W0 — Pre-deletion moves (do these in the same commit as the `git rm`)
+
+`old_implementation/` was not deleted in Track W; this remains open.
+
+- [ ] **Move `old_implementation/rules.pdf` to `new_implementation/docs/reference/rules.pdf`.**
+      `docs/specs/diplomacy_rules.md` is an OCR transcript that names the PDF as "the
+      authority where the two disagree" and `CLAUDE.md` tells rule questions to cross-check it.
+      It is the official rulebook, not AGPL code; it is the one file that must survive.
+- [ ] Update the pointers: `CLAUDE.md` (repository layout, "Game rule questions"),
+      `CODEBASE_OVERVIEW.md` (three places), `docs/specs/diplomacy_rules.md` line 5, and the
+      docstrings in `src/server/daide/{clauses,wire,session,tokens}.py`,
+      `tests/test_daide_tokens.py`, `tests/test_daide_wire.py`, `tests/datc/*.py`. Replace
+      "see `old_implementation/...`" with "see `git show v2.7.68:old_implementation/...`" so
+      the cross-check stays reproducible without the tree.
+- [ ] Drop the two `.gitignore` lines that only exist for the old tree (`diplomacy/games`,
+      `!diplomacy/maps/convoy_paths_cache.pkl`).
+- [ ] Delete `new_implementation/maps/mini_variant.json` at the same time — nothing reads it
+      (`grep -rn mini_variant src tests` is empty); it is a leftover from the same era.
+
+## W1 — A deadline-triggered turn took no snapshot (bug, new code) — **half fixed**
+
+**Finding (`cfa8d93`).** The two `process_turn` triggers had drifted again — the same class
+of bug G3 fixed for notifications, one layer down: the manual route wrote a
+`MapSnapshotModel` after every processed turn; the scheduler path
+(`api/shared.py:process_due_deadlines`) wrote none, so `/history/{turn}` and the bot's
+`/replay` had a permanent hole for every turn a missed deadline advanced.
+
+- [x] **Snapshot half, fixed in `v2.7.90`.** `process_due_deadlines` now takes the same
+      snapshot the manual route does, and invalidates the `/games/{id}/state` cache the
+      manual route already did and the scheduler did not. Pinned by
+      `test_both_triggers_snapshot_the_processed_turn` (`tests/test_turn_notifications.py`)
+      and by snapshot assertions added to `tests/test_api_scheduler.py`.
+- [x] **Deadline-rearm half, deliberately *not* ported.** `cfa8d93`'s fix also re-armed the
+      deadline from `phase_length_seconds` (defaulting to 24h) after every processed turn.
+      That directly reverses **Track N** (`v2.7.72`/`v2.7.73`), which decided — after this
+      audit was written — that a deadline exists only when set explicitly. Track W keeps
+      Track N: both triggers still clear the deadline unconditionally after processing;
+      `phase_length_seconds` only ever arms one when a caller passes it to
+      `POST /games/{id}/deadline` with no explicit `deadline` (see W2). Pinned by
+      `test_manual_processing_never_imposes_a_deadline` (already existed, Track N) plus
+      `test_deadline_route_can_arm_from_phase_length_explicitly` (new, Track W).
+
+## W6 — Game options the old server had and the new one dropped without a decision
+
+None of these were rejected anywhere in `done_fixes.md`; they simply were not ported.
+**Each needs a maintainer yes/no** before any code — most are "not for this project", but
+that should be written down once so the question stops being re-asked.
+
+| Old feature | Where it lived | New equivalent | Decide |
+|---|---|---|---|
+| Private games (`registration_password`) | `CreateGame` | none — every game is joinable by anyone | |
+| `n_controls`: start with fewer than 7 humans, rest as dummies in civil disorder (`CD_DUMMIES`) | `CreateGame`, `SetDummyPowers` | `required_powers = 7` hardcoded (`games.py`); a power with no player just holds forever, no start gate | |
+| Process as soon as all orders are in (old default), with a per-player **wait flag** (`SetWaitFlag`, `ALWAYS_WAIT`/`REAL_TIME`) | server | manual `/processturn` (with a "missing powers" confirmation) or an explicit deadline; no wait flag | |
+| Rule switches the old *engine* honoured: `BUILD_ANY`, `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`, `CIVIL_DISORDER` | `engine/game.py` | none; standard rules only | |
+| Press rules `NO_PRESS` / `PUBLIC_PRESS` (a no-press game is a common variant) | server | messaging is always on | |
+| `MULTIPLE_POWERS_PER_PLAYER` | server | one power per user per game | |
+| Expert setup: `SetUnits`/`SetCenters`/`ClearUnits`/`SetGameState`, `state` at creation (puzzles, DATC-style scenarios by hand) | server | `POST .../restore/{snapshot_id}` only | |
+| Delete one game (`DeleteGame`) | server | `/admin/delete_all_games` only (the waiting-list tests call the missing single delete a "documented residual") | |
+| Observer / omniscient roles | server | spectator routes exist but are on the out-of-scope list | |
+
+- [ ] Maintainer: fill the "Decide" column. Anything marked yes becomes its own task here;
+      anything marked no moves to *Out of scope* below with the date.
+
+## W7 — Order grammar accepts less than the old one (probably fine, but say so)
+
+`README_COMMANDS.txt` listed "recommended" and "other possible" syntaxes. The new parser
+(`engine/orders/parser.py`, probed 2026-09-09) accepts every *recommended* form and rejects
+these alternates: unit-less orders (`PAR H`, `IRI - MAO`, `WAL S LON`, `NWG C NWY - EDI`),
+verb-first retreats/removals (`RETREAT IRO - MAO`, `REMOVE F LIV`), and explicit multi-hop
+convoy routes (`IRI - MAO - NAO - NWG`). Full province names were rejected by design in G1.
+
+- [ ] Decide once: keep the grammar strict (one canonical form, which is what the bot's
+      interactive order UI and `legal_orders` emit anyway — the recommended answer), or accept
+      unit-less orders by inferring the unit from the board. If strict, add the rejected
+      forms to `help_text.py`'s "not accepted" examples so `tests/test_bot_help_text.py`
+      pins it.
+
+## Definition of done (Track W)
+
+- [ ] W0 done in the same commit that removes `old_implementation/`, `rules.pdf` relocated,
+      every pointer updated, suite green.
+- [ ] W6's table has a decision in every row.
+- [ ] W7: either landed or moved under *Out of scope* with the maintainer's decision.
+
+---
+
 # Track F — Manual acceptance (maintainer-only)
 
 ## Why this track exists
@@ -347,6 +458,8 @@ to use, which no test asserts.
 - [ ] **Track F:** a game plays end-to-end (movement, retreat, build) from both the browser
       and Telegram, run by a human, with F1's five steps checked off and F2's judgement
       recorded. **This is the only item here that an agent cannot do.**
+- [ ] **Track W:** W0 done (`old_implementation/` removed), W6's decision table filled in,
+      W7 decided. W1–W5's code landed as `v2.7.90`; only the maintainer-decision items remain.
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all eleven tasks
       landed this session (`v2.7.58`–`v2.7.67`), each as its own PR through the required checks.

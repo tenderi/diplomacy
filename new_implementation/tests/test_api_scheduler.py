@@ -90,6 +90,11 @@ def test_deadline_past_on_startup():
     resp = client2.get(f"/games/{game_id}/deadline")
     assert resp.status_code == 200
     assert resp.json()["deadline"] is None
+    # The scheduler path used to take no snapshot at all, unlike the manual
+    # process_turn route -- so `/history/{turn}` and the bot's `/replay` had a
+    # permanent hole for every turn a missed deadline advanced.
+    snapshots = client2.get(f"/games/{game_id}/snapshots").json()["snapshots"]
+    assert snapshots, "the deadline scheduler recorded no snapshot for the processed turn"
 
 
 def test_overlapping_deadlines():
@@ -115,6 +120,10 @@ def test_overlapping_deadlines():
     assert resp.json()["deadline"] is None
     resp = client2.get(f"/games/{game2_id}/deadline")
     assert resp.json()["deadline"] is None
+    for gid in (game1_id, game2_id):
+        assert client2.get(f"/games/{gid}/snapshots").json()["snapshots"], (
+            f"game {gid} was processed by the scheduler but got no snapshot"
+        )
 
 
 def test_reminder_and_notification():
@@ -157,6 +166,7 @@ def test_deadline_set_to_now():
     client2 = TestClient(app)
     resp = client2.get(f"/games/{game_id}/deadline")
     assert resp.json()["deadline"] is None
+    assert client2.get(f"/games/{game_id}/snapshots").json()["snapshots"]
 
 
 def test_manual_processing_never_imposes_a_deadline():
@@ -187,3 +197,47 @@ def test_manual_processing_spends_an_explicit_deadline():
     resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
     assert resp.status_code == 200, resp.text
     assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None
+
+
+def test_phase_length_seconds_stored_at_creation_does_not_arm_a_deadline():
+    """phase_length_seconds is stored, but creation still imposes no deadline
+    (Track N: a deadline exists only when set explicitly)."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    resp = client.post(
+        "/games/create",
+        json={"map_name": "standard", "initial_phase": "Movement", "phase_length_seconds": 600},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    game_id = resp.json()["game_id"]
+    deadline = client.get(f"/games/{game_id}/deadline").json()
+    assert deadline["deadline"] is None
+    assert deadline["phase_length_seconds"] == 600
+
+
+def test_deadline_route_can_arm_from_phase_length_explicitly():
+    """POST /deadline with phase_length_seconds and no explicit deadline arms
+    one from that length -- this is the *only* place phase_length_seconds
+    affects the deadline; nothing does so automatically after a turn."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    game_id = _create_game_as_player(client, headers)
+
+    resp = client.post(
+        f"/games/{game_id}/deadline", json={"phase_length_seconds": 300}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["phase_length_seconds"] == 300
+    deadline_str = resp.json()["deadline"]
+    assert deadline_str is not None
+    parsed = datetime.datetime.fromisoformat(deadline_str)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    remaining = parsed - datetime.datetime.now(datetime.timezone.utc)
+    assert datetime.timedelta(minutes=4) < remaining < datetime.timedelta(minutes=6)
+
+    resp = client.post(
+        f"/games/{game_id}/deadline", json={"phase_length_seconds": -1}, headers=headers
+    )
+    assert resp.status_code == 400

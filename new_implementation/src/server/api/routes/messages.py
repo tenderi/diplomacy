@@ -11,10 +11,30 @@ from datetime import datetime
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
-from ..shared import db_service, scheduler_logger, logger, notify_players, notify_user, BOT_SECRET
+from ..shared import db_service, game_service, scheduler_logger, logger, notify_players, notify_user, BOT_SECRET
 from persistence.database import MessageModel
 
 router = APIRouter()
+
+
+def _phase_code_for(game_id: str, numeric_game_id: int, sent_at: datetime) -> Optional[str]:
+    """The phase a message written at ``sent_at`` belongs to.
+
+    Normally the game's current phase. For a message the bot queued while the
+    API was unreachable, ``sent_at`` can predate the current phase, and the
+    snapshot trail says which phase was live then (``get_phase_code_at``) -- so
+    a delayed message is filed under the phase the player was looking at, not
+    the one it happened to arrive in. Best-effort: a failure here must not fail
+    the message, it just leaves the column NULL.
+    """
+    try:
+        view = game_service.view(str(game_id))
+        current = view["phase"] if view else None
+        historical = db_service.get_phase_code_at(numeric_game_id, sent_at)
+        return historical or current
+    except Exception as e:
+        logger.debug(f"Could not resolve the phase for a message in game {game_id}: {e}")
+        return None
 
 # --- Request Models ---
 class SendMessageRequest(BaseModel):
@@ -70,6 +90,7 @@ def send_private_message(
             recipient_power=recipient_power,
             text=req.text,
             timestamp=sent_at,
+            phase_code=_phase_code_for(str(game_id), int(game_model.id), sent_at),  # type: ignore
         )
         # Private message notification
         try:
@@ -111,6 +132,7 @@ def send_broadcast_message(
             recipient_power=None,
             text=req.text,
             timestamp=sent_at,
+            phase_code=_phase_code_for(str(game_id), game_id, sent_at),
         )
         # Broadcast message notification. The sender is excluded: they have
         # the bot's own "Broadcast sent" confirmation (or, for a queued
@@ -191,7 +213,10 @@ def get_game_messages(
                 "sender_user_id": m.sender_user_id,
                 "recipient_power": m.recipient_power,
                 "text": m.text,
-                "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp)
+                "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp),
+                # The phase the message was written in; NULL for messages
+                # predating this column. Lets a client group a game log by phase.
+                "phase_code": m.phase_code,
             }
             for m in messages
         ]

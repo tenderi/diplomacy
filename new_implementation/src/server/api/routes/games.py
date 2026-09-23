@@ -29,6 +29,10 @@ class CreateGameRequest(BaseModel):
     """Request model for creating a new game."""
     map_name: str = "standard"
     initial_phase: Optional[str] = None  # None or "Pregame" = lobby; "Movement" = start immediately (e.g. tests)
+    # Stored for later use by POST .../deadline (a caller may arm a deadline
+    # from it explicitly); does not itself arm a deadline at creation -- Track N
+    # decided deadlines exist only when set explicitly.
+    phase_length_seconds: Optional[int] = None
 
 class AddPlayerRequest(BaseModel):
     """Request model for adding a player to a game."""
@@ -36,7 +40,11 @@ class AddPlayerRequest(BaseModel):
     power: str
 
 class SetDeadlineRequest(BaseModel):
-    deadline: Optional[datetime]
+    deadline: Optional[datetime] = None
+    # Change the recurring phase length at the same time (seconds; 0 = none).
+    # Omitted leaves it as it is. A bare phase-length change with no explicit
+    # deadline arms one from the new length immediately.
+    phase_length_seconds: Optional[int] = None
     # The bot sends the caller's id (+ bot_secret, injected by api_post) so the
     # route can check they are in the game and leave them out of the
     # "deadline set" fan-out (they get the reply). A browser caller is the
@@ -118,8 +126,15 @@ def create_game(
     "Not authenticated" with no hint that a header was missing. That is fixed in
     `require_bot_or_user`, which now names both accepted credentials.
     """
+    if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
+        )
     try:
-        game_id = game_service.create_game(map_name=req.map_name)
+        game_id = game_service.create_game(
+            map_name=req.map_name, phase_length_seconds=req.phase_length_seconds
+        )
         return {"game_id": game_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -402,6 +417,10 @@ def submit_draw_vote(
         row = db_service.get_game_by_game_id(game_id)
         if row is not None:
             if result.get("quorum_reached"):
+                # A draw ends the game inline, without a turn being processed --
+                # there will never be another one, so clear a stale deadline
+                # rather than leave it displayed by /status.
+                db_service.update_game_deadline(int(row.id), None)
                 notify_turn_processed(
                     game_id,
                     int(row.id),
@@ -779,14 +798,20 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/games/{game_id}/deadline")
-def get_deadline(game_id: str) -> dict[str, Optional[str]]:
+def get_deadline(game_id: str) -> Dict[str, Any]:
     """Get the current deadline for a game."""
     try:
         game = db_service.get_game_by_game_id(game_id)
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
         deadline_value = getattr(game, 'deadline', None)
-        return {"status": "ok", "deadline": deadline_value.isoformat() if deadline_value else None}
+        return {
+            "status": "ok",
+            "deadline": deadline_value.isoformat() if deadline_value else None,
+            # The recurring length a caller can arm a deadline from via this
+            # route's POST; None means the default, 0 means none was set.
+            "phase_length_seconds": getattr(game, "phase_length_seconds", None),
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -798,7 +823,7 @@ def set_deadline(
     req: SetDeadlineRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),
-) -> dict[str, Optional[str]]:
+) -> Dict[str, Any]:
     """Set the deadline for a game.
 
     Uses ``update_game_deadline`` (opens and commits its own session), not a bare
@@ -819,8 +844,21 @@ def set_deadline(
     member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
     if member is None:
         raise HTTPException(status_code=403, detail="You are not a player in this game.")
+    if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
+        )
     try:
-        db_service.update_game_deadline(int(game.id), req.deadline)
+        if req.phase_length_seconds is not None:
+            db_service.update_game_phase_length(int(game.id), req.phase_length_seconds)
+        # A bare phase-length change with no explicit deadline arms one from the
+        # new length immediately, so "make this game 10-minute phases" takes
+        # effect now rather than waiting for someone to also pass a deadline.
+        deadline = req.deadline
+        if deadline is None and req.phase_length_seconds is not None:
+            deadline = api_shared.next_deadline(req.phase_length_seconds)
+        db_service.update_game_deadline(int(game.id), deadline)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     # A new deadline gets its own 10-minute reminder, even if the previous one
@@ -831,8 +869,8 @@ def set_deadline(
     # Everyone plays to the same clock, so everyone hears it change. Best-effort,
     # like every other notification; the write above is already committed.
     try:
-        if req.deadline is not None:
-            aware = req.deadline if req.deadline.tzinfo else req.deadline.replace(tzinfo=timezone.utc)
+        if deadline is not None:
+            aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
             when = aware.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             text = (
                 f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
@@ -843,20 +881,70 @@ def set_deadline(
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
     except Exception as e:
         scheduler_logger.error(f"Failed to notify deadline change for game {game_id}: {e}")
-    return {"status": "ok", "deadline": req.deadline.isoformat() if req.deadline else None}
+    return {
+        "status": "ok",
+        "deadline": deadline.isoformat() if deadline else None,
+        "phase_length_seconds": (
+            req.phase_length_seconds
+            if req.phase_length_seconds is not None
+            else getattr(game, "phase_length_seconds", None)
+        ),
+    }
 
 @router.get("/games/{game_id}/history/{turn}")
-def get_game_history(game_id: int, turn: int) -> Dict[str, Any]:
-    """Get the game state snapshot for a specific turn."""
-    try:
-        snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=game_id, turn=turn)
-        if not snapshot:
-            raise HTTPException(status_code=404, detail="No game state found for this turn.")
-        return {"game_id": game_id, "turn": turn, "phase": snapshot.phase, "state": snapshot.state}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
+    """Everything known about one past turn: the board it resulted in, the orders
+    submitted to get there, and what those orders did.
+
+    **Turn numbering.** ``turn`` T means: the snapshot written when T *began*
+    (i.e. the board immediately after T-1 was adjudicated), plus
+    ``order_history[T-1]`` and ``resolution_history[T-1]`` -- the orders given
+    during T-1 and their outcomes, which is what produced this board.
+    ``GameRepo.save_state`` keys a turn's history entry by the phase counter
+    *before* it increments, but records the following snapshot *after* -- so a
+    snapshot at T and its own history entry are one apart, not the same key.
+    Turn 0's board has no snapshot (nothing has been processed yet); it is the
+    standard opening position, and ``state`` is null for it.
+
+    **This endpoint returned 500 for its entire existence before this fix.** It
+    read ``snapshot.phase`` and ``snapshot.state``, neither of which is a column
+    on ``MapSnapshotModel`` (they are ``phase_code`` and ``state_json``), so
+    every call raised ``AttributeError`` into the blanket handler below and came
+    back as "500 Internal Server Error". The ``resolution`` field is new: before
+    this only the *latest* turn's outcomes were kept anywhere.
+    """
+    row = db_service.get_game_by_game_id(str(game_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
+    orders = game_service.order_history(str(game_id)).get(str(turn - 1))
+    resolution = game_service.resolution_history(str(game_id)).get(str(turn - 1))
+    if snapshot is None and orders is None and resolution is None:
+        raise HTTPException(status_code=404, detail="Nothing recorded for this turn.")
+    return {
+        "game_id": str(game_id),
+        "turn": turn,
+        "phase_code": snapshot.phase_code if snapshot is not None else None,
+        "state": snapshot.state_json if snapshot is not None else None,
+        "units": snapshot.units if snapshot is not None else None,
+        "supply_centers": snapshot.supply_centers if snapshot is not None else None,
+        "orders": orders,
+        "resolution": resolution,
+    }
+
+
+@router.get("/games/{game_id}/resolutions")
+def get_resolution_history(game_id: str) -> Dict[str, Any]:
+    """Per-turn adjudication outcomes, ``{turn: resolution}`` -- the outcome half of
+    ``GET /games/{id}/orders/history``.
+
+    ``GET /games/{id}/last_resolution`` answers "what happened last turn" and is
+    overwritten every turn; this answers it for every turn the game has played.
+    Empty for turns processed before ``resolution_history`` existed.
+    """
+    if not game_service.exists(str(game_id)):
+        raise HTTPException(status_code=404, detail="Game not found")
+    return {"game_id": str(game_id), "resolutions": game_service.resolution_history(str(game_id))}
 
 @router.post("/games/{game_id}/snapshot")
 def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
@@ -889,17 +977,20 @@ def get_game_snapshots(game_id: str) -> Dict[str, Any]:
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
         snapshots = db_service.get_game_snapshots_by_game_id(int(game.id))  # type: ignore
-        result = []
-        for snap in snapshots:
-            result.append({
+        # Only the columns `MapSnapshotModel` actually has. This used to read
+        # `snap.year`, `snap.season` and `snap.phase`, none of which exist on the
+        # model, so the route raised AttributeError into the handler below and
+        # returned 500 every time it was called. The year/season are recoverable
+        # from `phase_code` ("S1901M") by any client that wants them.
+        result = [
+            {
                 "id": snap.id,
                 "turn": snap.turn_number,
-                "year": snap.year,
-                "season": snap.season,
-                "phase": snap.phase,
                 "phase_code": snap.phase_code,
-                "created_at": snap.created_at.isoformat() if hasattr(snap, 'created_at') and snap.created_at else None
-            })
+                "created_at": snap.created_at.isoformat() if snap.created_at else None,
+            }
+            for snap in snapshots
+        ]
         return {"status": "ok", "snapshots": result}
     except HTTPException:
         raise

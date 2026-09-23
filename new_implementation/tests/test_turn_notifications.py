@@ -259,3 +259,57 @@ def test_setting_a_deadline_tells_everyone_but_the_setter_and_rearms_the_reminde
         headers={"X-Bot-Secret": "test_bot_secret_for_tests"},
     )
     assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.integration
+@pytest.mark.database
+def test_both_triggers_snapshot_the_processed_turn() -> None:
+    """The deadline-triggered path used to take no snapshot at all, unlike the
+    manual `process_turn` route -- so the first turn a missed deadline advanced
+    was permanently unreconstructable via `/history/{turn}` and the bot's
+    `/replay`. Asserted per trigger against the same expectation, in the same
+    shape as the notification comparison above, so a future change that fixes
+    one path and not the other fails here.
+
+    Both triggers still leave the game with no deadline afterwards (Track N:
+    deadlines exist only when set explicitly) -- this is not a K1/N conflict,
+    just two separate fixes to the same two-trigger drift.
+    """
+    client = TestClient(app)
+
+    def snapshot_turns(gid: str) -> set[int]:
+        return {s["turn"] for s in client.get(f"/games/{gid}/snapshots").json()["snapshots"]}
+
+    # --- manual trigger -------------------------------------------------
+    game_id, _row_id, users = _seeded_game(client)
+    with OutboxProbe():
+        assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
+    manual_snapshots = snapshot_turns(game_id)
+    manual_deadline = client.get(f"/games/{game_id}/deadline").json()["deadline"]
+
+    # --- deadline trigger -----------------------------------------------
+    game_id2, _row2, users2 = _seeded_game(client)
+    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
+    assert client.post(
+        f"/games/{game_id2}/deadline", json={"deadline": past}, headers=users2[0][0]
+    ).status_code == 200
+    with OutboxProbe():
+        api_shared.process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
+    deadline_snapshots = snapshot_turns(game_id2)
+    deadline_deadline = client.get(f"/games/{game_id2}/deadline").json()["deadline"]
+
+    assert manual_snapshots, "the manual trigger recorded no snapshot"
+    assert deadline_snapshots, "the deadline trigger recorded no snapshot (K1)"
+    assert manual_snapshots == deadline_snapshots, (
+        f"the two triggers snapshot different turns: {manual_snapshots} vs {deadline_snapshots}"
+    )
+    assert manual_deadline is None
+    assert deadline_deadline is None
+
+    # And the turn is genuinely reconstructable afterwards: board and outcomes.
+    # (`/history/{turn}` pairs the board *resulting from* a turn with that same
+    # turn's resolution -- see the route's own docstring for the numbering.)
+    turn = max(manual_snapshots)
+    history = client.get(f"/games/{game_id}/history/{turn}").json()
+    assert history["state"] is not None and history["phase_code"]
+    assert history["resolution"] is not None, "the processed turn's outcomes were not kept"
