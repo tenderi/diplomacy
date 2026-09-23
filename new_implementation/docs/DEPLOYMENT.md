@@ -161,11 +161,51 @@ rebuilds that SHA without pulling. `git checkout main` first to pull.
 ## Backups
 
 `backup.sh` writes `pg_dump | gzip` to `/var/backups/diplomacy/` and keeps 14
-days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override). `/etc/cron.d/diplomacy-backup`
-runs it nightly at 03:17 UTC, logging to `/var/log/diplomacy-backup.log`;
-`upgrade.sh` (re)installs that job on every deploy. The backups are on the
-same disk as the database -- copy them off the host, or enable UpCloud's
-server backups, if the games matter.
+days (`BACKUP_DIR`, `BACKUP_KEEP_DAYS` override), then **copies the folder to
+Proton Drive** with rclone and deletes remote copies older than 60 days
+(`BACKUP_REMOTE_KEEP_DAYS`). `/etc/cron.d/diplomacy-backup` runs it nightly at
+03:17 UTC, logging to `/var/log/diplomacy-backup.log`. `upgrade.sh` runs
+`./backup.sh --install` on every deploy, which (re)installs that job and
+installs rclone from rclone.org (checksum-verified) if it is missing or older
+than 1.64 -- Ubuntu's own package is too old to have the Proton Drive backend.
+
+The remote is `BACKUP_RCLONE_REMOTE` (in `.env`; default
+`proton:diplomacy-backups`). Until a remote with that name exists, the upload
+is skipped with a note in the log and backups stay on the VPS disk only. Once
+it exists, a failed upload makes the run exit non-zero with an `ERROR:` line
+(the local dump is kept either way).
+
+### One-time Proton Drive setup
+
+rclone logs in as a whole Proton account, and Proton has no scoped tokens, so
+whoever controls the VPS can read that account's entire drive. **Use a
+separate, backups-only Proton account** (the free tier is enough), so a
+compromise of the public host exposes Diplomacy dumps and nothing else. Then,
+over SSH on the VPS:
+
+```bash
+rclone config
+#   n                      (new remote)
+#   name>     proton       (backup.sh's default remote name)
+#   Storage>  protondrive
+#   username> the backups account's email
+#   password> y, then its password (stored obscured in /root/.config/rclone/rclone.conf)
+#   2fa>      the current 6-digit code if 2FA is on (only needed now; blank otherwise)
+#   mailbox_password> blank unless the account uses Proton's two-password mode
+#   everything else: the default; then y to keep the remote, q to quit
+chmod 600 /root/.config/rclone/rclone.conf
+rclone mkdir proton:diplomacy-backups
+cd /root/diplomacy/new_implementation && ./backup.sh   # expect "off-host copy done"
+```
+
+rclone's Proton Drive backend is **unofficial** (Proton publishes no Drive
+API), so a change on Proton's side can break uploads until rclone catches
+up. `./backup.sh --install` only installs rclone when it is missing or too
+old; to take a newer release, `dpkg -r rclone && ./backup.sh --install`. If
+Proton ends the saved session, `rclone config reconnect proton:` asks for the
+password and 2FA code again. Check the tail of
+`/var/log/diplomacy-backup.log` now and then; every successful night ends with
+`off-host copy done`.
 
 Restore into an empty database:
 

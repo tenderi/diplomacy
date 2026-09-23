@@ -33,7 +33,7 @@ docker compose up -d --remove-orphans
 echo "==> Cleaning up old images..."
 docker image prune -f
 
-./backup.sh --install-cron
+./backup.sh --install
 
 WEB_PORT=$(grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2- || true)
 WEB_PORT=${WEB_PORT:-80}
