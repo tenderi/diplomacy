@@ -6,7 +6,6 @@ All command handlers are organized in the telegram_bot package.
 """
 import asyncio
 import logging
-from datetime import datetime
 
 import requests
 from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -37,7 +36,7 @@ from server.telegram_bot.ui import (
     show_main_menu, show_map_menu, show_help, refresh_keyboard, handle_menu_buttons,
     rules, examples
 )
-from server.telegram_bot.admin import start_demo_game, run_automated_demo, debug_command
+from server.telegram_bot.admin import start_demo_game, debug_command
 from server.telegram_bot.notifications import (
     queue_status, start_background_loops, stop_background_loops,
 )
@@ -165,10 +164,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("🎮 Starting demo game as Germany...")
         await start_demo_game(update, context)
 
-    elif data == "run_automated_demo":
-        await query.edit_message_text("🎬 Starting perfect demo game...")
-        await run_automated_demo(update, context)
-
     elif data == "back_to_main_menu":
         await show_main_menu(update, context)
 
@@ -219,87 +214,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "🗺️ Use 'View Map' to see the current state"
         )
         await query.edit_message_text(help_text, parse_mode='Markdown')
-
-    elif data == "admin_delete_all_games":
-        if str(query.from_user.id) != "8019538":
-            await query.edit_message_text("❌ Access denied. Admin privileges required.")
-            return
-
-        keyboard = [
-            [InlineKeyboardButton("✅ Yes, Delete All Games", callback_data="admin_confirm_delete_all")],
-            [InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel_delete")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "⚠️ *CONFIRMATION REQUIRED*\n\n"
-            "🗑️ You are about to delete ALL games!\n\n"
-            "This action will:\n"
-            "• Remove all active games\n"
-            "• Delete all game data\n"
-            "• Affect all players\n\n"
-            "⚠️ *This action cannot be undone!*\n\n"
-            "Are you sure you want to proceed?",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    elif data == "admin_confirm_delete_all":
-        if str(query.from_user.id) != "8019538":
-            await query.edit_message_text("❌ Access denied. Admin privileges required.")
-            return
-
-        try:
-            result = api_post("/admin/delete_all_games", {})
-            message = (
-                "✅ *All games deleted successfully!*\n\n"
-                f"🗑️ Result: {result.get('message', 'Games deleted')}\n"
-                f"📊 Games deleted: {result.get('deleted_count', 'Unknown')}"
-            )
-            await query.edit_message_text(message, parse_mode='Markdown')
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error deleting games: {str(e)}")
-
-    elif data == "admin_cancel_delete":
-        await query.edit_message_text("❌ Delete operation cancelled.")
-
-    elif data == "admin_recreate_admin_user":
-        if str(query.from_user.id) != "8019538":
-            await query.edit_message_text("❌ Access denied. Admin privileges required.")
-            return
-
-        try:
-            result = api_post("/admin/recreate_admin_user", {})
-            await query.edit_message_text(
-                f"✅ *Admin User Recreated!*\n\n"
-                f"👤 Result: {result.get('message', 'User created')}\n"
-                f"🆔 User ID: {result.get('user_id', 'Unknown')}\n\n"
-                f"💡 You should now be able to access your games again.",
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error recreating admin user: {str(e)}")
-
-    elif data == "admin_system_status":
-        if str(query.from_user.id) != "8019538":
-            await query.edit_message_text("❌ Access denied. Admin privileges required.")
-            return
-
-        try:
-            games_count = len(api_get("/admin/games_count") or [])
-            users_count = len(api_get("/admin/users_count") or [])
-
-            status_text = (
-                "📊 *System Status*\n\n"
-                f"🎮 Active Games: {games_count}\n"
-                f"👥 Registered Users: {users_count}\n"
-                f"🕒 Server Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"⚙️ Admin User: {query.from_user.id}\n\n"
-                "✅ System operational"
-            )
-            await query.edit_message_text(status_text, parse_mode='Markdown')
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error getting system status: {str(e)}")
 
     elif data == "retry_orders_menu":
         await show_my_orders_menu(update, context)
