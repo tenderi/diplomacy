@@ -1,8 +1,6 @@
 """
 UI and menu helpers for the Telegram bot.
 """
-import logging
-
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -11,8 +9,6 @@ from .games import register, games, show_available_games, wait
 from .help_text import EXAMPLES_TEXT, HELP_TEXT, RULES_TEXT
 from .orders import show_my_orders_menu
 from .messages import show_messages_menu
-
-logger = logging.getLogger("diplomacy.telegram_bot.ui")
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -23,13 +19,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
         [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
     ]
-
-    # Add admin menu for admin user (ID: 8019538)
-    user_id = str(update.effective_user.id)
-    logger.info(f"show_main_menu - User ID: {user_id}, Type: {type(user_id)}")
-    if user_id == "8019538":
-        keyboard.append([KeyboardButton("⚙️ Admin")])
-        logger.info("show_main_menu - Admin button added to keyboard")
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -161,50 +150,11 @@ async def examples(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help with available commands"""
-    # Add inline keyboard with demo button
-    keyboard = [
-        [InlineKeyboardButton("🎬 Run Perfect Demo Game", callback_data="run_automated_demo")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(HELP_TEXT, parse_mode='Markdown', reply_markup=reply_markup)
-
-
-async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show admin menu with administrative functions"""
-    # Check if user is admin
-    if str(update.effective_user.id) != "8019538":
-        await update.message.reply_text("❌ Access denied. Admin privileges required.")
-        return
-
-    keyboard = [
-        [InlineKeyboardButton("🗑️ Delete All Games", callback_data="admin_delete_all_games")],
-        [InlineKeyboardButton("👤 Recreate Admin User", callback_data="admin_recreate_admin_user")],
-        [InlineKeyboardButton("📊 System Status", callback_data="admin_system_status")],
-        [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_to_main_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    admin_text = (
-        "⚙️ *Admin Menu*\n\n"
-        "🔐 *Authorized User*: Admin access granted\n\n"
-        "⚠️ *Warning*: Admin functions can affect all users!\n\n"
-        "💡 *Available Actions:*\n"
-        "🗑️ Delete all games (destructive action)\n"
-        "👤 Recreate admin user account\n"
-        "📊 View system status\n"
-        "⬅️ Return to main menu"
-    )
-
-    await update.message.reply_text(
-        admin_text,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(HELP_TEXT, parse_mode='Markdown')
 
 
 async def refresh_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Refresh the keyboard to show updated buttons (like admin button)"""
+    """Refresh the reply keyboard (e.g. after Telegram drops it)."""
     if not update.message:
         return
 
@@ -215,11 +165,6 @@ async def refresh_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
         [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
     ]
-
-    # Add admin menu for admin user (ID: 8019538)
-    user_id = str(update.effective_user.id)
-    if user_id == "8019538":
-        keyboard.append([KeyboardButton("⚙️ Admin")])
 
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -254,6 +199,4 @@ async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE
         await show_messages_menu(update, context)
     elif text == "ℹ️ Help":
         await show_help(update, context)
-    elif text == "⚙️ Admin":
-        await show_admin_menu(update, context)
 
