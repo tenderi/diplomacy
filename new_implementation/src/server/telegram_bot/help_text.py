@@ -144,6 +144,8 @@ HELP_TEXT = f"""
 • `/selectunit` - Interactive unit selection
 • `/processturn <game_id>` - Process current turn
 • `/deadline <game_id> <hours|clear>` - Set or remove the order deadline (auto-processes when it passes)
+• `/deadline <game_id> propose <hours|clear> [vote_hours]` - Start a majority vote to change it instead
+• `/deadline <game_id> vote <yes|no>` - Vote on a pending deadline proposal
 • `/viewmap <game_id>` - View game map
 • `/message <game_id> <power> <text>` - Send message
 • `/broadcast <game_id> <text>` - Message all players

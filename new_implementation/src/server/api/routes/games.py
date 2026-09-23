@@ -97,6 +97,33 @@ class DrawVoteRequest(BaseModel):
     bot_secret: Optional[str] = None
 
 
+class ProposeDeadlineRequest(BaseModel):
+    """Request model for starting a majority vote on a new deadline."""
+    power: str
+    # Hours from now; omit (or null) to propose *clearing* the deadline.
+    hours: Optional[float] = None
+    # How long the vote itself stays open, in hours; omit for no expiry (it
+    # then only resolves by majority or being withdrawn).
+    vote_hours: Optional[float] = None
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+class DeadlineProposalVoteRequest(BaseModel):
+    """Request model for voting yes/no on the pending deadline proposal."""
+    power: str
+    vote: bool
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+class WithdrawDeadlineProposalRequest(BaseModel):
+    """Request model for the proposer withdrawing their pending deadline proposal."""
+    power: str
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
 class ConcedeRequest(BaseModel):
     """Request model for a power conceding (voluntarily leaving) a game."""
     power: str
@@ -799,23 +826,142 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
 
 @router.get("/games/{game_id}/deadline")
 def get_deadline(game_id: str) -> Dict[str, Any]:
-    """Get the current deadline for a game."""
+    """Get the current deadline for a game, and any pending majority-vote
+    proposal to change it (see ``POST .../deadline/propose``)."""
     try:
         game = db_service.get_game_by_game_id(game_id)
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
         deadline_value = getattr(game, 'deadline', None)
+        proposal = db_service.get_pending_deadline_proposal(game_id)
+        pending_proposal = None
+        if proposal is not None:
+            active = game_service.active_powers(game_id) or frozenset()
+            pending_proposal = api_shared.deadline_proposal_view(proposal, active)
         return {
             "status": "ok",
             "deadline": deadline_value.isoformat() if deadline_value else None,
             # The recurring length a caller can arm a deadline from via this
             # route's POST; None means the default, 0 means none was set.
             "phase_length_seconds": getattr(game, "phase_length_seconds", None),
+            "pending_proposal": pending_proposal,
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/games/{game_id}/deadline/propose")
+def propose_deadline(
+    game_id: str,
+    req: ProposeDeadlineRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Start a majority vote to change (``hours``) or clear (omit ``hours``)
+    the deadline. Only the assigned user for ``power`` may propose for it.
+
+    Resolves on the spot if the proposer alone is already a majority
+    (single-active-power edge case); otherwise stays pending until
+    ``POST .../deadline/vote`` reaches one, its own ``vote_hours`` expires, or
+    the proposer withdraws it via ``POST .../deadline/withdraw``.
+    """
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        result = api_shared.propose_deadline(
+            game_id, int(game.id), req.power, req.hours, req.vote_hours
+        )
+    except api_shared.DeadlineProposalError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    try:
+        if result["status"] == "accepted":
+            notify_players(
+                int(game.id),
+                f"{req.power}'s deadline proposal for game {game_id} was accepted "
+                f"immediately (they're the only active power) and applied.",
+                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+            )
+        else:
+            needed = result["needed_for_majority"]
+            what = f"{req.hours}h" if req.hours is not None else "clearing it"
+            notify_players(
+                int(game.id),
+                f"{req.power} proposes changing game {game_id}'s deadline to {what}. "
+                f"Needs {needed} yes votes ({len(result['yes_votes'])}/{needed} so far). "
+                f"Use /deadline {game_id} vote yes|no.",
+                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify deadline proposal for game {game_id}: {e}")
+    return result
+
+
+@router.post("/games/{game_id}/deadline/vote")
+def vote_deadline_proposal(
+    game_id: str,
+    req: DeadlineProposalVoteRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Cast (or change) this power's yes/no vote on the pending deadline
+    proposal. Only the assigned user for ``power`` may vote it."""
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        result = api_shared.vote_on_deadline_proposal(game_id, int(game.id), req.power, req.vote)
+    except api_shared.DeadlineProposalError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    try:
+        exclude = _caller_telegram_id(credentials, req.telegram_id)
+        if result["status"] == "accepted":
+            what = f"{result['value_hours']}h" if result["value_hours"] is not None else "no deadline"
+            notify_players(
+                int(game.id),
+                f"Game {game_id}'s deadline proposal passed: now {what}.",
+                exclude_telegram_id=exclude,
+            )
+        elif result["status"] == "rejected":
+            notify_players(
+                int(game.id),
+                f"Game {game_id}'s deadline proposal (from {result['proposed_by']}) "
+                f"was voted down; nothing changed.",
+                exclude_telegram_id=exclude,
+            )
+        elif req.vote:
+            needed = result["needed_for_majority"]
+            notify_players(
+                int(game.id),
+                f"{req.power} voted yes on game {game_id}'s deadline proposal "
+                f"({len(result['yes_votes'])}/{needed} needed).",
+                exclude_telegram_id=exclude,
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify deadline vote for game {game_id}: {e}")
+    return result
+
+
+@router.post("/games/{game_id}/deadline/withdraw")
+def withdraw_deadline_proposal(
+    game_id: str,
+    req: WithdrawDeadlineProposalRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Cancel the pending deadline proposal. Only its original proposer may."""
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    if not db_service.get_game_by_game_id(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
+    try:
+        result = api_shared.withdraw_deadline_proposal(game_id, req.power)
+    except api_shared.DeadlineProposalError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    return result
 
 @router.post("/games/{game_id}/deadline")
 def set_deadline(
