@@ -113,12 +113,16 @@ jobs:
           #      settings (WEB_BIND, poll intervals) as they are;
           #   3. rebuilds and restarts through upgrade_control.sh, which also
           #      checks the tunnel to the home server and nginx.
-          printf '%s\n%s\n' "$TELEGRAM_BOT_TOKEN" "$DIPLOMACY_BOT_SECRET" | \
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" \
-            "SHA='$SHA' REPO_DIR='$REPO_DIR' bash -s" <<'REMOTE'
-          set -euo pipefail
-          IFS= read -r TELEGRAM_BOT_TOKEN
-          IFS= read -r DIPLOMACY_BOT_SECRET
+          #
+          # The secrets are prepended to the script as `printf %q` assignments: stdin
+          # is the script itself (`bash -s`), so a remote `read` would consume script
+          # lines, not a second stream (a heredoc on ssh replaces any `|` into it).
+          {
+            printf 'set -euo pipefail\n'
+            printf 'TELEGRAM_BOT_TOKEN=%q\n' "$TELEGRAM_BOT_TOKEN"
+            printf 'DIPLOMACY_BOT_SECRET=%q\n' "$DIPLOMACY_BOT_SECRET"
+            cat <<'REMOTE'
+          : "${TELEGRAM_BOT_TOKEN:?}" "${DIPLOMACY_BOT_SECRET:?}"
           eval "cd $REPO_DIR"
           echo "==> Checking out $SHA"
           # Fetch the target itself: the clone may be single-branch (the VPS one
@@ -141,6 +145,8 @@ jobs:
           # above is what pins the deployed SHA.
           ./upgrade_control.sh
           REMOTE
+          } | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" \
+                "SHA='$SHA' REPO_DIR='$REPO_DIR' bash -s"
 
       - name: Clean up SSH key
         if: always()
