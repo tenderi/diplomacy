@@ -147,6 +147,12 @@ class TestDeployControlWorkflow:
         assert 'sha="main"' not in workflow
         assert "${{ github.sha }}" in workflow
 
+    def test_fetches_the_target_itself(self, workflow: str) -> None:
+        # The VPS clone is single-branch (vps-split); a bare `git fetch origin` never brings
+        # main's commits, and the checkout died with "unable to read tree".
+        assert 'git fetch --quiet origin "$SHA"' in workflow
+        assert "git checkout --quiet --detach FETCH_HEAD" in workflow
+
     def test_no_aws_remains(self) -> None:
         assert not (WORKFLOWS / "deploy.yml").exists(), "the AWS deploy workflow was removed in v2.7.80"
         assert not (PROJECT_ROOT / "infra" / "terraform").exists()
