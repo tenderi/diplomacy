@@ -180,7 +180,7 @@ the bot and nginx reach the API by service name. p2p's bot shares the VPS and is
 Scripts, all in `new_implementation/`: `install.sh` (first-time host setup: Docker, swap,
 `.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
 prints one), `upgrade.sh` (build, restart, verify; fails if the API or site is down),
-`backup.sh` (nightly `pg_dump`). Every secret except the Telegram token is generated **on the
+`backup.sh` (nightly `pg_dump`, copied to Proton Drive with rclone). Every secret except the Telegram token is generated **on the
 host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from the same
 `.env`, so it cannot drift.
 

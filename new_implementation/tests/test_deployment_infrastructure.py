@@ -132,7 +132,7 @@ class TestHostScripts:
     def test_upgrade_fills_secrets_schedules_backup_and_fails_when_down(self) -> None:
         script = _read(PROJECT_ROOT / "upgrade.sh")
         assert "./ensure_env.sh" in script
-        assert "./backup.sh --install-cron" in script
+        assert "./backup.sh --install" in script
         assert "/api/healthz" in script  # nginx -> API, the path a browser takes
         assert script.rstrip().endswith('[ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]')
 
@@ -184,6 +184,90 @@ class TestEnsureEnv:
         assert "DIPLOMACY_API_URL" not in env and "DIPLOMACY_API_UPSTREAM" not in env
         for key in GENERATED_SECRETS:
             assert env[key], key
+
+
+class TestBackup:
+    """Run the real backup.sh with fake `docker` and `rclone` on PATH."""
+
+    FAKE_RCLONE = """#!/bin/bash
+echo "$*" >> "$FAKE_LOG"
+case "$1" in
+  version) echo "rclone ${FAKE_RCLONE_VERSION:-v1.75.1}" ;;
+  listremotes) printf '%s\\n' $FAKE_REMOTES ;;
+  copy) [ -z "${FAKE_COPY_FAIL:-}" ] ;;
+esac
+"""
+
+    @pytest.fixture
+    def env(self, tmp_path: Path) -> dict[str, str]:
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "backup.sh").write_bytes((PROJECT_ROOT / "backup.sh").read_bytes())
+        (work / "backup.sh").chmod(0o755)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "docker").write_text("#!/bin/sh\necho '-- fake dump'\n")
+        (bin_dir / "rclone").write_text(self.FAKE_RCLONE)
+        for tool in ("docker", "rclone"):
+            (bin_dir / tool).chmod(0o755)
+        return {
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "BACKUP_DIR": str(tmp_path / "backups"),
+            "FAKE_LOG": str(tmp_path / "rclone.log"),
+            "FAKE_REMOTES": "",
+            "WORK": str(work),
+        }
+
+    def _run(self, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", f"{env['WORK']}/backup.sh"], env=env, capture_output=True, text=True)
+
+    def _calls(self, env: dict[str, str]) -> list[str]:
+        log = Path(env["FAKE_LOG"])
+        return log.read_text().splitlines() if log.exists() else []
+
+    def _dumps(self, env: dict[str, str]) -> list[Path]:
+        return sorted(Path(env["BACKUP_DIR"]).glob("diplomacy-*.sql.gz"))
+
+    def test_without_a_configured_remote_the_local_backup_still_happens(self, env: dict[str, str]) -> None:
+        result = self._run(env)
+        assert result.returncode == 0, result.stderr
+        assert len(self._dumps(env)) == 1
+        assert "off-host copy skipped: rclone remote 'proton:' not configured" in result.stdout
+        assert not any(c.startswith("copy") for c in self._calls(env))
+
+    def test_copies_to_proton_and_prunes_old_remote_copies(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "proton:"
+        result = self._run(env)
+        assert result.returncode == 0, result.stderr
+        calls = self._calls(env)
+        assert f"copy {env['BACKUP_DIR']} proton:diplomacy-backups --include diplomacy-*.sql.gz" in calls
+        assert "delete proton:diplomacy-backups --include diplomacy-*.sql.gz --min-age 60d" in calls
+        assert "off-host copy done: proton:diplomacy-backups" in result.stdout
+
+    def test_a_failed_upload_fails_the_run_and_keeps_the_local_file(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "proton:"
+        env["FAKE_COPY_FAIL"] = "1"
+        result = self._run(env)
+        assert result.returncode == 1
+        assert "ERROR: off-host copy to proton:diplomacy-backups failed" in result.stderr
+        assert len(self._dumps(env)) == 1
+        assert not any(c.startswith("delete") for c in self._calls(env))
+
+    def test_an_rclone_without_protondrive_is_not_used(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "proton:"
+        env["FAKE_RCLONE_VERSION"] = "v1.60.1-DEV"  # Ubuntu's package
+        result = self._run(env)
+        assert result.returncode == 0, result.stderr
+        assert "rclone >= 1.64 not installed" in result.stdout
+        assert not any(c.startswith("copy") for c in self._calls(env))
+
+    def test_remote_can_be_set_in_env_file(self, env: dict[str, str]) -> None:
+        env["FAKE_REMOTES"] = "other:"
+        (Path(env["WORK"]) / ".env").write_text("BACKUP_RCLONE_REMOTE=other:dip\n")
+        result = self._run(env)
+        assert result.returncode == 0, result.stderr
+        assert any(c.startswith("copy ") and c.split()[2] == "other:dip" for c in self._calls(env))
 
 
 # ---------------------------------------------------------------------------
