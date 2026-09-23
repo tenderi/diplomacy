@@ -3176,8 +3176,9 @@ The maintainer wanted the dumps in Proton Drive. The options weighed: (A) rclone
 uploading directly, or (B) the home server pulling the dumps over a read-only `rrsync` key
 and uploading from there, so no Proton login ever sits on the public host. Proton has no
 scoped tokens -- rclone's `protondrive` backend logs in as the whole account -- so A's risk
-is the whole drive; the maintainer chose **A with a separate backups-only Proton account**,
-which bounds that risk to the dumps themselves.
+is the whole drive; the maintainer chose **A**. The docs recommend a separate backups-only Proton
+account to bound that risk to the dumps; the maintainer then chose to use their own paid
+account anyway, accepting that the public host holds a full-drive login.
 
 `backup.sh` now uploads the backup folder with `rclone copy` (not `sync`: a dump pruned
 locally after 14 days must stay remote) to `BACKUP_RCLONE_REMOTE` (default
