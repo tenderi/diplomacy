@@ -194,10 +194,14 @@ troubleshooting — is [`new_implementation/docs/DEPLOYMENT.md`](new_implementat
 and replayed with the original timestamp; server notifications are committed to Postgres and
 pulled by the bot. See the Telegram bot section above and `docs/specs/architecture.md`.
 
-Things that are *not* automated: deploy-on-merge (the AWS workflow in
-`.github/workflows/deploy.yml` stays gated off; run `./upgrade.sh` / `./upgrade_control.sh` on
-the hosts), and TLS (see `docs/DEPLOYMENT.md`). The Terraform under `infra/terraform/` describes
-the previous single-EC2 layout, which never ran in anger; it is kept as reference only.
+**Deploy-on-merge exists for the VPS only:** `.github/workflows/deploy-control.yml` SSHes in
+after a green Test Suite on `main`, injects `TELEGRAM_BOT_TOKEN` and `DIPLOMACY_BOT_SECRET`
+from GitHub repository secrets into the host's `.env`, and runs `./upgrade_control.sh`. It is
+gated on the `DEPLOY_CONTROL_ENABLED` variable until the SSH secrets exist (setup commands in
+`docs/DEPLOYMENT.md`). The home server is upgraded by hand with `./upgrade.sh` — GitHub cannot
+reach it. Not automated: TLS (see `docs/DEPLOYMENT.md`). There is no AWS anywhere any more:
+the single-EC2 Terraform layout and its OIDC/SSM deploy workflow were removed in `v2.7.80`
+(they never ran in anger; `done_fixes.md` Track H has the history).
 
 ## Conventions and gotchas
 

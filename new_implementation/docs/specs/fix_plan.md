@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.79`. `main` green.
+- **Last updated:** 2026-09-21, at `v2.7.80`. `main` green.
+- **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
+  in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
+  `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;
+  gated on `DEPLOY_CONTROL_ENABLED` until the maintainer adds the SSH secrets (F3). The
+  Terraform/EC2/OIDC layout and its workflow are gone. `config.py` no longer logs the token.
 - **Track T — auth sweep, landed as `v2.7.79`** and is archived in
   [`done_fixes.md`](done_fixes.md). `GET /users/{id}/games` was anonymous (and cached, so the
   fix had to be a dependency); `POST /deadline` let any Bearer user set any game's deadline;
@@ -77,7 +82,7 @@
   [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md). **Not yet done on the hosts:** actually running
   `install_home.sh` / `install_vps.sh` there, and TLS in front of the web frontend — both are
   the maintainer's, recorded under Track F below as F3/F4.
-- **Every automated task in this tracker is done again.** Tracks A–E and G–T are complete and
+- **Every automated task in this tracker is done again.** Tracks A–E and G–U are complete and
   archived in [`done_fixes.md`](done_fixes.md). **Only Track F remains, and it cannot be
   delegated to an agent** — it needs a live bot token and a human at a Telegram client (and,
   since Track J, shell access to the two hosts).
@@ -107,9 +112,10 @@
   from both clients, a game can end by agreement or concession *and everyone is told*, a real
   DAIDE bot can play a turn over the wire, and a player can see what happened to their orders.
   What is unverified is whether the whole thing is *pleasant to use*, which is exactly Track F.
-- **Suite baseline to hold (measured 2026-09-21 at `v2.7.79`, against a real local
-  Postgres):** **1619 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
-  **93.8%** (floor 92), overall **72%** (floor 60). Track T net +2; Track S added 1; Track R added 3; Track Q added 4; Track P added 9; Track O removed 21 tests and added 3;
+- **Suite baseline to hold (measured 2026-09-21 at `v2.7.80`, against a real local
+  Postgres):** **1600 passed, 0 skipped, 10 xfailed**; ruff clean; engine coverage
+  **93.8%** (floor 92), overall **72%** (floor 60). Track U net −19 (AWS tests out, split-layout
+  tests in); Track T net +2; Track S added 1; Track R added 3; Track Q added 4; Track P added 9; Track O removed 21 tests and added 3;
   Track N added 17, M 1, L 13, K 27 (see
   `done_fixes.md`); Track J had it at 1548 at `v2.7.68`, Track I at 1491 at `v2.7.67`.
   Track I added 46: I2's `test_arrow_geometry.py` (29) and `test_pending_order_styling.py` (17);
@@ -291,6 +297,11 @@ to use, which no test asserts.
       and the message shows its original time.
 - [ ] Decide what to do with the home server's existing p2p `docker-compose.yml` stack: both
       stacks bind the tunnel address on different ports (8081 vs 8000), so they coexist.
+- [ ] Turn on deploy-on-merge for the VPS (`v2.7.80`): install a deploy key for `tenderi` on
+      the VPS, set `VPS_SSH_KEY`, `VPS_HOST_KEY`, `DIPLOMACY_BOT_SECRET` and
+      `DEPLOY_CONTROL_ENABLED=true` — the exact commands are in `docs/DEPLOYMENT.md`
+      §"Deploy-on-merge for the VPS". `TELEGRAM_BOT_TOKEN` is already set (2026-09-21). Then
+      *Run workflow* on "Deploy control layer" once by hand and watch it.
 
 ## F4 — TLS in front of the web frontend
 

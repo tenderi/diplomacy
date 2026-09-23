@@ -137,16 +137,6 @@ events.out.*
 
 test_output.txt
 
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-crash.log
-*.tfplan
-.terraform.lock.hcl
-terraform.tfvars
-terraform.tfvars.json
-# End Terraform
 
 # test outputs
 test_maps/

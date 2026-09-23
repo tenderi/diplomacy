@@ -32,10 +32,10 @@ port 80, so the token is the only thing protecting it.
 - Subprocess calls (`systemctl`, `journalctl`) parse their output defensively and surface
   failures as HTTP errors rather than tracebacks.
 
-> **Known mismatch:** `ALLOWED_SERVICES` currently lists `["diplomacy", "diplomacy-bot"]`,
-> but the units Terraform installs are `diplomacy-api` and `diplomacy-bot`
-> (`infra/terraform/user_data.sh`). Status and log queries for the API service therefore
-> fail in production until that list is corrected.
+> **Known mismatch:** `ALLOWED_SERVICES` lists systemd units (`["diplomacy", "diplomacy-bot"]`),
+> but since the split deployment (Track J) nothing runs under systemd — both hosts run Docker
+> Compose, and the API and bot are on different machines. The service status and log
+> queries do not work in production; this spec is aspirational (see `fix_plan.md` Out of scope).
 
 ## Out of scope
 

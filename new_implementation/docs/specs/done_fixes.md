@@ -3010,3 +3010,55 @@ and every read route that hands out per-user data without asking who is reading.
 - Full suite against the local Postgres: **1619 passed, 0 skipped, 10 xfailed** (was 1617,
   −3 +5); ruff clean; engine coverage 93.81 % (floor 92), overall 72.04 % (floor 60).
   Frontend untouched (it uses `/users/me/games`).
+
+---
+
+# Track U — Deploy-on-merge for the VPS; AWS removed (`v2.7.80`)
+
+## Why this track exists
+
+Maintainer request, 2026-09-21: `TELEGRAM_BOT_TOKEN` is now a repository secret; use it in a
+workflow and inject it into the deployment, prepare the workflow for the VPS, and remove
+everything AWS. Production has been the VPS + home-server split since Track J; the only
+deploy workflow was the gated-off single-EC2 OIDC/SSM one from before it.
+
+## What landed
+
+- [x] **`.github/workflows/deploy-control.yml`**: after a green Test Suite on `main` (or on
+      demand), SSH into the VPS, check out the exact SHA that passed, create `.env` from
+      `.env.control.example` if absent, replace only the `TELEGRAM_BOT_TOKEN` and
+      `DIPLOMACY_BOT_SECRET` lines from repository secrets (the operator's other settings
+      survive), run `./upgrade_control.sh`. Secrets travel on stdin to a `bash -s` remote
+      script, never in a command line `ps` could show; the host key is pinned from a secret
+      rather than `ssh-keyscan`'d at deploy time. Gated on `DEPLOY_CONTROL_ENABLED` so it is
+      *skipped*, not red, until the SSH secrets exist — the lesson of H2.
+- [x] `upgrade_control.sh` skips its `git pull` on a detached HEAD (the workflow's checkout
+      is what pins the SHA; a pull there fails with "not on a branch" under `set -e`).
+- [x] **AWS removed**: `.github/workflows/deploy.yml`, `infra/terraform/` (11 files), the
+      seven EC2/SSM-era scripts in `infra/scripts/` (`deploy.sh`, `refresh-env.sh`,
+      `diagnose_bot.sh`, `test_remote_setup.sh`, `install_browser_deps.sh`,
+      `fix_sudoers.sh`, `BOT_TROUBLESHOOTING.md`), the Terraform block in `.gitignore`, the
+      `AWS_DEPLOY_ROLE_ARN` / `AWS_REGION` repository variables, and every doc reference
+      (`CLAUDE.md`, `CODEBASE_OVERVIEW.md`, `README.md`, `DEPLOYMENT.md`'s "What the old AWS
+      deployment was", `LOCAL_DEVELOPMENT.md`, `dashboard.md`'s Terraform note).
+- [x] `telegram_bot/config.py` no longer unwraps the AWS-Secrets-Manager JSON form — and no
+      longer **logs the first 50 characters of the raw token at INFO on import**, which for
+      a ~46-character bot token was the whole secret in the container logs.
+- [x] `tests/test_deployment_infrastructure.py` rewritten for the split layout (17): no
+      game-layer secret in the VPS env template, the API never on a bare `8000:8000`, the
+      bot image installs only `requirements-bot.txt`, the four host scripts parse, and the
+      workflow's gate / secret handling / host-key pinning / no-AWS. Two token tests updated,
+      one added that reloads `config.py` with a token set and asserts it never reaches the log.
+
+## Left for the maintainer (recorded under F3 in `fix_plan.md`)
+
+Install a deploy key on the VPS and set `VPS_SSH_KEY`, `VPS_HOST_KEY`, `DIPLOMACY_BOT_SECRET`
+and `DEPLOY_CONTROL_ENABLED=true` — the exact commands are in `DEPLOYMENT.md`. Then run the
+workflow once by hand.
+
+## Verification
+
+- Full suite against the local Postgres: **1600 passed, 0 skipped, 10 xfailed** (was 1619; the
+  AWS-era deployment tests were 36 and their replacement is 17, +1 token test); ruff clean;
+  engine coverage 93.81 % (floor 92), overall 72.02 % (floor 60). `bash -n` on the four host
+  scripts; the workflow parses as YAML. Frontend untouched.

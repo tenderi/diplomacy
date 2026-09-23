@@ -153,7 +153,7 @@ class BotOutboxModel(Base):
 
     The API used to ``requests.post`` every player DM straight at a small HTTP
     server the bot ran on port 8081, with a two-second timeout and the failure
-    merely logged. That was fine while both processes shared one EC2 host; it is
+    merely logged. That was fine while both processes shared one host; it is
     not fine now that the bot lives on a VPS and reaches the API over a
     WireGuard tunnel to a home server on a residential connection. A tunnel
     hiccup during a deadline meant every "turn processed" DM for that game was

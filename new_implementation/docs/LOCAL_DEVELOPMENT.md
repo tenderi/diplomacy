@@ -202,5 +202,5 @@ the API is reachable at `DIPLOMACY_API_URL`, and that you have sent `/register`.
 **Tests fail or skip unexpectedly** — check the database URL first (see above), then re-run
 the single test with `pytest tests/test_file.py::test_name -v`.
 
-For production troubleshooting on the EC2 host, see
-[`infra/scripts/BOT_TROUBLESHOOTING.md`](../infra/scripts/BOT_TROUBLESHOOTING.md).
+For production troubleshooting, see the *Troubleshooting* section of
+[`docs/DEPLOYMENT.md`](./DEPLOYMENT.md).

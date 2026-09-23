@@ -56,12 +56,22 @@ class TestBotCommands:
             result = get_telegram_token()
             assert result == 'test_token'
     
-    def test_get_telegram_token_json_format(self):
-        """Test getting Telegram token from JSON format."""
-        json_token = '{"TELEGRAM_BOT_TOKEN": "json_token"}'
-        with patch.dict('os.environ', {'TELEGRAM_BOT_TOKEN': json_token}):
-            result = get_telegram_token()
-            assert result == 'json_token'
+    def test_get_telegram_token_is_taken_verbatim(self):
+        """No JSON unwrapping (that was the AWS Secrets Manager form, gone with
+        the AWS layout); surrounding whitespace from a hand-edited .env is dropped."""
+        with patch.dict('os.environ', {'TELEGRAM_BOT_TOKEN': ' 123:abc \n'}):
+            assert get_telegram_token() == '123:abc'
+        with patch.dict('os.environ', {'TELEGRAM_BOT_TOKEN': '{"TELEGRAM_BOT_TOKEN": "x"}'}):
+            assert get_telegram_token() == '{"TELEGRAM_BOT_TOKEN": "x"}'
+
+    def test_importing_config_never_logs_the_token(self, caplog):
+        import importlib
+        import logging as _logging
+        from server.telegram_bot import config as cfg
+        with patch.dict('os.environ', {'TELEGRAM_BOT_TOKEN': '999999:SECRET-TOKEN-VALUE'}), caplog.at_level(_logging.DEBUG):
+            importlib.reload(cfg)
+        assert 'SECRET-TOKEN-VALUE' not in caplog.text
+        assert '999999' not in caplog.text
     
     def test_get_telegram_token_empty(self):
         """Test getting Telegram token when not set."""
