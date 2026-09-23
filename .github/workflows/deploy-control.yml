@@ -60,7 +60,7 @@ jobs:
           elif [ -n "${{ github.event.workflow_run.head_sha }}" ]; then
             sha="${{ github.event.workflow_run.head_sha }}"
           else
-            sha="main"
+            sha="${{ github.sha }}"  # the dispatched ref's commit, never a branch name
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}" >> "$GITHUB_OUTPUT"
