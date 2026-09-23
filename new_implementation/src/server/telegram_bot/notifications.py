@@ -113,26 +113,56 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
     exactly like a bare ``bot.send_message`` would, so the caller's existing
     permanent/transient handling covers every kind without change.
 
-    ``"dm"`` (the default, a player DM) and ``"channel_text"`` (a channel post
-    with no special content -- turn notifications, forwarded broadcasts) are
-    both plain text; ``kind`` only changes the wording via ``render_notification``,
-    which skips the "delayed" framing for a channel (nobody there is waiting on
-    it the way a player watching their own DMs is). ``"channel_map"`` fetches
-    the image itself from ``GET /games/{id}/map`` -- the API queued this row
-    with nothing but the game id in ``payload`` because it has no filesystem in
-    common with this container to hand a rendered file through.
+    ``"dm"`` (the default, a player DM) uses ``render_notification`` (adds the
+    "delayed" prefix when late) and never a ``parse_mode`` -- unchanged.
+
+    ``"channel_text"`` covers every plain-message channel post (turn
+    notifications, forwarded broadcasts, manually-posted broadcasts, timeline/
+    dashboard/battle-results updates, proposal posts): ``payload.parse_mode``
+    (default ``None``, i.e. plain text), ``payload.buttons`` (an inline
+    keyboard, as a list of rows of ``{"text", "callback_data"}``, e.g. a
+    proposal's vote buttons), and ``payload.reply_to_message_id`` (manual
+    broadcast threading) are all optional and all server-decided, since the
+    server already knows whether it escaped the text for Markdown and what a
+    proposal's buttons should be. An *automatically forwarded* broadcast
+    carries a player's raw text and deliberately gets none of these -- an
+    unescaped `_`/`*` in it would either 400 the whole send under Markdown or
+    render garbled, matching why the DM path above has never used a
+    ``parse_mode``.
+
+    ``"channel_map"`` fetches the image itself from ``GET /games/{id}/map`` --
+    the API queues this row with nothing but the game id in ``payload``
+    because it has no filesystem in common with this container to hand a
+    rendered file through.
+
+    ``"channel_create_thread"`` creates a forum topic named by ``message``.
+    Fire-and-forget like everything else here: the created thread id is not
+    reported back (nothing downstream reads one yet), only that the channel
+    actually received the topic, which -- before this -- it silently never did.
     """
     kind = item.get("kind", "dm")
+    payload = item.get("payload") or {}
     if kind == "channel_map":
-        game_id = (item.get("payload") or {}).get("game_id")
+        game_id = payload.get("game_id")
         img_bytes = await asyncio.to_thread(api_get_bytes, f"/games/{game_id}/map")
         await bot.send_photo(chat_id=chat_id, photo=BytesIO(img_bytes), caption=item.get("message") or None)
+    elif kind == "channel_create_thread":
+        await bot.create_forum_topic(chat_id=chat_id, name=item.get("message") or "Discussion")
     elif kind == "channel_text":
-        # Plain text, deliberately no parse_mode: a forwarded broadcast carries
-        # a player's raw text, which is not markdown-safe (an unescaped `_` or
-        # `*` would either 400 the whole send or render garbled). Matches the
-        # DM path below, which has never used a parse_mode for the same reason.
-        await bot.send_message(chat_id=chat_id, text=item.get("message", ""))
+        reply_markup = None
+        buttons = payload.get("buttons")
+        if buttons:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(b["text"], callback_data=b["callback_data"]) for b in row] for row in buttons]
+            )
+        await bot.send_message(
+            chat_id=chat_id,
+            text=item.get("message", ""),
+            parse_mode=payload.get("parse_mode"),
+            reply_markup=reply_markup,
+            reply_to_message_id=payload.get("reply_to_message_id"),
+        )
     else:
         await bot.send_message(chat_id=chat_id, text=render_notification(item))
 

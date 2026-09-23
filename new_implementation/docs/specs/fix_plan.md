@@ -22,15 +22,17 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.93`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.94`. `main` green.
 - **Track X — Telegram bot command audit, prompted by a maintainer report that
-  Help -> Run Perfect Demo Game failed.** X1/X2 landed as `v2.7.92`, X3 as `v2.7.93`; X4
-  is open. See the Track X section below for the full writeup — the short version: two
-  menu items were calling code that could never have worked (removed), and the entire
-  channel-integration feature (`/link_channel`'s promised auto-posted maps/broadcasts/
-  notifications) turned out to have been silently non-functional since it was written,
-  for a third, independent reason each time (wrong process, wrong async convention, or
-  both) — now fixed and verified against a live server, not just unit tests.
+  Help -> Run Perfect Demo Game failed — complete**, `v2.7.92`–`v2.7.94`. See the
+  Track X section below for the full writeup — the short version: two menu items were
+  calling code that could never have worked (removed), and the entire channel-integration
+  feature (`/link_channel`'s promised auto-posted maps/broadcasts/notifications, plus six
+  more manually-triggered channel posts) turned out to have been silently non-functional
+  since it was written, for a third, independent reason each time (wrong process, wrong
+  async convention, or both) — now fixed and verified against a live server, not just unit
+  tests. What's left (proposal-vote tallying) was already a documented stub before this
+  track, not a wrong-process bug — recorded as open work, not silently dropped.
 - **Track W — recovered uncommitted work from `origin/vps-split` (`v2.7.90`) plus W0
   (`v2.7.91`).** `cfa8d93` (the audit referenced below) was never merged, but real code
   implementing four of its findings was sitting **uncommitted** on `vps-split` and was
@@ -368,27 +370,46 @@ independent reasons stacked on top of each other:
       functions) and `test_turn_notifications.py` still green; full suite 1634
       passed, 10 xfailed.
 
-## X4 — Six more channel routes have the same wrong-process bug, unreached
+## X4 — Six more channel routes had the same wrong-process bug — **done, `v2.7.94`**
 
-`api/routes/channels.py`'s `/channel/broadcast`, `/thread`, `/proposal`,
-`/proposal/{id}`, `/timeline`, `/dashboard`, `/battle_results` each still do
-`from ...telegram_bot.channels import <fn>` and call it directly — the identical
-wrong-process bug X3 fixed for the two triggers a bot command can actually reach.
-**Nothing currently calls these routes**: `channel_commands.py` (the bot's real
-`/link_channel` / `/unlink_channel` / `/channel_info` / `/channel_settings`
-handlers) only ever calls `POST .../channel/link`, `GET .../channel`, and `POST
-.../channel/settings`. So unlike X3, no promised behaviour is silently broken here
-— these are unreachable REST endpoints, not a broken feature a player can trigger.
+`api/routes/channels.py`'s `/channel/broadcast`, `/thread`, `/proposal`, `/timeline`,
+`/dashboard`, `/battle_results` each did `from ...telegram_bot.channels import <fn>`
+and called it directly — the identical wrong-process bug X3 fixed for the two
+triggers a bot command can actually reach. Unlike X3 nothing currently calls these
+routes (`channel_commands.py`'s real bot handlers only ever hit `.../channel/link`,
+`GET .../channel`, and `.../channel/settings`), so no promised behaviour was
+silently broken — these were unreachable REST endpoints, not something a player
+could trigger and see fail.
 
-- [ ] Maintainer: decide whether these are worth wiring onto `bot_outbox` the same
-      way (proposal voting and discussion-thread creation need more than
-      fire-and-forget — a live inline-keyboard callback handler in the bot process
-      for real-time vote counting, which is a small design of its own, not a copy
-      of X3's pattern) or worth deleting as speculative scaffolding nothing drives.
-      Whichever way: `post_map_to_channel`'s `_telegram_bot.send_photo(...)` (and
-      its sibling calls throughout `channels.py`) are missing `await` regardless of
-      which process runs them and need it before any of this works synchronously
-      called too.
+- [x] All six now format server-side (reusing `channels.py`'s pure `format_*`
+      functions and `utils.escape_markdown`, neither of which touch `_telegram_bot`)
+      and queue onto `bot_outbox` with `kind="channel_text"` — generalized from X3's
+      version to carry `payload.parse_mode`, `payload.buttons` (an inline keyboard,
+      for the proposal's vote buttons), and `payload.reply_to_message_id` (manual
+      broadcast threading), all server-decided. A new `kind="channel_create_thread"`
+      covers forum-topic creation. Routes that used to return a real `message_id`/
+      `thread_id` synchronously now return `"status": "queued"` and an `outbox_id`
+      instead — there is no ID until the bot's next poll actually sends it.
+- [x] Verified against the same live `uvicorn` setup X3 used: linked a channel, hit
+      all six routes, confirmed six correctly-`kind`ed/payloaded rows, then ran the
+      bot's `_send_outbox_item` against them with a mocked `Bot` and confirmed
+      `send_message`/`create_forum_topic` calls with the right `parse_mode`,
+      `reply_markup` (present only for the proposal), and thread name.
+- [x] **Proposal voting's tally half deliberately left alone.** Posting the
+      proposal (with vote buttons) now actually reaches the channel; tapping a
+      button still only acknowledges (`app.py`'s `vote_proposal_*` callback has its
+      own comment: `"will be enhanced with database"`) and
+      `GET .../channel/proposal/{id}` still always answers zero votes in every
+      category. That was already a documented stub before this fix, not a
+      wrong-process bug — no vote is recorded anywhere to route correctly. Building
+      a real tally (a votes table, a write from the callback, a read here) is a
+      feature to build, not a channel-posting bug; left open for whoever picks it up.
+- [x] `_telegram_bot.send_photo(...)`'s missing `await` (and its siblings, found
+      while diagnosing X3) is moot for every path fixed here and in X3 — none of
+      them call the old `telegram_bot.channels` send functions any more, only the
+      pure formatters. It would only resurface if the proposal-voting tally (above)
+      or some future caller went back to calling `channels.py`'s post functions
+      directly instead of going through `bot_outbox`.
 
 ---
 
@@ -575,9 +596,10 @@ to use, which no test asserts.
       recorded. **This is the only item here that an agent cannot do.**
 - [ ] **Track W:** W0 done (`old_implementation/` removed, `v2.7.91`). W6's decision table
       filled in and W7 decided are the only items left, both maintainer-only.
-- [ ] **Track X:** X1–X3 done (`v2.7.92`/`v2.7.93`). X4 (the six unreachable
-      `/channel/*` routes with the same wrong-process bug X3 fixed for the two
-      reachable triggers) needs a maintainer decision: wire up or delete.
+- [x] **Track X:** complete, `v2.7.92`–`v2.7.94`. Proposal-vote tallying (a
+      documented stub predating this track, not a wrong-process bug) remains
+      genuinely unimplemented — a feature to build, not fixable by this track's
+      pattern; not tracked as a numbered item since nothing regressed it.
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all eleven tasks
       landed this session (`v2.7.58`–`v2.7.67`), each as its own PR through the required checks.
