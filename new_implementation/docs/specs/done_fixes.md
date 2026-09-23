@@ -3169,3 +3169,23 @@ idempotent, and migrating the VPS's actual two-host `.env` (token kept, bot secr
 tunnel keys dropped). `TestDeployStepRuns` still executes the workflow's remote step against
 a fake `ssh` and a single-branch clone, now checking that host-generated secrets survive a
 deploy untouched.
+
+## Follow-up: off-host backups to Proton Drive (`v2.7.87`)
+
+The maintainer wanted the dumps in Proton Drive. The options weighed: (A) rclone on the VPS
+uploading directly, or (B) the home server pulling the dumps over a read-only `rrsync` key
+and uploading from there, so no Proton login ever sits on the public host. Proton has no
+scoped tokens -- rclone's `protondrive` backend logs in as the whole account -- so A's risk
+is the whole drive; the maintainer chose **A with a separate backups-only Proton account**,
+which bounds that risk to the dumps themselves.
+
+`backup.sh` now uploads the backup folder with `rclone copy` (not `sync`: a dump pruned
+locally after 14 days must stay remote) to `BACKUP_RCLONE_REMOTE` (default
+`proton:diplomacy-backups`, overridable in `.env`) and prunes remote dumps older than 60
+days. An unconfigured remote or an rclone older than 1.64 (Ubuntu 26.04 ships 1.60, which
+predates the backend) skips the upload with a note, so the local dump still happens before
+setup; a failed upload exits 1 with an `ERROR:` line and keeps the local file.
+`--install-cron` became `--install`, which also installs rclone from rclone.org's `.deb`,
+verified against the release's `SHA256SUMS`. `TestBackup` runs the real script with fake
+`docker` and `rclone` on `PATH` (skip, upload + prune, failed upload, old rclone, remote
+from `.env`).

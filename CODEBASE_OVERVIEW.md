@@ -269,7 +269,7 @@ Production is one Docker Compose stack on the UpCloud VPS, `docker-compose.yml`:
 Only nginx is published publicly; the API is on loopback, Postgres unpublished. Dockerfiles
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
 `ensure_env.sh` (generates secrets on the host), `upgrade.sh` (build, restart, verify) and
-`backup.sh` (nightly `pg_dump`). Full walkthrough:
+`backup.sh` (nightly `pg_dump`, copied off-host to Proton Drive with rclone). Full walkthrough:
 [`docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).
 
 `.github/workflows/deploy.yml` deploys after a green Test Suite on `main`, writing
