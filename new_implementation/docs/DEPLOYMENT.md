@@ -162,7 +162,7 @@ One-time setup, from a machine that can already SSH into the VPS:
 ```bash
 # 1. A dedicated deploy key for GitHub (no passphrase), installed for the VPS user.
 ssh-keygen -t ed25519 -f ~/.ssh/diplomacy_deploy -N "" -C "github-actions-deploy"
-ssh-copy-id -i ~/.ssh/diplomacy_deploy.pub tenderi@87.58.144.64
+ssh-copy-id -i ~/.ssh/diplomacy_deploy.pub root@87.58.144.64
 
 # 2. Secrets and the gate. TELEGRAM_BOT_TOKEN is already set.
 gh secret set VPS_SSH_KEY          -R tenderi/diplomacy < ~/.ssh/diplomacy_deploy
@@ -172,7 +172,7 @@ gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
 ```
 
 Optional repository variables override the defaults: `VPS_HOST` (`87.58.144.64`),
-`VPS_USER` (`tenderi`), `VPS_REPO_DIR` (`~/diplomacy/new_implementation`). Until
+`VPS_USER` (`root` — the VPS has no other login user; the stack runs from `/root/diplomacy`), `VPS_REPO_DIR` (`~/diplomacy/new_implementation`). Until
 `DEPLOY_CONTROL_ENABLED` is `true` the workflow is skipped, not red.
 
 ## Monitoring
