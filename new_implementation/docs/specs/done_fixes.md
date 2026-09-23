@@ -3078,3 +3078,18 @@ fetches the target itself (`git fetch origin "$SHA"`, which GitHub serves for an
 SHA, tag or branch) and checks out `FETCH_HEAD`; verified on a fresh
 `--single-branch -b vps-split` clone for both a SHA and a tag. `test_fetches_the_target_itself`
 pins it.
+
+The run after that (`35837781241`) got past the checkout and died with
+`DIPLOMACY_BOT_SECRET: unbound variable`. The step did `printf secrets | ssh ... "bash -s"
+<<'REMOTE'`: a heredoc on the same command replaces the pipe as stdin, so the secrets were
+discarded and the remote `IFS= read -r` lines read *the next lines of the script*. The
+first `read` swallowed the second, so `set_var TELEGRAM_BOT_TOKEN` wrote the literal script
+line into the VPS `.env` before `set -u` stopped the run. The live bot was unaffected (it
+does not re-read `.env`), but recreating the containers from that file would have taken it
+down. `v2.7.84` prepends `set -euo pipefail` and the two secrets as `printf %q` assignments
+to the script stream (still on stdin, never on a command line) and guards them with
+`${VAR:?}`. `TestDeployStepRuns` now executes the real step body end to end, with a fake
+`ssh` that runs the remote command locally, a local git remote and a single-branch clone
+holding an old `.env`, and checks both secrets land verbatim (quotes, `$`, backticks),
+other `.env` lines survive, the SHA is checked out and `upgrade_control.sh` runs. It fails
+on the `v2.7.83` step. The string checks could not see this bug; this one would have.

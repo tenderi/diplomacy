@@ -127,10 +127,12 @@ class TestDeployControlWorkflow:
         assert "set_var DIPLOMACY_BOT_SECRET" in workflow
 
     def test_secrets_travel_on_stdin_not_the_remote_command_line(self, workflow: str) -> None:
-        # The remote script reads them with `read`; the ssh argument list only
-        # carries the SHA and the repo dir.
+        # They are prepended to the script stream as %q assignments; the ssh argument
+        # list only carries the SHA and the repo dir. (A remote `read` cannot work: stdin
+        # *is* the script -- see TestDeployStepRuns.)
         assert "bash -s" in workflow
-        assert "IFS= read -r TELEGRAM_BOT_TOKEN" in workflow
+        assert "printf 'TELEGRAM_BOT_TOKEN=%q\\n'" in workflow
+        assert "read -r TELEGRAM_BOT_TOKEN" not in workflow
         assert not re.search(r'ssh .*TELEGRAM_BOT_TOKEN=', workflow)
 
     def test_pins_the_host_key_instead_of_scanning(self, workflow: str) -> None:
@@ -158,3 +160,95 @@ class TestDeployControlWorkflow:
         assert not (PROJECT_ROOT / "infra" / "terraform").exists()
         for path in WORKFLOWS.glob("*.yml"):
             assert "aws-actions" not in path.read_text(), path
+
+
+# ---------------------------------------------------------------------------
+# The Deploy step, executed: fake ssh, a local git remote, a single-branch clone
+# ---------------------------------------------------------------------------
+
+
+def _deploy_step_script(workflow: str) -> str:
+    """The `run: |` body of the Deploy step, de-indented as Actions would."""
+    lines = workflow.splitlines()
+    start = lines.index("      - name: Deploy")
+    run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    body: list[str] = []
+    for line in lines[run_at + 1 :]:
+        if line.strip() and not line.startswith(" " * 10):
+            break
+        body.append(line[10:])
+    return "\n".join(body) + "\n"
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+class TestDeployStepRuns:
+    """Run the real step script end to end. v2.7.83's version piped the secrets into
+    ssh *and* gave it a heredoc; the heredoc won, the remote `read`s swallowed script
+    lines, and the VPS .env got `TELEGRAM_BOT_TOKEN=IFS= read -r ...`. String checks
+    could not see that; only running it can."""
+
+    def test_writes_both_secrets_verbatim_and_runs_the_upgrade(self, tmp_path: Path) -> None:
+        origin = tmp_path / "origin"
+        (origin / "new_implementation").mkdir(parents=True)
+        _git(origin, "init", "-q", "-b", "main")
+        app = origin / "new_implementation"
+        (app / ".env.control.example").write_text("TELEGRAM_BOT_TOKEN=\nDIPLOMACY_BOT_SECRET=\nWEB_BIND=127.0.0.1\n")
+        (app / "upgrade_control.sh").write_text("#!/bin/sh\ntouch upgraded\n")
+        (app / "upgrade_control.sh").chmod(0o755)
+        _git(origin, "add", "-A")
+        _git(origin, "commit", "-qm", "base")
+        _git(origin, "branch", "vps-split")
+        (app / "marker").write_text("main\n")
+        _git(origin, "add", "-A")
+        _git(origin, "commit", "-qm", "main only")
+        sha = _git(origin, "rev-parse", "HEAD")
+
+        # Like the VPS: cloned single-branch on vps-split, .env already holding old values.
+        clone = tmp_path / "clone"
+        subprocess.run(
+            ["git", "clone", "-q", "--single-branch", "-b", "vps-split", str(origin), str(clone)],
+            check=True,
+        )
+        (clone / "new_implementation" / ".env").write_text(
+            "TELEGRAM_BOT_TOKEN=old\nDIPLOMACY_BOT_SECRET=old\nWEB_BIND=10.0.0.1\n"
+        )
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "ssh").write_text('#!/bin/bash\nexec bash -c "${@: -1}"\n')  # run the remote command locally
+        (bin_dir / "ssh").chmod(0o755)
+
+        token = "123456:AAH-x_Y'z"
+        secret = 'a$b "c" d`e`'
+        script = _deploy_step_script(_read(WORKFLOWS / "deploy-control.yml"))
+        result = subprocess.run(
+            ["bash", "-e", "-c", script],
+            env={
+                "PATH": f"{bin_dir}:/usr/bin:/bin",
+                "HOME": str(tmp_path),
+                "TELEGRAM_BOT_TOKEN": token,
+                "DIPLOMACY_BOT_SECRET": secret,
+                "SHA": sha,
+                "REPO_DIR": str(clone / "new_implementation"),
+                "TARGET": "root@vps",
+            },
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+        deployed = clone / "new_implementation"
+        assert _git(clone, "rev-parse", "HEAD") == sha
+        assert (deployed / "upgraded").exists()
+        env_lines = (deployed / ".env").read_text().splitlines()
+        assert env_lines == [
+            f"TELEGRAM_BOT_TOKEN={token}",
+            f"DIPLOMACY_BOT_SECRET={secret}",
+            "WEB_BIND=10.0.0.1",
+        ]
+        assert token not in result.stdout + result.stderr
