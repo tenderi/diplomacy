@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.81`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.82`. `main` green.
 - **VPS facts, verified over SSH 2026-09-23:** the only login user is **`root`** (there is no
   `tenderi` account; `PermitRootLogin prohibit-password`, keys only). The control stack is
   **already running** there from `/root/diplomacy`, checked out on the old **`vps-split`**
@@ -33,6 +33,12 @@
   `fix_plan.md`, whose letter collides with this file's Track K and which was **not** merged;
   it is still on `origin/vps-split` if wanted). `deploy-control.yml` now defaults `VPS_USER` to
   `root`; its first run will move the VPS off `vps-split` onto a detached `main` SHA.
+- **Deploy gate enabled 2026-09-23** (all four secrets + `DEPLOY_CONTROL_ENABLED=true`). First
+  manual run (`35835941512`) failed at SSH, `Permission denied (publickey)`: the public half of
+  `VPS_SSH_KEY` is not in `/root/.ssh/authorized_keys` (which holds only the maintainer's two
+  personal keys). It also exposed a bug fixed in `v2.7.82`: a manual run with no `ref` input
+  sent the literal branch name `main`, and the VPS checkout has no local `main` branch, so
+  `git checkout --detach main` would have failed; it now sends `github.sha`.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
   in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
   `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;
