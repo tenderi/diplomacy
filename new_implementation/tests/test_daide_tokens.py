@@ -152,8 +152,8 @@ def test_ascii_escape_does_not_shadow_a_real_token():
 # Literal byte-value spot check -- all 7 powers, plus a representative mix
 # of province categories (inland, coastal, sea, bicoastal). These values are
 # computed by hand against the DAIDE specification (cross-checked by eye
-# against old_implementation/diplomacy/daide/tokens.py, per Track D's Ground
-# Rules) -- not imported from it.
+# against `git show v2.7.68:old_implementation/diplomacy/daide/tokens.py`, per
+# Track D's Ground Rules) -- not imported from it.
 # ---------------------------------------------------------------------------
 
 

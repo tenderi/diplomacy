@@ -4,11 +4,17 @@ Guidance for Claude Code (claude.ai/code) when working with code in this reposit
 
 ## Repository layout
 
-Two top-level Python codebases. Almost all work happens in `new_implementation/`.
-
-- **`new_implementation/`** — the active codebase; what runs in production. All edits, tests, and new features belong here. CWD for nearly every command below.
-- **`old_implementation/`** — legacy DATC engine + websocket server + React UI. **Reference only.** Useful for cross-checking rules (`rules.pdf`) and DAIDE details. Do not modify or wire into new code. It is **AGPL-3.0** and this repo ships no LICENSE — read it, never copy from it.
+- **`new_implementation/`** — the whole codebase; what runs in production. CWD for nearly every command below.
 - **`CODEBASE_OVERVIEW.md`** — per-module breakdown at the repo root. Read it for depth beyond this file.
+
+`old_implementation/` (Philip Paquette's AGPL `diplomacy` package — the legacy DATC engine,
+websocket server, and React UI this project started as a clean-room rewrite of) was removed in
+Track W (`v2.7.91`) after a pre-deletion audit found nothing under `new_implementation/`
+imports from it. It stays in git history: `git show v2.7.68:old_implementation/<path>` reads
+any file from it, which is what "cross-checked against old_implementation" comments elsewhere
+in this codebase mean by that reference. `new_implementation/docs/reference/rules.pdf` (the
+official rulebook, the one file from that tree worth keeping present) was relocated out of it
+first.
 
 ## Workflow rule: always commit and push when work is done
 
@@ -206,7 +212,7 @@ over WireGuard until `v2.7.85` (Track V), and on a Terraform/EC2 layout before `
 - **Never add a blanket `except Exception`.** `src/rendering/` was deliberately narrowed to specific exception tuples so that a real programming bug raises instead of being logged and swallowed behind a subtly wrong image.
 - **Specs are load-bearing.** [`docs/specs/`](new_implementation/docs/specs/) is the source of truth for rules and design — `architecture.md`, `adjudication.md`, `data_spec.md`, `diplomacy_rules.md`. Update them when behavior changes.
 - **[`docs/specs/fix_plan.md`](new_implementation/docs/specs/fix_plan.md) is the living tracker** for what to work on next, and holds **open work only**. Check tasks off in the same commit as the work, keep its Status block current, and never do newly discovered work silently. When a track completes, move its section verbatim — findings and evidence included — into [`docs/specs/done_fixes.md`](new_implementation/docs/specs/done_fixes.md), the completed-work archive. Read `done_fixes.md` for the *why* behind existing code; read `fix_plan.md` to decide what to do.
-- **Game rule questions**: cross-check `old_implementation/rules.pdf` (the official rulebook, authoritative) and `old_implementation/diplomacy/engine/` before changing adjudication logic.
+- **Game rule questions**: cross-check `docs/reference/rules.pdf` (the official rulebook, authoritative) and, for the pre-rewrite engine's behavior, `git show v2.7.68:old_implementation/diplomacy/engine/` before changing adjudication logic.
 - **Map rendering** requires CairoSVG (`libcairo2`). Tests that need it are marked `@pytest.mark.map`.
 - **Out of scope** unless the maintainer explicitly asks: tournaments, Discord, observer/spectator mode, AI-powered analysis, map variants beyond `standard`, full DAIDE press-grammar parsing. Existing code in those areas (`api/routes/tournaments.py`, `discord_bot/`, the spectator routes) is kept for backward compatibility — don't extend it.
 - **Schema changes**: update `src/persistence/database.py`, add an Alembic revision under `alembic/versions/`, and add the corresponding method(s) to `DatabaseService`. The schema autoupdater in `_api_module.py` is a safety net, not a substitute for migrations.

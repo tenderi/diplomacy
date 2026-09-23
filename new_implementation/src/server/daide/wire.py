@@ -58,9 +58,9 @@ class ErrorCode(IntEnum):
     """Framing-level error codes a peer's `ErrorMessage` can report.
 
     Values are fixed by the DAIDE specification's DCSP layer (cross-checked
-    against `old_implementation/diplomacy/daide/messages.py`'s `ErrorCode`
-    for wire compatibility; see Track D's Ground Rules for why that file is
-    read-only reference, not something to import from).
+    against `git show v2.7.68:old_implementation/diplomacy/daide/messages.py`'s
+    `ErrorCode` for wire compatibility; see Track D's Ground Rules for why that
+    file was read-only reference, not something to import from).
     """
 
     IM_TIMER_EXPIRED = 0x01
