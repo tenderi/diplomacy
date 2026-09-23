@@ -29,6 +29,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
@@ -36,7 +37,9 @@ from telegram import Update
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, ContextTypes
 
-from .api_client import ApiUnreachableError, DeliveryResult, api_get, api_post, drain_outbox_once
+from .api_client import (
+    ApiUnreachableError, DeliveryResult, api_get, api_get_bytes, api_post, drain_outbox_once,
+)
 from .outbox import get_outbox
 
 logger = logging.getLogger("diplomacy.telegram_bot.notifications")
@@ -105,6 +108,35 @@ def render_notification(item: dict[str, Any], now: Optional[datetime] = None) ->
     return f"⏱ Delayed notification (from {stamp}):\n{text}"
 
 
+async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> None:
+    """Deliver one outbox row by its ``kind``. Raises on a Telegram-side failure
+    exactly like a bare ``bot.send_message`` would, so the caller's existing
+    permanent/transient handling covers every kind without change.
+
+    ``"dm"`` (the default, a player DM) and ``"channel_text"`` (a channel post
+    with no special content -- turn notifications, forwarded broadcasts) are
+    both plain text; ``kind`` only changes the wording via ``render_notification``,
+    which skips the "delayed" framing for a channel (nobody there is waiting on
+    it the way a player watching their own DMs is). ``"channel_map"`` fetches
+    the image itself from ``GET /games/{id}/map`` -- the API queued this row
+    with nothing but the game id in ``payload`` because it has no filesystem in
+    common with this container to hand a rendered file through.
+    """
+    kind = item.get("kind", "dm")
+    if kind == "channel_map":
+        game_id = (item.get("payload") or {}).get("game_id")
+        img_bytes = await asyncio.to_thread(api_get_bytes, f"/games/{game_id}/map")
+        await bot.send_photo(chat_id=chat_id, photo=BytesIO(img_bytes), caption=item.get("message") or None)
+    elif kind == "channel_text":
+        # Plain text, deliberately no parse_mode: a forwarded broadcast carries
+        # a player's raw text, which is not markdown-safe (an unescaped `_` or
+        # `*` would either 400 the whole send or render garbled). Matches the
+        # DM path below, which has never used a parse_mode for the same reason.
+        await bot.send_message(chat_id=chat_id, text=item.get("message", ""))
+    else:
+        await bot.send_message(chat_id=chat_id, text=render_notification(item))
+
+
 async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int, int]:
     """One poll: fetch, send, ack. Returns ``(delivered, permanently_failed)``.
 
@@ -127,7 +159,7 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
     for item in items:
         chat_id = int(item["telegram_id"])
         try:
-            await bot.send_message(chat_id=chat_id, text=render_notification(item))
+            await _send_outbox_item(bot, chat_id, item)
         except _PERMANENT_TELEGRAM_ERRORS as e:
             failed[int(item["id"])] = f"{type(e).__name__}: {e}"
             logger.warning("Notification #%s to %s permanently undeliverable: %s", item["id"], chat_id, e)

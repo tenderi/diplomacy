@@ -22,7 +22,15 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.91`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.93`. `main` green.
+- **Track X — Telegram bot command audit, prompted by a maintainer report that
+  Help -> Run Perfect Demo Game failed.** X1/X2 landed as `v2.7.92`, X3 as `v2.7.93`; X4
+  is open. See the Track X section below for the full writeup — the short version: two
+  menu items were calling code that could never have worked (removed), and the entire
+  channel-integration feature (`/link_channel`'s promised auto-posted maps/broadcasts/
+  notifications) turned out to have been silently non-functional since it was written,
+  for a third, independent reason each time (wrong process, wrong async convention, or
+  both) — now fixed and verified against a live server, not just unit tests.
 - **Track W — recovered uncommitted work from `origin/vps-split` (`v2.7.90`) plus W0
   (`v2.7.91`).** `cfa8d93` (the audit referenced below) was never merged, but real code
   implementing four of its findings was sitting **uncommitted** on `vps-split` and was
@@ -279,6 +287,111 @@ delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Tra
 
 ---
 
+# Track X — Telegram bot command audit
+
+## Why this track exists
+
+The maintainer reported Help -> Run Perfect Demo Game failing with "Demo script not
+found," and asked for every bot command, feature and instructive text to be checked
+against what actually works. It found three unrelated things, each worse than the last.
+
+## X1 — Help -> Run Perfect Demo Game: dead by construction — **done, `v2.7.92`**
+
+- [x] `admin.run_automated_demo` shelled out to `examples/demo_perfect_game.py`, which
+      imports the full engine (`engine.game`, `server.server.Server`). The bot's Docker
+      image installs `requirements-bot.txt` only (`python-telegram-bot` + `requests`,
+      deliberately no engine/SQLAlchemy/FastAPI) — this could never have worked in a
+      deployed container, only ever "Demo script not found." Removed the function, its
+      import, its `app.py` dispatch branch, and the menu button.
+
+## X2 — The in-chat Admin menu: dead by a different construction — **done, `v2.7.92`**
+
+- [x] Delete All Games / Recreate Admin User / System Status called `/admin/*` routes
+      gated on `X-Admin-Token`. The bot never receives that secret — `api_client.py`
+      only ever sends `X-Bot-Secret` — by design, per the security split `CLAUDE.md`
+      documents (giving the bot container the admin token would be a real regression,
+      not a bug fix). `POST /admin/recreate_admin_user` does not exist server-side at
+      all, a second, independent reason that one specifically 404'd regardless of auth.
+      Removed `show_admin_menu`, its three callback handlers, and the gating logic that
+      had been copy-pasted into three places (`games.py`'s `/start`, `ui.py`'s
+      `show_main_menu` and `refresh_keyboard`).
+
+## X3 — Channel auto-posting has never once worked — **done, `v2.7.93`**
+
+**Finding.** `/link_channel`'s confirmation text has promised "Maps will be posted
+after each turn / Broadcasts will be forwarded / Turn notifications will be sent"
+since the command existed. None of it has ever happened, silently, for two
+independent reasons stacked on top of each other:
+
+1. **Wrong process.** The posting functions live in `telegram_bot/channels.py` and
+   only work when `_telegram_bot` (a module global) has been set — which happens
+   exactly once, in the bot's own `app.py` `post_init`. The *callers* are all
+   server-side (`api/shared.py`'s post-turn hook, `api/routes/messages.py`'s
+   broadcast handler, every route in `api/routes/channels.py`), running in the
+   separate `diplomacy_api` container, where `_telegram_bot` is permanently `None`.
+   `post_map_to_channel` and friends each open with `if not _telegram_bot: return
+   None` — no exception, nothing in the logs, just silently nothing sent.
+2. **Wrong async convention, underneath that.** Even granting a live `Bot` instance,
+   `post_map_to_channel` calls `_telegram_bot.send_photo(...)` with no `await`.
+   `python-telegram-bot` has been an async library since v20 (`requirements-bot.txt`
+   pins `>=22.0`); an unawaited call returns a coroutine object and does nothing.
+   Every `test_channel_*.py` file passes because it sets `_telegram_bot` to a
+   `unittest.mock.Mock` directly *in the test process* and calls the posting
+   function synchronously — which exercises the formatting logic for real but
+   can't catch either the cross-process gap or the missing `await`, since a `Mock`
+   swallows both.
+
+**Fix, for the two triggers that are actually reachable from a real bot command**
+(turn processed, broadcast sent — exactly what `/link_channel` promises):
+
+- [x] `api/shared._post_turn_to_channel` and `api/routes/messages.py`'s broadcast
+      handler no longer import `telegram_bot.channels` at all. They read
+      `channel_info["settings"]` directly (already fetched server-side) and call
+      `db_service.enqueue_bot_notification(channel_id, message, kind="channel_text"
+      | "channel_map", payload=...)` — the same durable, polled `bot_outbox` queue
+      every player DM already uses. `BotOutboxModel.kind` was already documented as
+      "`dm` today, so channel posts can join the same queue later without a schema
+      change" — this is that later.
+- [x] `telegram_bot/notifications.py`'s delivery loop gained `_send_outbox_item`,
+      which dispatches on `kind`: `"channel_map"` fetches the image itself via
+      `GET /games/{id}/map` (the API queues only `payload.game_id` — it has no
+      filesystem in common with the bot container to hand a rendered file through)
+      and `send_photo`s it; `"channel_text"` is a plain `send_message` with no
+      `parse_mode` (a forwarded broadcast carries a player's raw, not
+      markdown-safe, text — matches the existing DM path, which never used one for
+      the same reason); `"dm"` is unchanged.
+- [x] Verified against a live `uvicorn` instance over real HTTP (not `TestClient`,
+      and not a mocked `Bot`): linked a channel, processed a turn, sent a
+      broadcast, and confirmed the bot side fetches a genuine ~700 KB PNG and
+      calls `send_photo`/`send_message` with the right arguments. Existing
+      `test_channel_*.py` suites (unaffected — they test the untouched formatting
+      functions) and `test_turn_notifications.py` still green; full suite 1634
+      passed, 10 xfailed.
+
+## X4 — Six more channel routes have the same wrong-process bug, unreached
+
+`api/routes/channels.py`'s `/channel/broadcast`, `/thread`, `/proposal`,
+`/proposal/{id}`, `/timeline`, `/dashboard`, `/battle_results` each still do
+`from ...telegram_bot.channels import <fn>` and call it directly — the identical
+wrong-process bug X3 fixed for the two triggers a bot command can actually reach.
+**Nothing currently calls these routes**: `channel_commands.py` (the bot's real
+`/link_channel` / `/unlink_channel` / `/channel_info` / `/channel_settings`
+handlers) only ever calls `POST .../channel/link`, `GET .../channel`, and `POST
+.../channel/settings`. So unlike X3, no promised behaviour is silently broken here
+— these are unreachable REST endpoints, not a broken feature a player can trigger.
+
+- [ ] Maintainer: decide whether these are worth wiring onto `bot_outbox` the same
+      way (proposal voting and discussion-thread creation need more than
+      fire-and-forget — a live inline-keyboard callback handler in the bot process
+      for real-time vote counting, which is a small design of its own, not a copy
+      of X3's pattern) or worth deleting as speculative scaffolding nothing drives.
+      Whichever way: `post_map_to_channel`'s `_telegram_bot.send_photo(...)` (and
+      its sibling calls throughout `channels.py`) are missing `await` regardless of
+      which process runs them and need it before any of this works synchronously
+      called too.
+
+---
+
 # Track W — the rest of the pre-deletion audit of `old_implementation/`
 
 ## Why this track exists
@@ -462,6 +575,9 @@ to use, which no test asserts.
       recorded. **This is the only item here that an agent cannot do.**
 - [ ] **Track W:** W0 done (`old_implementation/` removed, `v2.7.91`). W6's decision table
       filled in and W7 decided are the only items left, both maintainer-only.
+- [ ] **Track X:** X1–X3 done (`v2.7.92`/`v2.7.93`). X4 (the six unreachable
+      `/channel/*` routes with the same wrong-process bug X3 fixed for the two
+      reachable triggers) needs a maintainer decision: wire up or delete.
 - [x] Throughout: full suite green **with a DB**, ruff clean, coverage floors hold, CI green on
       `main`, every landed chunk committed and tagged per `CLAUDE.md`. Held for all eleven tasks
       landed this session (`v2.7.58`–`v2.7.67`), each as its own PR through the required checks.
