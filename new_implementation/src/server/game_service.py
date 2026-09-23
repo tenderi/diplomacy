@@ -56,8 +56,18 @@ class GameService:
 
     # -- lifecycle --------------------------------------------------------
 
-    def create_game(self, game_id: Optional[str] = None, map_name: str = "standard") -> str:
+    def create_game(
+        self,
+        game_id: Optional[str] = None,
+        map_name: str = "standard",
+        phase_length_seconds: Optional[int] = None,
+    ) -> str:
         """Create a fresh standard game at its opening movement phase.
+
+        ``phase_length_seconds`` is stored for later use by
+        ``POST /games/{id}/deadline`` (a caller may arm a deadline from it
+        explicitly); it does not itself set a deadline, and nothing re-arms one
+        automatically after a turn is processed.
 
         Returns the game's id (the integer PK as a string when not supplied).
         """
@@ -67,6 +77,7 @@ class GameService:
             state_json=state_to_dict(game.state),
             phase_code=game.state.phase_name,
             game_id=game_id,
+            phase_length_seconds=phase_length_seconds,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -179,6 +190,9 @@ class GameService:
             expected_phase_code=game.state.phase_name,
             last_resolution=resolution_dict,
             order_history_entry=history_entry,
+            # Same dict as ``last_resolution``, but kept per turn so it survives
+            # the next ``process_turn``.
+            resolution_history_entry=resolution_dict,
         )
         self._repo.set_pending_orders(game_id, {})
         # A draw vote is scoped to the phase it was cast in, same as pending
@@ -435,6 +449,14 @@ class GameService:
         """Per-turn submitted-order history ``{turn: {power: [order_str]}}``."""
         return self._repo.get_order_history(game_id)
 
+    def resolution_history(self, game_id: str) -> dict[str, dict[str, Any]]:
+        """Per-turn adjudication results ``{turn: resolution_dict}``.
+
+        The outcome half of ``order_history``: what each submitted order actually
+        did. Empty for turns processed before the column existed.
+        """
+        return self._repo.get_resolution_history(game_id)
+
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
         """Which powers have submitted orders for the current phase, and which
         still have something to order and haven't. ``None`` if the game doesn't
@@ -460,11 +482,37 @@ class GameService:
             "missing": sorted(p for p in active_powers if p not in submitted),
         }
 
+    def meta(self, game_id: str) -> Optional[dict[str, Any]]:
+        """The game's denormalized row fields -- ``map_name``, ``phase_code``,
+        ``status``, ``deadline``, ``phase_length_seconds``, ``phase_started_at``,
+        ``current_turn`` -- without loading or parsing the board.
+
+        For callers that need scheduling or bookkeeping facts rather than game
+        state (the post-turn path, the deadline scheduler).
+        """
+        return self._repo.get_meta(game_id)
+
     def state_json(self, game_id: str) -> Optional[dict[str, Any]]:
         """The raw serialized ``GameState`` (``engine.serialization.state_to_dict``
         shape), for callers that need to persist it verbatim (e.g. snapshots)
         rather than the view shape from ``view()``."""
         return self._repo.get_state_json(game_id)
+
+    def import_histories(
+        self,
+        game_id: str,
+        *,
+        order_history: Optional[dict[str, Any]] = None,
+        resolution_history: Optional[dict[str, Any]] = None,
+        current_turn: Optional[int] = None,
+    ) -> None:
+        """Restore per-turn histories onto an imported game (see ``routes/archive.py``)."""
+        self._repo.set_histories(
+            game_id,
+            order_history=order_history,
+            resolution_history=resolution_history,
+            current_turn=current_turn,
+        )
 
     def restore_snapshot(
         self, game_id: str, state_json: dict[str, Any], phase_code: str
