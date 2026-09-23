@@ -569,6 +569,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
 
     logging.basicConfig(level=logging.INFO, force=True)
+    # httpx logs the full request URL at INFO, and python-telegram-bot's
+    # base URL embeds the bot token (https://api.telegram.org/bot<token>/...) --
+    # left at INFO this prints the live token on every API call.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     logger.info("Diplomacy bot starting; API at %s", API_URL)
 
     def run_bot():

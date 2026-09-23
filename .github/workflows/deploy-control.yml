@@ -64,9 +64,9 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}" >> "$GITHUB_OUTPUT"
-          echo "user=${{ vars.VPS_USER || 'tenderi' }}" >> "$GITHUB_OUTPUT"
+          echo "user=${{ vars.VPS_USER || 'root' }}" >> "$GITHUB_OUTPUT"
           echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy/new_implementation' }}" >> "$GITHUB_OUTPUT"
-          echo "Will deploy $sha to ${{ vars.VPS_USER || 'tenderi' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
+          echo "Will deploy $sha to ${{ vars.VPS_USER || 'root' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
 
       - name: Check required secrets
         env:

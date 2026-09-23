@@ -110,3 +110,16 @@ class TestBotCommands:
 # `/waiting_list/*`, so it survives the restart that a deploy performs and its
 # entries are claimed atomically). Coverage lives in `tests/test_waiting_list.py`
 # and `tests/test_telegram_waiting_list.py`.
+
+
+def test_bot_silences_httpx_so_the_token_never_reaches_the_log():
+    """httpx logs every request URL at INFO, and python-telegram-bot's base URL
+    embeds the token (``https://api.telegram.org/bot<token>/...``). The fix
+    (3b6452e) lived only on the deployed ``vps-split`` branch and was missing
+    from main; the first deploy-on-merge would have brought the leak back.
+    A source check because ``main()`` starts the real polling loop."""
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / "src" / "server" / "telegram_bot" / "app.py").read_text()
+    basic = src.index("logging.basicConfig(")
+    silence = src.index('logging.getLogger("httpx").setLevel(logging.WARNING)')
+    assert silence > basic, "httpx must be silenced *after* basicConfig(force=True), which resets levels"
