@@ -22,7 +22,17 @@
 
 ## Status
 
-- **Last updated:** 2026-09-21, at `v2.7.80`. `main` green.
+- **Last updated:** 2026-09-23, at `v2.7.81`. `main` green.
+- **VPS facts, verified over SSH 2026-09-23:** the only login user is **`root`** (there is no
+  `tenderi` account; `PermitRootLogin prohibit-password`, keys only). The control stack is
+  **already running** there from `/root/diplomacy`, checked out on the old **`vps-split`**
+  branch (`3b6452e`), next to p2p's `p2p-downloader_bot`; its `.env` has both secrets set.
+  That branch carried two commits never merged to `main`: `3b6452e` (silence httpx so the bot
+  token is not logged on every API call — **brought to main in `v2.7.81`** with a guard test),
+  and `cfa8d93` (a docs-only "Track K — audit of old_implementation before deleting it" in
+  `fix_plan.md`, whose letter collides with this file's Track K and which was **not** merged;
+  it is still on `origin/vps-split` if wanted). `deploy-control.yml` now defaults `VPS_USER` to
+  `root`; its first run will move the VPS off `vps-split` onto a detached `main` SHA.
 - **Track U — deploy-on-merge for the VPS, AWS removed, landed as `v2.7.80`** and is archived
   in [`done_fixes.md`](done_fixes.md). `deploy-control.yml` injects `TELEGRAM_BOT_TOKEN` and
   `DIPLOMACY_BOT_SECRET` from repository secrets and runs `upgrade_control.sh` on the VPS;
@@ -297,7 +307,7 @@ to use, which no test asserts.
       and the message shows its original time.
 - [ ] Decide what to do with the home server's existing p2p `docker-compose.yml` stack: both
       stacks bind the tunnel address on different ports (8081 vs 8000), so they coexist.
-- [ ] Turn on deploy-on-merge for the VPS (`v2.7.80`): install a deploy key for `tenderi` on
+- [ ] Turn on deploy-on-merge for the VPS (`v2.7.80`): install a deploy key for `root` on
       the VPS, set `VPS_SSH_KEY`, `VPS_HOST_KEY`, `DIPLOMACY_BOT_SECRET` and
       `DEPLOY_CONTROL_ENABLED=true` — the exact commands are in `docs/DEPLOYMENT.md`
       §"Deploy-on-merge for the VPS". `TELEGRAM_BOT_TOKEN` is already set (2026-09-21). Then
