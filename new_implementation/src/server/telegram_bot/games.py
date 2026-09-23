@@ -37,12 +37,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
     ]
 
-    # Add admin menu for admin user (ID: 8019538)
-    user_id = str(update.effective_user.id)
-    logger.info(f"User ID: {user_id}, Type: {type(user_id)}")
-    if user_id == "8019538":
-        keyboard.append([KeyboardButton("⚙️ Admin")])
-        logger.info("Admin button added to keyboard")
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
     await update.message.reply_text(
