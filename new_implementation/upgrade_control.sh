@@ -10,8 +10,15 @@ set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd)"
 COMPOSE="docker compose -f docker-compose.control.yml"
 
-echo "==> Pulling latest code..."
-git pull --ff-only
+# By hand this runs on the main branch and pulls. The deploy-control workflow
+# checks out the exact SHA the Test Suite passed on (a detached HEAD) before
+# calling this script, and a pull would then fail with "not on a branch".
+if git symbolic-ref -q HEAD >/dev/null; then
+    echo "==> Pulling latest code..."
+    git pull --ff-only
+else
+    echo "==> Detached at $(git rev-parse --short HEAD); not pulling."
+fi
 
 echo "==> Rebuilding images..."
 $COMPOSE build

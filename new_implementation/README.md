@@ -39,8 +39,7 @@ Production is split across two hosts, like the `p2p` repo: the Telegram bot and 
 client on a small public VPS, the API and Postgres on the home server, joined by WireGuard.
 Player writes are queued durably on the VPS and server notifications in Postgres, so a
 dropped link delays messages but never loses them. See
-[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md). (The Terraform under `infra/terraform/` is the
-superseded single-EC2 layout, kept as reference.)
+[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
 ## Authorization
 
