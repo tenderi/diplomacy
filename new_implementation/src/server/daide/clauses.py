@@ -8,9 +8,9 @@ stays importable and testable without a DB or network, matching D1's `tokens.py`
 and `wire.py`.
 
 Clause shapes below are dictated by the external DAIDE specification (cross-checked
-against `old_implementation/diplomacy/daide/clauses.py`, read-only, per Track D's
-Ground Rules in `docs/specs/done_fixes.md` -- not copied; the byte-level shapes are
-the compliance requirement, the code here is original):
+against `git show v2.7.68:old_implementation/diplomacy/daide/clauses.py`, read-only,
+per Track D's Ground Rules in `docs/specs/done_fixes.md` -- not copied; the byte-level
+shapes are the compliance requirement, the code here is original):
 
 - A **province** with no coast is a single token (``PAR``). A province that
   *needs* a coast (a fleet at a split-coast province) is a 2-token group

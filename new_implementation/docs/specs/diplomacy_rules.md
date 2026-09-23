@@ -2,7 +2,7 @@
 
 > A plain-text transcript of the official rulebook, kept here so rules questions can be
 > grepped and cited. It contains OCR artefacts in the sample-game section (e.g. `Burl` for
-> `Bur`, `yen.` for `Ven.`, `Bull` for `Bul`) — **`old_implementation/rules.pdf` is the
+> `Bur`, `yen.` for `Ven.`, `Bull` for `Bul`) — **[`reference/rules.pdf`](../reference/rules.pdf) is the
 > authority** where the two disagree. For how this engine implements these rules, see
 > [`adjudication.md`](adjudication.md).
 
