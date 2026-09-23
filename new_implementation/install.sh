@@ -2,8 +2,8 @@
 #
 # install.sh — first-time setup of a host for the whole stack (Debian/Ubuntu;
 # production is the UpCloud VPS). Idempotent. Installs Docker, adds a swap file
-# on small hosts, creates .env with generated secrets and schedules the nightly
-# database backup. Starting the stack is ./upgrade.sh.
+# on small hosts, creates .env with generated secrets, installs rclone and
+# schedules the nightly database backup. Starting the stack is ./upgrade.sh.
 #
 # Usage:  ./install.sh
 #
@@ -63,16 +63,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. .env and secrets, 4. nightly backup
+# 3. .env and secrets, 4. rclone + nightly backup
 # ---------------------------------------------------------------------------
 ./ensure_env.sh
-$SUDO ./backup.sh --install-cron
+$SUDO ./backup.sh --install
 
 echo
 info "Installation complete."
 echo "Next steps:"
 echo "  1. Put the bot token in $REPO_DIR/.env (TELEGRAM_BOT_TOKEN=...), or let the"
 echo "     deploy workflow write it from the repository secret."
-echo "  2. Allow TCP ${WEB_PORT:-80} inbound (UpCloud's network firewall is separate from ufw)."
-[ "${NEEDS_RELOGIN:-0}" = "1" ] && echo "  3. Log out and back in (or 'newgrp docker') for the docker group."
+echo "  2. For off-host backups: rclone config  (remote 'proton', type protondrive)"
+echo "     (docs/DEPLOYMENT.md, Backups). Until then backups stay on this disk."
+echo "  3. Allow TCP ${WEB_PORT:-80} inbound (UpCloud's network firewall is separate from ufw)."
+[ "${NEEDS_RELOGIN:-0}" = "1" ] && echo "  4. Log out and back in (or 'newgrp docker') for the docker group."
 echo "  Start or update:  ./upgrade.sh"
