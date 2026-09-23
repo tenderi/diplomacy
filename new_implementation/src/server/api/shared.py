@@ -193,44 +193,48 @@ def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None
 
 
 def _post_turn_to_channel(game_id: str, message: str) -> None:
-    """Post a turn-start notification and a freshly rendered map to a linked channel.
+    """Queue a turn-start notification and a fresh map for a linked channel.
 
     Best-effort by design: a Telegram outage must never fail a turn that is
-    already committed to Postgres. Both auto-post checks return ``False`` when a
-    game has no linked channel, so this is a cheap no-op for most games.
+    already committed to Postgres. A cheap no-op for the common case (no
+    linked channel).
+
+    **Queued, not sent.** This used to call straight into
+    ``telegram_bot.channels``, which only has a live ``Bot`` instance inside
+    the bot's own process -- the API and the bot are separate containers, so
+    every one of those calls silently did nothing (no exception; the module's
+    own ``if not _telegram_bot: return None`` guard ate it). ``POST
+    /games/{id}/channel``'s confirmation text has promised "maps will be
+    posted after each turn" since that route existed; it never once happened.
+    Routed through ``bot_outbox`` instead -- the same durable, polled queue
+    every player DM already uses (``notify_user`` above) -- so this actually
+    reaches Telegram, and survives an API or bot restart mid-delivery. The
+    bot resolves ``channel_map``'s ``payload.game_id`` back into image bytes
+    itself via ``GET /games/{id}/map`` (see ``telegram_bot/notifications.py``);
+    nothing renders a map file on this side or expects the bot to read one off
+    a filesystem the two containers don't share.
     """
     try:
-        from ..telegram_bot.channels import (
-            should_auto_post_map, should_auto_post_notification,
-            post_map_to_channel, post_notification_to_channel
-        )
-        from ..api.routes.maps import generate_map_for_snapshot
+        channel_info = db_service.get_game_channel_info(game_id)
+        if not channel_info:
+            return
+        channel_id = channel_info.get("channel_id")
+        settings = channel_info.get("settings") or {}
 
-        if should_auto_post_notification(game_id, "turn_start"):
-            channel_info = db_service.get_game_channel_info(game_id)
-            if channel_info:
-                post_notification_to_channel(
-                    channel_id=channel_info.get("channel_id"),
-                    game_id=game_id,
-                    notification_type="turn_start",
-                    title=f"Turn Processed - Game {game_id}",
-                    message=message,
-                )
+        if settings.get("auto_post_notifications", True):
+            db_service.enqueue_bot_notification(
+                channel_id,
+                f"🔔 Turn Processed - Game {game_id}\n{message}",
+                kind="channel_text",
+            )
 
-        if should_auto_post_map(game_id):
-            channel_info = db_service.get_game_channel_info(game_id)
-            if channel_info:
-                try:
-                    result = generate_map_for_snapshot(game_id)
-                    map_path = result.get("map_path")
-                    if map_path:
-                        post_map_to_channel(
-                            channel_id=channel_info.get("channel_id"),
-                            game_id=game_id,
-                            map_path=map_path,
-                        )
-                except Exception as e:
-                    scheduler_logger.warning(f"Failed to auto-post map to channel: {e}")
+        if settings.get("auto_post_maps", True):
+            db_service.enqueue_bot_notification(
+                channel_id,
+                f"🗺️ Game {game_id} - Current Map",
+                kind="channel_map",
+                payload={"game_id": game_id},
+            )
     except Exception as e:
         scheduler_logger.debug(f"Channel integration check failed for game {game_id}: {e}")
 
