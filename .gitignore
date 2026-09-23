@@ -99,13 +99,9 @@ ENV/
 # Rope project settings
 .ropeproject
 
-# Empty directories
-diplomacy/games
-
 # Pickle
 *.p
 *.pkl
-!diplomacy/maps/convoy_paths_cache.pkl
 
 # Outputs
 out*

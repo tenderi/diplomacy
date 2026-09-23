@@ -1,11 +1,13 @@
 """DATC section 6.A — basic movement checks.
 
-Outcomes cross-checked against the DATC document and the reference resolver in
-old_implementation (semantics only; no code copied).
+Outcomes cross-checked against the DATC document and the legacy tree's reference
+resolver (semantics only; no code copied; `git show
+v2.7.68:old_implementation/diplomacy/tests/test_datc.py` if a case is ever disputed
+-- the tree itself was removed in Track W).
 
 **All twelve 6.A cases are named here.** Seven of them (6.A.4, 6.A.6, 6.A.7,
 6.A.8, 6.A.9, 6.A.10, 6.A.11, 6.A.12) were unnamed or absent until the
-pre-deletion audit of `old_implementation/` (Track W): the behaviour was mostly
+pre-deletion audit of the legacy tree (Track W): the behaviour was mostly
 covered by generically-named tests, but "mostly" is exactly what the DATC ids
 exist to remove.
 """

@@ -1,7 +1,7 @@
 """DATC section 6.B — coastal issues.
 
 Outcomes cross-checked against the DATC document (Kruijswijk) and the reference
-resolver in old_implementation (semantics only; no code copied).
+resolver in the legacy tree (semantics only; no code copied; `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` if a case is ever disputed).
 
 Where DATC's author states a "some adjudicators do X, I prefer Y" split, the
 test encodes the *preferred* (Y) outcome, per the task brief.
