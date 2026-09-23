@@ -149,19 +149,20 @@ def send_broadcast_message(
         except Exception as e:
             scheduler_logger.error(f"Failed to notify broadcast message: {e}")
         
-        # Channel integration: Forward broadcast to channel
+        # Channel integration: forward the broadcast to a linked channel, via
+        # bot_outbox like every other player-facing notification -- calling
+        # straight into telegram_bot.channels here silently did nothing (it
+        # only has a live Bot instance inside the bot's own container; see
+        # api.shared._post_turn_to_channel's docstring for the full story).
         try:
-            from ..telegram_bot.channels import should_auto_post_broadcast, post_broadcast_to_channel
-            
-            if should_auto_post_broadcast(str(game_id)):
-                channel_info = db_service.get_game_channel_info(str(game_id))
-                if channel_info:
-                    post_broadcast_to_channel(
-                        channel_id=channel_info.get("channel_id"),
-                        game_id=str(game_id),
-                        message=req.text,
-                        power=player.power_name if player else None
-                    )
+            channel_info = db_service.get_game_channel_info(str(game_id))
+            if channel_info and (channel_info.get("settings") or {}).get("auto_post_broadcasts", True):
+                power_label = f" ({player.power_name})" if player else ""
+                db_service.enqueue_bot_notification(
+                    channel_info.get("channel_id"),
+                    f"📢 Broadcast in game {game_id}{power_label}: {req.text}",
+                    kind="channel_text",
+                )
         except Exception as e:
             logger.debug(f"Channel integration check failed for broadcast: {e}")
         
