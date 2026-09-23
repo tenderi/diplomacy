@@ -95,9 +95,9 @@ def notify_user(telegram_id: Any, message: str) -> Optional[int]:
 
     **This is the only way server code may notify a player.** It writes the
     notification to ``bot_outbox`` -- the same Postgres the game state is in --
-    and returns immediately; the bot on the VPS pulls the row over
+    and returns immediately; the bot pulls the row over
     ``GET /bot/outbox`` and acks it once Telegram has accepted the message. So a
-    bot restart, a VPS reboot, or a dropped WireGuard tunnel of any length
+    bot restart, a host reboot, or an API outage of any length
     *delays* the DM rather than losing it, and the bot prefixes the original
     time to anything it delivers late.
 

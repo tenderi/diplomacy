@@ -1,10 +1,10 @@
-# GAME LAYER — the FastAPI server. Runs on the HOME server (kattotuuletin).
+# The FastAPI server.
 #
 # Build context is new_implementation/. The image carries the engine, the
 # renderer (needs libcairo2), the DAL, and the Alembic migrations, which the
 # entrypoint applies before uvicorn starts. It deliberately does NOT carry the
 # Telegram token: the API never talks to Telegram. It writes notifications to
-# the bot_outbox table and the bot on the VPS pulls them.
+# the bot_outbox table and the bot container pulls them.
 FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

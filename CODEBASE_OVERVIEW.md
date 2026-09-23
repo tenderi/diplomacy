@@ -6,8 +6,8 @@ Per-module reference for the repository. For working conventions and commands se
 
 A full implementation of the board game **Diplomacy**: a rules engine, a FastAPI REST
 server, a Telegram bot (the primary player interface), a React browser client, a DAIDE
-protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a two-host
-Docker deployment (bot + web on a VPS, API + Postgres at home, joined by WireGuard).
+protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a single-host
+Docker deployment (Postgres, API, bot and web on one VPS, deployed on every green merge).
 Python 3.14.
 
 - **`new_implementation/`** — the active codebase, what runs in production.
@@ -264,17 +264,18 @@ looks falsely green. CI always provides a fresh `postgres:14` container.
 
 ## 10. Infrastructure
 
-Production is two Docker Compose stacks joined by the `p2p` repo's WireGuard tunnel:
-`docker-compose.control.yml` on the VPS (`diplomacy_bot`, `diplomacy_web`) and
-`docker-compose.yml` on the home server (`postgres`, `diplomacy_api`). Dockerfiles and the
-nginx template are under `docker/`; `install_home.sh`, `install_vps.sh`, `upgrade.sh` and
-`upgrade_control.sh` mirror p2p's scripts. Full walkthrough:
+Production is one Docker Compose stack on the UpCloud VPS, `docker-compose.yml`: `postgres`,
+`diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx: the SPA plus `/api/` → the API).
+Only nginx is published publicly; the API is on loopback, Postgres unpublished. Dockerfiles
+and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
+`ensure_env.sh` (generates secrets on the host), `upgrade.sh` (build, restart, verify) and
+`backup.sh` (nightly `pg_dump`). Full walkthrough:
 [`docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).
 
-`.github/workflows/deploy-control.yml` deploys the VPS control layer after a green Test Suite
-on `main`, injecting `TELEGRAM_BOT_TOKEN` and `DIPLOMACY_BOT_SECRET` from repository secrets
-(gated on `DEPLOY_CONTROL_ENABLED`; setup in `docs/DEPLOYMENT.md`). The home server is
-upgraded by hand. The AWS/Terraform layout that preceded the split was removed in `v2.7.80`.
+`.github/workflows/deploy.yml` deploys after a green Test Suite on `main`, writing
+`TELEGRAM_BOT_TOKEN` (the only host secret GitHub holds) into `.env` and running
+`upgrade.sh` (gated on `DEPLOY_CONTROL_ENABLED`). The VPS + home-server split over WireGuard
+(`v2.7.68`–`v2.7.84`) and the AWS/Terraform layout before it (removed in `v2.7.80`) are gone.
 
 `infra/scripts/` holds `start_api_server.py`, `run_bot_with_logs.sh`, `setup_test_db.sh`,
 `reset_database.py`, `migrate_database.py`, `add_database_indexes.py`,
@@ -330,7 +331,7 @@ WAIVE                  # Waive a build
 | HTTP client | httpx + requests |
 | Testing | pytest, pytest-asyncio, pytest-mock, coverage, Hypothesis (engine properties) |
 | Frontend | React 18, Vite, TypeScript, Tailwind, shadcn/ui, Vitest, React Testing Library |
-| Infrastructure | Docker Compose (VPS + home server), WireGuard (shared with p2p), nginx; GitHub Actions deploy for the VPS |
+| Infrastructure | Docker Compose on one VPS, nginx; GitHub Actions deploy-on-merge |
 | Linting | Ruff (strict, pinned version — CI pins to avoid new-release rule-set breakage) |
 
 ---

@@ -153,10 +153,10 @@ class BotOutboxModel(Base):
 
     The API used to ``requests.post`` every player DM straight at a small HTTP
     server the bot ran on port 8081, with a two-second timeout and the failure
-    merely logged. That was fine while both processes shared one host; it is
-    not fine now that the bot lives on a VPS and reaches the API over a
-    WireGuard tunnel to a home server on a residential connection. A tunnel
-    hiccup during a deadline meant every "turn processed" DM for that game was
+    merely logged. That was fragile even on one host and unacceptable once the
+    bot moved to a VPS and reached the API over a WireGuard tunnel to a home
+    server (v2.7.68-v2.7.84; one host again since). An outage during a
+    deadline meant every "turn processed" DM for that game was
     gone for good.
 
     Now every notification is *committed here first*, in the same database the
@@ -198,7 +198,7 @@ class IdempotencyKeyModel(Base):
     in a durable local queue and retries until the API acknowledges it. A retry
     is only safe if the *first* attempt cannot have been applied invisibly --
     and it can: a request that reached the API but whose response was lost to
-    a dropped tunnel looks, from the bot's side, exactly like one that never
+    a dropped connection looks, from the bot's side, exactly like one that never
     arrived. Replaying it blind would post the same broadcast twice.
 
     So the bot stamps each queued write with a UUID ``Idempotency-Key`` header,

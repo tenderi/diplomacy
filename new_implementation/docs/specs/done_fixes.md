@@ -3093,3 +3093,79 @@ to the script stream (still on stdin, never on a command line) and guards them w
 holding an old `.env`, and checks both secrets land verbatim (quotes, `$`, backticks),
 other `.env` lines survive, the SHA is checked out and `upgrade_control.sh` runs. It fails
 on the `v2.7.83` step. The string checks could not see this bug; this one would have.
+
+---
+
+# Track V — The whole stack on one VPS (`v2.7.85`)
+
+## Why this track exists
+
+Deploy-on-merge went live on 2026-09-23 (Track U and its follow-ups), and the first thing it
+showed was the cost of the split: the bot on the VPS got `401 ... X-Bot-Secret` from the home
+API because the two hosts' copies of `DIPLOMACY_BOT_SECRET` disagreed. The GitHub copy had
+been set to the Telegram token by mistake, and the home server's value lived only on a
+machine neither GitHub nor the agent could reach. Asked "what runs where", the maintainer
+chose to run everything on the VPS. The case for it: no tunnel as a failure point, every
+merge deploys the whole stack (migrations included), one `.env`, and a secret that cannot
+drift because only one host holds it. The case against, accepted: the public host now holds
+the database, the JWT key and the admin token, and the data lives on a rented disk.
+
+Sizing checked first, over SSH: 1 vCPU, 1.8 GB RAM with ~1.1 GB available, bot 42 MB,
+nginx 2 MB, p2p's bot 35 MB, 14 GB free disk. Postgres plus the API fit; a 2 GB swap file was
+added for build spikes. The home database was checked over the tunnel (`GET /games` →
+`{"games":[]}`): nothing to migrate.
+
+## What landed
+
+- **`docker-compose.yml` is the whole stack**: `postgres` (unpublished), `diplomacy_api`
+  (`127.0.0.1:8000` and DAIDE on `${DAIDE_BIND:-127.0.0.1}` only), `diplomacy_bot`,
+  `diplomacy_web` (the only public port). The bot's `DIPLOMACY_API_URL` and nginx's
+  `DIPLOMACY_API_UPSTREAM` are **fixed** in the compose file, not read from `.env`, so the
+  VPS's leftover `http://10.8.0.2:8000` could not win. `docker-compose.control.yml`,
+  `.env.control.example`, `install_home.sh`, `install_vps.sh` and `upgrade_control.sh` are
+  gone. The compose project name (`new_implementation`) is unchanged, so the bot's existing
+  `bot_data` volume carried over.
+- **Secrets are generated on the host.** `ensure_env.sh` creates `.env` from `.env.example`
+  and fills any blank `POSTGRES_PASSWORD` / `DIPLOMACY_JWT_SECRET` / `DIPLOMACY_ADMIN_TOKEN` /
+  `DIPLOMACY_BOT_SECRET` with 32 random bytes of hex, printing names only. It regenerates the
+  bot secret if it equals the Telegram token (the exact state the VPS was in) and removes the
+  tunnel-era keys. GitHub now holds only `TELEGRAM_BOT_TOKEN` for the host.
+- **`upgrade.sh`** runs `ensure_env.sh`, builds, `up -d --remove-orphans`, (re)installs the
+  backup cron, then waits for `127.0.0.1:8000/healthz` and checks `127.0.0.1/api/healthz`
+  (nginx → API, the browser's path), and **exits non-zero if either fails**, so a deploy
+  that leaves the site down is a red workflow, not a green one. `install.sh` is first-time
+  setup (Docker, swap, `.env`, cron). `backup.sh` does `pg_dump | gzip` into
+  `/var/backups/diplomacy` (14 days kept, written to `.part` first so a failed dump never
+  looks like a backup); `--install-cron` writes `/etc/cron.d/diplomacy-backup` (03:17 UTC).
+- **`deploy.yml`** (renamed from `deploy-control.yml`) writes only the token and runs
+  `./upgrade.sh`. The gate variable keeps its name, `DEPLOY_CONTROL_ENABLED`, so deploys did
+  not silently stop.
+- **nginx resolves the API per request** (`resolver 127.0.0.11 valid=10s`, a variable in
+  `proxy_pass`, and a `rewrite` to strip `/api/` since nginx stops doing it with a variable).
+  With the old start-time `upstream` block, `docker compose up -d` recreating only the API
+  container would have left nginx proxying to its old address, 502 until nginx restarted.
+  Verified in a throwaway container pair on the VPS before merging: `nginx -t` passes,
+  `/api/healthz` → `/healthz`, query strings preserved.
+- **`FORWARDED_ALLOW_IPS=*` on the API.** A latent bug of the split too: uvicorn only trusts
+  `X-Forwarded-For` from 127.0.0.1 by default, so every browser request looked like it came
+  from nginx, and the per-IP register/login rate limits (`routes/auth.py`) pooled all users —
+  one person's failed logins could lock everyone out. Safe because the API port is reachable
+  only by nginx, the bot and the host's loopback.
+- The bot's "server unreachable" reply no longer mentions "the link to the home server".
+  Docstrings that justified the durable queue by the tunnel now justify it by API restarts
+  and deploys (still true) and name the two-host era as history.
+- Docs: `DEPLOYMENT.md` rewritten (secrets table, deploy steps, backups and restore,
+  troubleshooting); `CLAUDE.md`, `CODEBASE_OVERVIEW.md`, `README.md`, `architecture.md`
+  §Deployment and message reliability.
+
+## Tests
+
+`tests/test_deployment_infrastructure.py` rewritten for the single-host layout (30 tests):
+only nginx public and Postgres unpublished; bot and nginx pointed at the API container, not
+an env value; `FORWARDED_ALLOW_IPS`; nginx's per-request resolver; the split-era files gone;
+`upgrade.sh` fails when the API or site is down. `TestEnsureEnv` **executes** `ensure_env.sh`:
+fresh `.env` with four distinct 64-hex secrets that never appear in its output, mode 600,
+idempotent, and migrating the VPS's actual two-host `.env` (token kept, bot secret replaced,
+tunnel keys dropped). `TestDeployStepRuns` still executes the workflow's remote step against
+a fake `ssh` and a single-branch clone, now checking that host-generated secrets survive a
+deploy untouched.

@@ -298,6 +298,6 @@ if __name__ == "__main__":
     import uvicorn
     # Note: Import path is server.api_module:app to avoid conflict with server.api package
     # For uvicorn CLI, use: uvicorn server.api_module:app
-    # nosec B104 -- deliberate: the service runs behind nginx (and the tunnel) and must accept
+    # nosec B104 -- deliberate: the service runs behind nginx (another container) and must accept
     # connections from outside the host; binding loopback would break production.
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)  # nosec B104

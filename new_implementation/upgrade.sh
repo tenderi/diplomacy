@@ -1,14 +1,28 @@
 #!/bin/bash
 #
-# upgrade.sh — update the GAME layer on the home server: pull, rebuild,
-# restart (migrations run in the API container's entrypoint), then verify the
-# API answers on loopback and on the tunnel address.
+# upgrade.sh — update the whole stack in place: pull (unless the deploy
+# workflow has already checked out a SHA), fill in any missing secrets,
+# rebuild, restart (migrations run in the API container's entrypoint), make
+# sure the nightly backup is scheduled, and check that everything answers.
+#
+# Postgres data (pg_data) and the bot's queue (bot_data) are named volumes and
+# survive every rebuild. While the API restarts the bot queues player writes
+# and replays them once it is back.
 #
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd)"
 
-echo "==> Pulling latest code..."
-git pull --ff-only
+# By hand this runs on the main branch and pulls. The deploy workflow checks
+# out the exact SHA the Test Suite passed on (a detached HEAD) before calling
+# this script, and a pull would then fail with "not on a branch".
+if git symbolic-ref -q HEAD >/dev/null; then
+    echo "==> Pulling latest code..."
+    git pull --ff-only
+else
+    echo "==> Detached at $(git rev-parse --short HEAD); not pulling."
+fi
+
+./ensure_env.sh
 
 echo "==> Rebuilding images..."
 docker compose build
@@ -19,22 +33,34 @@ docker compose up -d --remove-orphans
 echo "==> Cleaning up old images..."
 docker image prune -f
 
-WG_IP=$(grep -E '^WG_IP=' .env 2>/dev/null | cut -d= -f2- || true)
-WG_IP=${WG_IP:-10.8.0.2}
+./backup.sh --install-cron
+
+WEB_PORT=$(grep -E '^WEB_PORT=' .env 2>/dev/null | cut -d= -f2- || true)
+WEB_PORT=${WEB_PORT:-80}
 echo "==> Waiting for the API..."
-for i in $(seq 1 30); do
+api_ok=0
+for _ in $(seq 1 45); do
     if curl -fsS -m 3 -o /dev/null http://127.0.0.1:8000/healthz; then
-        echo "    API healthy on loopback."
+        api_ok=1
         break
     fi
     sleep 2
-    [ "$i" -eq 30 ] && echo "    WARNING: API not healthy after 60s; check: docker compose logs diplomacy_api"
 done
-if curl -fsS -m 3 -o /dev/null "http://${WG_IP}:8000/healthz"; then
-    echo "    API reachable on the tunnel address ${WG_IP}."
+if [ "$api_ok" = 1 ]; then
+    echo "    API healthy."
 else
-    echo "    WARNING: API not answering on ${WG_IP}:8000 -- is wg0 up? (sudo wg show)"
+    echo "    ERROR: API not healthy after 90s; check: docker compose logs diplomacy_api"
+fi
+echo "==> Checking the web frontend..."
+web_ok=0
+if curl -fsS -m 5 -o /dev/null "http://127.0.0.1:${WEB_PORT}/api/healthz"; then
+    web_ok=1
+    echo "    nginx answering on :${WEB_PORT} and reaching the API."
+else
+    echo "    ERROR: http://127.0.0.1:${WEB_PORT}/api/healthz failed; check: docker compose logs diplomacy_web"
 fi
 
-echo "==> Done. Container status:"
+echo "==> Container status:"
 docker compose ps
+# A deploy that leaves the API or the site down must fail the workflow.
+[ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]

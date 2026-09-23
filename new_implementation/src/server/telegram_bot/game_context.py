@@ -55,7 +55,7 @@ def fetch_user_games(user_id: str) -> list[dict[str, Any]]:
     local SQLite store. If the server is unreachable and a cached answer
     exists, the cache is returned instead of raising -- this is what lets
     ``/order A PAR - BUR`` resolve *which power you hold* and reach the
-    durable queue while the home server is down, rather than failing on the
+    durable queue while the API is down, rather than failing on the
     lookup before the order is ever queued. Only the ``(game_id, power)``
     pairs are load-bearing for that, and they change rarely. With no cache
     (a player the bot has never resolved before) the unreachable error is

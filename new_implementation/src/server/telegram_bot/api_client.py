@@ -45,8 +45,8 @@ logger = logging.getLogger("diplomacy.telegram_bot.api_client")
 TRANSIENT_STATUSES = frozenset({502, 503, 504})
 
 UNREACHABLE_MESSAGE = (
-    "⚠️ The game server is unreachable right now (the link to the home server "
-    "is down). Orders and messages you send are queued and delivered "
+    "⚠️ The game server is unreachable right now (it may be restarting after "
+    "an update). Orders and messages you send are queued and delivered "
     "automatically when it is back -- see /queue. Everything else will work "
     "again once the server is reachable."
 )

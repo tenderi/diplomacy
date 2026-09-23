@@ -26,9 +26,9 @@ bot_data/
 diplomacy.db
 *.log
 *.md
-install_home.sh
-install_vps.sh
+install.sh
+ensure_env.sh
+backup.sh
 upgrade.sh
-upgrade_control.sh
 setup_database.sh
 install_prerequisites.sh
