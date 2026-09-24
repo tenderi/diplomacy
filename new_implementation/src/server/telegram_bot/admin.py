@@ -1,113 +1,74 @@
 """
-Admin commands for the Telegram bot.
+Admin commands for the Telegram bot, and the solo demo game.
 """
 import logging
+from typing import Optional
 
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_post
+from .game_context import set_current_game
+from .games import ensure_registered
 from .help_text import DEMO_EXAMPLE_ORDERS, ORDER_FORMAT_NOTES
-from .maps import send_game_map
 
 logger = logging.getLogger("diplomacy.telegram_bot.admin")
 
 
+DEMO_POWER = "GERMANY"
+DEMO_OPPONENTS = ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"]
+
+
 async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start a demo game where the user plays as Germany with all units in starting positions"""
+    """A solo game: the player is Germany, the other six are played by the server.
+
+    The six are civil-disorder seats (W9) in a game whose ``map_name`` is
+    ``"demo"`` -- the one kind of game where the server gives its dummies
+    ``simple_ai`` moves instead of holding (``GameService._demo_ai_orders``).
+    Auto-processing is on, so the turn runs the moment Germany's orders are
+    complete, and the player is the game's creator, so "Process turn now" works
+    too. (Until this the demo seated six fake "AI" users who never ordered
+    anything, and its text said the AI "won't move".)
+    """
+    user = update.effective_user
+
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    user_id = str(user.id)
     try:
-        user_id = str(update.effective_user.id)
-        user_name = update.effective_user.full_name or "Demo Player"
-
-        # Register the user first (required for joining games)
-        try:
-            api_post("/users/persistent_register", {
-                "telegram_id": user_id,
-                "full_name": user_name
-            })
-        except Exception as e:
-            # User might already be registered, continue
-            logger.info(f"User registration note: {e}")
-
-        # Create a demo game
-        game_resp = api_post("/games/create", {"map_name": "demo"})
-        game_id = game_resp["game_id"]
-
-        # Add the user as Germany
-        api_post(f"/games/{game_id}/join", {
+        ensure_registered(user)
+        game_id = str(api_post("/games/create", {
+            "map_name": "demo",
             "telegram_id": user_id,
-            "game_id": int(game_id),
-            "power": "GERMANY"
-        })
+            "dummy_powers": DEMO_OPPONENTS,
+            "auto_process": True,
+        })["game_id"])
+        api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": DEMO_POWER})
+    except requests.RequestException as e:
+        await send(f"❌ Could not start a demo game: {e}")
+        return
+    set_current_game(user_id, game_id)
 
-        # Add AI players for other powers (they won't submit orders)
-        other_powers = ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA", "TURKEY"]
-        for power in other_powers:
-            ai_telegram_id = f"ai_{power.lower()}"
-            # Register AI player
-            try:
-                api_post("/users/persistent_register", {
-                    "telegram_id": ai_telegram_id,
-                    "full_name": f"AI {power}"
-                })
-            except Exception as e:
-                # AI player might already be registered, continue
-                logger.info(f"AI player registration note: {e}")
-
-            # Join the game
-            api_post(f"/games/{game_id}/join", {
-                "telegram_id": ai_telegram_id,
-                "game_id": int(game_id),
-                "power": power
-            })
-
-        # Generate the map with starting positions
-        await send_game_map(update, context, game_id)
-
-        # Show demo game controls
-        keyboard = [
-            [InlineKeyboardButton("📋 Submit Orders", callback_data=f"demo_orders_{game_id}")],
-            [InlineKeyboardButton("🗺️ View Map", callback_data=f"view_map_{game_id}")],
-            [InlineKeyboardButton("ℹ️ Demo Help", callback_data=f"demo_help_{game_id}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        demo_text = (
-            f"🎮 *Demo Game Started!* (ID: {game_id})\n\n"
-            "🇩🇪 *You are Germany* - Make your moves!\n"
-            "🤖 Other powers are AI-controlled (they won't move)\n\n"
-            "💡 *Available Commands:*\n"
-            "📋 Submit orders for Germany\n"
-            "🗺️ View current map state\n"
-            "ℹ️ Get help with demo mode\n\n"
-            "*Example Orders:*\n"
-            f"{DEMO_EXAMPLE_ORDERS}\n\n"
-            f"{ORDER_FORMAT_NOTES}\n\n"
-            "*Interactive Features:*\n"
-            "• Use `/selectunit` for guided order selection\n"
-            f"• Use `/processturn {game_id}` to advance the game\n"
-            f"• Use `/viewmap {game_id}` to see current state"
-        )
-
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                demo_text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                demo_text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-
-    except Exception as e:
-        error_msg = f"❌ Error starting demo game: {str(e)}"
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_msg)
-        else:
-            await update.message.reply_text(error_msg)
+    await send(
+        f"🎮 *Demo game {game_id} started!*\n\n"
+        "🇩🇪 You are *Germany*. The other six powers are played by a simple computer player.\n"
+        "⚡ Each turn is processed as soon as all your units have orders.\n\n"
+        "Tap *Enter orders* to order your three units one by one.\n\n"
+        "*Or type them:*\n"
+        f"{DEMO_EXAMPLE_ORDERS}\n\n"
+        f"{ORDER_FORMAT_NOTES}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📝 Enter orders", callback_data=f"g|{game_id}|all|n"),
+             InlineKeyboardButton("🗺 Map", callback_data=f"g|{game_id}|map")],
+            [InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub|n"),
+             InlineKeyboardButton("ℹ️ Demo help", callback_data=f"demo_help_{game_id}")],
+        ]),
+    )
 
 
 async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -144,7 +144,7 @@ stored game rows; see `fix_plan.md` M6):
 | `pending_orders` | JSON | `GameRepo.set_pending_orders` | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
 | `last_resolution` | JSON | `GameRepo.save_state` | The most recent `resolution_to_dict()` output — kept only so `/generate_map/resolution` can draw arrows for the turn just processed; not otherwise authoritative (superseded on the next `process_turn`). |
 | `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`. |
-| `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | W9: sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. |
+| `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | W9: sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. In a game whose `map_name` is `"demo"` (the bot's solo demo), `process_turn` gives each dummy with no orders `engine.simple_ai` orders, seeded by game id and phase, and records them in `order_history` like anyone's. |
 | `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | W10: process the turn as soon as `orders_status` has nothing missing and no wait flag is up. Null/false = manual or deadline only. |
 | `wait_flags` | JSON | `GameRepo.set_wait_flags` | W10: `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
 | `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | W8: bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the W5 export leaves it out (an imported game comes back open). |
@@ -232,6 +232,11 @@ the Telegram bot's `api_client.py`, and `src/server/daide/session.py`. There is 
 `powers`-keyed view left to support.
 
 ### Resolution-result shapes: `POST .../process_turn` and `GET .../last_resolution`
+
+Who may call it: the bot secret, the admin token, or a Bearer user seated in the game.
+When the bot passes a player's `telegram_id` in the JSON body, only the game's creator
+(`games.created_by_user_id`) is allowed (403 otherwise); `GET /users/{telegram_id}/games`
+marks those games with `is_creator: true`.
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):

@@ -72,7 +72,11 @@ def _user_games_response(user: Any) -> Dict[str, Any]:  # noqa: ANN401
                 "map_name": game.map_name,
                 "power": player.power_name,
                 "current_turn": getattr(game, 'current_turn', 0),
-                "status": getattr(game, 'status', "active")
+                "status": getattr(game, 'status', "active"),
+                # The bot offers "process turn now" only to a game's creator,
+                # the one Telegram player allowed to end a turn early.
+                "is_creator": game.created_by_user_id is not None
+                and int(game.created_by_user_id) == int(user.id),
             })
     return {"games": games}
 

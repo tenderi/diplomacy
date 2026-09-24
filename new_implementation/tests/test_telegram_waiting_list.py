@@ -22,6 +22,8 @@ tipped the queue over.
 from __future__ import annotations
 
 import asyncio
+
+import requests
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -124,11 +126,11 @@ def test_wait_survives_a_game_created_response_without_assignments() -> None:
 def test_wait_reports_an_api_failure_without_raising() -> None:
     """A bot command must never surface a traceback to the player."""
     update = _update()
-    with patch("server.telegram_bot.games.api_post", side_effect=RuntimeError("boom")):
+    with patch("server.telegram_bot.games.api_post", side_effect=requests.ConnectionError("boom")):
         asyncio.run(wait(update, Mock()))
     reply = _reply(update)
     assert "❌" in reply
-    assert "Register" in reply, "an unregistered user gets no hint about what to do"
+    assert "try again" in reply
 
 
 def test_wait_with_no_user_context_is_a_no_op() -> None:
@@ -148,7 +150,7 @@ def test_unwait_leaves_the_queue() -> None:
     endpoint, payload = mock_post.call_args.args
     assert endpoint == "/waiting_list/leave"
     assert payload == {"telegram_id": "4242"}
-    assert "Removed" in _reply(update)
+    assert "left the queue" in _reply(update)
 
 
 def test_unwait_when_not_queued_says_so() -> None:
@@ -161,7 +163,7 @@ def test_unwait_when_not_queued_says_so() -> None:
 
 def test_unwait_reports_an_api_failure_without_raising() -> None:
     update = _update()
-    with patch("server.telegram_bot.games.api_post", side_effect=RuntimeError("boom")):
+    with patch("server.telegram_bot.games.api_post", side_effect=requests.ConnectionError("boom")):
         asyncio.run(leave_waiting_list(update, Mock()))
     assert "❌" in _reply(update)
 

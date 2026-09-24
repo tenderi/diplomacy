@@ -108,17 +108,18 @@ def test_interactive_order_is_queued(fresh_outbox):
 
 
 def test_clear_orders_button_is_queued(fresh_outbox):
+    """The game menu's "Yes, clear them" (``g|3|clrok``)."""
     query = Mock()
     query.answer = AsyncMock()
     query.edit_message_text = AsyncMock()
-    query.data = "clear_orders_3_GERMANY"
+    query.data = "g|3|clrok"
     query.from_user = Mock(id=555)
     update = Mock()
     update.callback_query = query
-    with _down():
+    with patch.object(game_context, "api_get", return_value={"games": [{"game_id": "3", "power": "GERMANY"}]}), _down():
         asyncio.run(bot_app.button_callback(update, Mock()))
     assert "queued" in query.edit_message_text.call_args[0][0]
-    assert fresh_outbox.pending(chat_id=555)[0].payload["orders"] == []
+    assert fresh_outbox.pending(chat_id=555)[0].endpoint == "/games/3/orders/GERMANY/clear"
 
 
 def test_queue_command_lists_pending_and_recent(fresh_outbox):

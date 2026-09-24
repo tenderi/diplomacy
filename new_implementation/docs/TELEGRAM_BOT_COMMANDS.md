@@ -1,21 +1,44 @@
 # Telegram Bot Command Reference
 
 Every command the Diplomacy bot accepts. Arguments in `<>` are required, `[]` optional.
-Where `[game_id]` is optional, the bot infers it when you are in exactly one game.
 
-Telegram's "/" autocomplete menu lists a curated subset of the most-used commands below;
-every command on this page works when typed, whether or not it's in that menu.
+## The button way
+
+Most players never need to type a command after `/start`:
+
+- **🎮 My games** lists your games; tap one to open its **game menu**: the game's status
+  (phase, deadline, who has ordered, wait flags, draw vote) and buttons for 📝 Order all
+  units, 🎯 One unit, 📋 My orders (with 🗑 Clear and 📜 History), 🗺 Map, 💬 Messages,
+  ⏰ Deadline, ✋ Wait for me / ✅ I'm ready (when the game auto-processes), and — for the
+  game's creator only — ⚙️ Process turn now. With just one game, 🎮 My games opens its menu
+  straight away.
+- **🎲 Find a game** lists open games you can join (🔒 = private; tap a power and the bot asks
+  for the password, then deletes your message), the queue for the next new game, and a solo
+  demo.
+- **Notifications** — "turn processed", "deadline in 10 minutes", "you joined", "game is
+  full" — carry 📝 Enter orders, 🗺 Map and 🎮 Game menu buttons for that game.
+- **💬 Messages** in the game menu shows recent messages and a button per power (and
+  📣 Everyone): tap one, then just type your message. `/cancel` stops.
+
+## Your current game
+
+Commands act on your **current game**, so the game id is only needed to switch: it is the
+game you last opened in the game menu, named in a command, joined, or tapped a notification
+button for. `/game <id>` switches explicitly. With only one game, that game is always
+current. (`/deadline`, `/quit`, `/replace`, `/dummy` and `/autoprocess` still take the id
+first, because a bare number there would be ambiguous.)
 
 ## Getting started
 
 | Command | Description |
 |---|---|
-| `/start` | Welcome message and the main keyboard menu. |
-| `/register` | Register yourself as a user. Required before joining games. |
+| `/start` | Registers you (nothing else to do) and shows the main keyboard: 🎮 My games · 🎲 Find a game · ℹ️ Help. |
 | `/help` | Show all available commands. |
 | `/rules` | Basic Diplomacy rules and order syntax. |
 | `/examples` | Order syntax examples. |
 | `/refresh` | Rebuild the keyboard menu if it gets out of sync. |
+| `/register` | Still works, but `/start`, joining and queueing register you automatically. |
+| `/cancel` | Stop writing a message or password the bot asked for. |
 
 ## Account linking
 
@@ -31,41 +54,49 @@ the web app if you need to re-link.
 
 | Command | Description |
 |---|---|
-| `/games` | List the games you are in, with your power and the current phase. |
+| `/games` | Your games, as buttons that open each game's menu (⭐ marks the current game). |
+| `/game [game_id]` | Open a game's menu, and make it your current game. |
+| `/findgame` | Open games you could join, the queue, and the solo demo — the 🎲 Find a game key. |
 | `/join <game_id>` | Shows a menu of available powers to join as. |
 | `/join <game_id> <power>` | Join directly as a specific power, skipping the menu. |
 | `/join <game_id> <power> <password>` | Join a **private** game (🔒 in the game list). Ask the game's creator for the password. The bot deletes your message afterwards so the password doesn't stay in the chat. Five wrong guesses lock you out of that game for 15 minutes. |
 | `/quit <game_id>` | Leave a game. Your seat is vacated — units and any orders you submitted stay exactly as they are for whoever takes it over — and you can no longer act for that power (or see it under `/games`). |
 | `/replace <game_id> <power> [password]` | Take over a vacated power (a private game needs its password). `/join <game_id> <power>` on a vacated seat does the same thing. |
-| `/wait` | Join the waiting list; a new game is created automatically once 7 players are waiting, and everyone in the queue is messaged with their assigned power. The queue is stored server-side, so it survives a bot restart. |
-| `/unwait` | Leave the waiting list. |
+| `/wait` | Join the queue for a new game (the "⏳ Queue for the next new game" button); a game is created automatically once 7 players are waiting, and everyone in the queue is messaged with their assigned power. The queue is stored server-side, so it survives a bot restart. |
+| `/leavequeue` | Leave the queue (`/unwait` still works). |
 | `/players [game_id]` | List all players and their powers. |
 | `/status [game_id]` | Current phase, deadline, who has submitted orders, and the draw-vote tally. |
 | `/draw [game_id]` | Vote yes to end the game as a draw. If your vote completes quorum — every surviving power has voted yes — the game ends immediately. |
 | `/nodraw [game_id]` | Withdraw a draw vote you previously cast. |
 | `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; nothing sets one for you. |
-| `/deadline <game_id> clear` | Remove the deadline; the turn is then processed by hand with `/processturn`. |
+| `/deadline <game_id> clear` | Remove the deadline. |
 | `/deadline <game_id>` | Show the current deadline. |
+| ⏰ Deadline (game menu) | Propose 12h / 24h / 48h / no deadline to a majority vote, vote ✅/❌ on a pending proposal, or withdraw your own. (`/deadline <game_id> propose <hours\|clear> [vote_hours]`, `vote <yes\|no>` and `withdraw` do the same by typing.) |
 | `/autoprocess <game_id> on\|off` | Any player: process each turn the moment every power with something to order has sent an order **for every unit that must act** (to keep a unit still, order it to hold) (civil-disorder powers are never waited on), unless someone is `/notready`. A deadline still applies. Off by default. |
-| `/notready [game_id]` | Ask the table to wait before the turn auto-processes ("I'm still negotiating"). Lasts until `/ready` or the end of the phase. Never stops a deadline or `/processturn`. |
+| `/notready [game_id]` | Ask the table to wait before the turn auto-processes ("I'm still negotiating"). Lasts until `/ready` or the end of the phase. Never stops a deadline. |
 | `/ready [game_id]` | Lower your wait flag; if everything else is in, the turn is processed at once. |
 | `/dummy <game_id> <power> [off]` | Game creator only: leave an empty seat to civil disorder (it holds, disbands when it must, is never waited on and never votes), or add `off` to open it for a player again. For tables of 3–6. |
+
+### The solo demo
+
+🎲 Find a game → 🎮 Solo demo starts a game where you are Germany and the other six powers
+are played by the server with simple computer moves. It processes each turn as soon as all
+your units have orders.
 
 ## Orders
 
 | Command | Description |
 |---|---|
-| `/order [game_id] <order>; <order>; …` | Submit orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/clearorders` starts over. |
-| `/orders <game_id> <order>; <order>; …` | Same, but the game ID is required. |
-| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back and ⏭ Skip on every step; a skipped unit keeps any earlier order, or holds. |
-| `/selectunit [game_id]` | **Order a single unit** — pick a unit, then pick from its legal orders; it is sent at once. The screen also offers "Order all units, one by one". |
+| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back and ⏭ Skip on every step; a skipped unit keeps any earlier order, or holds. Same as 📝 Order all units / 📝 Enter orders. |
+| `/selectunit [game_id]` | **Order a single unit** — pick a unit, then pick from its legal orders; it is sent at once. |
+| `/orders [game_id] <order>; <order>; …` | Type orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/order` is the same command. |
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
 | `/clearorders [game_id]`, `/clear [game_id]` | Clear your submitted orders so you can resubmit. |
-| `/orderhistory <game_id>` | Orders from previous turns, grouped by turn and power. |
-| `/processturn <game_id>` | Adjudicate the current phase and advance. If some powers haven't submitted yet, asks for confirmation first (their units would otherwise hold silently) and reports a short outcome summary — dislodgements and standoffs — afterwards. |
+| `/orderhistory [game_id]` | Orders from previous turns, grouped by turn and power. |
+| `/processturn [game_id]` | **The game's creator only** (the ⚙️ Process turn now button): adjudicate the current phase now. If some powers haven't submitted, asks for confirmation first (their units would hold). Everyone else's turns end at the deadline, or when all orders are in with auto-process on. |
 
-Separate multiple orders with semicolons. `/selectunit` is the easiest route — it only ever
-offers orders that are legal in the current phase, including retreats and builds.
+Separate multiple orders with semicolons. The buttons are the easiest route — they only ever
+offer orders that are legal in the current phase, including retreats and builds.
 
 ### Order syntax
 
@@ -89,8 +120,8 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 
 | Command | Description |
 |---|---|
-| `/message <game_id> <power> <text>` | Private message to one power. |
-| `/broadcast <game_id> <text>` | Message all players. Also posted to the linked channel, if any. |
+| `/message [game_id] <power> <text>` | Private message to one power. Or 💬 Messages in the game menu, tap the power, and type. |
+| `/broadcast [game_id] <text>` | Message all players. Also posted to the linked channel, if any. |
 | `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing which power sent it. |
 | `/queue` | Whether the game server is reachable, and your orders/messages still waiting to be delivered to it, with the time you sent each. |
 
@@ -144,9 +175,10 @@ Settings: `auto_post_maps`, `auto_post_broadcasts`, `auto_post_notifications` (a
 
 | Message | Fix |
 |---|---|
-| "You are not in game X" | Join it first with `/join`. |
-| "Order failed" | Check the syntax and that the order type suits the current phase — `/selectunit` avoids both problems. |
+| "You are not in game X" | Join it first: 🎲 Find a game, or `/join`. |
+| "You're in N games" | Pick one with `/game <id>`, or open it from 🎮 My games; it stays picked. |
+| "Order failed" | Check the syntax and that the order type suits the current phase — the order buttons avoid both problems. |
 | "Channel not linked" | Run `/link_channel`. |
-| Bot doesn't respond | Confirm the bot and API are running and that you have sent `/register`. |
+| Bot doesn't respond | Confirm the bot and API are running, then send `/start`. |
 
 More: [FAQ and setup](LOCAL_DEVELOPMENT.md#troubleshooting).

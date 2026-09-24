@@ -120,37 +120,38 @@ class TestApiClientErrorDetail:
         assert "400" in str(exc_info.value)
 
     @patch("server.telegram_bot.games.api_post")
-    def test_join_unregistered_user_gets_detail_and_register_hint(self, mock_post):
-        mock_post.side_effect = ApiError("Not authenticated", response=Mock(status_code=401))
+    def test_join_shows_the_servers_detail(self, mock_post):
+        """/join registers the player itself now, so the reply carries the
+        server's reason rather than a "try /register" hint."""
+        mock_post.side_effect = [{"status": "ok"}, ApiError("Power already taken", response=Mock(status_code=409))]
         update, context, message = _make_update_and_context(args=["1", "FRANCE"])
 
         asyncio.run(join(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "Not authenticated" in text
-        assert "/register" in text
+        assert "Power already taken" in text
+        assert mock_post.call_args_list[0][0][0] == "/users/persistent_register"
 
-    def test_app_join_callback_gets_detail_and_register_hint(self):
-        """The exact call site the driver's example referred to: the inline
-        'Browse Games' -> select power -> join_game_ callback in app.py,
-        which has its own independent api_post call (not games.join())."""
+    def test_app_join_callback_shows_the_servers_detail(self):
+        """The inline 'Find a game' -> select power -> join_game_ callback."""
         query = Mock()
         query.answer = AsyncMock()
         query.edit_message_text = AsyncMock()
         query.data = "join_game_1_FRANCE"
-        query.from_user = Mock(id=12345)
+        query.from_user = Mock(id=12345, first_name="T", last_name=None, username="")
 
         update = Mock()
         update.callback_query = query
         context = Mock()
+        context.user_data = {}
 
-        with patch("server.telegram_bot.app.api_post") as mock_post:
-            mock_post.side_effect = ApiError("Not authenticated", response=Mock(status_code=401))
+        with patch("server.telegram_bot.games.api_get", return_value={"private": False}), \
+             patch("server.telegram_bot.games.api_post") as mock_post:
+            mock_post.side_effect = [{"status": "ok"}, ApiError("Power already taken", response=Mock(status_code=409))]
             asyncio.run(bot_app.button_callback(update, context))
 
         text = query.edit_message_text.call_args[0][0]
-        assert "Not authenticated" in text
-        assert "/register" in text
+        assert "Power already taken" in text
 
 
 # ---------------------------------------------------------------------------
@@ -160,31 +161,25 @@ class TestApiClientErrorDetail:
 
 class TestMarkdownEscaping:
     @patch("server.telegram_bot.games.api_post")
-    def test_register_escapes_display_name_with_markdown_chars(self, mock_post):
+    def test_register_sends_a_markdown_name_as_plain_text(self, mock_post):
+        """The confirmation carries the player's own name, so it is sent
+        without Markdown: an unescaped ``_``/``*`` made Telegram reject it."""
         mock_post.return_value = {"status": "ok"}
         update, context, message = _make_update_and_context(first_name="John_Snow*Bot")
 
         asyncio.run(register(update, context))
 
-        text = message.reply_text.call_args[0][0]
-        assert "John\\_Snow\\*Bot" in text
-        # And the raw, unescaped name must not appear unescaped inside the
-        # Markdown message (that's exactly what made Telegram reject it).
-        assert "John_Snow*Bot" not in text
+        assert "John_Snow*Bot" in message.reply_text.call_args[0][0]
+        assert message.reply_text.call_args[1].get("parse_mode") is None
 
     @patch("server.telegram_bot.games.api_post")
-    def test_register_reply_failure_does_not_relabel_success_as_error(self, mock_post):
-        """Even if the confirmation reply itself fails, registration already
-        succeeded server-side -- the player must not be told 'Registration
-        error'."""
-        mock_post.return_value = {"status": "ok"}
+    def test_a_failed_registration_says_so(self, mock_post):
+        mock_post.side_effect = requests.ConnectionError("down")
         update, context, message = _make_update_and_context(first_name="X")
-        message.reply_text.side_effect = Exception("Telegram API hiccup")
 
         asyncio.run(register(update, context))
 
-        for call in message.reply_text.call_args_list:
-            assert "Registration error" not in call[0][0]
+        assert "Registration error" in message.reply_text.call_args[0][0]
 
     @patch("server.telegram_bot.games.api_get")
     @patch("server.telegram_bot.game_context.api_get")
@@ -418,7 +413,7 @@ class TestProcessTurnConfirmation:
 
         asyncio.run(processturn(update, context))
 
-        mock_post.assert_called_once_with("/games/1/process_turn", {})
+        mock_post.assert_called_once_with("/games/1/process_turn", {"telegram_id": "12345"})
         text = message.reply_text.call_args[0][0]
         assert "Turn Processed" in text
 
@@ -561,6 +556,6 @@ class TestOrderMatchesDocs:
 
         asyncio.run(join(update, context))
 
-        mock_post.assert_called_once()
+        assert mock_post.call_args[0][0] == "/games/1/join"  # after registering
         text = message.reply_text.call_args[0][0]
-        assert "Successfully joined" in text
+        assert "You joined game 1 as FRANCE" in text
