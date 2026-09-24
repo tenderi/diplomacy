@@ -1,7 +1,7 @@
 """The server side of the Telegram flow changes.
 
 - Turn-processed notifications carry ``g|`` buttons (Enter orders / Map / Game menu).
-- Ending a turn early from Telegram is for the game's creator only.
+- Ending a turn early is for the game's creator only, from Telegram and the web.
 - ``/users/{id}/games`` says which games the player created.
 - In a demo game the civil-disorder powers play ``simple_ai`` moves.
 """
@@ -63,6 +63,37 @@ class TestEndingATurnEarlyFromTelegram:
     def test_the_bare_bot_secret_is_still_trusted(self, client: TestClient) -> None:
         game_id = _created_by(client, _telegram_user(client, "creator"))
         assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+
+
+class TestEndingATurnEarlyOnTheWeb:
+    def _web_user(self, client: TestClient, name: str) -> tuple[dict, int]:
+        import time as _time
+        email = f"{name}_{int(_time.time() * 1000)}@example.com"
+        token = client.post("/auth/register", json={"email": email, "password": "testpass123"}).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        return headers, client.get("/auth/me", headers=headers).json()["id"]
+
+    def test_a_seated_player_who_did_not_create_the_game_is_refused(self, client: TestClient) -> None:
+        creator, creator_id = self._web_user(client, "webcreator")
+        player, _ = self._web_user(client, "webplayer")
+        game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=creator).json()["game_id"])
+        assert client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=player).status_code == 200
+        resp = client.post(f"/games/{game_id}/process_turn", headers=player)
+        assert resp.status_code == 403 and "creator" in resp.json()["detail"]
+        # The view names the creator, so the web shows the button only to them.
+        assert client.get(f"/games/{game_id}/state").json()["created_by_user_id"] == creator_id
+
+    def test_the_creator_may_even_without_a_seat(self, client: TestClient) -> None:
+        creator, _ = self._web_user(client, "organiser")
+        game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=creator).json()["game_id"])
+        assert client.post(f"/games/{game_id}/process_turn", headers=creator).status_code == 200
+
+    def test_a_game_nobody_created_is_the_admins(self, client: TestClient) -> None:
+        game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=BOT).json()["game_id"])
+        player, _ = self._web_user(client, "queued")
+        client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=player)
+        assert client.post(f"/games/{game_id}/process_turn", headers=player).status_code == 403
+        assert client.post(f"/games/{game_id}/process_turn", headers={"X-Admin-Token": "changeme"}).status_code == 200
 
 
 def test_the_games_list_marks_the_games_you_created(client: TestClient) -> None:

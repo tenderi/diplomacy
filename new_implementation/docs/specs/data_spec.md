@@ -233,10 +233,12 @@ the Telegram bot's `api_client.py`, and `src/server/daide/session.py`. There is 
 
 ### Resolution-result shapes: `POST .../process_turn` and `GET .../last_resolution`
 
-Who may call it: the bot secret, the admin token, or a Bearer user seated in the game.
-When the bot passes a player's `telegram_id` in the JSON body, only the game's creator
-(`games.created_by_user_id`) is allowed (403 otherwise); `GET /users/{telegram_id}/games`
-marks those games with `is_creator: true`.
+Who may call it: the game's creator (`games.created_by_user_id`) — as a Bearer user, or
+as a Telegram player when the bot passes their `telegram_id` in the JSON body — plus the
+bare bot secret and the admin token. Anyone else, seated or not, gets 403; a game nobody
+created (a waiting-list game) can be ended early only by an admin. The game view carries
+`created_by_user_id` so the web shows "Process turn" only to the creator, and
+`GET /users/{telegram_id}/games` marks created games with `is_creator: true` for the bot.
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):
