@@ -5,7 +5,7 @@ Telegram bot). All commands assume you are in the repository root with the venv 
 
 ## Prerequisites
 
-- **Python 3.14** (pinned in [`pyproject.toml`](../pyproject.toml))
+- **Python 3.14** (pinned in [`pyproject.toml`](https://github.com/tenderi/diplomacy/blob/main/pyproject.toml))
 - **PostgreSQL** — required by the API and most tests
 - **libcairo2** — required by CairoSVG for map rendering
 - **Node.js 18+ / npm** — only for the browser frontend
@@ -128,7 +128,7 @@ cd frontend && npm install && npm run dev
 
 The app runs at **http://localhost:5173**; Vite proxies API routes to the backend. Set
 `VITE_API_URL` in `frontend/.env` if the API is elsewhere. See
-[BROWSER_CLIENT.md](BROWSER_CLIENT.md) and [`frontend/README.md`](../frontend/README.md).
+[BROWSER_CLIENT.md](BROWSER_CLIENT.md) and [`frontend/README.md`](https://github.com/tenderi/diplomacy/blob/main/frontend/README.md).
 
 ## 6. Run the Telegram bot (optional)
 

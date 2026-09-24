@@ -22,7 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.2`.
+- **Last updated:** 2026-09-24, at `v3.0.3`.
+- **Track AF (`v3.0.3`):** the docs as a website at https://diplomacy-docs.xn--jalluthti-02a.fi
+  (MkDocs Material, rebuilt on every deploy).
 - **Track AE (`v3.0.2`):** playing in a Telegram group (`/newgame` in the group, orders only
   in private, a group's games visible only to its members, channel routes secured) and
   `docs/NEW_USER_GUIDE.md` for the beta.

@@ -17,7 +17,7 @@ coverage.xml
 tests/
 test_maps/
 examples/
-docs/
+# docs/ is needed only by the docs image; the others copy what they use by name.
 infra/
 frontend/node_modules/
 frontend/dist/

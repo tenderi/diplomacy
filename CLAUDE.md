@@ -185,7 +185,9 @@ Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the ch
 `diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint), `diplomacy_bot`
 (`docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
 built SPA and proxying `/api/` to the API, `docker/web.Dockerfile`), plus `caddy` (HTTPS for
-`DOMAIN`, started only when `DOMAIN` is set in `.env`; `docker/Caddyfile`). **Only Caddy (or,
+`DOMAIN`, started only when `DOMAIN` is set in `.env`; `docker/Caddyfile`) and `diplomacy_docs`
+(the `docs/` site via MkDocs, `mkdocs.yml`, served by Caddy at `DOCS_DOMAIN`; built with
+`--strict`, so a broken doc link fails the deploy). **Only Caddy (or,
 without a domain, nginx) is public.**
 The API is published on `127.0.0.1` only — never a bare `8000:8000` — and Postgres not at all;
 the bot and nginx reach the API by service name. p2p's bot shares the VPS and is not ours.
