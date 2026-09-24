@@ -780,11 +780,15 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
                 "id": g.id,
                 "map_name": g.map_name,
                 "game_id": getattr(g, 'game_id', None),
-                "current_turn": getattr(g, 'current_turn', 0),
-                "current_year": getattr(g, 'year', 1901),
-                "current_season": getattr(g, 'season', "Spring"),
-                "current_phase": getattr(g, 'current_phase', "Movement"),
-                "status": getattr(g, 'status', "active"),
+                # The model's columns, read directly: ``getattr(g, 'year', 1901)``
+                # named columns that do not exist, so every game listed as
+                # Spring 1901 whatever its real phase.
+                "current_turn": g.current_turn,
+                "current_year": g.current_year,
+                "current_season": g.current_season,
+                "current_phase": g.current_phase,
+                "phase_code": g.phase_code,
+                "status": g.status,
                 "player_count": len(players),
                 # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
                 "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),

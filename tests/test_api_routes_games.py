@@ -99,6 +99,16 @@ class TestListGames:
         assert len(listed) == 1
         assert (listed[0]["player_count"], listed[0]["max_players"], listed[0]["private"]) == (1, 7, False)
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_a_listed_game_shows_its_real_phase(self, client):
+        """The list read ``year``/``season``, columns the model does not have, so
+        every game showed as Spring 1901 however far it had got."""
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        for _ in range(2):  # S1901M -> F1901M -> S1902M (nobody ordered: no winter)
+            assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
+        listed = next(g for g in client.get("/games").json()["games"] if str(g["game_id"]) == str(game_id))
+        assert (listed["current_year"], listed["current_season"], listed["phase_code"]) == (1902, "Spring", "S1902M")
+
 
 @pytest.mark.unit
 class TestGetPlayers:
