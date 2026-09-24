@@ -7,7 +7,7 @@ player management (join/quit/replace), deadlines, snapshots, and history.
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
@@ -824,6 +824,17 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _refuse_deadline_change_if_over(game: Any) -> None:
+    """A finished game takes no writes (Track L); a deadline or a vote on one
+    would only send players "deadline set" news about a game that is over."""
+    if getattr(game, "status", None) == "completed":
+        raise HTTPException(status_code=409, detail="Game is over; its deadline can no longer be changed.")
+
+
+def _deadline_text(iso_value: Optional[str]) -> str:
+    return api_shared.format_deadline_utc(datetime.fromisoformat(iso_value) if iso_value else None)
+
+
 @router.get("/games/{game_id}/deadline")
 def get_deadline(game_id: str) -> Dict[str, Any]:
     """Get the current deadline for a game, and any pending majority-vote
@@ -870,6 +881,7 @@ def propose_deadline(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    _refuse_deadline_change_if_over(game)
     try:
         result = api_shared.propose_deadline(
             game_id, int(game.id), req.power, req.hours, req.vote_hours
@@ -882,7 +894,8 @@ def propose_deadline(
             notify_players(
                 int(game.id),
                 f"{req.power}'s deadline proposal for game {game_id} was accepted "
-                f"immediately (they're the only active power) and applied.",
+                f"immediately (they're the only active power): deadline now "
+                f"{_deadline_text(result['deadline'])}.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
             )
         else:
@@ -912,6 +925,7 @@ def vote_deadline_proposal(
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    _refuse_deadline_change_if_over(game)
     try:
         result = api_shared.vote_on_deadline_proposal(game_id, int(game.id), req.power, req.vote)
     except api_shared.DeadlineProposalError as e:
@@ -920,10 +934,10 @@ def vote_deadline_proposal(
     try:
         exclude = _caller_telegram_id(credentials, req.telegram_id)
         if result["status"] == "accepted":
-            what = f"{result['value_hours']}h" if result["value_hours"] is not None else "no deadline"
             notify_players(
                 int(game.id),
-                f"Game {game_id}'s deadline proposal passed: now {what}.",
+                f"Game {game_id}'s deadline proposal passed: deadline now "
+                f"{_deadline_text(result['deadline'])}.",
                 exclude_telegram_id=exclude,
             )
         elif result["status"] == "rejected":
@@ -990,6 +1004,7 @@ def set_deadline(
     member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
     if member is None:
         raise HTTPException(status_code=403, detail="You are not a player in this game.")
+    _refuse_deadline_change_if_over(game)
     if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
         raise HTTPException(
             status_code=400,
@@ -1016,8 +1031,7 @@ def set_deadline(
     # like every other notification; the write above is already committed.
     try:
         if deadline is not None:
-            aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
-            when = aware.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            when = api_shared.format_deadline_utc(deadline)
             text = (
                 f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
                 f"is processed automatically when it passes."

@@ -256,13 +256,36 @@ class TestDeadlineProposeVoteWithdraw:
     @patch('server.telegram_bot.game_context.api_get')
     def test_vote_accepted_reports_the_new_deadline(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = _ONE_GAME
-        mock_post.return_value = {"status": "accepted", "value_hours": 12.0}
+        mock_post.return_value = {"status": "accepted", "value_hours": 12.0, "deadline": "2030-01-02T03:04:00"}
         update, context, message = _make_update_and_context(args=["1", "vote", "yes"])
 
         asyncio.run(deadline(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "passed" in text and "12.0h" in text
+        assert "passed" in text and "2030-01-02 03:04 UTC" in text
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_vote_accepted_against_an_older_api_falls_back_to_hours(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "accepted", "value_hours": 12.0}  # no "deadline" key
+        update, context, message = _make_update_and_context(args=["1", "vote", "yes"])
+
+        asyncio.run(deadline(update, context))
+
+        assert "12.0h from now" in message.reply_text.call_args[0][0]
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    @pytest.mark.parametrize("bad", ["0", "-3", "nan", "721"])
+    def test_propose_refuses_a_bad_vote_window_before_calling_the_api(self, mock_ctx_get, mock_post, bad):
+        mock_ctx_get.return_value = _ONE_GAME
+        update, context, message = _make_update_and_context(args=["1", "propose", "24", bad])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_not_called()
+        assert "Vote hours must be" in message.reply_text.call_args[0][0]
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')

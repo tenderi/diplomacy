@@ -248,3 +248,104 @@ def test_proposal_with_no_vote_hours_never_expires():
     # Even a "sweep from the far future" leaves a no-expiry proposal pending.
     api_shared.expire_deadline_proposals(datetime.now(timezone.utc) + timedelta(days=365))
     assert client.get(f"/games/{game_id}/deadline").json()["pending_proposal"] is not None
+
+
+# ---------------------------------------------------------------------------
+# v2.7.97: range checks, the accepted deadline, reminders, finished games
+# ---------------------------------------------------------------------------
+
+
+def _accept(client: TestClient, game_id: str, users: dict[str, dict]) -> dict:
+    """Three more yes votes after the proposer's: a majority of 7."""
+    for power in ("ENGLAND", "GERMANY", "ITALY"):
+        resp = client.post(
+            f"/games/{game_id}/deadline/vote", json={"power": power, "vote": True}, headers=users[power]
+        )
+        assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.parametrize(
+    "field,raw",
+    [
+        ("hours", "-5"),        # won its vote, it set a deadline 5 h in the past
+        ("hours", "0"),
+        ("hours", "721"),
+        ("hours", "1e12"),      # accepted into the vote; the deciding yes then 500'd
+        ("hours", "NaN"),       # 500 on propose
+        ("vote_hours", "-1"),
+        ("vote_hours", "Infinity"),  # 500 on propose
+    ],
+)
+def test_out_of_range_hours_are_refused_up_front(field: str, raw: str):
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    body = '{"power": "FRANCE", "hours": 24, "%s": %s}' % (field, raw)
+    resp = client.post(
+        f"/games/{game_id}/deadline/propose", content=body,
+        headers={**users["FRANCE"], "content-type": "application/json"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "at most 720" in resp.json()["detail"]
+    assert client.get(f"/games/{game_id}/deadline").json()["pending_proposal"] is None
+
+
+def test_accepted_proposal_returns_the_deadline_it_set():
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
+    body = _accept(client, game_id, users)
+    assert body["status"] == "accepted"
+    applied = datetime.fromisoformat(body["deadline"]).replace(tzinfo=None)
+    assert timedelta(hours=11, minutes=59) < applied - before < timedelta(hours=12, minutes=1)
+    stored = datetime.fromisoformat(client.get(f"/games/{game_id}/deadline").json()["deadline"])
+    assert abs(stored - applied) < timedelta(seconds=1)
+
+
+def test_accepted_proposal_rearms_the_ten_minute_reminder():
+    """A reminder already sent for the old deadline must not suppress the new one's,
+    exactly as a unilateral POST .../deadline already guaranteed."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    numeric_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
+    api_shared.reminder_sent[numeric_id] = True
+    client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 1.0}, headers=users["FRANCE"])
+    assert _accept(client, game_id, users)["status"] == "accepted"
+    assert api_shared.reminder_sent[numeric_id] is False
+
+
+def test_finished_game_takes_no_deadline_writes():
+    from tests.test_api_game_over import BOT_SECRET, _drawn_game
+
+    client = TestClient(app)
+    game_id, tg = _drawn_game(client)
+    auth = {"telegram_id": tg, "bot_secret": BOT_SECRET}
+    propose = client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 1, **auth})
+    assert propose.status_code == 409, propose.text
+    vote = client.post(f"/games/{game_id}/deadline/vote", json={"power": "FRANCE", "vote": True, **auth})
+    assert vote.status_code == 409, vote.text
+    unilateral = client.post(f"/games/{game_id}/deadline", json={"deadline": "2030-01-01T00:00:00", **auth})
+    assert unilateral.status_code == 409, unilateral.text
+    state = client.get(f"/games/{game_id}/deadline").json()
+    assert state["deadline"] is None and state["pending_proposal"] is None
+
+
+def test_a_failed_apply_leaves_the_proposal_pending(monkeypatch):
+    """The deciding vote used to clear the proposal *before* writing the deadline,
+    so a failing write lost the vote with nothing changed and nobody told."""
+    client = TestClient(app, raise_server_exceptions=False)
+    game_id, users = _seeded_game(client)
+    client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
+    for power in ("ENGLAND", "GERMANY"):
+        client.post(f"/games/{game_id}/deadline/vote", json={"power": power, "vote": True}, headers=users[power])
+
+    def boom(*_args: object) -> None:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(api_shared.db_service, "update_game_deadline", boom)
+    resp = client.post(f"/games/{game_id}/deadline/vote", json={"power": "ITALY", "vote": True}, headers=users["ITALY"])
+    assert resp.status_code == 500
+    monkeypatch.undo()
+    pending = client.get(f"/games/{game_id}/deadline").json()["pending_proposal"]
+    assert pending is not None and pending["yes_votes"] == ["ENGLAND", "FRANCE", "GERMANY"]

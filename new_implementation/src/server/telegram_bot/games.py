@@ -326,6 +326,19 @@ async def nodraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _cast_draw_vote(update, context, False)
 
 
+def _accepted_deadline_text(result: dict) -> str:
+    """The deadline an accepted proposal set, for the proposer's/voter's reply.
+
+    The API returns the applied ``deadline`` since v2.7.97; ``value_hours`` is
+    the fallback for an older API met mid-deploy.
+    """
+    if result.get("deadline"):
+        return format_deadline(result["deadline"])
+    if result.get("value_hours") is not None:
+        return f"{result['value_hours']}h from now"
+    return "no deadline"
+
+
 def format_deadline(iso: str, now: Optional[datetime] = None) -> str:
     """``2026-09-22 14:00 UTC (in 23h 59m)`` from the API's ISO-8601 deadline.
 
@@ -470,6 +483,9 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except ValueError:
                 await update.message.reply_text(_DEADLINE_USAGE)
                 return
+            if not 0 < vote_hours <= 24 * 30:  # also false for nan
+                await update.message.reply_text("Vote hours must be more than 0 and at most 720 (30 days).")
+                return
         try:
             result = api_post(
                 f"/games/{game_id}/deadline/propose",
@@ -479,8 +495,10 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"Could not propose a deadline change: {e}")
             return
         if result.get("status") == "accepted":
+            when = _accepted_deadline_text(result)
             await update.message.reply_text(
-                f"✅ Applied immediately -- {power} is the only active power in game {game_id}."
+                f"✅ Applied immediately -- {power} is the only active power in game {game_id}. "
+                f"Deadline: {when}."
             )
         else:
             await update.message.reply_text(_format_proposal(game_id, result), parse_mode='Markdown')
@@ -501,8 +519,8 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         status = result.get("status")
         if status == "accepted":
-            what = f"{result['value_hours']}h" if result.get("value_hours") is not None else "no deadline"
-            await update.message.reply_text(f"✅ Proposal passed. Game {game_id}'s deadline is now {what}.")
+            when = _accepted_deadline_text(result)
+            await update.message.reply_text(f"✅ Proposal passed. Game {game_id}'s deadline is now {when}.")
         elif status == "rejected":
             await update.message.reply_text(f"❌ Proposal for game {game_id} was voted down; nothing changed.")
         else:
