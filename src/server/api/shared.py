@@ -11,10 +11,10 @@ import math
 import os
 import pytz
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Callable, Dict, Any, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
-from persistence.database_service import DatabaseService
+from persistence.database_service import DatabaseService, DeadlineProposalChange
 from persistence.game_repo import GameRepo, StaleGameError
 from sqlalchemy.exc import SQLAlchemyError
 from ..server import Server
@@ -505,19 +505,6 @@ def _check_proposal_hours(name: str, value: Optional[float]) -> None:
         )
 
 
-def _apply_deadline_proposal(numeric_game_id: int, value_hours: Optional[float]) -> Optional[datetime]:
-    """Set (or, with ``value_hours=None``, clear) the deadline an accepted
-    proposal asked for, and return it.
-
-    Resets the 10-minute reminder flag, as ``POST .../deadline`` does: a new
-    deadline gets its own reminder even if the old one's already fired.
-    """
-    deadline = None if value_hours is None else datetime.now(timezone.utc) + timedelta(hours=value_hours)
-    db_service.update_game_deadline(numeric_game_id, deadline)
-    reminder_sent[numeric_game_id] = False
-    return deadline
-
-
 def format_deadline_utc(deadline: Optional[datetime]) -> str:
     """``"2026-09-25 07:33 UTC"``, or ``"no deadline"`` -- for player notifications."""
     if deadline is None:
@@ -553,28 +540,59 @@ def propose_deadline(
         raise DeadlineProposalError(f"game {game_id} not found")
     if power not in active:
         raise DeadlineProposalError(f"{power} is not an active power in game {game_id}")
-    if db_service.get_pending_deadline_proposal(game_id) is not None:
-        raise DeadlineProposalError(
-            f"A deadline proposal is already pending in game {game_id}; it must "
-            f"resolve or be withdrawn (/deadline {game_id} withdraw) first."
-        )
-    _check_proposal_hours("hours", value_hours)
-    _check_proposal_hours("vote_hours", vote_hours)
 
-    now = datetime.now(timezone.utc)
-    proposal: Dict[str, Any] = {
-        "proposed_by": power,
-        "value_hours": value_hours,
-        "votes": {power: "yes"},
-        "vote_deadline": (now + timedelta(hours=vote_hours)).isoformat() if vote_hours else None,
-        "created_at": now.isoformat(),
-    }
-    # A one-active-power edge case resolves on the spot.
-    if _deadline_vote_outcome(proposal["votes"], active) == "accepted":
-        deadline = _apply_deadline_proposal(numeric_game_id, value_hours)
-        return {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)}
-    db_service.set_pending_deadline_proposal(game_id, proposal)
-    return {"status": "pending", **deadline_proposal_view(proposal, active)}
+    def propose(current: Optional[Dict[str, Any]]) -> DeadlineProposalChange:
+        if current is not None:
+            raise DeadlineProposalError(
+                f"A deadline proposal is already pending in game {game_id}; it must "
+                f"resolve or be withdrawn (/deadline {game_id} withdraw) first."
+            )
+        _check_proposal_hours("hours", value_hours)
+        _check_proposal_hours("vote_hours", vote_hours)
+        now = datetime.now(timezone.utc)
+        proposal: Dict[str, Any] = {
+            "proposed_by": power,
+            "value_hours": value_hours,
+            "votes": {power: "yes"},
+            "vote_deadline": (now + timedelta(hours=vote_hours)).isoformat() if vote_hours else None,
+            "created_at": now.isoformat(),
+        }
+        # A one-active-power edge case resolves on the spot.
+        if _deadline_vote_outcome(proposal["votes"], active) == "accepted":
+            return _accepted(proposal, active)
+        return DeadlineProposalChange(proposal, {"status": "pending", **deadline_proposal_view(proposal, active)})
+
+    return _run_proposal_change(game_id, numeric_game_id, propose)
+
+
+def _accepted(proposal: Dict[str, Any], active: frozenset[str]) -> DeadlineProposalChange:
+    """Clear an accepted proposal and set the deadline it asked for, together."""
+    value_hours = proposal.get("value_hours")
+    deadline = None if value_hours is None else datetime.now(timezone.utc) + timedelta(hours=value_hours)
+    return DeadlineProposalChange(
+        None,
+        {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)},
+        set_deadline=True,
+        deadline=deadline,
+    )
+
+
+def _run_proposal_change(
+    game_id: str,
+    numeric_game_id: int,
+    change: Callable[[Optional[Dict[str, Any]]], DeadlineProposalChange],
+) -> Dict[str, Any]:
+    """Run ``change`` under the row lock (``modify_deadline_proposal``). A new
+    deadline gets its own 10-minute reminder, as ``POST .../deadline`` does."""
+    try:
+        outcome = db_service.modify_deadline_proposal(game_id, change)
+    except ValueError as e:
+        if isinstance(e, DeadlineProposalError):
+            raise
+        raise DeadlineProposalError(str(e)) from e
+    if outcome.set_deadline:
+        reminder_sent[numeric_game_id] = False
+    return outcome.result
 
 
 def vote_on_deadline_proposal(
@@ -590,43 +608,38 @@ def vote_on_deadline_proposal(
     active = game_service.active_powers(game_id)
     if active is None:
         raise DeadlineProposalError(f"game {game_id} not found")
-    proposal = db_service.get_pending_deadline_proposal(game_id)
-    if proposal is None:
-        raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
-    if power not in active:
-        raise DeadlineProposalError(f"{power} is not an active power in game {game_id}")
 
-    votes = dict(proposal.get("votes") or {})
-    votes[power] = "yes" if vote else "no"
-    proposal["votes"] = votes
+    def cast(current: Optional[Dict[str, Any]]) -> DeadlineProposalChange:
+        if current is None:
+            raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
+        if power not in active:
+            raise DeadlineProposalError(f"{power} is not an active power in game {game_id}")
+        proposal = {**current, "votes": {**(current.get("votes") or {}), power: "yes" if vote else "no"}}
+        outcome = _deadline_vote_outcome(proposal["votes"], active)
+        if outcome == "accepted":
+            return _accepted(proposal, active)
+        if outcome == "rejected":
+            return DeadlineProposalChange(None, {"status": "rejected", **deadline_proposal_view(proposal, active)})
+        return DeadlineProposalChange(proposal, {"status": "pending", **deadline_proposal_view(proposal, active)})
 
-    outcome = _deadline_vote_outcome(votes, active)
-    if outcome == "accepted":
-        # Apply first: if it raises, the proposal must still be pending, not
-        # silently gone with nothing changed.
-        deadline = _apply_deadline_proposal(numeric_game_id, proposal.get("value_hours"))
-        db_service.set_pending_deadline_proposal(game_id, None)
-        return {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)}
-    if outcome == "rejected":
-        db_service.set_pending_deadline_proposal(game_id, None)
-        return {"status": "rejected", **deadline_proposal_view(proposal, active)}
-    db_service.set_pending_deadline_proposal(game_id, proposal)
-    return {"status": "pending", **deadline_proposal_view(proposal, active)}
+    return _run_proposal_change(game_id, numeric_game_id, cast)
 
 
 def withdraw_deadline_proposal(game_id: str, power: str) -> Dict[str, Any]:
     """Cancel the pending proposal. Only its original proposer may."""
     power = power.upper()
-    proposal = db_service.get_pending_deadline_proposal(game_id)
-    if proposal is None:
-        raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
-    if proposal.get("proposed_by") != power:
-        raise DeadlineProposalError(
-            f"Only {proposal.get('proposed_by')}, who proposed it, can withdraw it"
-        )
-    db_service.set_pending_deadline_proposal(game_id, None)
     active = game_service.active_powers(game_id) or frozenset()
-    return {"status": "withdrawn", **deadline_proposal_view(proposal, active)}
+
+    def withdraw(current: Optional[Dict[str, Any]]) -> DeadlineProposalChange:
+        if current is None:
+            raise DeadlineProposalError(f"No deadline proposal is pending in game {game_id}")
+        if current.get("proposed_by") != power:
+            raise DeadlineProposalError(
+                f"Only {current.get('proposed_by')}, who proposed it, can withdraw it"
+            )
+        return DeadlineProposalChange(None, {"status": "withdrawn", **deadline_proposal_view(current, active)})
+
+    return db_service.modify_deadline_proposal(game_id, withdraw).result
 
 
 def expire_deadline_proposals(now: datetime) -> None:
@@ -655,7 +668,16 @@ def expire_deadline_proposals(now: datetime) -> None:
             if vote_deadline > now:
                 continue
             game_id_str = str(game.game_id)
-            db_service.set_pending_deadline_proposal(game_id_str, None)
+
+            def expire(current: Optional[Dict[str, Any]], seen: Dict[str, Any] = proposal) -> DeadlineProposalChange:
+                # Only the proposal this sweep judged expired: a vote may have
+                # decided it, or a new one replaced it, since it was read.
+                if current != seen:
+                    return DeadlineProposalChange(current, {"expired": False})
+                return DeadlineProposalChange(None, {"expired": True})
+
+            if not db_service.modify_deadline_proposal(game_id_str, expire).result["expired"]:
+                continue
             try:
                 notify_players(
                     int(game.id),

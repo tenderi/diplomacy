@@ -116,6 +116,6 @@ def test_a_proposal_with_an_unreadable_expiry_is_left_alone(monkeypatch: pytest.
     game = Mock(game_id="7", id=7, pending_deadline_proposal={"vote_deadline": "sometime soon", "proposed_by": "FRANCE"})
     monkeypatch.setattr(shared.db_service, "get_games_with_pending_deadline_proposals", Mock(return_value=[game]))
     clear = Mock()
-    monkeypatch.setattr(shared.db_service, "set_pending_deadline_proposal", clear)
+    monkeypatch.setattr(shared.db_service, "modify_deadline_proposal", clear)
     shared.expire_deadline_proposals(datetime(2030, 1, 1, tzinfo=shared.pytz.UTC))
     clear.assert_not_called()
