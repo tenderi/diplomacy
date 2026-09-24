@@ -598,7 +598,13 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Could not retrieve players for game {game_id}: {e}")
         return
 
-    if not players_list:
+    try:
+        state = api_get(f"/games/{game_id}/state")
+    except requests.RequestException:  # the seat list is still worth showing without them
+        state = None
+    dummies = (state.get("dummy_powers") or []) if isinstance(state, dict) else []
+
+    if not players_list and not dummies:
         await update.message.reply_text(f"No players found in game {game_id}.")
         return
 
@@ -614,12 +620,48 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         is_active = player.get('is_active', True)
         status_emoji = "✅" if is_active else "❌"
         lines.append(f"{status_emoji} **{power}** - {username}")
+    for power in dummies:
+        lines.append(f"🤖 **{power}** - civil disorder")
 
     try:
         await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
     except Exception as e:
         logger.warning(f"Failed to send /players listing for game {game_id}: {e}")
         await update.message.reply_text(f"Could not display players for game {game_id}: {e}")
+
+
+_DUMMY_USAGE = (
+    "Usage: /dummy <game_id> <power> [off]\n"
+    "Leave an empty seat to civil disorder (it holds, and disbands when it must), "
+    "or add `off` to open it for a player again. Only the game's creator can."
+)
+
+
+async def dummy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/dummy <game_id> <power> [off] -- W9: leave a seat to civil disorder, or reopen it."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    args = context.args or []
+    if len(args) not in (2, 3) or (len(args) == 3 and args[2].lower() != "off"):
+        await update.message.reply_text(_DUMMY_USAGE, parse_mode='Markdown')
+        return
+    game_id, power = args[0], args[1].upper()
+    make_dummy = len(args) == 2
+    if power not in POWERS:
+        await update.message.reply_text(f"Unknown power {power}. Powers: {', '.join(POWERS)}.")
+        return
+    try:
+        result = api_post(
+            f"/games/{game_id}/dummies",
+            {"power": power, "dummy": make_dummy, "telegram_id": str(user.id)},
+        )
+    except requests.RequestException as e:
+        await update.message.reply_text(f"Could not change {power} in game {game_id}: {e}")
+        return
+    now = ", ".join(result.get("dummy_powers") or []) or "none"
+    what = "is now played by civil disorder" if make_dummy else "is open for a player again"
+    await update.message.reply_text(f"{power} {what} in game {game_id}. Civil-disorder powers: {now}.")
 
 
 async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -680,6 +722,8 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
     taken_powers = {
         player.get('power') for player in (players_data or []) if player.get('user_id') is not None
     }
+    # Civil-disorder dummies (W9) are not joinable; the game's creator opens them.
+    taken_powers |= set(game_state.get("dummy_powers") or [])
 
     keyboard = []
     for power in POWERS:

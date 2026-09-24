@@ -33,6 +33,21 @@ class CreateGameRequest(BaseModel):
     # from it explicitly); does not itself arm a deadline at creation -- Track N
     # decided deadlines exist only when set explicitly.
     phase_length_seconds: Optional[int] = None
+    # Powers to leave to civil disorder from the start (W9): nobody may join
+    # them and nobody waits on them. At most six -- one seat stays human.
+    dummy_powers: List[str] = []
+    # The bot's way of saying who is creating the game (a browser caller is the
+    # Bearer user); recorded as the game's creator.
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+class SetDummyRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/dummies`` (W9)."""
+    power: str
+    dummy: bool = True
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
 
 class AddPlayerRequest(BaseModel):
     """Request model for adding a player to a game."""
@@ -138,6 +153,7 @@ REQUIRED_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA",
 def create_game(
     req: CreateGameRequest,
     _: None = Depends(require_bot_or_user),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     """Create a new game. The new engine starts it immediately at S1901M with every
     power's opening units; players then claim powers via add_player/join.
@@ -158,13 +174,60 @@ def create_game(
             status_code=400,
             detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
         )
+    # The creator, when the caller is a person: a Bearer user, or the bot passing
+    # telegram_id. A bare X-Bot-Secret (the demo seeder) creates an ownerless game.
+    creator_id: Optional[int] = None
+    if credentials is not None or req.telegram_id:
+        creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        creator_id = int(creator.id)
     try:
         game_id = game_service.create_game(
-            map_name=req.map_name, phase_length_seconds=req.phase_length_seconds
+            map_name=req.map_name,
+            phase_length_seconds=req.phase_length_seconds,
+            created_by_user_id=creator_id,
+            dummy_powers=req.dummy_powers,
         )
-        return {"game_id": game_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except OrderError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"game_id": game_id}
+
+
+@router.post("/games/{game_id}/dummies")
+def set_dummy_power(
+    game_id: str,
+    req: SetDummyRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Leave ``power`` to civil disorder (``dummy: true``) or open it for a
+    player again (``dummy: false``). W9.
+
+    Only the game's creator, or an admin (``X-Admin-Token``), may change it; a
+    game with no recorded creator (waiting-list games, older games) is
+    admin-only. Only an empty seat can become a dummy.
+    """
+    meta = game_service.meta(game_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
+            raise HTTPException(status_code=403, detail="Only the game's creator can change its dummy powers.")
+    try:
+        dummies = game_service.set_dummy(game_id, req.power, req.dummy)
+    except GameOverError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except OrderError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    power = req.power.upper()
+    notify_players(
+        int(game_id),
+        f"{power} in game {game_id} is now played by civil disorder."
+        if req.dummy
+        else f"{power} in game {game_id} is open again -- /join {game_id} to take it.",
+    )
+    return {"status": "ok", "dummy_powers": dummies}
 
 
 @router.post("/games/add_player")
@@ -546,6 +609,9 @@ def list_games() -> Dict[str, Any]:
                 "current_phase": getattr(g, 'current_phase', "Movement"),
                 "status": getattr(g, 'status', "active"),
                 "player_count": len(players),
+                # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
+                "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
+                "dummy_powers": sorted(g.dummy_powers or []),
                 "players": [{"power": p.power_name, "user_id": p.user_id} for p in players]
             })
         return {"games": result}
@@ -672,6 +738,14 @@ def join_game(
         view = game_service.view(str(game_id))
         if view is not None and view["status"] == "COMPLETED":
             raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
+        if view is not None and req.power.upper() in view.get("dummy_powers", []):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{req.power.upper()} is played by civil disorder in game {game_id}; "
+                    f"the game's creator can open it."
+                ),
+            )
         # Check if already joined
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
@@ -709,6 +783,8 @@ def join_game(
             else:
                 required_powers = 7
             player_count = len(db_service.get_players_by_game_id(int(game.id))) if game and game.id is not None else 0  # type: ignore
+            # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
+            player_count += len(view.get("dummy_powers", [])) if view is not None else 0
             if player_count >= required_powers:
                 notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.")  # type: ignore
         except Exception as e:

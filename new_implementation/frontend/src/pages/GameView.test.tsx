@@ -656,6 +656,33 @@ describe('GameView — roster', () => {
   })
 })
 
+describe('GameView — civil-disorder dummies (W9)', () => {
+  it('labels a dummy seat and keeps it out of the join menu', async () => {
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' }]
+    const state = { ...activeMovementState, dummy_powers: ['AUSTRIA', 'TURKEY'] }
+    vi.stubGlobal('fetch', stubFetchActive(state, otherPlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    const select = await within(container).findByLabelText('Power to join as')
+    const offered = Array.from((select as HTMLSelectElement).options).map((o) => o.value)
+    expect(offered).not.toContain('AUSTRIA')
+    expect(offered).not.toContain('TURKEY')
+    expect(offered).toContain('FRANCE')
+    const austriaRow = within(container).getByText('AUSTRIA').closest('li')
+    expect(within(austriaRow as HTMLElement).getByText('Civil disorder')).toBeInTheDocument()
+    expect(within(container).getByText(/1 \/ 5 powers claimed/)).toBeInTheDocument()
+  })
+})
+
 describe('GameView — orders status', () => {
   it("shows the logged-in power's submission status and who is still missing", async () => {
     vi.stubGlobal(
