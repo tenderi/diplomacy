@@ -15,7 +15,7 @@ from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_pa
 from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
-    db_service, game_service, logger, scheduler_logger, ADMIN_TOKEN, BOT_SECRET,
+    db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
 )
 from ...legal_orders import legal_orders_for_power
@@ -279,7 +279,7 @@ def set_join_password(
     meta = game_service.meta(game_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its join password.")
@@ -306,7 +306,7 @@ def set_auto_process(
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
     caller_telegram_id = None
-    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
             raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -381,7 +381,7 @@ def set_dummy_power(
     meta = game_service.meta(game_id)
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its dummy powers.")
@@ -479,14 +479,14 @@ def _authorize_process_turn(
             "at the deadline, or as soon as every order is in if auto-process is on."
         ),
     )
-    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+    if is_bot_secret(x_bot_secret):
         if not telegram_id:
             return None
         player = db_service.get_user_by_telegram_id(str(telegram_id))
         if player is not None and creator is not None and int(player.id) == int(creator):
             return str(telegram_id)
         raise refused
-    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+    if is_admin_token(x_admin_token):
         return None
     user = get_current_user_optional(credentials)
     if user is None:
@@ -1041,7 +1041,7 @@ def replace_player(
 @router.post("/games/{game_id}/players/{power}/mark_inactive")
 def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> Dict[str, Any]:
     """Admin endpoint to mark a player as inactive (for replacement)."""
-    if req.admin_token != ADMIN_TOKEN:
+    if not is_admin_token(req.admin_token):
         raise HTTPException(status_code=403, detail="Invalid admin token")
     try:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
@@ -1410,7 +1410,7 @@ def restore_game_snapshot(
     ``units``/``supply_centers`` -- now fails loudly with 409 instead of the old
     stub's silent no-op.
     """
-    if not x_admin_token or x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         raise HTTPException(status_code=403, detail="Admin token required to restore a snapshot")
     row = db_service.get_game_by_game_id(game_id)
     if row is None:

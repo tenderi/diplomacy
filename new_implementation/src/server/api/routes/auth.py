@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
 
-from ..shared import db_service, BOT_SECRET
+from ..shared import db_service, is_bot_secret
 
 # Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
@@ -304,7 +304,7 @@ def resolve_user_or_telegram(
         if user_id is not None:
             user = db_service.get_user_by_id(user_id)
     if user is None and telegram_id:
-        if not BOT_SECRET or bot_secret != BOT_SECRET:
+        if not is_bot_secret(bot_secret):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated: bot_secret required for telegram_id auth",
@@ -324,7 +324,7 @@ def require_bot_secret(x_bot_secret: Optional[str] = Header(None)) -> None:
     business there. With no secret configured the endpoints are simply closed
     (401), never open.
     """
-    if BOT_SECRET and x_bot_secret and x_bot_secret == BOT_SECRET:
+    if is_bot_secret(x_bot_secret):
         return
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -350,7 +350,7 @@ def require_bot_or_user(
         user_id = _decode_token(credentials.credentials, "access")
         if user_id is not None:
             return
-    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+    if is_bot_secret(x_bot_secret):
         return
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

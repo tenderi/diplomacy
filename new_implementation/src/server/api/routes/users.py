@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
 from .auth import get_current_user, get_current_user_optional, http_bearer
-from ..shared import db_service, BOT_SECRET
+from ..shared import db_service, is_bot_secret
 from ...response_cache import cached_response
 
 router = APIRouter()
@@ -31,7 +31,7 @@ class RegisterPersistentUserRequest(BaseModel):
 @router.post("/users/persistent_register")
 def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, Any]:
     """Register a user persistently in the database. Requires bot_secret (only the Telegram bot may call this)."""
-    if not BOT_SECRET or req.bot_secret != BOT_SECRET:
+    if not is_bot_secret(req.bot_secret):
         from fastapi import status
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
@@ -100,7 +100,7 @@ def require_bot_or_self(
     function body runs, so an in-body check would be skipped for every hit
     after the first. Dependencies run before the wrapper.
     """
-    if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
+    if is_bot_secret(x_bot_secret):
         return
     me = get_current_user_optional(credentials)
     if me is None or str(getattr(me, "telegram_id", None)) != str(telegram_id):

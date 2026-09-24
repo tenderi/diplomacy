@@ -1,5 +1,39 @@
 ---
 
+# Track AB — Server hardening (maintainer request, 2026-09-24) — **done, `v2.7.110`**
+
+Right after the site went public (F4). An audit of the VPS and the public surface found a
+sound base -- key-only SSH, ufw deny-by-default, unattended security updates, API and bot
+running as non-root -- and these gaps, all closed:
+
+- [x] **Spoofable client IP (fixed in `v2.7.108`, recorded here):** nginx appended to a
+  client's own `X-Forwarded-For` and uvicorn reads the first entry.
+- [x] **Secrets compared with `==`** at ~20 sites (admin token, bot secret, and the
+  idempotency middleware): all now `hmac.compare_digest` via `api.shared.is_admin_token` /
+  `is_bot_secret`.
+- [x] **Swagger UI, ReDoc and the OpenAPI schema were public** at `/api/docs`, `/api/redoc`,
+  `/api/openapi.json`: off in production (`DIPLOMACY_API_DOCS=0`).
+- [x] **No browser security headers:** Caddy now sends HSTS, a strict CSP (`script-src
+  'self'`; the built SPA has no inline script and no third-party origin), `nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, and drops `Server`/`Via`;
+  nginx `server_tokens off`.
+- [x] **Containers:** `no-new-privileges` on every service; `cap_drop: ALL` on the API and
+  the bot.
+- [x] **Host** (`harden_host.sh`, run by `install.sh`): sshd drop-in (X11 and agent
+  forwarding off, `MaxAuthTries 3`, `LoginGraceTime 30`, idle sessions dropped; validated
+  with `sshd -t` before reload), `restrict` on the GitHub Actions deploy key, fail2ban for
+  sshd (856 failed SSH attempts in the 24 hours before), and unattended-upgrades rebooting
+  at 04:30 UTC when needed (a reboot had been pending).
+
+Left as they are, deliberately: WireGuard `wg0`/UDP 33500 (the p2p bot on this host reaches
+its agent through it); `/api/dashboard`'s HTML page (every data route behind it needs the
+admin token); `/.env` answering 200 (that is the SPA's `index.html` fallback, not a file).
+
+**Evidence:** `tests/test_deployment_infrastructure.py` (hardening script contents,
+`no-new-privileges` on all five services, headers, docs off); full suite 1774 passed.
+
+---
+
 # Track AA — Telegram user flows, streamlined (maintainer request, 2026-09-24)
 
 ## Why this track exists

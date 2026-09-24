@@ -8,7 +8,7 @@ from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
 import os
 
-from ..shared import db_service, server, logger, ADMIN_TOKEN, notify_players, reminder_sent
+from ..shared import db_service, server, logger, notify_players, reminder_sent, is_admin_token
 from ...response_cache import get_cache_stats, clear_response_cache, invalidate_cache
 
 router = APIRouter()
@@ -16,7 +16,7 @@ router = APIRouter()
 
 def require_admin(x_admin_token: str = Header(...)) -> None:
     """Dependency that requires a valid X-Admin-Token header."""
-    if x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
 

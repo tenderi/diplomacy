@@ -11,7 +11,7 @@ from datetime import datetime
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
-from ..shared import db_service, game_service, scheduler_logger, logger, notify_players, notify_user, BOT_SECRET
+from ..shared import db_service, game_service, scheduler_logger, logger, notify_players, notify_user, is_bot_secret
 from persistence.database import MessageModel
 
 router = APIRouter()
@@ -181,7 +181,7 @@ def get_game_messages(
 ) -> Dict[str, Any]:
     try:
         user = get_current_user_optional(credentials)
-        if user is None and telegram_id and BOT_SECRET and bot_secret == BOT_SECRET:
+        if user is None and telegram_id and is_bot_secret(bot_secret):
             user = db_service.get_user_by_telegram_id(telegram_id)
         # Get game model to get numeric ID
         game_model = db_service.get_game_by_game_id(str(game_id))

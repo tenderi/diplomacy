@@ -129,6 +129,33 @@ container. nginx takes the client's address from the `X-Forwarded-For` Caddy set
 address, replacing any `X-Forwarded-For` the client sent -- the API's per-IP login
 and registration rate limits depend on it.
 
+### Hardening
+
+What protects the host and the site, and where it lives:
+
+- **Network.** ufw denies inbound by default; only SSH (rate-limited) and
+  WireGuard's UDP 33500 are allowed (wg0 is another project's tunnel on this
+  host -- leave it). Docker-published ports bypass ufw, so the compose file
+  publishes only Caddy's 80/443 publicly; the API, DAIDE and nginx are on
+  `127.0.0.1`, Postgres nowhere (`tests/test_deployment_infrastructure.py`).
+- **OS** (`harden_host.sh`, idempotent, run by `install.sh`; re-run by hand after
+  editing it): sshd keys only and root by key only, no X11 or agent forwarding,
+  `MaxAuthTries 3`, idle sessions dropped; the GitHub Actions key is `restrict`ed
+  (it only pipes a script into `bash -s`); fail2ban bans an IP for an hour after
+  five failed SSH logins; unattended-upgrades installs security updates daily and
+  reboots at 04:30 UTC when one needs it (every container restarts itself). The
+  sshd change is validated with `sshd -t` before the reload.
+- **Containers.** Every service has `no-new-privileges`; the API and the bot
+  run as an unprivileged user with all Linux capabilities dropped.
+- **HTTP** (`docker/Caddyfile`, `docker/web-nginx.conf.template`): HSTS, a strict
+  Content-Security-Policy (scripts from the site only), `nosniff`,
+  `X-Frame-Options: DENY`, no server versions. The API's Swagger/ReDoc/OpenAPI
+  pages are off in production (`DIPLOMACY_API_DOCS=0`; on by default for local
+  development). Admin routes need `X-Admin-Token`; every token and bot-secret
+  check is a constant-time comparison (`api.shared.is_admin_token`/`is_bot_secret`).
+- **Secrets** are generated on the host by `ensure_env.sh` and never leave it,
+  except the Telegram token, which GitHub holds (see *Deploy-on-merge*).
+
 ## Deploy-on-merge (GitHub Actions)
 
 `.github/workflows/deploy.yml` deploys automatically after the Test Suite is
