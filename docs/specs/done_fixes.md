@@ -1,5 +1,36 @@
 ---
 
+# Track AN — Convoys in the menus; one seat, one player (maintainer request, 2026-09-24) — **done, `v3.0.10`**
+
+Bug hunt IV. Each pinned by a test that fails on `v3.0.9`.
+
+- [x] **No army could be convoyed from the web client or the bot's buttons.**
+  `legal_orders` listed an army's moves from land adjacency only -- never `A LON - NWY VIA`
+  -- and a fleet's convoys only between two coastal provinces it touched itself, so a
+  convoy needing two fleets could not be ordered by either fleet. The web client orders
+  from these menus alone, and its parser dropped any `… VIA` string besides. Now
+  `_convoy_shores` finds each chain of fleet-held seas (any power's fleets); an army on its
+  shore is offered a move `VIA` to every other non-adjacent shore province, and every fleet
+  of the chain the matching convoys for each army on it. The frontend shows those as
+  "NWY (by convoy)". Tests: `TestConvoyChains` (menus validate, and a two-fleet convoy
+  ordered from them resolves), `orderParsing.test.ts`.
+- [x] **Supports the menus hid.** A unit was offered supports only for units it could
+  itself reach, and only into their land moves. But a support-move needs only the
+  *destination* in reach: `A BEL S A MUN - RUH` is legal (BEL touches RUH) and was never
+  offered, nor was `A HOL S A LON - BEL` for a convoyed attack. Support-holds still
+  require the supported unit in reach. Tests:
+  `test_a_support_needs_only_the_destination_in_reach`,
+  `test_a_convoyed_attack_can_be_supported`.
+- [x] **Two players taking the same vacated seat were both told they had it.** `/join` and
+  `/replace` checked "vacant", then wrote the seat unconditionally: the second silently
+  replaced the first. `DatabaseService.claim_vacant_seat` is a conditional
+  `UPDATE … WHERE user_id IS NULL`; the loser gets 409. A new seat raced by two joins hit
+  the `uq_game_power` constraint as a raw 500; now 409 as well. Tests:
+  `test_two_joins_for_one_vacant_seat_give_it_to_one`,
+  `test_two_joins_for_one_new_seat_give_the_loser_a_409`.
+
+---
+
 # Track AM — Deadline-proposal votes lost the same way (maintainer request, 2026-09-24) — **done, `v3.0.9`**
 
 The last read-modify-write on the game row that Track AL left: `pending_deadline_proposal`

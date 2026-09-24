@@ -472,8 +472,9 @@ class DatabaseService:
     def assign_player_seat(self, player_id: int, user_id: Optional[int], is_active: bool) -> bool:
         """Set who holds a power's seat, in one committed session.
 
-        ``(None, False)`` vacates it (quit, admin mark-inactive); ``(uid, True)``
-        fills it (replace). Returns ``False`` if no such player row.
+        ``(None, False)`` vacates it (quit, admin mark-inactive). Filling a
+        vacant seat goes through ``claim_vacant_seat``, which cannot take one
+        somebody else just filled. Returns ``False`` if no such player row.
 
         Exists because both ``/quit`` and ``/replace`` used to assign
         ``player.user_id`` on the *detached* row ``get_player_by_game_id_and_power``
@@ -491,6 +492,23 @@ class DatabaseService:
             player.is_active = is_active
             session.commit()
             return True
+
+    def claim_vacant_seat(self, player_id: int, user_id: int) -> bool:
+        """Give a vacant seat to ``user_id`` -- only if it is still vacant.
+
+        One conditional ``UPDATE ... WHERE user_id IS NULL``: two players taking
+        the same vacated seat at once both used to succeed (check, then an
+        unconditional ``assign_player_seat``), the second silently replacing the
+        first, who had been told they joined. Returns whether this call got it.
+        """
+        with self.session_factory() as session:
+            claimed = (
+                session.query(PlayerModel)
+                .filter(PlayerModel.id == player_id, PlayerModel.user_id.is_(None))
+                .update({PlayerModel.user_id: user_id, PlayerModel.is_active: True}, synchronize_session=False)
+            )
+            session.commit()
+            return claimed == 1
 
     # --- Games ---
     def get_game_by_id(self, game_id: int) -> Optional[GameModel]:

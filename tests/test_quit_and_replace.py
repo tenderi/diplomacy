@@ -8,6 +8,7 @@ concession all authorized), ``/replace`` refused with "already assigned"
 (wrapped in a 500), and the quitter's own re-join said "already_joined".
 """
 import time
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -125,6 +126,29 @@ class TestFillingAVacatedSeat:
         assert _seat(client, game_id, "FRANCE")["user_id"] is not None
         # And only one FRANCE row exists -- the seat was reused, not duplicated.
         assert [p["power"] for p in client.get(f"/games/{game_id}/players").json()].count("FRANCE") == 1
+
+    def test_two_joins_for_one_vacant_seat_give_it_to_one(self, client):
+        """Join checked "vacant", then wrote the seat unconditionally: a second
+        player whose check ran before the first one's write took the seat from
+        them, and both were told they had joined."""
+        game_id, a = _game_with_france(client)
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        vacant = db_service.get_player_by_game_id_and_power(game_id=game_id, power="FRANCE")
+        b, c = _telegram_user(client, "first"), _telegram_user(client, "second")
+        assert client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE")).status_code == 200
+        with patch.object(db_service, "get_player_by_game_id_and_power", return_value=vacant):
+            r = client.post(f"/games/{game_id}/join", json=_as(c, power="FRANCE"))
+        assert r.status_code == 409 and r.json()["detail"] == "Power already taken"
+        assert _seat(client, game_id, "FRANCE")["user_id"] == int(db_service.get_user_by_telegram_id(b).id)
+
+    def test_two_joins_for_one_new_seat_give_the_loser_a_409(self, client):
+        """Both saw no FRANCE row; the second insert hits ``uq_game_power`` and
+        was answered with a raw 500."""
+        game_id, _a = _game_with_france(client)
+        c = _telegram_user(client, "racer")
+        with patch.object(db_service, "get_player_by_game_id_and_power", return_value=None):
+            r = client.post(f"/games/{game_id}/join", json=_as(c, power="FRANCE"))
+        assert r.status_code == 409 and r.json()["detail"] == "Power already taken"
 
     def test_quitter_can_come_back(self, client):
         game_id, a = _game_with_france(client)
