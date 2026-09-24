@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from persistence.game_repo import StaleGameError
 from engine.map_loader import MapData, load_standard_map
-from engine.game import Game
+from engine.game import Game, powers_on_board
 from engine.orders.parser import OrderParseError, format_order, parse_order
 from engine.orders.validation import validate
 from engine.simple_ai import generate_orders
@@ -168,9 +168,19 @@ class GameService:
 
         pending = self._repo.get_pending_orders(game_id)
         if merge:
+            # A build sent after a waive replaces it: the adjudicator honours
+            # adjustment orders in order, so a stored WAIVE ahead of the build
+            # took the only slot and the build came back VOID.
+            waives_to_drop = sum(
+                1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
+            )
             kept = []
             for existing in pending.get(power, []):
-                key = _order_key(parse_order(existing, power=power, map=self._map))
+                parsed = parse_order(existing, power=power, map=self._map)
+                if isinstance(parsed, Waive) and waives_to_drop > 0:
+                    waives_to_drop -= 1
+                    continue
+                key = _order_key(parsed)
                 if key is None or key not in accepted_keys:
                     kept.append(existing)
             accepted = kept + accepted
@@ -293,7 +303,7 @@ class GameService:
         eliminated = game.eliminated_powers()
         dummies = self.dummy_powers(game_id)
         return frozenset(
-            u.power for u in game.state.units if u.power not in eliminated and u.power not in dummies
+            p for p in powers_on_board(game.state) if p not in eliminated and p not in dummies
         )
 
     def dummy_powers(self, game_id: str) -> frozenset[str]:
@@ -502,7 +512,16 @@ class GameService:
 
         remaining_units = frozenset(u for u in game.state.units if u.power != power)
         remaining_ownership = {p: o for p, o in game.state.ownership.items() if o != power}
-        new_state = replace(game.state, units=remaining_units, ownership=remaining_ownership)
+        # Its dislodged units go too: left in place during a retreat phase they
+        # kept the power "missing" in ``orders_status`` -- the table (and
+        # auto-process) waited on retreat orders from a player who had left.
+        remaining_dislodged = tuple(du for du in game.state.dislodged if du.power != power)
+        new_state = replace(
+            game.state,
+            units=remaining_units,
+            ownership=remaining_ownership,
+            dislodged=remaining_dislodged,
+        )
         self._repo.update_state_json(
             game_id,
             state_to_dict(new_state),

@@ -1,5 +1,33 @@
 ---
 
+# Track AK — Bug hunt II: concessions, retreat-phase draws, merged waives (maintainer request, 2026-09-24) — **done, `v3.0.7`**
+
+"Keep on working." Five more, each reproduced first and pinned by a test that fails on
+`v3.0.6`.
+
+- [x] **Conceding during a retreat phase left the power's dislodged units behind.**
+  `GameService.concede` removed `state.units` and ownership but not `state.dislodged`, so
+  `orders_status` kept the power "missing" for the rest of the phase -- `require_all` and
+  W10's auto-process waited on retreat orders from a player who had left. Test:
+  `test_conceding_in_a_retreat_phase_takes_the_dislodged_units_too`.
+- [x] **A concession never re-checked auto-process.** If the leaver was the last power the
+  turn waited on, nothing would ever run it. The route now calls `maybe_auto_process` and
+  reports `auto_processed`. Test: `test_the_last_power_awaited_conceding_processes_the_turn`.
+- [x] **A power awaiting its retreat was left out of a draw.** Draw quorum, `Game.draw()`'s
+  default winners and `eliminated_powers()` counted only `state.units`; a power whose sole
+  unit was dislodged -- and may yet retreat and survive -- was not asked, and a draw voted
+  by the others in the retreat phase completed without it and excluded it from the result.
+  New `engine.game.powers_on_board` counts dislodged units. Test:
+  `test_a_power_awaiting_its_retreat_votes_in_and_shares_a_draw`.
+- [x] **A build sent after a waive was VOID.** The bot merges orders one at a time; `WAIVE`
+  then `BUILD A PAR` was stored as both, and the adjudicator, honouring adjustment orders
+  in order, gave the only slot to the waive. A merged build now displaces one stored
+  waive. Test: `TestMergedAdjustmentOrders`.
+- [x] **Taking over a vacated seat re-announced the start of the game.** The "Game is now
+  full. The game has started!" check counted seat rows, a vacated one included, so every
+  mid-game replacement at a full table DMed everyone that the game had begun. Only a new
+  seat can complete the table now. Test: extended
+  `test_the_game_is_full_when_humans_and_dummies_cover_every_seat`.
 # Track AJ — Every turn, the group sees the orders and the result (maintainer request, 2026-09-24) — **done, `v3.0.6`**
 
 "Map should be posted to the group every time turn is processed. Two versions: what were

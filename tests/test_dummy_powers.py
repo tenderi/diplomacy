@@ -83,6 +83,15 @@ def test_the_game_is_full_when_humans_and_dummies_cover_every_seat(client: TestC
         assert client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE")).status_code == 200
     assert any("is now full" in m for m in probe.messages())
 
+    # FRANCE quits mid-game and someone takes the seat over: that is a
+    # replacement, not the start of the game, and must not be announced as one.
+    assert client.post(f"/games/{game_id}/quit", json=_as(b, power="FRANCE")).status_code == 200
+    c = _telegram_user(client, "c")
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/join", json=_as(c, power="FRANCE")).status_code == 200
+    assert not any("is now full" in m for m in probe.messages())
+    assert any("has joined game" in m for m in probe.messages())
+
 
 def test_dummies_play_by_civil_disorder_through_a_real_turn(client: TestClient) -> None:
     game_id = _create(client, _register_and_login(client, "dmy"), ["TURKEY"])

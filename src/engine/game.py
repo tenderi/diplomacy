@@ -34,7 +34,7 @@ from engine.types import (
     Season,
 )
 
-__all__ = ["Game"]
+__all__ = ["Game", "powers_on_board"]
 
 
 @dataclass(frozen=True)
@@ -191,14 +191,14 @@ class Game:
         """Mark the game complete by negotiated draw among ``winners``.
 
         Pure: returns a new ``Game``; ``self`` is untouched. Defaults ``winners``
-        to every power that currently still has at least one unit on the board
-        (the historical Diplomacy/DAIDE convention — surviving, non-eliminated
+        to every power that currently still has at least one unit on the board,
+        a dislodged one included (``powers_on_board``; the historical Diplomacy/DAIDE convention — surviving, non-eliminated
         powers share the draw). Unlike the solo-win path this does not go through
         movement/retreat/adjustment adjudication at all: it is a direct state
         transition, callable from any phase.
         """
         if winners is None:
-            winners = frozenset(u.power for u in self.state.units)
+            winners = powers_on_board(self.state)
         new_state = replace(
             self.state,
             status=GameStatus.COMPLETED,
@@ -209,10 +209,11 @@ class Game:
     # -- queries ----------------------------------------------------------
 
     def eliminated_powers(self) -> frozenset[str]:
-        """Powers with no units and no supply centers."""
+        """Powers with no units (standing or awaiting a retreat) and no supply centers."""
         out = set()
+        on_board = powers_on_board(self.state)
         for power in self.map.home_centers:
-            has_units = any(u.power == power for u in self.state.units)
+            has_units = power in on_board
             has_centers = any(o == power for o in self.state.ownership.values())
             if not has_units and not has_centers:
                 out.add(power)
@@ -231,6 +232,14 @@ class Game:
                 return next(iter(self.state.winners))
             return None
         return _solo_winner(self.state.ownership)
+
+
+def powers_on_board(state: GameState) -> frozenset[str]:
+    """Powers with a unit on the board, counting a dislodged unit awaiting its
+    retreat: until the retreat phase settles it may yet survive. Counting only
+    ``state.units`` left a power whose sole unit was dislodged out of a draw
+    voted during the retreat phase (and reported it eliminated)."""
+    return frozenset(u.power for u in state.units) | frozenset(du.power for du in state.dislodged)
 
 
 def _solo_winner(ownership: dict[str, str]) -> str | None:
