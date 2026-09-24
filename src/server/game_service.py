@@ -29,9 +29,16 @@ from engine.serialization import (
     unit_to_dict,
 )
 from engine.types import Build, GameState, GameStatus, Order, PhaseType, Waive
-from server.legal_orders import powers_with_orders_to_give
+from server.legal_orders import adjustments_owed, powers_with_orders_to_give
 
-__all__ = ["DEMO_MAP_NAME", "GameService", "GameOverError", "OrderError", "StaleGameError"]
+__all__ = [
+    "DEMO_MAP_NAME",
+    "GameService",
+    "GameOverError",
+    "OrderError",
+    "StaleGameError",
+    "kind_by_province_of",
+]
 
 # The bot's demo game (``/start`` → "Try a demo game") is a standard board whose
 # ``map_name`` marks it: there, and only there, the civil-disorder dummies play
@@ -132,6 +139,11 @@ class GameService:
         power = power.upper()
         state = game.state
 
+        # Stored strings are re-parsed at adjudication, where the A/F letter
+        # decides whether a destination coast survives (an army's is dropped).
+        # Without the board's real kinds, ``F MAO - SPA/NC`` was stored as
+        # ``A MAO - SPA/NC``, came back as a coastless move and was VOID.
+        kinds = kind_by_province_of(state)
         results: list[dict[str, Any]] = []
         accepted: list[str] = []
         accepted_keys: set[str] = set()
@@ -146,7 +158,7 @@ class GameService:
                 continue
             vr = validate(order, state, self._map)
             if vr.ok:
-                accepted.append(format_order(order))
+                accepted.append(format_order(order, kinds))
                 key = _order_key(order)
                 if key is not None:
                     accepted_keys.add(key)
@@ -170,7 +182,8 @@ class GameService:
         """Has ``power`` given an order to everything that must act this phase?
 
         Movement: every unit. Retreat: every dislodged unit. Adjustment: as
-        many builds/waives, or disbands, as it is owed. W10's auto-processing
+        many builds/waives, or disbands, as it is owed (``adjustments_owed``:
+        builds capped at the sites it can actually build on). W10's auto-processing
         waits for this, not merely for *an* order: bot players send orders one
         at a time, and the turn must not run after the first. (A unit meant to
         stand still needs an explicit hold.)
@@ -181,8 +194,7 @@ class GameService:
             return {u.location.province for u in state.units_of(power)} <= ordered
         if state.phase_type == PhaseType.RETREAT:
             return {du.unit.location.province for du in state.dislodged if du.unit.power == power} <= ordered
-        owed = abs(len(state.centers_of(power)) - len(state.units_of(power)))
-        return len(parsed) >= owed
+        return len(parsed) >= adjustments_owed(self._map, state, power)
 
     def clear_orders(self, game_id: str, power: str) -> None:
         pending = self._repo.get_pending_orders(game_id)
@@ -229,8 +241,8 @@ class GameService:
         # non-split-coast province can still be told apart from an army, since
         # a successful move relocates the unit and a resolution fetched after a
         # reload has no other way to recover which kind made the order (see
-        # last_resolution_view's docstring / _kind_by_province).
-        kind_by_province = _kind_by_province(game.state)
+        # last_resolution_view's docstring / kind_by_province_of).
+        kind_by_province = kind_by_province_of(game.state)
         resolution_dict = resolution_to_dict(resolution)
         resolution_dict["results"] = [
             {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
@@ -338,7 +350,7 @@ class GameService:
         what the other powers did."""
         if (self._repo.get_meta(game_id) or {}).get("map_name") != DEMO_MAP_NAME:
             return {}
-        kinds = _kind_by_province(game.state)
+        kinds = kind_by_province_of(game.state)
         rng = random.Random(f"{game_id}:{game.state.phase_name}")  # game moves, not security
         ai: dict[str, list[str]] = {}
         for power in self.dummy_powers(game_id):
@@ -562,7 +574,7 @@ class GameService:
         display, reparse each order and reformat it against the current units so the
         letter is truthful. Anything that fails to reparse is left untouched.
         """
-        kind_by_province = _kind_by_province(state)
+        kind_by_province = kind_by_province_of(state)
         out: dict[str, list[str]] = {}
         for power, strings in pending.items():
             display: list[str] = []
@@ -802,7 +814,7 @@ def _dislodged_view(du: Any) -> dict[str, Any]:
     }
 
 
-def _kind_by_province(state: GameState) -> dict[str, str]:
+def kind_by_province_of(state: GameState) -> dict[str, str]:
     """province -> "A"/"F" for every unit on the board, standing or dislodged.
 
     Feeds ``format_order``'s ``kind_by_province`` so displayed unit letters are

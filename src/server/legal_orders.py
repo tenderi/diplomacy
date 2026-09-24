@@ -61,7 +61,7 @@ from engine.types import (
     UnitKind,
 )
 
-__all__ = ["legal_orders_for_power", "powers_with_orders_to_give"]
+__all__ = ["adjustments_owed", "legal_orders_for_power", "powers_with_orders_to_give"]
 
 
 def legal_orders_for_power(map: MapData, state: GameState, power: str) -> dict[str, Any]:
@@ -149,6 +149,26 @@ def powers_with_orders_to_give(map: MapData, state: GameState) -> frozenset[str]
         if delta < 0 or (delta > 0 and legal_builds(power, state, map)):
             out.add(power)
     return frozenset(out)
+
+
+def adjustments_owed(map: MapData, state: GameState, power: str) -> int:
+    """How many build (or disband) orders ``power`` can usefully give this
+    adjustment phase.
+
+    A disband is owed per unit over the centre count. A build is owed per
+    centre over the unit count *but only up to the number of distinct sites it
+    can build on* (vacant, owned home centres): a power three centres up with
+    one free home centre has one build to make, and the adjudicator waives the
+    rest itself. Counting the raw delta asked for builds that cannot exist --
+    the web and the bot offered three slots, and ``orders_status`` reported the
+    power "incomplete" after it built on its only site, so W10's auto-process
+    waited on it forever.
+    """
+    delta = len(state.centers_of(power)) - len(state.units_of(power))
+    if delta <= 0:
+        return -delta
+    sites = {b.location.province for b in legal_builds(power, state, map)}
+    return min(delta, len(sites))
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +327,7 @@ def _adjustment_orders(
             orders_by_unit.setdefault(key, []).append(s)
             flat.append(s)
         flat.append("WAIVE")
-        adjustment = {"delta": delta, "action": "build", "slots": delta}
+        adjustment = {"delta": delta, "action": "build", "slots": adjustments_owed(map, state, power)}
     elif delta < 0:
         for u in sorted(my_units, key=_unit_key):
             key = f"{u.kind.value} {u.location}"
