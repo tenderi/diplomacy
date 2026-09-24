@@ -22,7 +22,9 @@ from .outbox import get_outbox
 
 logger = logging.getLogger("diplomacy.telegram_bot.game_context")
 
-__all__ = ["GameContextError", "fetch_user_games", "resolve_game_and_power"]
+__all__ = [
+    "GameContextError", "current_game", "fetch_user_games", "resolve_game_and_power", "set_current_game",
+]
 
 
 class GameContextError(Exception):
@@ -84,20 +86,40 @@ def fetch_user_games(user_id: str) -> list[dict[str, Any]]:
     return games
 
 
+def set_current_game(user_id: str, game_id: str) -> None:
+    """Remember ``game_id`` as the game ``user_id``'s bare commands act on.
+
+    Stored in the bot's SQLite file, so it survives a restart. Best effort: a
+    failed write only means the player names the game next time.
+    """
+    try:
+        get_outbox().set_current_game(user_id, str(game_id))
+    except Exception as e:  # a cache write must never break a command
+        logger.warning("Could not remember current game for user %s: %s", user_id, e)
+
+
+def current_game(user_id: str) -> Optional[str]:
+    """The game ``user_id`` last opened, named, or was notified about, if any."""
+    try:
+        return get_outbox().current_game(user_id)
+    except Exception as e:  # reading a convenience must never break a command
+        logger.warning("Could not read current game for user %s: %s", user_id, e)
+        return None
+
+
 def resolve_game_and_power(user_id: str, game_id: Optional[str] = None) -> tuple[str, str]:
     """Resolve the ``(game_id, power)`` a Telegram user is acting for.
 
-    - ``game_id`` given: looks that specific game up among the user's games;
-      raises ``GameContextError`` if the user is not a player in it.
-    - ``game_id`` omitted and the user is in exactly **one** game: returns
-      that game -- the common case for commands like ``/myorders`` and
-      ``/selectunit`` that take no game id argument.
+    - ``game_id`` given: looks that specific game up among the user's games
+      and makes it the user's **current game**; raises ``GameContextError``
+      if the user is not a player in it.
+    - ``game_id`` omitted and the user is in exactly **one** game: that game.
+    - ``game_id`` omitted and the user is in **more than one** game: the
+      current game -- the one they last opened in the game menu, named in a
+      command, or tapped a notification button for. Only with no current game
+      (or one they have since left) does it raise, listing the games.
     - ``game_id`` omitted and the user is in **zero** games: raises
       ``GameContextError`` telling them to join a game first.
-    - ``game_id`` omitted and the user is in **more than one** game: raises
-      ``GameContextError`` listing the games and asking the caller to
-      disambiguate by passing a game id explicitly (the same rule every
-      converted call site already used).
 
     Every failure path raises rather than returning ``None``/``(None,
     None)``, so a call site can't forget to check a falsy result -- it
@@ -109,21 +131,26 @@ def resolve_game_and_power(user_id: str, game_id: Optional[str] = None) -> tuple
     if game_id is not None:
         for g in games:
             if str(g["game_id"]) == str(game_id):
+                set_current_game(user_id, str(g["game_id"]))
                 return str(g["game_id"]), g["power"]
         raise GameContextError(f"You are not in game {game_id}.")
 
     if not games:
         raise GameContextError(
             "❌ You're not in any games!\n\n"
-            "\U0001f4a1 Join a game first, then try this command again."
+            "\U0001f4a1 Find one with /findgame, or try a demo from /start."
         )
 
-    if len(games) > 1:
-        listing = "\n".join(f"• Game {g['game_id']} as {g['power']}" for g in games)
-        raise GameContextError(
-            f"❌ You're in {len(games)} games. Please specify which game "
-            f"by passing its id to this command.\n\nYour games:\n{listing}"
-        )
+    if len(games) == 1:
+        return str(games[0]["game_id"]), games[0]["power"]
 
-    game = games[0]
-    return str(game["game_id"]), game["power"]
+    remembered = current_game(user_id)
+    for g in games:
+        if remembered is not None and str(g["game_id"]) == remembered:
+            return str(g["game_id"]), g["power"]
+
+    listing = "\n".join(f"• Game {g['game_id']} as {g['power']}" for g in games)
+    raise GameContextError(
+        f"❌ You're in {len(games)} games. Pick one with /game <id> (it stays picked), "
+        f"or add the game id to this command.\n\nYour games:\n{listing}"
+    )

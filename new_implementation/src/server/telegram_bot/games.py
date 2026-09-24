@@ -3,7 +3,7 @@ Game management commands for the Telegram bot.
 """
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import requests
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -11,7 +11,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
-from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
+from .game_context import GameContextError, resolve_game_and_power, set_current_game
 from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
@@ -25,157 +25,81 @@ WAITING_LIST_SIZE = 7  # Standard Diplomacy; mirrors the server's own constant f
 POWERS = ["ENGLAND", "FRANCE", "GERMANY", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"]
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command - welcome message and main menu."""
-    if not update.message:
-        return
+# The reply keyboard under the chat. Three buttons: everything about a game is
+# one tap further, in that game's menu (hub.py). The labels are matched by
+# ``ui.handle_menu_buttons``, which also still answers the old eight-button
+# keyboard's labels for players whose Telegram client kept it.
+MENU_MY_GAMES = "🎮 My games"
+MENU_FIND_GAME = "🎲 Find a game"
+MENU_HELP = "ℹ️ Help"
 
-    # Create main menu keyboard
-    keyboard = [
-        [KeyboardButton("🎯 Register"), KeyboardButton("🎮 My Games")],
-        [KeyboardButton("🎲 Join Game"), KeyboardButton("⏳ Join Waiting List")],
-        [KeyboardButton("📋 My Orders"), KeyboardButton("🗺️ View Map")],
-        [KeyboardButton("💬 Messages"), KeyboardButton("ℹ️ Help")]
-    ]
 
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-
-    await update.message.reply_text(
-        "🏛️ *Welcome to Diplomacy!*\n\n"
-        "I'm your diplomatic assistant. Use the menu below or type commands:\n\n"
-        "🎯 Start with *Register* if you're new\n"
-        "🎮 Check *My Games* to see your current games\n"
-        "🎲 *Join Game* to enter a specific game\n"
-        "⏳ *Join Waiting List* for automatic game matching\n\n"
-        "💡 *New Features:*\n"
-        "• Interactive unit selection with `/selectunit`\n"
-        "• Full Diplomacy rules implementation\n"
-        "• Convoy chain validation\n"
-        "• Multi-phase gameplay (Movement/Retreat/Builds)",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
+def main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(MENU_MY_GAMES), KeyboardButton(MENU_FIND_GAME)], [KeyboardButton(MENU_HELP)]],
+        resize_keyboard=True,
+        one_time_keyboard=False,
     )
 
 
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /register command - register user with the bot.
+def _full_name(user: Any) -> str:
+    return f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
 
-    The API call and the confirmation reply are two separate try blocks on
-    purpose. ``full_name`` comes straight from the user's Telegram profile
-    (below) and is sent with ``parse_mode='Markdown'`` -- an unescaped ``_``,
-    ``*``, `` ` `` or ``[`` in it makes Telegram reject *this* message only.
-    If that reply failed while wrapped in the same try/except as the API
-    call, the player would see "Registration error" even though the server
-    had already registered them. Escaping ``full_name`` below fixes the
-    common case; splitting the try blocks means any other reply failure
-    (e.g. a transient Telegram API hiccup) can no longer misreport a
-    successful registration as failed.
+
+def ensure_registered(user: Any) -> None:
+    """Register the Telegram user with the server (idempotent).
+
+    Called by /start and before joining, so "register" is never a step a
+    player has to know about. Raises ``requests.RequestException`` on failure.
+    """
+    api_post("/users/persistent_register", {
+        "telegram_id": str(user.id),
+        "full_name": _full_name(user),
+        "username": user.username or "",
+    })
+
+
+WELCOME_TEXT = (
+    "🏛️ *Welcome to Diplomacy!*\n\n"
+    "Seven great powers, one board, and a lot of talking.\n\n"
+    "🎮 *My games* -- your games; open one to order, see the map and message players\n"
+    "🎲 *Find a game* -- join an open game, queue for the next one, or try a solo demo\n"
+    "ℹ️ *Help* -- commands and how to write orders"
+)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/start -- register the player (silently) and show the main menu."""
+    if not update.message or not update.effective_user:
+        return
+    text = WELCOME_TEXT
+    try:
+        ensure_registered(update.effective_user)
+    except requests.RequestException as e:
+        logger.warning("Registration on /start failed for %s: %s", update.effective_user.id, e)
+        text += "\n\n⚠️ The game server isn't answering right now; try again in a minute."
+    await update.message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
+
+
+async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/register -- kept for players who learned it; /start registers already.
+
+    Replies without Markdown: ``full_name`` comes from the player's Telegram
+    profile, and an unescaped ``_`` or ``*`` in it made Telegram reject the
+    confirmation (reported as a failed registration that had in fact worked).
     """
     user = update.effective_user
     if not user or not update.message:
-        if update.message:
-            await update.message.reply_text("Registration failed: No user context.")
         return
-    user_id = str(user.id)
-    full_name = f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
-    username = user.username or ""
     try:
-        result = api_post("/users/persistent_register", {
-            "telegram_id": user_id,
-            "full_name": full_name,
-            "username": username
-        })
-    except Exception as e:
+        ensure_registered(user)
+    except requests.RequestException as e:
         await update.message.reply_text(f"Registration error: {e}")
         return
-
-    if result.get("status") != "ok":
-        await update.message.reply_text(f"Registration error: {result.get('message', 'Unknown error')}")
-        return
-
-    try:
-        await update.message.reply_text(
-            f"✅ *Registration Successful!*\n\n"
-            f"Welcome, {escape_markdown(full_name)}!\n\n"
-            f"🎮 You can now:\n"
-            f"• Join games with /join\n"
-            f"• View available games with /games\n"
-            f"• Join the waiting list with /wait",
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        # Registration itself already succeeded (checked above) -- don't
-        # send a message claiming otherwise just because the confirmation
-        # reply happened to fail.
-        logger.warning(f"Registration succeeded for telegram_id={user_id} but confirmation reply failed: {e}")
-
-
-async def games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /games command - list user's active games."""
-    user = update.effective_user
-    if not user or not update.message:
-        return
-    user_id = str(user.id)
-    try:
-        games_list = fetch_user_games(user_id)
-
-        if not games_list:
-            keyboard = [
-                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
-                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "🎮 *No Active Games*\n\n"
-                "You're not currently in any games!\n\n"
-                "💡 *Get started:*\n"
-                "🎲 Browse available games\n"
-                "⏳ Join the waiting list for auto-matching",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-            return
-
-        # Format games with better information
-        lines = [f"🎮 *Your Active Games* ({len(games_list)})\n"]
-        for g in games_list:
-            game_id = g.get('game_id', 'Unknown')
-            power = g.get('power', 'Unknown')
-            state = g.get('status', 'Unknown')
-            turn = g.get('current_turn', 'N/A')
-            lines.append(f"🏰 **Game {game_id}** - Playing as **{power}**")
-            lines.append(f"   📊 Status: {state} | Turn: {turn}")
-
-        # Add action buttons
-        keyboard = [
-            [InlineKeyboardButton("📋 Manage Orders", callback_data="show_orders_menu")],
-            [InlineKeyboardButton("🗺️ View Game Maps", callback_data="show_map_menu")],
-            [InlineKeyboardButton("💬 View Messages", callback_data="show_messages_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "\n".join(lines),
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-    except Exception:
-        keyboard = [
-            [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "⚠️ *Can't Load Your Games*\n\n"
-            "🔧 Unable to retrieve your game status.\n"
-            "This is usually temporary.\n\n"
-            "💡 *Try:*\n"
-            "🎲 Browse available games\n"
-            "🏠 Return to main menu",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+    await update.message.reply_text(
+        f"✅ You're registered, {_full_name(user)}. Tap 🎲 Find a game to start playing.",
+        reply_markup=main_keyboard(),
+    )
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -203,13 +127,22 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        view = api_get(f"/games/{game_id}/state")
-    except Exception as e:
+        text = status_text(game_id, power, user_id)
+    except requests.RequestException as e:
         await update.message.reply_text(f"Could not retrieve status for game {game_id}: {e}")
         return
+    await update.message.reply_text(text, parse_mode='Markdown')
 
-    status_text = (
-        f"📊 *Game {game_id} Status*\n\n"
+
+def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] = None) -> str:
+    """The /status report for ``game_id``: phase, deadline, who has ordered,
+    wait flags and the draw vote. Shared with the game menu (``hub.py``), whose
+    header it is. Raises ``requests.RequestException`` only when the game state
+    itself can't be read; the other parts are left out if they fail."""
+    view = api_get(f"/games/{game_id}/state")
+
+    text = (
+        f"{title or f'📊 *Game {game_id} Status*'}\n\n"
         f"🎯 **You are:** {power}\n"
         f"📅 **Turn:** {view.get('year')} {view.get('season')}\n"
         f"🔄 **Phase:** {view.get('phase_type')}\n"
@@ -222,7 +155,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception:
         deadline = None
     if deadline:
-        status_text += f"⏰ **Deadline:** {format_deadline(deadline)}\n"
+        text += f"⏰ **Deadline:** {format_deadline(deadline)}\n"
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
@@ -231,17 +164,17 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if orders_status:
         submitted = orders_status.get("submitted", [])
         missing = orders_status.get("missing", [])
-        status_text += (
+        text += (
             "\n✅ **Submitted:** " + (", ".join(submitted) if submitted else "none") + "\n"
         )
         if missing:
-            status_text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
+            text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
         if orders_status.get("incomplete"):
-            status_text += "✏️ **Only some units ordered:** " + ", ".join(orders_status["incomplete"]) + "\n"
+            text += "✏️ **Only some units ordered:** " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):
-            status_text += "⚡ Processes automatically once all orders are in.\n"
+            text += "⚡ Processes automatically once all orders are in.\n"
         if orders_status.get("waiting"):
-            status_text += "✋ **Asked to wait:** " + ", ".join(orders_status["waiting"]) + "\n"
+            text += "✋ **Asked to wait:** " + ", ".join(orders_status["waiting"]) + "\n"
 
     try:
         draw_status = api_get(f"/games/{game_id}/draw_vote_status")
@@ -251,14 +184,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         draw_votes = draw_status.get("votes", [])
         draw_required = draw_status.get("required", [])
         if draw_required:
-            status_text += (
+            text += (
                 f"\n🕊️ **Draw vote:** {len(draw_votes)}/{len(draw_required)} voted for draw"
             )
             if draw_votes:
-                status_text += " (" + ", ".join(draw_votes) + ")"
-            status_text += "\n"
-
-    await update.message.reply_text(status_text, parse_mode='Markdown')
+                text += " (" + ", ".join(draw_votes) + ")"
+            text += "\n"
+    return text
 
 
 async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vote: bool) -> None:
@@ -346,20 +278,24 @@ async def _set_wait_flag(update: Update, context: ContextTypes.DEFAULT_TYPE, wai
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
+    await update.message.reply_text(set_wait_flag(game_id, power, user_id, waiting))
+
+
+def set_wait_flag(game_id: str, power: str, user_id: str, waiting: bool) -> str:
+    """Raise or lower ``power``'s wait flag; returns the reply for the player.
+    Shared with the game menu's Ready / Not ready button."""
     try:
         result = api_post(f"/games/{game_id}/wait", {"power": power, "waiting": waiting, "telegram_id": user_id})
     except requests.RequestException as e:
-        await update.message.reply_text(f"Could not update game {game_id}: {e}")
-        return
+        return f"Could not update game {game_id}: {e}"
     if waiting:
-        await update.message.reply_text(
+        return (
             f"✋ Game {game_id} will wait for you before processing this turn automatically. "
-            f"/ready {game_id} when you are done. (A deadline still applies.)"
+            f"Press Ready in the game menu (or /ready) when you are done. (A deadline still applies.)"
         )
-    elif result.get("auto_processed"):
-        await update.message.reply_text(f"✅ Ready -- that was the last hold-up; game {game_id}'s turn has been processed.")
-    else:
-        await update.message.reply_text(f"✅ Ready in game {game_id}.")
+    if result.get("auto_processed"):
+        return f"✅ Ready -- that was the last hold-up; game {game_id}'s turn has been processed."
+    return f"✅ Ready in game {game_id}."
 
 
 async def notready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -468,8 +404,56 @@ def _format_proposal(game_id: str, proposal: dict) -> str:
     ]
     if proposal.get("vote_deadline"):
         lines.append(f"⏱ Vote closes: {format_deadline(proposal['vote_deadline'])}")
-    lines.append(f"Vote with /deadline {game_id} vote yes|no.")
+    lines.append(f"Vote with the buttons in the game menu, or /deadline {game_id} vote yes|no.")
     return "\n".join(lines)
+
+
+def propose_deadline(
+    game_id: str, power: str, user_id: str, hours: Optional[float], vote_hours: Optional[float] = None
+) -> Tuple[str, Optional[str]]:
+    """Put a deadline change (``hours``, or ``None`` to clear) to a majority vote.
+    Returns ``(reply, parse_mode)``. Shared by ``/deadline propose`` and the
+    game menu's Deadline buttons."""
+    try:
+        result = api_post(
+            f"/games/{game_id}/deadline/propose",
+            {"power": power, "hours": hours, "vote_hours": vote_hours, "telegram_id": user_id},
+        )
+    except requests.RequestException as e:
+        return f"Could not propose a deadline change: {e}", None
+    if result.get("status") == "accepted":
+        return (
+            f"✅ Applied immediately -- {power} is the only active power in game {game_id}. "
+            f"Deadline: {_accepted_deadline_text(result)}.",
+            None,
+        )
+    return _format_proposal(game_id, result), 'Markdown'
+
+
+def vote_deadline(game_id: str, power: str, user_id: str, vote: bool) -> Tuple[str, Optional[str]]:
+    """Vote on the pending deadline proposal. Returns ``(reply, parse_mode)``."""
+    try:
+        result = api_post(
+            f"/games/{game_id}/deadline/vote",
+            {"power": power, "vote": vote, "telegram_id": user_id},
+        )
+    except requests.RequestException as e:
+        return f"Could not cast your vote: {e}", None
+    status = result.get("status")
+    if status == "accepted":
+        return f"✅ Proposal passed. Game {game_id}'s deadline is now {_accepted_deadline_text(result)}.", None
+    if status == "rejected":
+        return f"❌ Proposal for game {game_id} was voted down; nothing changed.", None
+    return _format_proposal(game_id, result), 'Markdown'
+
+
+def withdraw_deadline(game_id: str, power: str, user_id: str) -> str:
+    """Withdraw ``power``'s own pending deadline proposal."""
+    try:
+        api_post(f"/games/{game_id}/deadline/withdraw", {"power": power, "telegram_id": user_id})
+    except requests.RequestException as e:
+        return f"Could not withdraw the proposal: {e}"
+    return f"Withdrew {power}'s deadline proposal for game {game_id}."
 
 
 async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -523,9 +507,10 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"⏰ Deadline for game {game_id}: {format_deadline(current)}")
         else:
             await update.message.reply_text(
-                f"Game {game_id} has no deadline; the turn is processed by hand "
-                f"(/processturn). Set one with /deadline {game_id} <hours>, or propose "
-                f"one for a vote with /deadline {game_id} propose <hours>."
+                f"Game {game_id} has no deadline, so the turn waits until every order is in "
+                f"(with auto-process on) or the game's creator processes it. Set one with "
+                f"/deadline {game_id} <hours>, or propose one for a vote from the game menu "
+                f"(/game {game_id})."
             )
         proposal = data.get("pending_proposal") if data else None
         if proposal:
@@ -559,54 +544,20 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if not 0 < vote_hours <= 24 * 30:  # also false for nan
                 await update.message.reply_text("Vote hours must be more than 0 and at most 720 (30 days).")
                 return
-        try:
-            result = api_post(
-                f"/games/{game_id}/deadline/propose",
-                {"power": power, "hours": hours, "vote_hours": vote_hours, "telegram_id": user_id},
-            )
-        except Exception as e:
-            await update.message.reply_text(f"Could not propose a deadline change: {e}")
-            return
-        if result.get("status") == "accepted":
-            when = _accepted_deadline_text(result)
-            await update.message.reply_text(
-                f"✅ Applied immediately -- {power} is the only active power in game {game_id}. "
-                f"Deadline: {when}."
-            )
-        else:
-            await update.message.reply_text(_format_proposal(game_id, result), parse_mode='Markdown')
+        text, mode = propose_deadline(game_id, power, user_id, hours, vote_hours)
+        await update.message.reply_text(text, parse_mode=mode)
         return
 
     if arg == "vote":
         if len(args) < 3 or args[2].lower() not in ("yes", "no", "y", "n"):
             await update.message.reply_text(f"Usage: /deadline {game_id} vote yes|no")
             return
-        vote = args[2].lower() in ("yes", "y")
-        try:
-            result = api_post(
-                f"/games/{game_id}/deadline/vote",
-                {"power": power, "vote": vote, "telegram_id": user_id},
-            )
-        except Exception as e:
-            await update.message.reply_text(f"Could not cast your vote: {e}")
-            return
-        status = result.get("status")
-        if status == "accepted":
-            when = _accepted_deadline_text(result)
-            await update.message.reply_text(f"✅ Proposal passed. Game {game_id}'s deadline is now {when}.")
-        elif status == "rejected":
-            await update.message.reply_text(f"❌ Proposal for game {game_id} was voted down; nothing changed.")
-        else:
-            await update.message.reply_text(_format_proposal(game_id, result), parse_mode='Markdown')
+        text, mode = vote_deadline(game_id, power, user_id, args[2].lower() in ("yes", "y"))
+        await update.message.reply_text(text, parse_mode=mode)
         return
 
     if arg == "withdraw":
-        try:
-            result = api_post(f"/games/{game_id}/deadline/withdraw", {"power": power, "telegram_id": user_id})
-        except Exception as e:
-            await update.message.reply_text(f"Could not withdraw the proposal: {e}")
-            return
-        await update.message.reply_text(f"Withdrew {power}'s deadline proposal for game {game_id}.")
+        await update.message.reply_text(withdraw_deadline(game_id, power, user_id))
         return
 
     if arg in ("clear", "none", "off", "remove"):
@@ -798,15 +749,7 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
     }
     # Civil-disorder dummies (W9) are not joinable; the game's creator opens them.
     taken_powers |= set(game_state.get("dummy_powers") or [])
-    if game_state.get("private"):
-        # W8: a button can't carry a password, so it would only be refused.
-        open_seats = [p for p in POWERS if p not in taken_powers]
-        return (
-            f"🔒 Game {game_id} is private. Open seats: {', '.join(open_seats) or 'none'}.\n"
-            f"Join with `/join {game_id} <POWER> <password>` -- ask the game's creator for the password.",
-            None,
-        )
-
+    private = bool(game_state.get("private"))
     keyboard = []
     for power in POWERS:
         if power not in taken_powers:
@@ -819,7 +762,54 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
 
     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_games")])
     text = f"🎮 *Select Power for Game {game_id}*\n\nAvailable powers:"
+    if private:
+        # W8: a button can't carry the password, so choosing a power asks for it.
+        text = (
+            f"🔒 *Game {game_id} is private.* Choose a power, then send the password "
+            f"the game's creator gave you.\n\nAvailable powers:"
+        )
     return text, InlineKeyboardMarkup(keyboard)
+
+
+# ``context.user_data[AWAITING]`` holds what the player's next plain-text message
+# answers: a private game's join password here, or a diplomatic message being
+# written in the game menu (hub.py). ``hub.handle_awaited_text`` consumes it.
+AWAITING = "awaiting_text"
+
+
+async def join_from_button(query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, power: str) -> None:
+    """A "Join as <POWER>" button. A private game asks for its password first."""
+    try:
+        state = api_get(f"/games/{game_id}/state")
+    except requests.RequestException as e:
+        await query.edit_message_text(f"❌ Failed to join: {e}")
+        return
+    if (state or {}).get("private"):
+        context.user_data[AWAITING] = {"kind": "join_password", "game_id": str(game_id), "power": power}
+        await query.edit_message_text(
+            f"🔒 Send the password for game {game_id} as your next message "
+            f"(I'll delete it from the chat). /cancel to stop."
+        )
+        return
+    await query.edit_message_text(join_game(query.from_user, game_id, power, None))
+
+
+def join_game(user: Any, game_id: str, power: str, password: Optional[str]) -> str:
+    """Register (if needed) and take ``power`` in ``game_id``. Returns the reply."""
+    payload: dict = {"telegram_id": str(user.id), "game_id": int(game_id), "power": power}
+    if password is not None:
+        payload["join_password"] = password
+    try:
+        ensure_registered(user)
+        result = api_post(f"/games/{game_id}/join", payload)
+    except requests.RequestException as e:  # an HTTP error's text is the server's detail
+        return f"❌ Could not join game {game_id}: {e}"
+    if result.get("status") == "already_joined":
+        return f"You are already in game {game_id} as {power}."
+    if result.get("status") != "ok":
+        return f"❌ Could not join game {game_id}: {result.get('message', 'Unknown error')}"
+    set_current_game(str(user.id), str(game_id))
+    return f"🎉 You joined game {game_id} as {power}! Open it any time with /game {game_id}."
 
 
 async def show_power_selection(update: Update, game_id: str) -> None:
@@ -865,10 +855,11 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.message:
             await update.message.reply_text("Join command failed: No user context.")
         return
-    user_id = str(user.id)
     args = context.args if context.args is not None else []
     if len(args) < 1:
-        await update.message.reply_text("Usage: /join <game_id> [power] [password]")
+        await update.message.reply_text(
+            "Usage: /join <game_id> [power] [password]\n\nOr browse open games with /findgame."
+        )
         return
     game_id = args[0]
 
@@ -883,24 +874,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     power = args[1].upper()
     password = await _join_password_arg(update, args, 2)
-    payload: dict = {"telegram_id": user_id, "game_id": int(game_id), "power": power}
-    if password is not None:
-        payload["join_password"] = password
-    try:
-        result = api_post(f"/games/{game_id}/join", payload)
-        if result.get("status") == "ok":
-            await update.message.reply_text(f"🎉 Successfully joined Game {game_id} as {power}!")
-        elif result.get("status") == "already_joined":
-            await update.message.reply_text(f"You are already in Game {game_id} as {power}.")
-        else:
-            await update.message.reply_text(f"Failed to join: {result.get('message', 'Unknown error')}")
-    except requests.HTTPError as e:
-        hint = ""
-        if getattr(e, "response", None) is not None and e.response.status_code == 401:
-            hint = "\n\n💡 Try /register first."
-        await update.message.reply_text(f"Join error: {e}{hint}")
-    except Exception as e:
-        await update.message.reply_text(f"Join error: {e}")
+    await update.message.reply_text(join_game(user, game_id, power, password))
 
 
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -956,36 +930,42 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Replace error: {e}")
 
 
+async def _answer(update: Update, text: str, parse_mode: Optional[str] = None) -> None:
+    """Reply to a command, or replace the message whose button was pressed."""
+    if update.message:
+        await update.message.reply_text(text, parse_mode=parse_mode)
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode=parse_mode)
+
+
 async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Join the automatic-matching queue; the server creates a game when it fills.
 
-    A thin wrapper over ``POST /waiting_list/join`` (G5). Everything this used to
-    do locally -- holding the queue in a module global, deciding when it was full,
-    creating the game, assigning powers, and "notifying" players through a
-    callback that only wrote a log line -- now happens server-side, where the
-    queue survives a restart and filling it is atomic. The six players who were
-    already queued are DM'd by the server; this reply is only for the one who
-    just tipped it over.
+    Reached from the Find a game screen's "Join the queue" button (and the old
+    ``/wait`` command). A thin wrapper over ``POST /waiting_list/join`` (G5).
+    Everything this used to do locally -- holding the queue in a module global,
+    deciding when it was full, creating the game, assigning powers, and
+    "notifying" players through a callback that only wrote a log line -- now
+    happens server-side, where the queue survives a restart and filling it is
+    atomic. The six players who were already queued are DM'd by the server;
+    this reply is only for the one who just tipped it over.
+
+    Until the queue could be joined from a button this only handled a command:
+    the button's update has no ``message``, so pressing it did nothing at all.
     """
     user = update.effective_user
-    if not user or not update.message:
-        if update.message:
-            await update.message.reply_text("Wait command failed: No user context.")
+    if not user:
         return
 
     user_id = str(user.id)
-    full_name = f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
-
     try:
+        ensure_registered(user)
         result = api_post(
-            "/waiting_list/join", {"telegram_id": user_id, "full_name": full_name}
+            "/waiting_list/join", {"telegram_id": user_id, "full_name": _full_name(user)}
         )
-    except Exception as e:
+    except requests.RequestException as e:
         logger.error(f"Failed to join waiting list for {user_id}: {e}")
-        await update.message.reply_text(
-            "❌ Could not join the waiting list right now. Please try again.\n\n"
-            "If you haven't registered yet, use 🎯 Register first."
-        )
+        await _answer(update, "❌ Could not join the queue right now. Please try again in a minute.")
         return
 
     if result.get("game_created"):
@@ -993,12 +973,15 @@ async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         your_power = next(
             (power for power, tid in assignments.items() if str(tid) == user_id), None
         )
+        if result.get("game_id") is not None:
+            set_current_game(user_id, str(result["game_id"]))
         power_line = f"You've been assigned *{your_power}*.\n\n" if your_power else ""
-        await update.message.reply_text(
+        await _answer(
+            update,
             f"🎮 *Game {result.get('game_id')} created!*\n\n"
             f"{power_line}"
             f"All {WAITING_LIST_SIZE} players have been notified.\n"
-            f"Use /games to see your game and /selectunit to order.",
+            f"Open it with /game to enter orders.",
             parse_mode='Markdown',
         )
         return
@@ -1006,39 +989,39 @@ async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     size = result.get("size", 0)
     required = result.get("required", WAITING_LIST_SIZE)
     if result.get("status") == "already_queued":
-        await update.message.reply_text(
-            f"⏳ You're already on the waiting list! ({size}/{required} players)"
-        )
+        await _answer(update, f"⏳ You're already in the queue ({size}/{required} players). /leavequeue to leave it.")
         return
 
-    await update.message.reply_text(
-        f"⏳ Added to waiting list! ({size}/{required} players)\n\n"
-        f"When {required} players join, a new game will be created automatically.\n"
-        f"You'll get a message here when it starts."
+    await _answer(
+        update,
+        f"⏳ You're in the queue ({size}/{required} players).\n\n"
+        f"When {required} players have joined, a game starts and you get a message here.\n"
+        f"/leavequeue to leave it.",
     )
 
 
 async def leave_waiting_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Leave the automatic-matching queue (``/unwait``).
+    """Leave the automatic-matching queue (``/leavequeue``, formerly ``/unwait``).
 
     Added with G5: once the queue is durable, a player who changes their mind
     needs a way out, and previously the only "exit" was the bot restarting.
     """
     user = update.effective_user
-    if not user or not update.message:
+    if not user:
         return
 
     try:
         result = api_post("/waiting_list/leave", {"telegram_id": str(user.id)})
-    except Exception as e:
+    except requests.RequestException as e:
         logger.error(f"Failed to leave waiting list for {user.id}: {e}")
-        await update.message.reply_text("❌ Could not leave the waiting list right now.")
+        await _answer(update, "❌ Could not leave the queue right now.")
         return
 
     if result.get("status") == "removed":
-        await update.message.reply_text(
-            f"✅ Removed from the waiting list. "
-            f"({result.get('size', 0)}/{result.get('required', WAITING_LIST_SIZE)} still waiting)"
+        await _answer(
+            update,
+            f"✅ You left the queue. "
+            f"({result.get('size', 0)}/{result.get('required', WAITING_LIST_SIZE)} still waiting)",
         )
     else:
-        await update.message.reply_text("You weren't on the waiting list.")
+        await _answer(update, "You weren't in the queue.")

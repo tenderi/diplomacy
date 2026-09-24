@@ -197,7 +197,7 @@ class TestInteractiveOrderInput:
 
         self.mock_query.edit_message_text.assert_called_once()
         call_args = self.mock_query.edit_message_text.call_args[0][0]
-        assert "Order Submitted Successfully!" in call_args
+        assert "Order submitted:" in call_args
 
     @patch('server.telegram_bot.orders.api_post_reliable')
     @patch('server.telegram_bot.game_context.api_get')
@@ -277,7 +277,7 @@ class TestInteractiveOrderIntegration:
         mock_query.edit_message_text.assert_called()
         success_call = None
         for call in mock_query.edit_message_text.call_args_list:
-            if "Order Submitted Successfully!" in str(call):
+            if "Order submitted:" in str(call):
                 success_call = call
                 break
         assert success_call is not None

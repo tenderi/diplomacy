@@ -10,6 +10,7 @@ Tests scenarios like:
 - Button callback timeout
 """
 import pytest
+import requests
 from unittest.mock import Mock, patch, AsyncMock
 from telegram import Update, Message, User, Chat, CallbackQuery
 from telegram.ext import ContextTypes
@@ -258,17 +259,12 @@ class TestErrorMessages:
     @pytest.mark.asyncio
     async def test_error_message_user_not_registered(self, mock_update, mock_context):
         """Test error message when user is not registered."""
-        with patch('server.telegram_bot.api_client.api_get') as mock_api:
-            mock_api.side_effect = Exception("User not found")
-            
-            # Should show helpful error message
+        # /start registers the player itself; if that fails, the welcome says why.
+        with patch('server.telegram_bot.games.api_post', side_effect=requests.ConnectionError("down")):
             await start(mock_update, mock_context)
-            
-            # Verify error message was sent
-            mock_update.message.reply_text.assert_called()
-            call_args = str(mock_update.message.reply_text.call_args)
-            # Should mention registration
-            assert "register" in call_args.lower() or "not found" in call_args.lower()
+
+        mock_update.message.reply_text.assert_called()
+        assert "isn't answering" in mock_update.message.reply_text.call_args[0][0]
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     @pytest.mark.asyncio

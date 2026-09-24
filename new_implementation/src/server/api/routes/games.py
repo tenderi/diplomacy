@@ -16,7 +16,7 @@ from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, ADMIN_TOKEN, BOT_SECRET,
-    notify_players, notify_user, notify_turn_processed, get_process_turn_lock,
+    notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
 )
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
@@ -452,9 +452,18 @@ def _authorize_process_turn(
     credentials: Optional[HTTPAuthorizationCredentials],
     x_bot_secret: Optional[str],
     x_admin_token: Optional[str],
+    telegram_id: Optional[str] = None,
 ) -> Optional[str]:
     """Only the bot-secret path, an admin-token holder, or a user who holds a
     power in this game may end this game's turn early.
+
+    **A Telegram player may do it only in a game they created** (the bot
+    passes the player's ``telegram_id``). In a Telegram game one player
+    pressing ``/processturn`` turned every other player's unsent orders into
+    holds; turns there end at the deadline or, with auto-process on, once all
+    orders are in. The creator keeps it -- the bot's demo game is created by
+    its player -- and a bare bot secret (scripts, the demo seeder) is trusted
+    as before.
 
     ``require_bot_or_user`` alone only checks that the caller is *someone*
     authenticated, not that they're *in this game* -- combined with
@@ -469,7 +478,19 @@ def _authorize_process_turn(
     -- they get the resolution in their HTTP response instead (G3).
     """
     if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
-        return None
+        if not telegram_id:
+            return None
+        creator = (game_service.meta(game_id) or {}).get("created_by_user_id")
+        player = db_service.get_user_by_telegram_id(str(telegram_id))
+        if player is not None and creator is not None and int(player.id) == int(creator):
+            return str(telegram_id)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Only the game's creator can end a turn early. The turn is processed "
+                "at the deadline, or as soon as every order is in if auto-process is on."
+            ),
+        )
     if x_admin_token and x_admin_token == ADMIN_TOKEN:
         return None
     user = get_current_user_optional(credentials)
@@ -494,6 +515,7 @@ async def process_turn(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),
     x_admin_token: Optional[str] = Header(None),
+    body: Optional[Dict[str, Any]] = Body(None),
 ) -> Dict[str, Any]:
     """Adjudicate all pending orders and advance the phase.
 
@@ -517,7 +539,9 @@ async def process_turn(
     """
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
-    caller_telegram_id = _authorize_process_turn(game_id, credentials, x_bot_secret, x_admin_token)
+    caller_telegram_id = _authorize_process_turn(
+        game_id, credentials, x_bot_secret, x_admin_token, (body or {}).get("telegram_id")
+    )
     if require_all:
         status = game_service.orders_status(game_id)
         if status and status["missing"]:
@@ -907,7 +931,7 @@ def join_game(
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
-            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power}.")
+            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power}.", game_buttons(game_id))
         # Get player model for return value
         player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         player_id = player_model.id if player_model else user.id
@@ -928,7 +952,7 @@ def join_game(
             # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
             player_count += len(view.get("dummy_powers", [])) if view is not None else 0
             if player_count >= required_powers:
-                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.")  # type: ignore
+                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.", buttons=game_buttons(game_id))  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
         invalidate_cache(f"games/{str(game_id)}")
