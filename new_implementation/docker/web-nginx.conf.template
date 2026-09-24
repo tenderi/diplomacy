@@ -5,7 +5,23 @@
 # the compose service on the same Docker network).
 # Everything else that starts with $ is an nginx variable and is left alone.
 
+# The scheme the browser used: https when Caddy is in front (it sets the
+# header), otherwise nginx's own.
+map $http_x_forwarded_proto $diplomacy_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
 server {
+    # Behind Caddy (HTTPS; docker/Caddyfile) every connection comes from Caddy's
+    # container, so take the client's address from the X-Forwarded-For Caddy
+    # sets -- but only when the peer is on a Docker network, which a client on
+    # the internet can't be. Without this every visitor would share Caddy's
+    # address in the API's per-IP login and registration rate limits.
+    set_real_ip_from 172.16.0.0/12;
+    set_real_ip_from 192.168.0.0/16;
+    real_ip_header X-Forwarded-For;
+
     # Resolve the API through Docker's DNS per request (cached 10s) rather than
     # once at start: `docker compose up -d` can recreate the API container with
     # a new address while this one keeps running, and a start-time `upstream`
@@ -39,9 +55,13 @@ server {
         proxy_pass http://$diplomacy_api;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        # Replace, never append: the API (uvicorn, trusting every proxy) reads
+        # the *first* X-Forwarded-For entry, and appending let a client choose
+        # it by sending its own header -- and so pick the address its login
+        # attempts were rate-limited under.
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $diplomacy_forwarded_proto;
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;
         proxy_buffering off;

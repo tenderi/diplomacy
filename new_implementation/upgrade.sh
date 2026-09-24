@@ -60,6 +60,29 @@ else
     echo "    ERROR: http://127.0.0.1:${WEB_PORT}/api/healthz failed; check: docker compose logs diplomacy_web"
 fi
 
+# HTTPS (DOMAIN set): check Caddy answers with a valid certificate. Only a
+# warning -- the certificate depends on DNS and the UpCloud firewall, which a
+# deploy can't fix, and nginx behind it was checked above. Asks this host
+# (--resolve) so it doesn't depend on DNS or hairpin routing.
+DOMAIN=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)
+if [ -n "$DOMAIN" ]; then
+    echo "==> Checking https://${DOMAIN} ..."
+    tls_ok=0
+    for _ in $(seq 1 30); do
+        if curl -fsS -m 5 -o /dev/null --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/api/healthz"; then
+            tls_ok=1
+            break
+        fi
+        sleep 3
+    done
+    if [ "$tls_ok" = 1 ]; then
+        echo "    https://${DOMAIN} is up with a valid certificate."
+    else
+        echo "    WARNING: https://${DOMAIN} not answering yet. Check that ${DOMAIN}'s A record"
+        echo "    points here and TCP 80/443 are open, then: docker compose logs caddy"
+    fi
+fi
+
 echo "==> Container status:"
 docker compose ps
 # A deploy that leaves the API or the site down must fail the workflow.
