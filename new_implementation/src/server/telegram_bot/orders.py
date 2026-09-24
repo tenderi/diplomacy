@@ -12,6 +12,8 @@ coasts, or order grammar locally.
 import logging
 from typing import Any, Awaitable, Callable, Optional
 
+import requests
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -652,7 +654,9 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await reply_or_edit(f"❌ No units require {label} for {power} in game {game_id}.")
         return
 
-    keyboard = []
+    # Z2: two flows. Most turns a player orders every unit; this is the
+    # one-unit flow, so offer the walk-through first.
+    keyboard = [[InlineKeyboardButton("📋 Order all units, one by one", callback_data=f"wlk|{game_id}|start")]]
     for u in units:
         key = f"{u['kind']} {u['location']}"
         emoji = "🛡️" if u["kind"] == "A" else "🚢"
@@ -721,6 +725,22 @@ async def show_possible_moves(
         await send(f"❌ No legal orders found for {unit_key} in game {game_id}.")
         return
 
+    keyboard = _unit_order_keyboard(context, game_id, unit_key, bucket)
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+
+    emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
+    await send(
+        f"🎯 *Orders for {emoji} {unit_key}*\n\n📊 Game: {game_id} | Power: {power}\n\nChoose an order:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+def _unit_order_keyboard(
+    context: ContextTypes.DEFAULT_TYPE, game_id: str, unit_key: str, bucket: list[str]
+) -> list[list[InlineKeyboardButton]]:
+    """One unit's order buttons: hold/moves inline, supports and convoys behind
+    sub-menus. Caches the inline orders for the ``ord|`` callback. Shared by
+    ``/selectunit`` (one order) and ``/orderall`` (every unit in turn)."""
     convoy_orders = [o for o in bucket if _order_verb(o) == "C"]
     support_orders = [o for o in bucket if _order_verb(o) == "S"]
     direct_orders = [o for o in bucket if _order_verb(o) not in ("C", "S")]
@@ -741,13 +761,228 @@ async def show_possible_moves(
         keyboard.append(
             [InlineKeyboardButton("🚢 Convoy options", callback_data=f"cvopt|{game_id}|{unit_key}")]
         )
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
+    return keyboard
 
-    emoji = "🛡️" if unit_key.startswith("A ") else "🚢"
+
+# --- /orderall: every unit, one after another, submitted together (Z2) -------
+#
+# The walk lives in context.user_data[_WALK][game_id]:
+#   {"power", "phase", "adjust": bool, "steps": [unit keys | slot labels],
+#    "flat": [adjustment orders], "i": current step, "chosen": {step: order}}
+# While a walk is active for a game, an ``ord|`` choice (including from the
+# support/convoy sub-menus) is *recorded* for the current step instead of being
+# submitted; the summary then submits everything in one request.
+
+_WALK = "order_walk"
+
+
+def active_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> Optional[dict[str, Any]]:
+    return context.user_data.get(_WALK, {}).get(str(game_id))
+
+
+def _end_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
+    context.user_data.get(_WALK, {}).pop(str(game_id), None)
+    context.user_data.get("pending_orders", {}).pop(str(game_id), None)
+
+
+async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, user_id: str, game_id_arg: Optional[str]) -> None:
+    """Begin walking through every unit that must act this phase."""
+    try:
+        game_id, power = resolve_game_and_power(user_id, game_id_arg)
+    except GameContextError as e:
+        await send(e.message)
+        return
+    try:
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except requests.RequestException as e:
+        await send(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
+        return
+
+    phase_type = data.get("phase_type", "MOVEMENT")
+    if phase_type == "ADJUSTMENT":
+        adjustment = data.get("adjustment") or {}
+        slots = int(adjustment.get("slots") or 0)
+        if adjustment.get("action") in (None, "none") or slots <= 0:
+            await send(f"✅ {power} has no builds or disbands to make in game {game_id}.")
+            return
+        noun = "Build" if adjustment.get("action") == "build" else "Disband"
+        steps = [f"{noun} {n} of {slots}" for n in range(1, slots + 1)]
+    else:
+        steps = [f"{u['kind']} {u['location']}" for u in data.get("units", [])]
+        if not steps:
+            await send(f"✅ {power} has no units to order in game {game_id} this phase.")
+            return
+
+    context.user_data.setdefault(_WALK, {})[str(game_id)] = {
+        "power": power,
+        "phase": data.get("phase"),
+        "adjust": phase_type == "ADJUSTMENT",
+        "steps": steps,
+        "flat": list(data.get("orders", [])),
+        "i": 0,
+        "chosen": {},
+    }
+    await show_walk_step(send, context, game_id)
+
+
+async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
+    """Show the current step of the walk, or the summary once past the last."""
+    walk = active_walk(context, game_id)
+    if walk is None:
+        await send("⚠️ This order entry has expired. Start again with /orderall.")
+        return
+    if walk["i"] >= len(walk["steps"]):
+        await _show_walk_summary(send, context, game_id)
+        return
+    step = walk["steps"][walk["i"]]
+    progress = f"{walk['i'] + 1}/{len(walk['steps'])}"
+    if walk["adjust"]:
+        taken = {o for o in walk["chosen"].values() if o != "WAIVE"}
+        options = [o for o in walk["flat"] if o not in taken]
+        context.user_data.setdefault("pending_orders", {})[str(game_id)] = options
+        keyboard = [
+            [InlineKeyboardButton(_order_label(o), callback_data=f"ord|{game_id}|{i}")]
+            for i, o in enumerate(options)
+        ]
+        title = f"🏗️ *{step}*"
+    else:
+        try:
+            data = api_get(f"/games/{game_id}/legal_orders/{walk['power']}")
+        except requests.RequestException as e:
+            await send(f"❌ Could not retrieve legal orders: {e}")
+            return
+        bucket = data.get("orders_by_unit", {}).get(step, [])
+        keyboard = _unit_order_keyboard(context, game_id, step, bucket)
+        emoji = "🛡️" if step.startswith("A ") else "🚢"
+        title = f"🎯 *Unit {progress}: {emoji} {step}*"
+    nav = []
+    if walk["i"] > 0:
+        nav.append(InlineKeyboardButton("⬅️ Back", callback_data=f"wlk|{game_id}|back"))
+    nav.append(InlineKeyboardButton("⏭ Skip", callback_data=f"wlk|{game_id}|skip"))
+    keyboard.append(nav)
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
+    chosen = [f"• `{walk['chosen'][s]}`" for s in walk["steps"][: walk["i"]] if s in walk["chosen"]]
+    so_far = ("\n\nSo far:\n" + "\n".join(chosen)) if chosen else ""
     await send(
-        f"🎯 *Orders for {emoji} {unit_key}*\n\n📊 Game: {game_id} | Power: {power}\n\nChoose an order:",
+        f"{title}\n📊 Game: {game_id} | Power: {walk['power']}{so_far}\n\nChoose an order:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+def record_walk_choice(context: ContextTypes.DEFAULT_TYPE, game_id: str, order_text: str) -> None:
+    """An ``ord|`` pick during a walk: remember it for this step, move on."""
+    walk = active_walk(context, game_id)
+    if walk is None or walk["i"] >= len(walk["steps"]):
+        return
+    walk["chosen"][walk["steps"][walk["i"]]] = order_text
+    walk["i"] += 1
+
+
+async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
+    walk = active_walk(context, game_id)
+    assert walk is not None
+    lines = []
+    for step in walk["steps"]:
+        order = walk["chosen"].get(step)
+        lines.append(f"• `{order}`" if order else f"• {step}: _skipped_")
+    skipped = sum(1 for s in walk["steps"] if s not in walk["chosen"])
+    note = (
+        f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, it holds."
+        if skipped and not walk["adjust"] else ""
+    )
+    count = len(walk["chosen"])
+    keyboard = []
+    if count:
+        keyboard.append([InlineKeyboardButton(f"✅ Submit {count} order{'s' if count != 1 else ''}", callback_data=f"wlk|{game_id}|submit")])
+    keyboard.append([InlineKeyboardButton("🔄 Start over", callback_data=f"wlk|{game_id}|restart")])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
+    await send(
+        f"📋 *Your orders for game {game_id}* ({walk['power']}, {walk['phase']})\n\n" + "\n".join(lines) + note,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def submit_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: str, game_id: str) -> None:
+    """Submit every order chosen in the walk, in one request."""
+    walk = active_walk(context, game_id)
+    if walk is None or not walk["chosen"]:
+        await send("⚠️ Nothing to submit. Start again with /orderall.")
+        return
+    try:
+        phase_now = (api_get(f"/games/{game_id}/state") or {}).get("phase")
+    except requests.RequestException:
+        phase_now = walk["phase"]  # unreachable: let the queue carry it; the server refuses stale orders
+    if phase_now != walk["phase"]:
+        _end_walk(context, game_id)
+        await send(
+            f"⏰ Game {game_id} moved on to {phase_now} while you were choosing, so these orders "
+            f"no longer apply. Start again with /orderall {game_id}."
+        )
+        return
+    order_list = [walk["chosen"][s] for s in walk["steps"] if s in walk["chosen"]]
+    power = walk["power"]
+    _end_walk(context, game_id)
+    outcome = api_post_reliable(
+        "/games/set_orders",
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": True},
+        chat_id=chat_id,
+        description=_orders_description(game_id, power, order_list),
+    )
+    if outcome.status == "queued":
+        await send(queued_reply(outcome))
+        return
+    if outcome.status == "rejected":
+        await send(f"❌ Error submitting orders: {outcome.error}")
+        return
+    results = (outcome.response or {}).get("results", [])
+    extra = ""
+    if (outcome.response or {}).get("auto_processed"):
+        extra = "\n\n⚡ That completed the turn -- it has been processed."
+    await send("Order results:\n" + format_order_results(results) + extra)
+
+
+async def handle_walk_action(query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, action: str) -> None:
+    """``wlk|{game_id}|{action}`` buttons: back, skip, submit, restart, cancel."""
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    user_id = str(query.from_user.id)
+    if action == "start":
+        await start_order_walk(send, context, user_id, game_id)
+        return
+    walk = active_walk(context, game_id)
+    if walk is None:
+        await send("⚠️ This order entry has expired. Start again with /orderall.")
+        return
+    if action == "cancel":
+        _end_walk(context, game_id)
+        await send(f"❌ Order entry cancelled for game {game_id}. Nothing was submitted.")
+    elif action == "back":
+        walk["i"] = max(0, walk["i"] - 1)
+        await show_walk_step(send, context, game_id)
+    elif action == "skip":
+        if walk["i"] < len(walk["steps"]):
+            walk["chosen"].pop(walk["steps"][walk["i"]], None)
+            walk["i"] += 1
+        await show_walk_step(send, context, game_id)
+    elif action == "restart":
+        await start_order_walk(send, context, user_id, game_id)
+    elif action == "submit":
+        await submit_order_walk(send, context, query.from_user.id, user_id, game_id)
+
+
+async def orderall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/orderall [game_id] -- order every unit, one after another, then submit together."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    message = update.message
+
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        await message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+    args = context.args or []
+    await start_order_walk(send, context, str(user.id), args[0] if args else None)
 
 
 def _support_target(order_str: str) -> str:
@@ -1025,7 +1260,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
             f"🎮 Game: {game_id}\n"
             f"👤 Power: {power}\n\n"
             f"💡 *Next Steps:*\n"
-            f"• Submit more orders with /selectunit\n"
+            f"• Order another unit with /selectunit, or all of them with /orderall\n"
             f"• Process turn with /processturn {game_id}\n"
             f"• View map with /viewmap {game_id}\n"
             f"• View orders with /myorders {game_id}\n"
