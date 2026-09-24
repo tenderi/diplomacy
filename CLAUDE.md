@@ -97,6 +97,7 @@ npm run test:run                           # Vitest + React Testing Library
 
 ```bash
 ruff check src/
+bandit -q -r src/ -ll                      # CI's `security` check; pip install bandit
 PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
 coverage report --include='src/engine/*' --fail-under=92
 coverage report --fail-under=60

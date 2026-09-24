@@ -780,18 +780,14 @@ class DatabaseService:
             session.query(PlayerModel).delete()
             session.commit()
 
-    # Tables still created by the initial migration that no code reads or writes
-    # any more, but whose games FK is NO ACTION: a game with rows in them could
-    # not be deleted without clearing them first.
-    _LEGACY_GAME_TABLES = ("game_history", "game_snapshots")
-
     def delete_game(self, game_id: int) -> bool:
         """Delete one game and everything that hangs off it, in one transaction.
 
         The live schema does not match the models here: ``players`` and
         ``messages`` reference ``games`` with ``ON DELETE NO ACTION`` (the models
-        say CASCADE; the migrations never did), as do the two legacy tables in
-        ``_LEGACY_GAME_TABLES``. Those are cleared explicitly; everything else
+        say CASCADE; the migrations never did), as do ``game_history`` and
+        ``game_snapshots`` -- tables the initial migration created that no code
+        reads or writes any more. Those are cleared explicitly; everything else
         (snapshots, turn history, channel rows, spectators, the unused
         units/orders/supply_centers) cascades. Returns False if there was no
         such game.
@@ -801,8 +797,8 @@ class DatabaseService:
                 return False
             session.query(MessageModel).filter_by(game_id=game_id).delete()
             session.query(PlayerModel).filter_by(game_id=game_id).delete()
-            for table in self._LEGACY_GAME_TABLES:
-                session.execute(text(f"DELETE FROM {table} WHERE game_id = :gid"), {"gid": game_id})
+            session.execute(text("DELETE FROM game_history WHERE game_id = :gid"), {"gid": game_id})
+            session.execute(text("DELETE FROM game_snapshots WHERE game_id = :gid"), {"gid": game_id})
             session.query(GameModel).filter_by(id=game_id).delete()
             session.commit()
         return True
