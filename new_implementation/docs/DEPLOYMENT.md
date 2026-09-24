@@ -92,19 +92,42 @@ and `DIPLOMACY_CORS_ORIGINS` to the site's public URL (e.g.
 
 ### Ports and the UpCloud firewall
 
-The site needs **inbound TCP 80** (and 443 once TLS is set up). UpCloud applies
+The site needs **inbound TCP 80 and 443** (443 for HTTPS; see below). UpCloud applies
 a network-level firewall in front of the host, separate from `ufw`; on a trial
 account it cannot be edited. Check that 80/443 are permitted before assuming
 nginx is broken -- a `tcpdump -ni any tcp port 80` that shows nothing is the
 signature. Nothing else needs to be open: the bot dials out to Telegram.
 
-### TLS
+### HTTPS (a domain name)
 
-Nothing here terminates TLS. The login form must not stay on plain HTTP once
-anyone but you uses it. The least-effort path is a hostname pointed at the
-VPS and Caddy in front of `diplomacy_web` (Caddy fetches certificates on its
-own); set `WEB_BIND=127.0.0.1` in `.env` so nginx only answers to Caddy, and
-set `DIPLOMACY_PASSWORD_RESET_BASE_URL` to the `https://` URL.
+Set **`DOMAIN`** in `.env` and the next `./upgrade.sh` (or deploy) serves the site
+over HTTPS:
+
+1. Point the name at the VPS: an **A record** for it → `87.58.144.64` (Route 53, or
+   wherever the domain's DNS is). Check with `dig +short <name>`.
+2. Allow inbound **TCP 80 and 443** in the UpCloud firewall. Port 80 is needed even
+   for HTTPS: Let's Encrypt checks it before issuing the certificate, and Caddy
+   redirects plain HTTP there.
+3. On the VPS: `DOMAIN=<name>` in `/root/diplomacy/new_implementation/.env`, then
+   `./upgrade.sh`.
+
+`ensure_env.sh` then sets `COMPOSE_PROFILES=tls`, which starts the `caddy` service
+(`docker/Caddyfile`): it gets and renews a Let's Encrypt certificate for `DOMAIN` by
+itself (kept in the `caddy_data` volume) and redirects `http://` to `https://`. Caddy
+owns the public ports 80/443, so nginx moves to `WEB_BIND=127.0.0.1`,
+`WEB_PORT=8080`; password-reset links become `https://<DOMAIN>`. `upgrade.sh` checks
+`https://<DOMAIN>/api/healthz` against this host and warns (without failing the
+deploy) if it doesn't answer: a certificate that can't be issued is DNS or the
+firewall, and `docker compose logs caddy` says which.
+
+Clearing `DOMAIN` turns Caddy off again; nginx stays on loopback until `WEB_BIND`
+is changed by hand.
+
+**Client addresses.** Behind Caddy every request reaches nginx from Caddy's
+container. nginx takes the client's address from the `X-Forwarded-For` Caddy sets
+(`real_ip`, trusted only from Docker network addresses) and passes the API that one
+address, replacing any `X-Forwarded-For` the client sent -- the API's per-IP login
+and registration rate limits depend on it.
 
 ## Deploy-on-merge (GitHub Actions)
 

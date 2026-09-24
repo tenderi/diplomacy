@@ -57,6 +57,37 @@ for key in POSTGRES_PASSWORD DIPLOMACY_JWT_SECRET DIPLOMACY_ADMIN_TOKEN DIPLOMAC
     fi
 done
 
+# HTTPS: setting DOMAIN turns on the `caddy` service (compose profile "tls",
+# read from COMPOSE_PROFILES in this file). Caddy then owns the public ports
+# 80/443, so nginx moves to a loopback-only port, and password-reset links
+# use the https:// address.
+domain="$(get_var DOMAIN)"
+if [ -n "$domain" ]; then
+    if [ "$(get_var COMPOSE_PROFILES)" != "tls" ]; then
+        set_var COMPOSE_PROFILES tls
+        echo "==> DOMAIN is $domain: HTTPS on (COMPOSE_PROFILES=tls)."
+    fi
+    if [ "$(get_var WEB_BIND)" != "127.0.0.1" ]; then
+        set_var WEB_BIND 127.0.0.1
+        echo "==> WEB_BIND=127.0.0.1: Caddy is the public entry now."
+    fi
+    web_port="$(get_var WEB_PORT)"
+    if [ -z "$web_port" ] || [ "$web_port" = "80" ] || [ "$web_port" = "443" ]; then
+        set_var WEB_PORT 8080
+        echo "==> WEB_PORT=8080: Caddy listens on 80 and 443."
+    fi
+    case "$(get_var DIPLOMACY_PASSWORD_RESET_BASE_URL)" in
+        https://*) ;;
+        *)
+            set_var DIPLOMACY_PASSWORD_RESET_BASE_URL "https://$domain"
+            echo "==> DIPLOMACY_PASSWORD_RESET_BASE_URL=https://$domain"
+            ;;
+    esac
+elif [ "$(get_var COMPOSE_PROFILES)" = "tls" ]; then
+    set_var COMPOSE_PROFILES ""
+    echo "==> DOMAIN is empty: HTTPS off (nginx stays on loopback until WEB_BIND changes)."
+fi
+
 if [ -z "$token" ]; then
     echo "==> NOTE: TELEGRAM_BOT_TOKEN is empty; the bot will not start until it is set."
 fi
