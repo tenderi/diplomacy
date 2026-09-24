@@ -20,17 +20,6 @@ describe('ResetPassword', () => {
     expect(within(container).getByRole('heading', { name: /invalid reset link/i })).toBeInTheDocument()
   })
 
-  it('renders form when token in query', () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={['/reset-password?token=abc123']}>
-        <ResetPassword />
-      </MemoryRouter>
-    )
-    expect(within(container).getByRole('heading', { name: /set new password/i })).toBeInTheDocument()
-    expect(container.querySelector('#password')).toBeInTheDocument()
-    expect(container.querySelector('#confirm')).toBeInTheDocument()
-  })
-
   it('shows error when passwords do not match', async () => {
     const { container } = render(
       <MemoryRouter initialEntries={['/reset-password?token=abc123']}>

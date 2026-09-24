@@ -79,6 +79,7 @@ class TestUpdateGameDeadline:
         # Matches every other update_* method in the DAL: an id that doesn't
         # exist doesn't raise, it's just a no-op (`if game: ...`).
         db_service.update_game_deadline(999_999_999, datetime.datetime.now(datetime.timezone.utc))
+        assert db_service.get_game_by_id(999_999_999) is None  # and nothing was created
 
 
 class TestSnapshots:

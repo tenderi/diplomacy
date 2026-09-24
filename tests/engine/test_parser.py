@@ -298,6 +298,13 @@ class TestPowerPrefix:
         with pytest.raises(OrderParseError):
             parse_order("GERMANY: A PAR - BUR", power="FRANCE", map=m)
 
+    def test_spaced_colon_form(self, m):
+        assert parse_order("FRANCE : A PAR H", power="FRANCE", map=m) == Hold("FRANCE", Location("PAR"))
+
+    def test_a_power_name_alone_is_empty(self, m):
+        with pytest.raises(OrderParseError, match="empty order text"):
+            parse_order("FRANCE:", power="FRANCE", map=m)
+
 
 class TestGeneralMalformed:
     def test_empty_string(self, m):
@@ -315,6 +322,21 @@ class TestGeneralMalformed:
     def test_no_unit_kind(self, m):
         with pytest.raises(OrderParseError):
             parse_order("HOLD A PAR", power="FRANCE", map=m)
+
+    @pytest.mark.parametrize(("text", "message"), [
+        ("A", "missing unit location"),
+        ("A PAR D MAR", "malformed disband order"),
+        ("D A PAR MAR", "expected .D A/F PROVINCE."),
+        ("A PAR BUILD MAR", "malformed build order"),
+        ("A LON - BEL VIA FERRY", "unexpected trailing tokens"),
+        ("A LON - BEL BY SEA", "unexpected trailing tokens"),
+    ])
+    def test_reason_names_what_is_wrong(self, m, text, message):
+        with pytest.raises(OrderParseError, match=message):
+            parse_order(text, power="ENGLAND", map=m)
+
+    def test_a_coast_on_a_single_coast_province_is_dropped(self, m):
+        assert parse_order("F BRE/NC - MAO", power="FRANCE", map=m) == Move("FRANCE", Location("BRE"), Location("MAO"))
 
 
 # ---------------------------------------------------------------------------

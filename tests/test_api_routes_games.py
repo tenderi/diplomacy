@@ -25,41 +25,20 @@ def client():
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
-def cleanup_games():
-    """Fixture to cleanup games after test."""
-    yield
-    # Cleanup: games are cleaned up by test isolation
-
-
 @pytest.mark.unit
 class TestCreateGame:
     """Test game creation endpoint."""
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_create_game_success(self, client):
-        """Test successful game creation."""
-        resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
+    @pytest.mark.parametrize("body", [{"map_name": "standard"}, {}])
+    def test_create_game_starts_at_the_standard_opening(self, client, body):
+        """An omitted map_name means the standard map."""
+        resp = client.post("/games/create", json=body)
         assert resp.status_code == 200
-        data = resp.json()
-        assert "game_id" in data
-        assert isinstance(data["game_id"], str)
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_create_game_default_map(self, client):
-        """Test game creation with default map."""
-        resp = client.post("/games/create", json={})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "game_id" in data
-
-    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_create_game_custom_map(self, client):
-        """Test game creation with custom map."""
-        resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "game_id" in data
+        state = client.get(f"/games/{resp.json()['game_id']}/state").json()
+        assert (state["map_name"], state["phase"], state["status"]) == ("standard", "S1901M", "ACTIVE")
+        assert len(state["units"]) == 22
+        assert sum(len(units) for units in state["units_by_power"].values()) == 22
 
 
 @pytest.mark.unit
@@ -73,14 +52,11 @@ class TestAddPlayer:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
-        # Add player - may fail if game not in memory
-        resp = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
-        # May return 200 or 500 depending on game state
+        resp = client.post("/games/add_player", json={"game_id": game_id, "power": "france"})
         assert resp.status_code == 200, resp.text
-        if resp.status_code == 200:
-            data = resp.json()
-            assert data["status"] == "ok"
-            assert "player_id" in data
+        assert [p["power"] for p in client.get(f"/games/{game_id}/players").json()] == ["FRANCE"]
+        assert client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}).status_code == 400
+        assert client.post("/games/add_player", json={"game_id": game_id, "power": "ATLANTIS"}).status_code == 400
 
 
 @pytest.mark.unit
@@ -95,11 +71,11 @@ class TestGetGameState:
         resp = client.get(f"/games/{game_id}/state")
         assert resp.status_code == 200
         data = resp.json()
-        assert "game_id" in data
-        assert "map_name" in data
-        assert "units" in data
-        assert "ownership" in data
-        assert "phase" in data
+        assert str(data["game_id"]) == str(game_id)
+        assert (data["year"], data["season"], data["phase_type"]) == (1901, "SPRING", "MOVEMENT")
+        assert data["ownership"]["PAR"] == "FRANCE" and data["ownership"]["STP"] == "RUSSIA"
+        assert len(data["ownership"]) == 22  # home centres only; the 12 neutrals are unowned
+        assert data["orders"] == {}
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_state_not_found(self, client):
@@ -115,11 +91,13 @@ class TestListGames:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_list_games_success(self, client):
         """Test successful game listing."""
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         resp = client.get("/games")
         assert resp.status_code == 200
-        data = resp.json()
-        assert "games" in data
-        assert isinstance(data["games"], list)
+        listed = [g for g in resp.json()["games"] if str(g["game_id"]) == str(game_id)]
+        assert len(listed) == 1
+        assert (listed[0]["player_count"], listed[0]["max_players"], listed[0]["private"]) == (1, 7, False)
 
 
 @pytest.mark.unit
@@ -134,7 +112,7 @@ class TestGetPlayers:
         client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
         resp = client.get(f"/games/{game_id}/players")
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        assert [(p["power"], p["user_id"], p["is_active"]) for p in resp.json()] == [("FRANCE", None, True)]
     
     def test_get_players_not_found(self, client):
         """Test getting players for non-existent game."""
@@ -206,10 +184,8 @@ class TestProcessTurn:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert "phase" in data
-        assert "game_status" in data
-        assert "resolution" in data
-        assert "results" in data["resolution"]
+        assert (data["phase"], data["game_status"]) == ("F1901M", "ACTIVE")
+        assert len(data["resolution"]["results"]) == 22  # every opening unit held
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_not_found(self, client):
@@ -373,8 +349,7 @@ class TestDeadlineEndpoints:
         resp = client.get(f"/games/{game_id}/deadline")
         assert resp.status_code == 200
         data = resp.json()
-        assert "status" in data
-        assert "deadline" in data
+        assert (data["deadline"], data["pending_proposal"]) == (None, None)
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_deadline(self, client):
@@ -388,12 +363,11 @@ class TestDeadlineEndpoints:
         assert join.status_code == 200, join.text
         
         # Set deadline
-        future_time = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-        resp = client.post(f"/games/{game_id}/deadline", json={"deadline": future_time, "telegram_id": tg, "bot_secret": BOT_SECRET})
+        future = (datetime.now(timezone.utc) + timedelta(hours=24)).replace(microsecond=0)
+        resp = client.post(f"/games/{game_id}/deadline", json={"deadline": future.isoformat(), "telegram_id": tg, "bot_secret": BOT_SECRET})
         assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert data["status"] == "ok"
-        assert "deadline" in data
+        stored = datetime.fromisoformat(client.get(f"/games/{game_id}/deadline").json()["deadline"])
+        assert stored.replace(tzinfo=timezone.utc) == future  # stored as naive UTC
 
 
 @pytest.mark.unit
@@ -403,14 +377,22 @@ class TestGameHistory:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_history(self, client):
         """Test getting game history."""
-        # Create game and process turn to create history
-        game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
-        game_id = int(game_resp.json()["game_id"])
-        
-        # Get history (may be empty if no turns processed)
-        resp = client.get(f"/games/{game_id}/history/0")
-        # May return 200, 404, or 500 depending on game state and database
-        assert resp.status_code in [200, 404], resp.text
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        assert client.get(f"/games/{game_id}/history/1").status_code == 404  # nothing played yet
+        tg = f"hist_{int(datetime.now().timestamp() * 1000000)}"
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": "History"})
+        client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"})
+        ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
+                                                         "telegram_id": tg, "bot_secret": BOT_SECRET})
+        assert ordered.status_code == 200, ordered.text
+        assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
+
+        resp = client.get(f"/games/{game_id}/history/1")
+        assert resp.status_code == 200, resp.text
+        turn = resp.json()
+        assert turn["phase_code"] == "F1901M"
+        assert turn["orders"]["FRANCE"] == ["A PAR - BUR"]
+        assert {"A BUR"} <= {f"{u['kind']} {u['location']}" for u in turn["state"]["units"] if u["power"] == "FRANCE"}
 
 
 @pytest.mark.unit
@@ -424,10 +406,11 @@ class TestGameSnapshots:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
-        # Save snapshot
         resp = client.post(f"/games/{game_id}/snapshot")
-        # May fail if game not in memory, which is acceptable
-        assert resp.status_code in [200, 404]
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["turn"] == 0
+        listed = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
+        assert [(s["id"], s["turn"], s["phase_code"]) for s in listed] == [(resp.json()["snapshot_id"], 0, "S1901M")]
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_snapshots(self, client):
@@ -436,12 +419,8 @@ class TestGameSnapshots:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
-        # Get snapshots
-        resp = client.get(f"/games/{game_id}/snapshots")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "status" in data
-        assert "snapshots" in data
+        assert client.get(f"/games/{game_id}/snapshots").json()["snapshots"] == []
+        assert client.get("/games/nonexistent/snapshots").status_code == 404
 
 
 @pytest.mark.unit

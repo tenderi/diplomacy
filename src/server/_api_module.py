@@ -11,7 +11,6 @@ Route modules are organized by functionality:
 - admin: Administrative endpoints
 - dashboard: Dashboard API endpoints
 - auth: Register, login, JWT, link Telegram
-- health: Health check endpoints
 """
 import os
 from fastapi import FastAPI, HTTPException
@@ -33,7 +32,7 @@ from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 from .api.idempotency import IdempotencyMiddleware
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, health, auth, waiting_list, bot_outbox, archive
+from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, auth, waiting_list, bot_outbox, archive
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -221,7 +220,6 @@ app.include_router(admin.router)
 app.include_router(dashboard.router)
 app.include_router(channels.router, tags=["channels"])
 app.include_router(tournaments.router)
-app.include_router(health.router, tags=["health"])
 app.include_router(auth.router)
 app.include_router(waiting_list.router, tags=["waiting-list"])
 app.include_router(bot_outbox.router, tags=["bot-outbox"])

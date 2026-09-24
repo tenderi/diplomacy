@@ -22,7 +22,13 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.3`.
+- **Last updated:** 2026-09-24, at `v3.0.4`.
+- **Track AG (`v3.0.4`):** the test audit -- every test can fail (`test_suite_hygiene.py`),
+  placeholder/tautological/dead-code tests gone, and the gaps that mattered covered; the new
+  tests found and fixed an order-dependent resolver case, stale cached reads, a render cache
+  that ignored ownership, anonymous channel reads, a hard-coded Telegram admin id and more.
+  Archived in [`done_fixes.md`](done_fixes.md). Floors raised: engine 95, total 80, frontend
+  90% lines. **Track AH** below holds what it surfaced for the maintainer to decide.
 - **Track AF (`v3.0.3`):** the docs as a website at https://diplomacy-docs.xn--jalluthti-02a.fi
   (MkDocs Material, rebuilt on every deploy).
 - **Track AE (`v3.0.2`):** playing in a Telegram group (`/newgame` in the group, orders only
@@ -338,6 +344,26 @@ cd frontend && npx tsc -b --noEmit && npm run test:run && npm run build
 Merge procedure, branch-protection traps, and the `gh -R tenderi/diplomacy` requirement are in
 `CLAUDE.md`; the two traps that each cost a round-trip (chaining `gh pr merge` with a branch
 delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Track A section.
+
+---
+
+
+
+# Track AH — Decisions the test audit surfaced (maintainer)
+
+Found while writing tests in Track AG; each is a product decision, not a bug with one
+obvious fix, so none was done silently.
+
+- [ ] **Channel analytics has no writer.** `log_channel_analytics_event` was only ever
+  called from the bot-side posting code Track AG removed (which never ran in production
+  anyway), so `/games/{id}/channel/analytics*` always answer empty. Either log from the
+  outbox delivery path or drop the routes, the DAL methods and the `channel_analytics` table.
+- [ ] **The admin dashboard page cannot authenticate.** `src/server/dashboard/static/dashboard.js`
+  sends no `X-Admin-Token`, so every `/dashboard/api/*` call it makes is refused (422), and its
+  analytics calls are now 403 for anyone but players. Fix (a token prompt) or remove the page.
+- [ ] **`POST /games/{id}/channel/map` is a stub** that answers success and posts nothing
+  ("will be implemented"). Queue the map like the other channel posts, or remove the route.
+- [ ] Out-of-scope code stays untested by design: tournaments, spectators, `discord_bot/`.
 
 ---
 

@@ -139,6 +139,10 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
             status_code=400,
             detail=f"Unsupported export format {req.format!r}; expected {EXPORT_FORMAT!r}",
         )
+    try:
+        game_service.check_state_json(req.state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Malformed state in the export: {e}") from e
     source = req.game or {}
     game_id = game_service.create_game(
         map_name=str(source.get("map_name", "standard")),
@@ -148,12 +152,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     if row is None:  # pragma: no cover - create_game just wrote it
         raise HTTPException(status_code=500, detail="Imported game could not be read back")
 
-    try:
-        game_service.restore_snapshot(
-            str(game_id), req.state, str(source.get("phase_code") or "S1901M")
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Malformed state in the export: {e}") from e
+    game_service.restore_snapshot(str(game_id), req.state, str(source.get("phase_code") or "S1901M"))
 
     game_service.import_histories(
         str(game_id),

@@ -93,8 +93,7 @@ class TestOrderSubmissionAuthorization:
             "bot_secret": BOT_SECRET
         })
         assert resp.status_code == 403, f"Expected 403 Forbidden, got {resp.status_code}"
-        assert "not authorized" in resp.json().get("detail", "").lower() or \
-               "unauthorized" in resp.json().get("detail", "").lower()
+        assert resp.json()["detail"] == "You are not authorized to act for this power."
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_unregistered_user_cannot_submit_orders(self, client):
@@ -109,7 +108,7 @@ class TestOrderSubmissionAuthorization:
             "telegram_id": "unregistered_user",
             "bot_secret": BOT_SECRET
         })
-        assert resp.status_code in [401, 403, 404], \
+        assert resp.status_code == 401, \
             f"Expected 401, 403, or 404, got {resp.status_code}: {resp.json()}"
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
@@ -298,7 +297,7 @@ class TestGameManagementAuthorization:
             "bot_secret": BOT_SECRET,
             "power": "GERMANY"
         })
-        assert resp.status_code in [401, 403, 404], \
+        assert resp.status_code == 403, \
             f"Expected 401, 403, or 404, got {resp.status_code}: {resp.json()}"
 
 

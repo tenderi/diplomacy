@@ -87,9 +87,8 @@ class TestDrawVote:
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_draw_vote_game_not_found(self, client):
-        """No auth at all -- _authorize_power rejects before the game lookup runs."""
-        resp = client.post("/games/nonexistent-game/draw_vote", json={"power": "FRANCE", "vote": True})
-        assert resp.status_code in (401, 403, 404)
+        resp = client.post("/games/999999999/draw_vote", json={"power": "FRANCE", "vote": True}, headers=_register_and_login(client, "dv404"))
+        assert resp.status_code == 404, resp.text
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_draw_vote_status_no_auth_required(self, client):
@@ -164,6 +163,5 @@ class TestConcede:
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_concede_game_not_found(self, client):
-        """No auth at all -- _authorize_power rejects before the game lookup runs."""
-        resp = client.post("/games/nonexistent-game/concede", json={"power": "FRANCE"})
-        assert resp.status_code in (401, 403, 404)
+        resp = client.post("/games/999999999/concede", json={"power": "FRANCE"}, headers=_register_and_login(client, "cc404"))
+        assert resp.status_code == 404, resp.text

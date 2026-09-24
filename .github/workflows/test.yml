@@ -82,12 +82,12 @@ jobs:
       - name: Coverage gate — engine (rules core)
         env:
           PYTHONPATH: src
-        run: coverage report --include='src/engine/*' --fail-under=92
+        run: coverage report --include='src/engine/*' --fail-under=95
 
       - name: Coverage gate — overall
         env:
           PYTHONPATH: src
-        run: coverage report --fail-under=60
+        run: coverage report --fail-under=80
 
   frontend:
     runs-on: ubuntu-latest
@@ -112,7 +112,7 @@ jobs:
         run: npx tsc -b --noEmit
 
       - name: Run tests
-        run: npm run test:run
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build

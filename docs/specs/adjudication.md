@@ -103,8 +103,8 @@ are the actual substance of DATC §6.D:
   (`fix_plan.md` defect 4 — the old engine got this backwards).
 - **Defend strength** (`_defend_strength`, used in head-to-head battles) and **prevent
   strength** (`_prevent_strength`, used for standoffs against a third unit's move into
-  the same empty province): both `1 + supports`, with the same support-source exemptions
-  as attack strength. A move that itself loses a head-to-head battle prevents nothing
+  the same empty province): both `1 + supports`, with **no** own-power exemption (DATC
+  defines only attack strength that way). A move that itself loses a head-to-head battle prevents nothing
   against third parties (`_prevent_strength`'s head-to-head short-circuit).
 
 A move succeeds (`_move_succeeds`) when: its convoy path (if any) works; its attack
@@ -122,11 +122,20 @@ geometrically, before the cut question is even asked — when (`_support_is_void
 - it's not a legally reachable support for the supporting unit (`_support_valid`), or
 - it names no real order to support (`_support_has_target`) — e.g. a hold-support for an
   empty province, or a move-support whose named mover isn't actually moving there, or
-- (`SupportMove`) it would help dislodge a **holding unit of the supporter's own power**
-  at the destination — *unless* that unit is itself moving away and the destination is
-  independently contested by another attacker (DATC 6.E.12: the support "serves other
-  means" rather than self-dislodgement; a unit that vacates via circular movement,
-  6.C.2, was never being dislodged at all), or
+- (`SupportMove`, **reported only**) it would help dislodge a **holding unit of the
+  supporter's own power** at the destination — *unless* that unit is itself moving away
+  and the destination is independently contested by another attacker (DATC 6.E.12: the
+  support "serves other means" rather than self-dislodgement; a unit that vacates via
+  circular movement, 6.C.2, was never being dislodged at all). This rule decides the
+  `VOID` result code and nothing else: for strength such a support is given like any
+  other (`_support_given` calls `_support_is_void(..., count_own_unit_rule=False)`) and
+  is kept out of the one place DATC excludes it, the attack strength against that
+  own-power unit. Letting it zero the support made the support depend on whether its
+  own unit vacates, which depends on the support -- a self-referential loop the resolver
+  settled differently depending on the order the orders were submitted in (70 of 60,000
+  random supported positions, every one with a wrong result; found by the determinism
+  property in `tests/datc/test_properties.py`, pinned in
+  `tests/datc/test_adjudicator_mechanics.py`), or
 - (`SupportHold`) it targets a unit that is itself **legally ordered to move** (DATC
   6.D.7/8/25 again — an illegal/ignored move leaves the unit holding, so support for it
   is fine, 6.D.28/29).

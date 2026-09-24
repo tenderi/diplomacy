@@ -354,3 +354,18 @@ def test_a_browser_account_cannot_queue_or_dequeue_a_telegram_id() -> None:
 
     resp = client.post("/waiting_list/join", json={"telegram_id": telegram_id}, headers=headers)
     assert resp.status_code == 401, resp.text
+
+
+def test_every_seated_player_sees_the_new_game_straight_away() -> None:
+    """The fill notification carries a game-menu button; the bot resolves it from the
+    player's (cached) game list, which must not still say "no games"."""
+    client = TestClient(app)
+    ids = [_register(client, f"c{i}") for i in range(WAITING_LIST_SIZE)]
+    bot = {"X-Bot-Secret": "test_bot_secret_for_tests"}
+    for telegram_id in ids:
+        assert client.get(f"/users/{telegram_id}/games", headers=bot).json()["games"] == []  # warm the cache
+    for telegram_id in ids[:-1]:
+        _join(client, telegram_id)
+    game_id = str(_join(client, ids[-1])["game_id"])
+    for telegram_id in ids:
+        assert [str(g["game_id"]) for g in client.get(f"/users/{telegram_id}/games", headers=bot).json()["games"]] == [game_id]

@@ -16,6 +16,7 @@ from telegram.ext import ApplicationHandlerStop
 
 from server.telegram_bot import app as bot_app
 from server.telegram_bot import games as bot_games
+from server.telegram_bot import channel_commands
 from server.telegram_bot.channel_commands import newgame
 from server.telegram_bot.notifications import _send_outbox_item
 
@@ -180,3 +181,86 @@ def test_a_group_post_gets_a_link_to_a_private_chat_not_a_callback() -> None:
     button = bot.send_message.call_args[1]["reply_markup"].inline_keyboard[0][0]
     assert button.url == "https://t.me/DiplomacyTestBot?start=orders_2"
     assert "private" in button.text
+
+
+class TestLinkingAnExistingGame:
+    MINE = {"games": [{"game_id": "7", "power": "FRANCE"}]}
+
+    def test_linkgroup_attaches_your_current_game_to_this_group(self) -> None:
+        update, context = _message_update("/linkgroup")
+        with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
+             patch.object(channel_commands, "api_post", return_value={"status": "ok"}) as post:
+            asyncio.run(channel_commands.linkgroup(update, context))
+        post.assert_called_once_with("/games/7/channel/link", {"channel_id": str(GROUP_CHAT), "channel_name": "Friday Diplomacy"})
+        assert update.message.reply_text.call_args[0][0].startswith("✅ Game 7 now belongs to this group")
+
+    def test_linkgroup_of_a_game_you_are_not_in_links_nothing(self) -> None:
+        update, context = _message_update("/linkgroup 42")
+        with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
+             patch.object(channel_commands, "api_post") as post:
+            asyncio.run(channel_commands.linkgroup(update, context))
+        post.assert_not_called()
+
+    @pytest.mark.parametrize("command", ["linkgroup", "unlinkgroup", "newgame"])
+    def test_group_commands_in_a_private_chat_explain_where_they_belong(self, command: str) -> None:
+        update, context = _message_update(f"/{command}", chat_type="private")
+        with patch.object(channel_commands, "api_post") as post:
+            asyncio.run(getattr(channel_commands, command)(update, context))
+        post.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == f"/{command} works inside a Telegram group: add me to your group and send it there."
+
+    def test_unlinkgroup_only_from_the_group_the_game_belongs_to(self) -> None:
+        update, context = _message_update("/unlinkgroup 7")
+        with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
+             patch.object(channel_commands, "api_get", return_value={"linked": True, "channel_id": "-100999"}), \
+             patch.object(channel_commands, "api_delete") as delete:
+            asyncio.run(channel_commands.unlinkgroup(update, context))
+        delete.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == "Game 7 isn't linked to this group."
+
+    def test_unlinkgroup_from_its_own_group(self) -> None:
+        update, context = _message_update("/unlinkgroup 7")
+        with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
+             patch.object(channel_commands, "api_get", return_value={"linked": True, "channel_id": GROUP_CHAT}), \
+             patch.object(channel_commands, "api_delete", return_value={"status": "ok"}) as delete:
+            asyncio.run(channel_commands.unlinkgroup(update, context))
+        delete.assert_called_once_with("/games/7/channel/unlink")
+
+
+class TestOlderChannelCommands:
+    """/link_channel and friends, from before /linkgroup; still registered."""
+
+    def test_only_a_player_in_the_game_may_link_or_unlink(self) -> None:
+        for command, text in ((channel_commands.link_channel, "/link_channel 42 -1001"),
+                              (channel_commands.unlink_channel, "/unlink_channel 42")):
+            update, context = _message_update(text, chat_type="private", user_id=8019538)
+            with patch.object(channel_commands, "fetch_user_games", return_value=[]), \
+                 patch.object(channel_commands, "api_post") as post, \
+                 patch.object(channel_commands, "api_delete") as delete:
+                asyncio.run(command(update, context))
+            post.assert_not_called()
+            delete.assert_not_called()
+            assert "You must be a player in game 42" in update.message.reply_text.call_args[0][0]
+
+    @pytest.mark.parametrize(("args", "sent"), [
+        ("auto_post_maps off", {"auto_post_maps": False}),
+        ("auto_post_broadcasts yes", {"auto_post_broadcasts": True}),
+        ("notification_level Important", {"notification_level": "important"}),
+    ])
+    def test_channel_settings_sends_a_typed_value(self, args: str, sent: dict) -> None:
+        update, context = _message_update(f"/channel_settings 7 {args}", chat_type="private")
+        with patch.object(channel_commands, "api_post", return_value={"status": "ok"}) as post:
+            asyncio.run(channel_commands.channel_settings(update, context))
+        post.assert_called_once_with("/games/7/channel/settings", sent)
+
+    @pytest.mark.parametrize(("args", "reply"), [
+        ("auto_post_maps", "Please provide a value for the setting."),
+        ("notification_level loud", "Notification level must be: all, important, or none"),
+        ("colour blue", "Unknown setting: colour"),
+    ])
+    def test_channel_settings_refuses_bad_input_locally(self, args: str, reply: str) -> None:
+        update, context = _message_update(f"/channel_settings 7 {args}", chat_type="private")
+        with patch.object(channel_commands, "api_post") as post:
+            asyncio.run(channel_commands.channel_settings(update, context))
+        post.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == reply

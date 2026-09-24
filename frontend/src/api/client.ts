@@ -7,14 +7,32 @@ export const REFRESH_STORAGE_KEY = 'diplomacy_refresh'
 let accessToken: string | null = null
 let refreshToken: string | null = null
 
+/**
+ * The refresh token is the session: it is kept in localStorage so a reload stays
+ * signed in. Every token the API issues replaces it there -- the API's refresh
+ * tokens slide (7 days from each refresh), and keeping only the one from login
+ * logged an everyday player out a week after they signed in.
+ */
+function persistRefreshToken(token: string | null) {
+  try {
+    if (typeof localStorage === 'undefined') return
+    if (token) localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: token }))
+    else localStorage.removeItem(REFRESH_STORAGE_KEY)
+  } catch {
+    // storage unavailable (private mode): the session just won't survive a reload
+  }
+}
+
 export function setTokens(access: string, refresh: string) {
   accessToken = access
   refreshToken = refresh
+  persistRefreshToken(refresh)
 }
 
 export function clearTokens() {
   accessToken = null
   refreshToken = null
+  persistRefreshToken(null)
 }
 
 export function getAccessToken() {
@@ -31,17 +49,11 @@ async function doRefresh(): Promise<boolean> {
     })
     if (res.status === 401) {
       clearTokens()
-      try {
-        if (typeof localStorage !== 'undefined') localStorage.removeItem(REFRESH_STORAGE_KEY)
-      } catch {
-        // ignore
-      }
       return false
     }
     if (!res.ok) return false
     const data = await res.json()
-    accessToken = data.access_token
-    if (data.refresh_token) refreshToken = data.refresh_token
+    setTokens(data.access_token, data.refresh_token || refreshToken)
     return true
   } catch {
     return false

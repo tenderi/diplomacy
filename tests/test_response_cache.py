@@ -1,587 +1,162 @@
-"""
-Comprehensive unit tests for Response Cache module.
+"""``server.response_cache`` -- the TTL + LRU cache behind ``@cached_response``.
 
-Tests cover ResponseCache class including TTL expiration, LRU eviction,
-thread safety, cache statistics, and error handling.
+A fake clock replaces ``time.time`` so expiry is tested without sleeping. Whether the
+routes *invalidate* it at the right moments is ``test_cache_coherence.py``.
 """
+from __future__ import annotations
+
+import threading
+from typing import Any
 
 import pytest
-import time
-import threading
-from unittest.mock import Mock, patch
-from typing import Dict, Any, List
-import json
 
-from server.response_cache import ResponseCache, cached_response, invalidate_cache, get_cache_stats, clear_response_cache
+from server import response_cache
+from server.response_cache import ResponseCache, cached_response, clear_response_cache, invalidate_cache
+
+pytestmark = pytest.mark.unit
 
 
-class TestResponseCache:
-    """Test ResponseCache class."""
-    
-    @pytest.fixture
-    def cache(self):
-        """Create ResponseCache instance for testing."""
-        return ResponseCache(default_ttl=60, max_size=10)
-    
-    @pytest.fixture
-    def cache_short_ttl(self):
-        """Create ResponseCache with short TTL for testing expiration."""
-        return ResponseCache(default_ttl=1, max_size=5)
-    
-    def test_cache_initialization(self, cache):
-        """Test cache initialization."""
-        assert cache.default_ttl == 60
-        assert cache.max_size == 10
-        assert cache.hit_count == 0
-        assert cache.miss_count == 0
-        assert len(cache.cache) == 0
-        assert len(cache.access_times) == 0
-    
-    def test_set_and_get_basic(self, cache):
-        """Test basic set and get operations."""
-        endpoint = "test_endpoint"
-        params = {"param1": "value1"}
-        data = {"result": "test_data"}
-        
-        # Set data
-        cache.set(endpoint, params, data)
-        
-        # Get data
-        result = cache.get(endpoint, params)
-        
-        assert result == data
-        assert cache.hit_count == 1
-        assert cache.miss_count == 0
-    
-    def test_get_nonexistent_key(self, cache):
-        """Test getting non-existent key."""
-        result = cache.get("nonexistent", {"param": "value"})
-        
-        assert result is None
-        assert cache.hit_count == 0
-        assert cache.miss_count == 1
-    
-    def test_get_expired_entry(self, cache_short_ttl):
-        """Test getting expired entry."""
-        endpoint = "test_endpoint"
-        params = {"param": "value"}
-        data = {"result": "test_data"}
-        
-        # Set data
-        cache_short_ttl.set(endpoint, params, data)
-        
-        # Wait for expiration
-        time.sleep(1.1)
-        
-        # Try to get expired data
-        result = cache_short_ttl.get(endpoint, params)
-        
-        assert result is None
-        assert cache_short_ttl.miss_count == 1
-    
-    def test_set_with_custom_ttl(self, cache):
-        """Test setting data with custom TTL."""
-        endpoint = "test_endpoint"
-        params = {"param": "value"}
-        data = {"result": "test_data"}
-        custom_ttl = 30
-        
-        cache.set(endpoint, params, data, ttl=custom_ttl)
-        
-        # Verify data is accessible
-        result = cache.get(endpoint, params)
-        assert result == data
-    
-    def test_key_generation_consistency(self, cache):
-        """Test that key generation is consistent."""
-        endpoint = "test_endpoint"
-        params = {"param1": "value1", "param2": "value2"}
-        
-        key1 = cache._generate_key(endpoint, params)
-        key2 = cache._generate_key(endpoint, params)
-        
-        assert key1 == key2
-        
-        # Test with different parameter order (should be same)
-        params_reordered = {"param2": "value2", "param1": "value1"}
-        key3 = cache._generate_key(endpoint, params_reordered)
-        
-        assert key1 == key3
-    
-    def test_key_generation_different_params(self, cache):
-        """Test that different parameters generate different keys."""
-        endpoint = "test_endpoint"
-        params1 = {"param1": "value1"}
-        params2 = {"param1": "value2"}
-        
-        key1 = cache._generate_key(endpoint, params1)
-        key2 = cache._generate_key(endpoint, params2)
-        
-        assert key1 != key2
-    
-    def test_invalidate_by_pattern(self, cache):
-        """Test cache invalidation by pattern."""
-        # Set multiple entries
-        cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        cache.set("endpoint1", {"param": "value2"}, {"data": "2"})
-        cache.set("endpoint2", {"param": "value1"}, {"data": "3"})
-        
-        # Invalidate all endpoint1 entries
-        cache.invalidate_pattern("endpoint1")
-        
-        # Verify endpoint1 entries are gone
-        assert cache.get("endpoint1", {"param": "value1"}) is None
-        assert cache.get("endpoint1", {"param": "value2"}) is None
-        
-        # Verify endpoint2 entry still exists
-        assert cache.get("endpoint2", {"param": "value1"}) == {"data": "3"}
-    
-    def test_invalidate_by_pattern_with_params(self, cache):
-        """Test cache invalidation by pattern with specific parameters."""
-        # Set multiple entries
-        cache.set("endpoint1", {"param1": "value1", "param2": "value2"}, {"data": "1"})
-        cache.set("endpoint1", {"param1": "value1", "param2": "value3"}, {"data": "2"})
-        cache.set("endpoint1", {"param1": "value2", "param2": "value2"}, {"data": "3"})
-        
-        # Invalidate entries with param1=value1
-        cache.invalidate("endpoint1", {"param1": "value1"})
-        
-        # Verify specific entries are gone
-        assert cache.get("endpoint1", {"param1": "value1", "param2": "value2"}) is None
-        assert cache.get("endpoint1", {"param1": "value1", "param2": "value3"}) is None
-        
-        # Verify other entry still exists
-        assert cache.get("endpoint1", {"param1": "value2", "param2": "value2"}) == {"data": "3"}
-    
-    def test_clear_all(self, cache):
-        """Test clearing all cache entries."""
-        # Set multiple entries
-        cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
-        
-        # Clear all
-        cache.clear()
-        
-        # Verify all entries are gone
-        assert cache.get("endpoint1", {"param": "value1"}) is None
-        assert cache.get("endpoint2", {"param": "value2"}) is None
-        assert len(cache.cache) == 0
-        assert len(cache.access_times) == 0
-    
-    def test_lru_eviction(self, cache):
-        """Test LRU eviction when max_size is reached."""
-        # Set entries up to max_size
-        for i in range(10):  # max_size is 10
-            cache.set(f"endpoint{i}", {"param": f"value{i}"}, {"data": f"data{i}"})
-        
-        # Verify all entries are present
-        for i in range(10):
-            result = cache.get(f"endpoint{i}", {"param": f"value{i}"})
-            assert result == {"data": f"data{i}"}
-        
-        # Add one more entry (should trigger LRU eviction)
-        cache.set("endpoint10", {"param": "value10"}, {"data": "data10"})
-        
-        # Verify cache size is still max_size
-        assert len(cache.cache) == 10
-        
-        # Verify oldest entry was evicted (endpoint0)
-        assert cache.get("endpoint0", {"param": "value0"}) is None
-        
-        # Verify newest entry is present
-        assert cache.get("endpoint10", {"param": "value10"}) == {"data": "data10"}
-    
-    def test_access_time_update(self, cache):
-        """Test that access times are updated on get operations."""
-        endpoint = "test_endpoint"
-        params = {"param": "value"}
-        data = {"result": "test_data"}
-        
-        # Set data
-        cache.set(endpoint, params, data)
-        
-        # Get initial access time
-        key = cache._generate_key(endpoint, params)
-        initial_time = cache.access_times[key]
-        
-        # Wait a bit
-        time.sleep(0.1)
-        
-        # Get data again
-        cache.get(endpoint, params)
-        
-        # Verify access time was updated
-        updated_time = cache.access_times[key]
-        assert updated_time > initial_time
-    
-    def test_cache_statistics(self, cache):
-        """Test cache statistics tracking."""
-        # Initial stats
-        assert cache.hit_count == 0
-        assert cache.miss_count == 0
-        
-        # Set and get data (hit)
-        cache.set("endpoint", {"param": "value"}, {"data": "test"})
-        cache.get("endpoint", {"param": "value"})
-        
-        assert cache.hit_count == 1
-        assert cache.miss_count == 0
-        
-        # Get non-existent data (miss)
-        cache.get("nonexistent", {"param": "value"})
-        
-        assert cache.hit_count == 1
-        assert cache.miss_count == 1
-        
-        # Get same data again (hit)
-        cache.get("endpoint", {"param": "value"})
-        
-        assert cache.hit_count == 2
-        assert cache.miss_count == 1
-    
-    def test_get_cache_stats(self, cache):
-        """Test get_cache_stats function."""
-        # Set some data
-        cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
-        
-        # Generate some hits and misses
-        cache.get("endpoint1", {"param": "value1"})  # hit
-        cache.get("nonexistent", {"param": "value"})  # miss
-        
-        # Get stats
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
+    fake = Clock()
+    monkeypatch.setattr(response_cache.time, "time", fake)
+    return fake
+
+
+@pytest.fixture
+def cache() -> ResponseCache:
+    return ResponseCache(default_ttl=60, max_size=10)
+
+
+class TestPutAndGet:
+    def test_hit_miss_and_stats(self, cache: ResponseCache, clock: Clock) -> None:
+        cache.put("ep", {"v": 1}, params={"game_id": "7"})
+        assert cache.get("ep", {"game_id": "7"}) == {"v": 1}
+        assert cache.get("ep", {"game_id": "8"}) is None
         stats = cache.get_stats()
-        
-        assert "hit_count" in stats
-        assert "miss_count" in stats
-        assert "total_requests" in stats
-        assert "hit_rate" in stats
-        assert "cache_size" in stats
-        assert "max_size" in stats
-        
-        assert stats["hit_count"] == 1
-        assert stats["miss_count"] == 1
-        assert stats["total_requests"] == 2
-        assert stats["hit_rate"] == 0.5
-        assert stats["cache_size"] == 2
-        assert stats["max_size"] == 10
+        assert (stats["hit_count"], stats["miss_count"], stats["hit_rate"], stats["cache_size"]) == (1, 1, 0.5, 1)
 
+    def test_the_key_ignores_parameter_order(self, cache: ResponseCache) -> None:
+        cache.put("ep", "x", params={"a": 1, "b": 2})
+        assert cache.get("ep", {"b": 2, "a": 1}) == "x"
 
-class TestResponseCacheThreadSafety:
-    """Test thread safety of ResponseCache."""
-    
-    @pytest.fixture
-    def cache(self):
-        """Create ResponseCache instance."""
-        return ResponseCache(default_ttl=60, max_size=100)
-    
-    def test_concurrent_set_operations(self, cache):
-        """Test concurrent set operations."""
-        def set_data(thread_id: int):
-            for i in range(10):
-                cache.set(f"endpoint_{thread_id}", {"param": f"value_{i}"}, {"data": f"data_{thread_id}_{i}"})
-        
-        # Create multiple threads
-        threads = []
-        for i in range(5):
-            thread = threading.Thread(target=set_data, args=(i,))
-            threads.append(thread)
-        
-        # Start all threads
-        for thread in threads:
-            thread.start()
-        
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
-        
-        # Verify all data was set correctly
-        for thread_id in range(5):
-            for i in range(10):
-                result = cache.get(f"endpoint_{thread_id}", {"param": f"value_{i}"})
-                assert result == {"data": f"data_{thread_id}_{i}"}
-    
-    def test_concurrent_get_operations(self, cache):
-        """Test concurrent get operations."""
-        # Set up test data
+    def test_entries_expire_after_their_ttl(self, cache: ResponseCache, clock: Clock) -> None:
+        cache.put("short", "s", ttl=5)
+        cache.put("default", "d")
+        clock.now += 5
+        assert cache.get("short") == "s"
+        clock.now += 1
+        assert cache.get("short") is None
+        assert cache.get("default") == "d"
+        clock.now += 60
+        assert cache.cleanup_expired() == 1
+        assert cache.get_stats()["cache_size"] == 0
+
+    @pytest.mark.parametrize("ttl", [0, -1])
+    def test_a_non_positive_ttl_caches_nothing(self, cache: ResponseCache, ttl: int) -> None:
+        cache.put("ep", "x", ttl=ttl)
+        assert cache.get("ep") is None
+
+    def test_a_full_cache_evicts_the_least_recently_read(self, cache: ResponseCache, clock: Clock) -> None:
         for i in range(10):
-            cache.set("endpoint", {"param": f"value_{i}"}, {"data": f"data_{i}"})
-        
-        results = []
-        
-        def get_data():
-            for i in range(10):
-                result = cache.get("endpoint", {"param": f"value_{i}"})
-                results.append(result)
-        
-        # Create multiple threads
-        threads = []
-        for _ in range(5):
-            thread = threading.Thread(target=get_data)
-            threads.append(thread)
-        
-        # Start all threads
-        for thread in threads:
-            thread.start()
-        
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
-        
-        # Verify all results are correct
-        assert len(results) == 50  # 5 threads * 10 gets each
-        for result in results:
-            assert result is not None
-            assert "data" in result
-    
-    def test_concurrent_set_and_get(self, cache):
-        """Test concurrent set and get operations."""
-        def set_data():
-            for i in range(20):
-                cache.set("endpoint", {"param": f"value_{i}"}, {"data": f"data_{i}"})
-        
-        def get_data():
-            for i in range(20):
-                cache.get("endpoint", {"param": f"value_{i}"})
-        
-        # Create threads
-        set_thread = threading.Thread(target=set_data)
-        get_thread = threading.Thread(target=get_data)
-        
-        # Start threads
-        set_thread.start()
-        get_thread.start()
-        
-        # Wait for completion
-        set_thread.join()
-        get_thread.join()
-        
-        # Verify cache is in consistent state
-        assert len(cache.cache) <= cache.max_size
-        assert len(cache.access_times) <= cache.max_size
+            clock.now += 1
+            cache.put(f"ep{i}", i)
+        clock.now += 1
+        assert cache.get("ep0") == 0  # read: now the most recent
+        cache.put("ep10", 10)
+        assert cache.get_stats()["cache_size"] == 10
+        assert cache.get("ep1") is None  # the least recently used went
+        assert cache.get("ep0") == 0 and cache.get("ep10") == 10
 
 
-class TestCachedResponseDecorator:
-    """Test cached_response decorator."""
-    
-    @pytest.fixture
-    def cache(self):
-        """Create ResponseCache instance."""
-        return ResponseCache(default_ttl=60, max_size=10)
-    
-    def test_cached_response_basic(self, cache):
-        """Test basic cached_response functionality."""
-        call_count = 0
-        
-        @cached_response(ttl=60)
-        def test_function(param1: str, param2: int) -> Dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            return {"result": f"{param1}_{param2}", "call_count": call_count}
-        
-        # First call
-        result1 = test_function("test", 123)
-        assert result1["result"] == "test_123"
-        assert result1["call_count"] == 1
-        assert call_count == 1
-        
-        # Second call (should be cached)
-        result2 = test_function("test", 123)
-        assert result2["result"] == "test_123"
-        assert result2["call_count"] == 1  # Should be cached value
-        assert call_count == 1  # Function should not be called again
-        
-        # Different parameters (should not be cached)
-        result3 = test_function("test", 456)
-        assert result3["result"] == "test_456"
-        assert result3["call_count"] == 2
-        assert call_count == 2
-    
-    def test_cached_response_with_custom_ttl(self, cache):
-        """Test cached_response with custom TTL."""
-        call_count = 0
-        
-        @cached_response(ttl=1)  # 1 second TTL
-        def test_function(param: str) -> Dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            return {"result": param, "call_count": call_count}
-        
-        # First call
-        result1 = test_function("test")
-        assert call_count == 1
-        
-        # Immediate second call (should be cached)
-        result2 = test_function("test")
-        assert call_count == 1
-        
-        # Wait for expiration
-        time.sleep(1.1)
-        
-        # Third call (should call function again)
-        result3 = test_function("test")
-        assert call_count == 2
-    
-    def test_cached_response_with_exception(self, cache):
-        """Test cached_response with exceptions."""
-        call_count = 0
-        
-        @cached_response(ttl=60)
-        def test_function(param: str) -> str:
-            nonlocal call_count
-            call_count += 1
-            if param == "error":
-                raise ValueError("Test error")
-            return f"result_{param}"
-        
-        # Call with error
-        with pytest.raises(ValueError):
-            test_function("error")
-        
-        assert call_count == 1
-        
-        # Call again with error (should not be cached)
-        with pytest.raises(ValueError):
-            test_function("error")
-        
-        assert call_count == 2
-        
-        # Call with success
-        result = test_function("success")
-        assert result == "result_success"
-        assert call_count == 3
-        
-        # Call again with success (should be cached)
-        result = test_function("success")
-        assert result == "result_success"
-        assert call_count == 3
+class TestInvalidation:
+    def test_a_route_path_pattern_clears_that_game_only(self, cache: ResponseCache) -> None:
+        state = "server.api.routes.games.get_game_state"
+        cache.put(state, "seven", params={"game_id": "7"})
+        cache.put(state, "eight", params={"game_id": "8"})
+        cache.put("server.api.routes.users.get_user_games", "mine", params={"telegram_id": "555"})
+        cache.invalidate_pattern("games/7")
+        assert cache.get(state, {"game_id": "7"}) is None
+        assert cache.get(state, {"game_id": "8"}) == "eight"
+        cache.invalidate_pattern("users/555")
+        assert cache.get("server.api.routes.users.get_user_games", {"telegram_id": "555"}) is None
 
-
-class TestCacheUtilityFunctions:
-    """Test cache utility functions."""
-    
-    @pytest.fixture
-    def cache(self):
-        """Create ResponseCache instance."""
-        return ResponseCache(default_ttl=60, max_size=10)
-    
-    def test_invalidate_cache_function(self):
-        """Test invalidate_cache function."""
-        from server.response_cache import _response_cache
-        
-        # Clear the global cache first
-        _response_cache.clear()
-        
-        # Set some data
-        _response_cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        _response_cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
-        
-        # Invalidate using function
-        invalidate_cache("endpoint1")
-        
-        # Verify endpoint1 is invalidated
-        assert _response_cache.get("endpoint1", {"param": "value1"}) is None
-        
-        # Verify endpoint2 still exists
-        assert _response_cache.get("endpoint2", {"param": "value2"}) == {"data": "2"}
-    
-    def test_clear_response_cache_function(self):
-        """Test clear_response_cache function."""
-        from server.response_cache import _response_cache
-        
-        # Clear the global cache first
-        _response_cache.clear()
-        
-        # Set some data
-        _response_cache.set("endpoint1", {"param": "value1"}, {"data": "1"})
-        _response_cache.set("endpoint2", {"param": "value2"}, {"data": "2"})
-        
-        # Clear using function
+    def test_module_helpers_act_on_the_shared_cache(self) -> None:
         clear_response_cache()
-        
-        # Verify all data is cleared
-        assert _response_cache.get("endpoint1", {"param": "value1"}) is None
-        assert _response_cache.get("endpoint2", {"param": "value2"}) is None
-        assert len(_response_cache.cache) == 0
+        response_cache._response_cache.put("server.api.routes.games.get_players", [1], params={"game_id": "3"})
+        invalidate_cache("games/3")
+        assert response_cache._response_cache.get("server.api.routes.games.get_players", {"game_id": "3"}) is None
+        response_cache._response_cache.put("x", 1)
+        clear_response_cache()
+        assert response_cache.get_cache_stats()["cache_size"] == 0
 
 
-class TestResponseCacheEdgeCases:
-    """Test edge cases and error handling in ResponseCache."""
-    
-    @pytest.fixture
-    def cache(self):
-        """Create ResponseCache instance."""
-        return ResponseCache(default_ttl=60, max_size=10)
-    
-    def test_set_with_none_data(self, cache):
-        """Test setting None data."""
-        cache.set("endpoint", {"param": "value"}, None)
-        
-        result = cache.get("endpoint", {"param": "value"})
-        assert result is None
-    
-    def test_set_with_empty_data(self, cache):
-        """Test setting empty data."""
-        cache.set("endpoint", {"param": "value"}, {})
-        
-        result = cache.get("endpoint", {"param": "value"})
-        assert result == {}
-    
-    def test_set_with_large_data(self, cache):
-        """Test setting large data."""
-        large_data = {"data": "x" * 10000}  # 10KB string
-        
-        cache.set("endpoint", {"param": "value"}, large_data)
-        
-        result = cache.get("endpoint", {"param": "value"})
-        assert result == large_data
-    
-    def test_set_with_complex_data(self, cache):
-        """Test setting complex nested data."""
-        complex_data = {
-            "level1": {
-                "level2": {
-                    "level3": [1, 2, 3, {"nested": "value"}]
-                }
-            },
-            "list": [1, 2, 3],
-            "tuple": (1, 2, 3)
-        }
-        
-        cache.set("endpoint", {"param": "value"}, complex_data)
-        
-        result = cache.get("endpoint", {"param": "value"})
-        assert result == complex_data
-    
-    def test_invalidate_nonexistent_pattern(self, cache):
-        """Test invalidating non-existent pattern."""
-        # Should not raise error
-        cache.invalidate("nonexistent_endpoint")
-        
-        # Verify cache is still functional
-        cache.set("endpoint", {"param": "value"}, {"data": "test"})
-        result = cache.get("endpoint", {"param": "value"})
-        assert result == {"data": "test"}
-    
-    def test_get_with_none_params(self, cache):
-        """Test getting with None parameters."""
-        cache.set("endpoint", None, {"data": "test"})
-        
-        result = cache.get("endpoint", None)
-        assert result == {"data": "test"}
-    
-    def test_set_with_zero_ttl(self, cache):
-        """Test setting with zero TTL."""
-        cache.set("endpoint", {"param": "value"}, {"data": "test"}, ttl=0)
-        
-        # Should be immediately expired
-        result = cache.get("endpoint", {"param": "value"})
-        assert result is None
-    
-    def test_set_with_negative_ttl(self, cache):
-        """Test setting with negative TTL."""
-        cache.set("endpoint", {"param": "value"}, {"data": "test"}, ttl=-1)
-        
-        # Should be immediately expired
-        result = cache.get("endpoint", {"param": "value"})
-        assert result is None
+class TestDecorator:
+    @pytest.fixture(autouse=True)
+    def _fresh(self) -> Any:
+        clear_response_cache()
+        yield
+        clear_response_cache()
+
+    def test_caches_per_key_param_value(self) -> None:
+        calls: list[str] = []
+
+        @cached_response(ttl=60, key_params=["game_id"])
+        def state(game_id: str, viewer: str = "anyone") -> dict:
+            calls.append(game_id)
+            return {"game": game_id}
+
+        assert state(game_id="7") == {"game": "7"}
+        assert state(game_id="7", viewer="someone else") == {"game": "7"}  # not a key param
+        assert state(game_id="8") == {"game": "8"}
+        assert calls == ["7", "8"]
+
+    def test_a_positional_call_is_keyed_by_the_same_param(self) -> None:
+        """Keying only on kwargs made ``state("8")`` share ``state("7")``'s entry."""
+        @cached_response(ttl=60, key_params=["game_id"])
+        def state(game_id: str) -> dict:
+            return {"game": game_id}
+
+        assert state("7") == {"game": "7"}
+        assert state("8") == {"game": "8"}
+        assert state(game_id="7") == {"game": "7"}
+
+    def test_an_exception_is_not_cached(self) -> None:
+        calls = {"n": 0}
+
+        @cached_response(ttl=60)
+        def flaky(x: int) -> int:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ValueError("first call fails")
+            return x
+
+        with pytest.raises(ValueError):
+            flaky(1)
+        assert flaky(1) == 1 and flaky(1) == 1
+        assert calls["n"] == 2
+
+
+def test_concurrent_writers_never_overfill_it() -> None:
+    cache = ResponseCache(default_ttl=60, max_size=50)
+
+    def write(worker: int) -> None:
+        for i in range(200):
+            cache.put(f"ep{worker}-{i}", i)
+            cache.get(f"ep{worker}-{i // 2}")
+
+    threads = [threading.Thread(target=write, args=(w,)) for w in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(cache.cache) <= 50
+    assert set(cache.cache) == set(cache.access_times) == set(cache.cache_params)

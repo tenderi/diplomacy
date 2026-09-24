@@ -12,7 +12,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service
 from tests.conftest import _get_db_url
 
@@ -146,105 +146,55 @@ class TestFillingAVacatedSeat:
         r = client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE"))
         assert r.status_code == 409
 
-
-class TestJoinCompletedGame:
-    def test_join_refused_once_the_game_has_ended(self, client):
-        from engine.serialization import state_to_dict
-        from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
-        from server.api.shared import game_service
-
-        game_id, _a = _game_with_france(client)
-        state = GameState(
-            1901, Season.SPRING, PhaseType.MOVEMENT,
-            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}),
-            ownership={"PAR": "FRANCE"},
-        )
-        game_service.restore_snapshot(game_id, state_to_dict(state), phase_code="S1901M")
-        assert game_service.submit_draw_vote(game_id, "FRANCE", True)["quorum_reached"] is True
-        b = _telegram_user(client, "late")
-        r = client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY"))
-        assert r.status_code == 409, r.text
-
-
-class TestMessagingAndVacantSeats:
-    def test_private_message_to_a_vacated_seat_is_refused(self, client):
+    def test_replace_needs_a_real_vacated_seat_and_a_newcomer(self, client):
         game_id, a = _game_with_france(client)
-        b = _telegram_user(client, "leaver")
-        assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
-        assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
-        r = client.post(f"/games/{game_id}/message", json=_as(a, recipient_power="GERMANY", text="anyone there?"))
-        assert r.status_code == 400, r.text
-        assert "no player is assigned" in r.json()["detail"]
+        b = _telegram_user(client, "newcomer")
+        # GERMANY was never taken: there is no seat row to take over.
+        assert client.post(f"/games/{game_id}/replace", json=_as(b, power="GERMANY")).status_code == 404
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        assert client.post(f"/games/{game_id}/join", json=_as(b, power="ENGLAND")).status_code == 200
+        r = client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE"))
+        assert (r.status_code, r.json()["detail"]) == (400, "User is already in the game")
 
-    def test_power_names_are_case_insensitive_on_every_seat_lookup(self, client):
-        game_id, a = _game_with_france(client)
-        b = _telegram_user(client, "reader")
-        assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
-        # Orders for "france"...
-        r = client.post("/games/set_orders", json=_as(a, game_id=game_id, power="france", orders=["A PAR H"]))
-        assert r.status_code == 200, r.text
-        # ...and a private message to "germany", stored upper-cased so the
-        # recipient's inbox filter (which compares against GERMANY) finds it.
-        r = client.post(f"/games/{game_id}/message", json=_as(a, recipient_power="germany", text="psst"))
-        assert r.status_code == 200, r.text
-        inbox = client.get(f"/games/{game_id}/messages", params={"telegram_id": b, "bot_secret": BOT_SECRET}).json()["messages"]
-        assert [m["text"] for m in inbox if m["recipient_power"] == "GERMANY"] == ["psst"]
-
-
-class TestRoutesDoNotWrapTheirOwn404s:
-    """``except Exception`` handlers used to catch the route's own ``HTTPException``
-    and re-raise it as a 500 with the real status embedded in the text."""
-
-    def test_players_of_missing_game_is_404(self, client):
-        r = client.get("/games/nonexistent/players")
-        assert r.status_code == 404, r.text
-
-    def test_history_of_missing_turn_is_404(self, client):
+    def test_an_admin_marks_a_seat_inactive_once(self, client):
         game_id, _a = _game_with_france(client)
-        r = client.get(f"/games/{game_id}/history/99")
-        assert r.status_code == 404, r.text
+        path = f"/games/{game_id}/players/FRANCE/mark_inactive"
+        assert client.post(path, json={"admin_token": ADMIN_TOKEN}).json()["status"] == "ok"
+        assert client.post(path, json={"admin_token": ADMIN_TOKEN}).json() == {"status": "already_inactive"}
+        assert client.post(f"/games/{game_id}/players/ITALY/mark_inactive", json={"admin_token": ADMIN_TOKEN}).status_code == 404
 
 
-class TestRestoreIsAdminOnly:
-    """Track R: ``POST /games/{id}/restore/{snapshot_id}`` rewinds a game and used
-    to take no credentials at all -- and nginx proxies ``/api/`` to the internet."""
-
-    ADMIN = {"X-Admin-Token": "changeme"}  # conftest's default admin token
-    BOT = {"X-Bot-Secret": BOT_SECRET}
-
-    def _game_with_snapshot(self, client):
-        game_id, a = _game_with_france(client)
-        snap = client.post(f"/games/{game_id}/snapshot", headers=self.BOT)
-        assert snap.status_code == 200, snap.text
-        snapshot_id = snap.json()["snapshot_id"]
-        # Move the game on: process S1901M -> F1901M, leave a pending order.
-        assert client.post(f"/games/{game_id}/process_turn", headers=self.BOT).status_code == 200
-        assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"
-        assert client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H"])).status_code == 200
-        return game_id, snapshot_id
-
-    def test_anonymous_and_ordinary_users_are_refused(self, client):
-        game_id, snapshot_id = self._game_with_snapshot(client)
-        assert client.post(f"/games/{game_id}/restore/{snapshot_id}").status_code == 403
-        assert client.post(f"/games/{game_id}/restore/{snapshot_id}", headers=self.BOT).status_code == 403
-        assert client.post(f"/games/{game_id}/restore/{snapshot_id}", headers={"X-Admin-Token": "wrong"}).status_code == 403
-        assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"  # untouched
-
-    def test_admin_restore_rewinds_clears_orders_and_tells_players(self, client):
-        from tests.reliability_helpers import OutboxProbe
-
-        game_id, snapshot_id = self._game_with_snapshot(client)
-        with OutboxProbe() as probe:
-            r = client.post(f"/games/{game_id}/restore/{snapshot_id}", headers=self.ADMIN)
-            assert r.status_code == 200, r.text
-            texts = probe.messages()
-        state = client.get(f"/games/{game_id}/state").json()
-        assert state["phase"] == "S1901M"
-        assert state["orders"] == {}
-        assert any("rolled back" in t and "S1901M" in t for t in texts)
-
-    def test_snapshot_and_generate_map_need_a_caller(self, client):
+class TestJoinAndQuitRefusals:
+    def test_join_names_an_unknown_power(self, client):
         game_id, _a = _game_with_france(client)
-        assert client.post(f"/games/{game_id}/snapshot").status_code == 401
-        assert client.post(f"/games/{game_id}/generate_map").status_code == 401
-        assert client.post(f"/games/{game_id}/generate_map", headers=self.BOT).status_code == 200
+        b = _telegram_user(client, "atlantean")
+        r = client.post(f"/games/{game_id}/join", json=_as(b, power="ATLANTIS"))
+        assert (r.status_code, r.json()["detail"]) == (400, "Invalid power name: ATLANTIS")
+
+    def test_quitting_a_game_you_are_not_in(self, client):
+        game_id, _a = _game_with_france(client)
+        b = _telegram_user(client, "stranger")
+        assert client.post(f"/games/{game_id}/quit", json=_as(b)).json()["detail"] == "Player not found in game"
+        assert client.post(f"/games/{game_id}/quit", json=_as(b, power="ITALY")).json()["detail"] == "Power not found in game"
+
+
+class TestProcessTurnRequireAll:
+    def test_refuses_naming_who_has_not_ordered(self, client):
+        game_id, a = _game_with_france(client)
+        client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H", "A MAR H", "F BRE H"]))
+        r = client.post(f"/games/{game_id}/process_turn?require_all=true", headers=_BOT)
+        assert r.status_code == 400
+        # Empty seats still have units to order; only civil-disorder dummies are never waited on.
+        for power in ("AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
+            assert power in r.json()["detail"]
+        assert "FRANCE" not in r.json()["detail"]
+
+    def test_runs_once_every_non_dummy_power_has_ordered(self, client):
+        others = ["AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]
+        a = _telegram_user(client, "soloist")
+        game_id = client.post("/games/create", json=_as(a, map_name="standard", dummy_powers=others), headers=_BOT).json()["game_id"]
+        assert client.post(f"/games/{game_id}/join", json=_as(a, power="FRANCE")).status_code == 200
+        path = f"/games/{game_id}/process_turn?require_all=true"
+        assert client.post(path, headers=_BOT).status_code == 400
+        client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H", "A MAR H", "F BRE H"]))
+        assert client.post(path, headers=_BOT).status_code == 200

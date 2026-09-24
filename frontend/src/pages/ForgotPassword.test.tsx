@@ -11,17 +11,6 @@ describe('ForgotPassword', () => {
     )
   })
 
-  it('renders form and heading', () => {
-    const { container } = render(
-      <MemoryRouter>
-        <ForgotPassword />
-      </MemoryRouter>
-    )
-    expect(within(container).getByRole('heading', { name: /forgot password/i })).toBeInTheDocument()
-    expect(within(container).getByLabelText(/email/i)).toBeInTheDocument()
-    expect(within(container).getByRole('button', { name: /send reset link/i })).toBeInTheDocument()
-  })
-
   it('shows success message after submit', async () => {
     vi.stubGlobal(
       'fetch',
