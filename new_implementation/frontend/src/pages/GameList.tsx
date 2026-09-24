@@ -14,6 +14,7 @@ type AllGame = {
   status: string
   player_count: number
   max_players?: number
+  private?: boolean
 }
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
@@ -29,6 +30,8 @@ export default function GameList() {
   const [dummies, setDummies] = useState<string[]>([])
   // W10: process each turn as soon as all orders are in.
   const [autoProcess, setAutoProcess] = useState(false)
+  // W8: optional join password; blank = open game.
+  const [joinPassword, setJoinPassword] = useState('')
 
   const load = () => {
     Promise.all([
@@ -52,7 +55,12 @@ export default function GameList() {
     try {
       const res = await apiJson<{ game_id: string }>('/games/create', {
         method: 'POST',
-        body: JSON.stringify({ map_name: 'standard', dummy_powers: dummies, auto_process: autoProcess }),
+        body: JSON.stringify({
+          map_name: 'standard',
+          dummy_powers: dummies,
+          auto_process: autoProcess,
+          ...(joinPassword ? { join_password: joinPassword } : {}),
+        }),
       })
       toast.success('Game created')
       navigate(`/games/${res.game_id}`)
@@ -102,6 +110,17 @@ export default function GameList() {
           <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
           Process each turn as soon as all orders are in (players can ask to wait)
         </label>
+        <label className="flex flex-wrap items-center gap-2 text-sm">
+          Private game password (optional, 4–64 characters):
+          <input
+            type="password"
+            value={joinPassword}
+            onChange={(e) => setJoinPassword(e.target.value)}
+            aria-label="Private game password"
+            autoComplete="new-password"
+            className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm"
+          />
+        </label>
         <Button onClick={handleCreateGame} disabled={creating}>
           {creating ? 'Creating...' : 'Create new game'}
         </Button>
@@ -134,7 +153,7 @@ export default function GameList() {
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
                   <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
-                    Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
+                    {g.private ? '🔒 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
                   </Link>
                 </CardTitle>
               </CardHeader>

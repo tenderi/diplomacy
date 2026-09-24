@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.101`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.102`. `main` green.
 - **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
   probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
   that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
@@ -32,7 +32,8 @@
 - **W6 decided 2026-09-24:** yes to private games (W8), civil-disorder dummies for
   small tables (W9), process-when-all-orders-are-in with a per-player wait flag (W10), and
   a single-game admin delete (W11); no to rule switches, press variants, multiple powers
-  per player, expert setup and observers (now under *Out of scope*). W7 still open.
+  per player, expert setup and observers (now under *Out of scope*). **All four landed the
+  same day** (`v2.7.99` W11, `v2.7.100` W9, `v2.7.101` W10, `v2.7.102` W8). W7 still open.
 - **Track Y — majority-vote deadline proposals, landed `v2.7.96`.** The maintainer,
   after reviewing Track X's channel proposal-voting stub, decided that feature wasn't
   worth finishing (it was never reachable from any real bot command anyway) and asked
@@ -628,14 +629,23 @@ that should be written down once so the question stops being re-asked.
 - [x] Maintainer: fill the "Decide" column — **decided 2026-09-24.** The four yeses are W8–W11
       below; the five noes are under *Out of scope* with the date.
 
-## W8 — Private games (join password)
+## W8 — Private games (join password) — **done, `v2.7.102`**
 
-- [ ] Optional `join_password` at game creation (API, bot `/newgame`/web create form), stored
-      hashed like user passwords, never returned by any view. `POST /games/{id}/join` and the
-      vacant-seat takeover refuse a wrong/missing one (403) for a private game; the bot's join
-      menu asks for it; game listings mark private games. Creator and admins are exempt.
-- [ ] Decide at implementation: can the creator change or remove it later? (Suggested: yes,
-      creator-only route.)
+- [x] `games.join_password_hash` (migration `m1a7b8c9d0e1`), bcrypt like user passwords,
+      4–64 characters. Set at creation (`join_password`) or later via
+      `POST /games/{id}/join_password` (creator or `X-Admin-Token`; `null` opens the game —
+      decided: yes, the creator can change or remove it). `/join` and `/replace` require it
+      except for the creator (already-seated players are unaffected); wrong guesses count
+      5 per user per game per 15 minutes (the login budget), then 429. The hash never
+      leaves the API — views/`GET /games` carry `private`, the W5 export omits it, so an
+      imported game comes back open.
+- [x] Clients: web create-form password field, a password input on a private game's join
+      panel, 🔒 in the list; bot `/join <game> <power> <password>` (and `/replace … [password]`)
+      — the bot then deletes the player's message so the password doesn't stay in the chat
+      — 🔒 in the game browser, and a private game's join menu explains the command instead
+      of showing buttons that would be refused.
+- Tests: `test_private_games.py` (API, 10 incl. "the hash never appears in state, listing
+      or export"), `test_private_games_bot.py` (4), one web test.
 
 ## W9 — Fewer than 7 players: civil-disorder dummies — **done, `v2.7.100`**
 
@@ -723,7 +733,7 @@ convoy routes (`IRI - MAO - NAO - NWG`). Full province names were rejected by de
 - [x] W0 done (`v2.7.91`): `old_implementation/` removed, `rules.pdf` relocated, every
       pointer updated, suite green.
 - [x] W6's table has a decision in every row (2026-09-24).
-- [ ] W8–W11 landed.
+- [x] W8–W11 landed (`v2.7.99`–`v2.7.102`, 2026-09-24).
 - [ ] W7: either landed or moved under *Out of scope* with the maintainer's decision.
 
 ---

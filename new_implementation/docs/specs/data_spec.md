@@ -147,6 +147,7 @@ stored game rows; see `fix_plan.md` M6):
 | `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | W9: sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. |
 | `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | W10: process the turn as soon as `orders_status` has nothing missing and no wait flag is up. Null/false = manual or deadline only. |
 | `wait_flags` | JSON | `GameRepo.set_wait_flags` | W10: `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
+| `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | W8: bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the W5 export leaves it out (an imported game comes back open). |
 | `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | W9: who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list, demo-seeder and pre-W9 games. Only the creator (or `X-Admin-Token`) may change `dummy_powers`. |
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
@@ -214,6 +215,7 @@ paths) — built directly from `GameState`, not from any legacy relational shape
   "dummy_powers": ["TURKEY"],           // W9: played by civil disorder; [] if none
   "auto_process": false,                // W10: turn runs by itself once all orders are in
   "wait_flags": ["ENGLAND"],            // W10: powers that asked the table to wait
+  "private": false,                     // W8: joining needs a password (never the hash)
   "orders": { "FRANCE": ["F BRE H", "A PAR - BUR"], ... }  // pending, truthfully re-lettered
 }
 ```
