@@ -718,6 +718,38 @@ describe('GameView — auto-processing and wait flags (W10)', () => {
   })
 })
 
+describe('GameView — private games (W8)', () => {
+  it('asks for the password and sends it with the join', async () => {
+    const posts: unknown[] = []
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' }]
+    const base = stubFetchActive({ ...activeMovementState, private: true }, otherPlayers)
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/join') && init?.method === 'POST') {
+        posts.push(JSON.parse(String(init.body)))
+        return jsonResponse({ status: 'ok', player_id: 5 })
+      }
+      return base(url, init)
+    }))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await within(container).findByText(/Private game/)).toBeInTheDocument()
+    fireEvent.change(within(container).getByLabelText('Power to join as'), { target: { value: 'FRANCE' } })
+    fireEvent.change(within(container).getByLabelText('Game password'), { target: { value: 'hunter2' } })
+    fireEvent.click(within(container).getByRole('button', { name: /^join$/i }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toMatchObject({ power: 'FRANCE', join_password: 'hunter2' })
+  })
+})
+
 describe('GameView — orders status', () => {
   it("shows the logged-in power's submission status and who is still missing", async () => {
     vi.stubGlobal(
