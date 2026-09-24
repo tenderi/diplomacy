@@ -57,8 +57,10 @@ def test_selectunit_movement_phase(mock_ctx_get, mock_orders_get):
     assert "Select a unit for orders" in text
     kwargs = message.reply_text.call_args.kwargs
     # One button for the unit + one Cancel button.
-    assert len(kwargs["reply_markup"].inline_keyboard) == 2
-    assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "selunit|1|A BER"
+    # Z2: the "order all units" walk is offered first, then one button per unit, then cancel.
+    assert len(kwargs["reply_markup"].inline_keyboard) == 3
+    assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "wlk|1|start"
+    assert kwargs["reply_markup"].inline_keyboard[1][0].callback_data == "selunit|1|A BER"
 
 
 @patch("server.telegram_bot.orders.api_get")
@@ -79,7 +81,8 @@ def test_selectunit_retreat_phase(mock_ctx_get, mock_orders_get):
     text = message.reply_text.call_args[0][0]
     assert "retreat/disband" in text
     kwargs = message.reply_text.call_args.kwargs
-    assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "selunit|1|A BER"
+    assert kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "wlk|1|start"
+    assert kwargs["reply_markup"].inline_keyboard[1][0].callback_data == "selunit|1|A BER"
 
 
 @patch("server.telegram_bot.orders.api_get")

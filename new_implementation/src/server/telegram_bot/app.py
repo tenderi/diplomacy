@@ -30,7 +30,8 @@ from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
     show_possible_moves, show_convoy_options, show_convoy_destinations,
     show_support_options, show_support_choices, submit_interactive_order,
-    show_my_orders_menu, resolve_pending_order, run_process_turn
+    show_my_orders_menu, resolve_pending_order, run_process_turn,
+    orderall, active_walk, record_walk_choice, show_walk_step, handle_walk_action
 )
 from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
 from server.telegram_bot.ui import (
@@ -64,7 +65,8 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("join", "Join a game"),
     BotCommand("status", "Phase, deadline, and who has submitted orders"),
     BotCommand("players", "List players in a game and their powers"),
-    BotCommand("selectunit", "Interactive order entry"),
+    BotCommand("orderall", "Order all your units, one by one"),
+    BotCommand("selectunit", "Order a single unit"),
     BotCommand("order", "Submit orders, e.g. A PAR - BUR"),
     BotCommand("myorders", "Show your submitted orders"),
     BotCommand("clearorders", "Clear your submitted orders"),
@@ -178,7 +180,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     elif data.startswith("demo_orders_"):
         game_id = data.split("_")[2]
-        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!\n\n💡 Try /selectunit for interactive order selection!")
+        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!\n\n💡 Try /orderall to order every unit step by step, or /selectunit for one unit.")
 
     elif data.startswith("demo_help_"):
         game_id = data.split("_")[2]
@@ -190,7 +192,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"{DEMO_EXAMPLE_ORDERS}\n\n"
             f"{ORDER_FORMAT_NOTES}\n\n"
             "*Interactive Commands:*\n"
-            f"• `/selectunit` - Choose units and orders interactively\n"
+            f"• `/orderall` - Order all your units one by one, then submit together\n"
+            f"• `/selectunit` - Order a single unit\n"
             f"• `/processturn {game_id}` - Process the current turn\n"
             f"• `/viewmap {game_id}` - View current game state\n\n"
             "🤖 *Other powers won't move* - they're AI-controlled\n"
@@ -274,12 +277,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(
                 "⚠️ This order selection has expired. Please run /selectunit again."
             )
+        elif active_walk(context, game_id) is not None:
+            # /orderall (Z2): remember this unit's order and show the next one;
+            # everything is submitted together from the summary.
+            record_walk_choice(context, game_id, order_text)
+
+            async def send_step(text: str, reply_markup=None) -> None:
+                await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+            await show_walk_step(send_step, context, game_id)
         else:
             await submit_interactive_order(query, game_id, order_text)
+
+    elif data.startswith("wlk|"):
+        _, game_id, action = data.split("|", 2)
+        await handle_walk_action(query, context, game_id, action)
 
     elif data.startswith("cancelunit|"):
         _, game_id = data.split("|", 1)
         context.user_data.get("pending_orders", {}).pop(game_id, None)
+        context.user_data.get("order_walk", {}).pop(game_id, None)
         await query.edit_message_text(f"❌ Selection cancelled for game {game_id}.")
 
     # /processturn confirmation gate (E3e): "ptforce|" runs the same
@@ -436,6 +453,7 @@ def main():
     app.add_handler(CommandHandler("processturn", processturn))
     app.add_handler(CommandHandler("deadline", deadline))
     app.add_handler(CommandHandler("dummy", dummy))
+    app.add_handler(CommandHandler("orderall", orderall))
     app.add_handler(CommandHandler("autoprocess", autoprocess))
     app.add_handler(CommandHandler("notready", notready))
     app.add_handler(CommandHandler("ready", ready))
