@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS user_games_cache (
     games_json  TEXT NOT NULL,
     fetched_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS current_game (
+    user_id     TEXT PRIMARY KEY,
+    game_id     TEXT NOT NULL
+);
 """
 
 
@@ -323,6 +327,23 @@ class Outbox:
         if row is None:
             return None
         return json.loads(row["games_json"]), (_load_ts(row["fetched_at"]) or utcnow())
+
+
+    def set_current_game(self, user_id: str, game_id: str) -> None:
+        """The game a player last opened or named: bare commands act on it."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO current_game (user_id, game_id) VALUES (?, ?)"
+                " ON CONFLICT(user_id) DO UPDATE SET game_id = excluded.game_id",
+                (str(user_id), str(game_id)),
+            )
+
+    def current_game(self, user_id: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT game_id FROM current_game WHERE user_id = ?", (str(user_id),)
+            ).fetchone()
+        return None if row is None else str(row["game_id"])
 
 
 # -- process-wide instance ----------------------------------------------------

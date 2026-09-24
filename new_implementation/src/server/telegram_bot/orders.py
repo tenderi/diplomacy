@@ -18,7 +18,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_get, api_post, api_post_reliable, queued_reply
-from .game_context import GameContextError, fetch_user_games, resolve_game_and_power
+from .game_context import GameContextError, resolve_game_and_power
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
@@ -206,12 +206,13 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if len(args) < 1:
         await update.message.reply_text(
-            "Usage: /order [game_id] <order>; <order>; ...\n\n"
+            "Usage: /orders [game_id] <order>; <order>; ...\n\n"
             "Examples:\n"
-            "/order A BER - SIL\n"
-            "/order F KIE - DEN; A MUN S A BER - SIL\n"
-            "/order 2 A BER - SIL\n\n"
-            "The game id is only needed if you're in more than one game."
+            "/orders A BER - SIL\n"
+            "/orders F KIE - DEN; A MUN S A BER - SIL\n"
+            "/orders 2 A BER - SIL\n\n"
+            "The game id is only needed for a game other than your current one.\n"
+            "Buttons instead: /orderall (every unit) or /selectunit (one unit)."
         )
         return
 
@@ -257,52 +258,9 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Submit orders for a specific game."""
-    user = update.effective_user
-    if not user or not update.message:
-        if update.message:
-            await update.message.reply_text("Order submission failed: No user context.")
-        return
-    user_id = str(user.id)
-    args = context.args if context.args is not None else []
-    if len(args) < 2:
-        await update.message.reply_text("Usage: /orders <game_id> <order1>; <order2>; ...")
-        return
-    game_id_arg = args[0]
-    order_text = " ".join(args[1:])
-
-    try:
-        game_id, power = resolve_game_and_power(user_id, game_id_arg)
-    except GameContextError as e:
-        await update.message.reply_text(e.message)
-        return
-    except Exception as e:
-        await update.message.reply_text(f"Order error: {e}")
-        return
-
-    order_list = [o.strip() for o in order_text.split(";") if o.strip()]
-    if not order_list:
-        await update.message.reply_text("No orders found in your message.")
-        return
-
-    outcome = api_post_reliable(
-        "/games/set_orders",
-        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": True},
-        chat_id=user.id,
-        description=_orders_description(game_id, power, order_list),
-    )
-    if outcome.status == "queued":
-        await update.message.reply_text(queued_reply(outcome))
-        return
-    if outcome.status == "rejected":
-        await update.message.reply_text(f"Order error: {outcome.error}")
-        return
-
-    results = (outcome.response or {}).get("results", [])
-    if not results:
-        await update.message.reply_text("No orders were processed.")
-        return
-    await update.message.reply_text("Order results:\n" + format_order_results(results))
+    """/orders -- the same command as /order (the two used to differ only in
+    whether the game id was required)."""
+    await order(update, context)
 
 
 async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -325,17 +283,19 @@ async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Error retrieving orders: {e}")
         return
 
+    await update.message.reply_text(my_orders_text(game_id, power, user_id))
+
+
+def my_orders_text(game_id: str, power: str, user_id: str) -> str:
+    """``power``'s orders so far this phase, as a reply. Shared with the game menu."""
     try:
         result = api_get(f"/games/{game_id}/orders/{power}", telegram_id=user_id)
-    except Exception as e:
-        await update.message.reply_text(f"Error retrieving orders: {e}")
-        return
-
+    except requests.RequestException as e:
+        return f"Error retrieving orders: {e}"
     order_list = result.get("orders", [])
     if not order_list:
-        await update.message.reply_text("You have not submitted any orders for this turn.")
-    else:
-        await update.message.reply_text("Your current orders:\n" + "\n".join(order_list))
+        return f"You have not submitted any orders in game {game_id} this turn."
+    return f"Your orders in game {game_id} ({power}):\n" + "\n".join(order_list)
 
 
 async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -402,16 +362,19 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"Error retrieving order history: {e}")
         return
 
+    await update.message.reply_text(orderhistory_text(game_id))
+
+
+def orderhistory_text(game_id: str) -> str:
+    """Every processed turn's orders, oldest first (Telegram's 4096-character
+    cap keeps the most recent part). Shared with the game menu."""
     try:
         result = api_get(f"/games/{game_id}/orders/history")
-    except Exception as e:
-        await update.message.reply_text(f"Error retrieving order history: {e}")
-        return
-
+    except requests.RequestException as e:
+        return f"Error retrieving order history: {e}"
     history = result.get("order_history", {})
     if not history:
-        await update.message.reply_text("No order history found for this game.")
-        return
+        return f"No turns have been processed in game {game_id} yet."
     lines = [f"Order history for game {game_id}:"]
     for turn in sorted(history.keys(), key=lambda x: int(x)):
         lines.append(f"\nTurn {turn}:")
@@ -419,7 +382,8 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             lines.append(f"  {power}:")
             for o in power_orders:
                 lines.append(f"    {o}")
-    await update.message.reply_text("\n".join(lines))
+    text = "\n".join(lines)
+    return text if len(text) <= 4000 else "…" + text[-3990:]
 
 
 async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -440,16 +404,8 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = str(user.id)
     args = context.args if context.args is not None else []
 
-    if len(args) < 1:
-        await update.message.reply_text(
-            "Usage: /processturn <game_id>\n\n"
-            "This command advances the current phase and processes all submitted orders.\n"
-            "Use this after all players have submitted their orders for the turn."
-        )
-        return
-
     try:
-        game_id, _power = resolve_game_and_power(user_id, args[0])
+        game_id, _power = resolve_game_and_power(user_id, args[0] if args else None)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -477,10 +433,10 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    await run_process_turn(update.message.reply_text, game_id)
+    await run_process_turn(update.message.reply_text, game_id, user_id)
 
 
-async def run_process_turn(send: Sender, game_id: str) -> None:
+async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str] = None) -> None:
     """Adjudicate ``game_id``'s current phase (``POST /process_turn``) and
     report a short outcome summary.
 
@@ -495,8 +451,10 @@ async def run_process_turn(send: Sender, game_id: str) -> None:
     bounced, why) needs the JSON resolution endpoint that's landing on a
     separate branch; until then this is deliberately coarse.
     """
+    # The player's telegram id: the server lets only the game's creator end a
+    # turn early from Telegram, and answers anyone else with a 403 explaining so.
     try:
-        result = api_post(f"/games/{game_id}/process_turn", {})
+        result = api_post(f"/games/{game_id}/process_turn", {"telegram_id": telegram_id} if telegram_id else {})
     except Exception as e:
         await send(f"❌ Process turn error: {e}")
         return
@@ -540,11 +498,9 @@ async def run_process_turn(send: Sender, game_id: str) -> None:
         winners = game_state.get("winners") or []
         winners_text = ", ".join(winners) if winners else "no one"
         lines.append(f"\n🏁 *Game Complete!* Winners: {winners_text}")
-        lines.append(f"\nView the final map with /viewmap {game_id}")
+        lines.append(f"\nView the final map from the game menu: /game {game_id}")
     else:
-        lines.append(
-            f"\n🎮 Submit orders for the next phase, or /viewmap {game_id} to see the board."
-        )
+        lines.append(f"\n🎮 Next orders: /orderall {game_id}, or open the game menu with /game {game_id}.")
 
     await send("\n".join(lines), parse_mode='Markdown')
 
@@ -561,15 +517,8 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(user.id)
     args = context.args if context.args is not None else []
 
-    if len(args) < 1:
-        await update.message.reply_text(
-            "Usage: /viewmap <game_id>\n\n"
-            "This command shows the current map state for the specified game."
-        )
-        return
-
     try:
-        game_id, _power = resolve_game_and_power(user_id, args[0])
+        game_id, _power = resolve_game_and_power(user_id, args[0] if args else None)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -614,6 +563,16 @@ async def selectunit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         elif update.callback_query:
             await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
+    await show_unit_picker(reply_or_edit, context, user_id, game_id_arg)
+
+
+async def show_unit_picker(
+    reply_or_edit: Sender, context: ContextTypes.DEFAULT_TYPE, user_id: str, game_id_arg: Optional[str]
+) -> None:
+    """The one-unit flow's first screen (``/selectunit``, and the game menu's
+    "One unit" button, which passes its game id -- before the menu existed a
+    button that knew the game called ``/selectunit`` without it, which failed
+    for anyone in two games)."""
     try:
         game_id, power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
@@ -938,7 +897,13 @@ async def submit_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, ch
     extra = ""
     if (outcome.response or {}).get("auto_processed"):
         extra = "\n\n⚡ That completed the turn -- it has been processed."
-    await send("Order results:\n" + format_order_results(results) + extra)
+    await send(
+        "Order results:\n" + format_order_results(results) + extra,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("📋 My orders", callback_data=f"g|{game_id}|view"),
+            InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub"),
+        ]]),
+    )
 
 
 async def handle_walk_action(query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, action: str) -> None:
@@ -1253,18 +1218,18 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         return
 
     results = (outcome.response or {}).get("results", [])
+    next_steps = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 Another unit", callback_data=f"g|{game_id}|one"),
+         InlineKeyboardButton("📋 My orders", callback_data=f"g|{game_id}|view")],
+        [InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub")],
+    ])
     if results and results[0]["success"]:
+        extra = ""
+        if (outcome.response or {}).get("auto_processed"):
+            extra = "\n\n⚡ That completed the turn -- it has been processed."
         await query.edit_message_text(
-            f"✅ *Order Submitted Successfully!*\n\n"
-            f"📋 Order: `{order_text}`\n"
-            f"🎮 Game: {game_id}\n"
-            f"👤 Power: {power}\n\n"
-            f"💡 *Next Steps:*\n"
-            f"• Order another unit with /selectunit, or all of them with /orderall\n"
-            f"• Process turn with /processturn {game_id}\n"
-            f"• View map with /viewmap {game_id}\n"
-            f"• View orders with /myorders {game_id}\n"
-            f"• Clear orders with /clearorders {game_id}",
+            f"✅ *Order submitted:* `{order_text}`\n🎮 Game {game_id} · {power}{extra}",
+            reply_markup=next_steps,
             parse_mode='Markdown'
         )
     else:
@@ -1272,105 +1237,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         await query.edit_message_text(
             f"❌ *Order Failed*\n\n"
             f"📋 Order: `{order_text}`\n"
-            f"❌ Error: {error_msg}\n\n"
-            f"💡 Try selecting a different order with /selectunit",
+            f"❌ Error: {error_msg}",
+            reply_markup=next_steps,
             parse_mode='Markdown'
         )
-
-
-async def show_my_orders_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show orders menu for user's games"""
-    try:
-        user_id = str(update.effective_user.id)
-        user_games = fetch_user_games(user_id)
-
-        # Handle different response types safely
-        if not user_games or not isinstance(user_games, list) or len(user_games) == 0:
-            # Create helpful keyboard for users not in games
-            keyboard = [
-                [InlineKeyboardButton("🎲 Browse Available Games", callback_data="show_games_list")],
-                [InlineKeyboardButton("⏳ Join Waiting List", callback_data="join_waiting_list")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "📋 *No Active Games*\n\n"
-                "🎮 You're not currently in any games!\n\n"
-                "💡 *Get started:*\n"
-                "🎲 Browse games and pick one to join\n"
-                "⏳ Join the waiting list for auto-matching",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-            return
-
-        keyboard = []
-        # Safely handle list slicing
-        games_to_show = user_games[:10] if len(user_games) > 10 else user_games
-        for game in games_to_show:
-            if isinstance(game, dict):
-                game_id = game.get('game_id', 'Unknown')
-                power = game.get('power', 'Unknown')
-                state = game.get('status', 'Unknown')
-                # Add more context to button text
-                button_text = f"📋 Game {game_id} ({power}) - {state}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"orders_menu_{game_id}_{power}")])
-
-        if not keyboard:
-            # Fallback if games exist but are malformed
-            keyboard = [[InlineKeyboardButton("🎲 Browse Games Instead", callback_data="show_games_list")]]
-            await update.message.reply_text(
-                "📋 *Games Data Issue*\n\n"
-                "🔧 Your games data seems corrupted. Try browsing available games instead.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-            return
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                f"📋 *Select game to manage orders:* ({len(games_to_show)} active)",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-
-    except Exception as e:
-        # More helpful error message with recovery options
-        keyboard = [
-            [InlineKeyboardButton("🔄 Try Again", callback_data="retry_orders_menu")],
-            [InlineKeyboardButton("🎲 Browse Games", callback_data="show_games_list")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                f"⚠️ *Temporary Issue*\n\n"
-                f"🔧 Unable to load your games right now.\n"
-                f"This usually means the server is starting up.\n\n"
-                f"💡 *Try:*\n"
-                f"• Wait a moment and try again\n"
-                f"• Browse available games directly\n"
-                f"• Return to main menu\n\n"
-                f"*Technical details:* {str(e)[:100]}",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                f"⚠️ *Temporary Issue*\n\n"
-                f"🔧 Unable to load your games right now.\n"
-                f"This usually means the server is starting up.\n\n"
-                f"💡 *Try:*\n"
-                f"• Wait a moment and try again\n"
-                f"• Browse available games directly\n"
-                f"• Return to main menu\n\n"
-                f"*Technical details:* {str(e)[:100]}",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )

@@ -368,6 +368,25 @@ def _reset_province_name_cache():
     _reset_province_names_cache()
 
 
+@pytest.fixture(autouse=True)
+def _forget_current_games():
+    """Forget every player's remembered "current game" before each test.
+
+    The bot keeps it in its SQLite file, which is shared by the whole session
+    (``DIPLOMACY_BOT_DATA_DIR`` above), and bot tests reuse the same fake
+    Telegram ids -- so a game one test opened would silently become another
+    test's default game.
+    """
+    try:
+        from server.telegram_bot import outbox as bot_outbox
+    except ImportError:
+        yield
+        return
+    if bot_outbox._outbox is not None:
+        bot_outbox._outbox._conn.execute("DELETE FROM current_game")
+    yield
+
+
 # Markers for test categorization
 pytestmark = [
     pytest.mark.unit,  # Default to unit tests

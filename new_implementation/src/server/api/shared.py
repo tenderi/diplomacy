@@ -103,7 +103,29 @@ def game_view(game_id: str) -> Optional[Dict[str, Any]]:
     return game_service.view(str(game_id))
 
 
-def notify_user(telegram_id: Any, message: str) -> Optional[int]:
+def game_buttons(game_id: Any, *, ended: bool = False) -> list[list[dict[str, str]]]:
+    """Inline buttons for a notification about ``game_id``.
+
+    The bot routes ``g|{game_id}|{action}`` callbacks to its game hub
+    (``telegram_bot/hub.py``), so a player can act on a "turn processed" or
+    "deadline soon" DM with one tap instead of typing a command and a game id.
+    The trailing ``|n`` asks the bot to answer in a *new* message rather than
+    editing this one, so the notification itself stays readable.
+    """
+    if ended:
+        return [[{"text": "🗺 Final map", "callback_data": f"g|{game_id}|map|n"}]]
+    return [
+        [
+            {"text": "📝 Enter orders", "callback_data": f"g|{game_id}|all|n"},
+            {"text": "🗺 Map", "callback_data": f"g|{game_id}|map|n"},
+        ],
+        [{"text": "🎮 Game menu", "callback_data": f"g|{game_id}|hub|n"}],
+    ]
+
+
+def notify_user(
+    telegram_id: Any, message: str, buttons: Optional[list[list[dict[str, str]]]] = None
+) -> Optional[int]:
     """Queue one Telegram DM for the bot to deliver. Returns the outbox row id.
 
     **This is the only way server code may notify a player.** It writes the
@@ -131,7 +153,9 @@ def notify_user(telegram_id: Any, message: str) -> Optional[int]:
         scheduler_logger.debug(f"Skipping notification for non-numeric telegram_id: {telegram_id}")
         return None
     try:
-        row_id = db_service.enqueue_bot_notification(telegram_id_int, message)
+        row_id = db_service.enqueue_bot_notification(
+            telegram_id_int, message, payload={"buttons": buttons} if buttons else None
+        )
     except Exception as e:
         scheduler_logger.error(f"Failed to queue notification for telegram_id {telegram_id}: {e}")
         return None
@@ -143,8 +167,11 @@ def notify_players(
     game_id: int,
     message: str,
     exclude_telegram_id: Optional[str] = None,
+    buttons: Optional[list[list[dict[str, str]]]] = None,
 ) -> None:
     """Notify all players in a game, via ``notify_user`` (the durable outbox).
+
+    ``buttons`` (see ``game_buttons``) ride along as inline buttons on each DM.
 
     ``exclude_telegram_id`` skips one player -- used by the manual
     ``process_turn`` route, whose caller already has the resolution in their HTTP
@@ -165,7 +192,7 @@ def notify_players(
     for telegram_id_val in telegram_ids:
         if exclude_telegram_id is not None and str(telegram_id_val) == str(exclude_telegram_id):
             continue
-        notify_user(telegram_id_val, message)
+        notify_user(telegram_id_val, message, buttons)
 
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
@@ -286,17 +313,21 @@ def notify_turn_processed(
         player_message = f"Game {game_id} has ended!"
     elif trigger == "deadline":
         player_message = (
-            f"The turn has been processed for game {game_id} due to a missed or due "
-            f"deadline. View the new board state and submit your next orders."
+            f"The turn has been processed for game {game_id} because its deadline passed. "
+            f"Your next orders are due."
         )
     else:
         player_message = (
-            f"The turn has been processed for game {game_id}. View the new board state "
-            f"and submit your next orders."
+            f"The turn has been processed for game {game_id}. Your next orders are due."
         )
 
     try:
-        notify_players(numeric_game_id, player_message, exclude_telegram_id=exclude_telegram_id)
+        notify_players(
+            numeric_game_id,
+            player_message,
+            exclude_telegram_id=exclude_telegram_id,
+            buttons=game_buttons(game_id, ended=game_ended),
+        )
     except Exception as e:
         scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
 
@@ -729,7 +760,7 @@ def check_and_send_reminders(now: datetime) -> None:
                 # Send reminder 10 minutes before deadline
                 if deadline - now <= timedelta(minutes=10) and deadline > now:
                     if not reminder_sent.get(game_id_val, False):
-                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.")  # type: ignore
+                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.", buttons=game_buttons(getattr(game, "game_id", None) or game_id_val))  # type: ignore
                         scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                         reminder_sent[game_id_val] = True
     except Exception as e:

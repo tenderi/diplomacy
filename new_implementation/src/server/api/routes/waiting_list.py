@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .auth import require_bot_secret
-from ..shared import db_service, game_service, logger, notify_players, notify_user
+from ..shared import db_service, game_buttons, game_service, logger, notify_players, notify_user
 
 router = APIRouter()
 
@@ -55,14 +55,14 @@ class WaitingListRequest(BaseModel):
     full_name: Optional[str] = None
 
 
-def _notify(telegram_id: str, message: str) -> None:
+def _notify(telegram_id: str, message: str, game_id: Optional[str] = None) -> None:
     """DM one queued player through the durable outbox.
 
     The same path ``api/shared.notify_players`` uses. Replaces G5's
     logging-only ``notify_callback``, which is why nobody in the queue was ever
     told their game had started.
     """
-    notify_user(telegram_id, message)
+    notify_user(telegram_id, message, game_buttons(game_id) if game_id else None)
 
 
 def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
@@ -134,11 +134,11 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
     for telegram_id, _full_name, _user_id, power in assignments:
         _notify(
             telegram_id,
-            f"🎮 Game {game_id} created! You've been assigned {power}.\n\n"
-            f"Use /games to see your game, /selectunit to order.",
+            f"🎮 Game {game_id} created! You've been assigned {power}.",
+            str(game_id),
         )
     try:
-        notify_players(int(row.id), f"Game {game_id} is now full. Good luck to all players.")
+        notify_players(int(row.id), f"Game {game_id} is now full. Good luck to all players.", buttons=game_buttons(game_id))
     except Exception as e:
         logger.warning(f"Failed to post game-full notification for {game_id}: {e}")
 

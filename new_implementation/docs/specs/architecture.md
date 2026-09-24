@@ -175,6 +175,10 @@ There are three delivery surfaces, and they are not interchangeable:
   at the bot (the port-8081 `/notify` server is gone — see *Deployment and message reliability* below).
   Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
   errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
+  A DM may carry inline buttons (`buttons=` → `payload.buttons`): turn processed, the
+  10-minute reminder, "you joined" and "game is full" carry `game_buttons(game_id)` —
+  📝 Enter orders / 🗺 Map / 🎮 Game menu, as `g|{game_id}|{action}|n` callbacks that the
+  bot's game menu (`telegram_bot/hub.py`) answers in a new message.
 - **Linked channel post** — `telegram_bot/channels.py`. Only fires for games that have a
   channel linked, gated by the per-game `should_auto_post_*` settings; a no-op otherwise.
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row

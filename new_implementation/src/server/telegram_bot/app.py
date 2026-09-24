@@ -7,7 +7,6 @@ All command handlers are organized in the telegram_bot package.
 import asyncio
 import logging
 
-import requests
 from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler,
@@ -17,25 +16,28 @@ from telegram.ext import (
 # Import directly from modules
 from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import (
-    api_post, api_get, api_post_reliable, queued_reply, wait_for_api_health, _validate_api_url,
+    wait_for_api_health, _validate_api_url,
 )
 from server.telegram_bot.help_text import DEMO_EXAMPLE_ORDERS, DEMO_UNITS, ORDER_FORMAT_NOTES
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
-    start, register, games, show_available_games, show_power_selection,
-    join, quit, replace, wait, leave_waiting_list, status, players, draw, nodraw, deadline, dummy,
+    start, register, show_power_selection, join, join_from_button,
+    quit, replace, wait, leave_waiting_list, status, players, draw, nodraw, deadline, dummy,
     ready, notready, autoprocess,
+)
+from server.telegram_bot.hub import (
+    cancel, find_game, game_command, games, games_list_callback, handle_game_callback,
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
     show_possible_moves, show_convoy_options, show_convoy_destinations,
     show_support_options, show_support_choices, submit_interactive_order,
-    show_my_orders_menu, resolve_pending_order, run_process_turn,
+    resolve_pending_order, run_process_turn,
     orderall, active_walk, record_walk_choice, show_walk_step, handle_walk_action
 )
-from server.telegram_bot.messages import message, broadcast, messages, show_messages_menu
+from server.telegram_bot.messages import message, broadcast, messages
 from server.telegram_bot.ui import (
-    show_main_menu, show_map_menu, show_help, refresh_keyboard, handle_menu_buttons,
+    show_main_menu, show_help, refresh_keyboard, handle_menu_buttons,
     rules, examples
 )
 from server.telegram_bot.admin import start_demo_game, debug_command
@@ -49,42 +51,39 @@ from server.telegram_bot.link_account import link_account
 logger = logging.getLogger("diplomacy.telegram_bot.main")
 
 # Registered with Telegram via ``set_my_commands`` (see ``_post_init`` below)
-# so they show up in the "/" autocomplete menu -- previously nothing called
-# ``set_my_commands`` anywhere in the package, so none of the ~27 commands
-# handled below were discoverable unless a player already knew the name.
-# Deliberately curated and ordered by usefulness rather than a dump of all
-# 27: aliases (``/clear``), admin/debug commands, and rarely-used commands
-# (``/orderhistory``, ``/replay``, ``/refresh``, ``/examples``, channel
-# management) are left off this menu -- they still work as commands, they're
-# just not advertised here.
+# so they show up in the "/" autocomplete menu. Curated and ordered by
+# usefulness, not a dump of every handler: most actions are buttons in the
+# game menu (/game), so the menu lists the commands worth typing. Left off,
+# but still working: aliases (/order, /clear, /wait, /unwait), /register
+# (/start registers), /processturn (the game creator's "Process turn now"
+# button), game-creator settings (/dummy, /autoprocess), rarely used commands
+# (/orderhistory, /replay, /refresh, /examples, /cancel, /players, /replace)
+# and admin/channel commands.
 BOT_COMMANDS: list[BotCommand] = [
-    BotCommand("start", "Welcome message and main menu"),
-    BotCommand("register", "Register yourself with the bot"),
-    BotCommand("help", "Show all available commands"),
-    BotCommand("games", "List the games you are in"),
-    BotCommand("join", "Join a game"),
-    BotCommand("status", "Phase, deadline, and who has submitted orders"),
-    BotCommand("players", "List players in a game and their powers"),
+    BotCommand("start", "Main menu"),
+    BotCommand("games", "Your games"),
+    BotCommand("game", "Open a game's menu: /game [id]"),
     BotCommand("orderall", "Order all your units, one by one"),
     BotCommand("selectunit", "Order a single unit"),
-    BotCommand("order", "Submit orders, e.g. A PAR - BUR"),
-    BotCommand("myorders", "Show your submitted orders"),
-    BotCommand("clearorders", "Clear your submitted orders"),
-    BotCommand("processturn", "Adjudicate the current phase"),
-    BotCommand("deadline", "Show, set or clear a game's order deadline"),
+    BotCommand("orders", "Type orders, e.g. /orders A PAR - BUR"),
+    BotCommand("myorders", "Show your orders this turn"),
+    BotCommand("status", "Phase, deadline, and who has ordered"),
+    BotCommand("viewmap", "The current map"),
+    BotCommand("messages", "Messages in your game"),
+    BotCommand("message", "Message a power: /message FRANCE hello"),
+    BotCommand("broadcast", "Message every player"),
     BotCommand("notready", "Ask the table to wait before auto-processing"),
     BotCommand("ready", "Stop waiting; let the turn auto-process"),
-    BotCommand("draw", "Vote yes to end the game as a draw"),
-    BotCommand("nodraw", "Withdraw a draw vote you cast"),
-    BotCommand("viewmap", "View the current game map"),
-    BotCommand("message", "Send a private message to a power"),
-    BotCommand("broadcast", "Message all players in a game"),
-    BotCommand("messages", "View messages for a game"),
-    BotCommand("wait", "Join the waiting list for auto-matching"),
-    BotCommand("unwait", "Leave the waiting list"),
-    BotCommand("queue", "Orders/messages waiting for the game server"),
+    BotCommand("deadline", "Show or change a game's deadline"),
+    BotCommand("draw", "Vote to end the game as a draw"),
+    BotCommand("nodraw", "Withdraw your draw vote"),
+    BotCommand("findgame", "Open games, the queue, and the demo"),
+    BotCommand("join", "Join a game: /join <id> [power]"),
+    BotCommand("leavequeue", "Leave the queue for a new game"),
     BotCommand("quit", "Leave a game"),
+    BotCommand("queue", "Orders/messages waiting for the game server"),
     BotCommand("link", "Link this Telegram account to a browser account"),
+    BotCommand("help", "Commands and how to write orders"),
     BotCommand("rules", "Basic Diplomacy rules and order syntax"),
 ]
 
@@ -114,47 +113,29 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
     user_id = str(query.from_user.id)
 
-    if data.startswith("select_game_"):
+    if data.startswith("g|"):
+        await handle_game_callback(query, context, data)
+
+    elif data.startswith("select_game_"):
         game_id = data.split("_")[2]
         await show_power_selection(update, game_id)
 
     elif data.startswith("join_game_"):
         parts = data.split("_")
-        game_id = parts[2]
-        power = parts[3]
+        await join_from_button(query, context, parts[2], parts[3])
 
-        try:
-            result = api_post(f"/games/{game_id}/join", {
-                "telegram_id": user_id,
-                "game_id": int(game_id),
-                "power": power
-            })
-            await query.edit_message_text(f"🎉 Successfully joined Game {game_id} as {power}!")
-        except requests.HTTPError as e:
-            hint = ""
-            if getattr(e, "response", None) is not None and e.response.status_code == 401:
-                hint = "\n\n💡 Try /register first."
-            await query.edit_message_text(f"❌ Failed to join: {str(e)}{hint}")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Failed to join: {str(e)}")
+    elif data in ("back_to_games", "show_games_list", "find_game"):
+        await find_game(update, context)
 
-    elif data == "back_to_games":
-        await show_available_games(update, context)
+    elif data in ("my_games", "show_orders_menu", "retry_orders_menu", "show_map_menu",
+                  "show_messages_menu", "back_to_orders_menu"):
+        # The last four are buttons of the pre-game-menu screens, still under
+        # old messages in players' chats: they all lead to the games list now.
+        await games_list_callback(query)
 
-    elif data.startswith("orders_menu_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        power = parts[3]
-
-        keyboard = [
-            [InlineKeyboardButton("🎯 Submit Interactive Orders", callback_data=f"submit_orders_{game_id}_{power}")],
-            [InlineKeyboardButton("👁️ View My Orders", callback_data=f"view_orders_{game_id}_{power}")],
-            [InlineKeyboardButton("🗑️ Clear Orders", callback_data=f"clear_orders_{game_id}_{power}")],
-            [InlineKeyboardButton("📜 Order History", callback_data=f"order_history_{game_id}")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_orders_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(f"📋 *Orders Menu - Game {game_id} ({power})*", reply_markup=reply_markup, parse_mode='Markdown')
+    elif data.startswith(("orders_menu_", "submit_orders_", "view_messages_")):
+        # Old per-game menu buttons (``orders_menu_{game}_{power}`` ...): the game menu.
+        await handle_game_callback(query, context, f"g|{data.split('_')[2]}|hub")
 
     elif data.startswith("view_map_"):
         game_id = data.split("_")[2]
@@ -172,15 +153,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "back_to_main_menu":
         await show_main_menu(update, context)
 
-    elif data == "show_games_list":
-        await show_available_games(update, context)
-
     elif data == "join_waiting_list":
         await wait(update, context)
     
     elif data.startswith("demo_orders_"):
-        game_id = data.split("_")[2]
-        await query.edit_message_text(f"📋 Demo Orders for Game {game_id}\n\nUse /orders {game_id} <your orders> to submit moves for Germany!\n\n💡 Try /orderall to order every unit step by step, or /selectunit for one unit.")
+        # Buttons under demo games started before the game menu existed.
+        await handle_game_callback(query, context, f"g|{data.split('_')[2]}|all")
 
     elif data.startswith("demo_help_"):
         game_id = data.split("_")[2]
@@ -188,60 +166,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"ℹ️ *Demo Game Help* (ID: {game_id})\n\n"
             "🇩🇪 *You are Germany* - You control:\n"
             f"{DEMO_UNITS}\n\n"
-            f"*Example Orders:* (prefix each with `/orders {game_id}`)\n"
+            f"*Example Orders:* (prefix each with `/orders`)\n"
             f"{DEMO_EXAMPLE_ORDERS}\n\n"
             f"{ORDER_FORMAT_NOTES}\n\n"
-            "*Interactive Commands:*\n"
-            f"• `/orderall` - Order all your units one by one, then submit together\n"
-            f"• `/selectunit` - Order a single unit\n"
-            f"• `/processturn {game_id}` - Process the current turn\n"
-            f"• `/viewmap {game_id}` - View current game state\n\n"
-            "🤖 *Other powers won't move* - they're AI-controlled\n"
-            "🗺️ Use 'View Map' to see the current state"
+            "🤖 The other six powers are played by a simple computer player.\n"
+            "⚡ The turn is processed as soon as all your units have orders."
         )
-        await query.edit_message_text(help_text, parse_mode='Markdown')
-
-    elif data == "retry_orders_menu":
-        await show_my_orders_menu(update, context)
-
-    elif data == "about_diplomacy":
         await query.edit_message_text(
-            "💬 *About Diplomacy Messages*\n\n"
-            "🎭 Diplomacy is all about negotiation and alliances!\n\n"
-            "*📨 Message Types:*\n"
-            "• **Private messages** to specific players\n"
-            "• **Public broadcasts** to all players\n"
-            "• **Alliance proposals** and deals\n"
-            "• **Coordination** for joint moves\n\n"
-            "*🎯 Strategy Tips:*\n"
-            "• Build trust early in the game\n"
-            "• Coordinate attacks and defenses\n"
-            "• Sometimes betrayal is necessary\n"
-            "• Information is power - share wisely\n\n"
-            "🎲 *Ready to start negotiating?*\n"
-            "Join a game and make your first alliance!",
-            parse_mode='Markdown'
+            help_text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub")]]),
+            parse_mode='Markdown',
         )
-
-    elif data == "show_orders_menu":
-        await show_my_orders_menu(update, context)
-
-    elif data == "show_map_menu":
-        await show_map_menu(update, context)
-
-    elif data == "show_messages_menu":
-        await show_messages_menu(update, context)
-
-    elif data.startswith("view_messages_"):
-        game_id = data.split("_")[2]
-        await query.edit_message_text(f"💬 Loading messages for Game {game_id}...\n\nUse `/messages {game_id}` to view messages or `/message {game_id} <power> <text>` to send a message.")
-
-    elif data.startswith("submit_orders_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        power = parts[3]
-        await query.edit_message_text(f"🎯 Starting interactive order selection for Game {game_id} ({power})...")
-        await selectunit(update, context)
 
     # Interactive Order Input Callbacks -- "|"-delimited, distinct from the
     # "_"-delimited legacy prefixes above. Order text itself is never carried
@@ -275,7 +210,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             order_text = None
         if order_text is None:
             await query.edit_message_text(
-                "⚠️ This order selection has expired. Please run /selectunit again."
+                "⚠️ This order selection has expired. Open the game again with /game."
             )
         elif active_walk(context, game_id) is not None:
             # /orderall (Z2): remember this unit's order and show the next one;
@@ -308,7 +243,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         async def _edit(text: str, reply_markup=None, parse_mode=None) -> None:
             await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
-        await run_process_turn(_edit, game_id)
+        await run_process_turn(_edit, game_id, user_id)
 
     elif data.startswith("ptcancel|"):
         _, game_id = data.split("|", 1)
@@ -317,89 +252,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
     elif data.startswith("view_orders_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        power = parts[3]
-
-        try:
-            game_state = api_get(f"/games/{game_id}/state")
-            if not game_state:
-                await query.edit_message_text(f"❌ Could not retrieve game state for game {game_id}")
-                return
-
-            orders = game_state.get("orders", {}).get(power, [])
-
-            if not orders:
-                await query.edit_message_text(
-                    f"📋 *Your Orders - Game {game_id} ({power})*\n\n"
-                    f"❌ No orders submitted yet.\n\n"
-                    f"Use the Submit Orders button to add orders for this turn.",
-                    parse_mode='Markdown'
-                )
-            else:
-                orders_text = "\n".join([f"• {order}" for order in orders])
-                await query.edit_message_text(
-                    f"📋 *Your Orders - Game {game_id} ({power})*\n\n"
-                    f"📝 *Current Orders:*\n{orders_text}\n\n"
-                    f"💡 Use Submit Orders to modify or add more orders.",
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error retrieving orders: {e}")
-
-    elif data.startswith("order_history_"):
-        game_id = data.split("_")[2]
-
-        try:
-            result = api_get(f"/games/{game_id}/orders/history")
-            history = result.get("order_history", {})
-
-            if not history:
-                await query.edit_message_text(
-                    f"📜 *Order History - Game {game_id}*\n\n"
-                    f"❌ No order history found for this game.\n\n"
-                    f"Order history will appear after turns are processed.",
-                    parse_mode='Markdown'
-                )
-            else:
-                lines = [f"📜 *Order History - Game {game_id}*\n"]
-                for turn in sorted(history.keys(), key=lambda x: int(x)):
-                    lines.append(f"\n📅 *Turn {turn}:*")
-                    for power, orders in history[turn].items():
-                        lines.append(f"\n🛡️ *{power}:*")
-                        for order in orders:
-                            lines.append(f"  • {order}")
-
-                full_text = "\n".join(lines)
-                if len(full_text) > 4000:
-                    full_text = full_text[:3900] + "\n\n... (truncated)"
-
-                await query.edit_message_text(full_text, parse_mode='Markdown')
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error retrieving order history: {e}")
+        # Old per-game menu buttons: the game menu's own screens replace them.
+        await handle_game_callback(query, context, f"g|{data.split('_')[2]}|view")
 
     elif data.startswith("clear_orders_"):
-        parts = data.split("_")
-        game_id = parts[2]
-        power = parts[3]
+        await handle_game_callback(query, context, f"g|{data.split('_')[2]}|clr")
 
-        outcome = api_post_reliable(
-            "/games/set_orders",
-            {"game_id": game_id, "power": power, "orders": [], "telegram_id": user_id},
-            chat_id=query.from_user.id,
-            description=f"clearing orders for game {game_id} ({power})",
-        )
-        if outcome.status == "queued":
-            await query.edit_message_text(queued_reply(outcome))
-        elif outcome.status == "rejected":
-            await query.edit_message_text(f"❌ Error clearing orders: {outcome.error}")
-        else:
-            await query.edit_message_text(
-                f"🗑️ *Orders Cleared*\n\n"
-                f"✅ All orders for {power} in Game {game_id} have been cleared.\n\n"
-                f"💡 Use Submit Orders to add new orders.",
-                parse_mode='Markdown'
-            )
+    elif data.startswith("order_history_"):
+        await handle_game_callback(query, context, f"g|{data.split('_')[2]}|hist")
 
 
 def main():
@@ -443,6 +303,9 @@ def main():
     app.add_handler(CommandHandler("register", register))
     app.add_handler(CommandHandler("join", join))
     app.add_handler(CommandHandler("games", games))
+    app.add_handler(CommandHandler("game", game_command))
+    app.add_handler(CommandHandler("findgame", find_game))
+    app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("players", players))
     app.add_handler(CommandHandler("draw", draw))
@@ -471,6 +334,7 @@ def main():
     app.add_handler(CommandHandler("replace", replace))
     app.add_handler(CommandHandler("wait", wait))
     app.add_handler(CommandHandler("unwait", leave_waiting_list))
+    app.add_handler(CommandHandler("leavequeue", leave_waiting_list))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("refresh", refresh_keyboard))
     app.add_handler(CommandHandler("help", show_help))
@@ -485,7 +349,9 @@ def main():
 
     # Add handlers for interactive features
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
+    # Private chats only: the bot also sits in linked game channels (groups),
+    # where other people's chatter is not addressed to it.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_menu_buttons))
 
     logging.basicConfig(level=logging.INFO, force=True)
     # httpx logs the full request URL at INFO, and python-telegram-bot's
