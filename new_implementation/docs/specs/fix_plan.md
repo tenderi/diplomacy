@@ -22,7 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.110`.
+- **Last updated:** 2026-09-24, at `v2.7.111`.
+- **Track AC — forgot password delivers, archived** (`v2.7.111`): reset links go to the
+  account's linked Telegram first, email (SMTP, not yet configured on the VPS) as fallback.
 - **Track AB — server hardening, complete and archived** in [`done_fixes.md`](done_fixes.md)
   (`v2.7.110`): constant-time secret checks, API docs off in production, security headers,
   container privilege limits, and `harden_host.sh` (sshd, fail2ban, automatic reboots).

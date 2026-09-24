@@ -129,6 +129,24 @@ container. nginx takes the client's address from the `X-Forwarded-For` Caddy set
 address, replacing any `X-Forwarded-For` the client sent -- the API's per-IP login
 and registration rate limits depend on it.
 
+### Password reset ("Forgot password?")
+
+The web login page's *Forgot password?* sends a single-use link, valid for an
+hour, to `https://<DOMAIN>/reset-password?token=…`
+(`DIPLOMACY_PASSWORD_RESET_BASE_URL`, set from `DOMAIN`). Telegram is preferred,
+email is the fallback:
+
+- an account **linked to Telegram** (the web app's *Link Telegram*) gets it as a
+  message from the bot, and no email -- nothing to configure;
+- any other account gets it **by email**, once `DIPLOMACY_SMTP_HOST` (and `_PORT`,
+  `_USER`, `_PASSWORD`, `_FROM`) are set in `.env`. Email is also used if the
+  Telegram message could not be queued.
+
+With neither, nothing arrives and the API logs a warning naming the address.
+The reply never says whether the address has an account. Limits: 10 requests
+per IP per hour (then 429), and at most 3 links per address per hour (further
+requests are answered the same but send nothing).
+
 ### Hardening
 
 What protects the host and the site, and where it lives:
