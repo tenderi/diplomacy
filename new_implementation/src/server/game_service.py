@@ -26,7 +26,7 @@ from engine.serialization import (
     state_to_dict,
     unit_to_dict,
 )
-from engine.types import GameState, GameStatus, PhaseType
+from engine.types import Build, GameState, GameStatus, Order, PhaseType, Waive
 from server.legal_orders import powers_with_orders_to_give
 
 __all__ = ["GameService", "GameOverError", "OrderError", "StaleGameError"]
@@ -100,9 +100,17 @@ class GameService:
     # -- orders -----------------------------------------------------------
 
     def submit_orders(
-        self, game_id: str, power: str, order_strings: list[str]
+        self, game_id: str, power: str, order_strings: list[str], *, merge: bool = False
     ) -> list[dict[str, Any]]:
         """Validate and store ``power``'s orders for the current phase.
+
+        ``merge=False`` (the web client, which always sends the full set)
+        replaces the power's orders. ``merge=True`` (every bot path) adds these
+        to what is already there, a new order for a unit replacing that unit's
+        old one: the bot sends orders one at a time (``/selectunit``, or
+        several ``/order`` messages), and until this each one silently wiped
+        the ones before it -- a player ordered three units and only the last
+        moved. An order that fails validation never displaces a good one.
 
         Returns one result dict per order (``{order, ok, reason}``). Raises
         ``OrderError`` if the game does not exist and ``GameOverError`` if it
@@ -118,6 +126,7 @@ class GameService:
 
         results: list[dict[str, Any]] = []
         accepted: list[str] = []
+        accepted_keys: set[str] = set()
         for raw in order_strings:
             raw = raw.strip()
             if not raw:
@@ -130,14 +139,42 @@ class GameService:
             vr = validate(order, state, self._map)
             if vr.ok:
                 accepted.append(format_order(order))
+                key = _order_key(order)
+                if key is not None:
+                    accepted_keys.add(key)
                 results.append({"order": raw, "ok": True, "reason": None})
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
 
         pending = self._repo.get_pending_orders(game_id)
+        if merge:
+            kept = []
+            for existing in pending.get(power, []):
+                key = _order_key(parse_order(existing, power=power, map=self._map))
+                if key is None or key not in accepted_keys:
+                    kept.append(existing)
+            accepted = kept + accepted
         pending[power] = accepted
         self._repo.set_pending_orders(game_id, pending)
         return results
+
+    def _orders_complete(self, power: str, state: GameState, orders: list[str]) -> bool:
+        """Has ``power`` given an order to everything that must act this phase?
+
+        Movement: every unit. Retreat: every dislodged unit. Adjustment: as
+        many builds/waives, or disbands, as it is owed. W10's auto-processing
+        waits for this, not merely for *an* order: bot players send orders one
+        at a time, and the turn must not run after the first. (A unit meant to
+        stand still needs an explicit hold.)
+        """
+        parsed = [parse_order(o, power=power, map=self._map) for o in orders]
+        ordered = {_order_key(o) for o in parsed} - {None}
+        if state.phase_type == PhaseType.MOVEMENT:
+            return {u.location.province for u in state.units_of(power)} <= ordered
+        if state.phase_type == PhaseType.RETREAT:
+            return {du.unit.location.province for du in state.dislodged if du.unit.power == power} <= ordered
+        owed = abs(len(state.centers_of(power)) - len(state.units_of(power)))
+        return len(parsed) >= owed
 
     def clear_orders(self, game_id: str, power: str) -> None:
         pending = self._repo.get_pending_orders(game_id)
@@ -295,7 +332,7 @@ class GameService:
         if meta.get("wait_flags"):
             return False
         status = self.orders_status(game_id)
-        return status is not None and not status["missing"]
+        return status is not None and not status["missing"] and not status["incomplete"]
 
     def set_dummy(self, game_id: str, power: str, dummy: bool) -> list[str]:
         """Make ``power`` a civil-disorder dummy, or open it again. Returns the new set.
@@ -594,11 +631,17 @@ class GameService:
         # the engine plays it by the civil-disorder rules.
         dummies = self.dummy_powers(game_id)
         active_powers = sorted(p for p in powers_with_orders_to_give(self._map, state) if p not in dummies)
+        pending = self._repo.get_pending_orders(game_id)
         return {
             "phase": state.phase_name,
             "active_powers": active_powers,
             "submitted": sorted(submitted),
             "missing": sorted(p for p in active_powers if p not in submitted),
+            # Submitted something, but not an order for everything that must act.
+            "incomplete": sorted(
+                p for p in active_powers
+                if p in submitted and not self._orders_complete(p, state, pending.get(p, []))
+            ),
             # W10: who asked to wait, and whether the turn runs by itself.
             "waiting": sorted(self.wait_flags(game_id)),
             "auto_process": bool((self._repo.get_meta(game_id) or {}).get("auto_process")),
@@ -664,6 +707,17 @@ def _initial_state(map: MapData) -> GameState:
         units=map.starting_units,
         ownership=dict(map.initial_ownership),
     )
+
+
+def _order_key(order: Order) -> Optional[str]:
+    """The province an order is "for": its unit's, or a build's site. Two
+    orders with the same key cannot both stand -- the later replaces the
+    earlier when merging. ``WAIVE`` has none (a power may waive several)."""
+    if isinstance(order, Waive):
+        return None
+    if isinstance(order, Build):
+        return order.location.province
+    return order.unit.province  # type: ignore[attr-defined]
 
 
 def _check_dummy_set(powers: list[str], map_data: Optional[MapData] = None) -> list[str]:

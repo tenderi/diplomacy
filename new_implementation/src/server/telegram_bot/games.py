@@ -236,6 +236,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if missing:
             status_text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
+        if orders_status.get("incomplete"):
+            status_text += "✏️ **Only some units ordered:** " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):
             status_text += "⚡ Processes automatically once all orders are in.\n"
         if orders_status.get("waiting"):
