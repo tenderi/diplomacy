@@ -1,9 +1,0 @@
-[project]
-name = "diplomacy"
-version = "3.0.0"
-description = "Diplomacy board game server (Python implementation)"
-requires-python = ">=3.14,<3.15"
-
-[tool.ruff]
-target-version = "py314"
-line-length = 100
