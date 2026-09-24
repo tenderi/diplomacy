@@ -254,6 +254,20 @@ def _convoy_shores(map: MapData, state: GameState) -> list[tuple[frozenset[str],
     return chains
 
 
+def _convoy_destinations(
+    map: MapData, unit: Unit, chains: list[tuple[frozenset[str], frozenset[str]]]
+) -> set[str]:
+    """Provinces an army could reach only by convoy: the other shores of every
+    fleet chain it stands on, less its land neighbours (those are plain moves)."""
+    if unit.kind is not UnitKind.ARMY:
+        return set()
+    out: set[str] = set()
+    for _seas, shore in chains:
+        if unit.province in shore:
+            out |= shore - {unit.province}
+    return out - set(map.army_moves(unit.province))
+
+
 def _movement_orders(
     map: MapData, state: GameState, power: str, units: list[Unit]
 ) -> tuple[dict[str, list[str]], list[str]]:
@@ -274,15 +288,24 @@ def _movement_orders(
         for other in all_units:
             if other.province == u.province:
                 continue
-            if not _can_reach(map, u.location, u.kind, other.province):
-                continue
             support_kbp = {u.province: u.kind.value, other.province: other.kind.value}
-            bucket.append(
-                format_order(
-                    SupportHold(power, unit=u.location, target=other.location), support_kbp
+            # A support-hold needs the supported unit in reach; a support-move
+            # only its destination (``A BEL S A MUN - RUH`` is legal: BEL touches
+            # RUH, not MUN). Skipping every unit out of reach hid those.
+            if _can_reach(map, u.location, u.kind, other.province):
+                bucket.append(
+                    format_order(
+                        SupportHold(power, unit=u.location, target=other.location), support_kbp
+                    )
                 )
-            )
-            for dest in _own_moves(map, other):
+            # Where ``other`` could go: by land/sea, and by convoy for an army on
+            # a fleet chain's shore -- supporting a convoyed attack is ordinary play.
+            by_convoy = [
+                Location(p)
+                for p in sorted(_convoy_destinations(map, other, chains))
+                if p != u.province
+            ]
+            for dest in _own_moves(map, other) + by_convoy:
                 if not _can_reach(map, u.location, u.kind, dest.province):
                     continue
                 bucket.append(
@@ -299,13 +322,11 @@ def _movement_orders(
         # order, the bot's buttons) never offered an army a move by convoy at
         # all, and a fleet only a convoy between two provinces it touched itself,
         # so no convoy longer than one fleet could be ordered from either.
+        for dest in sorted(_convoy_destinations(map, u, chains)):
+            bucket.append(
+                format_order(Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp)
+            )
         for seas, shore in chains:
-            if u.kind is UnitKind.ARMY and u.province in shore:
-                adjacent = map.army_moves(u.province)
-                for dest in sorted(shore - {u.province} - adjacent):
-                    bucket.append(
-                        format_order(Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp)
-                    )
             if u.kind is UnitKind.FLEET and u.province in seas:
                 for origin in sorted(p for p in shore if p in armies_by_province):
                     for dest in sorted(shore - {origin}):

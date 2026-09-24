@@ -462,3 +462,35 @@ class TestConvoyChains:
         ]
         _, after = Game(map=_MAP, state=state).adjudicate(orders)
         assert Unit(UnitKind.ARMY, "ENGLAND", Location("SPA")) in after.state.units
+
+    def test_a_convoyed_attack_can_be_supported(self) -> None:
+        """Supports were offered only into the supported unit's land moves, so
+        ``A HOL S A LON - BEL`` (the standard way to make a convoyed attack
+        stick) could not be picked."""
+        state = GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+                Unit(UnitKind.ARMY, "ENGLAND", Location("HOL")),
+            }),
+            ownership={},
+        )
+        data = _assert_all_orders_valid(_MAP, state, "ENGLAND")
+        assert "A HOL S A LON - BEL" in data["orders_by_unit"]["A HOL"]
+        # Not a support into the supporter's own province.
+        assert "A HOL S A LON - HOL" not in data["orders_by_unit"]["A HOL"]
+
+    def test_a_support_needs_only_the_destination_in_reach(self) -> None:
+        state = _initial_movement_state()
+        state = GameState(
+            year=state.year, season=state.season, phase_type=state.phase_type,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("BEL")),
+            }),
+            ownership={},
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "GERMANY")["orders_by_unit"]["A BEL"]
+        assert "A BEL S A MUN - RUH" in bucket
+        assert "A BEL S A MUN" not in bucket  # a support-hold does need MUN in reach

@@ -14,6 +14,13 @@ Bug hunt IV. Each pinned by a test that fails on `v3.0.9`.
   of the chain the matching convoys for each army on it. The frontend shows those as
   "NWY (by convoy)". Tests: `TestConvoyChains` (menus validate, and a two-fleet convoy
   ordered from them resolves), `orderParsing.test.ts`.
+- [x] **Supports the menus hid.** A unit was offered supports only for units it could
+  itself reach, and only into their land moves. But a support-move needs only the
+  *destination* in reach: `A BEL S A MUN - RUH` is legal (BEL touches RUH) and was never
+  offered, nor was `A HOL S A LON - BEL` for a convoyed attack. Support-holds still
+  require the supported unit in reach. Tests:
+  `test_a_support_needs_only_the_destination_in_reach`,
+  `test_a_convoyed_attack_can_be_supported`.
 - [x] **Two players taking the same vacated seat were both told they had it.** `/join` and
   `/replace` checked "vacant", then wrote the seat unconditionally: the second silently
   replaced the first. `DatabaseService.claim_vacant_seat` is a conditional

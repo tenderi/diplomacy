@@ -25,7 +25,7 @@
 - **Last updated:** 2026-09-24, at `v3.0.10`.
 - **Track AN (`v3.0.10`):** convoys could not be ordered from the web client or the bot's
   buttons (the legal-order menus offered no move `VIA`, and no convoy longer than one
-  fleet); and two players taking the same vacated seat at once were both told they had
+  fleet), nor a support whose supporter touches only the destination; and two players taking the same vacated seat at once were both told they had
   it. Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AM (`v3.0.9`):** deadline-proposal votes had the same lost update as Track AL
   (two votes together kept one; two proposals could both start). Now one locked
