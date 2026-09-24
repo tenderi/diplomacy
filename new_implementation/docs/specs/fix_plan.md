@@ -22,7 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.107`.
+- **Last updated:** 2026-09-24, at `v2.7.109`.
+- **F4 done (`v2.7.108`):** the site is live at `https://diplomacy.xn--jalluthti-02a.fi`
+  (Caddy + Let's Encrypt, turned on by `DOMAIN` in the VPS `.env`).
 - **AA2 (`v2.7.107`):** the maintainer answered AA's open question — ending a turn early
   is the creator's on the web too; the web shows the button only to them.
 - **Track AA — Telegram user flows, complete and archived** in [`done_fixes.md`](done_fixes.md)
@@ -383,11 +385,16 @@ to use, which no test asserts.
 
 ## F4 — TLS in front of the web frontend
 
-- [ ] A hostname for the VPS, Caddy (or certbot + nginx) terminating TLS in front of
-      `diplomacy_web`, `WEB_BIND=127.0.0.1`, and `DIPLOMACY_PASSWORD_RESET_BASE_URL` in the
-      VPS `.env` set to the `https://` URL. The login form must not stay on plain HTTP once anyone but
-      the maintainer uses it. Was "known infra gap" under *Out of scope* below; it now has a
-      concrete place to live.
+- [x] **Done 2026-09-24, `v2.7.108`** (deploy run `36008891537`). The maintainer pointed
+      `diplomacy.xn--jalluthti-02a.fi` (Route 53 A record) at the VPS and opened 80/443 at
+      UpCloud; `DOMAIN` in the VPS `.env` turned on the `caddy` service. Verified from
+      outside: `http://` → 308 to `https://`, `https://…/api/healthz` 200, Let's Encrypt
+      certificate (issuer YE2, valid to 2026-12-23, renewed by Caddy), and the API logs the
+      visitor's public address rather than a Docker one. `ensure_env.sh` moved nginx to
+      `127.0.0.1:8080` and set `DIPLOMACY_PASSWORD_RESET_BASE_URL` to the `https://` URL.
+      Same change: nginx stopped *appending* to a client's own `X-Forwarded-For` — uvicorn
+      reads the first entry, so a client could choose the address its login attempts were
+      rate-limited under.
 
 ## F2 — Human judgement pass on the restructured web game screen
 
