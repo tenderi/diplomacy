@@ -22,7 +22,11 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.11`.
+- **Last updated:** 2026-09-24, at `v3.0.12`.
+- **Track AP (`v3.0.12`):** two orders for one unit or build site in one submission were
+  both stored and the adjudicator kept one silently (the last move, the *first* build);
+  the bot's winter walk offered `BUILD F KIE` after `BUILD A KIE`. Archived in
+  [`done_fixes.md`](done_fixes.md).
 - **Track AO (`v3.0.11`):** `GET /games` listed every game as Spring 1901 (it read
   columns the model does not have). Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AN (`v3.0.10`):** convoys could not be ordered from the web client or the bot's

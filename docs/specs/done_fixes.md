@@ -1,5 +1,21 @@
 ---
 
+# Track AP — One order per unit, per submission (maintainer request, 2026-09-24) — **done, `v3.0.12`**
+
+- [x] **Two orders for one unit in one submission: both stored, one silently dropped.**
+  `submit_orders` accepted `A PAR - BUR` and `A PAR H` together; the movement adjudicator
+  kept the last, the adjustment adjudicator the *first* (`BUILD A BRE` + `BUILD F BRE`: the
+  fleet was VOID). Now the later order for a unit or build site replaces the earlier one --
+  the rule that already held across two submissions -- and the earlier is reported
+  `ok: false`, "replaced by a later order for PAR in the same submission" (the web client
+  shows it since Track AL). Tests: `TestTwoOrdersForOneUnitInOneSubmission`.
+- [x] **The bot's winter walk offered a second build at a province already chosen.** It hid
+  only the exact string picked, so `BUILD F KIE` stayed on offer after `BUILD A KIE`, and a
+  player filling two slots that way lost one. A chosen build now takes its province. Test:
+  `test_a_build_takes_its_province_for_the_later_slots`.
+
+---
+
 # Track AO — The game list's phase (maintainer request, 2026-09-24) — **done, `v3.0.11`**
 
 - [x] **`GET /games` listed every game as Spring 1901.** It read `getattr(g, 'year', 1901)`
