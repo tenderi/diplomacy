@@ -11,12 +11,12 @@ import re
 from datetime import datetime
 from sqlalchemy import text
 
-from ..shared import db_service, ADMIN_TOKEN
+from ..shared import db_service, is_admin_token
 
 
 def require_admin(x_admin_token: str = Header(...)) -> None:
     """Dependency that requires a valid X-Admin-Token header."""
-    if x_admin_token != ADMIN_TOKEN:
+    if not is_admin_token(x_admin_token):
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
 router = APIRouter()

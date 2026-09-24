@@ -68,6 +68,11 @@ fi
 ./ensure_env.sh
 $SUDO ./backup.sh --install
 
+# ---------------------------------------------------------------------------
+# 5. OS hardening: sshd, fail2ban, automatic security reboots (harden_host.sh)
+# ---------------------------------------------------------------------------
+$SUDO ./harden_host.sh
+
 echo
 info "Installation complete."
 echo "Next steps:"

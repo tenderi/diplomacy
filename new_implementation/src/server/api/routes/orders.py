@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..client_timestamp import normalize_client_timestamp
 from .. import shared as api_shared
-from ..shared import db_service, game_service, logger, BOT_SECRET
+from ..shared import db_service, game_service, logger, is_bot_secret
 from server.game_service import GameOverError
 
 router = APIRouter()
@@ -125,7 +125,7 @@ def get_orders(
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and BOT_SECRET and bot_secret == BOT_SECRET:
+    if user is None and telegram_id and is_bot_secret(bot_secret):
         user = db_service.get_user_by_telegram_id(telegram_id)
     if user is None:
         return []
@@ -168,7 +168,7 @@ def get_orders_for_power(
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and BOT_SECRET and bot_secret == BOT_SECRET:
+    if user is None and telegram_id and is_bot_secret(bot_secret):
         user = db_service.get_user_by_telegram_id(telegram_id)
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
