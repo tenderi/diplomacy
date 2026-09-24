@@ -70,6 +70,23 @@ class TestCompose:
             assert f"\n  {service}" in compose, service
         assert not (PROJECT_ROOT / "docker-compose.control.yml").exists()
 
+    def test_caddy_is_the_https_entry_only_when_a_domain_is_set(self, compose: str) -> None:
+        caddy = compose.split("\n  caddy:", 1)[1].split("\nvolumes:", 1)[0]
+        assert 'profiles: ["tls"]' in caddy  # started only via COMPOSE_PROFILES=tls
+        assert '"80:80"' in caddy and '"443:443"' in caddy
+        assert "caddy_data:/data" in caddy  # certificates survive a restart
+        caddyfile = _read(PROJECT_ROOT / "docker" / "Caddyfile")
+        assert "{$DOMAIN}" in caddyfile and "reverse_proxy diplomacy_web:80" in caddyfile
+
+    def test_nginx_takes_the_client_address_from_caddy_and_never_appends(self) -> None:
+        # Behind Caddy every peer is Caddy; without real_ip all visitors share its
+        # address in the per-IP rate limits. Appending to a client's own
+        # X-Forwarded-For let it pick the (first) address uvicorn reads.
+        conf = _read(PROJECT_ROOT / "docker" / "web-nginx.conf.template")
+        assert "real_ip_header X-Forwarded-For;" in conf and "set_real_ip_from 172.16.0.0/12;" in conf
+        assert "proxy_set_header X-Forwarded-For $remote_addr;" in conf
+        assert "$proxy_add_x_forwarded_for" not in conf
+
     def test_only_nginx_is_public(self, compose: str) -> None:
         assert not re.search(r'^\s*-\s*"?8000:8000"?\s*$', compose, re.M), "bare 8000:8000 publishes the API to the world"
         assert "127.0.0.1:8000:8000" in compose
@@ -184,6 +201,45 @@ class TestEnsureEnv:
         assert "DIPLOMACY_API_URL" not in env and "DIPLOMACY_API_UPSTREAM" not in env
         for key in GENERATED_SECRETS:
             assert env[key], key
+
+
+class TestEnsureEnvDomain:
+    """Setting DOMAIN turns HTTPS on; clearing it turns it off."""
+
+    @pytest.fixture
+    def workdir(self, tmp_path: Path) -> Path:
+        for name in ("ensure_env.sh", ".env.example"):
+            (tmp_path / name).write_bytes((PROJECT_ROOT / name).read_bytes())
+        return tmp_path
+
+    def _run(self, workdir: Path) -> dict[str, str]:
+        subprocess.run(["bash", str(workdir / "ensure_env.sh")], capture_output=True, text=True, check=True)
+        return _env_dict((workdir / ".env").read_text())
+
+    def test_a_domain_turns_on_caddy_and_moves_nginx_off_the_public_ports(self, workdir: Path) -> None:
+        self._run(workdir)
+        (workdir / ".env").write_text((workdir / ".env").read_text().replace("DOMAIN=\n", "DOMAIN=play.example.com\n"))
+        env = self._run(workdir)
+        assert env["COMPOSE_PROFILES"] == "tls"
+        assert env["WEB_BIND"] == "127.0.0.1" and env["WEB_PORT"] == "8080"
+        assert env["DIPLOMACY_PASSWORD_RESET_BASE_URL"] == "https://play.example.com"
+
+    def test_an_existing_https_reset_url_is_kept(self, workdir: Path) -> None:
+        (workdir / ".env").write_text("DOMAIN=play.example.com\nDIPLOMACY_PASSWORD_RESET_BASE_URL=https://other.example.com\n")
+        assert self._run(workdir)["DIPLOMACY_PASSWORD_RESET_BASE_URL"] == "https://other.example.com"
+
+    def test_clearing_the_domain_turns_https_off(self, workdir: Path) -> None:
+        (workdir / ".env").write_text("DOMAIN=play.example.com\n")
+        self._run(workdir)
+        text = (workdir / ".env").read_text().replace("DOMAIN=play.example.com", "DOMAIN=")
+        (workdir / ".env").write_text(text)
+        env = self._run(workdir)
+        assert env["COMPOSE_PROFILES"] == ""
+        assert env["WEB_BIND"] == "127.0.0.1"  # stays private; opening it is a choice
+
+    def test_no_domain_changes_nothing(self, workdir: Path) -> None:
+        env = self._run(workdir)
+        assert env.get("COMPOSE_PROFILES", "") == "" and env["WEB_PORT"] == "80"
 
 
 class TestBackup:
