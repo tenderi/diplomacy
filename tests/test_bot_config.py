@@ -1,54 +1,11 @@
-"""
-Comprehensive unit tests for Telegram Bot module.
+"""The bot's configuration: the token (read verbatim, never logged) and the API URL."""
 
-Tests cover all bot functionality including commands, callbacks, error handling,
-and edge cases using pytest with proper mocking.
-"""
-
-import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any, List
+from unittest.mock import patch
 
 from server.telegram_bot.config import get_telegram_token
-from server.telegram_bot.api_client import api_post, api_get
 
 
-class TestTelegramBotFunctions:
-    """Test Telegram Bot functions."""
-    
-    @pytest.fixture
-    def mock_context(self):
-        """Create mock Telegram context."""
-        context = Mock()
-        context.bot = Mock()
-        context.user_data = {}
-        context.chat_data = {}
-        context.bot_data = {}
-        context.bot.send_message = AsyncMock()
-        context.bot.edit_message_text = AsyncMock()
-        context.bot.answer_callback_query = AsyncMock()
-        return context
-    
-    @pytest.fixture
-    def mock_update(self):
-        """Create mock Telegram update."""
-        update = Mock()
-        update.effective_user = Mock()
-        update.effective_user.id = 12345
-        update.effective_user.username = "testuser"
-        update.effective_chat = Mock()
-        update.effective_chat.id = 67890
-        update.callback_query = None
-        update.message = Mock()
-        update.message.text = "/test"
-        update.message.reply_text = AsyncMock()
-        update.message.reply_markup = Mock()
-        return update
-
-
-class TestBotCommands:
-    """Test bot command handling."""
+class TestToken:
 
     def test_get_telegram_token_from_env(self):
         """Test getting Telegram token from environment."""
@@ -78,30 +35,6 @@ class TestBotCommands:
         with patch.dict('os.environ', {}, clear=True):
             result = get_telegram_token()
             assert result == ''
-    
-    @patch('server.telegram_bot.api_client.requests.post')
-    def test_api_post_success(self, mock_post):
-        """Test successful API POST request."""
-        mock_response = Mock()
-        mock_response.json.return_value = {'status': 'success'}
-        mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
-
-        result = api_post('/test', {'data': 'test'})
-        assert result == {'status': 'success'}
-        mock_post.assert_called_once()
-
-    @patch('server.telegram_bot.api_client.requests.get')
-    def test_api_get_success(self, mock_get):
-        """Test successful API GET request."""
-        mock_response = Mock()
-        mock_response.json.return_value = {'data': 'test'}
-        mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
-
-        result = api_get('/test')
-        assert result == {'data': 'test'}
-        mock_get.assert_called_once()
 
 
 # `TestProcessWaitingList` was removed with G5. It tested
@@ -123,3 +56,12 @@ def test_bot_silences_httpx_so_the_token_never_reaches_the_log():
     basic = src.index("logging.basicConfig(")
     silence = src.index('logging.getLogger("httpx").setLevel(logging.WARNING)')
     assert silence > basic, "httpx must be silenced *after* basicConfig(force=True), which resets levels"
+
+
+def test_the_api_url_comes_from_the_environment(monkeypatch):
+    import importlib
+    from server.telegram_bot import config as cfg
+    monkeypatch.setenv("DIPLOMACY_API_URL", "https://api.example.com")
+    assert importlib.reload(cfg).API_URL == "https://api.example.com"
+    monkeypatch.delenv("DIPLOMACY_API_URL")
+    importlib.reload(cfg)

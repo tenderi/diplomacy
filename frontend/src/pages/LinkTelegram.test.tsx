@@ -29,18 +29,6 @@ describe('LinkTelegram', () => {
     )
   })
 
-  it('renders heading and generate code button', () => {
-    const { container } = render(
-      <MemoryRouter>
-        <AuthContext.Provider value={mockAuth()}>
-          <LinkTelegram />
-        </AuthContext.Provider>
-      </MemoryRouter>
-    )
-    expect(within(container).getByRole('heading', { name: /link telegram/i })).toBeInTheDocument()
-    expect(within(container).getByRole('button', { name: /generate link code/i })).toBeInTheDocument()
-  })
-
   it('shows code after generate success', async () => {
     vi.stubGlobal(
       'fetch',
@@ -77,5 +65,41 @@ describe('LinkTelegram', () => {
     )
     expect(within(container).getByText(/already linked to telegram/i)).toBeInTheDocument()
     expect(within(container).getByRole('button', { name: /unlink telegram/i })).toBeInTheDocument()
+  })
+
+  it('unlinking calls the API and refreshes who you are', async () => {
+    const auth = mockAuth({ telegram_linked: true })
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok', message: 'Unlinked' }) } as Response)
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={auth}>
+          <LinkTelegram />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: /unlink telegram/i }))
+    await waitFor(() => expect(auth.refreshUser).toHaveBeenCalledTimes(1))
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/me/unlink_telegram'), expect.objectContaining({ method: 'POST' }))
+  })
+
+  it.each([
+    [true, /unlink telegram/i, 'Could not unlink right now'],
+    [false, /generate link code/i, 'Too many codes requested'],
+  ])('a failure says why (linked: %s)', async (linked, button, detail) => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({ ok: false, status: 429, text: () => Promise.resolve(JSON.stringify({ detail })) } as Response)
+    ))
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth({ telegram_linked: linked })}>
+          <LinkTelegram />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    fireEvent.click(within(container).getByRole('button', { name: button }))
+    expect(await within(container).findByText(detail)).toBeInTheDocument()
   })
 })

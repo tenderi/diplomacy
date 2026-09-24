@@ -43,11 +43,10 @@ async def link_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     channel_id = args[1]
     
     try:
-        # Verify user is in the game or is admin
+        # Only a player may: the bot calls the API with its own secret, which the API
+        # trusts. (An admin uses the API's admin token, not a Telegram id here.)
         user_id = str(user.id)
-        user_in_game = any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id))
-        
-        if not user_in_game and user_id != "8019538":  # Admin check
+        if not any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id)):
             await update.message.reply_text(
                 f"You must be a player in game {game_id} to link a channel."
             )
@@ -91,11 +90,8 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     game_id = args[0]
     
     try:
-        # Verify user is in the game or is admin
         user_id = str(user.id)
-        user_in_game = any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id))
-        
-        if not user_in_game and user_id != "8019538":  # Admin check
+        if not any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id)):
             await update.message.reply_text(
                 f"You must be a player in game {game_id} to unlink a channel."
             )

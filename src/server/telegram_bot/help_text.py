@@ -68,28 +68,28 @@ RULES_TEXT = f"""
 • Eliminate other powers to win
 
 *📝 Order Types:*
-• **Move:** `A PAR - BUR` (Army Paris moves to Burgundy)
-• **Hold:** `A PAR H` (Army Paris holds position)
-• **Support:** `A MAR S A PAR - BUR` (Army Marseilles supports Paris → Burgundy)
-• **Convoy:** `F NTH C A LON - BEL` (Fleet North Sea convoys London → Belgium)
-• **Move via Convoy:** `A LON - BEL VIA CONVOY` (Army moves via convoy chain)
+• *Move:* `A PAR - BUR` (Army Paris moves to Burgundy)
+• *Hold:* `A PAR H` (Army Paris holds position)
+• *Support:* `A MAR S A PAR - BUR` (Army Marseilles supports Paris → Burgundy)
+• *Convoy:* `F NTH C A LON - BEL` (Fleet North Sea convoys London → Belgium)
+• *Move via Convoy:* `A LON - BEL VIA CONVOY` (Army moves via convoy chain)
 
 *🏗️ Build Phase Orders:*
-• **Build:** `BUILD A PAR` (Build an army in Paris)
-• **Build on a coast:** `BUILD F STP/SC` (Naming the coast is required)
-• **Disband:** `D A MUN` (Disband the army in Munich)
-• **Waive:** `WAIVE` (Skip an available build)
+• *Build:* `BUILD A PAR` (Build an army in Paris)
+• *Build on a coast:* `BUILD F STP/SC` (Naming the coast is required)
+• *Disband:* `D A MUN` (Disband the army in Munich)
+• *Waive:* `WAIVE` (Skip an available build)
 
 *↩️ Retreat Phase Orders:*
-• **Retreat:** `A MUN R SIL` (Retreat the dislodged army in Munich to Silesia)
-• **Disband:** `D A MUN` (Disband instead of retreating)
+• *Retreat:* `A MUN R SIL` (Retreat the dislodged army in Munich to Silesia)
+• *Disband:* `D A MUN` (Disband instead of retreating)
 
 {ORDER_FORMAT_NOTES}
 
 *🔄 Game Phases:*
-• **Movement** (Spring/Autumn): Submit movement, support, convoy orders
-• **Retreat**: Retreat dislodged units to adjacent provinces, or disband
-• **Builds**: Build, disband, or waive based on supply center control
+• *Movement* (Spring/Autumn): Submit movement, support, convoy orders
+• *Retreat*: Retreat dislodged units to adjacent provinces, or disband
+• *Builds*: Build, disband, or waive based on supply center control
 
 *💡 Tips:*
 • Units can't move into occupied provinces (except with support)
@@ -135,11 +135,11 @@ Separate multiple orders with semicolons:
 • `A PAR - BUR; F BRE - ENG; A MAR H`
 
 *💡 Common Patterns:*
-• **Attack:** `A VIE - TRI`
-• **Defend:** `A VIE H`
-• **Support Attack:** `A BUD S A VIE - TRI`
-• **Support Defense:** `A BUD S A VIE`
-• **Convoy Attack:** `F NTH C A LON - BEL` + `A LON - BEL VIA CONVOY`
+• *Attack:* `A VIE - TRI`
+• *Defend:* `A VIE H`
+• *Support Attack:* `A BUD S A VIE - TRI`
+• *Support Defense:* `A BUD S A VIE`
+• *Convoy Attack:* `F NTH C A LON - BEL` + `A LON - BEL VIA CONVOY`
 
 *🗺️ Province codes:* the first three letters of the name, almost always —
 Berlin `BER`, Munich `MUN`, Marseilles `MAR`. The exceptions worth knowing are

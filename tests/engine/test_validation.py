@@ -107,6 +107,14 @@ class TestMove:
         assert result.ok is False
 
 
+    @pytest.mark.parametrize(("origin", "dest", "inland"), [("MUN", "BEL", "MUN"), ("LON", "MUN", "MUN")])
+    def test_a_convoyed_army_must_embark_and_land_on_a_coast(self, m, origin, dest, inland):
+        state = _state([Unit(UnitKind.ARMY, "ENGLAND", Location(origin))])
+        result = validate(Move("ENGLAND", Location(origin), Location(dest), via_convoy=True), state, m)
+        assert result.ok is False
+        assert result.reason.startswith(f"{inland} is not coastal")
+
+
 class TestSupport:
     def test_support_hold_in_range_ok(self, m):
         state = _state(
@@ -165,6 +173,16 @@ class TestConvoy:
         result = validate(order, state, m)
         assert result.ok is False
 
+    def test_convoy_to_an_inland_province_rejected(self, m):
+        state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))])
+        result = validate(Convoy("ENGLAND", Location("NTH"), Location("LON"), Location("MUN")), state, m)
+        assert (result.ok, result.reason) == (False, "MUN is not a coastal province")
+
+    def test_a_fleet_on_a_coast_cannot_convoy(self, m):
+        state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("LON"))])
+        result = validate(Convoy("ENGLAND", Location("LON"), Location("YOR"), Location("BEL")), state, m)
+        assert (result.ok, result.reason) == (False, "a convoying fleet must be in a sea space")
+
 
 class TestRetreat:
     def test_retreat_ok(self, m):
@@ -193,6 +211,20 @@ class TestRetreat:
         result = validate(order, state, m)
         assert result.ok is False
 
+    def test_retreating_another_powers_unit_rejected(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("PAR")), retreats=(Location("BUR"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(Retreat("GERMANY", Location("PAR"), Location("BUR")), state, m)
+        assert (result.ok, result.reason) == (False, "unit at PAR belongs to FRANCE, not GERMANY")
+
+    def test_a_fleet_retreating_to_a_split_coast_must_name_the_legal_coast(self, m):
+        du = DislodgedUnit(Unit(UnitKind.FLEET, "RUSSIA", Location("BOT")), retreats=(Location("STP", "SC"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        bare = validate(Retreat("RUSSIA", Location("BOT"), Location("STP")), state, m)
+        assert (bare.ok, bare.reason) == (False, "fleet retreat into split-coast STP must name a coast")
+        assert validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "NC")), state, m).ok is False
+        assert validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "SC")), state, m).ok is True
+
 
 class TestDisband:
     def test_disband_retreat_phase(self, m):
@@ -212,6 +244,17 @@ class TestDisband:
         )
         order = Disband("FRANCE", Location("PAR"))
         assert validate(order, state, m).ok is True
+
+    @pytest.mark.parametrize("phase_type", [PhaseType.RETREAT, PhaseType.ADJUSTMENT])
+    def test_disbanding_nothing_rejected(self, m, phase_type):
+        state = _state([Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))], phase_type=phase_type)
+        result = validate(Disband("FRANCE", Location("MAR")), state, m)
+        assert (result.ok, result.reason) == (False, "no unit to disband at MAR")
+
+    def test_disbanding_another_powers_unit_rejected(self, m):
+        state = _state([Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))], phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Disband("FRANCE", Location("MUN")), state, m)
+        assert (result.ok, result.reason) == (False, "unit at MUN belongs to GERMANY, not FRANCE")
 
 
 class TestBuild:
@@ -257,6 +300,11 @@ class TestBuild:
         result = validate(order, state, m)
         assert result.ok is False
         assert "landlocked" in result.reason
+
+    def test_build_fleet_naming_a_coast_the_province_lacks_rejected(self, m):
+        state = self._state([], ownership={"BRE": "FRANCE"})
+        result = validate(Build("FRANCE", Location("BRE", "NC"), UnitKind.FLEET), state, m)
+        assert (result.ok, result.reason) == (False, "BRE has no coasts to choose from")
 
 
 class TestWaive:

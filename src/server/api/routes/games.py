@@ -592,17 +592,6 @@ async def process_turn(
     }
 
 
-@router.post("/games/{game_id}/start")
-def start_game(game_id: str) -> Dict[str, Any]:
-    """No-op start: the new engine has no lobby/Pregame — a created game is already
-    at S1901M. Kept for API compatibility; returns the current opening phase."""
-    view = game_service.view(game_id)
-    if view is None:
-        raise HTTPException(status_code=404, detail="Game not found")
-    invalidate_cache(f"games/{game_id}")
-    return {"status": "ok", "phase": "Movement", "phase_code": view["phase"]}
-
-
 @router.get("/games/{game_id}/state")
 @cached_response(ttl=30, key_params=["game_id"])
 def get_game_state(game_id: str) -> Dict[str, Any]:
@@ -976,6 +965,9 @@ def join_game(
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
         invalidate_cache(f"games/{str(game_id)}")
+        if telegram_id_val:
+            # The bot resolves "which game am I in" from this list right after a join.
+            invalidate_cache(f"users/{telegram_id_val}")
         return {"status": "ok", "player_id": player_id}
     except HTTPException:
         raise

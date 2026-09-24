@@ -720,8 +720,20 @@ class GameService:
         pending orders (see ``GameRepo.restore_state``): whatever was pending was
         submitted against the phase being discarded.
         """
-        state_from_dict(state_json)  # raises ValueError if malformed; result unused
+        self.check_state_json(state_json)
         self._repo.restore_state(game_id, state_json, phase_code=phase_code)
+
+    @staticmethod
+    def check_state_json(state_json: dict[str, Any]) -> None:
+        """Raise ``ValueError`` unless ``state_json`` parses as a ``GameState``.
+
+        ``state_from_dict`` reports a missing field as ``KeyError`` and a wrongly
+        typed one as ``TypeError``; callers only need to know the payload is bad.
+        """
+        try:
+            state_from_dict(state_json)
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(f"not a game state ({type(e).__name__}: {e})") from e
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,8 @@ from datetime import datetime, timezone, timedelta
 
 from server.api import app
 
+BOT = {"X-Bot-Secret": "test_bot_secret_for_tests"}
+
 
 @pytest.fixture
 def client():
@@ -75,12 +77,21 @@ def sample_analytics_summary():
 class TestChannelAnalyticsEndpoints:
     """Test channel analytics API routes."""
 
+    @pytest.mark.parametrize("suffix", ["", "/summary", "/engagement", "/players"])
+    @patch("server.api.routes.channels.db_service")
+    def test_anonymous_callers_learn_nothing_about_a_group(self, mock_db, client, suffix):
+        """These return the group's chat id and its members' activity."""
+        mock_db.get_game_by_game_id.return_value = None
+        resp = client.get(f"/games/game_1/channel/analytics{suffix}")
+        assert resp.status_code == 403
+        mock_db.get_game_channel_info.assert_not_called()
+
     @patch("server.api.routes.channels.db_service")
     def test_get_analytics_returns_404_when_game_not_linked(
         self, mock_db, client, mock_channel_info
     ):
         mock_db.get_game_channel_info.return_value = None
-        resp = client.get("/games/game_99/channel/analytics")
+        resp = client.get("/games/game_99/channel/analytics", headers=BOT)
         assert resp.status_code == 404
         mock_db.get_channel_analytics.assert_not_called()
 
@@ -90,7 +101,7 @@ class TestChannelAnalyticsEndpoints:
     ):
         mock_db.get_game_channel_info.return_value = mock_channel_info
         mock_db.get_channel_analytics.return_value = sample_analytics_events
-        resp = client.get("/games/game_1/channel/analytics")
+        resp = client.get("/games/game_1/channel/analytics", headers=BOT)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -110,6 +121,7 @@ class TestChannelAnalyticsEndpoints:
         resp = client.get(
             "/games/game_1/channel/analytics",
             params={"event_type": "message_posted", "channel_id": "-1001234567890"},
+            headers=BOT,
         )
         assert resp.status_code == 200
         mock_db.get_channel_analytics.assert_called_once()
@@ -120,7 +132,7 @@ class TestChannelAnalyticsEndpoints:
     @patch("server.api.routes.channels.db_service")
     def test_get_analytics_summary_returns_404_when_not_linked(self, mock_db, client):
         mock_db.get_game_channel_info.return_value = None
-        resp = client.get("/games/game_99/channel/analytics/summary")
+        resp = client.get("/games/game_99/channel/analytics/summary", headers=BOT)
         assert resp.status_code == 404
         mock_db.get_channel_analytics_summary.assert_not_called()
 
@@ -130,7 +142,7 @@ class TestChannelAnalyticsEndpoints:
     ):
         mock_db.get_game_channel_info.return_value = mock_channel_info
         mock_db.get_channel_analytics_summary.return_value = sample_analytics_summary
-        resp = client.get("/games/game_1/channel/analytics/summary")
+        resp = client.get("/games/game_1/channel/analytics/summary", headers=BOT)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -145,7 +157,7 @@ class TestChannelAnalyticsEndpoints:
     ):
         mock_db.get_game_channel_info.return_value = mock_channel_info
         mock_db.get_channel_analytics_summary.return_value = sample_analytics_summary
-        resp = client.get("/games/game_1/channel/analytics/engagement")
+        resp = client.get("/games/game_1/channel/analytics/engagement", headers=BOT)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -162,7 +174,7 @@ class TestChannelAnalyticsEndpoints:
     @patch("server.api.routes.channels.db_service")
     def test_get_player_activity_stats_returns_404_when_not_linked(self, mock_db, client):
         mock_db.get_game_channel_info.return_value = None
-        resp = client.get("/games/game_99/channel/analytics/players")
+        resp = client.get("/games/game_99/channel/analytics/players", headers=BOT)
         assert resp.status_code == 404
 
     @patch("server.api.routes.channels.db_service")
@@ -173,12 +185,15 @@ class TestChannelAnalyticsEndpoints:
         player_events = [e for e in sample_analytics_events if e["event_type"] == "player_activity"]
         mock_db.get_game_channel_info.return_value = mock_channel_info
         mock_db.get_channel_analytics.return_value = player_events
-        resp = client.get("/games/game_1/channel/analytics/players")
+        resp = client.get("/games/game_1/channel/analytics/players", headers=BOT)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert "players" in data
-        assert data["player_count"] >= 0
+        assert data["player_count"] == 1
+        assert data["players"] == [{
+            "user_id": 42, "power": "FRANCE", "activity_count": 1,
+            "last_activity": player_events[0]["created_at"],
+        }]
         mock_db.get_channel_analytics.assert_called_once()
         call_kw = mock_db.get_channel_analytics.call_args[1]
         assert call_kw["event_type"] == "player_activity"

@@ -248,8 +248,8 @@ class TestNotifyGameProcessed:
     async def test_no_sessions_on_the_game_is_a_no_op(self, service: GameService) -> None:
         gid = _new_game(service)
         server = DaideServer(service, game_id=gid)
-        # No exception, nothing to assert beyond "doesn't crash".
-        await server.notify_game_processed(gid)
+        # Nothing to notify; it must simply return rather than raise.
+        assert await server.notify_game_processed(gid) is None
 
 
 # ---------------------------------------------------------------------------

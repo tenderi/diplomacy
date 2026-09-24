@@ -80,6 +80,6 @@ class TestDeadlineNeedsAPlayer:
 
 class TestSessionRoutesAreGone:
     def test_register_and_session_read_are_404(self, client):
-        assert client.post("/users/register", json={"telegram_id": "x", "game_id": "1", "power": "FRANCE"}).status_code in (404, 405)
+        assert client.post("/users/register", json={"telegram_id": "x", "game_id": "1", "power": "FRANCE"}).status_code == 404
         # /users/{telegram_id} used to be the session read; nothing routes there now.
-        assert client.get("/users/whoever").status_code in (404, 405)
+        assert client.get("/users/whoever").status_code == 404

@@ -116,12 +116,12 @@ class TestDeadlineCommand:
     @patch('server.telegram_bot.game_context.api_get')
     def test_bad_hours_is_usage_not_a_post(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = _ONE_GAME
-        for bad in (["1", "soon"], ["1", "0"], ["1", "-3"], ["1", "10000"]):
+        for bad, reply in ((["1", "soon"], "Usage:"), (["1", "0"], "Hours must be"),
+                           (["1", "-3"], "Hours must be"), (["1", "10000"], "Hours must be")):
             update, context, message = _make_update_and_context(args=bad)
             asyncio.run(deadline(update, context))
             mock_post.assert_not_called()
-            text = message.reply_text.call_args[0][0]
-            assert "Usage" in text or "Hours must be" in text
+            assert message.reply_text.call_args[0][0].startswith(reply), bad
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')

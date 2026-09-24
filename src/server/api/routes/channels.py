@@ -291,9 +291,9 @@ def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dic
         # `_`/`*`/`` ` ``/`[` in it 400s the whole send.
         safe_message = escape_markdown(req.message)
         if req.power:
-            formatted = f"📢 **{req.power}** → All Powers\n\n{safe_message}"
+            formatted = f"📢 *{req.power}* → All Powers\n\n{safe_message}"
         else:
-            formatted = f"📢 **PUBLIC BROADCAST**\n\n{safe_message}"
+            formatted = f"📢 *PUBLIC BROADCAST*\n\n{safe_message}"
 
         outbox_id = db_service.enqueue_bot_notification(
             channel_id, formatted, kind="channel_text",
@@ -349,7 +349,7 @@ def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) ->
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/games/{game_id}/channel/timeline")
+@router.get("/games/{game_id}/channel/timeline", dependencies=[Depends(require_game_player_or_bot)])
 def get_timeline(game_id: str) -> Dict[str, Any]:
     """Get historical timeline for the game."""
     try:
@@ -503,7 +503,7 @@ def post_battle_results(game_id: str) -> Dict[str, Any]:
 
 
 # --- Analytics Endpoints ---
-@router.get("/games/{game_id}/channel/analytics")
+@router.get("/games/{game_id}/channel/analytics", dependencies=[Depends(require_game_player_or_bot)])
 def get_channel_analytics(
     game_id: str,
     channel_id: Optional[str] = None,
@@ -551,7 +551,7 @@ def get_channel_analytics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/games/{game_id}/channel/analytics/summary")
+@router.get("/games/{game_id}/channel/analytics/summary", dependencies=[Depends(require_game_player_or_bot)])
 def get_channel_analytics_summary(
     game_id: str,
     channel_id: Optional[str] = None,
@@ -595,7 +595,7 @@ def get_channel_analytics_summary(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/games/{game_id}/channel/analytics/engagement")
+@router.get("/games/{game_id}/channel/analytics/engagement", dependencies=[Depends(require_game_player_or_bot)])
 def get_channel_engagement_metrics(
     game_id: str,
     channel_id: Optional[str] = None,
@@ -673,7 +673,7 @@ def get_channel_engagement_metrics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/games/{game_id}/channel/analytics/players")
+@router.get("/games/{game_id}/channel/analytics/players", dependencies=[Depends(require_game_player_or_bot)])
 def get_player_activity_stats(
     game_id: str,
     channel_id: Optional[str] = None,

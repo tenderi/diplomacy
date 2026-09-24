@@ -44,15 +44,20 @@ class MapCache:
         phase_info: dict | None = None,
         orders: dict | None = None,
         moves: dict | None = None,
+        supply_center_control: dict | None = None,
+        color_only_supply_centers: bool = False,
     ) -> str:
-        """Generate a unique cache key for map parameters."""
-        # Create a deterministic hash of all parameters
+        """Generate a unique cache key for map parameters: everything that changes
+        the picture. Centre ownership belongs here -- it outlives occupancy, so two
+        boards can share every unit and the phase and still colour differently."""
         key_data = {
             "svg_path": svg_path,
             "units": units,
             "phase_info": phase_info,
             "orders": orders,
-            "moves": moves
+            "moves": moves,
+            "supply_center_control": supply_center_control,
+            "color_only_supply_centers": color_only_supply_centers,
         }
 
         # Convert to JSON string and hash

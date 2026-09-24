@@ -103,9 +103,8 @@ class TestPersistentUserRegistration:
             "/users/persistent_register",
             json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "", "full_name": "Test User"}
         )
-        assert response.status_code in (400, 422)
-        detail = str(response.json().get("detail", "")).lower()
-        assert "required" in detail or "empty" in detail or "telegram_id" in detail
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["msg"].endswith("telegram_id is required and cannot be empty or whitespace")
 
     def test_register_user_whitespace_only_telegram_id(self):
         """Test registration fails with whitespace-only telegram_id."""
@@ -113,7 +112,7 @@ class TestPersistentUserRegistration:
             "/users/persistent_register",
             json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "   ", "full_name": "Test User"}
         )
-        assert response.status_code in (400, 422)
+        assert response.status_code == 422
     
     def test_register_multiple_different_users(self):
         """Test registering multiple different users."""
@@ -198,5 +197,5 @@ class TestUserRegistrationErrorHandling:
             headers={"Content-Type": "text/plain"}
         )
         # FastAPI should handle this gracefully
-        assert response.status_code in [422, 400]
+        assert response.status_code == 422
 

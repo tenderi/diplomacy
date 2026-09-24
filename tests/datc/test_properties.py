@@ -6,7 +6,7 @@ this order-dependence, so it is the invariant most worth pinning.
 
 Other invariants: at most one unit per province after resolution, unit
 conservation (nothing is created or lost — every unit either survives or is
-dislodged), and every dislodged unit has a computed (possibly empty) retreat set.
+dislodged), and every retreat offered to a dislodged unit is one the rules allow.
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ from engine.types import (
     ProvinceType,
     Retreat,
     Season,
+    SupportHold,
+    SupportMove,
     Unit,
     UnitKind,
 )
@@ -43,22 +45,44 @@ _ARMY_PROVS = sorted(
 
 
 def _random_army_position(seed: int, n: int) -> tuple[list[Unit], list]:
-    """Build ``n`` armies on distinct provinces with random hold/move orders."""
+    """``n`` armies on a connected cluster of provinces (so they interact), each
+    given a random hold, move, support-hold or support-move order. Supports are
+    geometrically possible but need not match what the supported unit does --
+    a mismatched support is legal and simply doesn't count."""
     rng = random.Random(seed)
-    provs = rng.sample(_ARMY_PROVS, n)
+    cluster = [rng.choice(_ARMY_PROVS)]
+    while len(cluster) < n:
+        frontier = sorted({d for p in cluster for d in _MAP.army_moves(p)} - set(cluster))
+        if not frontier:
+            break
+        cluster.append(rng.choice(frontier))
     powers = ["FRANCE", "GERMANY", "ITALY", "RUSSIA", "AUSTRIA"]
-    units: list[Unit] = []
+    owner = {prov: powers[rng.randrange(len(powers))] for prov in cluster}
+    units = [Unit(UnitKind.ARMY, owner[prov], Location(prov)) for prov in cluster]
+    role = {prov: rng.choices(["move", "support", "hold"], weights=[45, 40, 15])[0] for prov in cluster}
+    moves: dict[str, str] = {}
+    for prov in cluster:
+        reach = sorted(_MAP.army_moves(prov))
+        if role[prov] == "move" and reach:
+            attacks = [p for p in reach if p in owner]
+            moves[prov] = rng.choice(attacks) if attacks and rng.random() < 0.7 else rng.choice(reach)
     orders: list = []
-    for i, prov in enumerate(provs):
-        power = powers[i % len(powers)]
-        unit = Unit(UnitKind.ARMY, power, Location(prov))
-        units.append(unit)
-        dests = sorted(_MAP.army_moves(prov))
-        if dests and rng.random() < 0.75:
-            dest = rng.choice(dests)
-            orders.append(Move(power, Location(prov), Location(dest)))
+    for prov in cluster:
+        power, here, reach = owner[prov], Location(prov), _MAP.army_moves(prov)
+        if prov in moves:
+            orders.append(Move(power, here, Location(moves[prov])))
+        elif role[prov] == "support":
+            backable = [(o, d) for o, d in moves.items() if d in reach and d != prov and o != prov]
+            holders = sorted(p for p in cluster if p in reach and p not in moves)
+            if backable and rng.random() < 0.8:
+                origin, dest = rng.choice(sorted(backable))
+                orders.append(SupportMove(power, here, Location(origin), Location(dest)))
+            elif holders:
+                orders.append(SupportHold(power, here, Location(rng.choice(holders))))
+            else:
+                orders.append(Hold(power, here))
         else:
-            orders.append(Hold(power, Location(prov)))
+            orders.append(Hold(power, here))
     return units, orders
 
 
@@ -110,15 +134,24 @@ def test_unit_conservation(seed, n):
 
 @settings(max_examples=200, deadline=None)
 @given(seed=st.integers(min_value=0, max_value=10_000), n=st.integers(min_value=2, max_value=8))
-def test_dislodged_units_have_retreat_sets(seed, n):
+def test_retreat_options_obey_the_retreat_rules(seed, n):
+    """Every offered retreat is adjacent, empty after the moves, not a standoff
+    province, and not where the attacker came from; the resolution and the
+    state's dislodged record offer the same set."""
     units, orders = _random_army_position(seed, n)
-    resolution, _ = adjudicate_movement(_MAP, _state(units), list(orders))
-    for r in resolution.results:
-        if r.dislodged:
-            # retreat_options is always a (possibly empty) tuple of Locations.
-            assert isinstance(r.retreat_options, tuple)
-            for loc in r.retreat_options:
-                assert isinstance(loc, Location)
+    resolution, new_state = adjudicate_movement(_MAP, _state(units), list(orders))
+    occupied = {u.province for u in new_state.units}
+    by_province = {d.unit.province: d for d in new_state.dislodged}
+    dislodged_results = [r for r in resolution.results if r.dislodged]
+    assert len(dislodged_results) == len(by_province)
+    for r in dislodged_results:
+        record = by_province[r.order.unit.province]
+        assert set(r.retreat_options) == set(record.retreats)
+        for loc in record.retreats:
+            assert loc.province in _MAP.army_moves(record.unit.province)
+            assert loc.province not in occupied
+            assert loc.province not in new_state.contested
+            assert loc.province != record.attacker_origin
 
 
 @settings(max_examples=200, deadline=None)

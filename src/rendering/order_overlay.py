@@ -221,3 +221,20 @@ def resolution_dict_to_viz(
         if viz is not None:
             out.setdefault(group[0][0].power, []).append(viz)
     return out
+
+
+def standoff_provinces(resolution: dict[str, Any]) -> list[str]:
+    """Provinces where a standoff happened: two or more moves into them, none of which
+    succeeded. Read from the persisted resolution, because the engine keeps its own
+    ``contested`` set only through a retreat phase -- after an ordinary turn it is
+    already empty, and the resolution map lost every standoff (Spring 1901's PAR/MUN
+    bounce in BUR among them)."""
+    moves_by_dest: dict[str, list[ResultCode]] = {}
+    for result_dict in resolution.get("results", []):
+        order = order_from_dict(result_dict["order"])
+        if isinstance(order, Move):
+            moves_by_dest.setdefault(order.dest.province, []).append(ResultCode(result_dict["result"]))
+    return sorted(
+        dest for dest, codes in moves_by_dest.items()
+        if len(codes) >= 2 and ResultCode.OK not in codes
+    )

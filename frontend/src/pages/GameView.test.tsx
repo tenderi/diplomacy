@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, within, waitFor, fireEvent, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AuthContext } from '@/contexts/AuthContext'
@@ -38,82 +38,6 @@ const mockAuth = {
   logout: vi.fn(),
   refreshUser: vi.fn(),
 }
-
-const franceUnits = [{ kind: 'A', power: 'FRANCE', location: 'PAR' }]
-const minimalGameState = {
-  game_id: '1',
-  map_name: 'standard',
-  phase: 'S1901M',
-  year: 1901,
-  season: 'SPRING',
-  phase_type: 'MOVEMENT',
-  status: 'ACTIVE',
-  units: franceUnits,
-  units_by_power: { FRANCE: franceUnits },
-  ownership: { PAR: 'FRANCE' },
-  supply_centers: { PAR: 'FRANCE' },
-  dislodged: [],
-  contested: [],
-  players: { FRANCE: { user_id: 1, is_active: true } },
-  orders: {},
-}
-
-describe('GameView', () => {
-  const mockPlayers = [
-    { power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' },
-  ]
-
-  beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) => {
-        if (url.includes('/state'))
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve(minimalGameState),
-            text: () => Promise.resolve(JSON.stringify(minimalGameState)),
-          } as Response)
-        if (url.includes('/players'))
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve(mockPlayers),
-            text: () => Promise.resolve(JSON.stringify(mockPlayers)),
-          } as Response)
-        if (url.includes('/orders/'))
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ orders: [] }),
-            text: () => Promise.resolve('{"orders":[]}'),
-          } as Response)
-        if (url.includes('legal_orders'))
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ orders: ['FRANCE A PAR H', 'FRANCE A PAR - BUR'] }),
-            text: () => Promise.resolve('{"orders":["FRANCE A PAR H","FRANCE A PAR - BUR"]}'),
-          } as Response)
-        if (url.includes('/messages'))
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ messages: [] }),
-            text: () => Promise.resolve('{"messages":[]}'),
-          } as Response)
-        return Promise.resolve({ ok: false, status: 401 })
-      })
-    )
-  })
-
-  it('renders and shows loading initially', () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={['/games/1']}>
-        <AuthContext.Provider value={mockAuth}>
-          <GameView />
-        </AuthContext.Provider>
-      </MemoryRouter>
-    )
-    expect(within(container).getByText(/loading/i)).toBeInTheDocument()
-  })
-
-})
 
 /** Build a `fetch` stub keyed on the pieces GameView needs: /state, /players, /orders,
  * /messages, and the single GET /games/{id}/legal_orders/{power} response from PR2. */
@@ -1134,5 +1058,96 @@ describe('GameView — results panel (E4)', () => {
         '/games/10/map/resolution?'
       )
     })
+  })
+})
+
+/** Wrap a GET stub so every POST is recorded ({url, body}) and answered with `answer`. */
+function recordingPosts(base: ReturnType<typeof stubFetchActive>, answer: (url: string) => unknown = () => ({ status: 'ok' })) {
+  const posts: { url: string; body: Record<string, unknown> }[] = []
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') {
+      posts.push({ url, body: JSON.parse(String(init.body ?? '{}')) })
+      return jsonResponse(answer(url))
+    }
+    return base(url, init)
+  })
+  return { posts, fetchMock }
+}
+
+function renderGame10() {
+  return render(
+    <MemoryRouter initialEntries={['/games/10']}>
+      <AuthContext.Provider value={mockAuth}>
+        <Routes>
+          <Route path="/games/:gameId" element={<GameView />} />
+        </Routes>
+      </AuthContext.Provider>
+    </MemoryRouter>
+  )
+}
+
+describe('GameView — player actions', () => {
+  it('submits typed orders (the fallback when legal orders cannot be listed) as the whole set', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const { posts, fetchMock } = recordingPosts(
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/legal_orders/') ? jsonResponse({ detail: 'Not Found' }, 404) : base(url, init)
+      ) as unknown as ReturnType<typeof stubFetchActive>,
+      () => ({ results: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'A PAR - BUR\n\n   F BRE H  \n' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({
+      url: '/api/games/set_orders',
+      body: { game_id: '10', power: 'FRANCE', orders: ['A PAR - BUR', 'F BRE H'] },
+    })
+  })
+
+  it.each([
+    ['Quit (step away)', /^quit$/i, '/games/10/quit'],
+    ['Concede', /^concede$/i, '/games/10/concede'],
+  ])('%s asks first, then acts only for your own power', async (opener, confirm, endpoint) => {
+    const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, francePlayers))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('button', { name: opener }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(posts).toEqual([])
+    fireEvent.click(within(dialog).getByRole('button', { name: confirm }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ url: `/api${endpoint}`, body: { power: 'FRANCE' } })
+  })
+
+  it('sends a broadcast and reloads the message list', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const { posts, fetchMock } = recordingPosts(base)
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('checkbox'))
+    fireEvent.change(within(container).getByPlaceholderText('Type a message...'), { target: { value: '  Peace in our time  ' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ url: '/api/games/10/broadcast', body: { text: 'Peace in our time' } })
+    await waitFor(() => expect(within(container).getByPlaceholderText('Type a message...')).toHaveValue(''))
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/games/10/messages')).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('a refused action shows the server\'s reason', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
+      init?.method === 'POST' ? jsonResponse({ detail: 'You are not authorized to act for this power.' }, 403) : base(url, init)
+    ))
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('button', { name: 'Concede' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: /^concede$/i }))
+    expect(await within(container).findByText('You are not authorized to act for this power.')).toBeInTheDocument()
   })
 })

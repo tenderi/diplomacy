@@ -54,7 +54,6 @@ from .arrows import (
     _draw_dashed_line,
     _draw_dotted_line,
     _draw_failure_x,
-    _draw_star,
     _draw_success_checkmark,
     _draw_support_cut_indicator,
 )
@@ -80,7 +79,6 @@ from .legend import _draw_legend, _draw_mini_arrow, _draw_mini_checkmark, _draw_
 from .overlays import (
     _draw_build_order,
     _draw_comprehensive_order_visualization,
-    _draw_conflict_marker,
     _draw_convoy_order,
     _draw_destroy_order,
     _draw_hold_order,
@@ -95,8 +93,6 @@ from .svg_paths import (
     _color_provinces_by_power_with_transparency,
     _draw_ocean_pattern,
     _extract_polygon_points_from_path,
-    _fill_svg_path,
-    _fill_svg_path_direct,
     _fill_svg_path_with_transform,
 )
 
@@ -134,8 +130,6 @@ class Map:
     _extract_polygon_points_from_path = staticmethod(_extract_polygon_points_from_path)
     _fill_svg_path_with_transform = staticmethod(_fill_svg_path_with_transform)
     _draw_ocean_pattern = staticmethod(_draw_ocean_pattern)
-    _fill_svg_path_direct = staticmethod(_fill_svg_path_direct)
-    _fill_svg_path = staticmethod(_fill_svg_path)
 
     # -- Cache (rendering.cache) --
     get_cache_stats = staticmethod(get_cache_stats)
@@ -150,7 +144,6 @@ class Map:
     _draw_build_order = staticmethod(_draw_build_order)
     _draw_destroy_order = staticmethod(_draw_destroy_order)
     _draw_retreat_order = staticmethod(_draw_retreat_order)
-    _draw_conflict_marker = staticmethod(_draw_conflict_marker)
     _draw_standoff_indicator = staticmethod(_draw_standoff_indicator)
     render_board_png_orders = staticmethod(render_board_png_orders)
     render_board_png_resolution = staticmethod(render_board_png_resolution)
@@ -160,7 +153,6 @@ class Map:
     _draw_success_checkmark = staticmethod(_draw_success_checkmark)
     _draw_failure_x = staticmethod(_draw_failure_x)
     _draw_support_cut_indicator = staticmethod(_draw_support_cut_indicator)
-    _draw_star = staticmethod(_draw_star)
     _draw_arrow = staticmethod(_draw_arrow)
     _draw_circle = staticmethod(_draw_circle)
     _draw_circle_at_size = staticmethod(_draw_circle_at_size)

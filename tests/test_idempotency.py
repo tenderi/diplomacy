@@ -96,7 +96,7 @@ def test_a_4xx_is_stored_and_replayed_a_5xx_is_not(client):
     r1 = client.post(f"/games/{game_id}/broadcast",
                      json={"telegram_id": "999999999", "bot_secret": SECRET, "text": "x"},
                      headers={**BOT, "Idempotency-Key": key})
-    assert r1.status_code in (401, 403), r1.text
+    assert r1.status_code == 401, r1.text
     r2 = client.post(f"/games/{game_id}/broadcast",
                      json={"telegram_id": "999999999", "bot_secret": SECRET, "text": "x"},
                      headers={**BOT, "Idempotency-Key": key})
