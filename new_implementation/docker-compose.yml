@@ -29,6 +29,9 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: always
+    # A process can't gain privileges it didn't start with (setuid binaries).
+    security_opt:
+      - no-new-privileges:true
 
   diplomacy_api:
     build:
@@ -37,6 +40,8 @@ services:
     environment:
       - SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy:${POSTGRES_PASSWORD}@postgres:5432/diplomacy_db
       - DIPLOMACY_ENVIRONMENT=production
+      # No public Swagger/ReDoc/OpenAPI schema (src/server/_api_module.py).
+      - DIPLOMACY_API_DOCS=0
       - DIPLOMACY_JWT_SECRET=${DIPLOMACY_JWT_SECRET:?set DIPLOMACY_JWT_SECRET in .env}
       - DIPLOMACY_ADMIN_TOKEN=${DIPLOMACY_ADMIN_TOKEN:?set DIPLOMACY_ADMIN_TOKEN in .env}
       # The same value the bot sends as X-Bot-Secret; both read it from this .env.
@@ -72,6 +77,12 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: always
+    # A process can't gain privileges it didn't start with (setuid binaries).
+    security_opt:
+      - no-new-privileges:true
+    # Runs as the unprivileged `app` user and needs no Linux capabilities.
+    cap_drop:
+      - ALL
 
   diplomacy_bot:
     build:
@@ -99,6 +110,12 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: always
+    # A process can't gain privileges it didn't start with (setuid binaries).
+    security_opt:
+      - no-new-privileges:true
+    # Runs as the unprivileged `app` user and needs no Linux capabilities.
+    cap_drop:
+      - ALL
 
   diplomacy_web:
     build:
@@ -120,6 +137,9 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: always
+    # A process can't gain privileges it didn't start with (setuid binaries).
+    security_opt:
+      - no-new-privileges:true
 
   caddy:
     # HTTPS for the site: only started when DOMAIN is set in .env, because
@@ -147,6 +167,9 @@ services:
         max-size: "10m"
         max-file: "3"
     restart: always
+    # A process can't gain privileges it didn't start with (setuid binaries).
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pg_data:

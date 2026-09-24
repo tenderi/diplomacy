@@ -5,6 +5,7 @@ This module provides shared instances and utilities that are used across
 multiple route modules to avoid circular imports and ensure consistency.
 """
 import asyncio
+import hmac
 import logging
 import math
 import os
@@ -82,6 +83,23 @@ if ADMIN_TOKEN == _ADMIN_TOKEN_DEFAULT:
 
 # Bot secret: used to authenticate Telegram bot calls that use telegram_id instead of Bearer token
 BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
+
+
+def _matches(supplied: Optional[str], expected: str) -> bool:
+    """Constant-time comparison of a supplied secret; an unset one never matches."""
+    if not supplied or not expected:
+        return False
+    return hmac.compare_digest(supplied.encode(), expected.encode())
+
+
+def is_admin_token(supplied: Optional[str]) -> bool:
+    """Is ``supplied`` the admin token? Every admin check goes through here."""
+    return _matches(supplied, ADMIN_TOKEN)
+
+
+def is_bot_secret(supplied: Optional[str]) -> bool:
+    """Is ``supplied`` the bot secret? Every bot-secret check goes through here."""
+    return _matches(supplied, BOT_SECRET)
 
 # Per-game asyncio locks to prevent concurrent PROCESS_TURN calls
 _process_turn_locks: Dict[str, asyncio.Lock] = {}

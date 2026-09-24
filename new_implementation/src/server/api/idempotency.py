@@ -35,6 +35,7 @@ through ``run_in_threadpool`` so the sync DAL does not stall the event loop.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Any, Callable, Optional
@@ -69,7 +70,8 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if len(key) > MAX_KEY_LENGTH:
             return None
         secret = self._get_secret()
-        if not secret or request.headers.get("X-Bot-Secret") != secret:
+        supplied = request.headers.get("X-Bot-Secret")
+        if not secret or not supplied or not hmac.compare_digest(supplied.encode(), secret.encode()):
             return None
         return key
 
