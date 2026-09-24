@@ -147,6 +147,8 @@ HELP_TEXT = f"""
 • `/deadline <game_id> propose <hours|clear> [vote_hours]` - Start a majority vote to change it instead
 • `/deadline <game_id> vote <yes|no>` - Vote on a pending deadline proposal
 • `/dummy <game_id> <power> [off]` - Game creator: leave an empty seat to civil disorder, or reopen it
+• `/autoprocess <game_id> on|off` - Process each turn as soon as all orders are in
+• `/notready [game_id]` / `/ready [game_id]` - Ask the table to wait before auto-processing, or stop waiting
 • `/viewmap <game_id>` - View game map
 • `/message <game_id> <power> <text>` - Send message
 • `/broadcast <game_id> <text>` - Message all players

@@ -472,11 +472,13 @@ class TestBotCommandRegistration:
         assert "nodraw" in names
 
     def test_bot_commands_is_curated_not_a_dump_of_everything(self):
-        # 27 handlers are registered in main(); the "/" menu should be a
-        # curated subset, not all of them (e.g. aliases/admin/debug skipped).
-        assert 0 < len(bot_app.BOT_COMMANDS) < 27
+        # 42 handlers are registered in main(); the "/" menu should be a
+        # curated subset, not all of them (e.g. aliases/admin/debug skipped,
+        # and one-off setup commands like /dummy and /autoprocess live in /help).
+        assert 0 < len(bot_app.BOT_COMMANDS) < 42
         names = {c.command for c in bot_app.BOT_COMMANDS}
         assert "debug" not in names
+        assert "dummy" not in names and "autoprocess" not in names
 
     def test_post_init_registers_commands_with_telegram(self):
         mock_app = Mock()
