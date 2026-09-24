@@ -22,13 +22,14 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.106`.
+- **Last updated:** 2026-09-24, at `v2.7.107`.
+- **AA2 (`v2.7.107`):** the maintainer answered AA's open question — ending a turn early
+  is the creator's on the web too; the web shows the button only to them.
 - **Track AA — Telegram user flows, complete and archived** in [`done_fixes.md`](done_fixes.md)
   (`v2.7.106`): a game menu reached from `/games` and from buttons on every "turn processed"
   / reminder notification, a remembered current game so ids are rarely typed, messages and
   private-game passwords typed as plain replies, `/start` that registers, a three-key
   keyboard, creator-only early processing from Telegram, and a demo whose opponents move.
-  Open question left there: should the web's "Process turn" be creator-only too?
 - **Track Z — Telegram order entry, complete and archived** in [`done_fixes.md`](done_fixes.md):
   Z1 (`v2.7.104`) orders sent one at a time overwrote each other — the maintainer's demo
   game moved one unit of three; Z2 (`v2.7.105`) `/orderall` walks every unit and submits
