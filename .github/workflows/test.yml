@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main, develop]
 
-defaults:
-  run:
-    working-directory: new_implementation
-
 # Force Node 24 runtime on JS actions whose latest tag is still Node 20
 # (currently actions/upload-artifact). The forced default lands 2026-06-02;
 # this opts in early so the deprecation banner doesn't fire and any
@@ -44,7 +40,7 @@ jobs:
         with:
           python-version: '3.14'
           cache: pip
-          cache-dependency-path: new_implementation/requirements.txt
+          cache-dependency-path: requirements.txt
 
       - name: Install system libraries (Cairo for cairosvg)
         run: sudo apt-get update && sudo apt-get install -y libcairo2 libcairo2-dev
@@ -97,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: new_implementation/frontend
+        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v5
@@ -107,7 +103,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: new_implementation/frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -147,5 +143,5 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: bandit-report
-          path: new_implementation/bandit-report.json
+          path: bandit-report.json
           if-no-files-found: ignore

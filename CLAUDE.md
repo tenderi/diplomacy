@@ -4,15 +4,15 @@ Guidance for Claude Code (claude.ai/code) when working with code in this reposit
 
 ## Repository layout
 
-- **`new_implementation/`** — the whole codebase; what runs in production. CWD for nearly every command below.
+- **The repository root is the whole codebase** — what runs in production, and the CWD for every command below. (It lived in `new_implementation/` until `v3.0.1`, next to the since-deleted `old_implementation/`; the move kept the Docker volume names, see `docker-compose.yml`.)
 - **`CODEBASE_OVERVIEW.md`** — per-module breakdown at the repo root. Read it for depth beyond this file.
 
 `old_implementation/` (Philip Paquette's AGPL `diplomacy` package — the legacy DATC engine,
 websocket server, and React UI this project started as a clean-room rewrite of) was removed in
-Track W (`v2.7.91`) after a pre-deletion audit found nothing under `new_implementation/`
+Track W (`v2.7.91`) after a pre-deletion audit found nothing in the new code
 imports from it. It stays in git history: `git show v2.7.68:old_implementation/<path>` reads
 any file from it, which is what "cross-checked against old_implementation" comments elsewhere
-in this codebase mean by that reference. `new_implementation/docs/reference/rules.pdf` (the
+in this codebase mean by that reference. `docs/reference/rules.pdf` (the
 official rulebook, the one file from that tree worth keeping present) was relocated out of it
 first.
 
@@ -28,7 +28,7 @@ After completing any task (feature, fix, refactor, docs):
 Check the latest tag with `git tag --sort=-v:refname | head -1`. **Release 3.0.0**
 (2026-09-24, the first GitHub Release) closed the `v2.7.x` series; ordinary changes are
 now `v3.0.x` patch tags. A minor/major bump (and a GitHub Release, `gh release create`)
-is the maintainer's call — the version also lives in `new_implementation/pyproject.toml`,
+is the maintainer's call — the version also lives in `pyproject.toml`,
 `frontend/package.json` and the FastAPI app (`_api_module.py`); keep them in step.
 
 ## Branch protection and CI gating
@@ -59,7 +59,7 @@ gh api --method POST   repos/tenderi/diplomacy/branches/main/protection/enforce_
 
 ## Commands
 
-All from `new_implementation/` with the venv active. Requires **Python 3.14** (pinned in `pyproject.toml`).
+All from the repository root with the venv active. Requires **Python 3.14** (pinned in `pyproject.toml`).
 
 ```bash
 # Setup (first time)
@@ -112,7 +112,7 @@ The engine floor has under a point of headroom and is deliberately **not** ratch
 
 ### Test database
 
-DB-dependent tests need `SQLALCHEMY_DATABASE_URL` (or `DIPLOMACY_DATABASE_URL`); a `.env` in `new_implementation/` is picked up automatically via `python-dotenv`. **Without it they skip silently — a no-DB run looks falsely green.** A skip means something is wrong, not that the DB is unavailable.
+DB-dependent tests need `SQLALCHEMY_DATABASE_URL` (or `DIPLOMACY_DATABASE_URL`); a `.env` in the repository root is picked up automatically via `python-dotenv`. **Without it they skip silently — a no-DB run looks falsely green.** A skip means something is wrong, not that the DB is unavailable.
 
 ## Architecture
 
@@ -132,7 +132,7 @@ table and the bot pulls them; the bot keeps its own durable SQLite queue of play
 `client_timestamp` when the API is unreachable (a restart, a deploy). `docs/specs/architecture.md`
 §Notifications and §Deployment have the full contract.
 
-Full writeups: [`docs/specs/architecture.md`](new_implementation/docs/specs/architecture.md) (packages, boundaries, DAIDE), [`docs/specs/adjudication.md`](new_implementation/docs/specs/adjudication.md) (the resolver), [`docs/specs/data_spec.md`](new_implementation/docs/specs/data_spec.md) (types, serialization, DB columns, API view shape).
+Full writeups: [`docs/specs/architecture.md`](docs/specs/architecture.md) (packages, boundaries, DAIDE), [`docs/specs/adjudication.md`](docs/specs/adjudication.md) (the resolver), [`docs/specs/data_spec.md`](docs/specs/data_spec.md) (types, serialization, DB columns, API view shape).
 
 ### Game engine (`src/engine/`)
 
@@ -181,7 +181,7 @@ React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Routes: `/`, `/login
 ## Deployment (one VPS)
 
 Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the checkout is
-`/root/diplomacy`), running `new_implementation/docker-compose.yml`: `postgres`,
+`/root/diplomacy`), running `docker-compose.yml`: `postgres`,
 `diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint), `diplomacy_bot`
 (`docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
 built SPA and proxying `/api/` to the API, `docker/web.Dockerfile`), plus `caddy` (HTTPS for
@@ -190,7 +190,7 @@ without a domain, nginx) is public.**
 The API is published on `127.0.0.1` only — never a bare `8000:8000` — and Postgres not at all;
 the bot and nginx reach the API by service name. p2p's bot shares the VPS and is not ours.
 
-Scripts, all in `new_implementation/`: `install.sh` (first-time host setup: Docker, swap,
+Scripts, all in the repository root: `install.sh` (first-time host setup: Docker, swap,
 `.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
 prints one), `upgrade.sh` (build, restart, verify; fails if the API or site is down),
 `backup.sh` (nightly `pg_dump`, copied to Proton Drive with rclone). Every secret except the Telegram token is generated **on the
@@ -198,7 +198,7 @@ host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from
 `.env`, so it cannot drift.
 
 **The full operational guide — setup, ports and the UpCloud firewall, TLS, backups,
-monitoring, troubleshooting — is [`new_implementation/docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).**
+monitoring, troubleshooting — is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).**
 
 **No player write is lost while the API is down.** Player writes are queued durably by the bot
 and replayed with the original timestamp; server notifications are committed to Postgres and
@@ -214,11 +214,17 @@ over WireGuard until `v2.7.85` (Track V), and on a Terraform/EC2 layout before `
 
 ## Conventions and gotchas
 
+- **License: GNU AGPL v3 or later** (`LICENSE`), inherited from diplomacy/diplomacy, whose
+  map data (`maps/standard.map`, `maps/standard.svg`) this project adapts. Keep the
+  "Source code" links (web footer `AppLayout.SOURCE_URL`, bot `/help` via
+  `help_text.SOURCE_URL`): section 13 requires offering the source to network users. Don't
+  add code or assets under an AGPL-incompatible license.
+
 - **`PYTHONPATH=src` is required** to import `server.*` and `engine.*`. Forgetting it produces `ModuleNotFoundError`. Tests handle it via `pytest.ini` (`pythonpath = . src`).
 - **Type hints are mandatory** on new code. Ruff is in strict mode; CI fails on lint errors.
 - **Never add a blanket `except Exception`.** `src/rendering/` was deliberately narrowed to specific exception tuples so that a real programming bug raises instead of being logged and swallowed behind a subtly wrong image.
-- **Specs are load-bearing.** [`docs/specs/`](new_implementation/docs/specs/) is the source of truth for rules and design — `architecture.md`, `adjudication.md`, `data_spec.md`, `diplomacy_rules.md`. Update them when behavior changes.
-- **[`docs/specs/fix_plan.md`](new_implementation/docs/specs/fix_plan.md) is the living tracker** for what to work on next, and holds **open work only**. Check tasks off in the same commit as the work, keep its Status block current, and never do newly discovered work silently. When a track completes, move its section verbatim — findings and evidence included — into [`docs/specs/done_fixes.md`](new_implementation/docs/specs/done_fixes.md), the completed-work archive. Read `done_fixes.md` for the *why* behind existing code; read `fix_plan.md` to decide what to do.
+- **Specs are load-bearing.** [`docs/specs/`](docs/specs/) is the source of truth for rules and design — `architecture.md`, `adjudication.md`, `data_spec.md`, `diplomacy_rules.md`. Update them when behavior changes.
+- **[`docs/specs/fix_plan.md`](docs/specs/fix_plan.md) is the living tracker** for what to work on next, and holds **open work only**. Check tasks off in the same commit as the work, keep its Status block current, and never do newly discovered work silently. When a track completes, move its section verbatim — findings and evidence included — into [`docs/specs/done_fixes.md`](docs/specs/done_fixes.md), the completed-work archive. Read `done_fixes.md` for the *why* behind existing code; read `fix_plan.md` to decide what to do.
 - **Game rule questions**: cross-check `docs/reference/rules.pdf` (the official rulebook, authoritative) and, for the pre-rewrite engine's behavior, `git show v2.7.68:old_implementation/diplomacy/engine/` before changing adjudication logic.
 - **Map rendering** requires CairoSVG (`libcairo2`). Tests that need it are marked `@pytest.mark.map`.
 - **Out of scope** unless the maintainer explicitly asks: tournaments, Discord, observer/spectator mode, AI-powered analysis, map variants beyond `standard`, full DAIDE press-grammar parsing. Existing code in those areas (`api/routes/tournaments.py`, `discord_bot/`, the spectator routes) is kept for backward compatibility — don't extend it.

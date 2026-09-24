@@ -2,7 +2,7 @@
 
 Per-module reference for the repository. For working conventions and commands see
 [`CLAUDE.md`](CLAUDE.md); for design rationale see
-[`new_implementation/docs/specs/`](new_implementation/docs/specs/).
+[`docs/specs/`](docs/specs/).
 
 A full implementation of the board game **Diplomacy**: a rules engine, a FastAPI REST
 server, a Telegram bot (the primary player interface), a React browser client, a DAIDE
@@ -10,11 +10,15 @@ protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a si
 Docker deployment (Postgres, API, bot and web on one VPS, deployed on every green merge).
 Python 3.14.
 
-`new_implementation/` is the whole codebase, what runs in production. It started as a
-clean-room rewrite of `old_implementation/` (Philip Paquette's AGPL `diplomacy` package — a
-DATC engine, websocket server, React UI, and DAIDE adapter), which was removed in Track W
-(`v2.7.91`) after an audit found nothing here imports from it; `git show
-v2.7.68:old_implementation/<path>` still reads any file from it out of git history.
+The repository root is the whole codebase, what runs in production (it lived in
+`new_implementation/` until `v3.0.1`). It started as a rewrite of `old_implementation/`
+(Philip Paquette's AGPL-3.0 `diplomacy` package — a DATC engine, websocket server, React
+UI, and DAIDE adapter), which was removed in Track W (`v2.7.91`) after an audit found
+nothing here imports from it; `git show v2.7.68:old_implementation/<path>` still reads any
+file from it out of git history. The code was written anew, but the map data
+(`maps/standard.map`, `maps/standard.svg`) are adapted from that package's files, so the
+project is a derivative work and is licensed, like the original, under the **GNU AGPL,
+version 3 or later** (`LICENSE`; see the README).
 
 ---
 
@@ -22,21 +26,23 @@ v2.7.68:old_implementation/<path>` still reads any file from it out of git histo
 
 ```
 diplomacy/
-├── new_implementation/
-│   ├── src/
-│   │   ├── engine/          # PURE rules core — stdlib only, no I/O
-│   │   ├── persistence/     # SQLAlchemy models + DAL
-│   │   ├── rendering/       # SVG→PNG map rendering
-│   │   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
-│   ├── tests/               # ~62 top-level files + tests/datc/ + tests/engine/
-│   ├── frontend/            # React 18 + Vite + TypeScript SPA
-│   ├── maps/                # standard.map (topology) + standard.svg
-│   ├── examples/            # demo_perfect_game.py + order visualization example
-│   ├── docker/              # api / bot / web Dockerfiles + nginx template (see docs/DEPLOYMENT.md)
-│   ├── infra/scripts/       # Operational scripts (DB maintenance, test runners)
-│   ├── alembic/             # Database migrations
-│   ├── docs/                # User docs + specs/ + reference/rules.pdf
-│   └── icons/               # Unit icon PNGs
+├── src/
+│   ├── engine/          # PURE rules core — stdlib only, no I/O
+│   ├── persistence/     # SQLAlchemy models + DAL
+│   ├── rendering/       # SVG→PNG map rendering
+│   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
+├── tests/               # top-level test files + tests/datc/ + tests/engine/
+├── frontend/            # React 18 + Vite + TypeScript SPA
+├── maps/                # standard.map (topology) + standard.svg
+├── examples/            # demo_perfect_game.py + order visualization example
+├── docker/              # api / bot / web Dockerfiles, nginx template, Caddyfile
+├── infra/scripts/       # Operational scripts (DB maintenance, test runners)
+├── alembic/             # Database migrations
+├── docs/                # User docs + specs/ + reference/rules.pdf
+├── icons/               # Unit icon PNGs
+├── docker-compose.yml   # the production stack; install.sh, ensure_env.sh, upgrade.sh,
+│                        #   backup.sh, harden_host.sh operate it (docs/DEPLOYMENT.md)
+├── README.md, LICENSE (AGPL-3.0-or-later), CLAUDE.md, CODEBASE_OVERVIEW.md
 ```
 
 ---
@@ -48,7 +54,7 @@ adjudication, gave convoyed armies unearned attack strength, no convoy-paradox h
 wrong support-cut exemptions, dead-on-arrival coast support, and unvalidated builds. The
 package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework dependencies —
 a Hypothesis property enforces this. Algorithm writeup:
-[`docs/specs/adjudication.md`](new_implementation/docs/specs/adjudication.md).
+[`docs/specs/adjudication.md`](docs/specs/adjudication.md).
 
 | File | Purpose |
 |---|---|
@@ -79,7 +85,7 @@ a Hypothesis property enforces this. Algorithm writeup:
 ## 3. Persistence (`src/persistence/`)
 
 PostgreSQL via SQLAlchemy. Game *state* is **not** a normalized relational breakdown — see
-[`docs/specs/data_spec.md`](new_implementation/docs/specs/data_spec.md) for the rationale
+[`docs/specs/data_spec.md`](docs/specs/data_spec.md) for the rationale
 and full field list.
 
 | File | Purpose |
@@ -220,7 +226,7 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `notifications.py` | The two background loops: pull `GET /bot/outbox` and DM players (ack after Telegram accepts; late ones prefixed with their original time), and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
 
 Command reference:
-[`docs/TELEGRAM_BOT_COMMANDS.md`](new_implementation/docs/TELEGRAM_BOT_COMMANDS.md).
+[`docs/TELEGRAM_BOT_COMMANDS.md`](docs/TELEGRAM_BOT_COMMANDS.md).
 
 ---
 
@@ -231,7 +237,7 @@ Zod. Consumes the GameState-native view directly — there is no legacy `powers`
 to translate. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/games/:id`.
 Vite proxies API calls to `http://localhost:8000` in dev; `npm run build` outputs to
 `dist/`, which FastAPI serves at `/app`. Tests use Vitest + React Testing Library — see
-[`frontend/docs/TESTING.md`](new_implementation/frontend/docs/TESTING.md).
+[`frontend/docs/TESTING.md`](frontend/docs/TESTING.md).
 
 The board map is rendered server-side at 1835×1360 but the app column is `max-w-4xl` (896px),
 so `components/MapViewer.tsx` wraps the inline image in a button that opens a full-viewport
@@ -243,7 +249,7 @@ tests need the polyfill in `MapViewer.test.tsx` or they silently assert nothing.
 
 ## 9. Tests
 
-Run with `PYTHONPATH=src python -m pytest tests/ -v` from `new_implementation/` with the
+Run with `PYTHONPATH=src python -m pytest tests/ -v` from the repository root with the
 venv active and Postgres up. CI enforces coverage: `--fail-under=60` overall, and
 `--include='src/engine/*' --fail-under=92` for the engine.
 
@@ -272,7 +278,7 @@ Only nginx is published publicly; the API is on loopback, Postgres unpublished. 
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
 `ensure_env.sh` (generates secrets on the host), `upgrade.sh` (build, restart, verify) and
 `backup.sh` (nightly `pg_dump`, copied off-host to Proton Drive with rclone). Full walkthrough:
-[`docs/DEPLOYMENT.md`](new_implementation/docs/DEPLOYMENT.md).
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 `.github/workflows/deploy.yml` deploys after a green Test Suite on `main`, writing
 `TELEGRAM_BOT_TOKEN` (the only host secret GitHub holds) into `.env` and running
@@ -345,8 +351,8 @@ clean-room rewrite of: `diplomacy/engine/` (DATC-compliant `Game`, `map`, `power
 `renderer`), `diplomacy/server/` (websocket server), `diplomacy/client/`, `diplomacy/web/`
 (React UI), `diplomacy/daide/` (full DAIDE implementation), `diplomacy/maps/` (15+ variants),
 Sphinx docs, and `rules.pdf` (the official rulebook — relocated to
-`new_implementation/docs/reference/rules.pdf` before the rest was removed). A pre-deletion
-audit (`v2.7.90`) found nothing under `new_implementation/` imports from it, so it was deleted
+`docs/reference/rules.pdf` before the rest was removed). A pre-deletion
+audit (`v2.7.90`) found nothing in the new code imports from it, so it was deleted
 in `v2.7.91`; `git show v2.7.68:old_implementation/<path>` still reads any file from it.
 
 | Aspect | Old (removed) | New |

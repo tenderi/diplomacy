@@ -63,7 +63,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}" >> "$GITHUB_OUTPUT"
           echo "user=${{ vars.VPS_USER || 'root' }}" >> "$GITHUB_OUTPUT"
-          echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy/new_implementation' }}" >> "$GITHUB_OUTPUT"
+          echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy' }}" >> "$GITHUB_OUTPUT"
           echo "Will deploy $sha to ${{ vars.VPS_USER || 'root' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
 
       - name: Check required secrets
@@ -125,6 +125,14 @@ jobs:
           # was cloned on vps-split), so a plain `git fetch origin` can miss it.
           git fetch --quiet origin "$SHA"
           git checkout --quiet --detach FETCH_HEAD
+          # Until v3.0.1 the app lived in new_implementation/, and so did the
+          # host's .env (untracked, so the checkout leaves it there). Move it up
+          # *before* anything writes a new one: a fresh .env would get a new
+          # POSTGRES_PASSWORD that the existing database doesn't know.
+          if [ ! -f .env ] && [ -f new_implementation/.env ]; then
+            mv new_implementation/.env .env
+            echo "==> Moved .env up from new_implementation/"
+          fi
           [ -f .env ] || cp .env.example .env
           chmod 600 .env
           if grep -q "^TELEGRAM_BOT_TOKEN=" .env; then
