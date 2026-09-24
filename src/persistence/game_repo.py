@@ -12,11 +12,11 @@ read here for convenience.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from persistence.database import GameModel, PlayerModel, utcnow_naive
 
-__all__ = ["GameRepo", "StaleGameError"]
+__all__ = ["GameRepo", "PhaseInputsChangedError", "StaleGameError"]
 
 
 def _stamp_phase_start(row: GameModel, new_phase_code: str) -> None:
@@ -33,6 +33,10 @@ def _stamp_phase_start(row: GameModel, new_phase_code: str) -> None:
         row.phase_started_at = utcnow_naive()
 
 
+def _pending(row: GameModel) -> dict[str, list[str]]:
+    return {k: list(v) for k, v in dict(row.pending_orders or {}).items()}
+
+
 class StaleGameError(RuntimeError):
     """Raised by ``GameRepo.save_state`` when ``expected_phase_code`` no longer
     matches the persisted row: another process advanced the phase after this
@@ -42,17 +46,31 @@ class StaleGameError(RuntimeError):
     guard, checked at the point of writing the result back."""
 
 
+class PhaseInputsChangedError(StaleGameError):
+    """``save_state`` was told which board and ``pending_orders`` the adjudication
+    used, and one changed before the write: an order arrived, or a power
+    conceded, mid-adjudication. The phase has not moved, so the caller should
+    adjudicate again rather than drop the change."""
+
+
 class GameRepo:
     def __init__(self, session_factory: Any) -> None:
         self._session_factory = session_factory
 
     # -- lookups ----------------------------------------------------------
 
-    def _row(self, session: Any, game_id: str) -> Optional[GameModel]:
-        row = session.query(GameModel).filter_by(game_id=str(game_id)).first()
+    def _row(self, session: Any, game_id: str, *, lock: bool = False) -> Optional[GameModel]:
+        """The game's row. ``lock=True`` takes it ``FOR UPDATE`` for the rest of
+        the transaction: a check-then-write on ``phase_code`` is only a guard if
+        no other transaction can change the row between the check and the write
+        -- a plain read let two workers both pass the check and both write."""
+        query = session.query(GameModel)
+        if lock:
+            query = query.with_for_update()
+        row = query.filter_by(game_id=str(game_id)).first()
         if row is None:
             try:
-                row = session.query(GameModel).filter_by(id=int(game_id)).first()
+                row = query.filter_by(id=int(game_id)).first()
             except (ValueError, TypeError):
                 row = None
         return row
@@ -69,9 +87,57 @@ class GameRepo:
     def get_pending_orders(self, game_id: str) -> dict[str, list[str]]:
         with self._session_factory() as session:
             row = self._row(session, game_id)
-            if row is None or not row.pending_orders:
-                return {}
-            return {k: list(v) for k, v in dict(row.pending_orders).items()}
+            return {} if row is None else _pending(row)
+
+    def modify_pending_orders(
+        self,
+        game_id: str,
+        change: Callable[[dict[str, list[str]]], dict[str, list[str]]],
+        *,
+        expected_phase_code: Optional[str] = None,
+    ) -> dict[str, list[str]]:
+        """Replace ``pending_orders`` with ``change(current)``, atomically.
+
+        One locked read-modify-write. A read in one transaction and a write in
+        another lost whichever of two concurrent
+        submissions wrote first -- two players ordering at the same moment, and
+        one's orders were gone. ``expected_phase_code`` refuses (``StaleGameError``)
+        orders validated against a phase that has since been processed, which
+        would otherwise land in the next one. Returns the new value.
+        """
+        with self._session_factory() as session:
+            row = self._locked_row(session, game_id, expected_phase_code)
+            updated = change(_pending(row))
+            row.pending_orders = updated
+            session.commit()
+            return updated
+
+    def modify_draw_votes(
+        self,
+        game_id: str,
+        change: Callable[[dict[str, str]], dict[str, str]],
+        *,
+        expected_phase_code: Optional[str] = None,
+    ) -> dict[str, str]:
+        """``draw_votes`` = ``change(current)`` in one locked transaction (see
+        ``modify_pending_orders``: two votes cast together lost one)."""
+        with self._session_factory() as session:
+            row = self._locked_row(session, game_id, expected_phase_code)
+            current = {k: str(v) for k, v in dict(row.draw_votes or {}).items()}
+            updated = change(current)
+            row.draw_votes = updated
+            session.commit()
+            return updated
+
+    def _locked_row(self, session: Any, game_id: str, expected_phase_code: Optional[str]) -> GameModel:
+        row = self._row(session, game_id, lock=True)
+        if row is None:
+            raise ValueError(f"game {game_id} not found")
+        if expected_phase_code is not None and row.phase_code != expected_phase_code:
+            raise StaleGameError(
+                f"game {game_id} has moved on from {expected_phase_code} to {row.phase_code}"
+            )
+        return row
 
     def get_draw_votes(self, game_id: str) -> dict[str, str]:
         """Current phase's ``{power: "yes"}`` draw votes (empty if none cast)."""
@@ -200,6 +266,8 @@ class GameRepo:
         phase_code: str,
         status: str,
         expected_phase_code: Optional[str] = None,
+        expected_pending_orders: Optional[dict[str, list[str]]] = None,
+        expected_state_json: Optional[dict[str, Any]] = None,
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
@@ -213,9 +281,26 @@ class GameRepo:
         ``phase_code`` or a ``StaleGameError`` is raised instead of writing --
         the optimistic-concurrency check that keeps two concurrent
         ``process_turn`` calls (e.g. from two uvicorn workers) from both adjudicating
-        the same phase and one silently clobbering the other's result."""
+        the same phase and one silently clobbering the other's result. The row is
+        locked for the check, so a concurrent writer waits and then sees the new
+        phase instead of the one it loaded.
+
+        ``expected_pending_orders`` and ``expected_state_json``, when given, must
+        equal what is stored or ``PhaseInputsChangedError`` is raised: an order
+        accepted (or a concession written) after the caller read them would
+        otherwise be cleared or overwritten unadjudicated.
+
+        A phase transition ends everything scoped to the old phase, so
+        ``pending_orders``, ``draw_votes`` and ``wait_flags`` are cleared in this same
+        transaction -- clearing them in a later one wiped orders already
+        submitted for the *new* phase in between."""
+        guarded = (
+            expected_phase_code is not None
+            or expected_pending_orders is not None
+            or expected_state_json is not None
+        )
         with self._session_factory() as session:
-            row = self._row(session, game_id)
+            row = self._row(session, game_id, lock=guarded)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             if expected_phase_code is not None and row.phase_code != expected_phase_code:
@@ -224,6 +309,15 @@ class GameRepo:
                     f"persisted phase is {row.phase_code!r} -- already processed "
                     "concurrently"
                 )
+            if (expected_pending_orders is not None and _pending(row) != expected_pending_orders) or (
+                expected_state_json is not None and row.state_json != expected_state_json
+            ):
+                raise PhaseInputsChangedError(
+                    f"game {game_id}: orders or the board changed while the turn was being adjudicated"
+                )
+            row.pending_orders = {}
+            row.draw_votes = {}
+            row.wait_flags = {}
             row.state_json = state_json
             _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code
@@ -258,7 +352,7 @@ class GameRepo:
 
         An explicit, caller-decided rollback -- unlike ``save_state`` there is no
         staleness check; the caller has already chosen to discard whatever is
-        currently live. Also clears ``pending_orders`` and ``draw_votes`` (both
+        currently live. Also clears ``pending_orders``, ``draw_votes`` and ``wait_flags`` (all
         were submitted against whatever phase was live before the restore, not
         the restored one) and marks the game ``active`` (a restore always
         targets a playable phase).
@@ -273,6 +367,7 @@ class GameRepo:
             row.status = "active"
             row.pending_orders = {}
             row.draw_votes = {}
+            row.wait_flags = {}
             row.updated_at = datetime.now(timezone.utc)
             session.commit()
 
@@ -302,14 +397,6 @@ class GameRepo:
                 row.current_turn = int(current_turn)
             session.commit()
 
-    def set_pending_orders(self, game_id: str, pending: dict[str, list[str]]) -> None:
-        with self._session_factory() as session:
-            row = self._row(session, game_id)
-            if row is None:
-                raise ValueError(f"game {game_id} not found")
-            row.pending_orders = pending
-            session.commit()
-
     def get_join_password_hash(self, game_id: str) -> Optional[str]:
         """W8: the bcrypt hash, for verifying a join. Deliberately not in ``get_meta``."""
         with self._session_factory() as session:
@@ -332,13 +419,24 @@ class GameRepo:
             row.auto_process = enabled
             session.commit()
 
-    def set_wait_flags(self, game_id: str, powers: list[str]) -> None:
+    def modify_wait_flags(
+        self,
+        game_id: str,
+        change: Callable[[set[str]], set[str]],
+        *,
+        expected_phase_code: Optional[str] = None,
+    ) -> list[str]:
+        """``wait_flags`` = ``change(current)`` in one locked transaction, refused
+        (``StaleGameError``) once ``expected_phase_code`` is no longer live. Two
+        flags raised together lost one -- and the turn could then auto-process
+        past a player who had asked it to wait. Returns the powers now waiting."""
         with self._session_factory() as session:
-            row = self._row(session, game_id)
-            if row is None:
-                raise ValueError(f"game {game_id} not found")
-            row.wait_flags = {p: True for p in sorted(powers)}
+            row = self._locked_row(session, game_id, expected_phase_code)
+            current = {p for p, on in (row.wait_flags or {}).items() if on}
+            updated = sorted(change(current))
+            row.wait_flags = {p: True for p in updated}
             session.commit()
+            return updated
 
     def set_dummy_powers(self, game_id: str, powers: list[str]) -> None:
         with self._session_factory() as session:
@@ -348,16 +446,14 @@ class GameRepo:
             row.dummy_powers = sorted(powers)
             session.commit()
 
-    def set_draw_votes(self, game_id: str, votes: dict[str, str]) -> None:
-        with self._session_factory() as session:
-            row = self._row(session, game_id)
-            if row is None:
-                raise ValueError(f"game {game_id} not found")
-            row.draw_votes = votes
-            session.commit()
-
     def update_state_json(
-        self, game_id: str, state_json: dict[str, Any], *, phase_code: str, status: str
+        self,
+        game_id: str,
+        state_json: dict[str, Any],
+        *,
+        phase_code: str,
+        status: str,
+        expected_phase_code: Optional[str] = None,
     ) -> None:
         """Overwrite ``state_json``/``phase_code``/``status`` in place, without the
         turn-counter bump or ``pending_orders`` clearing ``save_state`` does.
@@ -366,11 +462,20 @@ class GameRepo:
         currently only ``GameService.concede`` (a power leaving mid-phase must
         not disturb the other powers' already-submitted orders for this phase,
         nor advance the turn counter the way a real ``process_turn`` does).
+
+        ``expected_phase_code`` guards it like ``save_state``: a concession
+        computed from phase X must not be written over a board a concurrent
+        ``process_turn`` already moved to phase Y -- that rolled the game back.
         """
         with self._session_factory() as session:
-            row = self._row(session, game_id)
+            row = self._row(session, game_id, lock=expected_phase_code is not None)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
+            if expected_phase_code is not None and row.phase_code != expected_phase_code:
+                raise StaleGameError(
+                    f"game {game_id}: expected phase {expected_phase_code!r} but the "
+                    f"persisted phase is {row.phase_code!r} -- changed concurrently"
+                )
             row.state_json = state_json
             _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code

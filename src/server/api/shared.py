@@ -709,8 +709,9 @@ def finish_processed_turn(
     # A deadline is scoped to the phase it was set for (Track N): spent now,
     # and nothing re-arms one.
     db_service.update_game_deadline(numeric_game_id, None)
-    # A wait flag is "don't process *this* phase yet" (W10); the phase is gone.
-    game_service.clear_wait_flags(game_id)
+    # Wait flags ("don't process *this* phase yet", W10) were cleared with the
+    # phase by ``save_state``; clearing them again here wiped flags already
+    # raised for the new phase.
     current_turn = int(meta.get("current_turn", 0) or 0)
     notify_turn_processed(
         game_id,

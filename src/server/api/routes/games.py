@@ -367,7 +367,7 @@ def set_wait_flag(
     power = req.power.upper()
     try:
         waiting = game_service.set_wait(game_id, power, req.waiting)
-    except GameOverError as e:
+    except (GameOverError, StaleGameError) as e:  # stale: the phase was processed meanwhile
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
     notify_players(
@@ -732,7 +732,8 @@ def concede_game(
         result = game_service.concede(game_id, req.power)
     except OrderError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except GameOverError as e:
+    except (GameOverError, StaleGameError) as e:
+        # Stale: the turn was processed while this request was in flight.
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
 

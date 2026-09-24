@@ -15,7 +15,7 @@ import random
 from dataclasses import replace
 from typing import Any, Optional
 
-from persistence.game_repo import StaleGameError
+from persistence.game_repo import PhaseInputsChangedError, StaleGameError
 from engine.map_loader import MapData, load_standard_map
 from engine.game import Game, powers_on_board
 from engine.orders.parser import OrderParseError, format_order, parse_order
@@ -45,6 +45,10 @@ __all__ = [
 # ``engine.simple_ai`` moves instead of standing still, so a solo player sees a
 # board that reacts.
 DEMO_MAP_NAME = "demo"
+
+# How many times ``process_turn`` re-adjudicates when an order or concession
+# lands between its read and its write (``PhaseInputsChangedError``).
+_ADJUDICATION_ATTEMPTS = 5
 
 
 class OrderError(ValueError):
@@ -166,26 +170,32 @@ class GameService:
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
 
-        pending = self._repo.get_pending_orders(game_id)
-        if merge:
-            # A build sent after a waive replaces it: the adjudicator honours
-            # adjustment orders in order, so a stored WAIVE ahead of the build
-            # took the only slot and the build came back VOID.
-            waives_to_drop = sum(
-                1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
-            )
-            kept = []
-            for existing in pending.get(power, []):
-                parsed = parse_order(existing, power=power, map=self._map)
-                if isinstance(parsed, Waive) and waives_to_drop > 0:
-                    waives_to_drop -= 1
-                    continue
-                key = _order_key(parsed)
-                if key is None or key not in accepted_keys:
-                    kept.append(existing)
-            accepted = kept + accepted
-        pending[power] = accepted
-        self._repo.set_pending_orders(game_id, pending)
+        waives_to_drop = sum(
+            1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
+        )
+
+        def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
+            new_orders = accepted
+            if merge:
+                # A build sent after a waive replaces it: the adjudicator honours
+                # adjustment orders in order, so a stored WAIVE ahead of the build
+                # took the only slot and the build came back VOID.
+                to_drop = waives_to_drop
+                kept = []
+                for existing in pending.get(power, []):
+                    parsed = parse_order(existing, power=power, map=self._map)
+                    if isinstance(parsed, Waive) and to_drop > 0:
+                        to_drop -= 1
+                        continue
+                    key = _order_key(parsed)
+                    if key is None or key not in accepted_keys:
+                        kept.append(existing)
+                new_orders = kept + accepted
+            return {**pending, power: new_orders}
+
+        # One locked read-modify-write, and only if the phase these orders were
+        # validated against is still the live one (StaleGameError otherwise).
+        self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
         return results
 
     def _orders_complete(self, power: str, state: GameState, orders: list[str]) -> bool:
@@ -207,9 +217,10 @@ class GameService:
         return len(parsed) >= adjustments_owed(self._map, state, power)
 
     def clear_orders(self, game_id: str, power: str) -> None:
-        pending = self._repo.get_pending_orders(game_id)
-        pending.pop(power.upper(), None)
-        self._repo.set_pending_orders(game_id, pending)
+        power = power.upper()
+        self._repo.modify_pending_orders(
+            game_id, lambda pending: {p: o for p, o in pending.items() if p != power}
+        )
 
     # -- turn processing --------------------------------------------------
 
@@ -222,13 +233,25 @@ class GameService:
         should surface that as 409 rather than silently re-adjudicating or
         clobbering the concurrent result.
         """
-        game = self.load(game_id)
-        if game is None:
+        for attempt in range(_ADJUDICATION_ATTEMPTS):
+            try:
+                return self._process_turn_once(game_id)
+            except PhaseInputsChangedError:
+                # An order or a concession landed mid-adjudication; the phase is
+                # still ours to process, so adjudicate it again with them.
+                if attempt == _ADJUDICATION_ATTEMPTS - 1:
+                    raise
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def _process_turn_once(self, game_id: str) -> dict[str, Any]:
+        sj = self._repo.get_state_json(game_id)
+        if sj is None:
             raise OrderError(f"game {game_id} not found")
+        game = Game(map=self._map, state=state_from_dict(sj))
         _require_active(game, game_id)
 
-        pending = self._repo.get_pending_orders(game_id)
-        pending = {**pending, **self._demo_ai_orders(game_id, game, pending)}
+        submitted = self._repo.get_pending_orders(game_id)
+        pending = {**submitted, **self._demo_ai_orders(game_id, game, submitted)}
         orders = []
         for power, strings in pending.items():
             for s in strings:
@@ -264,17 +287,18 @@ class GameService:
             phase_code=next_game.state.phase_name,
             status=next_game.state.status.value.lower(),
             expected_phase_code=game.state.phase_name,
+            # What was adjudicated must still be what is stored, or an order /
+            # concession that arrived meanwhile would vanish (retried above).
+            expected_pending_orders=submitted,
+            expected_state_json=sj,
             last_resolution=resolution_dict,
             order_history_entry=history_entry,
             # Same dict as ``last_resolution``, but kept per turn so it survives
             # the next ``process_turn``.
             resolution_history_entry=resolution_dict,
         )
-        self._repo.set_pending_orders(game_id, {})
-        # A draw vote is scoped to the phase it was cast in, same as pending
-        # orders -- once the phase advances, last phase's votes no longer mean
-        # anything for the new phase.
-        self._repo.set_draw_votes(game_id, {})
+        # save_state cleared pending orders and draw votes in the same
+        # transaction: both are scoped to the phase just processed.
         return {
             "phase": next_game.state.phase_name,
             "status": next_game.state.status.value,
@@ -340,17 +364,12 @@ class GameService:
         if game is None:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id)
-        flags = set(self.wait_flags(game_id))
-        if waiting:
-            flags.add(power.upper())
-        else:
-            flags.discard(power.upper())
-        self._repo.set_wait_flags(game_id, sorted(flags))
-        return sorted(flags)
-
-    def clear_wait_flags(self, game_id: str) -> None:
-        if self.wait_flags(game_id):
-            self._repo.set_wait_flags(game_id, [])
+        power = power.upper()
+        return self._repo.modify_wait_flags(
+            game_id,
+            lambda flags: flags | {power} if waiting else flags - {power},
+            expected_phase_code=game.state.phase_name,
+        )
 
     def _demo_ai_orders(self, game_id: str, game: Game, pending: dict[str, list[str]]) -> dict[str, list[str]]:
         """In a demo game, orders for every dummy that has none: ``simple_ai``
@@ -426,12 +445,11 @@ class GameService:
         _require_active(game, game_id)
         power = power.upper()
 
-        votes = self._repo.get_draw_votes(game_id)
-        if vote:
-            votes[power] = "yes"
-        else:
-            votes.pop(power, None)
-        self._repo.set_draw_votes(game_id, votes)
+        def cast(votes: dict[str, str]) -> dict[str, str]:
+            others = {p: v for p, v in votes.items() if p != power}
+            return {**others, power: "yes"} if vote else others
+
+        votes = self._repo.modify_draw_votes(game_id, cast, expected_phase_code=game.state.phase_name)
 
         required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
@@ -445,9 +463,7 @@ class GameService:
                 phase_code=drawn.state.phase_name,
                 status=drawn.state.status.value.lower(),
                 expected_phase_code=game.state.phase_name,
-            )
-            self._repo.set_pending_orders(game_id, {})
-            self._repo.set_draw_votes(game_id, {})
+            )  # clears pending orders and draw votes with it
             return {
                 "status": "completed",
                 "game_status": drawn.state.status.value,
@@ -527,12 +543,11 @@ class GameService:
             state_to_dict(new_state),
             phase_code=new_state.phase_name,
             status=new_state.status.value.lower(),
+            expected_phase_code=game.state.phase_name,
         )
         # The conceding power has nothing left to order or vote on this phase.
         self.clear_orders(game_id, power)
-        votes = self._repo.get_draw_votes(game_id)
-        if votes.pop(power, None) is not None:
-            self._repo.set_draw_votes(game_id, votes)
+        self._repo.modify_draw_votes(game_id, lambda votes: {p: v for p, v in votes.items() if p != power})
 
         eliminated = power in Game(map=self._map, state=new_state).eliminated_powers()
         return {

@@ -22,7 +22,13 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.7`.
+- **Last updated:** 2026-09-24, at `v3.0.8`.
+- **Track AL (`v3.0.8`):** lost updates. Pending orders and draw votes were read and
+  written back in separate transactions, so two players ordering at once lost one's
+  orders; an order validated against a phase being processed landed in the next phase or
+  was wiped; the phase guard itself was a plain read two workers could both pass; and a
+  concession could roll a just-processed game back. The web client also said "Orders
+  submitted" for orders the server had refused. Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AK (`v3.0.7`):** a second bug hunt. Conceding during a retreat phase left the
   power's dislodged units behind (the table waited on it); a concession never re-checked
   auto-process; a power whose only unit awaited its retreat was left out of a draw voted
