@@ -225,6 +225,22 @@ class TestGetGameResolutionMapPng:
         assert resp.headers["content-type"] == "image/png"
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
+    def test_resolution_map_marks_a_standoff_after_an_ordinary_turn(self, client):
+        """PAR and MUN bounce in BUR. No one is dislodged, so there is no retreat phase
+        and the engine's ``contested`` set is already empty; the marker must still be drawn."""
+        from server.api.shared import game_service
+        from rendering.overlays import render_board_png_resolution
+
+        game_id = _create_game(client, _register_and_login(client, "standoff"))
+        game_service.submit_orders(game_id, "FRANCE", ["A PAR - BUR"])
+        game_service.submit_orders(game_id, "GERMANY", ["A MUN - BUR"])
+        assert client.post(f"/games/{game_id}/process_turn", headers=_BOT).status_code == 200
+        with patch("server.api.routes.maps.Map.render_board_png_resolution", side_effect=render_board_png_resolution) as render:
+            resp = client.get(f"/games/{game_id}/map/resolution")
+        assert resp.status_code == 200 and resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+        assert render.call_args.args[3]["conflicts"] == [{"province": "BUR", "result": "standoff"}]
+
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_resolution_map_after_process_turn(self, client):
         """After a turn is processed, renders the resolution-arrow overlay."""

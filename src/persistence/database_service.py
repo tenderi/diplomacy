@@ -448,12 +448,6 @@ class DatabaseService:
                 game_id_int = game_id
             return session.query(PlayerModel).filter_by(game_id=game_id_int, power_name=power).first()
 
-    def update_player_is_active(self, player_id: int, is_active: bool) -> None:
-        with self.session_factory() as session:
-            player = session.query(PlayerModel).filter_by(id=player_id).first()
-            if player is not None:
-                player.is_active = is_active
-                session.commit()
 
     def assign_player_seat(self, player_id: int, user_id: Optional[int], is_active: bool) -> bool:
         """Set who holds a power's seat, in one committed session.
@@ -464,7 +458,7 @@ class DatabaseService:
         Exists because both ``/quit`` and ``/replace`` used to assign
         ``player.user_id`` on the *detached* row ``get_player_by_game_id_and_power``
         returns and then call the no-op ``commit()`` -- so ``is_active`` (written
-        through ``update_player_is_active``) changed and ``user_id`` silently did
+        through the since-removed ``update_player_is_active``) changed and ``user_id`` silently did
         not. A quitter therefore still held the power (orders, votes, concede all
         authorized), the seat could never be replaced ("already assigned"), and a
         replacement would have flipped ``is_active`` without taking the seat.
@@ -609,26 +603,6 @@ class DatabaseService:
                 game.deadline = deadline
                 session.commit()
     
-    def increment_game_current_turn(self, game_id: int | str) -> None:
-        """Increment the current_turn for a game. Used for order history tracking.
-        
-        Args:
-            game_id: Can be either the numeric id (int) or game_id string
-        """
-        with self.session_factory() as session:
-            # Try by numeric id first, then by game_id string
-            if isinstance(game_id, int):
-                game = session.query(GameModel).filter_by(id=game_id).first()
-            else:
-                game = self._get_game_model_by_game_id_string(session, str(game_id))
-            if game:
-                old_turn = getattr(game, 'current_turn', 0)
-                game.current_turn = old_turn + 1
-                session.flush()  # Ensure changes are written before commit
-                session.commit()
-                self.logger.debug(f"increment_game_current_turn: game_id={game_id}, old_turn={old_turn}, new_turn={game.current_turn}")
-            else:
-                self.logger.warning(f"increment_game_current_turn: game not found for game_id={game_id}")
 
     # --- Orders ---
     def delete_all_orders(self) -> None:

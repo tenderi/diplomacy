@@ -261,7 +261,10 @@ def render_board_png(
         pass
 
     # Generate cache key for this map configuration
-    cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info)
+    cache_key = _map_cache._generate_cache_key(
+        svg_path, units, phase_info,
+        supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers,
+    )
 
     # Try to get from cache first
     cached_img = _map_cache.get(cache_key)

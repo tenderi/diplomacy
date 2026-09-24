@@ -72,24 +72,15 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Debug command to show user information"""
-    if not update.message:
+    """/debug -- who Telegram says you are (your numeric id is what an admin needs)."""
+    if not update.message or not update.effective_user:
         return
-
     user = update.effective_user
-    user_id = str(user.id)
-    user_id_int = user.id
-
-    debug_text = (
-        f"🔍 *Debug Information*\n\n"
-        f"👤 User ID (str): `{user_id}`\n"
-        f"👤 User ID (int): `{user_id_int}`\n"
-        f"📝 User ID Type: `{type(user_id)}`\n"
-        f"🔢 Is 8019538?: `{user_id == '8019538'}`\n"
-        f"📛 Username: `{user.username or 'None'}`\n"
-        f"📛 Full Name: `{user.full_name or 'None'}`\n\n"
-        f"⚙️ Admin Access: {'✅ YES' if user_id == '8019538' else '❌ NO'}"
+    # Plain text: a display name may contain Markdown characters.
+    await update.message.reply_text(
+        f"🔍 Your Telegram account\n\n"
+        f"User ID: {user.id}\n"
+        f"Username: {user.username or 'none'}\n"
+        f"Name: {user.full_name or 'none'}"
     )
-
-    await update.message.reply_text(debug_text, parse_mode='Markdown')
 

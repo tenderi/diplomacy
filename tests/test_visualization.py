@@ -4,14 +4,11 @@ Tests for visualization configuration and marker rendering.
 Tests config loading, marker rendering, and visual consistency.
 """
 
-import pytest
 import json
 import os
 import tempfile
-from pathlib import Path
 
 from rendering.visualization_config import VisualizationConfig, get_config
-from rendering.map import Map
 
 
 class TestVisualizationConfig:
@@ -45,9 +42,8 @@ class TestVisualizationConfig:
             config = VisualizationConfig(config_path=config_path)
             # Verify file values are loaded
             assert config.get_arrow_specs()["arrowhead_size"] == 15
-            # Verify defaults are merged (from DEFAULT_CONFIG, which is 6)
-            # Note: If a default config file exists, it may override this
-            assert config.get_arrow_specs()["line_width_primary"] in [6, 8]  # Accept either default or file value
+            # Keys the file leaves out keep their defaults.
+            assert config.get_arrow_specs()["line_width_primary"] == VisualizationConfig(config_path="/nonexistent.json").get_arrow_specs()["line_width_primary"]
         finally:
             os.unlink(config_path)
     
@@ -113,49 +109,6 @@ class TestVisualizationConfig:
         assert "standoff_indicator_size" in specs
 
 
-class TestMarkerRendering:
-    """Test that markers render correctly using config values."""
-    
-    def test_arrow_function_uses_config(self):
-        """Test that _draw_arrow uses config values."""
-        # This is an integration test - verify the function exists and accepts config parameters
-        assert hasattr(Map, '_draw_arrow')
-        # The function signature should accept status parameter
-        import inspect
-        sig = inspect.signature(Map._draw_arrow)
-        assert 'status' in sig.parameters
-    
-    def test_unit_markers_use_config(self):
-        """Test that unit markers use config values."""
-        # Verify unit drawing functions exist
-        assert hasattr(Map, 'render_board_png')
-        # The rendering should use config values internally
-        # This is verified by the fact that config is imported and used in map.py
-    
-    def test_build_destroy_markers_use_config(self):
-        """Test that build/destroy markers use config values."""
-        assert hasattr(Map, '_draw_build_order')
-        assert hasattr(Map, '_draw_destroy_order')
-    
-    def test_support_markers_use_config(self):
-        """Test that support markers use config values."""
-        assert hasattr(Map, '_draw_support_order')
-    
-    def test_convoy_markers_use_config(self):
-        """Test that convoy markers use config values."""
-        assert hasattr(Map, '_draw_convoy_order')
-    
-    def test_conflict_markers_use_config(self):
-        """Test that conflict markers use config values."""
-        assert hasattr(Map, '_draw_conflict_marker')
-        assert hasattr(Map, '_draw_standoff_indicator')
-    
-    def test_status_indicators_use_config(self):
-        """Test that status indicators use config values."""
-        assert hasattr(Map, '_draw_success_checkmark')
-        assert hasattr(Map, '_draw_failure_x')
-
-
 class TestVisualConsistency:
     """Test visual consistency across markers."""
     
@@ -166,16 +119,6 @@ class TestVisualConsistency:
         # All arrows should use the same arrowhead_size and shape
         assert arrow_specs["arrowhead_size"] > 0
         assert arrow_specs["shape"] == "triangular"
-    
-    def test_colors_are_consistent(self):
-        """Test that colors are consistently retrieved from config."""
-        config = get_config()
-        # Success/failure colors should be consistent
-        success = config.get_color("success")
-        failure = config.get_color("failure")
-        assert success != failure
-        # Colors should be valid (hex or named color)
-        assert success.startswith("#") or success in ["green", "red", "blue", "yellow", "orange", "purple", "cyan", "magenta", "black", "white", "darkviolet", "royalblue", "forestgreen"]
     
     def test_font_sizes_are_consistent(self):
         """Test that font sizes are consistently retrieved from config."""

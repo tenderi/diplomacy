@@ -35,7 +35,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u)
     } catch {
       clearTokens()
-      localStorage.removeItem(REFRESH_STORAGE_KEY)
       setUser(null)
     } finally {
       setLoading(false)
@@ -59,11 +58,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setTokens(data.access_token, data.refresh_token || refresh_token)
                 return refreshUser()
               }
+              clearTokens() // refused (expired, or the account is gone): forget it
             })
-            .catch(() => {
-              localStorage.removeItem(REFRESH_STORAGE_KEY)
-              clearTokens()
-            })
+            .catch(() => clearTokens())
             .finally(() => setLoading(false))
           return
         }
@@ -80,7 +77,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { method: 'POST', body: JSON.stringify({ email, password }) }
     )
     setTokens(data.access_token, data.refresh_token)
-    localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
     setUser(data.user)
   }, [])
 
@@ -90,13 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { method: 'POST', body: JSON.stringify({ email, password, full_name: fullName || null }) }
     )
     setTokens(data.access_token, data.refresh_token)
-    localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: data.refresh_token }))
     setUser(data.user)
   }, [])
 
   const logout = useCallback(() => {
     clearTokens()
-    localStorage.removeItem(REFRESH_STORAGE_KEY)
     setUser(null)
   }, [])
 

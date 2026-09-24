@@ -318,27 +318,6 @@ def _draw_support_cut_indicator(draw: DrawTarget, from_coord: tuple, to_coord: t
     _draw_failure_x(draw, (mid_x, mid_y), "red")
 
 
-def _draw_star(draw: DrawTarget, coord: tuple, size: int, outline_color: str, fill_color: str) -> None:
-    """Draw star shape for conflict markers"""
-    x, y = coord
-
-    # Create 5-pointed star
-    outer_radius = size
-    inner_radius = size * 0.4
-
-    points = []
-    for i in range(10):
-        angle = i * math.pi / 5 - math.pi / 2  # Start at top
-        radius = outer_radius if i % 2 == 0 else inner_radius
-        px = x + radius * math.cos(angle)
-        py = y + radius * math.sin(angle)
-        points.append((px, py))
-
-    # Draw filled star
-    if len(points) > 2:
-        draw.polygon(points, fill=fill_color, outline=outline_color, width=2)
-
-
 def _draw_arrow(
     draw: DrawTarget,
     from_coord: tuple,

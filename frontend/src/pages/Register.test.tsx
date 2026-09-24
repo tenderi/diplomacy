@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, within, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
 import Register from './Register'
 import { clearTokens } from '@/api/client'
@@ -20,20 +20,36 @@ describe('Register', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 401 })))
   })
 
-  it('renders form with email, password, full name', () => {
+  it('registers with the name given and goes home signed in', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          user: { id: 7, email: 'new@b.com', full_name: 'Ann-Marie', telegram_id: null, telegram_linked: false },
+          access_token: 'a', refresh_token: 'r',
+        }),
+      } as Response)
+    )
+    vi.stubGlobal('fetch', fetchMock)
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/register']}>
         <AuthProvider>
-          <Register />
+          <Routes>
+            <Route path="/register" element={<Register />} />
+            <Route path="/" element={<p>home</p>} />
+          </Routes>
         </AuthProvider>
       </MemoryRouter>
     )
-    expect(within(container).getByRole('heading', { name: /register/i })).toBeInTheDocument()
-    expect(within(container).getByLabelText(/email/i)).toBeInTheDocument()
-    expect(within(container).getByLabelText(/password/i)).toBeInTheDocument()
-    expect(within(container).getByLabelText(/full name/i)).toBeInTheDocument()
+    fireEvent.change(await within(container).findByLabelText(/email/i), { target: { value: 'new@b.com' } })
+    fireEvent.change(within(container).getByLabelText(/^password/i), { target: { value: 'long enough' } })
+    fireEvent.change(within(container).getByLabelText(/full name/i), { target: { value: 'Ann-Marie' } })
+    fireEvent.click(within(container).getByRole('button', { name: /register/i }))
+    expect(await within(container).findByText('home')).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('/auth/register')
+    expect(JSON.parse(String(init.body))).toEqual({ email: 'new@b.com', password: 'long enough', full_name: 'Ann-Marie' })
   })
-
   it('shows error when password is less than 8 characters', async () => {
     const { container } = render(
       <MemoryRouter>

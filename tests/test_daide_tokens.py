@@ -227,7 +227,7 @@ def test_command_tokens_cover_the_required_command_set():
 
 
 def test_verify_standard_map_coverage_passes():
-    verify_standard_map_coverage()
+    assert verify_standard_map_coverage() is None  # raises on any province without a token
 
 
 def test_province_token_count_matches_standard_map():

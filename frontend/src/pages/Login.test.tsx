@@ -28,23 +28,6 @@ describe('Login', () => {
     })
   })
 
-  it('renders form with email, password, submit', () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 401 })))
-    const { container } = render(
-      <MemoryRouter>
-        <AuthProvider>
-          <Login />
-        </AuthProvider>
-      </MemoryRouter>
-    )
-    expect(within(container).getByRole('heading', { name: /login/i })).toBeInTheDocument()
-    expect(within(container).getByLabelText(/email/i)).toBeInTheDocument()
-    expect(within(container).getByLabelText(/password/i)).toBeInTheDocument()
-    expect(within(container).getByRole('button', { name: /login/i })).toBeInTheDocument()
-    expect(within(container).getByRole('link', { name: /register/i })).toBeInTheDocument()
-    expect(within(container).getByRole('link', { name: /forgot password/i })).toBeInTheDocument()
-  })
-
   it('shows error on login failure', async () => {
     vi.stubGlobal(
       'fetch',

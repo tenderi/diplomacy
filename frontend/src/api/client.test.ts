@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   setTokens,
+  REFRESH_STORAGE_KEY,
   clearTokens,
   getAccessToken,
   apiFetch,
@@ -150,6 +151,7 @@ describe('apiJson', () => {
 })
 
 describe('apiFetch 401 refresh flow', () => {
+  let store: Record<string, string> = {}
   const originalFetch = globalThis.fetch
   const originalLocalStorage = globalThis.localStorage
 
@@ -157,7 +159,7 @@ describe('apiFetch 401 refresh flow', () => {
     clearTokens()
     setTokens('expired', 'refresh-token')
     globalThis.fetch = vi.fn()
-    const store: Record<string, string> = {}
+    store = {}
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
         getItem: (k: string) => store[k] ?? null,
@@ -192,5 +194,27 @@ describe('apiFetch 401 refresh flow', () => {
     const res = await apiFetch('/users/me')
     expect(res.ok).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect((fetchMock.mock.calls[2][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer new-access' })
+  })
+
+  it('keeps the rotated refresh token for the next page load', async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'a2', refresh_token: 'r2' }) })
+      .mockResolvedValueOnce({ ok: true })
+    await apiFetch('/games')
+    expect(JSON.parse(store[REFRESH_STORAGE_KEY])).toEqual({ refresh_token: 'r2' })
+  })
+
+  it('a refused refresh signs out and returns the original 401', async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>
+    store[REFRESH_STORAGE_KEY] = JSON.stringify({ refresh_token: 'refresh-token' })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 }).mockResolvedValueOnce({ ok: false, status: 401 })
+    const res = await apiFetch('/games')
+    expect(res.status).toBe(401)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBeNull()
+    expect(store[REFRESH_STORAGE_KEY]).toBeUndefined()
   })
 })

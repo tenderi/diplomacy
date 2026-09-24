@@ -23,6 +23,7 @@ from engine.types import (
 )
 from rendering.map import Map
 from rendering.order_overlay import (
+    standoff_provinces,
     order_to_viz,
     orders_by_power_to_viz,
     resolution_dict_to_viz,
@@ -296,3 +297,18 @@ class TestConvoyAndDislodgedRendering:
         )
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
         assert len(png) > 5000
+
+
+def _move_result(origin: str, dest: str, result: str) -> dict:
+    return {"order": {"type": "MOVE", "power": "FRANCE", "unit": origin, "dest": dest, "via_convoy": False}, "result": result}
+
+
+@pytest.mark.parametrize(("results", "standoffs"), [
+    ([_move_result("PAR", "BUR", "BOUNCE"), _move_result("MUN", "BUR", "BOUNCE")], ["BUR"]),
+    ([_move_result("PAR", "BUR", "OK"), _move_result("MUN", "BUR", "BOUNCE")], []),  # 2 beat 1: no standoff
+    ([_move_result("PAR", "BUR", "BOUNCE")], []),  # one move bouncing off a holding unit
+    ([_move_result("BRE", "ENG", "BOUNCE"), _move_result("LON", "ENG", "BOUNCE"),
+      _move_result("PAR", "BUR", "BOUNCE"), _move_result("MUN", "BUR", "BOUNCE")], ["BUR", "ENG"]),
+])
+def test_standoff_provinces(results: list, standoffs: list) -> None:
+    assert standoff_provinces({"results": results}) == standoffs

@@ -427,17 +427,23 @@ class _Resolver:
     # Support resolution
     # ------------------------------------------------------------------
 
-    def _support_is_void(self, s: Order) -> bool:
+    def _support_is_void(self, s: Order, *, count_own_unit_rule: bool = True) -> bool:
         """A support is void (never given, reported VOID) if it is geometrically
         illegal, refers to no real order, would help dislodge a *holding* unit of
         the supporter's own power (6.D.10/12/13 — but a support of an attack on an
         own unit that is itself ordered to move is fine and can serve other means,
         6.E.12), or is a hold-support of a unit that is ordered to move (6.D.7/8/25).
+
+        The own-unit rule decides the reported code only; ``_support_given`` passes
+        ``count_own_unit_rule=False``. Whether the own unit stays depends on this very
+        support (it can decide the head-to-head that unit is in), so using the rule for
+        strength made the outcome depend on submission order. For strength, DATC only
+        excludes such a support from the attack on the own unit (``_attack_strength``).
         """
         assert isinstance(s, (SupportHold, SupportMove))
         if not self._support_valid(s) or not self._support_has_target(s):
             return True
-        if isinstance(s, SupportMove):
+        if isinstance(s, SupportMove) and count_own_unit_rule:
             occ = self.unit_by_prov.get(s.dest.province)
             if (
                 occ is not None
@@ -479,7 +485,7 @@ class _Resolver:
     def _support_given(self, s: Order) -> bool:
         assert isinstance(s, (SupportHold, SupportMove))
         supp_prov = s.unit.province
-        if self._support_is_void(s):
+        if self._support_is_void(s, count_own_unit_rule=False):
             return False
 
         exempt = s.dest.province if isinstance(s, SupportMove) else None

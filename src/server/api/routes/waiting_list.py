@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from .auth import require_bot_secret
 from ..shared import db_service, game_buttons, game_service, logger, notify_players, notify_user
+from ...response_cache import invalidate_cache
 
 router = APIRouter()
 
@@ -131,6 +132,9 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
 
     # Committed. Everything below is best-effort: a Telegram outage must not
     # undo a game that exists.
+    for telegram_id, _full_name, _user_id, _power in assignments:
+        # Their notification's game-menu button reads this list.
+        invalidate_cache(f"users/{telegram_id}")
     for telegram_id, _full_name, _user_id, power in assignments:
         _notify(
             telegram_id,

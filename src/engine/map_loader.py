@@ -84,9 +84,7 @@ class MapData:
     Query API:
       - ``army_moves(province)``    → provinces an army there may move to
       - ``fleet_moves(location)``   → fleet locations a fleet there may move to
-      - ``adjacent(location, kind)``→ generic reachable set for a unit kind
       - ``is_adjacent(a, b, kind)`` → adjacency predicate
-      - ``is_supply_center(prov)``  → bool
       - ``province_type(prov)``     → ProvinceType
       - ``coasts_of(prov)``         → the split coasts, e.g. ``("EC", "SC")`` or ()
       - ``fleet_locations(prov)``   → fleet nodes for a province
@@ -111,9 +109,6 @@ class MapData:
     def province_type(self, province: str) -> ProvinceType:
         return self.province_types[province.upper()]
 
-    def is_supply_center(self, province: str) -> bool:
-        return province.upper() in self.supply_centers
-
     def coasts_of(self, province: str) -> tuple[str, ...]:
         """Return the split coasts of a province (``()`` if not split)."""
         return self._split_coasts.get(province.upper(), ())
@@ -136,11 +131,6 @@ class MapData:
 
     def fleet_moves(self, location: Location) -> frozenset[Location]:
         return self._fleet_adj.get(location, frozenset())
-
-    def adjacent(self, location: Location, kind: UnitKind) -> frozenset[Location]:
-        if kind is UnitKind.ARMY:
-            return frozenset(Location(p, None) for p in self.army_moves(location.base.province))
-        return self.fleet_moves(location)
 
     def is_adjacent(self, a: Location, b: Location, kind: UnitKind) -> bool:
         if kind is UnitKind.ARMY:
