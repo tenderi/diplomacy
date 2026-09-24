@@ -267,7 +267,24 @@ def post_to_game_group(game_id: Any, text: str, *, dm_start: Optional[str] = Non
         scheduler_logger.warning(f"Could not queue a group announcement for game {game_id}: {e}")
 
 
-def _post_turn_to_channel(game_id: str, message: str) -> None:
+_SEASON_NAMES = {"S": "Spring", "F": "Fall", "W": "Winter"}
+_PHASE_NAMES = {"M": "movement", "R": "retreats", "A": "builds"}
+
+
+def phase_label(phase_code: str) -> str:
+    """``"S1901M"`` -> ``"Spring 1901 movement"``; anything else is returned as is."""
+    season, year, kind = phase_code[:1], phase_code[1:-1], phase_code[-1:]
+    if season in _SEASON_NAMES and kind in _PHASE_NAMES and year.isdigit():
+        return f"{_SEASON_NAMES[season]} {year} {_PHASE_NAMES[kind]}"
+    return phase_code
+
+
+def _post_turn_to_channel(
+    game_id: str,
+    message: str,
+    processed_turn: Optional[int] = None,
+    processed_phase: Optional[str] = None,
+) -> None:
     """Queue a turn-start notification and a fresh map for a linked channel.
 
     Best-effort by design: a Telegram outage must never fail a turn that is
@@ -305,12 +322,24 @@ def _post_turn_to_channel(game_id: str, message: str) -> None:
                 payload={"dm_start": f"orders_{game_id}"},
             )
 
-        if settings.get("auto_post_maps", True):
+        if settings.get("auto_post_maps", True) and processed_turn is not None:
+            # Two images per processed turn: the orders on the board they were given
+            # on, and the board they produced. Each is fetched by turn number, not
+            # "the current map", so a post the bot delivers late -- it was down, or
+            # the next turn ran first -- still shows the turn it announces.
+            label = phase_label(processed_phase) if processed_phase else f"turn {processed_turn}"
+            if game_service.resolution_history(game_id).get(str(processed_turn), {}).get("results"):
+                db_service.enqueue_bot_notification(
+                    channel_id,
+                    f"📝 Game {game_id} · {label}: the orders",
+                    kind="channel_map",
+                    payload={"game_id": game_id, "path": f"/games/{game_id}/map/turn/{processed_turn}/orders"},
+                )
             db_service.enqueue_bot_notification(
                 channel_id,
-                f"🗺️ Game {game_id} - Current Map",
+                f"🗺️ Game {game_id} · {label}: the result",
                 kind="channel_map",
-                payload={"game_id": game_id},
+                payload={"game_id": game_id, "path": f"/games/{game_id}/map/history/{processed_turn + 1}"},
             )
     except Exception as e:
         scheduler_logger.debug(f"Channel integration check failed for game {game_id}: {e}")
@@ -323,8 +352,14 @@ def notify_turn_processed(
     trigger: str,
     game_ended: bool = False,
     exclude_telegram_id: Optional[str] = None,
+    processed_turn: Optional[int] = None,
+    processed_phase: Optional[str] = None,
 ) -> None:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
+
+    ``processed_turn``/``processed_phase`` name the turn just adjudicated; with them
+    the game's Telegram group also gets that turn's orders map and result map. (A
+    draw ends a game without adjudicating anything, so it passes neither.)
 
     Before this existed the two paths told players wildly different amounts (G3):
     the deadline path DM'd every player, reset the reminder flag and posted a
@@ -371,9 +406,12 @@ def notify_turn_processed(
     reminder_sent[numeric_game_id] = False
 
     if not game_ended:
-        _post_turn_to_channel(game_id, "The turn has been processed. New orders are due -- send them to me in private.")
+        _post_turn_to_channel(
+            game_id, "The turn has been processed. New orders are due -- send them to me in private.",
+            processed_turn, processed_phase,
+        )
     else:
-        _post_turn_to_channel(game_id, f"Game {game_id} has ended.")
+        _post_turn_to_channel(game_id, f"Game {game_id} has ended.", processed_turn, processed_phase)
 
 
 def next_deadline(
@@ -673,12 +711,16 @@ def finish_processed_turn(
     db_service.update_game_deadline(numeric_game_id, None)
     # A wait flag is "don't process *this* phase yet" (W10); the phase is gone.
     game_service.clear_wait_flags(game_id)
+    current_turn = int(meta.get("current_turn", 0) or 0)
     notify_turn_processed(
         game_id,
         numeric_game_id,
         trigger=trigger,
         game_ended=view is not None and view["status"] == "COMPLETED",
         exclude_telegram_id=exclude_telegram_id,
+        # save_state keys a turn's history by the counter *before* it increments.
+        processed_turn=current_turn - 1 if current_turn > 0 else None,
+        processed_phase=prev_phase_code,
     )
 
 

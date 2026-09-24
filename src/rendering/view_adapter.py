@@ -33,10 +33,18 @@ def units_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
     already provides. This is the single place that ``GameState``-native units
     (``view["units"]``, a flat list of dicts) become the renderer's flat unit
     strings; callers must not hand the renderer ``view["units"]`` directly.
+
+    A board in a retreat phase also carries ``view["dislodged"]``; those units are
+    added as ``"A DISLODGED_PAR"``, which the renderer draws offset in their province
+    with a red outline -- without them a turn's result map did not show who was
+    knocked out.
     """
     out: dict[str, list[str]] = {}
     for power, units in view.get("units_by_power", {}).items():
         out[power] = [f"{u['kind']} {u['location'].split('/')[0]}" for u in units]
+    for du in view.get("dislodged", []):
+        unit = du["unit"]
+        out.setdefault(unit["power"], []).append(f"{unit['kind']} DISLODGED_{unit['location'].split('/')[0]}")
     return out
 
 
