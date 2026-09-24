@@ -57,7 +57,8 @@ the web app if you need to re-link.
 |---|---|
 | `/order [game_id] <order>; <order>; …` | Submit orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/clearorders` starts over. |
 | `/orders <game_id> <order>; <order>; …` | Same, but the game ID is required. |
-| `/selectunit [game_id]` | **Interactive order entry** — pick a unit, then pick from its legal orders. |
+| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back and ⏭ Skip on every step; a skipped unit keeps any earlier order, or holds. |
+| `/selectunit [game_id]` | **Order a single unit** — pick a unit, then pick from its legal orders; it is sent at once. The screen also offers "Order all units, one by one". |
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
 | `/clearorders [game_id]`, `/clear [game_id]` | Clear your submitted orders so you can resubmit. |
 | `/orderhistory <game_id>` | Orders from previous turns, grouped by turn and power. |
