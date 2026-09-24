@@ -235,6 +235,10 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if missing:
             status_text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
+        if orders_status.get("auto_process"):
+            status_text += "⚡ Processes automatically once all orders are in.\n"
+        if orders_status.get("waiting"):
+            status_text += "✋ **Asked to wait:** " + ", ".join(orders_status["waiting"]) + "\n"
 
     try:
         draw_status = api_get(f"/games/{game_id}/draw_vote_status")
@@ -324,6 +328,72 @@ async def nodraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /nodraw command - withdraw this power's previously cast yes
     vote for a draw (no-op if none was cast)."""
     await _cast_draw_vote(update, context, False)
+
+
+async def _set_wait_flag(update: Update, context: ContextTypes.DEFAULT_TYPE, waiting: bool) -> None:
+    """Shared by ``/notready`` (raise this power's wait flag) and ``/ready``
+    (lower it), via ``POST /games/{id}/wait`` (W10)."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    user_id = str(user.id)
+    args = context.args or []
+    try:
+        game_id, power = resolve_game_and_power(user_id, args[0] if args else None)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    try:
+        result = api_post(f"/games/{game_id}/wait", {"power": power, "waiting": waiting, "telegram_id": user_id})
+    except requests.RequestException as e:
+        await update.message.reply_text(f"Could not update game {game_id}: {e}")
+        return
+    if waiting:
+        await update.message.reply_text(
+            f"✋ Game {game_id} will wait for you before processing this turn automatically. "
+            f"/ready {game_id} when you are done. (A deadline still applies.)"
+        )
+    elif result.get("auto_processed"):
+        await update.message.reply_text(f"✅ Ready -- that was the last hold-up; game {game_id}'s turn has been processed.")
+    else:
+        await update.message.reply_text(f"✅ Ready in game {game_id}.")
+
+
+async def notready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/notready [game_id] -- ask the table to wait before auto-processing (W10)."""
+    await _set_wait_flag(update, context, True)
+
+
+async def ready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ready [game_id] -- lower your wait flag (W10)."""
+    await _set_wait_flag(update, context, False)
+
+
+async def autoprocess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/autoprocess <game_id> on|off -- W10: process each turn as soon as all orders are in."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    args = context.args or []
+    if len(args) != 2 or args[1].lower() not in ("on", "off"):
+        await update.message.reply_text(
+            "Usage: /autoprocess <game_id> on|off\n"
+            "On: each turn is processed as soon as every player has sent orders, "
+            "unless someone has used /notready."
+        )
+        return
+    game_id, enabled = args[0], args[1].lower() == "on"
+    try:
+        result = api_post(f"/games/{game_id}/auto_process", {"enabled": enabled, "telegram_id": str(user.id)})
+    except requests.RequestException as e:
+        await update.message.reply_text(f"Could not change game {game_id}: {e}")
+        return
+    if not enabled:
+        await update.message.reply_text(f"Game {game_id} no longer processes turns automatically.")
+    elif result.get("auto_processed"):
+        await update.message.reply_text(f"⚡ Auto-processing is on, and every order was already in: game {game_id}'s turn has been processed.")
+    else:
+        await update.message.reply_text(f"⚡ Game {game_id} now processes each turn as soon as all orders are in.")
 
 
 def _accepted_deadline_text(result: dict) -> str:

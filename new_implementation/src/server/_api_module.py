@@ -152,6 +152,8 @@ async def lifespan(app: FastAPI):
     # Startup failure (port in use, ...) is logged and swallowed rather than
     # crashing the whole API -- DAIDE is one integration among several this
     # process serves, not a prerequisite for the others.
+    # Recorded so sync routes on worker threads can hand coroutines to this loop.
+    _api_shared.main_loop = asyncio.get_running_loop()
     daide_port = int(os.environ.get("DIPLOMACY_DAIDE_PORT", str(DAIDE_DEFAULT_PORT)))
     _api_shared.daide_server = DaideServer(_api_shared.game_service, db_service=_api_shared.db_service, port=daide_port)
     try:

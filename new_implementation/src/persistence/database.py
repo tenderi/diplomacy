@@ -56,6 +56,11 @@ class GameModel(Base):
     dummy_powers = Column(JSON, nullable=True)
     # Who created the game (W9/W8); null for waiting-list and older games.
     created_by_user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    # W10: process the turn as soon as every power with something to order has
+    # submitted and nobody has a wait flag up. Null/false = manual or deadline.
+    auto_process = Column(Boolean, nullable=True)
+    # W10: {power: true} -- "don't process yet". Cleared whenever a turn is processed.
+    wait_flags = Column(JSON, nullable=True)
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

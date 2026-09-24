@@ -125,6 +125,8 @@ class GameRepo:
                 "current_turn": int(row.current_turn or 0),
                 "dummy_powers": sorted(row.dummy_powers or []),
                 "created_by_user_id": row.created_by_user_id,
+                "auto_process": bool(row.auto_process),
+                "wait_flags": sorted(p for p, on in (row.wait_flags or {}).items() if on),
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -152,6 +154,7 @@ class GameRepo:
         phase_length_seconds: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
         dummy_powers: Optional[list[str]] = None,
+        auto_process: bool = False,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -175,6 +178,8 @@ class GameRepo:
                 phase_length_seconds=phase_length_seconds,
                 created_by_user_id=created_by_user_id,
                 dummy_powers=sorted(dummy_powers or []),
+                auto_process=auto_process,
+                wait_flags={},
             )
             session.add(row)
             session.flush()  # assign the integer PK
@@ -299,6 +304,22 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.pending_orders = pending
+            session.commit()
+
+    def set_auto_process(self, game_id: str, enabled: bool) -> None:
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.auto_process = enabled
+            session.commit()
+
+    def set_wait_flags(self, game_id: str, powers: list[str]) -> None:
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.wait_flags = {p: True for p in sorted(powers)}
             session.commit()
 
     def set_dummy_powers(self, game_id: str, powers: list[str]) -> None:

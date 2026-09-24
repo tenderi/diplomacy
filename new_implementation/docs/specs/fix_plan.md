@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.100`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.101`. `main` green.
 - **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
   probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
   that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
@@ -657,20 +657,37 @@ that should be written down once so the question stops being re-asked.
       `/dummy <game> <power> [off]` changes the set.
 - Tests: `test_dummy_powers.py` (API, 12), `test_dummy_bot.py` (bot, 8), two web tests.
 
-## W10 — Process as soon as all orders are in, with a per-player wait flag
+## W10 — Process as soon as all orders are in, with a per-player wait flag — **done, `v2.7.101`**
 
-- [ ] Per-game toggle `auto_process` (creation option + a creator/any-player route; default
-      off, so existing games keep today's behaviour). When on, the turn is processed the
-      moment every power in `powers_with_orders_to_give` (minus W9 dummies) has submitted and
-      **no** player has their wait flag set. The deadline, if any, still processes it
-      regardless of wait flags (the backstop).
-- [ ] Per-player **wait flag** (`/wait <game>` / `/nowait <game>` in the bot, a toggle on the
-      web game screen): "don't process yet, I'm still negotiating". Cleared automatically when
-      a turn is processed. Visible to everyone in `/status`.
-- [ ] Triggered from the order-submission path, and must go through the same
-      `process_turn` + snapshot + notification path as the manual route and the scheduler (G3
-      and W1 were both drift between triggers) — ideally one shared function, three callers.
-      Concurrency: two last orders arriving together must process once (`StaleGameError`).
+- [x] `games.auto_process` + `games.wait_flags` (migration `l0f6a7b8c9d0`). Creation option
+      (`auto_process`), `POST /games/{id}/auto_process {enabled}` (any seated player or
+      admin — same standing as setting a deadline), `POST /games/{id}/wait {power, waiting}`
+      (only that power's player). Off by default; existing games unchanged.
+- [x] `api.shared.maybe_auto_process` runs after every order submission
+      (`POST /games/set_orders` → `auto_processed` in the response), a flag being lowered,
+      auto-process being switched on, and a seat becoming a dummy. It processes while
+      `GameService.ready_to_auto_process` holds (on, active, nothing missing — dummies and
+      powers with nothing to order are never missing — and no flag up), so a following
+      phase that is complete from the start (only dummies act) runs at once; capped at 6.
+      Two simultaneous last orders: `expected_phase_code` lets one process, the other's
+      `StaleGameError` is "someone else did it".
+- [x] **One finish for all three triggers:** `api.shared.finish_processed_turn` (DAIDE
+      notice, cache, snapshot, deadline spent, wait flags cleared, notification fan-out) is
+      now called by the manual route, the deadline scheduler and auto-processing. Two
+      scheduler bugs fell out: it never passed `game_ended`, so a deadline turn that ended
+      the game was announced as an ordinary turn; and it sent "turn processed" to every
+      player (and cleared the deadline) even when `process_turn` had *raised*. Now the
+      finish runs only on success; a failed deadline is just marked spent.
+- [x] `_notify_daide_processed` from a sync route's worker thread now hands the coroutine
+      to the server's loop (`shared.main_loop`, recorded at startup) instead of starting a
+      fresh one — DAIDE connections belong to the main loop.
+- [x] Clients: bot `/autoprocess <game> on|off`, `/notready [game]`, `/ready [game]`
+      (`/wait` and `/unwait` are the waiting list's), `/status` shows both; web create-form
+      checkbox, a "Turn status" line naming who waits, and the two toggles.
+- Not wired: a DAIDE client's orders do not trigger auto-processing (they go straight to
+      `GameService.submit_orders`); the next human submission or a deadline picks it up.
+- Tests: `test_auto_process.py` (9, incl. the two scheduler fixes), `test_auto_process_bot.py`
+      (7), one web test.
 
 ## W11 — Delete a single game (admin)
 
