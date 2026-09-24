@@ -1,0 +1,80 @@
+# The documentation site (https://diplomacy-docs.xn--jalluthti-02a.fi), built from
+# docs/ by docker/docs.Dockerfile and served by the diplomacy_docs container
+# behind Caddy (DOCS_DOMAIN in .env). Preview locally:
+#   pip install "mkdocs-material>=9.5,<10" && mkdocs serve
+site_name: Diplomacy
+site_description: Play Diplomacy over Telegram and on the web -- guides and reference
+site_url: https://diplomacy-docs.xn--jalluthti-02a.fi/
+repo_url: https://github.com/tenderi/diplomacy
+repo_name: tenderi/diplomacy
+edit_uri: edit/main/docs/
+copyright: Free software under the GNU AGPL v3 or later
+
+docs_dir: docs
+
+theme:
+  name: material
+  # No Google Fonts: the site's Content-Security-Policy allows no third-party
+  # origins (docker/Caddyfile), and the system fonts read fine.
+  font: false
+  icon:
+    logo: material/chess-rook
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Play:
+      - New player guide: NEW_USER_GUIDE.md
+      - Telegram bot commands: TELEGRAM_BOT_COMMANDS.md
+      - The website: BROWSER_CLIENT.md
+      - Rules: specs/diplomacy_rules.md
+  - Run it:
+      - Deployment: DEPLOYMENT.md
+      - Local development: LOCAL_DEVELOPMENT.md
+  - Design:
+      - Architecture: specs/architecture.md
+      - Adjudication: specs/adjudication.md
+      - Data model: specs/data_spec.md
+      - Testing: specs/testing_and_validation.md
+      - Telegram channels: specs/telegram_channel_integration.md
+      - Map visualization: specs/visualization_spec.md
+      - Admin dashboard: specs/dashboard.md
+      - Automated demo game: specs/automated_demo_game_spec.md
+  - Project:
+      - Open work: specs/fix_plan.md
+      - Completed work: specs/done_fixes.md

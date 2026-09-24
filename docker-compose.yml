@@ -147,6 +147,22 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  diplomacy_docs:
+    # The documentation site (docs/ via MkDocs), served by Caddy at DOCS_DOMAIN.
+    # Started with Caddy (the "tls" profile); nothing publishes its port.
+    build:
+      context: .
+      dockerfile: docker/docs.Dockerfile
+    profiles: ["tls"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+
   caddy:
     # HTTPS for the site: only started when DOMAIN is set in .env, because
     # ensure_env.sh then sets COMPOSE_PROFILES=tls. Caddy gets and renews the
@@ -155,6 +171,10 @@ services:
     profiles: ["tls"]
     environment:
       - DOMAIN=${DOMAIN:-}
+      # The docs site's hostname. Unset, Caddy would read an empty site address
+      # as broken config; the placeholder serves plain HTTP for a name nobody
+      # uses and never asks for a certificate.
+      - DOCS_DOMAIN=${DOCS_DOMAIN:-http://docs.invalid}
     ports:
       - "80:80"
       - "443:443"
@@ -167,6 +187,7 @@ services:
       - caddy_config:/config
     depends_on:
       - diplomacy_web
+      - diplomacy_docs
     logging:
       driver: "json-file"
       options:

@@ -7,14 +7,7 @@
 # the client's address (Caddy ignores one a client sends) and
 # X-Forwarded-Proto to https; nginx trusts those only from a Docker network
 # address (docker/web-nginx.conf.template).
-{$DOMAIN} {
-	encode zstd gzip
-
-	# Browser hardening for the whole site. The SPA (frontend/dist) has no
-	# inline scripts and loads nothing from other origins, so scripts are
-	# 'self' only; styles need 'unsafe-inline' because Radix UI and the toast
-	# library insert <style> elements at runtime. HSTS without
-	# includeSubDomains: other names under the domain are not ours to force.
+(security_headers) {
 	header {
 		defer
 		Strict-Transport-Security "max-age=31536000"
@@ -22,10 +15,31 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 		-Via
 	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	import security_headers
+
+	# Browser hardening for the whole site. The SPA (frontend/dist) has no
+	# inline scripts and loads nothing from other origins, so scripts are
+	# 'self' only; styles need 'unsafe-inline' because Radix UI and the toast
+	# library insert <style> elements at runtime. HSTS without
+	# includeSubDomains: other names under the domain are not ours to force.
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 	reverse_proxy diplomacy_web:80
+}
+
+# The documentation site (docker/docs.Dockerfile). Static pages with no user
+# content; Material for MkDocs puts small inline scripts in every page, hence
+# script-src 'unsafe-inline' here and only here.
+{$DOCS_DOMAIN} {
+	encode zstd gzip
+	import security_headers
+	header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	reverse_proxy diplomacy_docs:80
 }

@@ -20,7 +20,7 @@ cd frontend && npm install && npm run dev
 
 Open http://localhost:5173. Vite proxies API calls to the backend and serves the SPA for app
 routes, so refresh and back/forward work correctly. UI is Tailwind CSS + shadcn/ui — see
-[`frontend/README.md`](../frontend/README.md).
+[`frontend/README.md`](https://github.com/tenderi/diplomacy/blob/main/frontend/README.md).
 
 ## Register
 

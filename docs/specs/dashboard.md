@@ -2,7 +2,7 @@
 
 A minimal operations dashboard served by the API at `/dashboard` — service status, logs, and
 read-only database inspection. No build step: plain HTML/CSS/JS in
-[`src/server/dashboard/`](../../src/server/dashboard/), mounted by `_api_module.py` (`/` also
+[`src/server/dashboard/`](https://github.com/tenderi/diplomacy/tree/main/src/server/dashboard/), mounted by `_api_module.py` (`/` also
 redirects here).
 
 ## Auth
