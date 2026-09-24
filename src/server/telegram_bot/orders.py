@@ -739,6 +739,12 @@ def active_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> Optional[di
     return context.user_data.get(_WALK, {}).get(str(game_id))
 
 
+def _adjustment_site(order: str) -> str:
+    """The province a build/disband acts on: ``BUILD F STP/SC`` -> ``STP``,
+    ``D A PAR`` -> ``PAR``."""
+    return order.split()[-1].split("/")[0]
+
+
 def _end_walk(context: ContextTypes.DEFAULT_TYPE, game_id: str) -> None:
     context.user_data.get(_WALK, {}).pop(str(game_id), None)
     context.user_data.get("pending_orders", {}).pop(str(game_id), None)
@@ -796,8 +802,11 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
     step = walk["steps"][walk["i"]]
     progress = f"{walk['i'] + 1}/{len(walk['steps'])}"
     if walk["adjust"]:
-        taken = {o for o in walk["chosen"].values() if o != "WAIVE"}
-        options = [o for o in walk["flat"] if o not in taken]
+        # A chosen build takes its province: BUILD A BRE and BUILD F BRE cannot
+        # both happen (the second is VOID and the build slot silently lost), so
+        # after one the other is no longer offered.
+        taken = {_adjustment_site(o) for o in walk["chosen"].values() if o != "WAIVE"}
+        options = [o for o in walk["flat"] if o == "WAIVE" or _adjustment_site(o) not in taken]
         context.user_data.setdefault("pending_orders", {})[str(game_id)] = options
         keyboard = [
             [InlineKeyboardButton(_order_label(o), callback_data=f"ord|{game_id}|{i}")]

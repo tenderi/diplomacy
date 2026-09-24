@@ -175,6 +175,20 @@ def test_adjustments_walk_the_build_slots(api) -> None:
     assert api.post.call_args[0][1]["orders"] == ["BUILD A BER", "WAIVE"]
 
 
+def test_a_build_takes_its_province_for_the_later_slots(api) -> None:
+    """Only the exact string chosen was hidden, so after BUILD A KIE the walk
+    still offered BUILD F KIE -- both were submitted and the second was VOID,
+    losing the slot."""
+    two_at_kie = {**ADJUSTMENT, "orders": ["BUILD A KIE", "BUILD F KIE", "BUILD A MUN", "WAIVE"]}
+    api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else two_at_kie
+    chat = Chat()
+    chat.command([])
+    chat.press("BUILD A KIE")
+    assert "Build 2 of 2" in chat.text
+    assert not any("KIE" in t for t, _ in chat.buttons)
+    assert any("BUILD A MUN" in t for t, _ in chat.buttons)
+
+
 def test_selectunit_still_sends_one_order_at_once(api) -> None:
     """The single-order flow is unchanged: no walk, so ord| submits immediately."""
     chat = Chat()
