@@ -14,6 +14,7 @@ from dataclasses import replace
 
 import pytest
 
+from engine.game import Game
 from engine.map_loader import load_standard_map
 from engine.orders.parser import parse_order
 from engine.orders.validation import validate
@@ -421,3 +422,43 @@ class TestPowersWithOrdersToGive:
                 if menu:
                     expected.add(power)
             assert powers_with_orders_to_give(_MAP, state) == frozenset(expected), state.phase_name
+
+
+class TestConvoyChains:
+    """The menus never offered an army a move by convoy, and offered a fleet only
+    convoys between two provinces it touched itself -- so from the web client
+    (menus only) and the bot's buttons no army could be convoyed at all."""
+
+    def _state(self) -> GameState:
+        return GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("ENG")),
+                Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),  # a foreign fleet extends the chain
+            }),
+            ownership={},
+        )
+
+    def test_an_army_is_offered_every_shore_of_the_chain(self) -> None:
+        data = _assert_all_orders_valid(_MAP, self._state(), "ENGLAND")
+        via = [o for o in data["orders_by_unit"]["A LON"] if o.endswith(" VIA")]
+        # ENG + MAO touch these; WAL, being next to LON, is an ordinary move instead.
+        assert via == [
+            "A LON - BEL VIA", "A LON - BRE VIA", "A LON - GAS VIA", "A LON - NAF VIA",
+            "A LON - PIC VIA", "A LON - POR VIA", "A LON - SPA VIA",
+        ]
+
+    def test_each_fleet_of_a_chain_can_carry_it_and_the_convoy_resolves(self) -> None:
+        state = self._state()
+        english = legal_orders_for_power(_MAP, state, "ENGLAND")["orders_by_unit"]["F ENG"]
+        french = _assert_all_orders_valid(_MAP, state, "FRANCE")["orders_by_unit"]["F MAO"]
+        assert "F ENG C A LON - SPA" in english
+        assert "F MAO C A LON - SPA" in french  # MAO does not touch LON
+        orders = [
+            parse_order("A LON - SPA VIA", power="ENGLAND", map=_MAP),
+            parse_order("F ENG C A LON - SPA", power="ENGLAND", map=_MAP),
+            parse_order("F MAO C A LON - SPA", power="FRANCE", map=_MAP),
+        ]
+        _, after = Game(map=_MAP, state=state).adjudicate(orders)
+        assert Unit(UnitKind.ARMY, "ENGLAND", Location("SPA")) in after.state.units

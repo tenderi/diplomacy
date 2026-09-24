@@ -90,11 +90,13 @@ export function parseLegalOrder(orderString: string): ParsedLegalOrder | null {
     return { type: 'retreat', targetLabel: prov, targetValue: prov, fullOrder: s }
   }
 
-  // Move: " - BUR" or " - BUR" (dash then target province)
-  const moveMatch = s.match(/\s-\s+([A-Za-z/]+)\s*$/)
+  // Move: " - BUR", or by convoy " - NWY VIA" (the server lists those for armies on
+  // a chain of fleet-held seas; before, this regex dropped them from the menu).
+  const moveMatch = s.match(/\s-\s+([A-Za-z/]+)(\s+VIA(\s+CONVOY)?)?\s*$/i)
   if (moveMatch) {
     const prov = moveMatch[1].trim()
-    return { type: 'move', targetLabel: prov, targetValue: prov, fullOrder: s }
+    const label = moveMatch[2] ? `${prov} (by convoy)` : prov
+    return { type: 'move', targetLabel: label, targetValue: prov, fullOrder: s }
   }
 
   // Build: "FRANCE BUILD A PAR" or "FRANCE BUILD F SPA/NC" (power-prefixed form)

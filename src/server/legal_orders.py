@@ -15,7 +15,8 @@ adjudicator, waiving a player's build with no error anywhere. This module
 enumerates the right order shapes per phase:
 
 - **MOVEMENT** — hold / move / support-hold / support-move / convoy, per unit
-  actually on the board for ``power``.
+  actually on the board for ``power``, plus moves by convoy (``VIA``) and the
+  convoys carrying them along each chain of fleet-held seas (``_convoy_shores``).
 - **RETREAT** — retreat / disband, per ``DislodgedUnit`` belonging to
   ``power``. Retreat destinations are read from the already-computed
   ``DislodgedUnit.retreats`` (see ``engine.adjudicator.retreats.
@@ -217,12 +218,50 @@ def _own_moves(map: MapData, unit: Unit) -> list[Location]:
 # -- MOVEMENT -----------------------------------------------------------------
 
 
+def _convoy_shores(map: MapData, state: GameState) -> list[tuple[frozenset[str], frozenset[str]]]:
+    """``(seas, shore)`` for each chain of fleet-held sea provinces: the connected
+    seas, and every coastal province touching one of them. An army on a shore
+    can be convoyed to any other province on the same shore -- the chain is
+    only as long as the fleets actually on the board make it.
+    """
+    held = {
+        u.province for u in state.units
+        if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER
+    }
+    chains: list[tuple[frozenset[str], frozenset[str]]] = []
+    seen: set[str] = set()
+    for start in sorted(held):
+        if start in seen:
+            continue
+        seas: set[str] = set()
+        frontier = [start]
+        while frontier:
+            sea = frontier.pop()
+            if sea in seas:
+                continue
+            seas.add(sea)
+            for loc in map.fleet_moves(Location(sea)):
+                if loc.province in held and loc.province not in seas:
+                    frontier.append(loc.province)
+        seen |= seas
+        shore = {
+            loc.province
+            for sea in seas
+            for loc in map.fleet_moves(Location(sea))
+            if map.province_type(loc.province) is ProvinceType.COAST
+        }
+        chains.append((frozenset(seas), frozenset(shore)))
+    return chains
+
+
 def _movement_orders(
     map: MapData, state: GameState, power: str, units: list[Unit]
 ) -> tuple[dict[str, list[str]], list[str]]:
     orders_by_unit: dict[str, list[str]] = {}
     flat: list[str] = []
     all_units = sorted(state.units, key=_unit_key)
+    chains = _convoy_shores(map, state)
+    armies_by_province = {u.province: u for u in all_units if u.kind is UnitKind.ARMY}
 
     for u in units:
         key = f"{u.kind.value} {u.location}"
@@ -254,6 +293,28 @@ def _movement_orders(
                         support_kbp,
                     )
                 )
+
+        # Convoyed moves, and the convoys that carry them, along every chain of
+        # fleet-held seas. Until this the menus (the web client's only way to
+        # order, the bot's buttons) never offered an army a move by convoy at
+        # all, and a fleet only a convoy between two provinces it touched itself,
+        # so no convoy longer than one fleet could be ordered from either.
+        for seas, shore in chains:
+            if u.kind is UnitKind.ARMY and u.province in shore:
+                adjacent = map.army_moves(u.province)
+                for dest in sorted(shore - {u.province} - adjacent):
+                    bucket.append(
+                        format_order(Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp)
+                    )
+            if u.kind is UnitKind.FLEET and u.province in seas:
+                for origin in sorted(p for p in shore if p in armies_by_province):
+                    for dest in sorted(shore - {origin}):
+                        bucket.append(
+                            format_order(
+                                Convoy(power, unit=u.location, origin=Location(origin), dest=Location(dest)),
+                                {u.province: u.kind.value, origin: "A"},
+                            )
+                        )
 
         if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER:
             coastal = sorted(

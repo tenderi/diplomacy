@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy.exc import IntegrityError
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
@@ -937,11 +938,18 @@ def join_game(
         taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if taken is not None and taken.user_id is not None:
             raise HTTPException(status_code=409, detail="Power already taken")
+        # Both writes are race-safe: a vacant seat is claimed only while still
+        # vacant, and a new seat row is unique per (game, power). Whoever loses
+        # a simultaneous join is told the power is taken, not that they joined.
         if taken is not None:
-            db_service.assign_player_seat(int(taken.id), int(user.id), True)  # type: ignore
+            if not db_service.claim_vacant_seat(int(taken.id), int(user.id)):  # type: ignore
+                raise HTTPException(status_code=409, detail="Power already taken")
         else:
             # Assign the power to this user (players table only; state is engine-owned).
-            db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
+            try:
+                db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
+            except IntegrityError as e:
+                raise HTTPException(status_code=409, detail="Power already taken") from e
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
@@ -1048,8 +1056,9 @@ def replace_player(
         if already_in_game:
             raise HTTPException(status_code=400, detail="User is already in the game")
         _require_join_password(str(game_id), user, req.join_password)
-        # Fill the seat: user_id -> user, is_active -> True, one commit.
-        db_service.assign_player_seat(int(player.id), int(user.id), True)  # type: ignore
+        # Fill the seat -- only if nobody took it since the checks above.
+        if not db_service.claim_vacant_seat(int(player.id), int(user.id)):  # type: ignore
+            raise HTTPException(status_code=409, detail="Someone else has just taken this power.")
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
             invalidate_cache(f"users/{telegram_id_val}")
