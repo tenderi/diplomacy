@@ -22,7 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.10`.
+- **Last updated:** 2026-09-24, at `v3.0.11`.
+- **Track AO (`v3.0.11`):** `GET /games` listed every game as Spring 1901 (it read
+  columns the model does not have). Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AN (`v3.0.10`):** convoys could not be ordered from the web client or the bot's
   buttons (the legal-order menus offered no move `VIA`, and no convoy longer than one
   fleet), nor a support whose supporter touches only the destination; and two players taking the same vacated seat at once were both told they had
