@@ -195,10 +195,10 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
 
     text = (
         f"{title or f'📊 *Game {game_id} Status*'}\n\n"
-        f"🎯 **You are:** {power}\n"
-        f"📅 **Turn:** {view.get('year')} {view.get('season')}\n"
-        f"🔄 **Phase:** {view.get('phase_type')}\n"
-        f"📝 **Phase Code:** {view.get('phase')}\n"
+        f"🎯 *You are:* {power}\n"
+        f"📅 *Turn:* {view.get('year')} {view.get('season')}\n"
+        f"🔄 *Phase:* {view.get('phase_type')}\n"
+        f"📝 *Phase Code:* {view.get('phase')}\n"
     )
 
     try:
@@ -207,7 +207,7 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
     except Exception:
         deadline = None
     if deadline:
-        text += f"⏰ **Deadline:** {format_deadline(deadline)}\n"
+        text += f"⏰ *Deadline:* {format_deadline(deadline)}\n"
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
@@ -217,16 +217,16 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
         submitted = orders_status.get("submitted", [])
         missing = orders_status.get("missing", [])
         text += (
-            "\n✅ **Submitted:** " + (", ".join(submitted) if submitted else "none") + "\n"
+            "\n✅ *Submitted:* " + (", ".join(submitted) if submitted else "none") + "\n"
         )
         if missing:
-            text += "⏳ **Waiting on:** " + ", ".join(missing) + "\n"
+            text += "⏳ *Waiting on:* " + ", ".join(missing) + "\n"
         if orders_status.get("incomplete"):
-            text += "✏️ **Only some units ordered:** " + ", ".join(orders_status["incomplete"]) + "\n"
+            text += "✏️ *Only some units ordered:* " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):
             text += "⚡ Processes automatically once all orders are in.\n"
         if orders_status.get("waiting"):
-            text += "✋ **Asked to wait:** " + ", ".join(orders_status["waiting"]) + "\n"
+            text += "✋ *Asked to wait:* " + ", ".join(orders_status["waiting"]) + "\n"
 
     try:
         draw_status = api_get(f"/games/{game_id}/draw_vote_status")
@@ -237,7 +237,7 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
         draw_required = draw_status.get("required", [])
         if draw_required:
             text += (
-                f"\n🕊️ **Draw vote:** {len(draw_votes)}/{len(draw_required)} voted for draw"
+                f"\n🕊️ *Draw vote:* {len(draw_votes)}/{len(draw_required)} voted for draw"
             )
             if draw_votes:
                 text += " (" + ", ".join(draw_votes) + ")"
@@ -695,9 +695,9 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         username = escape_markdown(player.get('full_name') or 'Unknown')
         is_active = player.get('is_active', True)
         status_emoji = "✅" if is_active else "❌"
-        lines.append(f"{status_emoji} **{power}** - {username}")
+        lines.append(f"{status_emoji} *{power}* - {username}")
     for power in dummies:
-        lines.append(f"🤖 **{power}** - civil disorder")
+        lines.append(f"🤖 *{power}* - civil disorder")
 
     try:
         await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
@@ -738,46 +738,6 @@ async def dummy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     now = ", ".join(result.get("dummy_powers") or []) or "none"
     what = "is now played by civil disorder" if make_dummy else "is open for a player again"
     await update.message.reply_text(f"{power} {what} in game {game_id}. Civil-disorder powers: {now}.")
-
-
-async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show available games with inline buttons."""
-    async def reply_or_edit(text: str, reply_markup=None, parse_mode='Markdown'):
-        """Helper function to handle both message and callback query contexts"""
-        if update.message:
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        elif update.callback_query:
-            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-
-    try:
-        games_resp = api_get("/games")
-        # Normalize response: support both {"games": [...]} and plain list
-        games = []
-        if isinstance(games_resp, dict) and "games" in games_resp:
-            games = games_resp.get("games", [])
-        elif isinstance(games_resp, list):
-            games = games_resp
-        if not games:
-            await reply_or_edit("🎮 No games available. Use /wait to join the waiting list.")
-            return
-
-        # Create inline keyboard with available games
-        keyboard = []
-        for game in games[:10]:  # Limit to 10 games
-            game_id = game.get('id', 'Unknown')
-            status = game.get('state', 'Unknown')
-            players = game.get('player_count', 0)
-            max_players = game.get('max_players', 7)
-
-            lock = "🔒 " if game.get("private") else ""
-            game_text = f"{lock}Game {game_id} | {status} | {players}/{max_players} players"
-            keyboard.append([InlineKeyboardButton(game_text, callback_data=f"select_game_{game_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await reply_or_edit("🎲 *Select a game to join:*", reply_markup=reply_markup, parse_mode='Markdown')
-
-    except Exception as e:
-        await reply_or_edit(f"❌ Error loading games: {str(e)}")
 
 
 def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardMarkup]]:

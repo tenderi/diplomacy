@@ -89,14 +89,8 @@ def test_register_short_password(client):
     resp = client.post("/auth/register", json={"email": _unique_email("short"), "password": "short"})
     assert resp.status_code == 422
     data = resp.json()
-    detail = data.get("detail")
-    assert detail is not None
-    if isinstance(detail, list):
-        assert len(detail) >= 1
-        msg = detail[0].get("msg", "")
-        assert "8" in msg or "password" in msg.lower()
-    else:
-        assert "8" in str(detail) or "password" in str(detail).lower()
+    assert data["detail"][0]["loc"] == ["body", "password"]
+    assert data["detail"][0]["msg"].endswith("Password must be at least 8 characters")
 
 
 def test_login_nonexistent_email(client):
@@ -161,7 +155,7 @@ def test_unlink_when_not_linked(client):
     token = reg.json()["access_token"]
     unlink = client.post("/auth/me/unlink_telegram", headers={"Authorization": f"Bearer {token}"})
     assert unlink.status_code == 200
-    assert "no telegram" in unlink.json().get("message", "").lower() or "unlink" in unlink.json().get("message", "").lower()
+    assert unlink.json() == {"status": "ok", "message": "No Telegram linked."}
 
 
 def test_reset_password_invalid_token(client):
@@ -314,7 +308,7 @@ def test_unlink_telegram(client):
 
     unlink_resp = client.post("/auth/me/unlink_telegram", headers=headers)
     assert unlink_resp.status_code == 200
-    assert unlink_resp.json().get("message", "").lower().find("unlink") >= 0 or unlink_resp.json().get("status") == "ok"
+    assert unlink_resp.json()["status"] == "ok"
 
     me_after = client.get("/auth/me", headers=headers)
     assert me_after.status_code == 200

@@ -13,6 +13,7 @@ Features:
 
 import time
 import hashlib
+import inspect
 import json
 import logging
 from typing import Dict, Any, Optional, Callable
@@ -134,36 +135,6 @@ class ResponseCache:
             
             logger.debug(f"💾 Cached response for {endpoint} (TTL: {ttl or self.default_ttl}s, route: {route_path})")
     
-    def set(self, endpoint: str, params: Dict[str, Any], data: Any, ttl: Optional[int] = None) -> None:
-        """Alias for put() method to match test expectations."""
-        self.put(endpoint, data, ttl, params)
-    
-    def invalidate(self, endpoint: str, params: Dict[str, Any] = None) -> None:
-        """Invalidate cached response."""
-        with self.lock:
-            if params is None:
-                # Invalidate all entries for this endpoint
-                self.invalidate_pattern(endpoint)
-                return
-            
-            # Find all keys that match the endpoint and have the specified params
-            keys_to_remove = []
-            for key, cached_data in self.cache.items():
-                if cached_data["endpoint"] == endpoint:
-                    # Check if this entry's params contain all the specified params
-                    cached_params = self.cache_params.get(key, {})
-                    if cached_params and all(cached_params.get(k) == v for k, v in params.items()):
-                        keys_to_remove.append(key)
-            
-            for key in keys_to_remove:
-                del self.cache[key]
-                if key in self.cache_params:
-                    del self.cache_params[key]
-                if key in self.access_times:
-                    del self.access_times[key]
-            
-            logger.debug(f"🗑️  Invalidated {len(keys_to_remove)} cache entries for {endpoint}")
-    
     def invalidate_pattern(self, pattern: str) -> None:
         """Invalidate all cached responses matching pattern.
         
@@ -279,20 +250,14 @@ def cached_response(ttl: int = None, key_params: list = None):
             # Extract endpoint name from function
             endpoint = f"{func.__module__}.{func.__name__}"
             
-            # Build cache key parameters from all arguments
-            cache_params = {}
+            # Bind positional and keyword arguments alike: reading key_params from
+            # kwargs only would key a positional call without its game id, and
+            # serve one game's cached answer for every other game.
+            bound_args = inspect.signature(func).bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            cache_params = dict(bound_args.arguments)
             if key_params:
-                # Use only specified parameters
-                for param_name in key_params:
-                    if param_name in kwargs:
-                        cache_params[param_name] = kwargs[param_name]
-            else:
-                # Use all arguments (both positional and keyword)
-                import inspect
-                sig = inspect.signature(func)
-                bound_args = sig.bind(*args, **kwargs)
-                bound_args.apply_defaults()
-                cache_params = dict(bound_args.arguments)
+                cache_params = {name: cache_params[name] for name in key_params if name in cache_params}
             
             # Try to get from cache
             cached_result = _response_cache.get(endpoint, cache_params)

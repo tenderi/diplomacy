@@ -13,6 +13,7 @@ from engine.serialization import (
     state_from_dict,
     state_to_dict,
 )
+from engine.orders.validation import validate
 from engine.simple_ai import generate_orders
 from engine.types import (
     GameStatus,
@@ -219,6 +220,9 @@ class TestSelfPlaySmoke:
             orders = []
             for power in STANDARD_POWERS:
                 orders += generate_orders(g.map, state, power, rng)
+            # The demo's computer opponents play these: every one must be legal.
+            illegal = [(o, validate(o, state, g.map).reason) for o in orders if not validate(o, state, g.map).ok]
+            assert not illegal, f"{state.phase_name}: {illegal}"
             resolution, g = g.adjudicate(orders)
 
             # Invariant: at most one unit per province.

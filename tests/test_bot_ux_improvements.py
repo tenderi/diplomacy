@@ -224,24 +224,6 @@ class TestMarkdownEscaping:
         # message -- /players no longer just does nothing.
         assert message.reply_text.call_count == 2
 
-    def test_post_broadcast_to_channel_escapes_message_text(self):
-        from server.telegram_bot.channels import post_broadcast_to_channel, set_telegram_bot
-
-        mock_bot = Mock()
-        mock_bot.send_message = Mock(return_value=Mock(message_id=1))
-        set_telegram_bot(mock_bot)
-
-        post_broadcast_to_channel(
-            channel_id="-100123",
-            game_id="1",
-            message="Attack now! [link](evil) _urgent_",
-            power="FRANCE",
-        )
-
-        sent_text = mock_bot.send_message.call_args.kwargs["text"]
-        assert "\\[link\\]\\(evil\\)" in sent_text
-        assert "\\_urgent\\_" in sent_text
-
     @patch("server.telegram_bot.channel_commands.api_get")
     def test_channel_info_escapes_channel_name(self, mock_get):
         from server.telegram_bot.channel_commands import channel_info

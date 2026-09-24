@@ -153,3 +153,26 @@ class TestSharedFinish:
         monkeypatch.setattr(api_shared, "notify_turn_processed", lambda *a, **kw: seen.update(kw))
         api_shared.finish_processed_turn(game_id, int(game_id), prev_phase_code="S1901M", trigger="deadline")
         assert seen["game_ended"] is True and seen["trigger"] == "deadline"
+
+
+def test_in_the_winter_it_waits_for_every_build_owed(client: TestClient) -> None:
+    """Adjustments: a power is done when it has given as many builds (or waives) as it
+    is owed -- the bot sends them one at a time, and the first must not end winter."""
+    game_id, _e, f = _table(client, auto=True)
+    board = game_service.state_json(game_id)
+    french_units = [{"kind": "A", "power": "FRANCE", "location": "BUR"}, {"kind": "A", "power": "FRANCE", "location": "SPA"},
+                    {"kind": "F", "power": "FRANCE", "location": "MAO"}]
+    board.update(
+        season="WINTER", phase_type="ADJUSTMENT",
+        units=[u for u in board["units"] if u["power"] != "FRANCE"] + french_units,
+        ownership={**board["ownership"], "SPA": "FRANCE", "POR": "FRANCE"},  # 5 centres, 3 units
+    )
+    game_service.restore_snapshot(game_id, board, "W1901A")
+
+    first = client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["BUILD A PAR"], merge=True)).json()
+    assert first["auto_processed"] == 0
+    assert client.get(f"/games/{game_id}/orders_status").json()["incomplete"] == ["FRANCE"]
+    last = client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["WAIVE"], merge=True)).json()
+    assert last["auto_processed"] == 1
+    assert _phase(client, game_id) == "S1902M"
+    assert {u["location"] for u in game_service.view(game_id)["units_by_power"]["FRANCE"]} == {"BUR", "SPA", "MAO", "PAR"}

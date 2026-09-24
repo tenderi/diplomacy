@@ -9,7 +9,7 @@ import hashlib
 import json
 from io import BytesIO
 
-from PIL import Image, ImageFont
+from PIL import Image
 
 from .antialias import DrawTarget, antialiased_overlay
 from .arrows import (
@@ -20,7 +20,6 @@ from .arrows import (
     _draw_curved_arrow,
     _draw_dislodged_marker,
     _draw_failure_x,
-    _draw_star,
     _draw_success_checkmark,
     _draw_support_cut_indicator,
 )
@@ -467,37 +466,6 @@ def _draw_retreat_order(
                style="dotted", status=arrow_status)
 
 
-def _draw_conflict_marker(draw: DrawTarget, province: str, strengths: dict, result: str, coords: dict) -> None:
-    """
-    Draw battle indicator per spec section 3.4.9.
-
-    Star/shield symbol, red/orange color, optional strength label.
-    """
-    if province not in coords:
-        return
-
-    coord = coords[province]
-    x, y = coord
-
-    marker_specs = _viz_config.get_marker_specs()
-    marker_size = marker_specs["battle_indicator_size"]
-    battle_color = _viz_config.get_color("failure")  # Red for battles
-
-    # Draw conflict marker (star or special symbol)
-    _draw_star(draw, (x, y), marker_size, battle_color, "yellow")
-
-    # Add strength indicator if available
-    if strengths:
-        max_strength = max(strengths.values())
-        font_specs = _viz_config.get_font_specs()
-        font_size = font_specs["conflict_label_size"]
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
-        except OSError:
-            font = ImageFont.load_default()
-        draw.text((x + marker_size + 5, y - 10), str(max_strength), fill="black", font=font)
-
-
 def _draw_standoff_indicator(draw: DrawTarget, province: str, coords: dict) -> None:
     """
     Draw standoff indicator per spec section 3.4.9.
@@ -576,7 +544,10 @@ def render_board_png_orders(
             pending_orders[power].append(order_copy)
 
     # Generate cache key for this map configuration with orders
-    cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, orders=pending_orders)
+    cache_key = _map_cache._generate_cache_key(
+        svg_path, units, phase_info, orders=pending_orders,
+        supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers,
+    )
 
     # Try to get from cache first
     cached_img = _map_cache.get(cache_key)
@@ -638,25 +609,9 @@ def render_board_png_resolution(
         svg_path: Path to SVG map file
         units: Dictionary of power -> list of units (after adjudication, includes dislodged units)
         orders: Dictionary of power -> list of order dictionaries (with final status)
-        resolution_data: Dictionary containing conflict and resolution information:
-            {
-                "conflicts": [
-                    {
-                        "province": "BUR",
-                        "attackers": ["FRANCE", "GERMANY"],
-                        "defender": "AUSTRIA",
-                        "strengths": {"FRANCE": 2, "GERMANY": 1, "AUSTRIA": 1},
-                        "result": "standoff|victory|bounce"
-                    }
-                ],
-                "dislodgements": [
-                    {
-                        "unit": "A BUR",
-                        "dislodged_by": "A PAR",
-                        "retreat_options": ["BEL", "PIC"]
-                    }
-                ]
-            }
+        resolution_data: ``{"conflicts": [{"province": "BUR", "result": "standoff"}]}`` --
+            the provinces to mark with a standoff indicator (``maps.py`` derives them
+            from the stored resolution; see ``order_overlay.standoff_provinces``).
         phase_info: Dictionary with turn/season/phase information
         output_path: Optional output file path
         supply_center_control: Dictionary of province -> power controlling supply center
@@ -668,7 +623,10 @@ def render_board_png_resolution(
         raise ValueError("svg_path must not be None")
 
     # Generate cache key including resolution data
-    cache_key = _map_cache._generate_cache_key(svg_path, units, phase_info, orders=orders)
+    cache_key = _map_cache._generate_cache_key(
+        svg_path, units, phase_info, orders=orders,
+        supply_center_control=supply_center_control, color_only_supply_centers=color_only_supply_centers,
+    )
     # Cache key, not a security control -- usedforsecurity=False silences the
     # weak-hash warning without masking a real crypto misuse.
     cache_key += hashlib.md5(
@@ -701,17 +659,10 @@ def render_board_png_resolution(
         # Draw order visualizations with status indicators
         _draw_comprehensive_order_visualization(draw, orders, coords, power_colors, units, dislodged_coords)
 
-        # Draw conflict markers
-        conflicts = resolution_data.get("conflicts", [])
-        for conflict in conflicts:
-            province = conflict.get("province")
-            strengths = conflict.get("strengths", {})
-            result = conflict.get("result", "")
-
-            if result == "standoff":
-                _draw_standoff_indicator(draw, province, coords)
-            else:
-                _draw_conflict_marker(draw, province, strengths, result, coords)
+        # Standoff markers
+        for conflict in resolution_data.get("conflicts", []):
+            if conflict.get("result") == "standoff":
+                _draw_standoff_indicator(draw, conflict.get("province"), coords)
 
     # Note: Dislodged units are already drawn by render_board_png with offset and D marker
 

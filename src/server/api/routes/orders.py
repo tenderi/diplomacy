@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
 from ..client_timestamp import normalize_client_timestamp
 from .. import shared as api_shared
+from ...response_cache import invalidate_cache
 from ..shared import db_service, game_service, logger, is_bot_secret
 from server.game_service import GameOverError
 
@@ -103,6 +104,7 @@ def set_orders(
         logger.exception(f"set_orders failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     results = [{"order": r["order"], "success": r["ok"], "error": r["reason"]} for r in raw]
+    invalidate_cache(f"games/{req.game_id}")  # GET /state shows pending orders
     # W10: these may have been the last orders the turn was waiting for.
     processed = api_shared.maybe_auto_process(str(req.game_id))
     return {"results": results, "auto_processed": processed}
@@ -198,4 +200,5 @@ def clear_orders_for_power(
     # the player entered for the *new* phase (e.g. from the browser).
     _refuse_if_stale(str(game_id), req.client_timestamp)
     game_service.clear_orders(str(game_id), power)
+    invalidate_cache(f"games/{game_id}")
     return {"status": "ok"}

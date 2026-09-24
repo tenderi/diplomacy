@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from ..shared import db_service, game_service
 from .auth import require_bot_or_user
 from rendering.map import Map
-from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
+from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
 from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
 
 router = APIRouter()
@@ -209,7 +209,8 @@ def get_game_resolution_map_png(game_id: str) -> Response:
             order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
             resolution_data = {
                 "conflicts": [
-                    {"province": prov, "result": "standoff"} for prov in view.get("contested", [])
+                    {"province": prov, "result": "standoff"}
+                    for prov in sorted(set(view.get("contested", [])) | set(standoff_provinces(resolution)))
                 ],
             }
             img_bytes = Map.render_board_png_resolution(
@@ -367,7 +368,8 @@ def generate_resolution_map(game_id: str, _: None = Depends(require_bot_or_user)
     order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
     resolution_data = {
         "conflicts": [
-            {"province": prov, "result": "standoff"} for prov in view.get("contested", [])
+            {"province": prov, "result": "standoff"}
+            for prov in sorted(set(view.get("contested", [])) | set(standoff_provinces(resolution)))
         ],
     }
     return _render_and_save(

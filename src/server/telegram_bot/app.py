@@ -6,6 +6,7 @@ All command handlers are organized in the telegram_bot package.
 """
 import asyncio
 import logging
+import sys
 
 from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -47,7 +48,6 @@ from server.telegram_bot.notifications import (
 from server.telegram_bot.channel_commands import (
     link_channel, unlink_channel, channel_info, channel_settings, newgame, linkgroup, unlinkgroup,
 )
-from server.telegram_bot.channels import set_telegram_bot
 from server.telegram_bot.link_account import link_account
 
 logger = logging.getLogger("diplomacy.telegram_bot.main")
@@ -328,14 +328,12 @@ def main():
     writes go to the durable outbox and are delivered when it does.
     """
     if not TELEGRAM_TOKEN:
-        print("Error: TELEGRAM_BOT_TOKEN environment variable not set.")
-        return
+        sys.exit("Error: TELEGRAM_BOT_TOKEN environment variable not set.")
 
     try:
         _validate_api_url(API_URL)
     except ValueError as e:
-        print(f"Error: {e}")
-        return
+        sys.exit(f"Error: {e}")
     try:
         wait_for_api_health(max_attempts=3)
     except RuntimeError as e:
@@ -348,9 +346,6 @@ def main():
         .post_shutdown(_post_shutdown)
         .build()
     )
-
-    # Set telegram bot instance for channel posting
-    set_telegram_bot(app.bot)
 
     # Register command handlers
     app.add_handler(CommandHandler("start", start))

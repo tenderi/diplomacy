@@ -97,7 +97,8 @@ key, marked `Idempotent-Replayed: true`. This is how the bot's retry queue is sa
 
 `/admin/*` (delete all games, cache management, counts) and `/dashboard/api/*` (systemd
 status and restart, logs, read-only DB inspection) both require the `X-Admin-Token` header.
-`GET /health` and `GET /health/environment` are open.
+`GET /health` and `GET /healthz` (both check the database; `upgrade.sh` and the web
+container's healthcheck use `/healthz`) and `GET /version` are open.
 
 ## Errors
 

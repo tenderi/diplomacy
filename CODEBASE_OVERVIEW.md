@@ -167,7 +167,6 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `channels.py` | Link/unlink Telegram channels, settings, posting maps, results, broadcasts, timelines, proposals, analytics. |
 | `admin.py` | Delete all games, cache management, counts. Requires the admin token. |
 | `dashboard.py` | Service status and restart (systemd), log retrieval (`journalctl`), read-only DB table inspection and stats. Requires the admin token. |
-| `health.py` | `/health` and `/health/environment`. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
 `shared.py` holds the `db_service` / `game_service` singletons, `game_view(game_id)`,
@@ -222,7 +221,7 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `messages.py`, `maps.py` | `/message`, `/broadcast`, `/messages` (game id optional; `send_diplomatic_message`, `recent_messages_text`); `/map`, `/viewmap`, `/replay`. |
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu), plain-text routing (private chats only); the solo demo (`start_demo_game`: six civil-disorder seats in a `map_name="demo"` game, where the server plays them with `engine.simple_ai`), `/debug`. |
 | `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`. Centralised because the same block was copy-pasted into three modules and all copies drifted into teaching syntax the engine rejects; `tests/test_bot_help_text.py` parses each documented order through the real grammar. |
-| `channels.py`, `channel_commands.py` | Posting maps, results, and broadcasts to linked channels; `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings`. |
+| `channels.py`, `channel_commands.py` | The text of group posts (timeline, player dashboard, battle results; the API queues them, the bot sends them); `/newgame`, `/linkgroup`, `/unlinkgroup`, and the older `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` (players of the game only). |
 | `notifications.py` | The two background loops: pull `GET /bot/outbox` and DM players (ack after Telegram accepts; late ones prefixed with their original time), and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
 
 Command reference:
@@ -255,15 +254,15 @@ venv active and Postgres up. CI enforces coverage: `--fail-under=60` overall, an
 
 | Category | Location |
 |---|---|
-| **DATC conformance** | `tests/datc/test_datc_6a_*.py` … `6j_*.py` (~154 cases, `datc` marker), `test_adjudicator_mechanics.py`, `harness.py`, and `test_properties.py` (Hypothesis: determinism under order-shuffling, unit conservation, ≤1 unit/province, retreat-set correctness). |
-| **Engine units** | `tests/engine/` — value types, `.map` topology loading, order grammar round-trips, validation, JSON round-trips, the phase machine, plus a 7-AI-power self-play smoke run. |
-| **Game service** | `test_game_service.py` (including resolution maps across every phase), `test_order_overlay.py`, `test_view_adapter.py`, `test_legal_orders.py`. |
-| **API routes** | `test_api_routes_*.py`, `test_api_spec_shapes.py`, `test_api_games_list.py`, `test_api_scheduler.py`, `test_api_routes_draw_vote.py`. |
-| **Auth** | `test_auth.py`, `test_authorization.py`, `test_user_registration.py`. |
-| **Rendering** | `test_visualization.py`, `test_order_visualization.py`, `test_arrow_geometry.py`, `test_pending_order_styling.py` (`map` marker). |
-| **Telegram bot** | `test_telegram_*.py`, `test_game_context.py`, `test_selectunit_phases.py`, `test_interactive_orders*.py`, `test_channel_*.py`. |
+| **DATC conformance** | `tests/datc/test_datc_6a_*.py` … `6k_*.py` (~154 cases, `datc` marker), `test_adjudicator_mechanics.py`, `harness.py`, and `test_properties.py` (Hypothesis over random *supported* positions: determinism under order-shuffling, unit conservation, ≤1 unit/province, every offered retreat legal). |
+| **Engine units** | `tests/engine/` — value types, `.map` topology loading, order grammar and its errors, validation, adjustment edge rules, JSON round-trips, the phase machine, `simple_ai` (its orders must validate), plus a 7-AI-power self-play run. |
+| **Game service** | `test_game_service.py` (including resolution maps across every phase), `test_concurrent_processing.py` (`StaleGameError`, the cross-process guard), `test_order_overlay.py`, `test_view_adapter.py`, `test_legal_orders.py`. |
+| **API routes** | `test_api_routes_*.py`, `test_api_scheduler.py`, `test_api_health.py`, `test_cache_coherence.py` (no cached read shows the world before your own write), `test_game_archive.py`, `test_channel_posts.py`, `test_channel_analytics.py`, `test_background_jobs.py`. |
+| **Auth** | `test_auth.py`, `test_authorization.py`, `test_auth_sweep.py`, `test_user_registration.py`. |
+| **Rendering** | `test_board_render.py` (pixels and the render cache key), `test_visualization.py`, `test_order_visualization.py`, `test_arrow_geometry.py`, `test_pending_order_styling.py` (`map` marker). |
+| **Telegram bot** | `test_bot_commands.py` (each command's HTTP contract), `test_bot_routing.py` (every button/keyboard route, every advertised command registered), `test_telegram_*.py`, `test_bot_*.py`, `test_api_client*.py`, `test_game_context.py`, `test_selectunit_phases.py`, `test_interactive_orders.py`. |
 | **DAIDE** | `test_daide_tokens.py`, `test_daide_wire.py`, `test_daide_clauses.py`, `test_daide_session.py`, `test_daide_server.py` (including an end-to-end raw-socket test over one continuous TCP connection). |
-| **Server / persistence / other** | `test_server*.py`, `test_execution_context.py`, `test_persistence_database_service.py`, `test_errors.py`, `test_response_cache.py`, `test_deployment_infrastructure.py`. |
+| **Server / persistence / other** | `test_server.py`, `test_execution_context.py` (the bot image's imports and `python -m` start), `test_persistence_database_service.py`, `test_response_cache.py`, `test_deployment_infrastructure.py`, `test_suite_hygiene.py` (every test must contain something that can fail). |
 
 **DB-dependent tests skip silently without `SQLALCHEMY_DATABASE_URL`** — a no-DB local run
 looks falsely green. CI always provides a fresh `postgres:14` container.

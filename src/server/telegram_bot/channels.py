@@ -1,250 +1,16 @@
 """
-Telegram channel integration for Diplomacy games.
+Formatting of the channel posts the API queues for a game's linked Telegram channel.
 
-This module handles posting game content to Telegram channels:
-- Automated map posting
-- Broadcast message forwarding
-- Turn notifications
+The API's ``/games/{id}/channel/*`` routes call these with the dict built by
+``api.routes.channels._legacy_state_dict`` and queue the text on ``bot_outbox``; the bot
+delivers it (``notifications.py``). Nothing here sends anything. Every post goes out with
+``parse_mode='Markdown'`` (legacy): bold is ``*single*``.
 """
 import logging
-import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
-from telegram import Bot
-from telegram.error import TelegramError
-
-from .utils import escape_markdown
-
 logger = logging.getLogger("diplomacy.telegram_bot.channels")
-
-# Global bot instance (set by main telegram_bot.py)
-_telegram_bot: Optional[Bot] = None
-
-
-def set_telegram_bot(bot: Bot) -> None:
-    """Set the Telegram bot instance for channel posting."""
-    global _telegram_bot
-    _telegram_bot = bot
-
-
-def _log_analytics_event(
-    game_id: str,
-    channel_id: str,
-    event_type: str,
-    event_subtype: Optional[str] = None,
-    user_id: Optional[int] = None,
-    power: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None
-) -> None:
-    """Helper function to log analytics events."""
-    try:
-        from ...api.shared import db_service
-        db_service.log_channel_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type=event_type,
-            event_subtype=event_subtype,
-            user_id=user_id,
-            power=power,
-            metadata=metadata
-        )
-    except Exception as e:
-        logger.debug(f"Failed to log analytics event: {e}")
-
-
-def post_map_to_channel(channel_id: str, game_id: str, map_path: str) -> Optional[int]:
-    """
-    Post a map image to a Telegram channel.
-    
-    Args:
-        channel_id: Telegram channel ID (e.g., "-1001234567890")
-        game_id: Game ID for context
-        map_path: Path to the map image file
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        if not os.path.exists(map_path):
-            logger.error(f"Map file not found: {map_path}")
-            return None
-        
-        # Read map image
-        with open(map_path, 'rb') as f:
-            map_bytes = f.read()
-        
-        # Post to channel
-        message = _telegram_bot.send_photo(
-            chat_id=channel_id,
-            photo=map_bytes,
-            caption=f"🗺️ Game {game_id} - Current Map"
-        )
-        
-        logger.info(f"Posted map to channel {channel_id} for game {game_id}")
-        
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='map',
-            metadata={'message_id': message.message_id, 'map_path': map_path}
-        )
-        
-        return message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting map to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting map to channel {channel_id}: {e}")
-        return None
-
-
-def post_broadcast_to_channel(
-    channel_id: str, 
-    game_id: str, 
-    message: str, 
-    power: Optional[str] = None,
-    reply_to_message_id: Optional[int] = None,
-) -> Optional[int]:
-    """
-    Post a broadcast message to a Telegram channel with optional threading support.
-    
-    Args:
-        channel_id: Telegram channel ID
-        game_id: Game ID for context
-        message: Message text to post
-        power: Optional power name for formatting
-        reply_to_message_id: Optional message ID to reply to (for threading)
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        # `message` is free-text a player typed via /broadcast (or the web
-        # app) -- escape it before folding it into a Markdown-formatted
-        # channel post, or an unescaped `_`/`*`/`` ` ``/`[` in it makes the
-        # whole send_message call raise (caught below and just logged, so
-        # the broadcast silently never reaches the channel).
-        safe_message = escape_markdown(message)
-        if power:
-            formatted_message = f"📢 **{power}** → All Powers\n\n{safe_message}"
-        else:
-            formatted_message = f"📢 **PUBLIC BROADCAST**\n\n{safe_message}"
-
-        # Prepare message parameters
-        message_params = {
-            "chat_id": channel_id,
-            "text": formatted_message,
-            "parse_mode": 'Markdown'
-        }
-        
-        # Add reply threading if specified
-        if reply_to_message_id:
-            message_params["reply_to_message_id"] = reply_to_message_id
-        
-        # Post to channel
-        posted_message = _telegram_bot.send_message(**message_params)
-        
-        logger.info(f"Posted broadcast to channel {channel_id} for game {game_id} (message_id: {posted_message.message_id})")
-        
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='broadcast',
-            user_id=None,  # Could extract from power if needed
-            power=power,
-            metadata={'message_id': posted_message.message_id, 'thread_id': reply_to_message_id}
-        )
-        
-        return posted_message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting broadcast to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting broadcast to channel {channel_id}: {e}")
-        return None
-
-
-def create_discussion_thread(
-    channel_id: str,
-    game_id: str,
-    topic: str,
-    phase: Optional[str] = None
-) -> Optional[int]:
-    """
-    Create a discussion thread for a specific phase or topic.
-    
-    Args:
-        channel_id: Telegram channel ID (must be a forum/topic channel)
-        game_id: Game ID for context
-        topic: Thread topic/title
-        phase: Optional phase name (e.g., "Spring 1901 Movement")
-        
-    Returns:
-        Thread/topic message ID, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot create thread.")
-        return None
-    
-    try:
-        # Format thread title
-        if phase:
-            thread_title = f"{topic} - {phase}"
-        else:
-            thread_title = topic
-        
-        # Create forum topic (requires forum channel)
-        # Note: This requires the channel to be a forum channel with topics enabled
-        # For regular channels, we'll use reply threading instead
-        try:
-            # Try to create a forum topic
-            topic_message = _telegram_bot.create_forum_topic(
-                chat_id=channel_id,
-                name=thread_title
-            )
-            logger.info(f"Created forum topic in channel {channel_id} for game {game_id}")
-            thread_id = topic_message.message_thread_id if hasattr(topic_message, 'message_thread_id') else None
-            # Log analytics event
-            _log_analytics_event(
-                game_id=game_id,
-                channel_id=channel_id,
-                event_type='message_posted',
-                event_subtype='thread_created',
-                metadata={'topic': topic, 'phase': phase, 'thread_id': thread_id}
-            )
-            return thread_id
-        except Exception:
-            # If forum topics aren't supported, log and return None
-            logger.debug(f"Channel {channel_id} does not support forum topics, using reply threading instead")
-            return None
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error creating thread in channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error creating thread in channel {channel_id}: {e}")
-        return None
 
 
 def format_historical_timeline(
@@ -269,7 +35,7 @@ def format_historical_timeline(
         current_year = game_state.get("current_year", game_state.get("currentYear", 1901))
         current_season = game_state.get("current_season", game_state.get("currentSeason", "Spring"))
         
-        header = f"📜 **HISTORICAL TIMELINE - GAME {game_id}**\n\n"
+        header = f"📜 *HISTORICAL TIMELINE - GAME {game_id}*\n\n"
         
         # Power emoji mapping
         power_emoji = {
@@ -329,13 +95,13 @@ def format_historical_timeline(
         # Group events by turn/season if available
         if timeline_events:
             phase_label = f"{current_season} {current_year}"
-            timeline_text += f"**{phase_label}:**\n"
+            timeline_text += f"*{phase_label}:*\n"
             timeline_text += "\n".join(timeline_events) + "\n\n"
         else:
             timeline_text += "*No major events recorded yet.*\n\n"
         
         # Add current status summary
-        timeline_text += "**Current Status:**\n"
+        timeline_text += "*Current Status:*\n"
         power_rankings = []
         for power_name, power_state in current_powers.items():
             if isinstance(power_state, dict):
@@ -355,163 +121,7 @@ def format_historical_timeline(
         
     except Exception as e:
         logger.exception(f"Error formatting historical timeline: {e}")
-        return f"📜 **HISTORICAL TIMELINE**\n\nError formatting timeline: {str(e)}"
-
-
-def post_timeline_update_to_channel(
-    channel_id: str,
-    game_id: str,
-    game_state: Dict[str, Any],
-    turn_history: Optional[List[Dict[str, Any]]] = None,
-    previous_powers: Optional[Dict[str, Dict[str, Any]]] = None
-) -> Optional[int]:
-    """
-    Format and post historical timeline update to a Telegram channel.
-    
-    Args:
-        channel_id: Telegram channel ID
-        game_id: Game ID for context
-        game_state: Current game state dictionary
-        turn_history: List of turn history entries
-        previous_powers: Previous power states for comparison
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        # Format timeline
-        formatted_timeline = format_historical_timeline(game_state, turn_history, previous_powers)
-        
-        # Post to channel
-        posted_message = _telegram_bot.send_message(
-            chat_id=channel_id,
-            text=formatted_timeline,
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Posted timeline update to channel {channel_id} for game {game_id}")
-
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='timeline',
-            metadata={'message_id': posted_message.message_id}
-        )
-
-        return posted_message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting timeline to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting timeline to channel {channel_id}: {e}")
-        return None
-
-
-def post_notification_to_channel(
-    channel_id: str,
-    game_id: str,
-    notification_type: str,
-    title: str,
-    message: str
-) -> Optional[int]:
-    """
-    Post a notification to a Telegram channel.
-    
-    Args:
-        channel_id: Telegram channel ID
-        game_id: Game ID for context
-        notification_type: Type of notification ("turn_start", "deadline", "phase_change", etc.)
-        title: Notification title
-        message: Notification message
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        # Format notification based on type
-        emoji_map = {
-            "turn_start": "🎮",
-            "deadline": "⏰",
-            "phase_change": "🔄",
-            "adjudication": "⚔️",
-            "elimination": "💀",
-            "game_end": "🏆"
-        }
-        
-        emoji = emoji_map.get(notification_type, "📢")
-        formatted_message = f"{emoji} **{title}**\n\n{message}"
-        
-        # Post to channel
-        posted_message = _telegram_bot.send_message(
-            chat_id=channel_id,
-            text=formatted_message,
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Posted {notification_type} notification to channel {channel_id} for game {game_id}")
-        
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='notification',
-            metadata={'message_id': posted_message.message_id, 'notification_type': notification_type}
-        )
-        
-        return posted_message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting notification to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting notification to channel {channel_id}: {e}")
-        return None
-
-
-def should_auto_post_map(game_id: str) -> bool:
-    """Check if maps should be auto-posted for a game based on channel settings."""
-    from ...api.shared import db_service
-    
-    try:
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            return False
-        
-        settings = channel_info.get("settings", {})
-        return settings.get("auto_post_maps", True)  # Default to True
-    except Exception:
-        return False
-
-
-def should_auto_post_broadcast(game_id: str) -> bool:
-    """Check if broadcasts should be auto-posted for a game."""
-    from ...api.shared import db_service
-    
-    try:
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            return False
-        
-        settings = channel_info.get("settings", {})
-        return settings.get("auto_post_broadcasts", True)  # Default to True
-    except Exception:
-        return False
+        return f"📜 *HISTORICAL TIMELINE*\n\nError formatting timeline: {str(e)}"
 
 
 def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[List[Dict[str, Any]]] = None) -> str:
@@ -532,7 +142,7 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
         season = game_state.get("current_season", game_state.get("currentSeason", "Spring"))
         phase = game_state.get("current_phase", game_state.get("currentPhase", "Movement"))
         
-        header = f"👥 **PLAYER STATUS DASHBOARD - GAME {game_id}**\n"
+        header = f"👥 *PLAYER STATUS DASHBOARD - GAME {game_id}*\n"
         header += f"📅 {season} {year} - {phase} Phase\n\n"
         
         # Power emoji mapping
@@ -548,7 +158,7 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
         
         # Get orders to check submission status
         orders = game_state.get("orders", {})
-        submitted_powers = set(orders.keys())
+        submitted_powers = {power for power, power_orders in orders.items() if power_orders}
         
         # Get power states for order submission info
         powers = game_state.get("powers", {})
@@ -613,12 +223,12 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
                     no_orders_players.append(player_line)
                 elif orders_submitted or power_name in submitted_powers:
                     if time_ago:
-                        player_line += f" - Submitted {time_ago} ago"
+                        player_line += f" - Submitted {time_ago}"
                     else:
                         player_line += " - Submitted"
                     submitted_players.append(player_line)
                 elif last_order_time:
-                    player_line += f" - Last active {time_ago} ago"
+                    player_line += f" - Last active {time_ago}"
                     pending_players.append(player_line)
                 else:
                     player_line += " - No orders"
@@ -628,102 +238,22 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
         dashboard_text = header
         
         if submitted_players:
-            dashboard_text += "✅ **Orders Submitted:**\n"
+            dashboard_text += "✅ *Orders Submitted:*\n"
             dashboard_text += "\n".join(submitted_players) + "\n\n"
         
         if pending_players:
-            dashboard_text += "⏳ **Pending:**\n"
+            dashboard_text += "⏳ *Pending:*\n"
             dashboard_text += "\n".join(pending_players) + "\n\n"
         
         if no_orders_players:
-            dashboard_text += "❌ **No Orders:**\n"
+            dashboard_text += "❌ *No Orders:*\n"
             dashboard_text += "\n".join(no_orders_players) + "\n\n"
         
         return dashboard_text
         
     except Exception as e:
         logger.exception(f"Error formatting player dashboard: {e}")
-        return f"👥 **PLAYER STATUS DASHBOARD**\n\nError formatting dashboard: {str(e)}"
-
-
-def post_player_dashboard_to_channel(
-    channel_id: str,
-    game_id: str,
-    game_state: Dict[str, Any],
-    players_data: Optional[List[Dict[str, Any]]] = None
-) -> Optional[int]:
-    """
-    Format and post player status dashboard to a Telegram channel.
-    
-    Args:
-        channel_id: Telegram channel ID
-        game_id: Game ID for context
-        game_state: Current game state dictionary
-        players_data: Optional list of player data from API
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        # Format dashboard
-        formatted_dashboard = format_player_dashboard(game_state, players_data)
-        
-        # Post to channel
-        posted_message = _telegram_bot.send_message(
-            chat_id=channel_id,
-            text=formatted_dashboard,
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Posted player dashboard to channel {channel_id} for game {game_id}")
-        
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='dashboard',
-            metadata={'message_id': posted_message.message_id}
-        )
-        
-        return posted_message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting player dashboard to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting player dashboard to channel {channel_id}: {e}")
-        return None
-
-
-def should_auto_post_notification(game_id: str, notification_level: str = "important") -> bool:
-    """Check if notifications should be auto-posted for a game."""
-    from ...api.shared import db_service
-    
-    try:
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            return False
-        
-        settings = channel_info.get("settings", {})
-        configured_level = settings.get("notification_level", "all")
-        
-        if configured_level == "none":
-            return False
-        elif configured_level == "all":
-            return True
-        elif configured_level == "important":
-            return notification_level in ["turn_start", "deadline", "game_end", "elimination"]
-        else:
-            return False
-    except Exception:
-        return False
+        return f"👥 *PLAYER STATUS DASHBOARD*\n\nError formatting dashboard: {str(e)}"
 
 
 def format_battle_results(
@@ -748,7 +278,7 @@ def format_battle_results(
         season = game_state.get("current_season", game_state.get("currentSeason", "Spring"))
         
         # Build header
-        header = f"⚔️ **ADJUDICATION RESULTS - {season.upper()} {year}**\n\n"
+        header = f"⚔️ *ADJUDICATION RESULTS - {season.upper()} {year}*\n\n"
         
         successful_attacks = []
         bounced_movements = []
@@ -802,17 +332,17 @@ def format_battle_results(
         
         # Successful attacks
         if successful_attacks:
-            results_text += "🎯 **Successful Attacks:**\n"
+            results_text += "🎯 *Successful Attacks:*\n"
             results_text += "\n".join(successful_attacks) + "\n\n"
         
         # Dislodged units
         if dislodged_info:
-            results_text += "💥 **Dislodgements:**\n"
+            results_text += "💥 *Dislodgements:*\n"
             results_text += "\n".join(dislodged_info) + "\n\n"
         
         # Bounced movements
         if bounced_movements:
-            results_text += "🔄 **Bounced Movements:**\n"
+            results_text += "🔄 *Bounced Movements:*\n"
             results_text += "\n".join(bounced_movements) + "\n\n"
         
         # Supply center changes
@@ -853,7 +383,7 @@ def format_battle_results(
                             supply_changes.append(f"{emoji} {power}: {change}")
             
             if supply_changes:
-                results_text += "📊 **Supply Center Changes:**\n"
+                results_text += "📊 *Supply Center Changes:*\n"
                 results_text += "\n".join(supply_changes) + "\n\n"
         
         # Power rankings
@@ -867,7 +397,7 @@ def format_battle_results(
         power_rankings.sort(key=lambda x: x[1], reverse=True)
         
         if power_rankings:
-            results_text += "📈 **Power Rankings:**\n"
+            results_text += "📈 *Power Rankings:*\n"
             prev_count = None
             rank = 1
             for power, count, emoji in power_rankings:
@@ -897,63 +427,4 @@ def format_battle_results(
         
     except Exception as e:
         logger.exception(f"Error formatting battle results: {e}")
-        return f"⚔️ **ADJUDICATION RESULTS**\n\nError formatting results: {str(e)}"
-
-
-def post_battle_results_to_channel(
-    channel_id: str,
-    game_id: str,
-    game_state: Dict[str, Any],
-    order_history: Optional[Dict[str, List[Dict[str, Any]]]] = None,
-    previous_supply_centers: Optional[Dict[str, List[str]]] = None
-) -> Optional[int]:
-    """
-    Format and post battle results to a Telegram channel.
-    
-    Args:
-        channel_id: Telegram channel ID
-        game_id: Game ID for context
-        game_state: Current game state dictionary
-        order_history: Orders from the last turn that was just processed
-        previous_supply_centers: Previous supply center control for comparison
-        
-    Returns:
-        Message ID of the posted message, or None if failed
-    """
-    global _telegram_bot
-    
-    if not _telegram_bot:
-        logger.error("Telegram bot not initialized. Cannot post to channel.")
-        return None
-    
-    try:
-        # Format battle results
-        formatted_results = format_battle_results(game_state, order_history, previous_supply_centers)
-        
-        # Post to channel
-        posted_message = _telegram_bot.send_message(
-            chat_id=channel_id,
-            text=formatted_results,
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Posted battle results to channel {channel_id} for game {game_id}")
-        
-        # Log analytics event
-        _log_analytics_event(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='message_posted',
-            event_subtype='battle_results',
-            metadata={'message_id': posted_message.message_id}
-        )
-        
-        return posted_message.message_id
-        
-    except TelegramError as e:
-        logger.error(f"Telegram error posting battle results to channel {channel_id}: {e}")
-        return None
-    except Exception as e:
-        logger.exception(f"Error posting battle results to channel {channel_id}: {e}")
-        return None
-
+        return f"⚔️ *ADJUDICATION RESULTS*\n\nError formatting results: {str(e)}"

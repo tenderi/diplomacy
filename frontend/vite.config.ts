@@ -17,7 +17,11 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/test/**', '**/*.d.ts', '**/*.config.*'],
+      // App code only: not the tests themselves, and not the shadcn/ui primitives
+      // (vendored Radix wrappers, tested upstream).
+      exclude: ['src/test/**', '**/*.d.ts', '**/*.config.*', '**/*.test.{ts,tsx}', 'src/components/ui/**', 'src/main.tsx'],
+      // A few points under today's numbers: room to delete dead code, not to lose tests.
+      thresholds: { lines: 90, statements: 90, functions: 85, branches: 77 },
     },
   },
   server: {

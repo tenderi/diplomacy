@@ -326,13 +326,9 @@ class TestStalePhaseLabel:
                 return el
         return None
 
-    def test_svg_parses(self):
-        """The element is emptied in place, and an XML comment explains why -- which
-        must not itself break the document (an earlier attempt did, by using `--`
-        inside the comment)."""
-        assert self._phase_element() is not None
-
     def test_phase_element_carries_no_hardcoded_phase(self):
+        """Parsing also guards the XML comment beside it: an earlier attempt broke the
+        document by using `--` inside that comment."""
         el = self._phase_element()
         assert el is not None
         assert not (el.text or "").strip(), (

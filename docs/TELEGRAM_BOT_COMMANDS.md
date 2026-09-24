@@ -180,7 +180,7 @@ Send these **in the group**:
 
 | Command | Description |
 |---|---|
-| `/debug <command>` | Diagnostics. Admin only. |
+| `/debug` | Shows your Telegram user id, username and name (what an admin needs to find you). |
 
 ## Troubleshooting
 

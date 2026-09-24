@@ -15,6 +15,9 @@ def _unique_email():
     return f"me_games_{int(time.time() * 1000)}@example.com"
 
 
+BOT = {"X-Bot-Secret": "test_bot_secret_for_tests"}
+
+
 @pytest.fixture
 def client():
     """Create test client."""
@@ -68,21 +71,21 @@ class TestGetUserGames:
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_user_games_success(self, client):
-        """Test successful user games retrieval."""
-        # Register user
-        client.post("/users/persistent_register", json={
-            "bot_secret": "test_bot_secret_for_tests",
-            "telegram_id": "games_user",
-            "full_name": "Games User"
-        })
-        
-        # Get games (may be empty)
-        resp = client.get("/users/games_user/games", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
+        """One player in two games, as a different power in each."""
+        import time as _t
+        tg = str(int(_t.time() * 1000000) % 10**12)
+        client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": tg, "full_name": "Two Games"})
+        joined = {}
+        for power in ("FRANCE", "GERMANY"):
+            game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=BOT).json()["game_id"])
+            resp = client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": "test_bot_secret_for_tests", "power": power})
+            assert resp.status_code == 200, resp.text
+            joined[game_id] = power
+
+        resp = client.get(f"/users/{tg}/games", headers=BOT)
         assert resp.status_code == 200
-        data = resp.json()
-        assert "games" in data
-        assert isinstance(data["games"], list)
-    
+        assert {str(g["game_id"]): g["power"] for g in resp.json()["games"]} == joined
+
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_user_games_not_found(self, client):
         """Test getting games for non-existent user."""

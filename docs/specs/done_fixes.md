@@ -1,5 +1,74 @@
 ---
 
+# Track AG — Test audit: every test can fail, the gaps that mattered are covered (maintainer request, 2026-09-24) — **done, `v3.0.4`**
+
+"Make sure testing is now thorough and that there are no useless tests either." Before:
+1807 backend tests (75.5% line coverage, engine 94.0%), 29 frontend test files whose
+coverage report counted the test files themselves. After: 1886 backend tests (82.9%,
+engine 97.3%), 148 frontend tests (93% of app code), floors raised to match.
+
+**Useless tests removed or rewritten.** Placeholder files whose bodies were `pass` inside
+`try/except` (`test_telegram_bot_edge_cases.py`), tests of logic written inside the test
+(`test_api_parsing_simple.py`, `test_callback_fix.py`, `test_interactive_orders_simple.py`),
+`hasattr`-only "rendering" tests, tautologies (`assert "\*" in s or "*" not in s`; `assert x
+is not None or x is None`), `status_code in (200, 404)` (the two routes this hid had 500'd
+"for their entire existence", per their own docstrings), duplicated API-flow files, tests of
+dead code (bot-side channel posting, unused error/Markdown helpers, a cache alias), the
+shadcn/clsx tests (vendored code), and a `/games/:id` test with a bare `MemoryRouter` that
+could only ever see the spinner. `tests/test_suite_hygiene.py` now rejects any test with no
+assertion; frontend coverage excludes tests and `components/ui`.
+
+**Bugs the new tests found (all fixed, each pinned by a test):**
+- [x] **The resolver was order-dependent** (70 of 60,000 random supported positions, every
+  one a wrong result). The Hypothesis generator never produced a support, so dislodgement
+  had never been exercised by the properties. A support against its own power's unit was
+  zeroed whenever that unit stayed -- and whether it stayed hinged on the support. The
+  own-unit rule now decides only the reported `VOID`; strength follows DATC. 144 DATC cases
+  unchanged; `adjudication.md` §4-5 corrected.
+- [x] **Stale cached reads:** after `/join` the player's own game list (the bot resolves
+  "which game am I in" from it) lagged 60 s; after `set_orders`/clear, `GET /state` showed
+  the old orders for 30 s; after the waiting list filled, all seven players' lists lagged.
+  `@cached_response` also keyed positional calls without their `key_params`.
+- [x] **The render cache ignored supply-centre ownership**, so two boards with the same
+  units and phase could share one image. And the resolution map lost every standoff after
+  an ordinary turn (it read the engine's `contested`, which only lives through a retreat
+  phase); standoffs now come from the resolution.
+- [x] **`escape_markdown` used MarkdownV2's escape set under legacy `parse_mode='Markdown'`**
+  (players saw `Ann\-Marie`), and `**bold**` was used throughout legacy-Markdown messages.
+- [x] **The group dashboard marked every power "Submitted"** as soon as anyone ordered;
+  "Submitted 3h ago ago".
+- [x] **A hard-coded Telegram id** bypassed the player check on `/link_channel` and
+  `/unlink_channel`.
+- [x] **Anonymous reads:** `/channel/analytics*` and `GET /channel/timeline` (a group's chat
+  id and members' activity); `/health/environment` (interpreter path, working directory,
+  which secrets are set -- and always "error", its import was broken; it also shadowed the
+  database-checking `/health`).
+- [x] **Import of a malformed game** was a 500 that left an orphaned game row.
+- [x] **The web app never saved rotated refresh tokens**, so an everyday player was logged
+  out on reload a week after signing in; a refused stored token was retried forever.
+- [x] Smaller: the bot exited 0 without a token; the CLI's `SET_ORDERS` said `ok` to a
+  rejected order.
+
+**Now covered that had no test:** `StaleGameError` (repo check, an interleaved race, every
+trigger's reaction), export/import round trip, winter auto-processing, `require_all`, the
+DAIDE notify from a worker thread, the deadline scheduler loop, both bot background loops,
+every bot button and keyboard route (legacy prefixes included), every advertised and taught
+command registered, the bot's command contracts (`/link`, `/message`, `/quit`, `/replace`,
+`/join`, `/myorders`, `/orderhistory`, `/clearorders`, the game menu's actions, group
+commands), the bot image's import boundary, the version numbers agreeing, and the web's
+order submission, quit, concede, broadcast, session persistence and registration.
+
+**Dead code removed with it:** `run_telegram_bot.py`, `routes/health.py`, `POST
+/games/{id}/start`, bot-side `post_*_to_channel`, `show_available_games`, `shared.game_view`,
+`MapData.adjacent/is_supply_center`, two unused DAL methods, unused SVG fill fallbacks and
+the conflict-marker drawing no caller could reach.
+
+**Evidence:** `pytest tests/` 1886 passed, 10 xfailed (the documented DATC ones); `coverage`
+82.9% total, 97.3% engine; `vitest run --coverage` 148 passed, 93%; each fix above was
+checked to fail without it.
+
+---
+
 # Track AF — The documentation site (maintainer request, 2026-09-24) — **done, `v3.0.3`**
 
 - [x] `docs/` published as a website at `https://<DOCS_DOMAIN>` (production

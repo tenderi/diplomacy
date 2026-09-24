@@ -116,11 +116,6 @@ def get_process_turn_lock(game_id: str) -> asyncio.Lock:
 # ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
 
 
-def game_view(game_id: str) -> Optional[Dict[str, Any]]:
-    """The new-engine, GameState-native API view of a game (or None if missing)."""
-    return game_service.view(str(game_id))
-
-
 def game_buttons(game_id: Any, *, ended: bool = False) -> list[list[dict[str, str]]]:
     """Inline buttons for a notification about ``game_id``.
 

@@ -101,7 +101,12 @@ class Server:
                     )
                 # One order per SET_ORDERS call, appended to the power's pending set.
                 existing = self._svc.view(game_id)["orders"].get(power_name, [])
-                self._svc.submit_orders(game_id, power_name, existing + [order_str])
+                results = self._svc.submit_orders(game_id, power_name, existing + [order_str])
+                rejected = [r for r in results if not r["ok"]]
+                if rejected:
+                    return ServerError.create_error_response(
+                        ErrorCode.INVALID_ORDER, rejected[0]["reason"], {"order": rejected[0]["order"]}
+                    )
                 return {"status": "ok"}
 
             if cmd == "PROCESS_TURN":

@@ -103,12 +103,17 @@ npm run test:run                           # Vitest + React Testing Library
 ruff check src/
 bandit -q -r src/ -ll                      # CI's `security` check; pip install bandit
 PYTHONPATH=src python -m pytest tests/ -q --cov=src --cov-report=
-coverage report --include='src/engine/*' --fail-under=92
-coverage report --fail-under=60
-cd frontend && npx tsc -b --noEmit && npm run test:run && npm run build
+coverage report --include='src/engine/*' --fail-under=95
+coverage report --fail-under=80
+cd frontend && npx tsc -b --noEmit && npm run test:coverage && npm run build
 ```
 
-The engine floor has under a point of headroom and is deliberately **not** ratcheted tighter — a tighter floor would make ordinary dead-code deletion fail CI.
+The floors (engine 95, total 80, frontend thresholds in `frontend/vite.config.ts`) sit two to
+three points under the measured numbers of the test audit (`v3.0.4`): room to delete covered
+dead code, not to stop testing. **Every test must be able to fail** --
+`tests/test_suite_hygiene.py` rejects a test function with no assertion, and the audit removed
+the placeholder, `hasattr`-only and tautological (`A or B`) tests that had accumulated; assert
+the exact value or message, not "one of these codes".
 
 ### Test database
 
@@ -158,7 +163,7 @@ DATC conformance lives in `tests/datc/`: 144/154 green plus **10 documented `xfa
 
 FastAPI app assembled in `_api_module.py`:
 
-- Routes in `src/server/api/routes/` (`games`, `orders`, `users`, `auth`, `messages`, `maps`, `channels`, `admin`, `dashboard`, `health`, `tournaments`). `shared.py` holds the singletons `db_service` / `game_service`, `game_view(game_id)`, loggers, and the deadline-scheduler background task. Game endpoints return the GameState-native view shape (`units`/`units_by_power`/`ownership`/`phase`/`phase_type`/`players`/`dislodged`/`contested`/`orders`).
+- Routes in `src/server/api/routes/` (`games`, `orders`, `users`, `auth`, `messages`, `maps`, `channels`, `admin`, `dashboard`, `tournaments`, `waiting_list`, `bot_outbox`, `archive`); `/health`, `/healthz` and `/version` are defined in `_api_module.py` itself. `shared.py` holds the singletons `db_service` / `game_service`, notification helpers, loggers, and the deadline-scheduler background task. Game endpoints return the GameState-native view shape (`units`/`units_by_power`/`ownership`/`phase`/`phase_type`/`players`/`dislodged`/`contested`/`orders`).
 - `legal_orders.py` — pure, phase-aware enumeration of every legal order for a power, exposed as `GET /games/{id}/legal_orders/{power}`. Both the frontend and the bot's interactive order UI drive off it. Two gotchas: `format_order` renders fleets as `A` unless passed an explicit `kind_by_province` map, and `orders_by_unit` keys (`"F STP/SC"`) match builds and disbands as a *suffix*, because that grammar is verb-first (`D A PAR`, `BUILD F BRE`).
 - `server.py` — a text-command CLI surface (`CREATE_GAME`, `ADD_PLAYER`, ...) used by tests; the HTTP API does not depend on it.
 - `daide/` — a real DAIDE wire-protocol implementation (`tokens`, `wire`, `clauses`, `session`, `server`), started as an `asyncio` listener on port 8432 alongside the API. **Press content is relayed opaquely, not parsed** — a permanent scope decision, not a gap.
