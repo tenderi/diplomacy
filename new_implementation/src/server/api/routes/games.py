@@ -36,8 +36,25 @@ class CreateGameRequest(BaseModel):
     # Powers to leave to civil disorder from the start (W9): nobody may join
     # them and nobody waits on them. At most six -- one seat stays human.
     dummy_powers: List[str] = []
+    # W10: process each turn as soon as all orders are in (and nobody waits).
+    auto_process: bool = False
     # The bot's way of saying who is creating the game (a browser caller is the
     # Bearer user); recorded as the game's creator.
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+class AutoProcessRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/auto_process`` (W10)."""
+    enabled: bool
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+class WaitFlagRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/wait`` (W10)."""
+    power: str
+    waiting: bool = True
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
 
@@ -186,10 +203,87 @@ def create_game(
             phase_length_seconds=req.phase_length_seconds,
             created_by_user_id=creator_id,
             dummy_powers=req.dummy_powers,
+            auto_process=req.auto_process,
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"game_id": game_id}
+
+
+@router.post("/games/{game_id}/auto_process")
+def set_auto_process(
+    game_id: str,
+    req: AutoProcessRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Switch W10's "process as soon as all orders are in" on or off.
+
+    Any player in the game may (or an admin), like setting a deadline: everyone
+    is told, and anyone who wants time can raise a wait flag
+    (``POST .../wait``). Switching it on processes the turn at once if it is
+    already complete.
+    """
+    game = db_service.get_game_by_game_id(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    caller_telegram_id = None
+    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
+            raise HTTPException(status_code=403, detail="You are not a player in this game.")
+        caller_telegram_id = getattr(user, "telegram_id", None)
+    try:
+        game_service.set_auto_process(game_id, req.enabled)
+    except GameOverError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    notify_players(
+        int(game.id),
+        (
+            f"Game {game_id} now processes each turn as soon as all orders are in. "
+            f"Need more time? /notready {game_id}."
+        )
+        if req.enabled
+        else f"Game {game_id} no longer processes turns automatically.",
+        exclude_telegram_id=caller_telegram_id,
+    )
+    processed = api_shared.maybe_auto_process(game_id) if req.enabled else 0
+    return {"status": "ok", "auto_process": req.enabled, "auto_processed": processed}
+
+
+@router.post("/games/{game_id}/wait")
+def set_wait_flag(
+    game_id: str,
+    req: WaitFlagRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Dict[str, Any]:
+    """Raise (``waiting: true``) or lower this power's wait flag (W10).
+
+    A raised flag stops auto-processing for the current phase ("I'm still
+    negotiating"); it is cleared when the turn is processed. It never stops a
+    deadline, or a player pressing /processturn. Lowering the last flag
+    processes the turn at once if everything else is ready.
+    """
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    game = db_service.get_game_by_game_id(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    power = req.power.upper()
+    try:
+        waiting = game_service.set_wait(game_id, power, req.waiting)
+    except GameOverError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    invalidate_cache(f"games/{game_id}")
+    notify_players(
+        int(game.id),
+        f"{power} asks game {game_id} to wait before the turn is processed."
+        if req.waiting
+        else f"{power} is ready in game {game_id}.",
+        exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+    )
+    processed = 0 if req.waiting else api_shared.maybe_auto_process(game_id)
+    return {"status": "ok", "waiting": waiting, "auto_processed": processed}
 
 
 @router.post("/games/{game_id}/dummies")
@@ -221,6 +315,9 @@ def set_dummy_power(
         raise HTTPException(status_code=400, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
     power = req.power.upper()
+    if req.dummy:
+        # The new dummy may have been the last power being waited on (W10).
+        api_shared.maybe_auto_process(game_id)
     notify_players(
         int(game_id),
         f"{power} in game {game_id} is now played by civil disorder."
@@ -364,54 +461,19 @@ async def process_turn(
             # GameOverError guard, processing a finished game "succeeded" with an
             # empty resolution and then DMed every player "turn processed".
             raise HTTPException(status_code=409, detail=str(e)) from e
-    invalidate_cache(f"games/{game_id}")
-
-    if api_shared.daide_server is not None:
-        try:
-            await api_shared.daide_server.notify_game_processed(game_id, resolved_phase=prev_phase_code)
-        except Exception as e:
-            logger.error(f"DAIDE notify_game_processed failed for {game_id}: {e}")
-
-    try:
-        row = db_service.get_game_by_game_id(game_id)
-        view = game_service.view(game_id)
-        if row is not None and view is not None:
-            try:
-                db_service.create_game_snapshot(
-                    game_id=int(row.id),
-                    turn=int(getattr(row, "current_turn", 0) or 0),
-                    year=view["year"],
-                    season=view["season"],
-                    phase=view["phase_type"],
-                    phase_code=view["phase"],
-                    game_state=view,
-                    state_json=game_service.state_json(game_id),
-                )
-            except Exception as e:
-                logger.debug(f"process_turn: snapshot failed: {e}")
-            game_ended = view["status"] == "COMPLETED"
-            # A deadline is scoped to the phase it was set for: whatever was
-            # pending is now spent, and nothing new is imposed (Track N: until
-            # v2.7.72 this re-armed a hard-coded +24h that nobody had asked
-            # for, after which the scheduler would process the next phase with
-            # missing powers' units holding, then clear it -- so alternate
-            # phases had an auto-deadline and didn't). Deadlines exist only
-            # when set explicitly via POST /games/{id}/deadline.
-            db_service.update_game_deadline(int(row.id), None)
-            # Before G3 this branch notified *only* on game end, so the ordinary
-            # case -- everyone submitted, one player pressed the button -- told the
-            # other six players nothing and posted nothing to the linked channel.
-            # Same fan-out as the deadline path now; the caller is skipped because
-            # the resolution is already in their response below.
-            notify_turn_processed(
-                game_id,
-                int(row.id),
-                trigger="manual",
-                game_ended=game_ended,
-                exclude_telegram_id=caller_telegram_id,
-            )
-    except Exception as e:
-        scheduler_logger.error(f"process_turn post-processing error: {e}")
+    row = db_service.get_game_by_game_id(game_id)
+    if row is not None:
+        # Snapshot, cache, deadline, wait flags, DAIDE and the notification
+        # fan-out -- shared with the deadline scheduler and W10's
+        # auto-processing so the three triggers cannot drift apart. The caller
+        # is left out of the DMs: the resolution is in their response below.
+        api_shared.finish_processed_turn(
+            game_id,
+            int(row.id),
+            prev_phase_code=prev_phase_code,
+            trigger="manual",
+            exclude_telegram_id=caller_telegram_id,
+        )
     return {
         "status": "ok",
         "phase": turn_result["phase"],
