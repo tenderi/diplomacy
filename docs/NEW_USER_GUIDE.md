@@ -71,7 +71,9 @@ it points you to your private chat, because everyone in the group would see it.
    they produced -- and a **📝 Send my orders** link that opens your private chat.
 2. **Tap 📝 Enter orders.** The bot goes through your units **one at a time** and shows
    only the orders that unit can legally give:
-   - **Hold**, **move to** a neighbouring province;
+   - **Hold**, **move to** a neighbouring province, or -- for an army on a coast with
+     fleets in the sea beside it -- **move by convoy** (`… VIA`) to any coast those fleets
+     reach;
    - **🤝 Support options**: help another unit hold, or help its move;
    - **🚢 Convoy options** (fleets): carry an army across the sea.
 

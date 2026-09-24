@@ -31,6 +31,16 @@ describe('parseLegalOrder', () => {
     expect(parsed!.targetValue).toBe('BUR')
   })
 
+  it('parses a move by convoy (it used to fall out of the menu entirely)', () => {
+    expect(parseLegalOrder('A LON - NWY VIA')).toEqual({
+      type: 'move',
+      targetLabel: 'NWY (by convoy)',
+      targetValue: 'NWY',
+      fullOrder: 'A LON - NWY VIA',
+    })
+    expect(parseLegalOrder('A LON - BEL VIA CONVOY')!.targetLabel).toBe('BEL (by convoy)')
+  })
+
   it('parses retreat orders', () => {
     const parsed = parseLegalOrder('A PAR R PIC')
     expect(parsed).not.toBeNull()
