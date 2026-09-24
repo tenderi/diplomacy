@@ -33,6 +33,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, ContextTypes
@@ -130,10 +131,10 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
     render garbled, matching why the DM path above has never used a
     ``parse_mode``.
 
-    ``"channel_map"`` fetches the image itself from ``GET /games/{id}/map`` --
-    the API queues this row with nothing but the game id in ``payload``
-    because it has no filesystem in common with this container to hand a
-    rendered file through.
+    ``"channel_map"`` fetches the image itself from ``payload["path"]`` (a turn's
+    orders map or its result, by turn number) -- or, for rows queued before paths
+    existed, ``GET /games/{id}/map`` -- because the API has no filesystem in common
+    with this container to hand a rendered file through.
 
     ``"channel_create_thread"`` creates a forum topic named by ``message``.
     Fire-and-forget like everything else here: the created thread id is not
@@ -144,7 +145,8 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
     payload = item.get("payload") or {}
     if kind == "channel_map":
         game_id = payload.get("game_id")
-        img_bytes = await asyncio.to_thread(api_get_bytes, f"/games/{game_id}/map")
+        path = payload.get("path") or f"/games/{game_id}/map"
+        img_bytes = await asyncio.to_thread(api_get_bytes, path)
         await bot.send_photo(chat_id=chat_id, photo=BytesIO(img_bytes), caption=item.get("message") or None)
     elif kind == "channel_create_thread":
         await bot.create_forum_topic(chat_id=chat_id, name=item.get("message") or "Discussion")
@@ -223,6 +225,15 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
         except _TRANSIENT_TELEGRAM_ERRORS as e:
             logger.warning("Telegram not reachable while delivering #%s: %s; will retry", item["id"], e)
             break
+        except ApiUnreachableError:
+            # A map row fetches its image from the API mid-send; lost it: retry later.
+            _note_reachability(False)
+            break
+        except requests.HTTPError as e:
+            # The API refused the image (no such turn, or a render error). Retrying
+            # would fail the same way -- and an unacked row blocks every one after it.
+            failed[int(item["id"])] = f"image unavailable: {e}"
+            logger.warning("Notification #%s: could not fetch its image: %s", item["id"], e)
         else:
             delivered.append(int(item["id"]))
 

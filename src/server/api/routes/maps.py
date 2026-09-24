@@ -58,6 +58,7 @@ def _view_from_snapshot(map_name: str, snapshot: Any) -> Dict[str, Any]:
     units_by_power: Dict[str, List[Dict[str, Any]]] = {}
     for u in snapshot.units or []:
         units_by_power.setdefault(u["power"], []).append(u)
+    state_json = getattr(snapshot, "state_json", None) or {}
     return {
         "map_name": map_name,
         "year": year,
@@ -66,6 +67,8 @@ def _view_from_snapshot(map_name: str, snapshot: Any) -> Dict[str, Any]:
         "phase": phase_code,
         "units_by_power": units_by_power,
         "ownership": dict(snapshot.supply_centers or {}),
+        # Only a retreat-phase board has any; older snapshots have no state_json.
+        "dislodged": list(state_json.get("dislodged") or []),
     }
 
 
@@ -250,6 +253,48 @@ def get_game_map_history_png(game_id: str, turn: int) -> Response:
             units_for_render(hist_view),
             phase_info=phase_info(hist_view, turn),
             supply_center_control=dict(hist_view["ownership"]),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    return Response(content=img_bytes, media_type="image/png")
+
+
+@router.get("/games/{game_id}/map/turn/{turn}/orders", response_class=Response)
+def get_turn_orders_map_png(game_id: str, turn: int) -> Response:
+    """The orders of processed turn ``turn`` on the board they were given on, each
+    arrow coloured by what it did, with standoffs marked.
+
+    Turn numbering is ``/history/{turn}``'s: the board is snapshot ``turn`` (taken when
+    that turn began), or the opening position for turn 0, which has no snapshot. The
+    board after the turn is ``/map/history/{turn + 1}``. The group gets both after
+    every processed turn (``api.shared._post_turn_to_channel``) -- fetched by turn
+    number, so a post delivered late still shows the turn it announces.
+    """
+    row = db_service.get_game_by_game_id(game_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    resolution = game_service.resolution_history(game_id).get(str(turn))
+    if not resolution:
+        raise HTTPException(status_code=404, detail="No orders recorded for this turn.")
+    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
+    if snapshot is not None:
+        board = _view_from_snapshot(str(row.map_name), snapshot)
+    elif turn == 0:
+        board = game_service.opening_view(str(row.map_name))
+    else:
+        raise HTTPException(status_code=404, detail="No board recorded for the start of this turn.")
+    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(board))
+    resolution_data = {
+        "conflicts": [{"province": prov, "result": "standoff"} for prov in standoff_provinces(resolution)],
+    }
+    try:
+        img_bytes = Map.render_board_png_resolution(
+            svg_path_for_map_name(board["map_name"]),
+            units_for_render(board),
+            order_viz,
+            resolution_data,
+            phase_info=phase_info(board, turn),
+            supply_center_control=dict(board["ownership"]),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")

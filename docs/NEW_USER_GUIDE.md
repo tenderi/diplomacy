@@ -53,7 +53,7 @@ This is how most beta games work. It needs one person, the **organiser**, to set
 | In the group (everyone sees) | In your private chat with the bot (only you) |
 |---|---|
 | "Game N is full: the game has begun!" | Your orders |
-| Turn results and the new map | Your private messages to other powers |
+| Each turn's orders and its result, as maps | Your private messages to other powers |
 | Deadline reminders | The game menu, your status, "wait for me" |
 | Broadcasts ("to everyone") from players | Notifications with an **Enter orders** button |
 
@@ -66,8 +66,9 @@ it points you to your private chat, because everyone in the group would see it.
 ## 4. A turn, step by step
 
 1. **You get a message:** "The turn has been processed for game N. Your next orders are
-   due." It comes with **📝 Enter orders**. The group gets the map and a
-   **📝 Send my orders** link that opens your private chat.
+   due." It comes with **📝 Enter orders**. The group gets two maps -- everyone's orders
+   on the board they were given on (green went through, red failed), then the board
+   they produced -- and a **📝 Send my orders** link that opens your private chat.
 2. **Tap 📝 Enter orders.** The bot goes through your units **one at a time** and shows
    only the orders that unit can legally give:
    - **Hold**, **move to** a neighbouring province;
