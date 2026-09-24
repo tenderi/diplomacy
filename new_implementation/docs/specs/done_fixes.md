@@ -72,9 +72,22 @@ walk from a button, compose, deadline buttons, Find a game filtering, `/start`, 
 password-join test in `tests/test_private_games_bot.py`. Full suite 1761 passed, 10 xfailed;
 engine coverage 93.97%, total 75.02%.
 
-**Open question for the maintainer (not done):** the web client still lets any seated player
-press "Process turn". Making it creator-only too would be consistent, but changes web
-behaviour and needs the view to say who the creator is.
+**Open question for the maintainer:** the web client still let any seated player press
+"Process turn". Answered "update the website as well" — AA2.
+
+## AA2 — Early processing is the creator's on the web too — **done, `v2.7.107`**
+
+- [x] `_authorize_process_turn`: a Bearer user must be the game's creator (seated or not);
+  a seated non-creator gets the same 403 as a Telegram player. Bot secret and admin token
+  unchanged; an ownerless (waiting-list) game is admin-only.
+- [x] The view gains `created_by_user_id`; `GameView` shows the Process turn section only
+  to the creator and tells other players when turns run instead.
+
+**Evidence:** `tests/test_telegram_flows_api.py::TestEndingATurnEarlyOnTheWeb` (seated
+non-creator 403 and the view names the creator; creator without a seat 200; ownerless game
+admin-only), `GameView.test.tsx` (non-creator sees the explanation, not the button; the
+creator's button still confirms before calling). Every existing web-processing test already
+processed as the game's creator, so none changed behaviour.
 
 
 

@@ -249,8 +249,9 @@ class TestProcessTurn:
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_process_turn_member_allowed(self, client):
-        """A Bearer-authenticated user who holds a power in this game may
-        process its turn -- the fix must not lock out legitimate players."""
+        """The game's creator, seated in it, may process its turn -- the fix must
+        not lock out legitimate players. (Since v2.7.107 only the creator may;
+        a seated non-creator is refused -- see test_telegram_flows_api.py.)"""
         import time as _time
         email = f"member_{int(_time.time() * 1000)}@example.com"
         reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})

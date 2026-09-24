@@ -547,6 +547,8 @@ class GameService:
             "auto_process": bool(meta.get("auto_process")),
             "wait_flags": meta.get("wait_flags") or [],
             "private": bool(meta.get("private")),
+            # Who may end a turn early (clients show "Process turn" only to them).
+            "created_by_user_id": meta.get("created_by_user_id"),
             "orders": self._humanize_orders(pending, state),
         }
 
