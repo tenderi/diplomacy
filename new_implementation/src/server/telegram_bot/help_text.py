@@ -51,7 +51,7 @@ ORDER_FORMAT_NOTES = """*📝 Order Format:*
 • Mixing the two is fine: `A BER H` ✅ and `A BER HOLD` ✅ are the same order
 • Case doesn't matter, and common aliases work (`baltic` for `BAL`)
 • Always start with the unit. Not accepted: `PAR H` (write `A PAR H`), `RETREAT F IRI - MAO` (write `F IRI R MAO`), `REMOVE F LIV` (write `D F LIV`), `A LON - NTH - BEL` (write `A LON - BEL VIA CONVOY`)
-• Not sure of a code? Use `/selectunit` — it only offers legal orders"""
+• Not sure of a code? Use `/orderall` or `/selectunit` — they only offer legal orders"""
 
 RULES_TEXT = f"""
 📜 *Diplomacy Rules & Order Syntax*
@@ -143,66 +143,44 @@ Tyrrhenian `TYS`, Gulf of Lyon `LYO`.
 """
 
 HELP_TEXT = f"""
-🏛️ *Diplomacy Bot Commands*
+🏛️ *Diplomacy Bot*
 
-*🎯 Getting Started:*
-• Register - Register as a player
-• My Games - View your current games
-• Join Game - Join a specific game
-• Join Waiting List - Auto-match with others
+*🎮 The easy way: buttons*
+• 🎮 *My games* -- open a game's menu: order all units or one, your orders, map, messages, deadline, ready
+• 🎲 *Find a game* -- join an open game, queue for a new one, or try a solo demo
+• Notifications ("turn processed", "deadline soon") have an *Enter orders* button
 
-*🎮 During Games:*
-• My Orders - Submit/view your orders
-• View Map - See current game state
-• Messages - View/send diplomatic messages
+Commands act on your *current game* -- the one you last opened, named, or got
+a notification about -- so the game id is only needed to switch games.
 
-*📝 Text Commands:*
-• `/orders <game_id> <orders>` - Submit orders
-• `/order <orders>` - Submit orders (auto-detect game). Each one adds to your others; a new order for a unit replaces its old one
-• `/orderall` - Order all your units one by one, then submit them together
+*📝 Orders*
+• `/orderall` - Order every unit, one by one, then submit them together
 • `/selectunit` - Order a single unit
-• `/processturn <game_id>` - Process current turn
-• `/deadline <game_id> <hours|clear>` - Set or remove the order deadline (auto-processes when it passes)
-• `/deadline <game_id> propose <hours|clear> [vote_hours]` - Start a majority vote to change it instead
-• `/deadline <game_id> vote <yes|no>` - Vote on a pending deadline proposal
-• `/dummy <game_id> <power> [off]` - Game creator: leave an empty seat to civil disorder, or reopen it
-• `/autoprocess <game_id> on|off` - Process each turn as soon as all orders are in
-• `/notready [game_id]` / `/ready [game_id]` - Ask the table to wait before auto-processing, or stop waiting
-• `/viewmap <game_id>` - View game map
-• `/message <game_id> <power> <text>` - Send message
-• `/broadcast <game_id> <text>` - Message all players
-• `/myorders <game_id>` - View your orders
-• `/clearorders <game_id>` - Clear your orders
-• `/orderhistory <game_id>` - View order history
-• `/draw [game_id]` - Vote yes to end the game as a draw
-• `/nodraw [game_id]` - Withdraw your draw vote
-• `/status [game_id]` - Phase, deadline, and draw-vote tally
+• `/orders <orders>` - Type orders, separated by `;`. Each adds to the ones you sent before; a new order for a unit replaces its old one
+• `/myorders`, `/clearorders`, `/orderhistory`
+
+*🎮 Games*
+• `/games` - Your games; `/game [id]` - a game's menu (and make it current)
+• `/status`, `/viewmap`, `/players`
+• `/findgame` - Open games, the queue, the demo; `/join <id> [power] [password]`
+• `/leavequeue` - Leave the queue for a new game; `/quit <id>` - leave a game
+
+*💬 Talking*
+• `/messages` - Messages in your game
+• `/message <power> <text>`, `/broadcast <text>` - Or use 💬 Messages in the game menu and just type
+
+*⏰ Pace*
+• `/notready` / `/ready` - Ask the table to wait before a turn auto-processes, or stop waiting
+• `/deadline <id>` - Show it; `/deadline <id> <hours|clear>` - set or remove it. To put a change to a vote, use ⏰ Deadline in the game menu
+• `/draw` / `/nodraw` - Vote to end the game as a draw
+• Game creator: `/autoprocess <id> on|off`, `/dummy <id> <power> [off]`, and ⚙️ Process turn now in the game menu
+
+*🔧 Other*
 • `/queue` - Orders/messages waiting for the game server, if it is unreachable
 • `/rules`, `/examples` - Order syntax reference
-
-*🗺️ Order Types & Examples:*
-• `A VIE - TRI` (Army move)
-• `F LON - NTH` (Fleet move)
-• `A BER H` (Hold)
-• `A BER S A MUN - KIE` (Support)
-• `F ENG C A LON - BRE` (Convoy)
-• `BUILD A PAR` (Build unit - Builds phase only)
-• `D A MUN` (Disband unit - Builds/Retreat phase only)
-• `WAIVE` (Skip an available build - Builds phase only)
-• `A MUN R SIL` (Retreat to Silesia - Retreat phase only)
+• `/cancel` - Stop writing a message or password
 
 {ORDER_FORMAT_NOTES}
-
-*🎯 Game Phases:*
-• **Movement** (Spring/Autumn) - Submit movement orders
-• **Retreat** - Retreat dislodged units, or disband (`D`)
-• **Builds** - Build, disband (`D`), or waive (`WAIVE`) based on supply centers
-
-*💡 Tips:*
-• Use `/selectunit` for interactive order selection
-• Use menu buttons for easier navigation
-• Orders are validated in real-time
-• Convoy chains are automatically validated
 """
 
 # Germany's opening position, used by the demo game in both `admin.py` (the

@@ -33,7 +33,7 @@ def test_notready_raises_this_powers_flag(mock_ctx_get, mock_post):
     update, context, message = _update([])
     asyncio.run(notready(update, context))
     mock_post.assert_called_once_with("/games/7/wait", {"power": "FRANCE", "waiting": True, "telegram_id": "12345"})
-    assert "/ready 7" in message.reply_text.call_args[0][0]
+    assert "/ready" in message.reply_text.call_args[0][0]
 
 
 @patch("server.telegram_bot.games.api_post")

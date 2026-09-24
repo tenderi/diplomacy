@@ -33,7 +33,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 from telegram.ext import Application, ContextTypes
 
@@ -149,22 +149,31 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
     elif kind == "channel_create_thread":
         await bot.create_forum_topic(chat_id=chat_id, name=item.get("message") or "Discussion")
     elif kind == "channel_text":
-        reply_markup = None
-        buttons = payload.get("buttons")
-        if buttons:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            reply_markup = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(b["text"], callback_data=b["callback_data"]) for b in row] for row in buttons]
-            )
         await bot.send_message(
             chat_id=chat_id,
             text=item.get("message", ""),
             parse_mode=payload.get("parse_mode"),
-            reply_markup=reply_markup,
+            reply_markup=_inline_keyboard(payload.get("buttons")),
             reply_to_message_id=payload.get("reply_to_message_id"),
         )
     else:
-        await bot.send_message(chat_id=chat_id, text=render_notification(item))
+        # A player DM may carry buttons too: "turn processed" and "deadline in
+        # 10 minutes" come with Enter orders / Map / Game menu (``g|`` callbacks,
+        # routed to hub.py), so the player acts on the message itself.
+        await bot.send_message(
+            chat_id=chat_id,
+            text=render_notification(item),
+            reply_markup=_inline_keyboard(payload.get("buttons")),
+        )
+
+
+def _inline_keyboard(buttons: Optional[list[list[dict[str, str]]]]) -> Optional[InlineKeyboardMarkup]:
+    """``payload.buttons`` (rows of ``{"text", "callback_data"}``) as a keyboard."""
+    if not buttons:
+        return None
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(b["text"], callback_data=b["callback_data"]) for b in row] for row in buttons]
+    )
 
 
 async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int, int]:

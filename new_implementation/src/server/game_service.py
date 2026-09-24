@@ -11,6 +11,7 @@ advances the phase (the phase machine inserts retreat/adjustment phases as neede
 
 from __future__ import annotations
 
+import random
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from engine.map_loader import MapData, load_standard_map
 from engine.game import Game
 from engine.orders.parser import OrderParseError, format_order, parse_order
 from engine.orders.validation import validate
+from engine.simple_ai import generate_orders
 from engine.serialization import (
     order_from_dict,
     resolution_to_dict,
@@ -29,7 +31,13 @@ from engine.serialization import (
 from engine.types import Build, GameState, GameStatus, Order, PhaseType, Waive
 from server.legal_orders import powers_with_orders_to_give
 
-__all__ = ["GameService", "GameOverError", "OrderError", "StaleGameError"]
+__all__ = ["DEMO_MAP_NAME", "GameService", "GameOverError", "OrderError", "StaleGameError"]
+
+# The bot's demo game (``/start`` → "Try a demo game") is a standard board whose
+# ``map_name`` marks it: there, and only there, the civil-disorder dummies play
+# ``engine.simple_ai`` moves instead of standing still, so a solo player sees a
+# board that reacts.
+DEMO_MAP_NAME = "demo"
 
 
 class OrderError(ValueError):
@@ -198,6 +206,7 @@ class GameService:
         _require_active(game, game_id)
 
         pending = self._repo.get_pending_orders(game_id)
+        pending = {**pending, **self._demo_ai_orders(game_id, game, pending)}
         orders = []
         for power, strings in pending.items():
             for s in strings:
@@ -320,6 +329,25 @@ class GameService:
     def clear_wait_flags(self, game_id: str) -> None:
         if self.wait_flags(game_id):
             self._repo.set_wait_flags(game_id, [])
+
+    def _demo_ai_orders(self, game_id: str, game: Game, pending: dict[str, list[str]]) -> dict[str, list[str]]:
+        """In a demo game, orders for every dummy that has none: ``simple_ai``
+        moves, seeded by game and phase so a replay of the same turn is the same
+        turn. Other games' dummies submit nothing and play by civil disorder.
+        They join the turn's order history like anyone's, so the player can see
+        what the other powers did."""
+        if (self._repo.get_meta(game_id) or {}).get("map_name") != DEMO_MAP_NAME:
+            return {}
+        kinds = _kind_by_province(game.state)
+        rng = random.Random(f"{game_id}:{game.state.phase_name}")  # game moves, not security
+        ai: dict[str, list[str]] = {}
+        for power in self.dummy_powers(game_id):
+            if power in pending:
+                continue
+            generated = generate_orders(self._map, game.state, power, rng)
+            if generated:
+                ai[power] = [format_order(o, kinds) for o in generated]
+        return ai
 
     def ready_to_auto_process(self, game_id: str) -> bool:
         """W10: auto-process is on, the game is running, every power with
