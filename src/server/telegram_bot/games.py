@@ -72,7 +72,7 @@ GROUP_WELCOME = (
     "🏛️ *Diplomacy in this group*\n\n"
     "• /newgame -- start a game for this group; everyone joins with the button I post\n"
     "• /linkgroup [game id] -- attach an existing game to this group\n\n"
-    "Here I post turn results with the map, deadline reminders and players' "
+    "After every turn I post two maps here -- the orders, then the result -- plus deadline reminders and players' "
     "broadcasts. *Orders and private messages go to me in a private chat* -- never "
     "in the group, where everyone would see them. Only members of this group can "
     "see or join its games."

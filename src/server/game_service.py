@@ -525,6 +525,24 @@ class GameService:
 
     # -- views ------------------------------------------------------------
 
+    def opening_view(self, map_name: str) -> dict[str, Any]:
+        """The board a new game on ``map_name`` starts from, view-shaped for the
+        renderer (turn 0 has no snapshot to read it back from)."""
+        state = _initial_state(self._map)
+        units_by_power: dict[str, list[dict[str, Any]]] = {}
+        for u in sorted(state.units, key=lambda x: str(x.location)):
+            units_by_power.setdefault(u.power, []).append(unit_to_dict(u))
+        return {
+            "map_name": map_name,
+            "phase": state.phase_name,
+            "year": state.year,
+            "season": state.season.value,
+            "phase_type": state.phase_type.value,
+            "units_by_power": units_by_power,
+            "ownership": dict(state.ownership),
+            "dislodged": [],
+        }
+
     def view(self, game_id: str) -> Optional[dict[str, Any]]:
         """The clean, GameState-native API representation of a game."""
         sj = self._repo.get_state_json(game_id)

@@ -22,7 +22,10 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.5`.
+- **Last updated:** 2026-09-24, at `v3.0.6`.
+- **Track AJ (`v3.0.6`):** after every processed turn the game's group gets two maps -- the
+  orders on the board they were given on, and the result -- fetched by turn number; a
+  refused image no longer blocks the bot's queue. Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AI (`v3.0.5`):** a bug hunt. A fleet move or retreat from a sea into a named
   coast (`F MAO - SPA/NC`) was accepted and then VOID at adjudication; a power owed more
   builds than it had free home centres was "incomplete" forever (auto-process stalled on it,

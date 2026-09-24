@@ -150,8 +150,9 @@ the time they were created if they were delayed.
 
 ## Playing in a Telegram group
 
-A game can belong to a Telegram group. The group then gets turn results with the
-map, deadline reminders, "the game is full" and players' broadcasts, and **only members
+A game can belong to a Telegram group. The group then gets two maps after every
+processed turn (the orders, drawn on the board they were given on and coloured by
+what they did, then the result), deadline reminders, "the game is full" and players' broadcasts, and **only members
 of that group can see or join the game** (🎲 Find a game lists it only for them; the
 website does not list it). Orders, private messages and the game menu always stay in
 your **private chat** with the bot: in a group, the bot refuses those commands and

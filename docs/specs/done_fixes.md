@@ -1,5 +1,36 @@
 ---
 
+# Track AJ — Every turn, the group sees the orders and the result (maintainer request, 2026-09-24) — **done, `v3.0.6`**
+
+"Map should be posted to the group every time turn is processed. Two versions: what were
+the orders, and what is the end result." The group got one image, "the current map",
+fetched whenever the bot got round to it -- so a late delivery (bot restarting, a second
+turn processed first) showed a later board under an earlier caption.
+
+- [x] **Two images per processed turn**, queued by `_post_turn_to_channel` from every
+  trigger (manual, deadline, auto) via `finish_processed_turn`, which now passes the turn
+  number and phase: 📝 *the orders* -- new `GET /games/{id}/map/turn/{turn}/orders`, the
+  board as the turn began (snapshot *turn*, or the opening position for turn 0) with every
+  order drawn and coloured by its result and standoffs marked; skipped when nobody had
+  anything to order -- then 🗺️ *the result*, `/games/{id}/map/history/{turn+1}`. Captions
+  name the phase ("Spring 1901 movement"). `auto_post_maps` still turns both off; a draw
+  (no turn adjudicated) posts none.
+- [x] **By turn number**: `channel_map` rows carry `payload.path`; the bot fetches that
+  (older rows without one still get `/map`).
+- [x] **Dislodged units are drawn** on boards mid-retreat (`units_for_render` emits
+  `DISLODGED_` units, snapshots carry them from `state_json`); no board image showed them.
+- [x] **A map row whose image the API refuses no longer blocks the outbox.** An `HTTPError`
+  from the image fetch escaped the poll unacked, so that one row held back every
+  notification queued after it, on every poll, forever. Now acked as failed; a lost API
+  mid-fetch stops the batch to retry.
+
+**Evidence:** `tests/test_turn_maps.py` (both posts after a real turn, their paths and
+captions, the orders map on the opening board with the BUR bounce marked, a later turn on
+its own board, real PNGs from both routes, maps off, the bot's path fetch and the
+non-blocking failure).
+
+---
+
 # Track AI — Bug hunt: stored orders, build slots, stalled auto-process (maintainer request, 2026-09-24) — **done, `v3.0.5`**
 
 "Find bugs and implement fixes." Three found, each reproduced against the local Postgres
