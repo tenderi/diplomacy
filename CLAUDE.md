@@ -180,7 +180,9 @@ Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the ch
 `/root/diplomacy`), running `new_implementation/docker-compose.yml`: `postgres`,
 `diplomacy_api` (`docker/api.Dockerfile`; migrations run in the entrypoint), `diplomacy_bot`
 (`docker/bot.Dockerfile`, only `requirements-bot.txt`) and `diplomacy_web` (nginx serving the
-built SPA and proxying `/api/` to the API, `docker/web.Dockerfile`). **Only nginx is public.**
+built SPA and proxying `/api/` to the API, `docker/web.Dockerfile`), plus `caddy` (HTTPS for
+`DOMAIN`, started only when `DOMAIN` is set in `.env`; `docker/Caddyfile`). **Only Caddy (or,
+without a domain, nginx) is public.**
 The API is published on `127.0.0.1` only — never a bare `8000:8000` — and Postgres not at all;
 the bot and nginx reach the API by service name. p2p's bot shares the VPS and is not ours.
 
@@ -201,8 +203,8 @@ pulled by the bot. See the Telegram bot section above and `docs/specs/architectu
 **Deploy-on-merge:** `.github/workflows/deploy.yml` SSHes in as `root` after a green Test
 Suite on `main`, checks out that exact SHA, writes `TELEGRAM_BOT_TOKEN` (the only secret
 GitHub holds for the host) into `.env`, and runs `./upgrade.sh`. Gated on the
-`DEPLOY_CONTROL_ENABLED` variable (the name predates the single-host layout). Not automated:
-TLS (see `docs/DEPLOYMENT.md`). History: the stack ran split across the VPS and a home server
+`DEPLOY_CONTROL_ENABLED` variable (the name predates the single-host layout). HTTPS is one
+`.env` line on the host (`DOMAIN=`; see `docs/DEPLOYMENT.md`). History: the stack ran split across the VPS and a home server
 over WireGuard until `v2.7.85` (Track V), and on a Terraform/EC2 layout before `v2.7.80`
 (Track H); neither remains.
 

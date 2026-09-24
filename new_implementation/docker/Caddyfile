@@ -1,0 +1,13 @@
+# HTTPS in front of the site (the `caddy` service in docker-compose.yml, on when
+# DOMAIN is set in .env). Caddy gets and renews a Let's Encrypt certificate for
+# DOMAIN by itself -- which needs DOMAIN's A record pointing here and inbound
+# TCP 80 and 443 open -- and redirects http:// to https://.
+#
+# It passes everything to nginx (diplomacy_web), setting X-Forwarded-For to
+# the client's address (Caddy ignores one a client sends) and
+# X-Forwarded-Proto to https; nginx trusts those only from a Docker network
+# address (docker/web-nginx.conf.template).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy diplomacy_web:80
+}
