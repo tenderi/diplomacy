@@ -61,6 +61,8 @@ class GameService:
         game_id: Optional[str] = None,
         map_name: str = "standard",
         phase_length_seconds: Optional[int] = None,
+        created_by_user_id: Optional[int] = None,
+        dummy_powers: Optional[list[str]] = None,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -78,6 +80,8 @@ class GameService:
             phase_code=game.state.phase_name,
             game_id=game_id,
             phase_length_seconds=phase_length_seconds,
+            created_by_user_id=created_by_user_id,
+            dummy_powers=_check_dummy_set(dummy_powers or [], self._map),
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -219,12 +223,48 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             return None
-        return self._draw_quorum(game)
+        return self._draw_quorum(game, game_id)
 
-    def _draw_quorum(self, game: Game) -> frozenset[str]:
-        """Powers that must vote yes for a draw: non-eliminated, with a unit."""
+    def _draw_quorum(self, game: Game, game_id: str) -> frozenset[str]:
+        """Powers that must vote yes for a draw: non-eliminated, with a unit, and
+        not a civil-disorder dummy (W9) -- a dummy has nobody to vote."""
         eliminated = game.eliminated_powers()
-        return frozenset(u.power for u in game.state.units if u.power not in eliminated)
+        dummies = self.dummy_powers(game_id)
+        return frozenset(
+            u.power for u in game.state.units if u.power not in eliminated and u.power not in dummies
+        )
+
+    def dummy_powers(self, game_id: str) -> frozenset[str]:
+        """Powers played by civil disorder in this game (W9); empty if none."""
+        meta = self._repo.get_meta(game_id) or {}
+        return frozenset(meta.get("dummy_powers") or ())
+
+    def set_dummy(self, game_id: str, power: str, dummy: bool) -> list[str]:
+        """Make ``power`` a civil-disorder dummy, or open it again. Returns the new set.
+
+        Only a seat nobody holds can become a dummy; the caller checks who may do
+        this (the game's creator, or an admin). Raises ``OrderError`` for an
+        unknown game or power, a held seat, or a change that would leave no
+        human power at all; ``GameOverError`` on a finished game.
+        """
+        game = self.load(game_id)
+        if game is None:
+            raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
+        power = power.upper()
+        if power not in self._map.home_centers:
+            raise OrderError(f"Unknown power {power}")
+        current = set(self.dummy_powers(game_id))
+        if dummy:
+            seat = self._repo.players(game_id).get(power)
+            if seat is not None and seat.get("user_id") is not None:
+                raise OrderError(f"{power} is held by a player; only an empty seat can be a dummy")
+            current.add(power)
+        else:
+            current.discard(power)
+        updated = _check_dummy_set(sorted(current), self._map)
+        self._repo.set_dummy_powers(game_id, updated)
+        return updated
 
     def submit_draw_vote(self, game_id: str, power: str, vote: bool) -> dict[str, Any]:
         """Record ``power``'s yes/no draw vote for the current phase.
@@ -248,7 +288,7 @@ class GameService:
             votes.pop(power, None)
         self._repo.set_draw_votes(game_id, votes)
 
-        required = self._draw_quorum(game)
+        required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
         quorum_reached = bool(required) and required.issubset(yes)
 
@@ -287,7 +327,7 @@ class GameService:
         if game is None:
             return None
         votes = self._repo.get_draw_votes(game_id)
-        required = self._draw_quorum(game)
+        required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
         return {
             "phase": game.state.phase_name,
@@ -380,6 +420,7 @@ class GameService:
             "dislodged": [_dislodged_view(du) for du in state.dislodged],
             "contested": sorted(state.contested),
             "players": players,
+            "dummy_powers": meta.get("dummy_powers") or [],
             "orders": self._humanize_orders(pending, state),
         }
 
@@ -488,7 +529,10 @@ class GameService:
             return None
         state = state_from_dict(sj)
         submitted = set(self._repo.get_pending_orders(game_id).keys())
-        active_powers = sorted(powers_with_orders_to_give(self._map, state))
+        # A civil-disorder dummy (W9) is never waited on: it submits nothing and
+        # the engine plays it by the civil-disorder rules.
+        dummies = self.dummy_powers(game_id)
+        active_powers = sorted(p for p in powers_with_orders_to_give(self._map, state) if p not in dummies)
         return {
             "phase": state.phase_name,
             "active_powers": active_powers,
@@ -556,6 +600,18 @@ def _initial_state(map: MapData) -> GameState:
         units=map.starting_units,
         ownership=dict(map.initial_ownership),
     )
+
+
+def _check_dummy_set(powers: list[str], map_data: Optional[MapData] = None) -> list[str]:
+    """Normalize a dummy set and refuse one that leaves no human power (W9)."""
+    known = frozenset((map_data or load_standard_map()).home_centers)
+    normalized = sorted({p.upper() for p in powers})
+    unknown = [p for p in normalized if p not in known]
+    if unknown:
+        raise OrderError(f"Unknown power(s): {', '.join(unknown)}")
+    if len(normalized) >= len(known):
+        raise OrderError("At least one power must be left for a human player")
+    return normalized
 
 
 def _require_active(game: Game, game_id: str) -> None:

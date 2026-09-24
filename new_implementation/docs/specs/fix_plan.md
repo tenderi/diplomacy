@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.99`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.100`. `main` green.
 - **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
   probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
   that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
@@ -637,15 +637,25 @@ that should be written down once so the question stops being re-asked.
 - [ ] Decide at implementation: can the creator change or remove it later? (Suggested: yes,
       creator-only route.)
 
-## W9 — Fewer than 7 players: civil-disorder dummies
+## W9 — Fewer than 7 players: civil-disorder dummies — **done, `v2.7.100`**
 
-- [ ] A power can be marked **dummy** (at creation or by the creator before the first turn is
-      processed). A dummy never blocks `orders_status`/"all orders in" (W10) and is played by
-      the existing civil-disorder rules: holds in movement, disbands in retreats, and the
-      adjustment civil-disorder distance rule (`adjustments.py`) — no new engine logic.
-- [ ] Dummy seats are not offered by `/join` (unlike vacated seats); the creator can un-dummy
-      one to open it. Draw-vote quorum and deadline-proposal majority (`active_powers`) exclude
-      dummies — they have no one to vote.
+- [x] `games.dummy_powers` (JSON list) + `games.created_by_user_id` (FK, `SET NULL`),
+      migration `k9e5f6a7b8c9`. `POST /games/create` takes `dummy_powers` (at most six — one
+      seat stays human; unknown powers 400) and records the creator (Bearer user, or the
+      bot's `telegram_id`; a bare `X-Bot-Secret` creates an ownerless game).
+      `POST /games/{id}/dummies {power, dummy}` — creator or `X-Admin-Token` only; only an
+      empty seat can become a dummy (400 if held); 409 on a finished game; players notified.
+- [x] No engine change: a power that submits nothing is already played by the
+      civil-disorder rules (hold; disband a dislodged unit; the adjustment distance rule).
+      Server-side a dummy is excluded from `orders_status` (so never "waited on" — W10
+      needs this), from `GameService.active_powers`/`_draw_quorum` (draw quorum and
+      deadline-proposal majority), from `/join` (409), and counts toward "game is now
+      full". Views carry `dummy_powers`; `GET /games` carries `max_players` (7 − dummies).
+- [x] Clients: the web create form has "leave to civil disorder" checkboxes (max six); the
+      game page labels dummy seats "Civil disorder" and keeps them out of the join select;
+      the bot's join menu leaves them out, `/players` lists them as 🤖 civil disorder, and
+      `/dummy <game> <power> [off]` changes the set.
+- Tests: `test_dummy_powers.py` (API, 12), `test_dummy_bot.py` (bot, 8), two web tests.
 
 ## W10 — Process as soon as all orders are in, with a per-player wait flag
 

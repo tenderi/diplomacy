@@ -7,7 +7,16 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 type Game = { game_id: number; map_name: string; power: string; current_turn: number; status: string }
-type AllGame = { id: number; map_name: string; current_turn: number; status: string; player_count: number }
+type AllGame = {
+  id: number
+  map_name: string
+  current_turn: number
+  status: string
+  player_count: number
+  max_players?: number
+}
+
+const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
 
 export default function GameList() {
   const navigate = useNavigate()
@@ -16,6 +25,8 @@ export default function GameList() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  // Powers to leave to civil disorder from the start (W9) -- for tables of 3-6.
+  const [dummies, setDummies] = useState<string[]>([])
 
   const load = () => {
     Promise.all([
@@ -39,7 +50,7 @@ export default function GameList() {
     try {
       const res = await apiJson<{ game_id: string }>('/games/create', {
         method: 'POST',
-        body: JSON.stringify({ map_name: 'standard' }),
+        body: JSON.stringify({ map_name: 'standard', dummy_powers: dummies }),
       })
       toast.success('Game created')
       navigate(`/games/${res.game_id}`)
@@ -63,7 +74,28 @@ export default function GameList() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="mb-6">
+      <div className="mb-6 space-y-2">
+        <fieldset>
+          <legend className="text-sm text-muted-foreground mb-1">
+            Fewer than seven players? Leave these powers to civil disorder (they hold, and
+            disband when they must):
+          </legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {POWERS.map((p) => (
+              <label key={p} className="flex items-center gap-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={dummies.includes(p)}
+                  disabled={!dummies.includes(p) && dummies.length >= POWERS.length - 1}
+                  onChange={(e) =>
+                    setDummies((d) => (e.target.checked ? [...d, p] : d.filter((x) => x !== p)))
+                  }
+                />
+                {p}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <Button onClick={handleCreateGame} disabled={creating}>
           {creating ? 'Creating...' : 'Create new game'}
         </Button>
@@ -96,7 +128,7 @@ export default function GameList() {
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
                   <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
-                    Game {g.id} — {g.map_name} — {g.player_count}/7 — turn {g.current_turn}
+                    Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
                   </Link>
                 </CardTitle>
               </CardHeader>

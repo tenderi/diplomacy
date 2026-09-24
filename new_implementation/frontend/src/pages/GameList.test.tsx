@@ -152,4 +152,37 @@ describe('GameList', () => {
       )
     })
   })
+
+  it('sends the powers ticked for civil disorder with the create request (W9)', async () => {
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (opts?.method === 'POST' && url.includes('/games/create'))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ game_id: '99' }),
+          text: () => Promise.resolve('{"game_id":"99"}'),
+        } as Response)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ games: [] }),
+        text: () => Promise.resolve('{"games":[]}'),
+      } as Response)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const turkey = await within(container).findByLabelText('TURKEY')
+    fireEvent.click(turkey)
+    fireEvent.click(within(container).getByLabelText('ITALY'))
+    fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u, o]) => String(u).includes('/games/create') && o?.method === 'POST')
+      expect(call).toBeDefined()
+      expect(JSON.parse(String(call![1]!.body)).dummy_powers).toEqual(['TURKEY', 'ITALY'])
+    })
+  })
 })

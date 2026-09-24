@@ -144,6 +144,8 @@ stored game rows; see `fix_plan.md` M6):
 | `pending_orders` | JSON | `GameRepo.set_pending_orders` | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
 | `last_resolution` | JSON | `GameRepo.save_state` | The most recent `resolution_to_dict()` output — kept only so `/generate_map/resolution` can draw arrows for the turn just processed; not otherwise authoritative (superseded on the next `process_turn`). |
 | `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`. |
+| `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | W9: sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. |
+| `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | W9: who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list, demo-seeder and pre-W9 games. Only the creator (or `X-Admin-Token`) may change `dummy_powers`. |
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
 `state_json` (deadline scheduler, game listings, channel posts): `map_name`,
@@ -207,6 +209,7 @@ paths) — built directly from `GameState`, not from any legacy relational shape
   ],
   "contested": ["BUR"],
   "players": { "FRANCE": {"user_id": 42, "is_active": true}, ... },
+  "dummy_powers": ["TURKEY"],           // W9: played by civil disorder; [] if none
   "orders": { "FRANCE": ["F BRE H", "A PAR - BUR"], ... }  // pending, truthfully re-lettered
 }
 ```
