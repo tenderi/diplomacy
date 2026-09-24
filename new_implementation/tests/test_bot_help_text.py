@@ -73,6 +73,8 @@ def _order_like_spans(text: str) -> list[str]:
             candidate = _COMMAND_PREFIX_RE.sub("", candidate.strip()).strip()
             if not candidate or candidate in _NOT_ORDERS:
                 continue
+            if candidate in help_text.REJECTED_ORDER_FORMS:
+                continue  # shown as "not accepted"; checked to *fail* below
             first = candidate.split()[0].upper()
             if first in _ORDER_FIRST_TOKENS:
                 spans.append(candidate)
@@ -226,3 +228,21 @@ def test_extractor_would_catch_a_bad_example() -> None:
     map_data = load_standard_map()
     with pytest.raises(OrderParseError):
         parse_order("A Berlin - Kiel", power="GERMANY", map=map_data)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("order", help_text.REJECTED_ORDER_FORMS)
+def test_forms_shown_as_not_accepted_really_are_rejected(order: str) -> None:
+    """W7 kept the grammar strict. If the parser ever starts accepting one of
+    these, the "not accepted" line would be telling players something false."""
+    with pytest.raises(OrderParseError):
+        parse_order(order, power="ENGLAND", map=load_standard_map())
+    assert f"`{order}`" in help_text.ORDER_FORMAT_NOTES
+
+
+@pytest.mark.unit
+def test_every_not_accepted_form_comes_with_a_form_that_parses() -> None:
+    """The "(write `...`)" alternatives are ordinary examples -- the parse test
+    above already covers them; this pins that each rejected form has one."""
+    line = next(l for l in help_text.ORDER_FORMAT_NOTES.splitlines() if "Not accepted" in l)
+    assert line.count("(write `") == len(help_text.REJECTED_ORDER_FORMS)
