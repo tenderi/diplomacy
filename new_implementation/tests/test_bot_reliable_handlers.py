@@ -73,7 +73,7 @@ def test_order_resolves_power_from_cache_and_queues(fresh_outbox):
     assert "queued" in msg.reply_text.call_args[0][0]
     [entry] = fresh_outbox.pending(chat_id=555)
     assert entry.endpoint == "/games/set_orders"
-    assert entry.payload == {"game_id": "3", "power": "GERMANY", "orders": ["A BER - SIL", "A MUN H"], "telegram_id": "555"}
+    assert entry.payload == {"game_id": "3", "power": "GERMANY", "orders": ["A BER - SIL", "A MUN H"], "telegram_id": "555", "merge": True}
     assert entry.description == "orders for game 3 (GERMANY): A BER - SIL; A MUN H"
 
 

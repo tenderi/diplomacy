@@ -46,7 +46,7 @@ the web app if you need to re-link.
 | `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; nothing sets one for you. |
 | `/deadline <game_id> clear` | Remove the deadline; the turn is then processed by hand with `/processturn`. |
 | `/deadline <game_id>` | Show the current deadline. |
-| `/autoprocess <game_id> on\|off` | Any player: process each turn the moment every power with something to order has sent orders (civil-disorder powers are never waited on), unless someone is `/notready`. A deadline still applies. Off by default. |
+| `/autoprocess <game_id> on\|off` | Any player: process each turn the moment every power with something to order has sent an order **for every unit that must act** (to keep a unit still, order it to hold) (civil-disorder powers are never waited on), unless someone is `/notready`. A deadline still applies. Off by default. |
 | `/notready [game_id]` | Ask the table to wait before the turn auto-processes ("I'm still negotiating"). Lasts until `/ready` or the end of the phase. Never stops a deadline or `/processturn`. |
 | `/ready [game_id]` | Lower your wait flag; if everything else is in, the turn is processed at once. |
 | `/dummy <game_id> <power> [off]` | Game creator only: leave an empty seat to civil disorder (it holds, disbands when it must, is never waited on and never votes), or add `off` to open it for a player again. For tables of 3–6. |
@@ -55,7 +55,7 @@ the web app if you need to re-link.
 
 | Command | Description |
 |---|---|
-| `/order [game_id] <order>; <order>; …` | Submit orders. |
+| `/order [game_id] <order>; <order>; …` | Submit orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/clearorders` starts over. |
 | `/orders <game_id> <order>; <order>; …` | Same, but the game ID is required. |
 | `/selectunit [game_id]` | **Interactive order entry** — pick a unit, then pick from its legal orders. |
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |

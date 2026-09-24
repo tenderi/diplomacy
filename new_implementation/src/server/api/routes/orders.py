@@ -28,6 +28,10 @@ class SetOrdersRequest(BaseModel):
     # When the player composed these orders (ISO-8601 UTC). The bot sends it on
     # every submission; see ``_refuse_if_stale``.
     client_timestamp: Optional[datetime] = None
+    # Add to this power's orders (a new order for a unit replaces its old one)
+    # instead of replacing them all. The bot always sends true: it submits
+    # orders one at a time. The web client sends the full set and omits it.
+    merge: bool = False
 
 
 def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None:
@@ -92,7 +96,7 @@ def set_orders(
         raise HTTPException(status_code=404, detail="Game not found")
     _refuse_if_stale(str(req.game_id), req.client_timestamp)
     try:
-        raw = game_service.submit_orders(str(req.game_id), req.power, req.orders)
+        raw = game_service.submit_orders(str(req.game_id), req.power, req.orders, merge=req.merge)
     except GameOverError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except Exception as e:
