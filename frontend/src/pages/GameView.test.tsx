@@ -1108,6 +1108,31 @@ describe('GameView — player actions', () => {
     })
   })
 
+  it('says which orders the server refused instead of "Orders submitted"', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const { posts, fetchMock } = recordingPosts(
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/legal_orders/') ? jsonResponse({ detail: 'Not Found' }, 404) : base(url, init)
+      ) as unknown as ReturnType<typeof stubFetchActive>,
+      () => ({
+        results: [
+          { order: 'A PAR - BUR', success: true, error: null },
+          { order: 'A PAR - LON', success: false, error: 'LON is not adjacent to PAR' },
+        ],
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'A PAR - BUR\nA PAR - LON' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(
+      await within(container).findByText('Not accepted: A PAR - LON (LON is not adjacent to PAR)')
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ['Quit (step away)', /^quit$/i, '/games/10/quit'],
     ['Concede', /^concede$/i, '/games/10/concede'],

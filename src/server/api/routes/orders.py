@@ -14,7 +14,7 @@ from ..client_timestamp import normalize_client_timestamp
 from .. import shared as api_shared
 from ...response_cache import invalidate_cache
 from ..shared import db_service, game_service, logger, is_bot_secret
-from server.game_service import GameOverError
+from server.game_service import GameOverError, StaleGameError
 
 router = APIRouter()
 
@@ -100,6 +100,14 @@ def set_orders(
         raw = game_service.submit_orders(str(req.game_id), req.power, req.orders, merge=req.merge)
     except GameOverError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    except StaleGameError as e:
+        # The turn was processed while these orders were being checked: they
+        # were validated against a board that is gone, so none were stored.
+        raise HTTPException(
+            status_code=409,
+            detail=f"The turn was processed while your orders were being submitted; none were applied. "
+            f"Check the new board and submit again. ({e})",
+        ) from e
     except Exception as e:
         logger.exception(f"set_orders failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
