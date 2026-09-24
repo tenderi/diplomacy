@@ -112,6 +112,9 @@ type OrdersStatus = {
   /** W10: the turn runs by itself once nothing is missing and nobody waits. */
   auto_process?: boolean
 }
+/** One entry of `POST /games/set_orders`' per-order `results`. */
+type SetOrderResult = { order: string; success: boolean; error: string | null }
+
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
 type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
 /**
@@ -757,12 +760,20 @@ export default function GameView() {
     setSubmitting(true)
     setError('')
     try {
-      await apiJson('/games/set_orders', {
+      const r = await apiJson<{ results?: SetOrderResult[] }>('/games/set_orders', {
         method: 'POST',
         body: JSON.stringify({ game_id: gameId, power: myPower, orders }),
       })
-      toast.success('Orders submitted')
+      // The request succeeds even when orders in it are refused (each is
+      // validated on its own); saying "submitted" for those hid the refusal.
+      // `load()` clears `error` first, so it runs before the message is set.
       load()
+      const refused = (r.results ?? []).filter((x) => !x.success)
+      if (refused.length > 0) {
+        setError(`Not accepted: ${refused.map((x) => `${x.order} (${x.error ?? 'invalid'})`).join('; ')}`)
+      } else {
+        toast.success('Orders submitted')
+      }
     } catch (e) {
       setError(describeActionError(e, 'Submit orders failed'))
     } finally {

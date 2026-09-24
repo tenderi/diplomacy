@@ -171,7 +171,7 @@ FastAPI app assembled in `_api_module.py`:
 
 **Auth has two modes that coexist**: JWT Bearer (browser) and `telegram_id` in the request body (Telegram bot). The dependency `get_current_user_or_telegram` accepts either. Per-power authorization (only the assigned user may act for a power) is enforced in route handlers — preserve it when editing.
 
-**Concurrency:** `GameRepo.save_state` takes an `expected_phase_code` and raises `StaleGameError` → HTTP 409. That is the cross-process guard; an `asyncio.Lock` cannot be one, since each uvicorn worker has its own.
+**Concurrency:** `GameRepo.save_state` (and `update_state_json`, used by concede) takes an `expected_phase_code` and raises `StaleGameError` → HTTP 409, checking it on a row taken `FOR UPDATE` — a plain read would let two workers both pass. That is the cross-process guard; an `asyncio.Lock` cannot be one, since each uvicorn worker has its own.
 
 ### Telegram bot (`src/server/telegram_bot/`)
 
