@@ -1,5 +1,27 @@
 ---
 
+# Track AF — The documentation site (maintainer request, 2026-09-24) — **done, `v3.0.3`**
+
+- [x] `docs/` published as a website at `https://<DOCS_DOMAIN>` (production
+  `diplomacy-docs.xn--jalluthti-02a.fi`): `mkdocs.yml` (Material for MkDocs 9.x, pinned to
+  MkDocs 1.x -- 2.0 drops the plugin/theme system), a landing page (`docs/index.md`),
+  navigation Play / Run it / Design / Project. Built with `--strict` in
+  `docker/docs.Dockerfile`, served by the `diplomacy_docs` nginx container through Caddy
+  (its own certificate and security headers; `script-src 'unsafe-inline'` for the docs
+  site only, which Material's inline page scripts need; no Google Fonts).
+- [x] Caddy reads an *empty* site address as broken config and applies a `{$VAR:default}`
+  only when the variable is unset, so compose passes `http://docs.invalid` when
+  `DOCS_DOMAIN` is blank (a plain-HTTP name nobody uses; never a certificate request).
+- [x] Links out of `docs/` (to `pyproject.toml`, the frontend README, source directories)
+  became GitHub URLs; two in `testing_and_validation.md` had pointed above the repository
+  root since the flatten.
+- [x] The README and the bot's `/help` link to the site.
+
+**Evidence:** strict build clean; image built and smoke-tested on the VPS (pages, 404),
+`caddy validate` with and without `DOCS_DOMAIN`; `tests/test_deployment_infrastructure.py`.
+
+---
+
 # Track AE — Play in a Telegram group; the new player guide (maintainer request, 2026-09-24) — **done, `v3.0.2`**
 
 Before the beta announcement. The maintainer's picture ("add the bot to a group; orders

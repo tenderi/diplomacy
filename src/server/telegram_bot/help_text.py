@@ -193,6 +193,7 @@ a notification about -- so the game id is only needed to switch games.
 
 {ORDER_FORMAT_NOTES}
 
+📖 New player guide: https://diplomacy-docs.xn--jalluthti-02a.fi/NEW_USER_GUIDE/
 📜 Free software under the GNU AGPL v3 or later, based on diplomacy/diplomacy. Source code: {SOURCE_URL}
 """
 

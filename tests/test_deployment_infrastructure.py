@@ -145,9 +145,17 @@ class TestHostScripts:
 
     def test_containers_cannot_gain_privileges(self) -> None:
         compose = _read(PROJECT_ROOT / "docker-compose.yml")
-        assert compose.count("no-new-privileges:true") == 5  # every service
+        assert compose.count("no-new-privileges:true") == 6  # every service
         assert compose.count("cap_drop:") == 2  # the API and the bot need no capabilities
         assert "DIPLOMACY_API_DOCS=0" in compose
+
+    def test_the_docs_site_builds_strictly_and_is_served_only_through_caddy(self) -> None:
+        compose = _read(PROJECT_ROOT / "docker-compose.yml")
+        docs = compose.split("\n  diplomacy_docs:", 1)[1].split("\n  caddy:", 1)[0]
+        assert "ports:" not in docs and 'profiles: ["tls"]' in docs
+        assert "DOCS_DOMAIN=${DOCS_DOMAIN:-http://docs.invalid}" in compose  # never an empty site address
+        assert "mkdocs build --strict" in _read(PROJECT_ROOT / "docker" / "docs.Dockerfile")
+        assert "{$DOCS_DOMAIN}" in _read(PROJECT_ROOT / "docker" / "Caddyfile")
 
     def test_https_headers(self) -> None:
         caddyfile = _read(PROJECT_ROOT / "docker" / "Caddyfile")

@@ -2,11 +2,11 @@
 
 How this project is tested, what the gates are, and the conventions to follow when adding
 tests. For what each test file covers, see
-[`CODEBASE_OVERVIEW.md` §9](../../../CODEBASE_OVERVIEW.md).
+[`CODEBASE_OVERVIEW.md` §9](https://github.com/tenderi/diplomacy/blob/main/CODEBASE_OVERVIEW.md).
 
 ## Gates
 
-CI ([`.github/workflows/test.yml`](../../../.github/workflows/test.yml)) runs three jobs,
+CI ([`.github/workflows/test.yml`](https://github.com/tenderi/diplomacy/blob/main/.github/workflows/test.yml)) runs three jobs,
 all three of which are required status checks on `main`:
 
 | Job | What it runs |
@@ -83,7 +83,7 @@ GameState-native response shape. Prefer driving a real game to hand-building a `
 **Clients** — bot tests mock the Telegram API and assert against the HTTP layer; the bot
 must never call the engine or renderer directly, and there is a test asserting exactly that.
 Frontend tests use Vitest + React Testing Library — see
-[`frontend/docs/TESTING.md`](../../frontend/docs/TESTING.md).
+[`frontend/docs/TESTING.md`](https://github.com/tenderi/diplomacy/blob/main/frontend/docs/TESTING.md).
 
 **Rendering** — render through the real API-route functions and assert on PNG magic bytes
 and non-trivial size. For changes that should be behaviour-preserving (module splits,

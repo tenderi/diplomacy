@@ -129,6 +129,18 @@ container. nginx takes the client's address from the `X-Forwarded-For` Caddy set
 address, replacing any `X-Forwarded-For` the client sent -- the API's per-IP login
 and registration rate limits depend on it.
 
+### The documentation site
+
+`https://<DOCS_DOMAIN>` (production: https://diplomacy-docs.xn--jalluthti-02a.fi) serves
+`docs/` as a website: `mkdocs.yml` (Material for MkDocs) is built into the
+`diplomacy_docs` image (`docker/docs.Dockerfile`, `mkdocs build --strict`, so a broken
+link fails the build) and Caddy serves it under its own certificate. To turn it on:
+an A record for the name → the VPS, then `DOCS_DOMAIN=<name>` in `.env` and
+`./upgrade.sh` (needs `DOMAIN` too; the docs container runs with Caddy).
+`upgrade.sh` warns if it doesn't answer. It is rebuilt on every deploy, so a merged
+doc change is live minutes later. Preview locally:
+`pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10" && mkdocs serve`.
+
 ### Password reset ("Forgot password?")
 
 The web login page's *Forgot password?* sends a single-use link, valid for an
