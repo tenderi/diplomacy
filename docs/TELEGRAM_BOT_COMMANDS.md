@@ -148,22 +148,33 @@ the time they were created if they were delayed.
 | `/map [game_id]`, `/viewmap [game_id]` | Current board as a PNG. |
 | `/replay <game_id> <turn>` | The map for a past turn. |
 
-## Channels
+## Playing in a Telegram group
 
-Link a game to a Telegram channel and the bot posts maps, results, and broadcasts there
-automatically. You must be a player in the game or an admin. Get the channel ID by
-forwarding a channel message to [@userinfobot](https://t.me/userinfobot).
+A game can belong to a Telegram group. The group then gets turn results with the
+map, deadline reminders, "the game is full" and players' broadcasts, and **only members
+of that group can see or join the game** (🎲 Find a game lists it only for them; the
+website does not list it). Orders, private messages and the game menu always stay in
+your **private chat** with the bot: in a group, the bot refuses those commands and
+offers a link to a private chat instead. Buttons in group posts are links that open
+that private chat.
+
+Send these **in the group**:
 
 | Command | Description |
 |---|---|
-| `/link_channel <game_id> <channel_id>` | Link a channel (e.g. `-1001234567890`). |
-| `/unlink_channel <game_id>` | Remove the link. |
-| `/channel_info <game_id>` | Channel ID, name, and current settings. |
-| `/channel_settings <game_id> <setting> <value>` | Change a setting. |
+| `/newgame` | Create a game for this group. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
+| `/linkgroup [game_id]` | Attach one of your existing games to this group. |
+| `/unlinkgroup [game_id]` | Detach it again. |
+| `/status [game_id]`, `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |
+| `/help` or `/start` | How playing in a group works. |
 
-Settings: `auto_post_maps`, `auto_post_broadcasts`, `auto_post_notifications` (all
-`true`/`false`, default `true`) and `notification_level` (`all`/`important`/`none`, default
-`all`).
+### Advanced: channel settings
+
+| Command | Description |
+|---|---|
+| `/channel_info <game_id>` | The linked group or channel and its settings. |
+| `/channel_settings <game_id> <setting> <value>` | Change a setting: `auto_post_maps`, `auto_post_broadcasts`, `auto_post_notifications` (`true`/`false`, default `true`) or `notification_level` (`all`/`important`/`none`). |
+| `/link_channel <game_id> <chat_id>`, `/unlink_channel <game_id>` | Link a Telegram *channel* (where the bot can't read commands) by its id, e.g. from @userinfobot. For groups, `/linkgroup` is simpler. |
 
 ## Admin
 

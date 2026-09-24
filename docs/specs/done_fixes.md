@@ -1,5 +1,43 @@
 ---
 
+# Track AE — Play in a Telegram group; the new player guide (maintainer request, 2026-09-24) — **done, `v3.0.2`**
+
+Before the beta announcement. The maintainer's picture ("add the bot to a group; orders
+in private; the bot posts announcements and broadcasts") existed only in part, behind
+`/link_channel <game_id> <chat_id>` with an id from a third-party bot, and with holes:
+
+- [x] **Orders could be entered in the group.** Every command worked in any chat, so
+  `/orderall` in a group showed that player's order menu to everyone. Now a
+  handler-group -1 guard (`app.group_command_guard`) answers private commands in a group
+  with a link to a private chat; only `GROUP_COMMANDS` pass. Callback buttons pressed in a
+  group only raise an alert. Group posts carry **link** buttons
+  (`t.me/<bot>?start=orders_N`, `payload.dm_start`), never callbacks; `/start <payload>`
+  (`join_N`, `orders_N`, `game_N`) continues in the private chat.
+- [x] **`/newgame`, `/linkgroup`, `/unlinkgroup`, sent in the group:** create a game for
+  the group (sender = creator, auto-process on) or attach/detach one, using the chat's own
+  id. A group-scoped "/" menu (`BotCommandScopeAllGroupChats`).
+- [x] **Only a group's members see its games** (maintainer, same day): `GET /games` lists
+  group games only to the bot (with `channel_id`); the bot shows them only to members
+  (`bot.get_chat_member`); joining one is refused unless through the bot (or by its
+  creator), and the bot checks membership on every join path.
+- [x] **Security holes in the channel routes:** unlink, settings and the map / broadcast /
+  thread / timeline / dashboard / results posts had **no auth**; link needed any login.
+  All now need the bot secret, the admin token or a player seated in the game
+  (`require_game_player_or_bot`); so does reading a game's group.
+- [x] **`/channel_settings` never worked** (the bot POSTed, the route was PUT-only): the route
+  accepts both. **`/unlink_channel`** called the API without the bot secret: `api_delete`.
+- [x] **Group announcements** added: deadline changes, the 10-minute reminder, and "game
+  is full" (`api.shared.post_to_game_group`), next to the existing turn results + map and
+  broadcasts.
+- [x] **`docs/NEW_USER_GUIDE.md`** for beta players, linked from the README and `/help`.
+
+**Evidence:** `tests/test_telegram_groups.py` (guard, button guard, `/newgame`,
+membership filtering and join refusal, deep links, link buttons),
+`tests/test_group_games_api.py` (hidden listing, join via bot only, guarded routes,
+deadline and turn posts to the group).
+
+---
+
 # Track AD — Flat repository, README, and the license (maintainer request, 2026-09-24) — **done, `v3.0.1`**
 
 - [x] **Everything at the root.** `new_implementation/` moved up with `git mv` (history

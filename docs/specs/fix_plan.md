@@ -22,7 +22,10 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.1`.
+- **Last updated:** 2026-09-24, at `v3.0.2`.
+- **Track AE (`v3.0.2`):** playing in a Telegram group (`/newgame` in the group, orders only
+  in private, a group's games visible only to its members, channel routes secured) and
+  `docs/NEW_USER_GUIDE.md` for the beta.
 - **Track AD (`v3.0.1`):** the app moved from `new_implementation/` to the repository root
   (production cut over by the deploy; volumes kept), a root README, and the license:
   AGPL-3.0-or-later like upstream, with source links in the web footer and bot `/help`.

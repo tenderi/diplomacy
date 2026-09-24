@@ -4,8 +4,12 @@ Play the board game **Diplomacy** over Telegram or in the browser. Behind both i
 rules engine that passes 144 of the 154 DATC adjudication tests (the other ten are
 documented expected failures).
 
-**Play:** https://diplomacy.xn--jalluthti-02a.fi · the Telegram bot (send it `/start`)
+**Play:** [@IronChancellorBot](https://t.me/IronChancellorBot) on Telegram (send it `/start`), or
+https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](docs/NEW_USER_GUIDE.md).**
 
+- **Telegram groups:** add the bot to your group and send `/newgame`. The group gets
+  results, maps and reminders, while orders stay in private chats, and a group's games
+  are visible only to its members.
 - **Telegram bot:** the main way to play. A menu per game has buttons for ordering every
   unit (or just one), the map, messages, deadline votes and ready/wait. Turn notifications
   come with an *Enter orders* button, and orders and messages survive server restarts. There
@@ -74,6 +78,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 | Doc | Contents |
 |---|---|
+| [New player guide](docs/NEW_USER_GUIDE.md) | Start here: playing with your Telegram group, a turn step by step |
 | [Telegram bot commands](docs/TELEGRAM_BOT_COMMANDS.md) | Every command and button |
 | [Browser client](docs/BROWSER_CLIENT.md) | Registering, logging in, linking Telegram |
 | [Server API](src/server/README.md) | REST endpoints, the CLI surface, DAIDE |

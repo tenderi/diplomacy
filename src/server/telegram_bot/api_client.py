@@ -175,6 +175,16 @@ def api_post(endpoint: str, json_data: dict) -> dict:
     return resp.json()
 
 
+def api_delete(endpoint: str) -> dict:
+    """Make a DELETE request to the API, with the bot's X-Bot-Secret header."""
+    try:
+        resp = requests.delete(f"{API_URL}{endpoint}", headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise ApiUnreachableError(e) from e
+    _raise_for_status(resp)
+    return resp.json()
+
+
 def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
     """Make a GET request to the API.
 

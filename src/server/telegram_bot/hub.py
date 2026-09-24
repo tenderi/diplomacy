@@ -37,7 +37,7 @@ from telegram.ext import ContextTypes
 from .api_client import api_get, api_get_bytes, api_post_reliable, queued_reply
 from .game_context import GameContextError, current_game, fetch_user_games, resolve_game_and_power
 from .games import (
-    AWAITING, POWERS, format_deadline, join_game, propose_deadline, set_wait_flag, status_text,
+    AWAITING, POWERS, is_group_member, format_deadline, join_game, propose_deadline, set_wait_flag, status_text,
     vote_deadline, withdraw_deadline, _format_proposal,
 )
 from .messages import recent_messages_text, send_diplomatic_message
@@ -377,8 +377,12 @@ async def find_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         players, seats = g.get("player_count", 0), g.get("max_players", 7)
         if players >= seats:
             continue
+        # A group's games are for its members only (games.may_join).
+        if g.get("channel_id") and (user is None or not await is_group_member(context.bot, g["channel_id"], user.id)):
+            continue
         lock = "🔒 " if g.get("private") else ""
-        rows.append([InlineKeyboardButton(f"{lock}Game {game_id} · {players}/{seats} players", callback_data=f"select_game_{game_id}")])
+        group = "👥 " if g.get("channel_id") else ""
+        rows.append([InlineKeyboardButton(f"{lock}{group}Game {game_id} · {players}/{seats} players", callback_data=f"select_game_{game_id}")])
         if len(rows) == 8:
             break
     rows.append([InlineKeyboardButton("⏳ Queue for the next new game", callback_data="join_waiting_list")])
@@ -386,6 +390,7 @@ async def find_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     intro = "Join an open game:" if len(rows) > 2 else "No open games right now."
     await send(
         f"🎲 *Find a game*\n\n{intro}\n\n"
+        "👥 = a game of one of your Telegram groups.\n"
         "⏳ The queue starts a new game when 7 players are in it.\n"
         "🎮 The demo is a solo game against simple computer opponents.",
         reply_markup=InlineKeyboardMarkup(rows),
