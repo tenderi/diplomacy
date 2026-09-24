@@ -5,7 +5,8 @@ rules engine that passes 144 of the 154 DATC adjudication tests (the other ten a
 documented expected failures).
 
 **Play:** [@IronChancellorBot](https://t.me/IronChancellorBot) on Telegram (send it `/start`), or
-https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](docs/NEW_USER_GUIDE.md).**
+https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](https://diplomacy-docs.xn--jalluthti-02a.fi/NEW_USER_GUIDE/)** (all docs:
+https://diplomacy-docs.xn--jalluthti-02a.fi).
 
 - **Telegram groups:** add the bot to your group and send `/newgame`. The group gets
   results, maps and reminders, while orders stay in private chats, and a group's games

@@ -1,8 +1,8 @@
 # Visualization Specification
 
 What the map renderer draws and why. Implementation lives in
-[`src/rendering/`](../../src/rendering/); every size, colour, and line style is data in
-[`visualization_config.json`](../../src/rendering/visualization_config.json), not a constant
+[`src/rendering/`](https://github.com/tenderi/diplomacy/tree/main/src/rendering/); every size, colour, and line style is data in
+[`visualization_config.json`](https://github.com/tenderi/diplomacy/blob/main/src/rendering/visualization_config.json), not a constant
 in code. **That file is the source of truth for values — this document is the source of
 truth for meaning.**
 

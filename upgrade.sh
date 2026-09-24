@@ -93,6 +93,25 @@ if [ -n "$DOMAIN" ]; then
     fi
 fi
 
+DOCS_DOMAIN=$(grep -E '^DOCS_DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)
+if [ -n "$DOMAIN" ] && [ -n "$DOCS_DOMAIN" ]; then
+    echo "==> Checking https://${DOCS_DOMAIN} ..."
+    docs_ok=0
+    for _ in $(seq 1 20); do
+        if curl -fsS -m 5 -o /dev/null --resolve "${DOCS_DOMAIN}:443:127.0.0.1" "https://${DOCS_DOMAIN}/"; then
+            docs_ok=1
+            break
+        fi
+        sleep 3
+    done
+    if [ "$docs_ok" = 1 ]; then
+        echo "    https://${DOCS_DOMAIN} is up."
+    else
+        echo "    WARNING: https://${DOCS_DOMAIN} not answering yet. Check its A record, then:"
+        echo "    docker compose logs caddy diplomacy_docs"
+    fi
+fi
+
 echo "==> Container status:"
 docker compose ps
 # A deploy that leaves the API or the site down must fail the workflow.
