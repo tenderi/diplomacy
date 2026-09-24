@@ -6,13 +6,14 @@ This module handles Telegram channel integration for games:
 - Channel settings management
 - Automated content posting to channels
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 from datetime import datetime
 
-from .auth import require_bot_or_user
-from ..shared import db_service, game_service, logger
+from .auth import get_current_user_optional, http_bearer
+from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger
 from ...response_cache import invalidate_cache
 
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -57,6 +58,31 @@ def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
 router = APIRouter()
 
 
+def require_game_player_or_bot(
+    game_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None),
+) -> None:
+    """Who may change a game's linked Telegram group or post into it: the bot
+    (which checks that the Telegram user is a player before calling), an admin,
+    or a web user seated in the game.
+
+    Until this, linking needed only *some* login and every other write route --
+    unlink, settings, and the map/broadcast/thread/timeline/dashboard/results
+    posts -- needed nothing at all: anyone could unlink a game's group or make
+    the bot post into it.
+    """
+    if is_bot_secret(x_bot_secret) or is_admin_token(x_admin_token):
+        return
+    user = get_current_user_optional(credentials)
+    row = db_service.get_game_by_game_id(game_id)
+    if user is not None and row is not None:
+        if db_service.get_player_by_game_id_and_user_id(game_id=int(row.id), user_id=int(user.id)) is not None:
+            return
+    raise HTTPException(status_code=403, detail="Only a player in this game can change its Telegram group")
+
+
 # --- Request Models ---
 class LinkChannelRequest(BaseModel):
     channel_id: str
@@ -87,7 +113,7 @@ class CreateThreadRequest(BaseModel):
 def link_channel_to_game(
     game_id: str,
     req: LinkChannelRequest,
-    _: None = Depends(require_bot_or_user),
+    _: None = Depends(require_game_player_or_bot),
 ) -> Dict[str, Any]:
     """
     Link a Telegram channel to a game.
@@ -123,7 +149,7 @@ def link_channel_to_game(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/games/{game_id}/channel/unlink")
+@router.delete("/games/{game_id}/channel/unlink", dependencies=[Depends(require_game_player_or_bot)])
 def unlink_channel_from_game(game_id: str) -> Dict[str, Any]:
     """Unlink a Telegram channel from a game."""
     try:
@@ -149,7 +175,7 @@ def unlink_channel_from_game(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/games/{game_id}/channel")
+@router.get("/games/{game_id}/channel", dependencies=[Depends(require_game_player_or_bot)])
 def get_channel_info(game_id: str) -> Dict[str, Any]:
     """Get channel information for a game."""
     try:
@@ -174,7 +200,8 @@ def get_channel_info(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/games/{game_id}/channel/settings")
+@router.put("/games/{game_id}/channel/settings", dependencies=[Depends(require_game_player_or_bot)])
+@router.post("/games/{game_id}/channel/settings", dependencies=[Depends(require_game_player_or_bot)])
 def update_channel_settings(game_id: str, req: ChannelSettingsRequest) -> Dict[str, Any]:
     """Update channel settings for a game."""
     try:
@@ -205,7 +232,7 @@ def update_channel_settings(game_id: str, req: ChannelSettingsRequest) -> Dict[s
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/map")
+@router.post("/games/{game_id}/channel/map", dependencies=[Depends(require_game_player_or_bot)])
 def post_map_to_channel(game_id: str) -> Dict[str, Any]:
     """Manually post the current game map to the linked channel."""
     try:
@@ -240,7 +267,7 @@ def post_map_to_channel(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/broadcast")
+@router.post("/games/{game_id}/channel/broadcast", dependencies=[Depends(require_game_player_or_bot)])
 def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dict[str, Any]:
     """Queue a broadcast message for the linked channel, with optional threading.
 
@@ -286,7 +313,7 @@ def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dic
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/thread")
+@router.post("/games/{game_id}/channel/thread", dependencies=[Depends(require_game_player_or_bot)])
 def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) -> Dict[str, Any]:
     """Queue creation of a discussion thread (forum topic) for the linked channel.
 
@@ -346,7 +373,7 @@ def get_timeline(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/timeline")
+@router.post("/games/{game_id}/channel/timeline", dependencies=[Depends(require_game_player_or_bot)])
 def post_timeline_update(game_id: str) -> Dict[str, Any]:
     """Queue a timeline update for the linked channel. See ``/channel/broadcast``'s
     docstring for why this queues onto ``bot_outbox`` rather than posting inline."""
@@ -380,7 +407,7 @@ def post_timeline_update(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/dashboard")
+@router.post("/games/{game_id}/channel/dashboard", dependencies=[Depends(require_game_player_or_bot)])
 def post_player_dashboard(game_id: str) -> Dict[str, Any]:
     """Queue the player status dashboard for the linked channel. See
     ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
@@ -432,7 +459,7 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/battle_results")
+@router.post("/games/{game_id}/channel/battle_results", dependencies=[Depends(require_game_player_or_bot)])
 def post_battle_results(game_id: str) -> Dict[str, Any]:
     """Queue formatted battle results for the linked channel. See
     ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``

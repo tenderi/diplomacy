@@ -68,9 +68,30 @@ WELCOME_TEXT = (
 )
 
 
+GROUP_WELCOME = (
+    "🏛️ *Diplomacy in this group*\n\n"
+    "• /newgame -- start a game for this group; everyone joins with the button I post\n"
+    "• /linkgroup [game id] -- attach an existing game to this group\n\n"
+    "Here I post turn results with the map, deadline reminders and players' "
+    "broadcasts. *Orders and private messages go to me in a private chat* -- never "
+    "in the group, where everyone would see them. Only members of this group can "
+    "see or join its games."
+)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/start -- register the player (silently) and show the main menu."""
+    """/start -- register the player (silently) and show the main menu.
+
+    In a group it explains the group commands instead. In a private chat it also
+    takes a deep-link payload from a group post's button
+    (``t.me/<bot>?start=<payload>``): ``join_<id>`` shows that game's seats,
+    ``orders_<id>`` starts entering orders, ``game_<id>`` opens the game menu.
+    """
     if not update.message or not update.effective_user:
+        return
+    chat = update.effective_chat
+    if chat is not None and chat.type in ("group", "supergroup"):
+        await update.message.reply_text(GROUP_WELCOME, parse_mode='Markdown')
         return
     text = WELCOME_TEXT
     try:
@@ -79,6 +100,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Registration on /start failed for %s: %s", update.effective_user.id, e)
         text += "\n\n⚠️ The game server isn't answering right now; try again in a minute."
     await update.message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
+    args = context.args if isinstance(context.args, list) else []
+    payload = args[0] if args else ""
+    kind, _, game_id = payload.partition("_")
+    if game_id.isdigit() and kind in ("join", "orders", "game"):
+        await _start_deep_link(update, context, kind, game_id)
+
+
+async def _start_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, game_id: str) -> None:
+    """Continue from a group post's button in this private chat."""
+    from .hub import show_hub  # a late import: hub imports this module
+    from .orders import start_order_walk
+
+    user_id = str(update.effective_user.id)
+
+    async def send(text: str, reply_markup: Optional[InlineKeyboardMarkup] = None, parse_mode: Optional[str] = 'Markdown') -> None:
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    if kind == "join":
+        try:
+            if not await may_join(context.bot, game_id, update.effective_user.id):
+                await send(NOT_IN_GROUP, parse_mode=None)
+                return
+            text, markup = _power_selection_prompt(game_id)
+        except requests.RequestException as e:
+            await send(f"Could not load game {game_id}: {e}", parse_mode=None)
+            return
+        await send(text, reply_markup=markup)
+    elif kind == "orders":
+        await start_order_walk(send, context, user_id, game_id)
+    else:
+        await show_hub(send, user_id, game_id)
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -777,9 +829,42 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
 AWAITING = "awaiting_text"
 
 
+# Chat-member statuses that count as being in a group (a "restricted" member
+# still is one; "left" and "kicked" are not).
+_IN_GROUP = {"creator", "administrator", "member", "restricted"}
+NOT_IN_GROUP = (
+    "🔒 That game belongs to a Telegram group you're not in. Ask its players to add you "
+    "to the group, then join from there."
+)
+
+
+async def is_group_member(bot: Any, chat_id: Any, user_id: int) -> bool:
+    """Is ``user_id`` in the Telegram group ``chat_id``? False when Telegram says
+    no, or can't say (the bot was removed from the group, the group is gone)."""
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+    except TelegramError:
+        return False
+    status = getattr(member, "status", "")
+    return status in _IN_GROUP and getattr(member, "is_member", True) is not False
+
+
+async def may_join(bot: Any, game_id: str, user_id: int) -> bool:
+    """Players see and join only games from groups they're in: a game linked to
+    a Telegram group is open to that group's members; any other game to anyone.
+    Raises ``requests.RequestException`` if the game's group can't be read."""
+    info = api_get(f"/games/{game_id}/channel") or {}
+    if not info.get("linked"):
+        return True
+    return await is_group_member(bot, info.get("channel_id"), user_id)
+
+
 async def join_from_button(query: Any, context: ContextTypes.DEFAULT_TYPE, game_id: str, power: str) -> None:
     """A "Join as <POWER>" button. A private game asks for its password first."""
     try:
+        if not await may_join(context.bot, game_id, query.from_user.id):
+            await query.edit_message_text(NOT_IN_GROUP)
+            return
         state = api_get(f"/games/{game_id}/state")
     except requests.RequestException as e:
         await query.edit_message_text(f"❌ Failed to join: {e}")
@@ -818,6 +903,9 @@ async def show_power_selection(update: Update, game_id: str) -> None:
     if not query:
         return
     try:
+        if not await may_join(query.get_bot(), game_id, query.from_user.id):
+            await query.edit_message_text(NOT_IN_GROUP)
+            return
         text, reply_markup = _power_selection_prompt(game_id)
     except Exception as e:
         await query.edit_message_text(f"Error: {str(e)}")
@@ -862,6 +950,14 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     game_id = args[0]
+    try:
+        allowed = await may_join(context.bot, game_id, user.id)
+    except requests.RequestException as e:
+        await update.message.reply_text(f"Join error: {e}")
+        return
+    if not allowed:
+        await update.message.reply_text(NOT_IN_GROUP)
+        return
 
     if len(args) == 1:
         try:

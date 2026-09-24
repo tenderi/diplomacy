@@ -9,8 +9,12 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .api_client import DEFAULT_API_TIMEOUT, api_post, api_get
-from .game_context import fetch_user_games
+import requests
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from .api_client import api_delete, api_get, api_post
+from .game_context import GameContextError, fetch_user_games, resolve_game_and_power, set_current_game
+from .games import ensure_registered
 from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
@@ -97,14 +101,8 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
         
-        # Unlink channel
-        import requests
-
-        from .config import API_URL
-
-        result = requests.delete(
-            f"{API_URL}/games/{game_id}/channel/unlink", timeout=DEFAULT_API_TIMEOUT
-        ).json()
+        # Unlink channel (the route needs the bot's secret since v3.0.2)
+        result = api_delete(f"/games/{game_id}/channel/unlink")
         
         if result.get("status") == "ok":
             await update.message.reply_text(
@@ -227,3 +225,105 @@ async def channel_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.exception(f"Error updating channel settings: {e}")
         await update.message.reply_text(f"Channel settings error: {e}")
 
+
+
+# --- Playing in a Telegram group (v3.0.2) -----------------------------------------
+#
+# A game can belong to a group: the group gets turn results with the map,
+# deadline reminders and players' broadcasts, and only its members can see or
+# join the game (games.may_join). Orders and private messages always go to the
+# bot in a private chat; app.py refuses those commands inside a group.
+
+
+def _join_button(bot_username: str, game_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton(
+        "🎮 Join this game (private chat)", url=f"https://t.me/{bot_username}?start=join_{game_id}"
+    )]])
+
+
+async def _in_group(update: Update, command: str) -> bool:
+    """Is this a group chat? If not, say where the command belongs."""
+    chat = update.effective_chat
+    if chat is not None and chat.type in ("group", "supergroup"):
+        return True
+    await update.message.reply_text(
+        f"/{command} works inside a Telegram group: add me to your group and send it there."
+    )
+    return False
+
+
+async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/newgame (in a group) -- a game for this group; members join with a button.
+
+    The sender becomes the game's creator (they may leave seats to civil
+    disorder with /dummy, and end a turn early). Turns are processed as soon as
+    every order is in (auto-process; anyone can ask the table to wait).
+    """
+    user, chat = update.effective_user, update.effective_chat
+    if not user or not update.message or not await _in_group(update, "newgame"):
+        return
+    try:
+        ensure_registered(user)
+        game_id = str(api_post("/games/create", {
+            "map_name": "standard", "telegram_id": str(user.id), "auto_process": True,
+        })["game_id"])
+        api_post(f"/games/{game_id}/channel/link", {"channel_id": str(chat.id), "channel_name": chat.title})
+    except requests.RequestException as e:
+        await update.message.reply_text(f"❌ Could not create a game: {e}")
+        return
+    set_current_game(str(user.id), game_id)
+    await update.message.reply_text(
+        f"🎮 *Game {game_id} for this group!*\n\n"
+        f"Tap the button to pick your power -- it opens a private chat with me, where "
+        f"you'll also send your orders. The game begins when all seven powers are taken; "
+        f"with fewer players, the creator can leave seats to civil disorder "
+        f"(/dummy {game_id} <power> in the private chat).\n\n"
+        f"Turn results, the map and deadline reminders will appear here.",
+        reply_markup=_join_button(context.bot.username, game_id),
+        parse_mode='Markdown',
+    )
+
+
+async def linkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/linkgroup [game_id] (in a group) -- attach one of your games to this group."""
+    user, chat = update.effective_user, update.effective_chat
+    if not user or not update.message or not await _in_group(update, "linkgroup"):
+        return
+    args = context.args or []
+    try:
+        game_id, _power = resolve_game_and_power(str(user.id), args[0] if args else None)
+        api_post(f"/games/{game_id}/channel/link", {"channel_id": str(chat.id), "channel_name": chat.title})
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except requests.RequestException as e:
+        await update.message.reply_text(f"❌ Could not link the game: {e}")
+        return
+    await update.message.reply_text(
+        f"✅ Game {game_id} now belongs to this group: turn results with the map, deadline "
+        f"reminders and players' broadcasts will be posted here, and only this group's "
+        f"members can see or join it. Orders go to me in a private chat.",
+        reply_markup=_join_button(context.bot.username, game_id),
+    )
+
+
+async def unlinkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/unlinkgroup [game_id] (in a group) -- detach a game from this group."""
+    user, chat = update.effective_user, update.effective_chat
+    if not user or not update.message or not await _in_group(update, "unlinkgroup"):
+        return
+    args = context.args or []
+    try:
+        game_id, _power = resolve_game_and_power(str(user.id), args[0] if args else None)
+        info = api_get(f"/games/{game_id}/channel") or {}
+        if str(info.get("channel_id")) != str(chat.id):
+            await update.message.reply_text(f"Game {game_id} isn't linked to this group.")
+            return
+        api_delete(f"/games/{game_id}/channel/unlink")
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except requests.RequestException as e:
+        await update.message.reply_text(f"❌ Could not unlink the game: {e}")
+        return
+    await update.message.reply_text(f"Game {game_id} is no longer linked to this group.")

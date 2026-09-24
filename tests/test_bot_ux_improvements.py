@@ -26,7 +26,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
 import requests
@@ -77,6 +77,16 @@ def _mock_response(status_code: int, json_body=None, text_body: str = "") -> Moc
 
     resp.raise_for_status.side_effect = _raise
     return resp
+
+
+
+@pytest.fixture(autouse=True)
+def _no_group(monkeypatch):
+    """These games belong to no Telegram group (group rules: test_telegram_groups.py)."""
+    async def open_to_all(*_a, **_kw):
+        return True
+
+    monkeypatch.setattr("server.telegram_bot.games.may_join", open_to_all)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +491,8 @@ class TestBotCommandRegistration:
 
         asyncio.run(bot_app._post_init(mock_app))
 
-        mock_app.bot.set_my_commands.assert_called_once_with(bot_app.BOT_COMMANDS)
+        mock_app.bot.set_my_commands.assert_any_call(bot_app.BOT_COMMANDS)
+        mock_app.bot.set_my_commands.assert_any_call(bot_app.GROUP_BOT_COMMANDS, scope=ANY)
 
 
 # ---------------------------------------------------------------------------
