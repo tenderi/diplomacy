@@ -179,8 +179,17 @@ There are three delivery surfaces, and they are not interchangeable:
   10-minute reminder, "you joined" and "game is full" carry `game_buttons(game_id)` —
   📝 Enter orders / 🗺 Map / 🎮 Game menu, as `g|{game_id}|{action}|n` callbacks that the
   bot's game menu (`telegram_bot/hub.py`) answers in a new message.
-- **Linked channel post** — `telegram_bot/channels.py`. Only fires for games that have a
-  channel linked, gated by the per-game `should_auto_post_*` settings; a no-op otherwise.
+- **Linked group post** — also a `bot_outbox` row, addressed to the group's chat id, from
+  `api/shared.py` (`post_to_game_group`, `_post_turn_to_channel`) and the
+  `/games/{id}/channel/*` routes; `telegram_bot/channels.py` only formats text. Gated by the
+  link's settings (`auto_post_notifications`, `auto_post_maps`); a no-op for a game without a
+  group. A `channel_map` row names the image to send by `payload.path`, and the bot fetches it
+  at delivery. After each processed turn *k* those are `/games/{id}/map/turn/{k}/orders` (the
+  board as the turn began, every order drawn and coloured by its result, standoffs marked --
+  skipped when nobody had anything to order) and `/games/{id}/map/history/{k+1}` (the board
+  it produced, dislodged units included). By turn number, never "the current map": a post
+  delivered late still shows the turn it announces. An image the API refuses is acked as
+  failed rather than retried, so it cannot block the rows behind it.
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
   below is therefore "visible on next poll" for the browser, and that is not a gap to close
   with websockets unless someone decides it is.
@@ -196,9 +205,9 @@ instrumented and the success case was silent, because nobody owned the question.
 
 | Event | Telegram DM | Channel post | Web client | Where |
 |---|---|---|---|---|
-| **Turn processed** (deadline) | all players | notification + rendered map | next poll | `notify_turn_processed(trigger="deadline")` |
-| **Turn processed** (manual) | all players **except the caller** | notification + rendered map | next poll | `notify_turn_processed(trigger="manual")` |
-| **Game ended** (18 centres, draw, last power) | all players except the caller | notification | next poll | `notify_turn_processed(game_ended=True)` |
+| **Turn processed** (deadline) | all players | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
+| **Turn processed** (manual, or auto-processed) | all players **except the caller** | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
+| **Game ended** (18 centres, draw, last power) | all players except the caller | notification (+ the final turn's two maps, unless a draw ended it) | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
 | Player joined | all players | — | next poll | `routes/games.py` join |

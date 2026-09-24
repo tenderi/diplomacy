@@ -62,7 +62,7 @@ async def link_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text(
                 f"✅ Channel {channel_id} linked to game {game_id}!\n\n"
                 f"Automated features:\n"
-                f"• Maps will be posted after each turn\n"
+                f"• The orders and the result are posted as maps after each turn\n"
                 f"• Broadcasts will be forwarded\n"
                 f"• Turn notifications will be sent"
             )
@@ -225,7 +225,7 @@ async def channel_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 # --- Playing in a Telegram group (v3.0.2) -----------------------------------------
 #
-# A game can belong to a group: the group gets turn results with the map,
+# A game can belong to a group: the group gets each turn's orders and result maps,
 # deadline reminders and players' broadcasts, and only its members can see or
 # join the game (games.may_join). Orders and private messages always go to the
 # bot in a private chat; app.py refuses those commands inside a group.
@@ -274,7 +274,7 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"you'll also send your orders. The game begins when all seven powers are taken; "
         f"with fewer players, the creator can leave seats to civil disorder "
         f"(/dummy {game_id} <power> in the private chat).\n\n"
-        f"Turn results, the map and deadline reminders will appear here.",
+        f"After every turn I'll post the orders and the result as maps here, and deadline reminders.",
         reply_markup=_join_button(context.bot.username, game_id),
         parse_mode='Markdown',
     )
@@ -296,8 +296,8 @@ async def linkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"❌ Could not link the game: {e}")
         return
     await update.message.reply_text(
-        f"✅ Game {game_id} now belongs to this group: turn results with the map, deadline "
-        f"reminders and players' broadcasts will be posted here, and only this group's "
+        f"✅ Game {game_id} now belongs to this group: after every turn a map of the orders "
+        f"and one of the result, deadline reminders and players' broadcasts will be posted here, and only this group's "
         f"members can see or join it. Orders go to me in a private chat.",
         reply_markup=_join_button(context.bot.username, game_id),
     )

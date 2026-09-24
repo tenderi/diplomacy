@@ -57,6 +57,10 @@ deadline. The channel sees the public board, not anyone's intentions.
   `post_*_to_channel` functions that once tried to send directly -- synchronously, on an
   async `Bot`, from a process that never had one -- were removed in the test audit
   (`v3.0.4`). All group posts use legacy `parse_mode='Markdown'`: bold is `*single*`.
+- **After every processed turn** the group gets the notification and two `kind="channel_map"`
+  rows: the turn's orders on the board they were given on (`/games/{id}/map/turn/{k}/orders`)
+  and the board they produced (`/games/{id}/map/history/{k+1}`), both fetched by turn number
+  (`v3.0.6`; `docs/specs/architecture.md` §Notifications has the details).
 
 ### Proposals
 
