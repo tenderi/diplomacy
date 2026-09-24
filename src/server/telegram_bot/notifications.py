@@ -153,7 +153,7 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
             chat_id=chat_id,
             text=item.get("message", ""),
             parse_mode=payload.get("parse_mode"),
-            reply_markup=_inline_keyboard(payload.get("buttons")),
+            reply_markup=_dm_start_button(bot, payload.get("dm_start")) or _inline_keyboard(payload.get("buttons")),
             reply_to_message_id=payload.get("reply_to_message_id"),
         )
     else:
@@ -165,6 +165,24 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
             text=render_notification(item),
             reply_markup=_inline_keyboard(payload.get("buttons")),
         )
+
+
+_DM_START_LABELS = {
+    "orders": "📝 Send my orders (private chat)",
+    "join": "🎮 Join this game (private chat)",
+    "game": "🎮 Open the game (private chat)",
+}
+
+
+def _dm_start_button(bot: Any, dm_start: Optional[str]) -> Optional[InlineKeyboardMarkup]:
+    """A group post's one button: a link that opens a private chat with the bot
+    at ``/start <dm_start>`` (see ``games.start``). Never a callback button: in a
+    group, whatever is pressed, everyone sees."""
+    username = getattr(bot, "username", None)
+    if not dm_start or not username:
+        return None
+    label = _DM_START_LABELS.get(dm_start.split("_", 1)[0], "Open a private chat")
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=f"https://t.me/{username}?start={dm_start}")]])
 
 
 def _inline_keyboard(buttons: Optional[list[list[dict[str, str]]]]) -> Optional[InlineKeyboardMarkup]:

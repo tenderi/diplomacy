@@ -7,9 +7,9 @@ All command handlers are organized in the telegram_bot package.
 import asyncio
 import logging
 
-from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler,
+    Application, ApplicationBuilder, ApplicationHandlerStop, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
 )
 
@@ -44,7 +44,9 @@ from server.telegram_bot.admin import start_demo_game, debug_command
 from server.telegram_bot.notifications import (
     queue_status, start_background_loops, stop_background_loops,
 )
-from server.telegram_bot.channel_commands import link_channel, unlink_channel, channel_info, channel_settings
+from server.telegram_bot.channel_commands import (
+    link_channel, unlink_channel, channel_info, channel_settings, newgame, linkgroup, unlinkgroup,
+)
 from server.telegram_bot.channels import set_telegram_bot
 from server.telegram_bot.link_account import link_account
 
@@ -88,6 +90,51 @@ BOT_COMMANDS: list[BotCommand] = [
 ]
 
 
+# The "/" menu inside a group: only what belongs there. Everything else is
+# refused in groups (``group_command_guard``).
+GROUP_BOT_COMMANDS: list[BotCommand] = [
+    BotCommand("newgame", "Start a game for this group"),
+    BotCommand("linkgroup", "Attach one of your games to this group"),
+    BotCommand("unlinkgroup", "Detach a game from this group"),
+    BotCommand("status", "A game's phase and who has ordered"),
+    BotCommand("viewmap", "A game's current map"),
+    BotCommand("help", "How playing in a group works"),
+]
+
+GROUP_CHAT_TYPES = ("group", "supergroup", "channel")
+
+# Commands that make sense in a group chat. Orders, messages, joining and the
+# game menu are private: in a group, everyone would see them (and press their
+# buttons).
+GROUP_COMMANDS = {
+    "start", "help", "rules", "examples", "newgame", "linkgroup", "unlinkgroup",
+    "status", "viewmap", "map", "players",
+    "link_channel", "unlink_channel", "channel_info", "channel_settings",
+}
+
+
+async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs before every command handler (handler group -1). In a group chat a
+    private command gets a pointer to a private chat instead of an answer."""
+    message = update.effective_message
+    chat = update.effective_chat
+    if message is None or chat is None or chat.type not in GROUP_CHAT_TYPES or not message.text:
+        return
+    command = message.text.split()[0][1:].split("@", 1)[0].lower()
+    if command in GROUP_COMMANDS:
+        if command == "help":
+            await start(update, context)  # the group explanation
+            raise ApplicationHandlerStop
+        return
+    await message.reply_text(
+        f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
+        )]]),
+    )
+    raise ApplicationHandlerStop
+
+
 async def _post_init(app: Application) -> None:
     """Register ``BOT_COMMANDS`` with Telegram and start the background loops.
 
@@ -98,6 +145,7 @@ async def _post_init(app: Application) -> None:
     which is why they start here and not in ``main()``.
     """
     await app.bot.set_my_commands(BOT_COMMANDS)
+    await app.bot.set_my_commands(GROUP_BOT_COMMANDS, scope=BotCommandScopeAllGroupChats())
     start_background_loops(app)
 
 
@@ -108,6 +156,12 @@ async def _post_shutdown(app: Application) -> None:
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle button clicks from inline keyboards"""
     query = update.callback_query
+    chat = query.message.chat if query.message is not None else None
+    if chat is not None and chat.type in GROUP_CHAT_TYPES:
+        # Nothing the bot posts in a group has callback buttons (only links to a
+        # private chat); a button pressed there is one someone forwarded.
+        await query.answer("Use me in a private chat -- in a group, everyone sees it.", show_alert=True)
+        return
     await query.answer()  # Acknowledge the callback
 
     data = query.data
@@ -302,6 +356,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("register", register))
     app.add_handler(CommandHandler("join", join))
+    app.add_handler(MessageHandler(filters.COMMAND & ~filters.ChatType.PRIVATE, group_command_guard), group=-1)
+    app.add_handler(CommandHandler("newgame", newgame))
+    app.add_handler(CommandHandler("linkgroup", linkgroup))
+    app.add_handler(CommandHandler("unlinkgroup", unlinkgroup))
     app.add_handler(CommandHandler("games", games))
     app.add_handler(CommandHandler("game", game_command))
     app.add_handler(CommandHandler("findgame", find_game))

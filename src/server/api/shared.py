@@ -251,6 +251,27 @@ def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None
         scheduler_logger.debug("DAIDE notify skipped for %s: no event loop available here", game_id)
 
 
+def post_to_game_group(game_id: Any, text: str, *, dm_start: Optional[str] = None) -> None:
+    """Queue an announcement for the Telegram group linked to ``game_id``, if any
+    (and its ``auto_post_notifications`` setting is on). Best-effort, like every
+    notification.
+
+    ``dm_start`` adds a button that opens a *private* chat with the bot
+    (``https://t.me/<bot>?start=<dm_start>``; the bot knows its own name, the
+    API does not). A group must never get order buttons: whatever is pressed
+    there, everyone in the group sees.
+    """
+    try:
+        info = db_service.get_game_channel_info(str(game_id))
+        if not info or not (info.get("settings") or {}).get("auto_post_notifications", True):
+            return
+        db_service.enqueue_bot_notification(
+            info["channel_id"], text, kind="channel_text", payload={"dm_start": dm_start} if dm_start else None
+        )
+    except SQLAlchemyError as e:
+        scheduler_logger.warning(f"Could not queue a group announcement for game {game_id}: {e}")
+
+
 def _post_turn_to_channel(game_id: str, message: str) -> None:
     """Queue a turn-start notification and a fresh map for a linked channel.
 
@@ -285,6 +306,8 @@ def _post_turn_to_channel(game_id: str, message: str) -> None:
                 channel_id,
                 f"🔔 Turn Processed - Game {game_id}\n{message}",
                 kind="channel_text",
+                # Orders are sent in private; this button opens that chat.
+                payload={"dm_start": f"orders_{game_id}"},
             )
 
         if settings.get("auto_post_maps", True):
@@ -353,7 +376,7 @@ def notify_turn_processed(
     reminder_sent[numeric_game_id] = False
 
     if not game_ended:
-        _post_turn_to_channel(game_id, "The turn has been processed. New orders are due.")
+        _post_turn_to_channel(game_id, "The turn has been processed. New orders are due -- send them to me in private.")
     else:
         _post_turn_to_channel(game_id, f"Game {game_id} has ended.")
 
@@ -778,7 +801,9 @@ def check_and_send_reminders(now: datetime) -> None:
                 # Send reminder 10 minutes before deadline
                 if deadline - now <= timedelta(minutes=10) and deadline > now:
                     if not reminder_sent.get(game_id_val, False):
-                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.", buttons=game_buttons(getattr(game, "game_id", None) or game_id_val))  # type: ignore
+                        gid = getattr(game, "game_id", None) or game_id_val
+                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.", buttons=game_buttons(gid))  # type: ignore
+                        post_to_game_group(gid, f"⏰ Game {gid}: 10 minutes until the deadline. Orders go to me in private.", dm_start=f"orders_{gid}")
                         scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                         reminder_sent[game_id_val] = True
     except Exception as e:

@@ -174,6 +174,12 @@ a notification about -- so the game id is only needed to switch games.
 • `/messages` - Messages in your game
 • `/message <power> <text>`, `/broadcast <text>` - Or use 💬 Messages in the game menu and just type
 
+*👥 Playing with your Telegram group*
+• Add me to the group and send `/newgame` there; everyone joins with the button I post
+• The group sees turn results with the map, deadline reminders and broadcasts
+• Orders and private messages always come here, to this private chat
+• Only a group's members can see or join its games
+
 *⏰ Pace*
 • `/notready` / `/ready` - Ask the table to wait before a turn auto-processes, or stop waiting
 • `/deadline <id>` - Show it; `/deadline <id> <hours|clear>` - set or remove it. To put a change to a vote, use ⏰ Deadline in the game menu
