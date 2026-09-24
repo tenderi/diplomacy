@@ -151,6 +151,7 @@ class GameService:
         results: list[dict[str, Any]] = []
         accepted: list[str] = []
         accepted_keys: set[str] = set()
+        first_by_key: dict[str, tuple[str, int]] = {}  # key -> (stored string, results index)
         for raw in order_strings:
             raw = raw.strip()
             if not raw:
@@ -162,10 +163,24 @@ class GameService:
                 continue
             vr = validate(order, state, self._map)
             if vr.ok:
-                accepted.append(format_order(order, kinds))
                 key = _order_key(order)
+                if key is not None and key in accepted_keys:
+                    # Two orders for one unit (or build site) in one submission:
+                    # the later one stands, as it would across two submissions.
+                    # Both used to be stored and the adjudicator kept one --
+                    # the last move but the *first* build -- without a word.
+                    earlier = first_by_key[key]
+                    accepted.remove(earlier[0])
+                    results[earlier[1]] = {
+                        "order": results[earlier[1]]["order"],
+                        "ok": False,
+                        "reason": f"replaced by a later order for {key} in the same submission",
+                    }
+                stored = format_order(order, kinds)
+                accepted.append(stored)
                 if key is not None:
                     accepted_keys.add(key)
+                    first_by_key[key] = (stored, len(results))
                 results.append({"order": raw, "ok": True, "reason": None})
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})

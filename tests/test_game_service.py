@@ -754,3 +754,31 @@ class TestMergedAdjustmentOrders:
         assert service.view(gid)["orders"]["FRANCE"] == ["BUILD A PAR"]
         results = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in results] == [("BUILD A PAR", "BUILD")]
+
+
+class TestTwoOrdersForOneUnitInOneSubmission:
+    """Both were stored, and the adjudicator kept one without a word -- the last
+    move, but the *first* build. Now the later one stands and the earlier is
+    reported as replaced."""
+
+    def test_the_later_move_stands(self, service):
+        gid = _new_game(service)
+        results = service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "A PAR H"])
+        assert results == [
+            {"order": "A PAR - BUR", "ok": False, "reason": "replaced by a later order for PAR in the same submission"},
+            {"order": "A PAR H", "ok": True, "reason": None},
+        ]
+        assert service.view(gid)["orders"]["FRANCE"] == ["A PAR H"]
+
+    def test_the_later_build_stands(self, service):
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("BUR"))}),
+            ownership={"BRE": "FRANCE", "BUR": "FRANCE"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        results = service.submit_orders(gid, "FRANCE", ["BUILD A BRE", "BUILD F BRE"])
+        assert [r["ok"] for r in results] == [False, True]
+        resolution = service.process_turn(gid)["resolution"]["results"]
+        assert [(r["order_str"], r["result"]) for r in resolution] == [("BUILD F BRE", "BUILD")]
