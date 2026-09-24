@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.6`.
+- **Last updated:** 2026-09-24, at `v3.0.7`.
+- **Track AK (`v3.0.7`):** a second bug hunt. Conceding during a retreat phase left the
+  power's dislodged units behind (the table waited on it); a concession never re-checked
+  auto-process; a power whose only unit awaited its retreat was left out of a draw voted
+  then; a bot `WAIVE` followed by a build voided the build; and taking over a vacated seat
+  re-announced "the game has started". Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AJ (`v3.0.6`):** after every processed turn the game's group gets two maps -- the
   orders on the board they were given on, and the result -- fetched by turn number; a
   refused image no longer blocks the bot's queue. Archived in [`done_fixes.md`](done_fixes.md).

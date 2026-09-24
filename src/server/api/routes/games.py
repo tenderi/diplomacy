@@ -752,6 +752,8 @@ def concede_game(
             )
     except Exception as e:
         scheduler_logger.error(f"Failed to notify concession for game {game_id}: {e}")
+    # The leaver may have been the last power the turn was waiting on (W10).
+    result["auto_processed"] = api_shared.maybe_auto_process(game_id)
     return result
 
 
@@ -962,7 +964,10 @@ def join_game(
             player_count = len(db_service.get_players_by_game_id(int(game.id))) if game and game.id is not None else 0  # type: ignore
             # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
             player_count += len(view.get("dummy_powers", [])) if view is not None else 0
-            if player_count >= required_powers:
+            # Only a *new* seat can complete the table: taking over a vacated one
+            # (its row already counted) is a replacement mid-game, and used to
+            # re-announce "the game has started" to everyone.
+            if taken is None and player_count >= required_powers:
                 notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.", buttons=game_buttons(game_id))  # type: ignore
                 post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
         except Exception as e:

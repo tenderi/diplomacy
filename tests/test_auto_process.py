@@ -214,3 +214,13 @@ def test_a_deadline_into_a_phase_only_dummies_act_in_runs_that_phase_too(client:
     db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
     api_shared.process_due_deadlines(datetime.now(timezone.utc))
     assert _phase(client, game_id) == "S1902M"
+
+
+def test_the_last_power_awaited_conceding_processes_the_turn(client: TestClient) -> None:
+    """ENGLAND has ordered; FRANCE leaves instead of ordering. Nobody is left to
+    wait on, and nothing else would ever trigger the turn."""
+    game_id, e, f = _table(client, auto=True)
+    _order(client, game_id, e, "ENGLAND", ENG_HOLD)
+    resp = client.post(f"/games/{game_id}/concede", json=_as(f, power="FRANCE"))
+    assert resp.status_code == 200 and resp.json()["auto_processed"] == 1
+    assert _phase(client, game_id) == "F1901M"

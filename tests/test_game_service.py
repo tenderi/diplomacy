@@ -500,6 +500,44 @@ class TestDrawVoteAndConcede:
         assert results[0]["ok"] is False
         assert "not currently owned by FRANCE" in results[0]["reason"]
 
+    def test_a_power_awaiting_its_retreat_votes_in_and_shares_a_draw(self, service):
+        """GERMANY's only unit is dislodged in S1901R. It may still retreat and
+        survive, so it must be asked -- counting only ``state.units`` let
+        FRANCE alone draw the game and leave GERMANY out of the result."""
+        gid = _new_game(service)
+        german = Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))
+        state = GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("MUN"))}),
+            ownership={"PAR": "FRANCE"},
+            dislodged=(DislodgedUnit(german, "BUR", (Location("BOH"),)),),
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901R")
+        assert service.submit_draw_vote(gid, "FRANCE", True)["quorum_reached"] is False
+        done = service.submit_draw_vote(gid, "GERMANY", True)
+        assert done["quorum_reached"] is True
+        assert done["winners"] == ["FRANCE", "GERMANY"]
+
+    def test_conceding_in_a_retreat_phase_takes_the_dislodged_units_too(self, service):
+        """Left behind, FRANCE's dislodged army kept it "missing" in S1901R: the
+        table waited on retreat orders from a player who had left."""
+        gid = _new_game(service)
+        french = Unit(UnitKind.ARMY, "FRANCE", Location("BUR"))
+        state = GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "GERMANY", Location("BUR")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY"},
+            dislodged=(DislodgedUnit(french, "MUN", (Location("PIC"), Location("GAS"))),),
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901R")
+        assert service.orders_status(gid)["missing"] == ["FRANCE"]
+        service.concede(gid, "FRANCE")
+        assert service.view(gid)["dislodged"] == []
+        assert service.orders_status(gid)["active_powers"] == []
+
     def test_concede_clears_the_conceding_powers_pending_orders_and_vote(self, service):
         gid = self._three_power_stalemate(service)
         service.submit_orders(gid, "GERMANY", ["A MUN H"])
@@ -697,3 +735,22 @@ class TestSplitCoastOrdersSurviveStorage:
         assert service.submit_orders(gid, "FRANCE", ["F MAO R SPA/SC"])[0]["ok"] is True
         service.process_turn(gid)
         assert {"kind": "F", "power": "FRANCE", "location": "SPA/SC"} in service.view(gid)["units"]
+
+
+class TestMergedAdjustmentOrders:
+    def test_a_build_sent_after_a_waive_replaces_it(self, service):
+        """The bot sends orders one at a time (merge). WAIVE then BUILD A PAR was
+        stored as both; adjudicated in order, the waive took the only slot and
+        the build was VOID."""
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("BUR"))}),
+            ownership={"PAR": "FRANCE", "BUR": "FRANCE"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        service.submit_orders(gid, "FRANCE", ["WAIVE"], merge=True)
+        service.submit_orders(gid, "FRANCE", ["BUILD A PAR"], merge=True)
+        assert service.view(gid)["orders"]["FRANCE"] == ["BUILD A PAR"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        assert [(r["order_str"], r["result"]) for r in results] == [("BUILD A PAR", "BUILD")]
