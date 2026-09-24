@@ -22,13 +22,17 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.97`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.98`. `main` green.
 - **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
   probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
   that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
   one only on the deciding vote, *after* the proposal was deleted), an accepted proposal
   never re-armed the 10-minute reminder, and a finished game still took deadline writes.
   See Y2 below.
+- **W6 decided 2026-09-24:** yes to private games (W8), civil-disorder dummies for
+  small tables (W9), process-when-all-orders-are-in with a per-player wait flag (W10), and
+  a single-game admin delete (W11); no to rule switches, press variants, multiple powers
+  per player, expert setup and observers (now under *Out of scope*). W7 still open.
 - **Track Y — majority-vote deadline proposals, landed `v2.7.96`.** The maintainer,
   after reviewing Track X's channel proposal-voting stub, decided that feature wasn't
   worth finishing (it was never reachable from any real bot command anyway) and asked
@@ -611,18 +615,59 @@ that should be written down once so the question stops being re-asked.
 
 | Old feature | Where it lived | New equivalent | Decide |
 |---|---|---|---|
-| Private games (`registration_password`) | `CreateGame` | none — every game is joinable by anyone | |
-| `n_controls`: start with fewer than 7 humans, rest as dummies in civil disorder (`CD_DUMMIES`) | `CreateGame`, `SetDummyPowers` | `required_powers = 7` hardcoded (`games.py`); a power with no player just holds forever, no start gate | |
-| Process as soon as all orders are in (old default), with a per-player **wait flag** (`SetWaitFlag`, `ALWAYS_WAIT`/`REAL_TIME`) | server | manual `/processturn` (with a "missing powers" confirmation) or an explicit deadline; no wait flag | |
-| Rule switches the old *engine* honoured: `BUILD_ANY`, `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`, `CIVIL_DISORDER` | `engine/game.py` | none; standard rules only | |
-| Press rules `NO_PRESS` / `PUBLIC_PRESS` (a no-press game is a common variant) | server | messaging is always on | |
-| `MULTIPLE_POWERS_PER_PLAYER` | server | one power per user per game | |
-| Expert setup: `SetUnits`/`SetCenters`/`ClearUnits`/`SetGameState`, `state` at creation (puzzles, DATC-style scenarios by hand) | server | `POST .../restore/{snapshot_id}` only | |
-| Delete one game (`DeleteGame`) | server | `/admin/delete_all_games` only (the waiting-list tests call the missing single delete a "documented residual") | |
-| Observer / omniscient roles | server | spectator routes exist but are on the out-of-scope list | |
+| Private games (`registration_password`) | `CreateGame` | none — every game is joinable by anyone | **Yes** → W8 |
+| `n_controls`: start with fewer than 7 humans, rest as dummies in civil disorder (`CD_DUMMIES`) | `CreateGame`, `SetDummyPowers` | `required_powers = 7` hardcoded (`games.py`); a power with no player just holds forever, no start gate | **Yes** → W9 |
+| Process as soon as all orders are in (old default), with a per-player **wait flag** (`SetWaitFlag`, `ALWAYS_WAIT`/`REAL_TIME`) | server | manual `/processturn` (with a "missing powers" confirmation) or an explicit deadline; no wait flag | **Yes, with the wait flag** → W10 |
+| Rule switches the old *engine* honoured: `BUILD_ANY`, `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`, `CIVIL_DISORDER` | `engine/game.py` | none; standard rules only | **No** (standard rules only) |
+| Press rules `NO_PRESS` / `PUBLIC_PRESS` (a no-press game is a common variant) | server | messaging is always on | **No** (messaging always on) |
+| `MULTIPLE_POWERS_PER_PLAYER` | server | one power per user per game | **No** (one power per user; W9 covers small tables) |
+| Expert setup: `SetUnits`/`SetCenters`/`ClearUnits`/`SetGameState`, `state` at creation (puzzles, DATC-style scenarios by hand) | server | `POST .../restore/{snapshot_id}` only | **No** (restore + W5 import suffice) |
+| Delete one game (`DeleteGame`) | server | `/admin/delete_all_games` only (the waiting-list tests call the missing single delete a "documented residual") | **Yes** → W11 |
+| Observer / omniscient roles | server | spectator routes exist but are on the out-of-scope list | **No** (already out of scope) |
 
-- [ ] Maintainer: fill the "Decide" column. Anything marked yes becomes its own task here;
-      anything marked no moves to *Out of scope* below with the date.
+- [x] Maintainer: fill the "Decide" column — **decided 2026-09-24.** The four yeses are W8–W11
+      below; the five noes are under *Out of scope* with the date.
+
+## W8 — Private games (join password)
+
+- [ ] Optional `join_password` at game creation (API, bot `/newgame`/web create form), stored
+      hashed like user passwords, never returned by any view. `POST /games/{id}/join` and the
+      vacant-seat takeover refuse a wrong/missing one (403) for a private game; the bot's join
+      menu asks for it; game listings mark private games. Creator and admins are exempt.
+- [ ] Decide at implementation: can the creator change or remove it later? (Suggested: yes,
+      creator-only route.)
+
+## W9 — Fewer than 7 players: civil-disorder dummies
+
+- [ ] A power can be marked **dummy** (at creation or by the creator before the first turn is
+      processed). A dummy never blocks `orders_status`/"all orders in" (W10) and is played by
+      the existing civil-disorder rules: holds in movement, disbands in retreats, and the
+      adjustment civil-disorder distance rule (`adjustments.py`) — no new engine logic.
+- [ ] Dummy seats are not offered by `/join` (unlike vacated seats); the creator can un-dummy
+      one to open it. Draw-vote quorum and deadline-proposal majority (`active_powers`) exclude
+      dummies — they have no one to vote.
+
+## W10 — Process as soon as all orders are in, with a per-player wait flag
+
+- [ ] Per-game toggle `auto_process` (creation option + a creator/any-player route; default
+      off, so existing games keep today's behaviour). When on, the turn is processed the
+      moment every power in `powers_with_orders_to_give` (minus W9 dummies) has submitted and
+      **no** player has their wait flag set. The deadline, if any, still processes it
+      regardless of wait flags (the backstop).
+- [ ] Per-player **wait flag** (`/wait <game>` / `/nowait <game>` in the bot, a toggle on the
+      web game screen): "don't process yet, I'm still negotiating". Cleared automatically when
+      a turn is processed. Visible to everyone in `/status`.
+- [ ] Triggered from the order-submission path, and must go through the same
+      `process_turn` + snapshot + notification path as the manual route and the scheduler (G3
+      and W1 were both drift between triggers) — ideally one shared function, three callers.
+      Concurrency: two last orders arriving together must process once (`StaleGameError`).
+
+## W11 — Delete a single game (admin)
+
+- [ ] `DELETE /games/{id}` (admin token) removing the game and everything hanging off it
+      (players, messages, snapshots, bot_outbox rows, pending proposals), plus a bot admin
+      command. Players are notified before the rows go. Replaces the waiting-list tests'
+      "documented residual".
 
 ## W7 — Order grammar accepts less than the old one (probably fine, but say so)
 
@@ -642,7 +687,8 @@ convoy routes (`IRI - MAO - NAO - NWG`). Full province names were rejected by de
 
 - [x] W0 done (`v2.7.91`): `old_implementation/` removed, `rules.pdf` relocated, every
       pointer updated, suite green.
-- [ ] W6's table has a decision in every row.
+- [x] W6's table has a decision in every row (2026-09-24).
+- [ ] W8–W11 landed.
 - [ ] W7: either landed or moved under *Out of scope* with the maintainer's decision.
 
 ---
@@ -756,11 +802,12 @@ Tracks A–E and G–I's acceptance criteria are recorded in [`done_fixes.md`](d
   component. G2 adds province *names* to client text; it does not restyle the board.
 - The aspirational spec docs (`dashboard.md`, `visualization_spec.md` §10).
 - Map variants beyond `standard`.
-- HTTPS / TLS termination — a known infra gap. It was entangled with "is there a production
-  server at all", which Track H settled: **there is not** (see `done_fixes.md`), so there is
-  currently nothing to terminate TLS *on*. C2's brute-force limiting reduces the risk for
-  whatever does run; it does not replace TLS, and standing the infrastructure back up should
-  include it.
+- **Old-server game options declined 2026-09-24 (W6):** engine rule switches (`BUILD_ANY`,
+  `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`,
+  `CIVIL_DISORDER` — standard rules only), `NO_PRESS`/`PUBLIC_PRESS` (messaging always on),
+  `MULTIPLE_POWERS_PER_PLAYER` (W9's dummies cover small tables), expert setup
+  (`SetUnits`/`SetCenters`/custom start — snapshot restore and W5 import suffice), and
+  observer/omniscient roles (already on the list above).
 - **Deep DAIDE press-content parsing** (the full `ALY`/`XDO`/`PRP` negotiation grammar beyond
   syntax-checked opaque forwarding) — a **permanent** design limitation documented in
   `architecture.md`, not a gap awaiting work.
