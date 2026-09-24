@@ -683,6 +683,41 @@ describe('GameView — civil-disorder dummies (W9)', () => {
   })
 })
 
+describe('GameView — auto-processing and wait flags (W10)', () => {
+  it('shows who asked to wait and lets a player raise their own flag', async () => {
+    const posts: { url: string; body: unknown }[] = []
+    const base = stubFetchActive(activeMovementState, francePlayers, {
+      ordersStatus: {
+        phase: 'S1901M', active_powers: ['FRANCE', 'GERMANY'], submitted: ['FRANCE'], missing: ['GERMANY'],
+        waiting: ['GERMANY'], auto_process: true,
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/wait') && init?.method === 'POST') {
+        posts.push({ url, body: JSON.parse(String(init.body)) })
+        return jsonResponse({ status: 'ok', waiting: ['FRANCE', 'GERMANY'], auto_processed: 0 })
+      }
+      return base(url, init)
+    }))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await within(container).findByText(/GERMANY asked to wait/)).toBeInTheDocument()
+    fireEvent.click(within(container).getByRole('button', { name: /still negotiating/i }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].url).toContain('/games/10/wait')
+    expect(posts[0].body).toEqual({ power: 'FRANCE', waiting: true })
+  })
+})
+
 describe('GameView — orders status', () => {
   it("shows the logged-in power's submission status and who is still missing", async () => {
     vi.stubGlobal(

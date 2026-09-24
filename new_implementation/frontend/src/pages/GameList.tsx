@@ -27,6 +27,8 @@ export default function GameList() {
   const [error, setError] = useState('')
   // Powers to leave to civil disorder from the start (W9) -- for tables of 3-6.
   const [dummies, setDummies] = useState<string[]>([])
+  // W10: process each turn as soon as all orders are in.
+  const [autoProcess, setAutoProcess] = useState(false)
 
   const load = () => {
     Promise.all([
@@ -50,7 +52,7 @@ export default function GameList() {
     try {
       const res = await apiJson<{ game_id: string }>('/games/create', {
         method: 'POST',
-        body: JSON.stringify({ map_name: 'standard', dummy_powers: dummies }),
+        body: JSON.stringify({ map_name: 'standard', dummy_powers: dummies, auto_process: autoProcess }),
       })
       toast.success('Game created')
       navigate(`/games/${res.game_id}`)
@@ -96,6 +98,10 @@ export default function GameList() {
             ))}
           </div>
         </fieldset>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
+          Process each turn as soon as all orders are in (players can ask to wait)
+        </label>
         <Button onClick={handleCreateGame} disabled={creating}>
           {creating ? 'Creating...' : 'Create new game'}
         </Button>

@@ -63,6 +63,7 @@ class GameService:
         phase_length_seconds: Optional[int] = None,
         created_by_user_id: Optional[int] = None,
         dummy_powers: Optional[list[str]] = None,
+        auto_process: bool = False,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -82,6 +83,7 @@ class GameService:
             phase_length_seconds=phase_length_seconds,
             created_by_user_id=created_by_user_id,
             dummy_powers=_check_dummy_set(dummy_powers or [], self._map),
+            auto_process=auto_process,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -238,6 +240,51 @@ class GameService:
         """Powers played by civil disorder in this game (W9); empty if none."""
         meta = self._repo.get_meta(game_id) or {}
         return frozenset(meta.get("dummy_powers") or ())
+
+    # -- W10: auto-processing and wait flags ------------------------------------
+
+    def set_auto_process(self, game_id: str, enabled: bool) -> None:
+        game = self.load(game_id)
+        if game is None:
+            raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
+        self._repo.set_auto_process(game_id, enabled)
+
+    def wait_flags(self, game_id: str) -> frozenset[str]:
+        """Powers whose players asked the table to wait this phase."""
+        meta = self._repo.get_meta(game_id) or {}
+        return frozenset(meta.get("wait_flags") or ())
+
+    def set_wait(self, game_id: str, power: str, waiting: bool) -> list[str]:
+        """Raise or lower ``power``'s wait flag. Returns the powers now waiting."""
+        game = self.load(game_id)
+        if game is None:
+            raise OrderError(f"game {game_id} not found")
+        _require_active(game, game_id)
+        flags = set(self.wait_flags(game_id))
+        if waiting:
+            flags.add(power.upper())
+        else:
+            flags.discard(power.upper())
+        self._repo.set_wait_flags(game_id, sorted(flags))
+        return sorted(flags)
+
+    def clear_wait_flags(self, game_id: str) -> None:
+        if self.wait_flags(game_id):
+            self._repo.set_wait_flags(game_id, [])
+
+    def ready_to_auto_process(self, game_id: str) -> bool:
+        """W10: auto-process is on, the game is running, every power with
+        something to order this phase has submitted (dummies are never waited
+        on, W9), and no one's wait flag is up. A flag from a dummy's seat cannot
+        exist -- only a seated player can raise one."""
+        meta = self._repo.get_meta(game_id)
+        if meta is None or not meta.get("auto_process") or meta.get("status") != "active":
+            return False
+        if meta.get("wait_flags"):
+            return False
+        status = self.orders_status(game_id)
+        return status is not None and not status["missing"]
 
     def set_dummy(self, game_id: str, power: str, dummy: bool) -> list[str]:
         """Make ``power`` a civil-disorder dummy, or open it again. Returns the new set.
@@ -421,6 +468,8 @@ class GameService:
             "contested": sorted(state.contested),
             "players": players,
             "dummy_powers": meta.get("dummy_powers") or [],
+            "auto_process": bool(meta.get("auto_process")),
+            "wait_flags": meta.get("wait_flags") or [],
             "orders": self._humanize_orders(pending, state),
         }
 
@@ -538,6 +587,9 @@ class GameService:
             "active_powers": active_powers,
             "submitted": sorted(submitted),
             "missing": sorted(p for p in active_powers if p not in submitted),
+            # W10: who asked to wait, and whether the turn runs by itself.
+            "waiting": sorted(self.wait_flags(game_id)),
+            "auto_process": bool((self._repo.get_meta(game_id) or {}).get("auto_process")),
         }
 
     def meta(self, game_id: str) -> Optional[dict[str, Any]]:

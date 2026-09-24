@@ -15,8 +15,9 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from persistence.database_service import DatabaseService
 from persistence.game_repo import GameRepo, StaleGameError
+from sqlalchemy.exc import SQLAlchemyError
 from ..server import Server
-from ..game_service import GameService
+from ..game_service import GameOverError, GameService
 from ..response_cache import invalidate_cache
 
 if TYPE_CHECKING:
@@ -37,6 +38,10 @@ server = Server()
 # `from .shared import daide_server` -- the latter freezes the `None` binding
 # captured at import time and never sees the later reassignment below.
 daide_server: "Optional[DaideServer]" = None
+# The server's event loop, recorded at startup (``_api_module``'s lifespan), so
+# code running in FastAPI's worker threads -- every sync route -- can hand a
+# coroutine to it (``_notify_daide_processed``).
+main_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # Shared loggers
 logger = logging.getLogger("diplomacy.server.api")
@@ -186,6 +191,14 @@ def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None
         loop = None
     if loop is not None:
         loop.create_task(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
+        return
+    # A sync route (W10's auto-processing runs from POST /games/set_orders) is on
+    # a worker thread: the DAIDE connections belong to the main loop, so the
+    # coroutine must run there, not in a fresh loop of this thread's own.
+    if main_loop is not None and main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(
+            daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase), main_loop
+        )
         return
     try:
         asyncio.run(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
@@ -552,6 +565,90 @@ def expire_deadline_proposals(now: datetime) -> None:
         scheduler_logger.error(f"Error expiring deadline proposals: {e}")
 
 
+def finish_processed_turn(
+    game_id: str,
+    numeric_game_id: int,
+    *,
+    prev_phase_code: Optional[str],
+    trigger: str,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Everything that follows a successful ``GameService.process_turn``, for
+    **every** trigger: the manual route, the deadline scheduler, and W10's
+    auto-processing.
+
+    Each of these steps was once done by only one trigger -- the snapshot (W1),
+    the cache invalidation, the notification fan-out (G3) -- and the deadline
+    path never told players when its turn ended the game. One function, three
+    callers, so they cannot drift again.
+    """
+    _notify_daide_processed(game_id, prev_phase_code)
+    invalidate_cache(f"games/{game_id}")
+    view = game_service.view(game_id)
+    meta = game_service.meta(game_id) or {}
+    if view is not None:
+        # Snapshot the new board for /history/{turn} and the bot's /replay.
+        try:
+            db_service.create_game_snapshot(
+                game_id=numeric_game_id,
+                turn=int(meta.get("current_turn", 0) or 0),
+                year=view["year"],
+                season=view["season"],
+                phase=view["phase_type"],
+                phase_code=view["phase"],
+                game_state=view,
+                state_json=game_service.state_json(game_id),
+            )
+        except SQLAlchemyError as e:
+            scheduler_logger.error(f"Failed to snapshot game {game_id} after its turn: {e}")
+    # A deadline is scoped to the phase it was set for (Track N): spent now,
+    # and nothing re-arms one.
+    db_service.update_game_deadline(numeric_game_id, None)
+    # A wait flag is "don't process *this* phase yet" (W10); the phase is gone.
+    game_service.clear_wait_flags(game_id)
+    notify_turn_processed(
+        game_id,
+        numeric_game_id,
+        trigger=trigger,
+        game_ended=view is not None and view["status"] == "COMPLETED",
+        exclude_telegram_id=exclude_telegram_id,
+    )
+
+
+# Cap on phases one auto-processing call may run back to back. A retreat or
+# adjustment phase in which nobody but dummies has anything to do is complete
+# the moment it starts, so it runs at once; the cap only stops a pathological
+# loop.
+MAX_AUTO_PHASES = 6
+
+
+def maybe_auto_process(game_id: str) -> int:
+    """W10: process the turn now if the game has ``auto_process`` on, every power
+    that has something to order has submitted, and nobody has asked to wait.
+    Repeats while the next phase is complete from the start. Returns how many
+    phases were processed (0 almost always).
+
+    Called after every order submission, a wait flag being cleared, auto-process
+    being switched on, and a seat becoming a dummy. Two last orders arriving
+    together both see "ready"; ``expected_phase_code`` in ``save_state`` lets
+    exactly one process it and the other gets ``StaleGameError``, which here just
+    means "someone else did it".
+    """
+    processed = 0
+    while processed < MAX_AUTO_PHASES and game_service.ready_to_auto_process(game_id):
+        prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
+        try:
+            game_service.process_turn(game_id)
+        except (StaleGameError, GameOverError):
+            break
+        processed += 1
+        row = db_service.get_game_by_game_id(game_id)
+        if row is None:  # deleted between the two calls
+            break
+        finish_processed_turn(game_id, int(row.id), prev_phase_code=prev_phase_code, trigger="auto")
+    return processed
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -591,47 +688,16 @@ def process_due_deadlines(now: datetime) -> None:
                     except Exception as e:
                         scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
                     else:
-                        _notify_daide_processed(game_id_str, prev_phase_code)
-                        # The cached `/games/{id}/state` (30 s TTL) still holds the
-                        # *previous* phase otherwise -- the manual `process_turn`
-                        # route invalidates it and this path did not, so a
-                        # deadline-processed turn served a stale board to every
-                        # client for up to 30 seconds.
-                        invalidate_cache(f"games/{game_id_str}")
-                        # Snapshot the new board so `/history/{turn}` and the
-                        # bot's `/replay` have something for this turn -- before
-                        # this, only the manual route (`routes/games.py`) ever
-                        # wrote a snapshot, so any turn advanced by a missed
-                        # deadline left a permanent hole.
-                        try:
-                            new_view = game_service.view(game_id_str)
-                            meta = game_service.meta(game_id_str) or {}
-                            if new_view is not None:
-                                db_service.create_game_snapshot(
-                                    game_id=game_id_val,
-                                    turn=int(meta.get("current_turn", 0) or 0),
-                                    year=new_view["year"],
-                                    season=new_view["season"],
-                                    phase=new_view["phase_type"],
-                                    phase_code=new_view["phase"],
-                                    game_state=new_view,
-                                    state_json=game_service.state_json(game_id_str),
-                                )
-                        except Exception as e:
-                            scheduler_logger.error(f"Failed to snapshot game {game_id_str} after its turn: {e}")
-                    # Direct SQL update to set deadline to NULL for cross-session visibility.
-                    # Deadlines exist only when set explicitly via
-                    # POST /games/{id}/deadline (Track N) -- this path never re-arms one.
+                        finish_processed_turn(
+                            game_id_str,
+                            int(game_id_val),
+                            prev_phase_code=prev_phase_code,
+                            trigger="deadline",
+                        )
+                        continue
+                    # Processing failed: the deadline is still spent (Track N),
+                    # so the scheduler does not retry it every tick.
                     db_service.update_game_deadline(game_id_val, None)
-                    db_service.commit()  # type: ignore
-                    # Player DMs + channel notification + channel map post, shared
-                    # verbatim with the manual `POST /games/{id}/process_turn`
-                    # route so the two triggers cannot drift apart again (G3).
-                    notify_turn_processed(
-                        game_id_str,
-                        game_id_val,  # type: ignore[arg-type]
-                        trigger="deadline",
-                    )
     except Exception as e:
         scheduler_logger.error(f"Error processing deadlines: {e}")
 

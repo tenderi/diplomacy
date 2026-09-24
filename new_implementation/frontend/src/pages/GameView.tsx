@@ -103,6 +103,10 @@ type OrdersStatus = {
   active_powers: string[]
   submitted: string[]
   missing: string[]
+  /** W10: powers that asked the table to wait before auto-processing. */
+  waiting?: string[]
+  /** W10: the turn runs by itself once nothing is missing and nobody waits. */
+  auto_process?: boolean
 }
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
 type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
@@ -774,6 +778,50 @@ export default function GameView() {
     }
   }
 
+  /** W10: switch "process as soon as all orders are in" on or off (any player). */
+  async function handleAutoProcess(enabled: boolean) {
+    if (!gameId) return
+    setError('')
+    try {
+      const r = await apiJson<{ auto_processed: number }>(`/games/${gameId}/auto_process`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      })
+      toast.success(
+        r.auto_processed > 0
+          ? 'Auto-processing on — every order was in, so the turn has been processed.'
+          : enabled
+            ? 'Turns now process as soon as all orders are in.'
+            : 'Auto-processing off.'
+      )
+      load()
+    } catch (e) {
+      setError(describeActionError(e, 'Could not change auto-processing'))
+    }
+  }
+
+  /** W10: raise ("still negotiating") or lower this power's wait flag. */
+  async function handleWaitFlag(waiting: boolean) {
+    if (!gameId || !myPower) return
+    setError('')
+    try {
+      const r = await apiJson<{ auto_processed: number }>(`/games/${gameId}/wait`, {
+        method: 'POST',
+        body: JSON.stringify({ power: myPower, waiting }),
+      })
+      toast.success(
+        waiting
+          ? 'The table will wait for you before processing this turn.'
+          : r.auto_processed > 0
+            ? 'Ready — the turn has been processed.'
+            : 'Ready.'
+      )
+      load()
+    } catch (e) {
+      setError(describeActionError(e, 'Could not update your wait flag'))
+    }
+  }
+
   /** Cast (`vote: true`) or withdraw (`vote: false`) this power's draw vote.
    * Distinct from a concede: a draw only ends the game once every surviving
    * power has voted yes -- it never removes anyone's units on its own. */
@@ -952,6 +1000,34 @@ export default function GameView() {
                   ? ` — waiting on ${ordersStatus.missing.join(', ')}.`
                   : '.'}
               </p>
+            )}
+            {ordersStatus?.auto_process && (
+              <p className="text-sm text-muted-foreground">
+                The turn is processed automatically once all orders are in
+                {ordersStatus.waiting && ordersStatus.waiting.length > 0
+                  ? ` — ${ordersStatus.waiting.join(', ')} asked to wait.`
+                  : '.'}
+              </p>
+            )}
+            {myPower && ordersStatus && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleAutoProcess(!ordersStatus.auto_process)}
+                >
+                  {ordersStatus.auto_process ? 'Stop auto-processing' : 'Process as soon as all orders are in'}
+                </Button>
+                {ordersStatus.auto_process && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleWaitFlag(!ordersStatus.waiting?.includes(myPower))}
+                  >
+                    {ordersStatus.waiting?.includes(myPower) ? "I'm ready" : 'Wait — still negotiating'}
+                  </Button>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
