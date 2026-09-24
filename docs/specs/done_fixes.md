@@ -1,5 +1,46 @@
 ---
 
+# Track AL — Lost updates on the game row; refused orders shown as submitted (maintainer request, 2026-09-24) — **done, `v3.0.8`**
+
+Bug hunt III. The per-phase JSON columns on `games` (`pending_orders`, `draw_votes`,
+`state_json`) were all updated as read in one transaction, write the whole value back in
+another. Each case below is pinned by a test in `tests/test_concurrent_processing.py` that
+fails on `v3.0.7`; the lock tests hold the row from a second session to make the race
+deterministic.
+
+- [x] **Two players ordering at once: one's orders vanished.** `submit_orders` read
+  `pending_orders`, added its power, and wrote the dict back; two submissions (FastAPI runs
+  sync routes on a thread pool, so one worker is enough) both read the old dict and the
+  second write erased the first. Now `GameRepo.modify_pending_orders` does the
+  read-modify-write on a row locked `FOR UPDATE`; draw votes likewise
+  (`modify_draw_votes`), and the unguarded `set_pending_orders`/`set_draw_votes` are gone.
+- [x] **Orders validated against a phase being processed landed in the next one.** The
+  modify is guarded by the phase the orders were validated against; a mismatch is
+  `StaleGameError` → 409 "none were applied" (DAIDE: `REJ`). Before, a hold typed as the
+  turn ran was silently stored as an order for the new phase.
+- [x] **Orders sent during or just after adjudication were wiped.** `process_turn` read the
+  orders, adjudicated, saved, and then cleared `pending_orders` and `draw_votes` in two more
+  transactions -- erasing anything accepted meanwhile, including orders for the *new*
+  phase. `save_state` now clears both in its own transaction and refuses
+  (`PhaseInputsChangedError`) if the orders or the board it was given no longer match what
+  is stored; `process_turn` then adjudicates again (up to five times).
+- [x] **The phase guard was not a guard.** `save_state` checked `phase_code` with a plain
+  read; two workers' transactions could both pass before either committed, and the second
+  wrote over the first's turn. The check now runs on the row locked `FOR UPDATE`.
+- [x] **A concession could roll the game back a phase.** `concede` wrote its whole board
+  via `update_state_json` with no guard; computed from phase X and written after a turn
+  reached Y, it restored X. It now carries `expected_phase_code` (409 when stale).
+- [x] **Wait flags lost the same way, and were cleared after the fact.** Two players
+  raising "wait" together kept one flag, so auto-process could run the turn past the other.
+  `set_wait` now goes through `modify_wait_flags` (locked, phase-guarded), and the flags are
+  cleared by `save_state` with the phase instead of by a later write that also erased flags
+  raised for the new one.
+- [x] **The web client said "Orders submitted" for refused orders.** `set_orders` answers
+  200 with a per-order `results` list; `GameView` ignored it. It now names each refused
+  order and why. (The bot already showed the results.)
+
+---
+
 # Track AK — Bug hunt II: concessions, retreat-phase draws, merged waives (maintainer request, 2026-09-24) — **done, `v3.0.7`**
 
 "Keep on working." Five more, each reproduced first and pinned by a test that fails on

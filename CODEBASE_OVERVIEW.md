@@ -92,7 +92,7 @@ and full field list.
 |---|---|
 | `database.py` | ORM models (`GameModel`, `UserModel`, `PlayerModel`, plus messaging/channel/tournament/spectator models) and `utcnow_naive()`. |
 | `database_service.py` | `DatabaseService` — the DAL for everything **not** engine-coupled: users, players, messages, channels, tournaments, spectators. |
-| `game_repo.py` | `GameRepo` — the game-state repository: `state_json`, `pending_orders`, `last_resolution`, `order_history`. The only persistence path for game state; `save_state` takes an `expected_phase_code` and raises `StaleGameError` (→ HTTP 409) on a concurrent write. |
+| `game_repo.py` | `GameRepo` — the game-state repository: `state_json`, `pending_orders`, `last_resolution`, `order_history`. The only persistence path for game state; `save_state` and `update_state_json` take an `expected_phase_code`, checked on a row locked `FOR UPDATE`, and raise `StaleGameError` (→ HTTP 409) on a concurrent write. |
 
 ### `games` table — the columns that matter
 
