@@ -1,5 +1,17 @@
 ---
 
+# Track AO — The game list's phase (maintainer request, 2026-09-24) — **done, `v3.0.11`**
+
+- [x] **`GET /games` listed every game as Spring 1901.** It read `getattr(g, 'year', 1901)`
+  and `getattr(g, 'season', "Spring")`; `GameModel`'s columns are `current_year` and
+  `current_season`, so the defaults always won -- the same getattr-with-default pattern
+  that hid G3's dead notifications. The list now reads the columns directly and also
+  returns `phase_code`. A sweep of every `getattr(<model>, "<name>", default)` in
+  `src/server` against the models' real attributes found no other instance. Test:
+  `test_a_listed_game_shows_its_real_phase`.
+
+---
+
 # Track AN — Convoys in the menus; one seat, one player (maintainer request, 2026-09-24) — **done, `v3.0.10`**
 
 Bug hunt IV. Each pinned by a test that fails on `v3.0.9`.
