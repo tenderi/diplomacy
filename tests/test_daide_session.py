@@ -15,7 +15,8 @@ import uuid
 
 import pytest
 
-from engine.types import STANDARD_POWERS
+from engine.serialization import state_to_dict
+from engine.types import STANDARD_POWERS, GameState, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
 from server.daide import tokens as t
 from server.daide.server import DaideServer
@@ -272,6 +273,23 @@ class TestSub:
         assert len(frames) == 2
         assert t.MBV in frames[0]
         assert t.MBV not in frames[1]
+
+    async def test_fleet_move_from_the_sea_into_a_named_coast_is_accepted(self, service: GameService) -> None:
+        """SUB went through ``format_order`` without the board's kinds: the fleet's
+        ``F BLA - BUL/EC`` became ``A BLA - BUL/EC``, re-parsed as a coastless army
+        move, and was refused as a fleet move that must name a coast."""
+        session, writer, _server, gid = _identified_session(service, power="RUSSIA")
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({Unit(UnitKind.FLEET, "RUSSIA", Location("BLA"))}), ownership={},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        move = _unit_order_clause(
+            t.RUS, t.FLT, t.BLA, t.MTO, t.OPEN_PAREN, t.BUL, t.ECS, t.CLOSE_PAREN
+        )
+        frames = await _dispatch(session, writer, t.SUB, *move)
+        assert t.MBV in frames[0]
+        assert service.view(gid)["orders"]["RUSSIA"] == ["F BLA - BUL/EC"]
 
     async def test_not_sub_clears_pending_orders(self, service: GameService) -> None:
         session, writer, _server, gid = _identified_session(service)

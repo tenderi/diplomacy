@@ -584,6 +584,9 @@ async def process_turn(
             trigger="manual",
             exclude_telegram_id=caller_telegram_id,
         )
+        # A next phase with nothing for a human to order runs now under
+        # auto-process (W10) -- nothing else would trigger it.
+        api_shared.maybe_auto_process(game_id)
     return {
         "status": "ok",
         "phase": turn_result["phase"],

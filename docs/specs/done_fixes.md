@@ -1,5 +1,40 @@
 ---
 
+# Track AI — Bug hunt: stored orders, build slots, stalled auto-process (maintainer request, 2026-09-24) — **done, `v3.0.5`**
+
+"Find bugs and implement fixes." Three found, each reproduced against the local Postgres
+first and pinned by a test that fails on `v3.0.4`.
+
+- [x] **A fleet move from a sea into a named coast was accepted and then VOID.**
+  `GameService.submit_orders` stored `format_order(order)` without the board's kinds, so
+  `F MAO - SPA/NC` was stored as `A MAO - SPA/NC` (a coastless unit location prints `A`).
+  `process_turn` re-parses the stored strings, and an army's destination coast is dropped
+  by the parser (DATC 6.B.12), so the engine saw a fleet moving to bare `SPA` -- VOID. The
+  same for a retreat (`F MAO R SPA/SC`, the fleet lost), and for DAIDE `SUB`, whose
+  `format_order` call had the same gap and was refused outright at validation. Every
+  opening-season route to a split coast from the sea (MAO→SPA/NC, BLA→BUL/EC, BOT→STP/SC
+  ...) was affected; from a coastal province it worked, since those unit letters were never
+  in doubt. Both now store with `kind_by_province_of(state)` (the helper, formerly
+  `_kind_by_province`, made public for DAIDE). Pending orders stored before the deploy keep
+  their old letter until resubmitted.
+  Tests: `TestSplitCoastOrdersSurviveStorage` (move and retreat),
+  `test_fleet_move_from_the_sea_into_a_named_coast_is_accepted` (DAIDE).
+- [x] **Builds owed ignored how many sites there were to build on.** `_orders_complete`
+  and `legal_orders`' `slots` used the raw `centres - units` delta. France five centres up
+  on three units with PAR and MAR occupied can build only at BRE, but was told two slots,
+  and after `BUILD F BRE` was "incomplete" -- W10's auto-process waited on a build that
+  could not exist (a `WAIVE` got it moving, which nothing told the player). New
+  `legal_orders.adjustments_owed` caps builds at the distinct legal build sites; `delta`
+  still reports the raw figure. Test: `test_builds_owed_stop_at_the_sites_there_are_to_build_on`.
+- [x] **A phase nobody had to order in never ran after a deadline or a manual process.**
+  `maybe_auto_process` ran only after order/flag/toggle/dummy writes. A Fall deadline into a
+  winter where only a dummy adjusts left the game in `W1901A` with nothing that would ever
+  trigger it -- and the deadline was spent. The deadline scheduler and the manual
+  `process_turn` route now call it after `finish_processed_turn`. Test:
+  `test_a_deadline_into_a_phase_only_dummies_act_in_runs_that_phase_too`.
+
+---
+
 # Track AG — Test audit: every test can fail, the gaps that mattered are covered (maintainer request, 2026-09-24) — **done, `v3.0.4`**
 
 "Make sure testing is now thorough and that there are no useless tests either." Before:

@@ -84,7 +84,7 @@ from server.daide import clauses, wire
 from server.daide import tokens as t
 from server.daide.tokens import Token
 from server.daide.wire import DaideWireError
-from server.game_service import GameOverError
+from server.game_service import GameOverError, kind_by_province_of
 
 __all__ = [
     "DaideSession",
@@ -700,7 +700,7 @@ class DaideSession:
                 if order.power != self.power:
                     decoded.append((clause_tokens, None, f"unit belongs to {order.power}, not {self.power}"))
                     continue
-                order_str = format_order(order)
+                order_str = format_order(order, kind_by_province_of(game.state))
             except (clauses.ClauseDecodeError, ValueError) as exc:
                 decoded.append((clause_tokens, None, str(exc)))
                 continue
