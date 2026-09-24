@@ -21,9 +21,26 @@ of reaching a new player.
   outright (``expected unit kind 'A' or 'F'``).
 - **Verbs accept both short and long forms**, and mixing them with the short
   unit kind is fine: ``A BER H`` and ``A BER HOLD`` both parse.
+- **Every order starts with its unit** (W7, decided strict 2026-09-24). The old
+  server's alternates -- unit-less (``PAR H``), verb-first (``RETREAT F IRI -
+  MAO``, ``REMOVE F LIV``) and multi-hop convoy routes (``A LON - NTH - BEL``)
+  -- are rejected on purpose: one canonical form, which is all the bot's
+  interactive order menus and the web client ever send. They are listed in
+  ``REJECTED_ORDER_FORMS``, shown to players as "not accepted", and the test
+  checks each one really fails to parse.
 
 If you add an example here, run ``pytest tests/test_bot_help_text.py``.
 """
+
+# W7: forms the old server accepted and this one rejects, each shown next to
+# its canonical spelling. tests/test_bot_help_text.py asserts every one of
+# these still fails to parse (and every other example still parses).
+REJECTED_ORDER_FORMS = (
+    "PAR H",
+    "RETREAT F IRI - MAO",
+    "REMOVE F LIV",
+    "A LON - NTH - BEL",
+)
 
 # The shared "how do I write an order" block. Imported by /rules, /help, and
 # the demo-game help so the three cannot disagree again.
@@ -33,6 +50,7 @@ ORDER_FORMAT_NOTES = """*📝 Order Format:*
 • Verbs work short or long: `H`/`HOLD`, `S`/`SUPPORT`, `C`/`CONVOY`, `R`/`RETREAT`, `D`/`DISBAND`, `BUILD`
 • Mixing the two is fine: `A BER H` ✅ and `A BER HOLD` ✅ are the same order
 • Case doesn't matter, and common aliases work (`baltic` for `BAL`)
+• Always start with the unit. Not accepted: `PAR H` (write `A PAR H`), `RETREAT F IRI - MAO` (write `F IRI R MAO`), `REMOVE F LIV` (write `D F LIV`), `A LON - NTH - BEL` (write `A LON - BEL VIA CONVOY`)
 • Not sure of a code? Use `/selectunit` — it only offers legal orders"""
 
 RULES_TEXT = f"""
