@@ -696,7 +696,8 @@ def maybe_auto_process(game_id: str) -> int:
     phases were processed (0 almost always).
 
     Called after every order submission, a wait flag being cleared, auto-process
-    being switched on, and a seat becoming a dummy. Two last orders arriving
+    being switched on, a seat becoming a dummy, and a turn processed by the
+    deadline or by hand (whose next phase may need nothing from anyone). Two last orders arriving
     together both see "ready"; ``expected_phase_code`` in ``save_state`` lets
     exactly one process it and the other gets ``StaleGameError``, which here just
     means "someone else did it".
@@ -761,6 +762,11 @@ def process_due_deadlines(now: datetime) -> None:
                             prev_phase_code=prev_phase_code,
                             trigger="deadline",
                         )
+                        # The new phase may already be complete (only dummies
+                        # retreat or build); with auto-process on it runs now,
+                        # not never -- the deadline that would have forced it
+                        # was just spent.
+                        maybe_auto_process(game_id_str)
                         continue
                     # Processing failed: the deadline is still spent (Track N),
                     # so the scheduler does not retry it every tick.

@@ -22,7 +22,13 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.4`.
+- **Last updated:** 2026-09-24, at `v3.0.5`.
+- **Track AI (`v3.0.5`):** a bug hunt. A fleet move or retreat from a sea into a named
+  coast (`F MAO - SPA/NC`) was accepted and then VOID at adjudication; a power owed more
+  builds than it had free home centres was "incomplete" forever (auto-process stalled on it,
+  both clients offered impossible slots); and a phase with nothing for a human to order,
+  reached by a deadline or a manual process, never ran under auto-process. Archived in
+  [`done_fixes.md`](done_fixes.md).
 - **Track AG (`v3.0.4`):** the test audit -- every test can fail (`test_suite_hygiene.py`),
   placeholder/tautological/dead-code tests gone, and the gaps that mattered covered; the new
   tests found and fixed an order-dependent resolver case, stale cached reads, a render cache
@@ -268,7 +274,10 @@ reasoning for every item is in [`done_fixes.md`](done_fixes.md).
   floor makes ordinary dead-code deletion fail CI.
 - **`format_order` renders fleets as `A`** unless passed an explicit `kind_by_province` map —
   it infers the unit letter from coast presence. This has now shipped as a user-visible bug
-  **twice** (Track A's PR2 recorded it; Track E's E1 reintroduced it and E4 fixed it). The
+  **three times** (Track A's PR2 recorded it; Track E's E1 reintroduced it and E4 fixed it;
+  Track AI found the *stored* pending orders still built without it, which silently voided
+  every fleet move from a sea into a named coast -- a stored letter is not cosmetic, it
+  decides on re-parse whether the destination coast survives). The
   kind is genuinely absent from an engine `Order`, which references a `Location`, never a
   `Unit`, and is only recoverable from the board *before* adjudication. Any new code that
   renders order strings must pass the kind map.
@@ -390,7 +399,7 @@ to use, which no test asserts.
 - [ ] Phase `S1901R`: the browser shows retreat options for the dislodged unit only; Telegram
       `/selectunit` offers retreats. Submit one, process — it takes effect.
 - [ ] Play to `W1901A` with a captured centre. Both clients show exactly `delta` build slots
-      with real home-centre options, and a power at `delta == 0` shows none. Submit a build,
+      (capped at the free home centres, Track AI) with real home-centre options, and a power at `delta == 0` shows none. Submit a build,
       process — the unit appears on the map.
 - [ ] **Done when:** every box above is checked, and any defect found is **filed as a new
       track in this file** rather than fixed silently mid-session. (Tracks G and I, which held
