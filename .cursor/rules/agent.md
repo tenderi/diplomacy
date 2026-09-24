@@ -9,13 +9,13 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
 ## Critical Policies
 
-**Map File Backup Policy**: When modifying map files ([standard.svg](mdc:new_implementation/maps/standard.svg), [svg.dtd](mdc:new_implementation/maps/svg.dtd)), ALWAYS create timestamped backups: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix original files directly—never change file path references in code. **CRITICAL**: Always overwrite original files, never create new names like `standard_fixed.svg` for production.
+**Map File Backup Policy**: When modifying map files ([standard.svg](mdc:maps/standard.svg), [svg.dtd](mdc:maps/svg.dtd)), ALWAYS create timestamped backups: `cp maps/standard.svg maps/standard_backup_$(date +%Y%m%d_%H%M%S).svg`. Fix original files directly—never change file path references in code. **CRITICAL**: Always overwrite original files, never create new names like `standard_fixed.svg` for production.
 
 **Remote Service Deployment**: CRITICAL - Services run on a remote instance, not locally. Local curl tests to `localhost:8000` will fail. The Telegram bot connects to the remote API server. When debugging button/API issues, remember the server is deployed elsewhere.
 
-**Never Modify Old Implementation**: NEVER make modifications to [/old_implementation/](mdc:old_implementation/). Work only in [/new_implementation/](mdc:new_implementation/).
+**Never Modify Old Implementation**: NEVER make modifications to [/old_implementation/](mdc:old_implementation/). `old_implementation/` was deleted in `v2.7.91`; the whole codebase is the repository root.
 
-**Out-of-scope features**: Do not add or plan work for **tournament feature**, **Discord implementation**, **AI-powered analysis**, or **observer/spectator mode** unless the user explicitly requests it. These are documented as out of scope in [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md). Keep them omitted in docs and roadmap unless otherwise instructed.
+**Out-of-scope features**: Do not add or plan work for **tournament feature**, **Discord implementation**, **AI-powered analysis**, or **observer/spectator mode** unless the user explicitly requests it. These are documented as out of scope in [fix_plan.md](mdc:docs/specs/fix_plan.md). Keep them omitted in docs and roadmap unless otherwise instructed.
 
 ## Code Quality Standards
 
@@ -28,27 +28,27 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 ## Development Workflow
 
 ### Before Starting
-1. Study [specs/](mdc:new_implementation/docs/specs/) to understand specifications
-2. Review [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) for current priorities
-3. Understand game rules: [diplomacy_rules.md](mdc:new_implementation/docs/specs/diplomacy_rules.md)
-4. Source code location: [src/](mdc:new_implementation/src/)
+1. Study [specs/](mdc:docs/specs/) to understand specifications
+2. Review [fix_plan.md](mdc:docs/specs/fix_plan.md) for current priorities
+3. Understand game rules: [diplomacy_rules.md](mdc:docs/specs/diplomacy_rules.md)
+4. Source code location: [src/](mdc:src/)
 
 ### Implementation Process
 1. Implement missing server functionality in Python
-2. Run tests after every change: [tests/](mdc:new_implementation/tests/)
+2. Run tests after every change: [tests/](mdc:tests/)
 3. Fix ALL test failures (even unrelated ones)
-4. Update [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when starting/resolving issues
-5. Keep [requirements.txt](mdc:new_implementation/requirements.txt) updated
+4. Update [fix_plan.md](mdc:docs/specs/fix_plan.md) when starting/resolving issues
+5. Keep [requirements.txt](mdc:requirements.txt) updated
 
 ### Testing Requirements
-- Test specifications: [testing_and_validation.md](mdc:new_implementation/docs/specs/testing_and_validation.md)
-- Tests located in [tests/](mdc:new_implementation/tests/) next to source code
+- Test specifications: [testing_and_validation.md](mdc:docs/specs/testing_and_validation.md)
+- Tests located in [tests/](mdc:tests/) next to source code
 - Start with testing primitives when implementing new features
 - All tests must pass before committing
 
 ## Git Workflow
 
-1. Update [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when tests pass
+1. Update [fix_plan.md](mdc:docs/specs/fix_plan.md) when tests pass
 2. Stage changes: `git add -A`
 3. Commit with descriptive message describing changes
 4. Push: `git push`
@@ -63,14 +63,14 @@ For architecture overview, see [CODEBASE_OVERVIEW.md](mdc:CODEBASE_OVERVIEW.md).
 
 ## Environment Setup
 
-- Use virtual environment: `new_implementation/venv`
-- Create if missing: `python3 -m venv new_implementation/venv`
-- Install dependencies: `pip install -r new_implementation/requirements.txt`
+- Use virtual environment: `venv`
+- Create if missing: `python3.14 -m venv venv`
+- Install dependencies: `pip install -r requirements.txt`
 
 ## Operational Guidelines
 
 - **Work as independently as possible**: This project is used to test AI-driven development. Prefer making decisions, implementing fully, and fixing issues without asking for confirmation. Only ask when requirements are ambiguous or a critical choice has no clear default.
 - Ask minimal confirmations—keep working autonomously
 - Add logging when needed for debugging
-- When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md)
-- Periodically clean completed items from [fix_plan.md](mdc:new_implementation/docs/specs/fix_plan.md) when it becomes large
+- When bugs are discovered (even unrelated), resolve them after documenting in [fix_plan.md](mdc:docs/specs/fix_plan.md)
+- Periodically clean completed items from [fix_plan.md](mdc:docs/specs/fix_plan.md) when it becomes large
