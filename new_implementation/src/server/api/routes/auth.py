@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
 
-from ..shared import db_service, is_bot_secret
+from ..shared import db_service, is_bot_secret, notify_user
 
 # Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
@@ -136,6 +136,15 @@ _LOGIN_IP_RATE_LIMIT_WINDOW = 900  # 15 minutes
 # normal (a household signing up multiple players, or a test suite).
 _REGISTER_IP_RATE_LIMIT_MAX = 20
 _REGISTER_IP_RATE_LIMIT_WINDOW = 3600  # 1 hour
+
+# /auth/forgot_password: every request can send a message (email or Telegram)
+# to someone, so it is limited even though it never reveals whether the
+# account exists. Per IP: 429 like the others. Per email: silently sends
+# nothing more (a 429 would tell the caller the address has an account).
+_FORGOT_IP_RATE_LIMIT_MAX = 10
+_FORGOT_IP_RATE_LIMIT_WINDOW = 3600  # 1 hour
+_FORGOT_EMAIL_RATE_LIMIT_MAX = 3
+_FORGOT_EMAIL_RATE_LIMIT_WINDOW = 3600  # 1 hour
 
 # /auth/telegram/link (pre-existing; now expressed via the shared helpers above).
 _LINK_RATE_LIMIT_MAX = 5
@@ -525,21 +534,37 @@ _logger = logging.getLogger("diplomacy.server.api.auth")
 # DIPLOMACY_SMTP_PASSWORD, DIPLOMACY_SMTP_FROM, DIPLOMACY_SMTP_USE_TLS
 
 
-def _send_password_reset_link(email: str, reset_link: str) -> None:
-    """Send reset link by email if SMTP is configured (DIPLOMACY_SMTP_HOST), otherwise log only."""
+def _send_password_reset_link(email: str, reset_link: str, telegram_id: Optional[str] = None) -> None:
+    """Deliver a reset link. **Telegram first**: an account linked to Telegram
+    gets it from the bot (the durable outbox) and nothing else. Email is the
+    fallback -- for an account with no linked Telegram, or if the message
+    could not be queued -- and needs SMTP (DIPLOMACY_SMTP_HOST). With neither,
+    the link is only logged (and only with DIPLOMACY_DEV_SHOW_RESET_LINK set)."""
+    delivered = False
+    if telegram_id:
+        delivered = notify_user(
+            telegram_id,
+            "Someone asked to reset the password of your Diplomacy website account "
+            f"({email}). If it was you, open this link within an hour to choose a new one:\n\n"
+            f"{reset_link}\n\n"
+            "If it wasn't you, ignore this message: your password has not changed.",
+        ) is not None
+        if delivered:
+            _logger.info("Password reset link for %s sent via Telegram", email)
     smtp_host = os.environ.get("DIPLOMACY_SMTP_HOST", "").strip()
-    if smtp_host:
+    if not delivered and smtp_host:
         try:
             _send_password_reset_email_smtp(email, reset_link, smtp_host)
             _logger.info("Password reset email sent to %s via SMTP", email)
-            return
-        except Exception as e:  # noqa: BLE001
+            delivered = True
+        except (smtplib.SMTPException, OSError) as e:
             _logger.warning("Failed to send password reset email to %s: %s", email, e)
     if os.environ.get("DIPLOMACY_DEV_SHOW_RESET_LINK"):
         _logger.info("Password reset link for %s: %s", email, reset_link)
-    else:
-        _logger.info(
-            "Password reset requested for %s (link not logged; set DIPLOMACY_DEV_SHOW_RESET_LINK=1 for dev)",
+    elif not delivered:
+        _logger.warning(
+            "Password reset requested for %s but nothing could deliver it: no linked "
+            "Telegram account and no working SMTP (DIPLOMACY_SMTP_HOST)",
             email,
         )
 
@@ -569,21 +594,37 @@ def _send_password_reset_email_smtp(recipient: str, reset_link: str, host: str) 
 
 
 @router.post("/forgot_password")
-def forgot_password(req: ForgotPasswordRequest) -> Dict[str, Any]:
+def forgot_password(req: ForgotPasswordRequest, request: Request) -> Dict[str, Any]:
     """Request a password reset. Always returns 200 to avoid email enumeration.
-    If DIPLOMACY_SMTP_HOST is set, sends the reset link by email; otherwise only logs.
-    Set DIPLOMACY_PASSWORD_RESET_BASE_URL for the link URL; DIPLOMACY_DEV_SHOW_RESET_LINK=1 returns the link in the response for dev."""
+
+    The link goes to the account's linked Telegram if it has one, and by email
+    (DIPLOMACY_SMTP_HOST) only otherwise (``_send_password_reset_link``).
+    Rate-limited per IP (429) and per email (silently). Set
+    DIPLOMACY_PASSWORD_RESET_BASE_URL for the link URL;
+    DIPLOMACY_DEV_SHOW_RESET_LINK=1 returns the link in the response for dev."""
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(f"forgot_ip:{client_ip}", _FORGOT_IP_RATE_LIMIT_MAX, _FORGOT_IP_RATE_LIMIT_WINDOW)
+    _record_attempt(f"forgot_ip:{client_ip}")
     email = req.email.strip().lower()
-    out: Dict[str, Any] = {"message": "If an account exists with this email, you will receive a reset link."}
+    out: Dict[str, Any] = {
+        "message": "If an account exists with this email, a reset link has been sent: "
+        "as a Telegram message if the account is linked to Telegram, otherwise by email."
+    }
     if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email):
         return out
+    try:
+        _check_rate_limit(f"forgot_email:{email}", _FORGOT_EMAIL_RATE_LIMIT_MAX, _FORGOT_EMAIL_RATE_LIMIT_WINDOW)
+    except HTTPException:
+        _logger.info("Password reset for %s not sent again: per-address limit reached", email)
+        return out
+    _record_attempt(f"forgot_email:{email}")
     user = db_service.get_user_by_email(email)
     if user and getattr(user, "password_hash", None):
         token = db_service.create_password_reset_token(user.id, ttl_minutes=PASSWORD_RESET_TTL_MINUTES)
         base_url = os.environ.get("DIPLOMACY_PASSWORD_RESET_BASE_URL", "").rstrip("/")
         if base_url:
             reset_link = f"{base_url}/reset-password?token={token}"
-            _send_password_reset_link(email, reset_link)
+            _send_password_reset_link(email, reset_link, getattr(user, "telegram_id", None))
             if os.environ.get("DIPLOMACY_DEV_SHOW_RESET_LINK"):
                 out["reset_link"] = reset_link  # For dev/frontend to show link when email not configured
     return out

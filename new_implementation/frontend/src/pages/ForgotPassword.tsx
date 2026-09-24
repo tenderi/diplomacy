@@ -35,9 +35,21 @@ export default function ForgotPassword() {
     return (
       <div className="max-w-md mx-auto p-6">
         <h1 className="text-2xl font-semibold mb-4">Forgot password</h1>
-        <p className="text-muted-foreground mb-4">
-          {resetLink ? 'In development mode, use this link to reset your password:' : 'If an account exists with this email, you will receive a reset link.'}
-        </p>
+        {resetLink ? (
+          <p className="text-muted-foreground mb-4">In development mode, use this link to reset your password:</p>
+        ) : (
+          <>
+            <p className="text-muted-foreground mb-2">
+              If an account exists with this email, a reset link is on its way: as a Telegram
+              message from the Diplomacy bot if your account is linked to Telegram, otherwise by
+              email.
+            </p>
+            <p className="text-muted-foreground mb-4">
+              The link works once, for one hour. Nothing arrived? Check Telegram and your spam
+              folder, or ask again in a few minutes.
+            </p>
+          </>
+        )}
         {resetLink && (
           <p className="break-all mt-4">
             <a href={resetLink} className="text-primary underline underline-offset-2">{resetLink}</a>
@@ -53,7 +65,11 @@ export default function ForgotPassword() {
   return (
     <div className="max-w-md mx-auto p-6">
       <h1 className="text-2xl font-semibold mb-4">Forgot password</h1>
-      <p className="text-muted-foreground mb-4">Enter your email and we'll send you a link to reset your password.</p>
+      <p className="text-muted-foreground mb-4">
+        Enter your account&apos;s email and we&apos;ll send you a link to choose a new password &mdash;
+        through the Diplomacy Telegram bot if your account is linked to Telegram, otherwise by
+        email.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>

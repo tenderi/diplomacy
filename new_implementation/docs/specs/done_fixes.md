@@ -1,5 +1,29 @@
 ---
 
+# Track AC — Forgot password that actually delivers (maintainer request, 2026-09-24) — **done, `v2.7.111`**
+
+The web app already had *Forgot password?* (login page → `/forgot-password` →
+`/reset-password`) and both API routes, but in production it could never deliver: no SMTP
+is configured on the VPS, so every reset link was created and silently dropped.
+
+- [x] **Telegram first, email as the fallback** (maintainer's call): an account linked to
+  Telegram gets the link from the bot through the durable outbox, and no email; email
+  (SMTP) only for an account with no linked Telegram, or if the Telegram message could
+  not be queued. With neither, the API logs a warning naming the address.
+- [x] **Rate limits** where there were none (every request can message someone): 10 per IP
+  per hour → 429; 3 links per address per hour, beyond which the reply is identical but
+  nothing is sent (a 429 there would reveal that the address has an account).
+- [x] The SMTP send's `except Exception` narrowed to `(smtplib.SMTPException, OSError)`.
+- [x] Page copy says where the link goes.
+
+**Evidence:** `tests/test_password_reset_delivery.py` (Telegram delivery and a full reset
+with the delivered token, identical replies for unknown addresses, Telegram-not-email for
+linked accounts, email for unlinked ones and when Telegram can't be queued, SMTP failure
+not an error, both limits). Open: email for accounts without Telegram needs an SMTP
+provider in the VPS `.env` (maintainer's choice).
+
+---
+
 # Track AB — Server hardening (maintainer request, 2026-09-24) — **done, `v2.7.110`**
 
 Right after the site went public (F4). An audit of the VPS and the public surface found a
