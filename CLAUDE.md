@@ -21,11 +21,15 @@ first.
 After completing any task (feature, fix, refactor, docs):
 
 1. Stage all changed and new files.
-2. Commit with a message starting with the next version tag (e.g. `v2.7.44: ...`).
-3. Tag it (`git tag v2.7.44`).
+2. Commit with a message starting with the next version tag (e.g. `v3.0.1: ...`).
+3. Tag it (`git tag v3.0.1`).
 4. Push branch and tags: `git push origin main --tags`.
 
-Check the latest tag with `git tag --sort=-v:refname | head -1`.
+Check the latest tag with `git tag --sort=-v:refname | head -1`. **Release 3.0.0**
+(2026-09-24, the first GitHub Release) closed the `v2.7.x` series; ordinary changes are
+now `v3.0.x` patch tags. A minor/major bump (and a GitHub Release, `gh release create`)
+is the maintainer's call — the version also lives in `new_implementation/pyproject.toml`,
+`frontend/package.json` and the FastAPI app (`_api_module.py`); keep them in step.
 
 ## Branch protection and CI gating
 
