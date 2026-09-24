@@ -128,11 +128,34 @@ class TestCompose:
 
 
 class TestHostScripts:
-    @pytest.mark.parametrize("script", ["install.sh", "ensure_env.sh", "backup.sh", "upgrade.sh"])
+    @pytest.mark.parametrize("script", ["install.sh", "ensure_env.sh", "backup.sh", "upgrade.sh", "harden_host.sh"])
     def test_script_parses(self, script: str) -> None:
         path = PROJECT_ROOT / script
         assert path.exists(), f"{script} is missing"
         subprocess.run(["bash", "-n", str(path)], check=True)
+
+    def test_host_hardening(self) -> None:
+        script = _read(PROJECT_ROOT / "harden_host.sh")
+        for line in ("PasswordAuthentication no", "PermitRootLogin prohibit-password", "X11Forwarding no", "MaxAuthTries 3"):
+            assert line in script, line
+        assert "sshd -t" in script  # validated before the reload, removed if invalid
+        assert "restrict \\1" in script  # the deploy key: no forwarding, no pty
+        assert 'Automatic-Reboot "true"' in script and "[sshd]" in script
+        assert "./harden_host.sh" in _read(PROJECT_ROOT / "install.sh")
+
+    def test_containers_cannot_gain_privileges(self) -> None:
+        compose = _read(PROJECT_ROOT / "docker-compose.yml")
+        assert compose.count("no-new-privileges:true") == 5  # every service
+        assert compose.count("cap_drop:") == 2  # the API and the bot need no capabilities
+        assert "DIPLOMACY_API_DOCS=0" in compose
+
+    def test_https_headers(self) -> None:
+        caddyfile = _read(PROJECT_ROOT / "docker" / "Caddyfile")
+        for header in ("Strict-Transport-Security", "Content-Security-Policy", "X-Content-Type-Options",
+                       "X-Frame-Options", "Referrer-Policy", "-Server"):
+            assert header in caddyfile, header
+        assert "script-src 'self';" in caddyfile
+        assert "server_tokens off;" in _read(PROJECT_ROOT / "docker" / "web-nginx.conf.template")
 
     @pytest.mark.parametrize("script", ["install_home.sh", "install_vps.sh", "upgrade_control.sh"])
     def test_two_host_scripts_are_gone(self, script: str) -> None:

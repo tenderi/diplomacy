@@ -177,7 +177,19 @@ async def lifespan(app: FastAPI):
 # TestClient doesn't always trigger lifespan, so initialize here as well
 _initialize_database_schema()
 
-app = FastAPI(title="Diplomacy Server API", version="3.0.0", lifespan=lifespan)
+# Swagger UI, ReDoc and the OpenAPI schema. On for local development; the
+# production compose file sets DIPLOMACY_API_DOCS=0 so the public site does not
+# publish a map of every endpoint (and Swagger's CDN assets would need a
+# looser Content-Security-Policy anyway).
+_API_DOCS = os.environ.get("DIPLOMACY_API_DOCS", "1") != "0"
+app = FastAPI(
+    title="Diplomacy Server API",
+    version="3.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _API_DOCS else None,
+    redoc_url="/redoc" if _API_DOCS else None,
+    openapi_url="/openapi.json" if _API_DOCS else None,
+)
 
 # CORS
 _cors_origins = os.environ.get("DIPLOMACY_CORS_ORIGINS", "*").strip()

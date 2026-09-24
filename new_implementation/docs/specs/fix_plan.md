@@ -22,7 +22,10 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.109`.
+- **Last updated:** 2026-09-24, at `v2.7.110`.
+- **Track AB — server hardening, complete and archived** in [`done_fixes.md`](done_fixes.md)
+  (`v2.7.110`): constant-time secret checks, API docs off in production, security headers,
+  container privilege limits, and `harden_host.sh` (sshd, fail2ban, automatic reboots).
 - **F4 done (`v2.7.108`):** the site is live at `https://diplomacy.xn--jalluthti-02a.fi`
   (Caddy + Let's Encrypt, turned on by `DOMAIN` in the VPS `.env`).
 - **AA2 (`v2.7.107`):** the maintainer answered AA's open question — ending a turn early
