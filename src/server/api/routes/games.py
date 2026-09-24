@@ -17,6 +17,7 @@ from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
+    post_to_game_group,
 )
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
@@ -136,6 +137,22 @@ def _checked_join_password(password: Optional[str]) -> Optional[str]:
     if not 4 <= len(password) <= 64:
         raise HTTPException(status_code=400, detail="A join password must be 4-64 characters.")
     return _hash_password(password)
+
+
+def _require_group_join_via_bot(game_id: str, user: Any, bot_secret: Optional[str]) -> None:
+    """A game that belongs to a Telegram group is joined through the bot, which
+    first checks that the player is a member of that group (the server can't ask
+    Telegram). A direct web join is refused -- it would sidestep that check --
+    except for the game's creator."""
+    row = db_service.get_game_by_game_id(str(game_id))
+    if row is None or not row.channel_id or is_bot_secret(bot_secret):
+        return
+    if row.created_by_user_id is not None and int(row.created_by_user_id) == int(user.id):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="This game belongs to a Telegram group. Join it from the group, through the Diplomacy bot.",
+    )
 
 
 def _require_join_password(game_id: str, user: Any, supplied: Optional[str]) -> None:
@@ -747,12 +764,21 @@ def concede_game(
 
 
 @router.get("/games")
-def list_games() -> Dict[str, Any]:
-    """List all games with basic info and player count."""
+def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """List all games with basic info and player count.
+
+    **A game that belongs to a Telegram group is listed only to the bot** (with
+    its ``channel_id``), which shows it only to that group's members: players
+    see only games from groups they are in. The web list leaves them out; a web
+    user still sees the group games they play in, via ``/users/me/games``.
+    """
+    bot = is_bot_secret(x_bot_secret)
     try:
         games = db_service.get_all_games()
         result: list[dict[str, Any]] = []
         for g in games:
+            if g.channel_id and not bot:
+                continue
             players = db_service.get_players_by_game_id(int(g.id))  # type: ignore
             result.append({
                 "id": g.id,
@@ -768,7 +794,8 @@ def list_games() -> Dict[str, Any]:
                 "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
                 "dummy_powers": sorted(g.dummy_powers or []),
                 "private": g.join_password_hash is not None,  # W8; never the hash
-                "players": [{"power": p.power_name, "user_id": p.user_id} for p in players]
+                "players": [{"power": p.power_name, "user_id": p.user_id} for p in players],
+                **({"channel_id": g.channel_id} if bot else {}),
             })
         return {"games": result}
     except Exception as e:
@@ -887,6 +914,7 @@ def join_game(
         )
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        _require_group_join_via_bot(str(game_id), user, req.bot_secret)
         # Validate power name
         valid_powers = {'ENGLAND', 'FRANCE', 'GERMANY', 'RUSSIA', 'TURKEY', 'AUSTRIA', 'ITALY'}
         if req.power.upper() not in valid_powers:
@@ -944,6 +972,7 @@ def join_game(
             player_count += len(view.get("dummy_powers", [])) if view is not None else 0
             if player_count >= required_powers:
                 notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.", buttons=game_buttons(game_id))  # type: ignore
+                post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
         invalidate_cache(f"games/{str(game_id)}")
@@ -1003,6 +1032,7 @@ def replace_player(
     """Replace a vacated power in a game."""
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        _require_group_join_via_bot(str(game_id), user, req.bot_secret)
         # Find the player slot for this power
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if player is None:
@@ -1273,6 +1303,7 @@ def set_deadline(
         else:
             text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
+        post_to_game_group(game_id, f"⏰ {text}")
     except Exception as e:
         scheduler_logger.error(f"Failed to notify deadline change for game {game_id}: {e}")
     return {

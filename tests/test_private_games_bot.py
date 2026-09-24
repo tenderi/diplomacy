@@ -15,6 +15,15 @@ from server.telegram_bot.games import _power_selection_prompt, join
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _no_group(monkeypatch):
+    """These games belong to no Telegram group (group rules: test_telegram_groups.py)."""
+    async def open_to_all(*_a, **_kw):
+        return True
+
+    monkeypatch.setattr("server.telegram_bot.games.may_join", open_to_all)
+
+
 def _update(args: list[str]):
     update, context, message = Mock(), Mock(), Mock()
     message.reply_text = AsyncMock()
