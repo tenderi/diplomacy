@@ -16,12 +16,15 @@ resolves or its proposer withdraws it.
 from __future__ import annotations
 
 import itertools
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
+from persistence import database_service
+from persistence.database import GameModel
 from server.api import app
 from server.api import shared as api_shared
 
@@ -333,7 +336,8 @@ def test_finished_game_takes_no_deadline_writes():
 
 def test_a_failed_apply_leaves_the_proposal_pending(monkeypatch):
     """The deciding vote used to clear the proposal *before* writing the deadline,
-    so a failing write lost the vote with nothing changed and nobody told."""
+    so a failing write lost the vote with nothing changed and nobody told. Both
+    are one transaction now; the failure is injected into its deadline write."""
     client = TestClient(app, raise_server_exceptions=False)
     game_id, users = _seeded_game(client)
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
@@ -343,9 +347,34 @@ def test_a_failed_apply_leaves_the_proposal_pending(monkeypatch):
     def boom(*_args: object) -> None:
         raise RuntimeError("database went away")
 
-    monkeypatch.setattr(api_shared.db_service, "update_game_deadline", boom)
+    monkeypatch.setattr(database_service, "_naive_utc", boom)
     resp = client.post(f"/games/{game_id}/deadline/vote", json={"power": "ITALY", "vote": True}, headers=users["ITALY"])
     assert resp.status_code == 500
     monkeypatch.undo()
     pending = client.get(f"/games/{game_id}/deadline").json()["pending_proposal"]
     assert pending is not None and pending["yes_votes"] == ["ENGLAND", "FRANCE", "GERMANY"]
+
+
+def test_two_votes_cast_together_are_both_counted():
+    """Each vote read the proposal and wrote it back separately: ITALY's vote,
+    committed while GERMANY's was in flight, was erased -- a majority could be
+    reached and never noticed. Here a second session holds the row and records
+    ITALY's vote while GERMANY's waits."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
+    other = api_shared.db_service.session_factory()
+    row = other.query(GameModel).filter_by(game_id=str(game_id)).with_for_update().one()
+
+    thread = threading.Thread(
+        target=lambda: api_shared.vote_on_deadline_proposal(str(game_id), int(row.id), "GERMANY", True)
+    )
+    thread.start()
+    time.sleep(0.5)
+    proposal = dict(row.pending_deadline_proposal)
+    row.pending_deadline_proposal = {**proposal, "votes": {**proposal["votes"], "ITALY": "yes"}}
+    other.commit()
+    other.close()
+    thread.join(timeout=10)
+    pending = client.get(f"/games/{game_id}/deadline").json()["pending_proposal"]
+    assert pending["yes_votes"] == ["FRANCE", "GERMANY", "ITALY"]

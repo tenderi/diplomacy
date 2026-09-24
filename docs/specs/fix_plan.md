@@ -22,7 +22,11 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.8`.
+- **Last updated:** 2026-09-24, at `v3.0.9`.
+- **Track AM (`v3.0.9`):** deadline-proposal votes had the same lost update as Track AL
+  (two votes together kept one; two proposals could both start). Now one locked
+  transaction that also writes the accepted deadline. Archived in
+  [`done_fixes.md`](done_fixes.md).
 - **Track AL (`v3.0.8`):** lost updates. Pending orders and draw votes were read and
   written back in separate transactions, so two players ordering at once lost one's
   orders; an order validated against a phase being processed landed in the next phase or
