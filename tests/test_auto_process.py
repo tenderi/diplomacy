@@ -176,3 +176,41 @@ def test_in_the_winter_it_waits_for_every_build_owed(client: TestClient) -> None
     assert last["auto_processed"] == 1
     assert _phase(client, game_id) == "S1902M"
     assert {u["location"] for u in game_service.view(game_id)["units_by_power"]["FRANCE"]} == {"BUR", "SPA", "MAO", "PAR"}
+
+
+def test_builds_owed_stop_at_the_sites_there_are_to_build_on(client: TestClient) -> None:
+    """Five centres and three units owe two builds -- but with PAR and MAR occupied,
+    BRE is the only free home centre, so one build is everything France can do.
+    Counting the raw delta left it "incomplete" after that build, and auto-process
+    waited on a second build that could not exist."""
+    game_id, _e, f = _table(client, auto=True)
+    board = game_service.state_json(game_id)
+    french_units = [{"kind": "A", "power": "FRANCE", "location": "PAR"}, {"kind": "A", "power": "FRANCE", "location": "MAR"},
+                    {"kind": "A", "power": "FRANCE", "location": "BUR"}]
+    board.update(
+        season="WINTER", phase_type="ADJUSTMENT",
+        units=[u for u in board["units"] if u["power"] != "FRANCE"] + french_units,
+        ownership={**board["ownership"], "SPA": "FRANCE", "POR": "FRANCE"},
+    )
+    game_service.restore_snapshot(game_id, board, "W1901A")
+    legal = client.get(f"/games/{game_id}/legal_orders/FRANCE").json()
+    assert legal["adjustment"] == {"delta": 2, "action": "build", "slots": 1}
+
+    resp = client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["BUILD F BRE"], merge=True)).json()
+    assert resp["auto_processed"] == 1
+    assert _phase(client, game_id) == "S1902M"
+    assert {u["location"] for u in game_service.view(game_id)["units_by_power"]["FRANCE"]} == {"PAR", "MAR", "BUR", "BRE"}
+
+
+def test_a_deadline_into_a_phase_only_dummies_act_in_runs_that_phase_too(client: TestClient) -> None:
+    """The Fall deadline leaves a winter in which only a dummy (GERMANY, one centre
+    up) adjusts. Nobody has anything to submit, so no order would ever trigger
+    auto-process -- and the deadline that just ran is spent. Before the fix the
+    game sat in W1901A for good."""
+    game_id, _e, _f = _table(client, auto=True)
+    board = game_service.state_json(game_id)
+    board.update(season="FALL", ownership={**board["ownership"], "DEN": "GERMANY"})
+    game_service.restore_snapshot(game_id, board, "F1901M")
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
+    api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert _phase(client, game_id) == "S1902M"

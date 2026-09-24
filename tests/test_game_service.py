@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from engine.serialization import state_to_dict
-from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
+from engine.types import DislodgedUnit, GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz
@@ -654,3 +654,46 @@ class TestGameOverGuard:
         status = service.orders_status(gid)
         assert status["active_powers"] == []
         assert status["missing"] == []
+
+
+class TestSplitCoastOrdersSurviveStorage:
+    """Pending orders are stored as strings and re-parsed at adjudication, where
+    the unit letter decides whether a destination coast is kept (an army's is
+    dropped). They were stored without the board's kinds, so ``F MAO - SPA/NC``
+    became ``A MAO - SPA/NC``, came back coastless and was VOID."""
+
+    def _board(self, service: GameService, phase: PhaseType, **extra) -> str:
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.SPRING, phase,
+            units=frozenset({
+                Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }),
+            ownership={}, **extra,
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        return gid
+
+    def test_fleet_move_from_the_sea_into_a_named_coast(self, service):
+        gid = self._board(service, PhaseType.MOVEMENT)
+        assert service.submit_orders(gid, "FRANCE", ["F MAO - SPA/NC"])[0]["ok"] is True
+        assert service.view(gid)["orders"]["FRANCE"] == ["F MAO - SPA/NC"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        french = next(r for r in results if r["order"]["power"] == "FRANCE")
+        assert (french["result"], french["order_str"]) == ("OK", "F MAO - SPA/NC")
+        assert {"kind": "F", "power": "FRANCE", "location": "SPA/NC"} in service.view(gid)["units"]
+
+    def test_fleet_retreat_from_the_sea_into_a_named_coast(self, service):
+        gid = _new_game(service)
+        fleet = Unit(UnitKind.FLEET, "FRANCE", Location("MAO"))
+        state = GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({Unit(UnitKind.FLEET, "ENGLAND", Location("MAO"))}),
+            ownership={},
+            dislodged=(DislodgedUnit(fleet, "NAO", (Location("SPA", "NC"), Location("SPA", "SC"))),),
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        assert service.submit_orders(gid, "FRANCE", ["F MAO R SPA/SC"])[0]["ok"] is True
+        service.process_turn(gid)
+        assert {"kind": "F", "power": "FRANCE", "location": "SPA/SC"} in service.view(gid)["units"]
