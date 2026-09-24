@@ -50,6 +50,12 @@ class GameModel(Base):
     # pending_orders): a vote is "did this power vote yes to draw this phase",
     # not a standing position.
     draw_votes = Column(JSON, nullable=True)
+    # Powers played by civil disorder (W9): a JSON list of power names. Nobody
+    # may join them, nobody waits on their orders, and they are left out of
+    # draw-vote quorum and deadline-proposal majorities. Null/[] = none.
+    dummy_powers = Column(JSON, nullable=True)
+    # Who created the game (W9/W8); null for waiting-list and older games.
+    created_by_user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

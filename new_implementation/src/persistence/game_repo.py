@@ -123,6 +123,8 @@ class GameRepo:
                 "phase_length_seconds": row.phase_length_seconds,
                 "phase_started_at": row.phase_started_at,
                 "current_turn": int(row.current_turn or 0),
+                "dummy_powers": sorted(row.dummy_powers or []),
+                "created_by_user_id": row.created_by_user_id,
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -148,6 +150,8 @@ class GameRepo:
         phase_code: str,
         game_id: Optional[str] = None,
         phase_length_seconds: Optional[int] = None,
+        created_by_user_id: Optional[int] = None,
+        dummy_powers: Optional[list[str]] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -169,6 +173,8 @@ class GameRepo:
                 current_phase=str(state_json.get("phase_type", "MOVEMENT")).capitalize(),
                 phase_started_at=utcnow_naive(),
                 phase_length_seconds=phase_length_seconds,
+                created_by_user_id=created_by_user_id,
+                dummy_powers=sorted(dummy_powers or []),
             )
             session.add(row)
             session.flush()  # assign the integer PK
@@ -293,6 +299,14 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.pending_orders = pending
+            session.commit()
+
+    def set_dummy_powers(self, game_id: str, powers: list[str]) -> None:
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.dummy_powers = sorted(powers)
             session.commit()
 
     def set_draw_votes(self, game_id: str, votes: dict[str, str]) -> None:
