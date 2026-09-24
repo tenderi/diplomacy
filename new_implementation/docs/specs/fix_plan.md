@@ -22,7 +22,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.111`.
+- **Last updated:** 2026-09-24, at **`v3.0.0` — release 3.0.0** (the maintainer's call;
+  the first GitHub Release). Tracks A–AC are archived; only the maintainer's Track F items
+  remain open. Patch tags continue as `v3.0.x`.
 - **Track AC — forgot password delivers, archived** (`v2.7.111`): reset links go to the
   account's linked Telegram first, email (SMTP, not yet configured on the VPS) as fallback.
 - **Track AB — server hardening, complete and archived** in [`done_fixes.md`](done_fixes.md)
