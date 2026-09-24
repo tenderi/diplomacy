@@ -81,8 +81,9 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
     3. Create the game, then assign powers.
 
     Any failure re-queues the claimed entries (at the front -- they were nearly
-    in a game and should not go to the back of the line for a server-side fault)
-    and returns ``None``.
+    in a game and should not go to the back of the line for a server-side fault),
+    deletes the half-seated game if one was already created (W11 made that
+    possible; until then it was left behind as an orphan), and returns ``None``.
     """
     if db_service.count_waiting_list() < WAITING_LIST_SIZE:
         return None
@@ -92,6 +93,7 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
         # Another worker won the race and took these entries.
         return None
 
+    orphan_id: Optional[int] = None
     try:
         users = []
         for telegram_id, full_name in claimed:
@@ -113,11 +115,14 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
         row = db_service.get_game_by_game_id(str(game_id))
         if row is None:
             raise RuntimeError(f"game {game_id} was created but cannot be read back")
+        orphan_id = int(row.id)
 
         for _telegram_id, _full_name, user_id, power in assignments:
             db_service.create_player(int(row.id), power, user_id=user_id)
     except Exception as e:
         db_service.requeue_waiting_list_entries(claimed)
+        if orphan_id is not None:
+            db_service.delete_game(orphan_id)
         logger.error(
             "Failed to create a game from the waiting list; re-queued %d players: %s",
             len(claimed), e,
