@@ -1,5 +1,27 @@
 ---
 
+# Track AM — Deadline-proposal votes lost the same way (maintainer request, 2026-09-24) — **done, `v3.0.9`**
+
+The last read-modify-write on the game row that Track AL left: `pending_deadline_proposal`
+(Track Y).
+
+- [x] **Two votes cast together kept one.** `vote_on_deadline_proposal` read the proposal,
+  added its vote and wrote it back in a separate transaction, so a vote committed meanwhile
+  was erased -- a majority could be reached and never noticed. Two proposals started
+  together could likewise both see "none pending". `DatabaseService.modify_deadline_proposal`
+  now runs propose / vote / withdraw / the expiry sweep on the row locked `FOR UPDATE`, and
+  an accepted proposal's deadline is written in that same transaction (a separate
+  `update_game_deadline` from another session would wait on the lock forever). The
+  expiry sweep clears a proposal only if it is still the one it judged expired. Test:
+  `test_two_votes_cast_together_are_both_counted`; `test_a_failed_apply_leaves_the_proposal_pending`
+  now injects its failure inside the transaction.
+- [x] **The locked read returned a stale copy.** Found writing the above: the row was
+  already in the session's identity map (from the `game_id` lookup), and SQLAlchemy hands
+  that object back from a `FOR UPDATE` query unless `populate_existing()` is set -- the lock
+  was taken but the old value used. Worth knowing for any future locked read.
+
+---
+
 # Track AL — Lost updates on the game row; refused orders shown as submitted (maintainer request, 2026-09-24) — **done, `v3.0.8`**
 
 Bug hunt III. The per-phase JSON columns on `games` (`pending_orders`, `draw_votes`,

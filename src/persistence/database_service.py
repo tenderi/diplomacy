@@ -5,7 +5,8 @@ This module provides database operations using the new data models and schema
 to ensure proper data integrity and consistency.
 """
 
-from typing import List, Optional, Dict, Any, Tuple
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -25,6 +26,25 @@ from .database import (
 IDEMPOTENCY_RETENTION_DAYS = 7
 OUTBOX_DELIVERED_RETENTION_DAYS = 7
 
+
+
+@dataclass(frozen=True)
+class DeadlineProposalChange:
+    """What ``modify_deadline_proposal``'s callback decided: the proposal to
+    store (``None`` clears it), the caller's ``result`` to hand back, and
+    whether to set the game's deadline and to what (``None`` clears it)."""
+
+    proposal: Optional[Dict[str, Any]]
+    result: Dict[str, Any]
+    set_deadline: bool = False
+    deadline: Optional[datetime] = None
+
+
+def _naive_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Naive UTC for a ``TIMESTAMP`` column (see ``update_game_deadline``)."""
+    if value is not None and value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 class DatabaseService:
     """Service for database operations"""
@@ -531,14 +551,37 @@ class DatabaseService:
                 return None
             return game_model.pending_deadline_proposal
 
-    def set_pending_deadline_proposal(self, game_id: str, proposal: Optional[Dict[str, Any]]) -> None:
-        """Set (or, with ``None``, clear) the pending deadline proposal."""
+    def modify_deadline_proposal(
+        self,
+        game_id: str,
+        change: Callable[[Optional[Dict[str, Any]]], "DeadlineProposalChange"],
+    ) -> "DeadlineProposalChange":
+        """Apply ``change`` to the pending deadline proposal in one transaction,
+        on the game row locked ``FOR UPDATE``; anything ``change`` raises rolls
+        it back.
+
+        Reading the proposal and writing it back in separate transactions lost
+        one of two votes cast together (so a majority could be missed), and let
+        two proposals both see "none pending". ``change`` returns the new
+        proposal and, for an accepted one, the deadline to set -- written here in
+        the same transaction, since a second write to the locked row from
+        another session would wait on this one forever.
+        """
         with self.session_factory() as session:
-            game_model = self._get_game_model_by_game_id_string(session, game_id)
-            if not game_model:
+            found = self._get_game_model_by_game_id_string(session, game_id)
+            if not found:
                 raise ValueError(f"game {game_id} not found")
-            game_model.pending_deadline_proposal = proposal
+            # populate_existing: ``found`` is already in this session's identity
+            # map, and without it the locked read hands back that stale copy.
+            game_model = (
+                session.query(GameModel).filter_by(id=found.id).with_for_update().populate_existing().one()
+            )
+            outcome = change(game_model.pending_deadline_proposal)
+            game_model.pending_deadline_proposal = outcome.proposal
+            if outcome.set_deadline:
+                game_model.deadline = _naive_utc(outcome.deadline)
             session.commit()
+            return outcome
 
     def get_games_with_pending_deadline_proposals(self) -> List[GameModel]:
         """Every game with a deadline proposal currently in flight. For the
@@ -595,8 +638,7 @@ class DatabaseService:
         every deadline by the zone offset. Normalize to naive UTC here so the
         round trip is correct regardless of session timezone configuration.
         """
-        if deadline is not None and deadline.tzinfo is not None:
-            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        deadline = _naive_utc(deadline)
         with self.session_factory() as session:
             game = session.query(GameModel).filter_by(id=game_id).first()
             if game:
