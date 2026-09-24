@@ -225,12 +225,12 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
     assert retry["game_created"] is True, "the queue could not recover"
     assert set(_notified(mock_post)) == set(ids)
 
-    # One game from the successful retry. The failed attempt's partially-populated
-    # game is the documented residual (there is no single-game delete path); what
-    # matters is that it happened once, not once per subsequent /wait.
+    # Exactly one game: the retry's. The failed attempt's half-seated game is
+    # deleted on the spot (W11 added the single-game delete; before it, the orphan
+    # was a documented residual left in the games list).
     games_after = len(client.get("/games").json()["games"])
-    assert games_after - games_before <= 2, (
-        f"created {games_after - games_before} games; the orphan is compounding"
+    assert games_after - games_before == 1, (
+        f"created {games_after - games_before} games; the failed attempt left an orphan"
     )
 
 

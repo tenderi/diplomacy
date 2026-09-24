@@ -158,6 +158,18 @@ docker compose restart diplomacy_bot
 The deploy leaves the checkout on a detached SHA; `upgrade.sh` by hand there
 rebuilds that SHA without pulling. `git checkout main` first to pull.
 
+## Admin operations
+
+Admin routes take the `X-Admin-Token` header (`DIPLOMACY_ADMIN_TOKEN` in `.env`). They are
+not exposed through the bot, which holds no admin token by design. On the VPS:
+
+```bash
+cd /root/diplomacy/new_implementation
+ADMIN="X-Admin-Token: $(grep ^DIPLOMACY_ADMIN_TOKEN= .env | cut -d= -f2-)"
+curl -X DELETE -H "$ADMIN" http://127.0.0.1:8000/admin/games/42    # delete one game (players are told)
+curl -H "$ADMIN" http://127.0.0.1:8000/games/42/export > game42.json  # saved-game export (W5)
+```
+
 ## Backups
 
 `backup.sh` writes `pg_dump | gzip` to `/var/backups/diplomacy/` and keeps 14

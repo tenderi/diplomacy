@@ -22,7 +22,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v2.7.98`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.99`. `main` green.
 - **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
   probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
   that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
@@ -664,10 +664,18 @@ that should be written down once so the question stops being re-asked.
 
 ## W11 — Delete a single game (admin)
 
-- [ ] `DELETE /games/{id}` (admin token) removing the game and everything hanging off it
-      (players, messages, snapshots, bot_outbox rows, pending proposals), plus a bot admin
-      command. Players are notified before the rows go. Replaces the waiting-list tests'
-      "documented residual".
+- [x] **Done, `v2.7.99`.** `DELETE /admin/games/{id}` (`X-Admin-Token`) →
+      `DatabaseService.delete_game`, one transaction. Found on the way: in the live schema
+      `players` and `messages` reference `games` with **`ON DELETE NO ACTION`** (the models
+      say CASCADE; no migration ever did), as do the legacy `game_history`/`game_snapshots`
+      tables nothing writes any more — so those four are cleared explicitly and the rest
+      cascades. Players are notified first (`bot_outbox` is keyed by Telegram id, so the
+      notices survive the delete) and each player's cached game list is invalidated.
+      **No bot command**: "admin" means holding `DIPLOMACY_ADMIN_TOKEN`, which the bot does
+      not have and should not; the curl line is in `docs/DEPLOYMENT.md` §Admin operations.
+      The waiting-list "documented residual" is gone too: a fill that fails after creating
+      its game now deletes the half-seated game (`test_waiting_list.py` asserts exactly one
+      game, and fails on the old code). Tests: `tests/test_admin_delete_game.py`.
 
 ## W7 — Order grammar accepts less than the old one (probably fine, but say so)
 
