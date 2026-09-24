@@ -158,7 +158,7 @@ HELP_TEXT = f"""
 
 *📝 Text Commands:*
 • `/orders <game_id> <orders>` - Submit orders
-• `/order <orders>` - Submit orders (auto-detect game)
+• `/order <orders>` - Submit orders (auto-detect game). Each one adds to your others; a new order for a unit replaces its old one
 • `/selectunit` - Interactive unit selection
 • `/processturn <game_id>` - Process current turn
 • `/deadline <game_id> <hours|clear>` - Set or remove the order deadline (auto-processes when it passes)

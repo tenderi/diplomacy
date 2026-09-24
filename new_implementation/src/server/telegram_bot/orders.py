@@ -236,7 +236,7 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     outcome = api_post_reliable(
         "/games/set_orders",
-        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": True},
         chat_id=user.id,
         description=_orders_description(game_id, power, order_list),
     )
@@ -285,7 +285,7 @@ async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     outcome = api_post_reliable(
         "/games/set_orders",
-        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id},
+        {"game_id": game_id, "power": power, "orders": order_list, "telegram_id": user_id, "merge": True},
         chat_id=user.id,
         description=_orders_description(game_id, power, order_list),
     )
@@ -1006,7 +1006,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
 
     outcome = api_post_reliable(
         "/games/set_orders",
-        {"game_id": game_id, "power": power, "orders": [order_text], "telegram_id": user_id},
+        {"game_id": game_id, "power": power, "orders": [order_text], "telegram_id": user_id, "merge": True},
         chat_id=query.from_user.id,
         description=_orders_description(game_id, power, [order_text]),
     )
