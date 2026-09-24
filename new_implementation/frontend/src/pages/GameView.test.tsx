@@ -575,7 +575,27 @@ const activeMovementState = {
 }
 const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]
 
-describe('GameView — process turn: gated on membership and confirmed', () => {
+describe('GameView — process turn: the creator only, and confirmed', () => {
+  it('hides it from a seated player who did not create the game, and says why', async () => {
+    const state = { ...activeMovementState, created_by_user_id: 2 }
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await within(container).findByText(/Only the game.s creator can process it early/i)).toBeInTheDocument()
+    expect(
+      within(container).queryByRole('button', { name: /resolve orders and advance/i })
+    ).not.toBeInTheDocument()
+  })
+
   it('hides the process-turn action entirely for a user with no power in the game', async () => {
     const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Other' }]
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, otherPlayers))
@@ -599,9 +619,10 @@ describe('GameView — process turn: gated on membership and confirmed', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('requires confirmation before calling process_turn for a member', async () => {
+  it('requires confirmation before calling process_turn for the creator', async () => {
     const onProcessTurn = vi.fn()
-    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { onProcessTurn }))
+    const state = { ...activeMovementState, created_by_user_id: 1 }
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers, { onProcessTurn }))
 
     render(
       <MemoryRouter initialEntries={['/games/10']}>
@@ -867,7 +888,7 @@ describe('GameView — 409 conflict handling', () => {
     const rawStaleMessage =
       "game 10: expected phase 'S1901M' but the persisted phase is 'F1901M' -- already processed concurrently"
     let processTurnCalls = 0
-    const fetchMock = stubFetchActive(activeMovementState, francePlayers, {
+    const fetchMock = stubFetchActive({ ...activeMovementState, created_by_user_id: 1 }, francePlayers, {
       processTurnResponse: () => {
         processTurnCalls += 1
         return jsonResponse({ detail: rawStaleMessage }, 409)

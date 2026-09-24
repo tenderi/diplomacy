@@ -454,58 +454,49 @@ def _authorize_process_turn(
     x_admin_token: Optional[str],
     telegram_id: Optional[str] = None,
 ) -> Optional[str]:
-    """Only the bot-secret path, an admin-token holder, or a user who holds a
-    power in this game may end this game's turn early.
+    """Only the game's creator may end its turn early -- plus the bot secret
+    and admin-token holders, who are not players.
 
-    **A Telegram player may do it only in a game they created** (the bot
-    passes the player's ``telegram_id``). In a Telegram game one player
-    pressing ``/processturn`` turned every other player's unsent orders into
-    holds; turns there end at the deadline or, with auto-process on, once all
-    orders are in. The creator keeps it -- the bot's demo game is created by
-    its player -- and a bare bot secret (scripts, the demo seeder) is trusted
-    as before.
+    Before this, any player seated in the game could (and, before E1d, any
+    logged-in stranger): one player pressing "Process turn" turned every other
+    player's unsent orders into holds. Turns end at the deadline or, with
+    auto-process on, as soon as every order is in; ending one early is the
+    creator's call. That applies to a web user (Bearer) and to a Telegram
+    player (the bot passes their ``telegram_id``); the bot's demo game is
+    created by its player, so it keeps working. A bare bot secret (scripts,
+    the demo seeder) is trusted as before. A game nobody created (a
+    waiting-list game) can be ended early only by an admin.
 
-    ``require_bot_or_user`` alone only checks that the caller is *someone*
-    authenticated, not that they're *in this game* -- combined with
-    ``require_all`` defaulting to ``false``, that let any logged-in stranger
-    browsing "All games" end a turn early for all seven powers, converting
-    everyone's unsubmitted units into holds. Everyone who fails all three
-    checks below gets 403.
-
-    Returns the authorizing player's ``telegram_id`` when the caller is a user
-    who holds a power here, else ``None`` (bot-secret and admin-token callers are
-    not players). The route uses it to skip notifying whoever pressed the button
-    -- they get the resolution in their HTTP response instead (G3).
+    Returns the authorizing player's ``telegram_id`` when the caller is a
+    player, else ``None``. The route uses it to skip notifying whoever pressed
+    the button -- they get the resolution in their HTTP response instead (G3).
     """
+    creator = (game_service.meta(game_id) or {}).get("created_by_user_id")
+    refused = HTTPException(
+        status_code=403,
+        detail=(
+            "Only the game's creator can end a turn early. The turn is processed "
+            "at the deadline, or as soon as every order is in if auto-process is on."
+        ),
+    )
     if x_bot_secret and BOT_SECRET and x_bot_secret == BOT_SECRET:
         if not telegram_id:
             return None
-        creator = (game_service.meta(game_id) or {}).get("created_by_user_id")
         player = db_service.get_user_by_telegram_id(str(telegram_id))
         if player is not None and creator is not None and int(player.id) == int(creator):
             return str(telegram_id)
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Only the game's creator can end a turn early. The turn is processed "
-                "at the deadline, or as soon as every order is in if auto-process is on."
-            ),
-        )
+        raise refused
     if x_admin_token and x_admin_token == ADMIN_TOKEN:
         return None
     user = get_current_user_optional(credentials)
-    if user is not None:
-        row = db_service.get_game_by_game_id(game_id)
-        if row is not None:
-            player = db_service.get_player_by_game_id_and_user_id(
-                game_id=int(row.id), user_id=int(user.id)
-            )
-            if player is not None:
-                # Direct attribute access, not getattr-with-default: `telegram_id`
-                # really is a column on UserModel, and defaulting it to None is
-                # what hid this whole bug class in notify_players.
-                return str(user.telegram_id) if user.telegram_id else None
-    raise HTTPException(status_code=403, detail="Not authorized to process this game's turn")
+    if user is None:
+        raise HTTPException(status_code=403, detail="Not authorized to process this game's turn")
+    if creator is None or int(user.id) != int(creator):
+        raise refused
+    # Direct attribute access, not getattr-with-default: `telegram_id` really is
+    # a column on UserModel, and defaulting it to None is what hid this whole
+    # bug class in notify_players.
+    return str(user.telegram_id) if user.telegram_id else None
 
 
 @router.post("/games/{game_id}/process_turn")
@@ -525,9 +516,9 @@ async def process_turn(
     behaviour) -- the deadline scheduler never passes it, since a missed deadline
     must still process whatever was submitted.
 
-    Only the bot-secret path (``X-Bot-Secret``), an admin-token holder
-    (``X-Admin-Token``), or a Bearer-authenticated user who holds a power in
-    this game may call this -- see ``_authorize_process_turn``. The deadline
+    Only the game's creator (Bearer, or a Telegram player via the bot), the
+    bot secret, or an admin-token holder may call this -- see
+    ``_authorize_process_turn``. The deadline
     scheduler bypasses this entirely: it calls ``GameService.process_turn``
     directly (``api/shared.py``'s ``process_due_deadlines``), never over HTTP.
 

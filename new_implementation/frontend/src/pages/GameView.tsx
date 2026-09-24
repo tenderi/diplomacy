@@ -78,6 +78,8 @@ type GameState = {
   dummy_powers?: string[]
   /** W8: joining needs the game's password (the creator is exempt). */
   private?: boolean
+  /** The user who created the game -- the only one who may end a turn early. */
+  created_by_user_id?: number | null
   orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
@@ -555,6 +557,7 @@ export default function GameView() {
   }, [gameId])
 
   const myPower = user ? players.find((p) => p.user_id === user.id)?.power : null
+  const isCreator = !!user && state?.created_by_user_id != null && state.created_by_user_id === user.id
   const takenPowers = new Set(players.filter((p) => p.user_id).map((p) => p.power))
   const dummyPowers = new Set(state?.dummy_powers ?? [])
   const availablePowers = POWERS.filter((p) => !takenPowers.has(p) && !dummyPowers.has(p))
@@ -768,7 +771,7 @@ export default function GameView() {
   }
 
   async function handleProcessTurn() {
-    if (!gameId || !myPower) return
+    if (!gameId || !isCreator) return
     setProcessing(true)
     setError('')
     try {
@@ -1284,13 +1287,20 @@ export default function GameView() {
         </section>
       )}
 
-      {myPower && state.status === 'ACTIVE' && (
+      {myPower && !isCreator && state.status === 'ACTIVE' && (
+        <p className="text-sm text-muted-foreground mb-6">
+          The turn is processed at the deadline, or as soon as every order is in if
+          auto-processing is on. Only the game&apos;s creator can process it early.
+        </p>
+      )}
+
+      {isCreator && state.status === 'ACTIVE' && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Process turn</h2>
           <p className="text-sm text-muted-foreground mb-2">
-            Resolves every power&apos;s orders for {state.phase} right now and advances the
-            game. Any unit without a submitted order will hold. This affects all seven powers
-            and cannot be undone.
+            You created this game, so you can resolve every power&apos;s orders for{' '}
+            {state.phase} right now and advance it. Any unit without a submitted order will
+            hold. This affects all seven powers and cannot be undone.
           </p>
           <AlertDialog>
             <AlertDialogTrigger asChild>
