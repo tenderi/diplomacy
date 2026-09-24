@@ -1,6 +1,6 @@
 [project]
 name = "diplomacy"
-version = "2.7.6"
+version = "3.0.0"
 description = "Diplomacy board game server (Python implementation)"
 requires-python = ">=3.14,<3.15"
 
