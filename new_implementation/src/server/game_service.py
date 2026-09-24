@@ -64,6 +64,7 @@ class GameService:
         created_by_user_id: Optional[int] = None,
         dummy_powers: Optional[list[str]] = None,
         auto_process: bool = False,
+        join_password_hash: Optional[str] = None,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -84,6 +85,7 @@ class GameService:
             created_by_user_id=created_by_user_id,
             dummy_powers=_check_dummy_set(dummy_powers or [], self._map),
             auto_process=auto_process,
+            join_password_hash=join_password_hash,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -249,6 +251,15 @@ class GameService:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id)
         self._repo.set_auto_process(game_id, enabled)
+
+    def join_password_hash(self, game_id: str) -> Optional[str]:
+        """W8: the private game's password hash (``None`` for an open game)."""
+        return self._repo.get_join_password_hash(game_id)
+
+    def set_join_password_hash(self, game_id: str, password_hash: Optional[str]) -> None:
+        if not self.exists(game_id):
+            raise OrderError(f"game {game_id} not found")
+        self._repo.set_join_password_hash(game_id, password_hash)
 
     def wait_flags(self, game_id: str) -> frozenset[str]:
         """Powers whose players asked the table to wait this phase."""
@@ -470,6 +481,7 @@ class GameService:
             "dummy_powers": meta.get("dummy_powers") or [],
             "auto_process": bool(meta.get("auto_process")),
             "wait_flags": meta.get("wait_flags") or [],
+            "private": bool(meta.get("private")),
             "orders": self._humanize_orders(pending, state),
         }
 
