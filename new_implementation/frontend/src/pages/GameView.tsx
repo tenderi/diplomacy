@@ -74,6 +74,8 @@ type GameState = {
   dislodged: DislodgedOut[]
   contested: string[]
   players: Record<string, { user_id: number | null; is_active: boolean }>
+  /** Powers played by civil disorder (W9): never joinable, never waited on. */
+  dummy_powers?: string[]
   orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
@@ -547,7 +549,8 @@ export default function GameView() {
 
   const myPower = user ? players.find((p) => p.user_id === user.id)?.power : null
   const takenPowers = new Set(players.filter((p) => p.user_id).map((p) => p.power))
-  const availablePowers = POWERS.filter((p) => !takenPowers.has(p))
+  const dummyPowers = new Set(state?.dummy_powers ?? [])
+  const availablePowers = POWERS.filter((p) => !takenPowers.has(p) && !dummyPowers.has(p))
 
   useEffect(() => { load() }, [load])
 
@@ -965,7 +968,11 @@ export default function GameView() {
         <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           {POWERS.map((p) => {
             const pl = players.find((x) => x.power === p)
-            const label = pl?.user_id ? pl.full_name || `Player #${pl.user_id}` : 'Open'
+            const label = pl?.user_id
+              ? pl.full_name || `Player #${pl.user_id}`
+              : dummyPowers.has(p)
+                ? 'Civil disorder'
+                : 'Open'
             return (
               <li
                 key={p}
@@ -1012,7 +1019,8 @@ export default function GameView() {
           {availablePowers.length > 0 ? (
             <>
               <p className="text-sm text-muted-foreground mb-2">
-                {takenPowers.size} / {POWERS.length} powers claimed
+                {takenPowers.size} / {POWERS.length - dummyPowers.size} powers claimed
+                {dummyPowers.size > 0 ? ` (${[...dummyPowers].join(', ')} in civil disorder)` : ''}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <select
@@ -1036,8 +1044,9 @@ export default function GameView() {
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              This game is full — all seven powers are claimed. You can still follow its
-              progress here.
+              This game is full — every seat is claimed
+              {dummyPowers.size > 0 ? ' or left to civil disorder' : ''}. You can still follow
+              its progress here.
             </p>
           )}
         </section>

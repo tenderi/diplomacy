@@ -23,7 +23,7 @@ from server.telegram_bot.help_text import DEMO_EXAMPLE_ORDERS, DEMO_UNITS, ORDER
 from server.telegram_bot.maps import send_default_map, send_game_map, map_command, replay
 from server.telegram_bot.games import (
     start, register, games, show_available_games, show_power_selection,
-    join, quit, replace, wait, leave_waiting_list, status, players, draw, nodraw, deadline
+    join, quit, replace, wait, leave_waiting_list, status, players, draw, nodraw, deadline, dummy
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
@@ -69,6 +69,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("clearorders", "Clear your submitted orders"),
     BotCommand("processturn", "Adjudicate the current phase"),
     BotCommand("deadline", "Show, set or clear a game's order deadline"),
+    BotCommand("dummy", "Leave an empty seat to civil disorder (game creator)"),
     BotCommand("draw", "Vote yes to end the game as a draw"),
     BotCommand("nodraw", "Withdraw a draw vote you cast"),
     BotCommand("viewmap", "View the current game map"),
@@ -432,6 +433,7 @@ def main():
     app.add_handler(CommandHandler("order", order))
     app.add_handler(CommandHandler("processturn", processturn))
     app.add_handler(CommandHandler("deadline", deadline))
+    app.add_handler(CommandHandler("dummy", dummy))
     app.add_handler(CommandHandler("viewmap", viewmap))
     app.add_handler(CommandHandler("selectunit", selectunit))
     app.add_handler(CommandHandler("myorders", myorders))
