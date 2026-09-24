@@ -8,7 +8,7 @@ from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
 import os
 
-from ..shared import db_service, server, logger, ADMIN_TOKEN
+from ..shared import db_service, server, logger, ADMIN_TOKEN, notify_players, reminder_sent
 from ...response_cache import get_cache_stats, clear_response_cache, invalidate_cache
 
 router = APIRouter()
@@ -21,6 +21,37 @@ def require_admin(x_admin_token: str = Header(...)) -> None:
 
 
 # --- Admin Endpoints ---
+@router.delete("/admin/games/{game_id}", dependencies=[Depends(require_admin)])
+def admin_delete_game(game_id: int) -> Dict[str, Any]:
+    """Delete one game and all of its data (admin only; W11).
+
+    The players are told first -- the notification rows live in ``bot_outbox``,
+    which is keyed by Telegram id, not by game, so they survive the delete and
+    are still delivered. Users are kept. Each player's cached game list is
+    invalidated so the game disappears from ``/mygames`` at once.
+    """
+    game = db_service.get_game_by_game_id(game_id)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    players = db_service.get_players_by_game_id(game_id)
+    telegram_ids = []
+    for player in players:
+        if player.user_id is None:
+            continue
+        user = db_service.get_user_by_id(int(player.user_id))
+        if user is not None and getattr(user, "telegram_id", None):
+            telegram_ids.append(str(user.telegram_id))
+    # A failure here means the database is failing, and the delete would too.
+    notify_players(game_id, f"Game {game_id} has been deleted by an admin.")
+    if not db_service.delete_game(game_id):
+        raise HTTPException(status_code=404, detail="Game not found")
+    reminder_sent.pop(game_id, None)
+    invalidate_cache(f"games/{game_id}")
+    for telegram_id in telegram_ids:
+        invalidate_cache(f"users/{telegram_id}")
+    return {"status": "ok", "game_id": game_id, "players_notified": len(telegram_ids)}
+
+
 @router.post("/admin/delete_all_games", dependencies=[Depends(require_admin)])
 def admin_delete_all_games() -> Dict[str, Any]:
     """Delete all games (admin only)"""
