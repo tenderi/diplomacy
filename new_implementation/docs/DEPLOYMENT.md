@@ -192,11 +192,15 @@ rclone config
 #   Storage>  protondrive
 #   username> the backups account's email
 #   password> y, then its password (stored obscured in /root/.config/rclone/rclone.conf)
-#   2fa>      the current 6-digit code if 2FA is on (only needed now; blank otherwise)
+#   2fa>      leave blank -- rclone only stores this, and a code is stale by first use
 #   mailbox_password> blank unless the account uses Proton's two-password mode
 #   everything else: the default; then y to keep the remote, q to quit
 chmod 600 /root/.config/rclone/rclone.conf
-rclone mkdir proton:diplomacy-backups
+# The first real login happens here, so give a *fresh* 2FA code now (omit the
+# flag if 2FA is off). After it succeeds rclone keeps a refreshing session and
+# never needs a code again. A stale code fails with
+# "422 POST .../auth/v4/2fa: Incorrect login credentials".
+rclone mkdir proton:diplomacy-backups --protondrive-2fa=123456
 cd /root/diplomacy/new_implementation && ./backup.sh   # expect "off-host copy done"
 ```
 

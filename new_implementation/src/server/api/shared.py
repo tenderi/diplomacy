@@ -6,6 +6,7 @@ multiple route modules to avoid circular imports and ensure consistency.
 """
 import asyncio
 import logging
+import math
 import os
 import pytz
 from datetime import datetime, timezone, timedelta
@@ -320,6 +321,10 @@ class DeadlineProposalError(ValueError):
     checked separately, before any of these functions are called."""
 
 
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return value.isoformat() if value is not None else None
+
+
 def deadline_proposal_view(proposal: Dict[str, Any], active: frozenset[str]) -> Dict[str, Any]:
     """The proposal, decorated with tallies against the current active-power set."""
     votes = proposal.get("votes") or {}
@@ -360,14 +365,47 @@ def _deadline_vote_outcome(votes: Dict[str, str], active: frozenset[str]) -> Opt
     return None
 
 
-def _apply_deadline_proposal(numeric_game_id: int, value_hours: Optional[float]) -> None:
-    """``value_hours=None`` means the proposal was to clear the deadline."""
-    if value_hours is None:
-        db_service.update_game_deadline(numeric_game_id, None)
-    else:
-        db_service.update_game_deadline(
-            numeric_game_id, datetime.now(timezone.utc) + timedelta(hours=value_hours)
+# Same ceiling the bot's /deadline enforces for both a unilateral set and a
+# proposal: 30 days.
+MAX_DEADLINE_PROPOSAL_HOURS = 24 * 30
+
+
+def _check_proposal_hours(name: str, value: Optional[float]) -> None:
+    """Refuse a non-finite, non-positive or over-long ``hours``/``vote_hours``.
+
+    Until this check the API took any float: a negative ``hours`` that won its
+    vote set a deadline in the past (the scheduler then processed the turn on
+    its next tick), and ``NaN``/``Infinity``/``1e12`` raised out of
+    ``timedelta`` as a 500 -- for ``hours``, only when the deciding vote came
+    in, after the proposal had already been cleared.
+    """
+    if value is None:
+        return
+    if not math.isfinite(value) or not 0 < value <= MAX_DEADLINE_PROPOSAL_HOURS:
+        raise DeadlineProposalError(
+            f"{name} must be more than 0 and at most {MAX_DEADLINE_PROPOSAL_HOURS} (30 days)"
         )
+
+
+def _apply_deadline_proposal(numeric_game_id: int, value_hours: Optional[float]) -> Optional[datetime]:
+    """Set (or, with ``value_hours=None``, clear) the deadline an accepted
+    proposal asked for, and return it.
+
+    Resets the 10-minute reminder flag, as ``POST .../deadline`` does: a new
+    deadline gets its own reminder even if the old one's already fired.
+    """
+    deadline = None if value_hours is None else datetime.now(timezone.utc) + timedelta(hours=value_hours)
+    db_service.update_game_deadline(numeric_game_id, deadline)
+    reminder_sent[numeric_game_id] = False
+    return deadline
+
+
+def format_deadline_utc(deadline: Optional[datetime]) -> str:
+    """``"2026-09-25 07:33 UTC"``, or ``"no deadline"`` -- for player notifications."""
+    if deadline is None:
+        return "no deadline"
+    aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def propose_deadline(
@@ -402,8 +440,8 @@ def propose_deadline(
             f"A deadline proposal is already pending in game {game_id}; it must "
             f"resolve or be withdrawn (/deadline {game_id} withdraw) first."
         )
-    if vote_hours is not None and vote_hours <= 0:
-        raise DeadlineProposalError("vote_hours must be > 0 if given")
+    _check_proposal_hours("hours", value_hours)
+    _check_proposal_hours("vote_hours", vote_hours)
 
     now = datetime.now(timezone.utc)
     proposal: Dict[str, Any] = {
@@ -415,8 +453,8 @@ def propose_deadline(
     }
     # A one-active-power edge case resolves on the spot.
     if _deadline_vote_outcome(proposal["votes"], active) == "accepted":
-        _apply_deadline_proposal(numeric_game_id, value_hours)
-        return {"status": "accepted", **deadline_proposal_view(proposal, active)}
+        deadline = _apply_deadline_proposal(numeric_game_id, value_hours)
+        return {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)}
     db_service.set_pending_deadline_proposal(game_id, proposal)
     return {"status": "pending", **deadline_proposal_view(proposal, active)}
 
@@ -446,9 +484,11 @@ def vote_on_deadline_proposal(
 
     outcome = _deadline_vote_outcome(votes, active)
     if outcome == "accepted":
+        # Apply first: if it raises, the proposal must still be pending, not
+        # silently gone with nothing changed.
+        deadline = _apply_deadline_proposal(numeric_game_id, proposal.get("value_hours"))
         db_service.set_pending_deadline_proposal(game_id, None)
-        _apply_deadline_proposal(numeric_game_id, proposal.get("value_hours"))
-        return {"status": "accepted", **deadline_proposal_view(proposal, active)}
+        return {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)}
     if outcome == "rejected":
         db_service.set_pending_deadline_proposal(game_id, None)
         return {"status": "rejected", **deadline_proposal_view(proposal, active)}

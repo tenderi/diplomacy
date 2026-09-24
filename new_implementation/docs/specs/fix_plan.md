@@ -22,7 +22,13 @@
 
 ## Status
 
-- **Last updated:** 2026-09-23, at `v2.7.96`. `main` green.
+- **Last updated:** 2026-09-24, at `v2.7.97`. `main` green.
+- **Y2 — deadline-proposal hardening, landed `v2.7.97`** (bug hunt over Track Y's new code,
+  probed against the local Postgres): unchecked `hours`/`vote_hours` (a negative `hours`
+  that won its vote set a deadline in the past; `NaN`/`Infinity`/`1e12` were 500s, the last
+  one only on the deciding vote, *after* the proposal was deleted), an accepted proposal
+  never re-armed the 10-minute reminder, and a finished game still took deadline writes.
+  See Y2 below.
 - **Track Y — majority-vote deadline proposals, landed `v2.7.96`.** The maintainer,
   after reviewing Track X's channel proposal-voting stub, decided that feature wasn't
   worth finishing (it was never reachable from any real bot command anyway) and asked
@@ -375,6 +381,43 @@ doesn't):
 
 ---
 
+## Y2 — Deadline-proposal hardening (bug hunt) — **done, `v2.7.97`**
+
+Found by probing the Track Y routes over the real local Postgres (scratchpad script driving
+`TestClient`), not by review. Each finding below was reproduced before it was fixed.
+
+- [x] **`hours` and `vote_hours` were never range-checked** by the API (the bot checked
+      `hours` but not `vote_hours`, and a browser caller skips the bot entirely).
+      `hours: -5`, once voted through, stored a deadline five hours in the past — the
+      scheduler processes such a turn on its next tick. `hours: NaN` and
+      `vote_hours: Infinity` were 500s on propose. `hours: 1e12` was accepted into the vote
+      and then 500'd on the *deciding* yes — after `vote_on_deadline_proposal` had already
+      cleared the proposal, so the majority's vote vanished with nothing applied and nobody
+      told. Now `api.shared._check_proposal_hours`: finite, `> 0`, `≤ 720` (the bot's own
+      30-day ceiling) → 400. The bot checks `vote_hours` too.
+- [x] **Apply before clear.** The deciding vote now writes the deadline first and deletes
+      the proposal second, so any failing write leaves it pending with its votes.
+- [x] **An accepted proposal never re-armed the 10-minute reminder.** `POST .../deadline`
+      resets `reminder_sent`; `_apply_deadline_proposal` did not, so a table that extended
+      the deadline by vote after the old reminder fired got no reminder for the new one.
+- [x] **Accepted means a time.** The accept responses now carry the applied `deadline`, and
+      the notifications and the bot's replies say "deadline now 2026-09-25 07:33 UTC"
+      instead of "now 12.0h" (twelve hours from *when*?). The bot falls back to
+      "12.0h from now" if it meets an older API mid-deploy.
+- [x] **A finished game took deadline writes** — propose, vote, and the unilateral
+      `POST .../deadline` all returned 200 on a `completed` game, fanning out "deadline set"
+      news about a game that is over. The scheduler ignored it (it only reads `active`
+      games), so no turn was ever processed, but Track L's rule is "no writes on a finished
+      game": all three now 409. Withdrawing a pending proposal stays allowed.
+
+Tests: `test_deadline_voting.py` (7-case range parametrization, applied deadline returned,
+reminder re-armed, finished game → 409, failed apply leaves the proposal pending) and
+`test_deadline_command.py` (bad vote window refused before any HTTP, accepted reply shows
+the time, older-API fallback). All but the ordering test were run against the pre-fix code
+and failed there.
+
+---
+
 # Track X — Telegram bot command audit
 
 ## Why this track exists
@@ -537,7 +580,7 @@ and landed as `v2.7.90` (Track W above). The rest of the audit is below, unchang
 - [x] `git rm -r old_implementation/`. Full suite green afterwards (1634 passed, 10 xfailed) —
       confirmed the audit's "nothing imports from it" finding for real, not just by grep.
 
-## W1 — A deadline-triggered turn took no snapshot (bug, new code) — **half fixed**
+## W1 — A deadline-triggered turn took no snapshot (bug, new code) — **done** (snapshot half fixed; re-arm half deliberately not ported)
 
 **Finding (`cfa8d93`).** The two `process_turn` triggers had drifted again — the same class
 of bug G3 fixed for notifications, one layer down: the manual route wrote a
@@ -652,12 +695,13 @@ to use, which no test asserts.
 - [ ] **Maintainer:** delete the now-unused `DIPLOMACY_BOT_SECRET` repository secret
       (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); it held the Telegram
       token by mistake, and nothing reads it any more.
-- [ ] **Maintainer:** connect off-host backups. Decided 2026-09-23: Proton Drive, via rclone
-      on the VPS, signed in to the maintainer's **own paid Proton account** (chosen 2026-09-23
-      over a backups-only account, accepting that the VPS then holds a full-drive login). `backup.sh` and rclone are in place since
-      `v2.7.87`; rclone 1.75.1 is installed on the VPS; what is left is the interactive
-      `rclone config` (remote `proton`, type `protondrive`, password + 2FA), `rclone mkdir proton:diplomacy-backups` and one `./backup.sh`
-      showing `off-host copy done` — the exact steps are in `docs/DEPLOYMENT.md` §Backups.
+- [x] **Maintainer:** connect off-host backups — **done 2026-09-24.** Proton Drive via
+      rclone 1.75.1 on the VPS, signed in to the maintainer's own paid Proton account (chosen
+      over a backups-only account, accepting that the VPS holds a full-drive login). The first
+      login failed with `422 ... /auth/v4/2fa` because `rclone config` only *stores* the 2FA
+      code and the first real login came a day later; a fresh code passed as
+      `--protondrive-2fa=<code>` on the first command fixed it. `proton:diplomacy-backups`
+      held three dumps right after.
 
 ## F4 — TLS in front of the web frontend
 
