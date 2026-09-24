@@ -61,6 +61,8 @@ class GameModel(Base):
     auto_process = Column(Boolean, nullable=True)
     # W10: {power: true} -- "don't process yet". Cleared whenever a turn is processed.
     wait_flags = Column(JSON, nullable=True)
+    # W8: bcrypt hash of the join password; null = open game. Never serialized.
+    join_password_hash = Column(String(100), nullable=True)
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

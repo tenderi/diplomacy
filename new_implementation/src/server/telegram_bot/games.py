@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 
 import requests
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
@@ -763,7 +764,8 @@ async def show_available_games(update: Update, context: ContextTypes.DEFAULT_TYP
             players = game.get('player_count', 0)
             max_players = game.get('max_players', 7)
 
-            game_text = f"Game {game_id} | {status} | {players}/{max_players} players"
+            lock = "🔒 " if game.get("private") else ""
+            game_text = f"{lock}Game {game_id} | {status} | {players}/{max_players} players"
             keyboard.append([InlineKeyboardButton(game_text, callback_data=f"select_game_{game_id}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -794,6 +796,14 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
     }
     # Civil-disorder dummies (W9) are not joinable; the game's creator opens them.
     taken_powers |= set(game_state.get("dummy_powers") or [])
+    if game_state.get("private"):
+        # W8: a button can't carry a password, so it would only be refused.
+        open_seats = [p for p in POWERS if p not in taken_powers]
+        return (
+            f"🔒 Game {game_id} is private. Open seats: {', '.join(open_seats) or 'none'}.\n"
+            f"Join with `/join {game_id} <POWER> <password>` -- ask the game's creator for the password.",
+            None,
+        )
 
     keyboard = []
     for power in POWERS:
@@ -823,6 +833,23 @@ async def show_power_selection(update: Update, game_id: str) -> None:
     await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
+async def _join_password_arg(update: Update, args: list[str], index: int) -> Optional[str]:
+    """W8: the join password from ``args[index:]`` (it may contain spaces), or None.
+
+    When one is given, the player's message is deleted -- best effort; bots may
+    delete incoming messages in private chats -- so the password does not sit
+    in the chat history.
+    """
+    if len(args) <= index:
+        return None
+    if update.message is not None:
+        try:
+            await update.message.delete()
+        except TelegramError:
+            pass
+    return " ".join(args[index:])
+
+
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /join command.
 
@@ -839,7 +866,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(user.id)
     args = context.args if context.args is not None else []
     if len(args) < 1:
-        await update.message.reply_text("Usage: /join <game_id> [power]")
+        await update.message.reply_text("Usage: /join <game_id> [power] [password]")
         return
     game_id = args[0]
 
@@ -853,8 +880,12 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     power = args[1].upper()
+    password = await _join_password_arg(update, args, 2)
+    payload: dict = {"telegram_id": user_id, "game_id": int(game_id), "power": power}
+    if password is not None:
+        payload["join_password"] = password
     try:
-        result = api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": power})
+        result = api_post(f"/games/{game_id}/join", payload)
         if result.get("status") == "ok":
             await update.message.reply_text(f"🎉 Successfully joined Game {game_id} as {power}!")
         elif result.get("status") == "already_joined":
@@ -905,12 +936,16 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(user.id)
     args = context.args if context.args is not None else []
     if len(args) < 2:
-        await update.message.reply_text("Usage: /replace <game_id> <power>")
+        await update.message.reply_text("Usage: /replace <game_id> <power> [password]")
         return
     game_id = args[0]
     power = args[1].upper()
     try:
-        result = api_post(f"/games/{game_id}/replace", {"telegram_id": user_id, "power": power})
+        replace_payload: dict = {"telegram_id": user_id, "power": power}
+        replace_password = await _join_password_arg(update, args, 2)
+        if replace_password is not None:
+            replace_payload["join_password"] = replace_password
+        result = api_post(f"/games/{game_id}/replace", replace_payload)
         if result.get("status") == "ok":
             await update.message.reply_text(f"✅ Successfully replaced player for {power} in Game {game_id}!")
         else:

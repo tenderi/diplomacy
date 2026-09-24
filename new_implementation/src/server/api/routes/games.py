@@ -11,6 +11,7 @@ from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
+from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
@@ -38,6 +39,8 @@ class CreateGameRequest(BaseModel):
     dummy_powers: List[str] = []
     # W10: process each turn as soon as all orders are in (and nobody waits).
     auto_process: bool = False
+    # W8: make the game private -- /join then needs this password (the creator is exempt).
+    join_password: Optional[str] = None
     # The bot's way of saying who is creating the game (a browser caller is the
     # Bearer user); recorded as the game's creator.
     telegram_id: Optional[str] = None
@@ -100,6 +103,7 @@ class JoinGameRequest(BaseModel):
     bot_secret: Optional[str] = None
     game_id: Optional[int] = None  # redundant with the path; validated to agree if sent
     power: str
+    join_password: Optional[str] = None  # W8: required for a private game
 
 class QuitGameRequest(BaseModel):
     telegram_id: Optional[str] = None
@@ -110,6 +114,55 @@ class ReplacePlayerRequest(BaseModel):
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
     power: str
+    join_password: Optional[str] = None  # W8: required for a private game
+
+
+class JoinPasswordRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/join_password`` (W8). Null opens the game."""
+    join_password: Optional[str] = None
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+
+# W8: wrong-password guesses per user per game, as tight as the login limit.
+_JOIN_PASSWORD_RATE_LIMIT_MAX = 5
+_JOIN_PASSWORD_RATE_LIMIT_WINDOW = 900  # 15 minutes
+
+
+def _checked_join_password(password: Optional[str]) -> Optional[str]:
+    """The bcrypt hash for a new join password, or None to open the game."""
+    if password is None:
+        return None
+    if not 4 <= len(password) <= 64:
+        raise HTTPException(status_code=400, detail="A join password must be 4-64 characters.")
+    return _hash_password(password)
+
+
+def _require_join_password(game_id: str, user: Any, supplied: Optional[str]) -> None:
+    """Refuse (403) to seat ``user`` in a private game without its password (W8).
+
+    Open games and the game's creator pass. Failed guesses count against a
+    per-user, per-game budget (429 once it's spent), like login attempts.
+    """
+    password_hash = game_service.join_password_hash(game_id)
+    if password_hash is None:
+        return
+    creator = (game_service.meta(game_id) or {}).get("created_by_user_id")
+    if creator is not None and int(creator) == int(user.id):
+        return
+    key = f"join_pw:{game_id}:{user.id}"
+    _check_rate_limit(key, _JOIN_PASSWORD_RATE_LIMIT_MAX, _JOIN_PASSWORD_RATE_LIMIT_WINDOW)
+    if supplied and _verify_password(supplied, password_hash):
+        return
+    _record_attempt(key)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"Game {game_id} is private: ask its creator for the join password."
+            if not supplied
+            else f"Wrong join password for game {game_id}."
+        ),
+    )
 
 class MarkInactiveRequest(BaseModel):
     admin_token: str
@@ -204,10 +257,35 @@ def create_game(
             created_by_user_id=creator_id,
             dummy_powers=req.dummy_powers,
             auto_process=req.auto_process,
+            join_password_hash=_checked_join_password(req.join_password),
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"game_id": game_id}
+
+
+@router.post("/games/{game_id}/join_password")
+def set_join_password(
+    game_id: str,
+    req: JoinPasswordRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Set, change, or (with ``null``) remove a game's join password (W8).
+
+    Creator or admin only; a game with no recorded creator is admin-only.
+    Players already seated are unaffected.
+    """
+    meta = game_service.meta(game_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+    if x_admin_token is None or x_admin_token != ADMIN_TOKEN:
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
+            raise HTTPException(status_code=403, detail="Only the game's creator can change its join password.")
+    game_service.set_join_password_hash(game_id, _checked_join_password(req.join_password))
+    invalidate_cache(f"games/{game_id}")
+    return {"status": "ok", "private": req.join_password is not None}
 
 
 @router.post("/games/{game_id}/auto_process")
@@ -674,6 +752,7 @@ def list_games() -> Dict[str, Any]:
                 # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
                 "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
                 "dummy_powers": sorted(g.dummy_powers or []),
+                "private": g.join_password_hash is not None,  # W8; never the hash
                 "players": [{"power": p.power_name, "user_id": p.user_id} for p in players]
             })
         return {"games": result}
@@ -812,6 +891,7 @@ def join_game(
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
             return {"status": "already_joined", "player_id": existing.id}
+        _require_join_password(str(game_id), user, req.join_password)
         # Check if power is taken. A seat row with no user is *vacant* (its
         # player quit, or an admin marked it inactive): joining it is the
         # ordinary way back in -- the web client lists such seats as "Open",
@@ -921,6 +1001,7 @@ def replace_player(
         already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if already_in_game:
             raise HTTPException(status_code=400, detail="User is already in the game")
+        _require_join_password(str(game_id), user, req.join_password)
         # Fill the seat: user_id -> user, is_active -> True, one commit.
         db_service.assign_player_seat(int(player.id), int(user.id), True)  # type: ignore
         telegram_id_val = getattr(user, "telegram_id", None)

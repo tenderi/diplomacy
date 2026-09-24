@@ -76,6 +76,8 @@ type GameState = {
   players: Record<string, { user_id: number | null; is_active: boolean }>
   /** Powers played by civil disorder (W9): never joinable, never waited on. */
   dummy_powers?: string[]
+  /** W8: joining needs the game's password (the creator is exempt). */
+  private?: boolean
   orders: Record<string, string[]>
 }
 type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
@@ -497,6 +499,7 @@ export default function GameView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [joinPower, setJoinPower] = useState('')
+  const [joinPassword, setJoinPassword] = useState('')
   const [joining, setJoining] = useState(false)
   /** One order string per unit (unit id e.g. "A PAR"); used for Movement and Retreat. */
   const [orderByUnit, setOrderByUnit] = useState<Record<string, string>>({})
@@ -720,9 +723,14 @@ export default function GameView() {
     try {
       await apiJson(`/games/${gameId}/join`, {
         method: 'POST',
-        body: JSON.stringify({ game_id: parseInt(gameId, 10), power: joinPower }),
+        body: JSON.stringify({
+          game_id: parseInt(gameId, 10),
+          power: joinPower,
+          ...(joinPassword ? { join_password: joinPassword } : {}),
+        }),
       })
       setJoinPower('')
+      setJoinPassword('')
       load()
       setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
     } catch (e) {
@@ -1095,6 +1103,7 @@ export default function GameView() {
           {availablePowers.length > 0 ? (
             <>
               <p className="text-sm text-muted-foreground mb-2">
+                {state.private ? '🔒 Private game — ask its creator for the password. ' : ''}
                 {takenPowers.size} / {POWERS.length - dummyPowers.size} powers claimed
                 {dummyPowers.size > 0 ? ` (${[...dummyPowers].join(', ')} in civil disorder)` : ''}
               </p>
@@ -1113,6 +1122,20 @@ export default function GameView() {
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
+                {state.private && (
+                  <input
+                    type="password"
+                    value={joinPassword}
+                    onChange={(e) => setJoinPassword(e.target.value)}
+                    placeholder="Game password"
+                    aria-label="Game password"
+                    autoComplete="off"
+                    className={cn(
+                      'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                    )}
+                  />
+                )}
                 <Button onClick={handleJoin} disabled={!joinPower || joining}>
                   {joining ? 'Joining...' : 'Join'}
                 </Button>

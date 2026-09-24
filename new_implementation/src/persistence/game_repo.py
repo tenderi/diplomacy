@@ -127,6 +127,8 @@ class GameRepo:
                 "created_by_user_id": row.created_by_user_id,
                 "auto_process": bool(row.auto_process),
                 "wait_flags": sorted(p for p, on in (row.wait_flags or {}).items() if on),
+                # W8: whether joining needs a password -- never the hash itself.
+                "private": row.join_password_hash is not None,
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -155,6 +157,7 @@ class GameRepo:
         created_by_user_id: Optional[int] = None,
         dummy_powers: Optional[list[str]] = None,
         auto_process: bool = False,
+        join_password_hash: Optional[str] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -180,6 +183,7 @@ class GameRepo:
                 dummy_powers=sorted(dummy_powers or []),
                 auto_process=auto_process,
                 wait_flags={},
+                join_password_hash=join_password_hash,
             )
             session.add(row)
             session.flush()  # assign the integer PK
@@ -304,6 +308,20 @@ class GameRepo:
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.pending_orders = pending
+            session.commit()
+
+    def get_join_password_hash(self, game_id: str) -> Optional[str]:
+        """W8: the bcrypt hash, for verifying a join. Deliberately not in ``get_meta``."""
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            return None if row is None else row.join_password_hash
+
+    def set_join_password_hash(self, game_id: str, password_hash: Optional[str]) -> None:
+        with self._session_factory() as session:
+            row = self._row(session, game_id)
+            if row is None:
+                raise ValueError(f"game {game_id} not found")
+            row.join_password_hash = password_hash
             session.commit()
 
     def set_auto_process(self, game_id: str, enabled: bool) -> None:
