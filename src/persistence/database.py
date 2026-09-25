@@ -91,6 +91,11 @@ class GameModel(Base):
     # {"proposed_by": power, "value_hours": float|None, "votes": {power: "yes"|"no"},
     #  "vote_deadline": iso|None, "created_at": iso}.
     pending_deadline_proposal = Column(JSON, nullable=True)
+    # A standing weekly schedule ("Mon, Wed, Fri at 16:00"); while set, every
+    # phase's deadline is armed to its next slot (``server.deadline_schedule``).
+    # Shape: {"timezone": iana, "slots": [{"day": "MON", "time": "16:00"}]}.
+    # NULL = no schedule: deadlines exist only when set explicitly.
+    deadline_schedule = Column(JSON, nullable=True)
     channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate

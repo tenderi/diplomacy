@@ -20,6 +20,7 @@ from ..shared import (
     notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
     post_to_game_group,
 )
+from ...deadline_schedule import ScheduleError, parse_schedule
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.game_repo import StaleGameError
@@ -36,6 +37,10 @@ class CreateGameRequest(BaseModel):
     # from it explicitly); does not itself arm a deadline at creation -- Track N
     # decided deadlines exist only when set explicitly.
     phase_length_seconds: Optional[int] = None
+    # A weekly deadline schedule, e.g. "Mon,Wed,Fri 16:00" in ``deadline_timezone``
+    # (see ``server.deadline_schedule``). Arms the first deadline once the game fills.
+    deadline_schedule: Optional[str] = None
+    deadline_timezone: str = "UTC"
     # Powers to leave to civil disorder from the start (W9): nobody may join
     # them and nobody waits on them. At most six -- one seat stays human.
     dummy_powers: List[str] = []
@@ -86,6 +91,14 @@ class SetDeadlineRequest(BaseModel):
     # route can check they are in the game and leave them out of the
     # "deadline set" fan-out (they get the reply). A browser caller is the
     # Bearer user.
+    telegram_id: Optional[str] = None
+    bot_secret: Optional[str] = None
+
+class DeadlineScheduleRequest(BaseModel):
+    """Body for ``POST /games/{game_id}/deadline/schedule``."""
+    # "Mon,Wed,Fri 16:00", or "mon-fri 18:00; sun 12:00"; null removes the schedule.
+    schedule: Optional[str] = None
+    timezone: str = "UTC"  # IANA name the slot times are read in
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
 
@@ -262,6 +275,12 @@ def create_game(
             status_code=400,
             detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
         )
+    schedule = None
+    if req.deadline_schedule:
+        try:
+            schedule = parse_schedule(req.deadline_schedule, req.deadline_timezone).to_json()
+        except ScheduleError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     # The creator, when the caller is a person: a Bearer user, or the bot passing
     # telegram_id. A bare X-Bot-Secret (the demo seeder) creates an ownerless game.
     creator_id: Optional[int] = None
@@ -276,6 +295,7 @@ def create_game(
             dummy_powers=req.dummy_powers,
             auto_process=req.auto_process,
             join_password_hash=_checked_join_password(req.join_password),
+            deadline_schedule=schedule,
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -970,18 +990,19 @@ def join_game(
         # Game start notification
         try:
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
-            if game is not None and hasattr(game, "map_name") and (game.map_name == "standard"):  # type: ignore
-                required_powers = 7
-            else:
-                required_powers = 7
-            player_count = len(db_service.get_players_by_game_id(int(game.id))) if game and game.id is not None else 0  # type: ignore
             # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
-            player_count += len(view.get("dummy_powers", [])) if view is not None else 0
             # Only a *new* seat can complete the table: taking over a vacated one
             # (its row already counted) is a replacement mid-game, and used to
             # re-announce "the game has started" to everyone.
-            if taken is None and player_count >= required_powers:
-                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.", buttons=game_buttons(game_id))  # type: ignore
+            if game is not None and taken is None and api_shared.seats_filled(str(game_id), int(game.id)):
+                # A weekly schedule arms the first deadline now the game has started.
+                first = api_shared.arm_scheduled_deadline(str(game_id), int(game.id))
+                due = (
+                    f" First deadline: {api_shared.format_scheduled_deadline(first, api_shared.game_schedule(str(game_id)))}."
+                    if first is not None
+                    else ""
+                )
+                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.{due}", buttons=game_buttons(game_id))  # type: ignore
                 post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify game start: {e}")
@@ -1133,6 +1154,8 @@ def get_deadline(game_id: str) -> Dict[str, Any]:
             # The recurring length a caller can arm a deadline from via this
             # route's POST; None means the default, 0 means none was set.
             "phase_length_seconds": getattr(game, "phase_length_seconds", None),
+            # The weekly schedule that arms each phase's deadline, or None.
+            "schedule": api_shared.schedule_view(api_shared.game_schedule(game_id)),
             "pending_proposal": pending_proposal,
         }
     except HTTPException:
@@ -1254,6 +1277,63 @@ def withdraw_deadline_proposal(
         raise HTTPException(status_code=400, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
     return result
+
+@router.post("/games/{game_id}/deadline/schedule")
+def set_deadline_schedule(
+    game_id: str,
+    req: DeadlineScheduleRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Set (or, with ``schedule: null``, remove) the game's weekly deadline
+    schedule, e.g. ``"Mon,Wed,Fri 16:00"`` in ``timezone``.
+
+    Any player in the game may, like setting a deadline. Setting one arms the
+    current phase's deadline to the next slot at once if the game has started
+    (otherwise when it fills); after that every processed turn arms the next.
+    Removing it leaves the current phase's deadline as it is.
+    """
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    user = resolve_user_or_telegram(
+        credentials, req.telegram_id, bot_secret=req.bot_secret or x_bot_secret
+    )
+    if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
+        raise HTTPException(status_code=403, detail="You are not a player in this game.")
+    _refuse_deadline_change_if_over(game)
+    schedule = None
+    if req.schedule is not None:
+        try:
+            schedule = parse_schedule(req.schedule, req.timezone)
+        except ScheduleError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    db_service.update_game_deadline_schedule(int(game.id), schedule.to_json() if schedule else None)
+    deadline = api_shared.arm_scheduled_deadline(game_id, int(game.id)) if schedule else None
+    invalidate_cache(f"games/{game_id}")
+
+    try:
+        if schedule is None:
+            text = (
+                f"Game {game_id} no longer has a weekly deadline schedule. The current "
+                f"deadline stays; later phases get one only if someone sets it."
+            )
+        else:
+            text = f"Game {game_id}'s deadlines are now {schedule.describe()}."
+            if deadline is not None:
+                text += f" This phase's deadline: {api_shared.format_scheduled_deadline(deadline, schedule)}."
+            else:
+                text += " The first deadline is set when the game fills."
+        notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
+        post_to_game_group(game_id, f"⏰ {text}")
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify deadline schedule change for game {game_id}: {e}")
+    return {
+        "status": "ok",
+        "schedule": api_shared.schedule_view(schedule),
+        "deadline": deadline.isoformat() if deadline else None,
+    }
+
 
 @router.post("/games/{game_id}/deadline")
 def set_deadline(

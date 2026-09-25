@@ -69,9 +69,11 @@ the web app if you need to re-link.
 | `/status [game_id]` | Current phase, deadline, who has submitted orders, and the draw-vote tally. |
 | `/draw [game_id]` | Vote yes to end the game as a draw. If your vote completes quorum — every surviving power has voted yes — the game ends immediately. |
 | `/nodraw [game_id]` | Withdraw a draw vote you previously cast. |
-| `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; nothing sets one for you. |
+| `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; only a weekly schedule (below) sets the next one for you. |
 | `/deadline <game_id> clear` | Remove the deadline. |
-| `/deadline <game_id>` | Show the current deadline. |
+| `/deadline <game_id>` | Show the current deadline and the weekly schedule, if any. |
+| `/deadline <game_id> schedule <days> <HH:MM> [timezone]` | A deadline every week at those times, e.g. `schedule mon,wed,fri 16:00 Europe/Helsinki` (days may be names, ranges such as `mon-fri`, or `daily`; separate groups with different times by `;`, e.g. `mon-fri 18:00; sun 12:00`). The timezone is an IANA name and defaults to UTC. Every phase, retreats and builds included, is then due at the next slot at least an hour away, armed when the game fills and after each turn. A one-off `/deadline <game_id> <hours>` still overrides the current phase only. Everyone is told. |
+| `/deadline <game_id> schedule off` | Stop the weekly schedule. The current deadline stays; later phases get none unless someone sets one. |
 | ⏰ Deadline (game menu) | Propose 12h / 24h / 48h / no deadline to a majority vote, vote ✅/❌ on a pending proposal, or withdraw your own. (`/deadline <game_id> propose <hours\|clear> [vote_hours]`, `vote <yes\|no>` and `withdraw` do the same by typing.) |
 | `/autoprocess <game_id> on\|off` | Any player: process each turn the moment every power with something to order has sent an order **for every unit that must act** (to keep a unit still, order it to hold) (civil-disorder powers are never waited on), unless someone is `/notready`. A deadline still applies. Off by default. |
 | `/notready [game_id]` | Ask the table to wait before the turn auto-processes ("I'm still negotiating"). Lasts until `/ready` or the end of the phase. Never stops a deadline. |
