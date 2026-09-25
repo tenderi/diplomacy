@@ -518,36 +518,6 @@ class ChannelTimelineEventModel(Base):
     game = relationship("GameModel")
 
 
-class ChannelAnalyticsModel(Base):
-    """Channel analytics table. **Nothing reads or writes it** since Track AH (`v3.0.13`):
-    the only writer was bot-side posting code that never ran, the only reader the
-    admin dashboard (removed). Kept so the model matches the migrations until the
-    maintainer drops the table (``docs/specs/fix_plan.md``, Track AQ)."""
-    __tablename__ = 'channel_analytics'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    channel_id = Column(String(255), nullable=False)
-    event_type = Column(String(50), nullable=False)  # 'message_posted', 'player_activity', 'order_submitted', 'vote_cast', 'message_read'
-    event_subtype = Column(String(50), nullable=True)  # 'map', 'broadcast', 'battle_results', 'dashboard', 'notification'
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # User who triggered the event
-    power = Column(String(20), nullable=True)  # Power associated with the event
-    event_data = Column(JSON, nullable=True)  # Additional event data (message_id, response_time, etc.)
-    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
-    
-    # Indexes for efficient querying
-    __table_args__ = (
-        Index('ix_channel_analytics_game_channel', 'game_id', 'channel_id'),
-        Index('ix_channel_analytics_event_type', 'event_type'),
-        Index('ix_channel_analytics_created_at', 'created_at'),
-        Index('ix_channel_analytics_user', 'user_id'),
-    )
-    
-    # Relationships
-    game = relationship("GameModel")
-    user = relationship("UserModel")
-
-
 class TournamentModel(Base):
     """Tournaments table (for bracket/tournament organization)."""
     __tablename__ = 'tournaments'

@@ -174,7 +174,7 @@ is_active}}` for the API view (§4).
 ### Other tables
 
 `users`, `link_codes`, `password_reset_tokens`, `messages`, `turn_history`,
-`map_snapshots`, tournament tables, channel-analytics tables — all unchanged by the
+`map_snapshots`, tournament tables — all unchanged by the
 engine rewrite; see `database.py` for the full model list. `DatabaseService`
 (`database_service.py`) remains the DAL for all of these; only game *state* itself was
 carved out into `GameRepo` + `GameService`.
