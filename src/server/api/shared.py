@@ -20,11 +20,24 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..server import Server
 from ..game_service import GameOverError, GameService
 from ..response_cache import invalidate_cache
+from ..telegram_bot.alerting import AdminAlertHandler, admin_telegram_id
 
 if TYPE_CHECKING:
     from ..daide.server import DaideServer
 
 _shared_logger = logging.getLogger(__name__)
+
+# One stream handler, on the root logger, for every logger in the process:
+# uvicorn configures only its own loggers, and a root logger with no handler at
+# all prints through Python's last-resort handler -- which stops the moment any
+# handler is added to the root (``install_admin_alerts`` adds one). The root
+# stays at WARNING; ``diplomacy.scheduler`` is at INFO, so its INFO lines print
+# as they always have. Set up before ``Server()`` below, whose logger adds a
+# handler of its own only when no ancestor has one.
+if not logging.getLogger().handlers:
+    _stream = logging.StreamHandler()
+    _stream.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s'))
+    logging.getLogger().addHandler(_stream)
 
 # Shared service instances
 db_service = DatabaseService(SQLALCHEMY_DATABASE_URL)
@@ -48,11 +61,6 @@ main_loop: Optional[asyncio.AbstractEventLoop] = None
 logger = logging.getLogger("diplomacy.server.api")
 scheduler_logger = logging.getLogger("diplomacy.scheduler")
 scheduler_logger.setLevel(logging.INFO)
-if not scheduler_logger.hasHandlers():
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
-    handler.setFormatter(formatter)
-    scheduler_logger.addHandler(handler)
 
 # There is deliberately no NOTIFY_URL any more. Player notifications are not
 # pushed at the bot; they are committed to the ``bot_outbox`` table (see
@@ -83,6 +91,23 @@ if ADMIN_TOKEN == _ADMIN_TOKEN_DEFAULT:
 
 # Bot secret: used to authenticate Telegram bot calls that use telegram_id instead of Bearer token
 BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
+
+# The maintainer's Telegram chat: error alerts and player feedback are DMed here
+# (through the outbox, like any notification). Unset: neither is sent.
+ADMIN_TELEGRAM_ID = admin_telegram_id(os.environ.get("DIPLOMACY_ADMIN_TELEGRAM_ID"))
+
+
+def install_admin_alerts() -> Optional[AdminAlertHandler]:
+    """DM every error this process logs to ``ADMIN_TELEGRAM_ID`` (throttled; see
+    ``telegram_bot/alerting.py``). Called once, at app import; a no-op when unset."""
+    if ADMIN_TELEGRAM_ID is None:
+        return None
+    admin_id = ADMIN_TELEGRAM_ID
+    handler = AdminAlertHandler(
+        lambda text: db_service.enqueue_bot_notification(admin_id, text), source="Diplomacy API"
+    )
+    logging.getLogger().addHandler(handler)
+    return handler
 
 
 def _matches(supplied: Optional[str], expected: str) -> bool:

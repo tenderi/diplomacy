@@ -108,4 +108,42 @@ describe('AppLayout', () => {
     expect(within(container).getByRole('link', { name: /source code/i })).toHaveAttribute('href', SOURCE_URL)
     expect(within(container).getByText(/GNU AGPL v3 or later/i)).toBeInTheDocument()
   })
+
+  it('offers feedback to a signed-in user, about the game on screen', () => {
+    const auth = {
+      user: { id: 1, email: 'a@b.com', full_name: 'Test', telegram_id: null, telegram_linked: false },
+      loading: false, login: vi.fn(), register: vi.fn(), logout: vi.fn(), refreshUser: vi.fn(),
+    }
+    const onGame = render(
+      <MemoryRouter initialEntries={['/games/42']}>
+        <AuthContext.Provider value={auth}>
+          <AppLayout><p>page</p></AppLayout>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(within(onGame.container).getByRole('link', { name: /send feedback/i })).toHaveAttribute('href', '/feedback?game=42')
+    onGame.unmount()
+    const elsewhere = render(
+      <MemoryRouter initialEntries={['/games']}>
+        <AuthContext.Provider value={auth}>
+          <AppLayout><p>page</p></AppLayout>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(within(elsewhere.container).getByRole('link', { name: /send feedback/i })).toHaveAttribute('href', '/feedback')
+  })
+
+  it('shows no feedback link when signed out', () => {
+    const auth = {
+      user: null, loading: false, login: vi.fn(), register: vi.fn(), logout: vi.fn(), refreshUser: vi.fn(),
+    }
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={auth}>
+          <AppLayout><p>page</p></AppLayout>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(within(container).queryByRole('link', { name: /send feedback/i })).toBeNull()
+  })
 })

@@ -103,6 +103,19 @@ class TestCompose:
         assert "pg_data:/var/lib/postgresql/data" in compose
         assert "bot_data:/data" in compose  # the bot's queue survives rebuilds
 
+    def test_logs_outlive_the_containers_and_the_bot_waits_for_the_api(self, compose: str) -> None:
+        # A deploy recreates every container, and a json-file log goes with its
+        # container; the journal keeps them. The bot starting before the API is
+        # healthy only produced a burst of retries.
+        assert "x-logging: &logging\n  driver: journald\n" in compose
+        assert "json-file" not in re.sub(r"#.*", "", compose)
+        services = compose.split("\nservices:\n", 1)[1].split("\nvolumes:", 1)[0]
+        names = re.findall(r"^  ([a-z_]+):$", services, re.M)
+        assert len(names) == 6 and services.count("    logging: *logging\n") == len(names), names
+        bot = services.split("\n  diplomacy_bot:", 1)[1].split("\n  diplomacy_web:", 1)[0]
+        assert "    depends_on:\n      diplomacy_api:\n        condition: service_healthy\n" in bot
+        assert compose.count("- DIPLOMACY_ADMIN_TELEGRAM_ID=${DIPLOMACY_ADMIN_TELEGRAM_ID:-}") == 2  # API and bot
+
     def test_api_trusts_forwarded_headers_from_nginx(self, compose: str) -> None:
         # Otherwise every browser request comes from nginx's address and the
         # per-IP login/register rate limits pool all users together.

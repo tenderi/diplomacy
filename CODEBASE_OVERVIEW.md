@@ -139,6 +139,7 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `server.py` | `Server` — a text-command surface (`CREATE_GAME`, `ADD_PLAYER`, `SET_ORDERS`, `PROCESS_TURN`, `GET_GAME_STATE`), routed through `GameService`. Used by tests; the HTTP API does not depend on it. |
 | `errors.py` | The CLI `Server`'s error responses (`UNKNOWN_COMMAND`, `MISSING_ARGUMENTS`, `GAME_NOT_FOUND`, `INVALID_ORDER`, `INTERNAL_ERROR`). The HTTP API uses FastAPI's `{"detail": …}`. |
 | `db_config.py` | Reads `SQLALCHEMY_DATABASE_URL` from the environment (defaults to local PostgreSQL). |
+| `api/error_log.py` | `ServerErrorLogMiddleware`: every 5xx the API returns is logged at ERROR with its method and path (a route's own `HTTPException(500)` included), so it reaches the journal and the maintainer's alerts. |
 | `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
 | `daide/` | The DAIDE protocol package — see §6. |
 
@@ -156,6 +157,7 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `channels.py` | Link/unlink a game's Telegram group, its settings, and posts queued for it: the current map, results, broadcasts, timelines, the player dashboard, threads. |
 | `admin.py` | Delete a game or all games, mark a seat inactive, cache and connection-pool management, counts. Requires the admin token. |
 | `archive.py` | Saved-game export and import (admin only: an export holds every private message). |
+| `feedback.py` | `POST /feedback` (a signed-in player's report, with the named game's phase; DMed to `DIPLOMACY_ADMIN_TELEGRAM_ID`; 10 per hour) and `GET /admin/feedback`. |
 | `bot_outbox.py` | The bot's pull endpoint for queued notifications, and its ack. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
@@ -213,6 +215,8 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu), plain-text routing (private chats only); the solo demo (`start_demo_game`: six civil-disorder seats in a `map_name="demo"` game, where the server plays them with `engine.simple_ai`), `/debug`. |
 | `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`; `tests/test_bot_help_text.py` parses each documented order through the real grammar, so the help can never teach syntax the engine rejects. |
 | `channels.py`, `channel_commands.py` | The text of group posts (timeline, player dashboard, battle results; the API queues them, the bot sends them); `/newgame`, `/linkgroup`, `/unlinkgroup`, and `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` (players of the game only). |
+| `alerting.py` | `AdminAlertHandler`: a throttled ERROR-level logging handler that DMs each error to `DIPLOMACY_ADMIN_TELEGRAM_ID`. Stdlib only; the bot installs it sending directly (`app.install_bot_alerts`), the API sending through the outbox (`api.shared.install_admin_alerts`). |
+| `feedback.py` | `/feedback <text>`: a report to the maintainer, sent through the durable queue with the player's current game. |
 | `notifications.py` | The two background loops: pull `GET /bot/outbox` and send each row — a DM, a group post, or a group map fetched by its path (ack after Telegram accepts; late ones prefixed with their original time; an image the API refuses is failed, not retried) — and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
 
 Command reference:

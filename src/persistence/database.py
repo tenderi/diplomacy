@@ -149,6 +149,27 @@ class LinkCodeModel(Base):
     user = relationship("UserModel", back_populates="link_codes")
 
 
+class FeedbackModel(Base):
+    """What a player reported with ``/feedback`` or the web's feedback page.
+
+    ``game_id`` is the public game id as the player gave it, not a foreign key:
+    a report outlives the game it is about. ``phase_code`` is that game's phase
+    when the report came in. The maintainer is DMed each one
+    (``DIPLOMACY_ADMIN_TELEGRAM_ID``); ``GET /admin/feedback`` lists them.
+    """
+    __tablename__ = 'feedback'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    source = Column(String(16), nullable=False)
+    game_id = Column(String(50), nullable=True)
+    phase_code = Column(String(10), nullable=True)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+
+    __table_args__ = (Index('ix_feedback_user_created', 'user_id', 'created_at'),)
+
+
 class WaitingListModel(Base):
     """Players queued for automatic game matching (the Telegram bot's ``/wait``).
 
