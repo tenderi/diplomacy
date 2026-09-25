@@ -125,33 +125,55 @@ async def _present_order_choices(
 ) -> None:
     """Cache ``order_strings`` for this game and show one button per order.
 
-    Each button's ``callback_data`` is ``ord|{game_id}|{idx}`` -- never the
-    order text itself. Embedding full order strings (as the pre-rewrite
-    scheme did) overflows Telegram's 64-byte ``callback_data`` cap on
-    coasted/support/convoy orders; an index into a cache does not, no matter
-    how long the underlying order string is. ``send`` is any
+    Each button's ``callback_data`` is ``ord|{game_id}|{menu}|{idx}`` (see
+    ``order_buttons``) -- never the order text itself, which overflows
+    Telegram's 64-byte ``callback_data`` cap on coasted/support/convoy orders. ``send`` is any
     ``async (text, reply_markup=None) -> None`` callable, so this works from
     both a plain message reply and a callback-query edit.
     """
     if not order_strings:
         await send(f"{header}\n\n(no options available)")
         return
-    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(order_strings)
-    keyboard = [
-        [InlineKeyboardButton(_order_label(s), callback_data=f"ord|{game_id}|{i}")]
-        for i, s in enumerate(order_strings)
-    ]
+    keyboard = order_buttons(context, game_id, order_strings)
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
     await send(header, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-def resolve_pending_order(context: ContextTypes.DEFAULT_TYPE, game_id: str, idx: int) -> Optional[str]:
-    """Resolve an ``ord|{game_id}|{idx}`` callback back to its order text.
+def order_buttons(
+    context: ContextTypes.DEFAULT_TYPE,
+    game_id: str,
+    order_strings: list[str],
+    label: Callable[[str], str] = _order_label,
+) -> list[list[InlineKeyboardButton]]:
+    """Cache ``order_strings`` as this game's current order menu and return one
+    button row per order, ``ord|{game_id}|{menu}|{idx}``.
+
+    Only the newest menu per game is cached, and ``menu`` names it: a button
+    from an older message (another unit's menu, an earlier walk step, a past
+    phase) carries an older ``menu`` and resolves to nothing, rather than to
+    whatever order now sits at its index in the newest list.
+    """
+    menu = int(context.user_data.get("order_menu_seq", 0)) + 1
+    context.user_data["order_menu_seq"] = menu
+    context.user_data.setdefault("order_menu", {})[str(game_id)] = menu
+    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(order_strings)
+    return [
+        [InlineKeyboardButton(label(s), callback_data=f"ord|{game_id}|{menu}|{i}")]
+        for i, s in enumerate(order_strings)
+    ]
+
+
+def resolve_pending_order(
+    context: ContextTypes.DEFAULT_TYPE, game_id: str, menu: int, idx: int
+) -> Optional[str]:
+    """Resolve an ``ord|{game_id}|{menu}|{idx}`` callback back to its order text.
 
     Returns ``None`` if the cache is missing (bot restarted, ``user_data``
-    cleared) or ``idx`` is stale/out of range -- callers must treat that as
-    "selection expired", not crash.
+    cleared), ``menu`` is not the game's newest menu, or ``idx`` is out of
+    range -- callers must treat that as "selection expired", not crash.
     """
+    if context.user_data.get("order_menu", {}).get(str(game_id)) != menu:
+        return None
     cached = context.user_data.get("pending_orders", {}).get(str(game_id))
     if cached is None or not (0 <= idx < len(cached)):
         return None
@@ -704,11 +726,7 @@ def _unit_order_keyboard(
     support_orders = [o for o in bucket if _order_verb(o) == "S"]
     direct_orders = [o for o in bucket if _order_verb(o) not in ("C", "S")]
 
-    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(direct_orders)
-    keyboard = [
-        [InlineKeyboardButton(_order_label(s), callback_data=f"ord|{game_id}|{i}")]
-        for i, s in enumerate(direct_orders)
-    ]
+    keyboard = order_buttons(context, game_id, direct_orders)
     if support_orders:
         keyboard.append(
             [InlineKeyboardButton(
@@ -807,11 +825,7 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         # after one the other is no longer offered.
         taken = {_adjustment_site(o) for o in walk["chosen"].values() if o != "WAIVE"}
         options = [o for o in walk["flat"] if o == "WAIVE" or _adjustment_site(o) not in taken]
-        context.user_data.setdefault("pending_orders", {})[str(game_id)] = options
-        keyboard = [
-            [InlineKeyboardButton(_order_label(o), callback_data=f"ord|{game_id}|{i}")]
-            for i, o in enumerate(options)
-        ]
+        keyboard = order_buttons(context, game_id, options)
         title = f"🏗️ *{step}*"
     else:
         try:
@@ -1087,11 +1101,7 @@ async def show_support_choices(
     # predictably rather than in whatever order legal_orders enumerated it.
     target_orders.sort(key=lambda o: (len(o.split()) > 6, o.split()[6:]))
 
-    context.user_data.setdefault("pending_orders", {})[str(game_id)] = list(target_orders)
-    keyboard = [
-        [InlineKeyboardButton(_support_label(s), callback_data=f"ord|{game_id}|{i}")]
-        for i, s in enumerate(target_orders)
-    ]
+    keyboard = order_buttons(context, game_id, target_orders, label=_support_label)
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelunit|{game_id}")])
 
     await send(

@@ -234,8 +234,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Interactive Order Input Callbacks -- "|"-delimited, distinct from the
     # "_"-delimited legacy prefixes above. Order text itself is never carried
-    # in callback_data (Telegram's 64-byte cap); "ord|" carries only an index
-    # into the per-game cache orders.py populated in context.user_data.
+    # in callback_data (Telegram's 64-byte cap); "ord|{game}|{menu}|{idx}" names
+    # the menu and an index into it (orders.order_buttons). A button from any
+    # menu but the game's newest one has expired.
     elif data.startswith("selunit|"):
         _, game_id, unit_key = data.split("|", 2)
         await show_possible_moves(query, context, game_id, unit_key)
@@ -257,9 +258,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await show_convoy_destinations(query, context, game_id, unit_key, origin)
 
     elif data.startswith("ord|"):
-        _, game_id, idx_str = data.split("|", 2)
+        parts = data.split("|")
+        game_id = parts[1]
         try:
-            order_text = resolve_pending_order(context, game_id, int(idx_str))
+            # A three-part "ord|{game}|{idx}" is from before menus were named:
+            # it cannot be matched to a menu, so it has expired too.
+            order_text = (
+                resolve_pending_order(context, game_id, int(parts[2]), int(parts[3]))
+                if len(parts) == 4
+                else None
+            )
         except ValueError:
             order_text = None
         if order_text is None:
