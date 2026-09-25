@@ -56,7 +56,7 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
                             # wraps engine.Game + serialization + parser/validation over
                             # GameRepo. Routes/CLI/DAIDE never touch engine internals directly.
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
-                             # dashboard, health, tournaments
+                             # tournaments, waiting_list, bot_outbox, archive
   telegram_bot/              # thin HTTP client over the API — see below
   daide/                      # the DAIDE TCP protocol (Track D D1-D5) — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
