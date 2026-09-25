@@ -45,6 +45,7 @@ class ImportGameRequest(BaseModel):
     players: Optional[List[Dict[str, Any]]] = None
     order_history: Optional[Dict[str, Any]] = None
     resolution_history: Optional[Dict[str, Any]] = None
+    last_resolution: Optional[Dict[str, Any]] = None
     snapshots: Optional[List[Dict[str, Any]]] = None
     messages: Optional[List[Dict[str, Any]]] = None
 
@@ -59,6 +60,8 @@ def export_game(game_id: str) -> Dict[str, Any]:
     if state is None:
         raise HTTPException(status_code=404, detail="Game has no state")
     meta = game_service.meta(str(game_id)) or {}
+    creator_id = meta.get("created_by_user_id")
+    creator = db_service.get_user_by_id(int(creator_id)) if creator_id is not None else None
 
     players = db_service.get_players_by_game_id(int(row.id))
     power_by_user: Dict[Any, str] = {}
@@ -112,11 +115,20 @@ def export_game(game_id: str) -> Dict[str, Any]:
             "status": meta.get("status"),
             "current_turn": meta.get("current_turn", 0),
             "phase_length_seconds": meta.get("phase_length_seconds"),
+            # Settings carried so the imported game plays the same: who may
+            # process early and change dummies, which powers are dummies (they
+            # have no vote and nobody submits for them), and whether it runs
+            # itself. The join password is not carried (data_spec: the hash is
+            # never serialized), so an imported game comes back open.
+            "created_by_telegram_id": getattr(creator, "telegram_id", None),
+            "dummy_powers": meta.get("dummy_powers") or [],
+            "auto_process": bool(meta.get("auto_process")),
         },
         "state": state,
         "players": player_rows,
         "order_history": game_service.order_history(str(game_id)),
         "resolution_history": game_service.resolution_history(str(game_id)),
+        "last_resolution": game_service.last_resolution(str(game_id)),
         "snapshots": snapshots,
         "messages": messages,
     }
@@ -144,10 +156,18 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Malformed state in the export: {e}") from e
     source = req.game or {}
-    game_id = game_service.create_game(
-        map_name=str(source.get("map_name", "standard")),
-        phase_length_seconds=source.get("phase_length_seconds"),
-    )
+    creator_telegram_id = source.get("created_by_telegram_id")
+    creator = db_service.get_user_by_telegram_id(str(creator_telegram_id)) if creator_telegram_id else None
+    try:
+        game_id = game_service.create_game(
+            map_name=str(source.get("map_name", "standard")),
+            phase_length_seconds=source.get("phase_length_seconds"),
+            created_by_user_id=int(creator.id) if creator is not None else None,
+            dummy_powers=list(source.get("dummy_powers") or []),
+            auto_process=bool(source.get("auto_process")),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Malformed game settings in the export: {e}") from e
     row = db_service.get_game_by_game_id(str(game_id))
     if row is None:  # pragma: no cover - create_game just wrote it
         raise HTTPException(status_code=500, detail="Imported game could not be read back")
@@ -159,6 +179,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         order_history=req.order_history,
         resolution_history=req.resolution_history,
         current_turn=source.get("current_turn"),
+        last_resolution=req.last_resolution,
     )
 
     power_by_telegram: Dict[str, str] = {}
@@ -221,6 +242,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     return {
         "status": "ok",
         "game_id": str(game_id),
+        "creator_linked": creator is not None,
         "players_linked": players_linked,
         "players_unlinked": players_unlinked,
         "messages_restored": messages_restored,

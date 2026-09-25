@@ -231,7 +231,7 @@ def test_support_choices_caches_exactly_the_orders_it_offers() -> None:
     ], cached
 
     indices = [
-        int(cb.split("|")[2]) for cb in h.callbacks() if cb.startswith("ord|")
+        int(cb.split("|")[3]) for cb in h.callbacks() if cb.startswith("ord|")
     ]
     assert indices == list(range(len(cached))), indices
     # And the label at each index describes the order cached at that index.

@@ -66,6 +66,34 @@ def test_a_played_game_round_trips_under_a_new_id(client: TestClient, played_gam
     assert sorted((p["power"], p["telegram_id"]) for p in again["players"]) == sorted((p["power"], p["telegram_id"]) for p in doc["players"])
 
 
+def test_the_imported_game_keeps_its_settings_and_last_turn(client: TestClient, played_game: tuple[str, str, str]) -> None:
+    """Without these the import plays differently: no creator can process early or
+    change dummies, dummies become powers everyone waits on, and "what happened
+    last turn" is blank."""
+    game_id, fr, _ = played_game
+    assert client.post(f"/games/{game_id}/dummies", json=_as(fr, power="ITALY", dummy=True)).status_code == 200
+    game_service.set_auto_process(game_id, True)
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+
+    report = client.post("/games/import", json=doc, headers=ADMIN).json()
+    new_id = report["game_id"]
+    assert report["creator_linked"] is True
+    original, restored = game_service.meta(game_id), game_service.meta(new_id)
+    for key in ("created_by_user_id", "dummy_powers", "auto_process"):
+        assert restored[key] == original[key], key
+    assert restored["dummy_powers"] == ["ITALY"]
+    assert game_service.last_resolution(game_id) is not None
+    assert game_service.last_resolution(new_id) == game_service.last_resolution(game_id)
+
+
+def test_a_finished_game_imports_as_finished(client: TestClient, played_game: tuple[str, str, str]) -> None:
+    game_id, _, _ = played_game
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    doc["state"]["status"], doc["state"]["winners"] = "COMPLETED", ["FRANCE"]
+    new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
+    assert game_service.meta(new_id)["status"] == "completed"
+
+
 def test_people_without_an_account_here_are_reported_not_invented(client: TestClient, played_game: tuple[str, str, str]) -> None:
     game_id, _, _ = played_game
     doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
