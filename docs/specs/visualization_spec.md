@@ -15,11 +15,12 @@ data (never from engine internals):
 |---|---|---|
 | **Board** | `render_board_png` | Unit positions, supply-center ownership, phase overlay. No order indicators. |
 | **Orders** | `render_board_png_orders` | The board plus every submitted order, before adjudication. |
-| **Resolution** | `render_board_png_resolution` | The board plus order outcomes: successes, failures, bounces, cuts, dislodgements. |
+| **Resolution** | `render_board_png_resolution` | The board plus order outcomes: successes, failures, bounces, cuts, dislodgements, standoffs. |
 
-Available on demand via the map endpoints, on each phase transition for channel posting, and
-per-phase during the demo game (see
-[`automated_demo_game_spec.md`](automated_demo_game_spec.md)).
+Available on demand via the map endpoints. After every processed turn a game's Telegram
+group gets two: that turn's orders, drawn with their outcomes on the board they were given
+on (`/games/{id}/map/turn/{turn}/orders`), and the board they produced
+(`/games/{id}/map/history/{turn+1}`).
 
 **Visual clarity principle:** each order type gets a distinct colour *and* line style, so a
 crowded board stays readable.
@@ -46,7 +47,7 @@ colour and dash pattern. Two line widths exist: `line_width_primary` for movemen
 | Element | Style |
 |---|---|
 | **Unit** | Filled circle in the power colour, black border, `A`/`F` label centred. |
-| **Dislodged unit** | Same circle, red border, a `D` badge, drawn at `units.dislodged_offset` from the province center. Only shown on resolution and retreat maps. |
+| **Dislodged unit** | Same circle, red border, a `D` badge, drawn at `units.dislodged_offset` from the province center. Shown on any board in a retreat phase. |
 | **Move** | Solid arrow in the mover's power colour. |
 | **Hold** | Dashed circle around the unit, larger than the unit marker. |
 | **Support (hold)** | Dashed line to the defended unit plus a solid ring around it in the *supporter's* power colour. |
@@ -57,12 +58,12 @@ colour and dash pattern. Two line widths exist: `line_width_primary` for movemen
 | **Success / failure** | Green checkmark / red `×` at the arrow tip. |
 | **Dislodged (order status)** | A heavy hollow ring, visually distinct from both success and failure. Only `Hold` and `Convoy` orders can carry this status. |
 | **Support cut** | Red `×` across the middle of the support line. |
-| **Standoff / bounce** | Standoff marker at the contested province; bounce shown as a dashed return curve. |
+| **Standoff / bounce** | Standoff marker at a province two or more moves bounced out of (read from the stored resolution); a bounce is shown as a dashed return curve. |
 
 ### Draw order (bottom to top)
 
 Base map → province fills → hold indicators → support lines and rings → convoy routes →
-movement arrows → retreat arrows → unit markers → build/disband markers → conflict markers
+movement arrows → retreat arrows → unit markers → build/disband markers → standoff markers
 → status indicators → phase overlay → legend.
 
 This keeps primary actions (movement arrows) visible above context (support, convoy), unit
@@ -87,8 +88,9 @@ code (`S1901M`).
 - **Pipeline:** load `standard.svg` → parse province coordinates from path data → fill
   provinces → draw units → draw overlays in priority order → phase text → legend → export
   via CairoSVG + Pillow.
-- **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by state plus
-  orders. First render of a map is slow; the rest are not.
+- **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by everything
+  that changes the picture (units, phase, orders, centre ownership). First render of a map
+  is slow; the rest are not.
 - **Determinism:** the same state and orders must render byte-identically. Any change meant
   to be behaviour-preserving should be validated by comparing PNG sha256 before and after
   with the cache cleared — see [`testing_and_validation.md`](testing_and_validation.md).
@@ -97,12 +99,9 @@ code (`S1901M`).
 
 `visualization_config.json` groups values under `arrows`, `colors` (including
 `power_colors`), `units`, `line_styles`, and `legend`. Add new visual constants there rather
-than in code; the loader falls back to built-in defaults for anything missing.
-
-> The config file lives in `src/rendering/`, next to its loader. It was briefly stranded in
-> `src/engine/` after the rendering split, which silently disabled every override — if arrow
-> styling ever looks like the built-in defaults, check that the file is beside
-> `visualization_config.py`.
+than in code; the loader falls back to built-in defaults for anything missing, so the file
+must stay beside `visualization_config.py` — moved elsewhere, every override silently
+reverts to a default.
 
 ## Out of scope
 

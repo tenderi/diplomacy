@@ -73,7 +73,5 @@ nav:
       - Testing: specs/testing_and_validation.md
       - Telegram channels: specs/telegram_channel_integration.md
       - Map visualization: specs/visualization_spec.md
-      - Automated demo game: specs/automated_demo_game_spec.md
   - Project:
       - Open work: specs/fix_plan.md
-      - Completed work: specs/done_fixes.md

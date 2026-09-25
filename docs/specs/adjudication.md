@@ -1,7 +1,6 @@
 # Adjudication — the Kruijswijk Fixed-Point Resolver
 
-> Companion to [`fix_plan.md`](fix_plan.md) (the M0–M7 engine-rewrite tracker) and
-> [`diplomacy_rules.md`](diplomacy_rules.md) (rulebook prose). This document covers the
+> Companion to [`diplomacy_rules.md`](diplomacy_rules.md) (rulebook prose). This document covers the
 > **algorithm**: how `src/engine/adjudicator/` turns a `(map, state, orders)` triple into a
 > `(Resolution, next_state)` pair. It is mined from the source docstrings in
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
@@ -14,8 +13,8 @@
 
 Diplomacy orders are **simultaneous and interdependent**: whether move A succeeds can
 depend on whether support B holds, which depends on whether move C cuts it, which depends
-on whether A succeeds. A single linear pass over orders (the pre-rewrite engine's
-approach) cannot get this right — see `fix_plan.md` §"Why a rewrite", defect 1.
+on whether A succeeds. A single linear pass over orders cannot get this right, and gives
+answers that depend on the order in which the orders are processed.
 
 The fix is Kruijswijk's algorithm ("The Math of Adjudication"): treat the outcome of
 every move, support, and convoy order as a boolean **predicate** and resolve them by
@@ -99,8 +98,7 @@ are the actual substance of DATC §6.D:
 - **Attack strength** of a move (`_attack_strength`): `0` if its convoy path is required
   and broken; `0` if it would dislodge a unit of its **own power** (a unit never
   dislodges its own side, even head-to-head); otherwise `1 + supports`, where a support
-  from the **defender's own power** does not count toward dislodging that defender
-  (`fix_plan.md` defect 4 — the old engine got this backwards).
+  from the **defender's own power** does not count toward dislodging that defender.
 - **Defend strength** (`_defend_strength`, used in head-to-head battles) and **prevent
   strength** (`_prevent_strength`, used for standoffs against a third unit's move into
   the same empty province): both `1 + supports`, with **no** own-power exemption (DATC
@@ -130,12 +128,11 @@ geometrically, before the cut question is even asked — when (`_support_is_void
   `VOID` result code and nothing else: for strength such a support is given like any
   other (`_support_given` calls `_support_is_void(..., count_own_unit_rule=False)`) and
   is kept out of the one place DATC excludes it, the attack strength against that
-  own-power unit. Letting it zero the support made the support depend on whether its
-  own unit vacates, which depends on the support -- a self-referential loop the resolver
-  settled differently depending on the order the orders were submitted in (70 of 60,000
-  random supported positions, every one with a wrong result; found by the determinism
-  property in `tests/datc/test_properties.py`, pinned in
-  `tests/datc/test_adjudicator_mechanics.py`), or
+  own-power unit. (Letting the rule zero the support would make the support depend on
+  whether its own unit vacates, which depends on the support: a loop the resolver would
+  settle differently depending on submission order. The determinism property in
+  `tests/datc/test_properties.py` and a pinned case in
+  `tests/datc/test_adjudicator_mechanics.py` guard this.) Or
 - (`SupportHold`) it targets a unit that is itself **legally ordered to move** (DATC
   6.D.7/8/25 again — an illegal/ignored move leaves the unit holding, so support for it
   is fine, 6.D.28/29).
@@ -171,7 +168,7 @@ filtered to fleets not dislodged this phase), starting from fleets adjacent to t
 army's source coast and searching for one adjacent to the destination. This directly
 supports **multi-route convoys**: if any surviving subset of the ordered fleets forms an
 unbroken chain, the move works — losing one fleet in a multi-fleet, multi-route convoy
-order no longer fails the whole move (`fix_plan.md` defect 3).
+order does not fail the whole move.
 
 Three convoy-order result codes reflect fine distinctions DATC cares about:
 `VOID` (no matching army move exists to convoy — 6.D.27), `DISLODGED` (the fleet itself
@@ -180,8 +177,7 @@ elsewhere, e.g. a sibling fleet died) vs. plain `OK` (chain intact, even if the 
 army merely bounced at the far end — the convoy did its job).
 
 Critically, **a convoyed army's attack strength is never boosted by the number of
-convoying fleets** — it's still `1 + supports`, same as any other move
-(`fix_plan.md` defect 2; the old engine wrongly counted convoy legs as strength).
+convoying fleets** — it's still `1 + supports`, same as any other move.
 
 ## 7. Assembling the phase result
 
@@ -231,7 +227,7 @@ The retreat phase itself (`adjudicate_retreats`) resolves each dislodged unit's
 attempted destination (a legal `Retreat` order, or `None` for an explicit `Disband` or no
 order at all), then applies one more collision rule that only bites here: **if two or
 more units attempt to retreat into the same province, all of them fail and disband** —
-not "first submitted wins" (the old engine's defect 7), and not decided by strength
+not "first submitted wins", and not decided by strength
 (retreats don't have supports). An unordered or illegally-ordered dislodged unit disbands
 outright.
 

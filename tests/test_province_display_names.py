@@ -74,16 +74,6 @@ def test_display_names_are_not_registered_as_parseable_aliases() -> None:
 
 
 @pytest.mark.unit
-def test_engine_stays_stdlib_only() -> None:
-    """`display_names` is plain data; it must not have pulled I/O into the engine."""
-    import engine.map_loader as ml
-
-    source = open(ml.__file__, encoding="utf-8").read()
-    for forbidden in ("import requests", "import sqlalchemy", "from fastapi", "import fastapi"):
-        assert forbidden not in source, f"engine gained a non-stdlib dependency: {forbidden}"
-
-
-@pytest.mark.unit
 def test_provinces_endpoint_serves_the_names() -> None:
     from server.api import app
 

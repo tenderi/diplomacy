@@ -47,20 +47,18 @@ deadline. The channel sees the public board, not anyone's intentions.
 - **Bot** (`src/server/telegram_bot/channels.py`, `channel_commands.py`): the commands above
   plus the formatting and posting helpers.
 - **Persistence**: channel link and settings hang off the game row (`channel_id`,
-  `channel_settings`); channel messages have their own table via `DatabaseService`. (The
-  unused `channel_analytics` table was dropped in Track AQ, `v3.0.14`.)
+  `channel_settings`).
 - **Hooks**: the API queues everything for Telegram in the `bot_outbox` table, pulled and
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,
   `"channel_create_thread"`) from the `/games/{id}/channel/*` routes. `telegram_bot/channels.py`
-  only *formats* those posts (timeline, player dashboard, battle results); the bot-side
-  `post_*_to_channel` functions that once tried to send directly -- synchronously, on an
-  async `Bot`, from a process that never had one -- were removed in the test audit
-  (`v3.0.4`). All group posts use legacy `parse_mode='Markdown'`: bold is `*single*`.
+  only *formats* those posts (timeline, player dashboard, battle results); nothing in the
+  bot sends to a group except the outbox loop. All group posts use legacy
+  `parse_mode='Markdown'`: bold is `*single*`.
 - **After every processed turn** the group gets the notification and two `kind="channel_map"`
   rows: the turn's orders on the board they were given on (`/games/{id}/map/turn/{k}/orders`)
   and the board they produced (`/games/{id}/map/history/{k+1}`), both fetched by turn number
-  (`v3.0.6`; `docs/specs/architecture.md` §Notifications has the details).
+  (`docs/specs/architecture.md` §Notifications has the details).
 
 ### Proposals
 

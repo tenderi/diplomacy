@@ -1,8 +1,7 @@
 # Architecture
 
-> Reflects the post-rewrite layout (`fix_plan.md` M0–M7). For the adjudication algorithm
-> itself see [`adjudication.md`](adjudication.md); for the wire/DB shapes see
-> [`data_spec.md`](data_spec.md).
+> For the adjudication algorithm itself see [`adjudication.md`](adjudication.md); for the
+> wire/DB shapes see [`data_spec.md`](data_spec.md).
 
 ## Processes
 
@@ -18,11 +17,10 @@ DAIDE clients ─┘         │                        │
 Five things talk to one Postgres database: the FastAPI HTTP server, the Telegram bot (a
 thin HTTP client, never touches the engine or DB directly), the React SPA, DAIDE TCP
 clients (a real `asyncio` listener, `src/server/daide/`, started alongside the API
-process — see "DAIDE protocol support" below; this is no longer aspirational, per
-`fix_plan.md` Track D D1-D5), and the deadline scheduler background task inside the API
-process.
+process — see "DAIDE protocol support" below), and the deadline scheduler background task
+inside the API process.
 
-## Package boundaries (the M6 split)
+## Package boundaries
 
 ```
 src/engine/          # PURE rules core — stdlib only, no I/O, no DB, no rendering
@@ -39,15 +37,17 @@ src/engine/          # PURE rules core — stdlib only, no I/O, no DB, no render
   serialization.py      # canonical GameState/Order/Resolution <-> JSON (one place)
   simple_ai.py           # dumb heuristic order generator for demo/AI-filled games
 
-src/persistence/       # SQLAlchemy models + DAL (moved out of engine/ in M6)
+src/persistence/       # SQLAlchemy models + DAL
   database.py            # ORM models (GameModel, UserModel, PlayerModel, ...)
   database_service.py     # DatabaseService — CRUD for players/users/messages/channels/
                           #   tournaments/etc.; game *state* itself is delegated to...
   game_repo.py             # ...GameRepo: state_json/pending_orders/last_resolution/
-                            #   order_history persistence for the new engine
+                            #   order and resolution histories
 
-src/rendering/          # SVG -> PNG map rendering (moved out of engine/map.py in M6)
-  map.py                  # renderer: board state, order arrows, resolution arrows
+src/rendering/          # SVG -> PNG map rendering
+  board.py, overlays.py,   # the board, order/resolution arrows, legend, icons, caches;
+  arrows.py, ...           #   map.py is a thin Map facade over them
+  view_adapter.py          # GameService.view dict -> renderer inputs
   order_overlay.py         # adapts engine Order/Resolution into the renderer's arrow format
   visualization_config.py   # colors/sizes/layout config
 
@@ -58,14 +58,14 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
                              # tournaments, waiting_list, bot_outbox, archive
   telegram_bot/              # thin HTTP client over the API — see below
-  daide/                      # the DAIDE TCP protocol (Track D D1-D5) — see below
+  daide/                      # the DAIDE TCP protocol — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
-                                # used by tests and DAIDE; independent of the HTTP API
+                                # used by tests; independent of the HTTP API
 ```
 
-Key discipline established in M6: **`src/engine/` imports nothing but stdlib.** Nothing
-in it knows about SQLAlchemy, FastAPI, Pillow, or JSON serialization frameworks — a
-Hypothesis-checked property enforces this isn't just aspirational. Everything else
+Key discipline: **`src/engine/` imports nothing but stdlib.** Nothing
+in it knows about SQLAlchemy, FastAPI, Pillow, or JSON serialization frameworks —
+`tests/engine/test_purity.py` checks every import statement. Everything else
 (persistence, rendering, the HTTP/bot/DAIDE surfaces) is an *adapter* around
 `GameService`, which is the only thing that constructs `engine.game.Game` instances,
 calls `adjudicate()`, or reaches into `orders/parser.py` and `orders/validation.py`.
@@ -87,7 +87,7 @@ calls `adjudicate()`, or reaches into `orders/parser.py` and `orders/validation.
   adjustment phase only when some power's unit count differs from its supply-center
   count; SC ownership updates once, after the Fall turn settles; victory at 18 centers.
 
-## State persistence (the M6 clean break)
+## State persistence
 
 A game row (`games` table) stores the **whole `GameState`** as `state_json`
 (`engine.serialization.state_to_dict`), not a normalized relational breakdown of units
@@ -96,8 +96,8 @@ adjudicated), `last_resolution` (the most recent `Resolution`, kept only so the
 resolution-map renderer has something to draw arrows from), and `order_history`
 (`{turn: {power: [order_str]}}`, appended on every `process_turn`, powering the
 Telegram bot's order-history view). Player-to-power assignments live in the separate
-`players` table (unaffected — never engine-coupled). See `data_spec.md` for the exact
-column list and the legacy relational tables that predate this and are no longer written.
+`players` table (never engine-coupled). See `data_spec.md` for the exact column list,
+including the legacy relational tables that are no longer written.
 
 `GameService` (`src/server/game_service.py`) is the funnel:
 `create_game` / `submit_orders` / `process_turn` / `view` / `last_resolution` /
@@ -109,20 +109,19 @@ GameState-native API response shape consumed by the frontend, the bot, and DAIDE
 
 ## Rendering
 
-`src/rendering/map.py` renders PNGs from a `GameState`-derived unit/ownership view (not
-from engine internals) plus, optionally, order or resolution arrows adapted by
+`src/rendering/` renders PNGs from a `GameState`-derived unit/ownership view (not from
+engine internals) plus, optionally, order or resolution arrows adapted by
 `order_overlay.py` from `Order`/`Resolution` objects. Results are cached in-memory and on
 disk at `/tmp/diplomacy_map_cache`. This package has no engine-internal coupling beyond
 `map_loader` topology and the plain-dict view `GameService.view` already produces.
 
 ## DAIDE protocol support
 
-`src/server/daide/` (Track D, D1-D5) is a real implementation of the DAIDE wire protocol
-— interoperability with the external DAIDE bot ecosystem (DumbBot, Albert, and other
-standalone Diplomacy AIs) — not the text-command stub that used to occupy this slot
-(deleted in D4). It is started as an `asyncio.start_server` listener alongside the
-deadline scheduler in `_api_module.py`'s `lifespan`, on the same port (8432) the old stub
-used.
+`src/server/daide/` is a real implementation of the DAIDE wire protocol —
+interoperability with the external DAIDE bot ecosystem (DumbBot, Albert, and other
+standalone Diplomacy AIs). It is started as an `asyncio.start_server` listener alongside
+the deadline scheduler in `_api_module.py`'s `lifespan`, on port 8432
+(`DIPLOMACY_DAIDE_PORT`).
 
 ```
 src/server/daide/
@@ -151,9 +150,8 @@ press negotiation grammar (`PRP`/`ALY`/`XDO`/... nested inside `SND`/`FRM`) is t
 deepest part of the spec and the least essential for interoperability. This codebase
 syntax-checks press messages only (balanced parens, a valid recipient-power list) and
 forwards the token payload opaquely between clients — negotiation *content* is the
-bots' concern, not the server's. Full press-grammar parsing is out of scope by design
-(see `fix_plan.md` Track D's "Ground rules" and "Out of scope"), not a temporary gap to
-be closed later.
+bots' concern, not the server's. Full press-grammar parsing is out of scope by design,
+not a temporary gap to be closed later.
 
 End-to-end proof this composes correctly over a real socket (not just each layer's own
 unit tests) lives in `tests/test_daide_server.py`'s
@@ -172,7 +170,7 @@ There are three delivery surfaces, and they are not interchangeable:
   These **write a row to the `bot_outbox` table** and return; the bot pulls undelivered rows
   over `GET /bot/outbox` every few seconds and acks them (`POST /bot/outbox/ack`) once
   Telegram has accepted the message. Server code never talks to Telegram and never pushes
-  at the bot (the port-8081 `/notify` server is gone — see *Deployment and message reliability* below).
+  at the bot (see *Deployment and message reliability* below).
   Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
   errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
   A DM may carry inline buttons (`buttons=` → `payload.buttons`): turn processed, the
@@ -198,10 +196,8 @@ There are three delivery surfaces, and they are not interchangeable:
 to connected DAIDE bots. It is orthogonal to the table below and fires from both `process_turn`
 call sites already.)
 
-**The matrix.** This is the deliverable of G3, and it exists because the two `process_turn`
-paths had silently drifted: the deadline path notified everyone and posted to the channel, while
-the manual route notified nobody unless the game had just ended. The failure case was richly
-instrumented and the success case was silent, because nobody owned the question.
+**The matrix.** Every trigger of an event notifies the same people; this table is the one
+place the full picture exists.
 
 | Event | Telegram DM | Channel post | Web client | Where |
 |---|---|---|---|---|
@@ -220,41 +216,33 @@ instrumented and the success case was silent, because nobody owned the question.
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
 
-Those three rows were **`nothing`** until `v2.7.64` (G3a), and the reason is worth keeping:
-`submit_draw_vote` finalizes the game inline the moment quorum is reached
-(`GameService.submit_draw_vote` calls `Game.draw()` and `save_state` directly) and returns the
-outcome to the *voter* only. Because the game is then `COMPLETED`, the deadline scheduler skips it
-(`get_games_with_deadlines_and_active_status`), so **no later turn-processed fan-out covered for
-it** — a game could end by agreement and six of seven players find out by refreshing. A
-concession was likewise invisible until someone looked at the board.
+The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
+moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
+directly) and returns the outcome to the *voter* only. The game is then `COMPLETED`, so the
+deadline scheduler skips it (`get_games_with_deadlines_and_active_status`) and **no later
+turn-processed fan-out covers for it**; without the explicit notification six of seven
+players would find out by refreshing. A concession is announced for the same reason.
 
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
 **Deadlines are never imposed.** A game has a deadline only when one was set explicitly via
-`POST /games/{id}/deadline` — the bot's `/deadline <game_id> <hours|clear>` (F5, `v2.7.73`)
-is the one client that does — and it is scoped to that phase: both processing paths clear it
-once the phase is adjudicated and neither sets a new one (Track N, `v2.7.72`). Until then
-the manual `process_turn` route re-armed a hard-coded +24h after every turn — a deadline
-nobody had asked for, after which the scheduler processed the next phase with the missing
-powers' units holding, then cleared it, so alternate phases had an auto-deadline and didn't.
+`POST /games/{id}/deadline` (the bot's `/deadline <game_id> <hours|clear>`, or a majority
+vote through `deadline/propose`), and it is scoped to that phase: every processing path
+clears it once the phase is adjudicated and none sets a new one.
 
 **Conceding removes the power's units *and* releases its supply centres** (they become
 neutral, like the unowned centres at game start), so `Game.eliminated_powers()` reports it at
-once. D3 originally left ownership untouched, expecting the centres to sit "unclaimed"; in
-fact ownership persists until a unit stands there, so at the next Winter the engine owed the
-conceded power builds, `orders_status` waited on the player who had just left, and a `BUILD`
-walked them back in. Changed in `v2.7.71` (Track M). `/quit` is the other path: the seat is
-vacated for a replacement and the board is untouched.
+once. Ownership otherwise persists until a unit stands there, so a conceded power that kept
+its centres would be owed builds at the next Winter and could walk back in. `/quit` is the
+other path: the seat is vacated for a replacement and the board is untouched.
 
-**Seat writes go through `DatabaseService.assign_player_seat`** (`v2.7.75`, Track P), never
-through attribute assignment on a row returned by a DAL getter — those rows are detached the
-moment the getter's session closes, and `DatabaseService.commit()` is a documented no-op, so
-such writes are silently discarded. `/quit` and `/replace` both did exactly that for
-`user_id`, which meant a quitter still held the power (orders, votes, concession all
-authorized) and the seat could never be filled. A vacant seat is a row with `user_id NULL`
-and `is_active False`; `/join` takes it over the same way `/replace` does, since the web
-client already lists such seats as "Open"; `_authorize_power` treats it as held by nobody.
+**Seat writes go through `DatabaseService.assign_player_seat`**, never through attribute
+assignment on a row returned by a DAL getter — those rows are detached the moment the
+getter's session closes, and `DatabaseService.commit()` is a no-op, so such writes are
+silently discarded. A vacant seat is a row with `user_id NULL` and `is_active False`; `/join`
+takes it over the same way `/replace` does (the web client lists such seats as "Open");
+`_authorize_power` treats it as held by nobody.
 
 **A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
@@ -262,15 +250,12 @@ an `OrderError` — routes map that to 404, and a finished game is found) once
 `state.status is COMPLETED`; the routes answer **409** with a message naming the outcome
 (`game 12 is drawn between FRANCE, GERMANY; no further orders or votes are accepted`), the bot
 shows that `detail` verbatim, and the DAIDE session answers `REJ`. `orders_status` reports no
-active or missing powers. Until `v2.7.70` (Track L) every one of those writes went through:
-orders were stored and shown as pending, `process_turn` "succeeded" with an empty resolution
-and then DMed every player "turn processed" each time it was pressed, a draw vote was
-"recorded", and a concession removed the power's units from the *final* board.
+active or missing powers.
 
 **Rules for adding a notification.**
 
-1. **One fan-out per event, shared by every trigger.** `notify_turn_processed` exists so the
-   deadline and manual paths cannot diverge again. If an event can be reached two ways, the
+1. **One fan-out per event, shared by every trigger.** `notify_turn_processed` (called from
+   `finish_processed_turn`) serves the manual, deadline and auto-processing paths alike. If an event can be reached two ways, the
    second way calls the same function — do not bolt a `notify_players` call onto the new call
    site.
 2. **Never notify the caller of their own action twice.** A player who presses "process turn"
@@ -282,19 +267,16 @@ and then DMed every player "turn processed" each time it was pressed, a draw vot
 4. **Update this table in the same commit.** It is the only place the full picture exists.
 
 `notify_turn_processed` is deliberately **synchronous** so the sync scheduler path
-(`process_due_deadlines`) and the `async` HTTP route can share it with no bridge. Since
-notifications became outbox inserts that costs one short database write per player, not the
-two-second HTTP timeout the old push path risked.
+(`process_due_deadlines`) and the `async` HTTP route can share it with no bridge; each
+notification costs one short database write.
 
-## Deployment and message reliability (Tracks J, V)
+## Deployment and message reliability
 
-All four services — `postgres`, `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx) —
-run from one `docker-compose.yml` on one VPS; only nginx is public, and the bot and nginx
-reach the API by its compose service name (`docs/DEPLOYMENT.md`). From `v2.7.68` to
-`v2.7.84` the bot and nginx ran on the VPS and the API and Postgres on a home server across a
-WireGuard tunnel; that layout was retired in Track V, but the reliability contract it
-produced stays, because the API is still a separate process that is down during every deploy
-and after any crash, and a deadline may pass while it is. The contract is that **no player
+Every service — `postgres`, `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx),
+`caddy`, `diplomacy_docs` — runs from one `docker-compose.yml` on one VPS; only Caddy is
+public, and the bot and nginx reach the API by its compose service name
+(`docs/DEPLOYMENT.md`). The API is a separate process that is down during every deploy and
+after any crash, and a deadline may pass while it is. The contract is that **no player
 message is ever lost in either direction** — only delayed, and always with the original time
 preserved.
 
@@ -341,12 +323,11 @@ is reachable; that is the whole point.
 
 React 18 + Vite + TypeScript SPA (`frontend/`), Tailwind + shadcn/ui. Consumes the
 GameState-native `GET /games/{id}/state` view directly (`units_by_power`, `ownership`,
-`dislodged`, `contested`, `phase_type`, `players`, ...) — there is no `powers`-shaped
-legacy view to translate. Proxies API calls to `http://localhost:8000` in dev.
+`dislodged`, `contested`, `phase_type`, `players`, ...). Vite proxies `/api` to
+`http://localhost:8000` in dev; in production nginx serves the built app.
 
 ## Out of scope for this document
 
 Route-by-route API reference, Telegram command list, and DB column-level schema live in
-`data_spec.md` and the user-facing docs in `docs/`. Map-variant support beyond `standard`
-and rendering-pipeline redesign are explicitly out of scope for the engine rewrite (see
-`fix_plan.md` "Out of scope").
+`data_spec.md`, `src/server/README.md` and the user-facing docs in `docs/`. Map variants
+beyond `standard` and a rendering redesign are out of scope (`fix_plan.md`).

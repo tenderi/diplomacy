@@ -1,12 +1,9 @@
 """Text-command server surface (CLI + DAIDE), backed by the new engine.
 
 ``Server.process_command`` is a thin adapter over ``GameService`` (game state /
-adjudication) and ``DatabaseService`` (player assignments). It exists for the DAIDE
-protocol and a handful of tests; the HTTP API talks to ``GameService`` directly.
-
-The legacy in-memory ``self.games`` map is gone — game state lives in the database
-(``games.state_json``) and is loaded per request. ``self.games`` remains as an empty
-dict only so any not-yet-migrated caller does not ``AttributeError`` mid-cutover.
+adjudication) and ``DatabaseService`` (player assignments), used by tests; the HTTP API
+and DAIDE talk to ``GameService`` directly. Game state lives in the database
+(``games.state_json``) and is loaded per request.
 """
 
 from __future__ import annotations

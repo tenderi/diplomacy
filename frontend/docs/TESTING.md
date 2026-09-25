@@ -1,77 +1,60 @@
 # Frontend testing
 
-The frontend uses **Vitest** for unit/component tests and **React Testing Library** for rendering and querying components. This fits the existing Vite + React + TypeScript setup.
+**Vitest** + **React Testing Library**, on the existing Vite + React + TypeScript setup.
 
 ## Commands
 
-- `npm run test` — run tests in watch mode
-- `npm run test:run` — single run (CI)
-- `npm run test:coverage` — run with coverage report
+- `npm run test` — watch mode
+- `npm run test:run` — single run
+- `npm run test:coverage` — single run with the coverage thresholds CI enforces
+  (`frontend/vite.config.ts`: lines and statements 90, functions 85, branches 77)
 
 ## Test utilities
 
-- **`src/test/setup.ts`** — imports `@testing-library/jest-dom/vitest` for matchers like `toBeInTheDocument()`, `toBeDisabled()`.
-- **`src/test/test-utils.tsx`** — `renderWithProviders(ui, options?)` wraps with `MemoryRouter` and `AuthProvider`; re-exports `screen`, `fireEvent`, `waitFor`, `within`. Use for component/page tests that need router and auth. Optional `routerProps.initialEntries` for route.
-- **`src/test/mocks/api.ts`** — helpers: `createMockFetch()`, `mockFetchJsonResponse()`, `mockFetchTextResponse()`, `stubGlobalFetch()` for stubbing `fetch` in tests.
+- **`src/test/setup.ts`** — loads the `@testing-library/jest-dom` matchers
+  (`toBeInTheDocument()`, `toBeDisabled()`, …).
+- **`src/test/test-utils.tsx`** — `renderWithProviders(ui, options?)` wraps in `MemoryRouter`
+  and `AuthProvider` and re-exports `screen`, `fireEvent`, `waitFor`, `within`;
+  `routerProps.initialEntries` sets the route.
+- **`src/test/mocks/api.ts`** — `createMockFetch()`, `mockFetchJsonResponse()`,
+  `mockFetchTextResponse()`, `stubGlobalFetch()`.
 
-## Mocking API and auth
+## Mocking the API and auth
 
-- **API:** Stub global `fetch` with `vi.stubGlobal('fetch', vi.fn((url) => Promise.resolve({ ok: true, json: () => Promise.resolve({...}) })))`. Match on `url.includes('/path')` to return different payloads per endpoint. Reset with `clearTokens()` and fresh stubs in `beforeEach`.
-- **Auth:** For real auth flow use `AuthProvider` and stub `fetch` for `/auth/login`, `/auth/me`, `/auth/refresh`. For a fixed user, wrap with `<AuthContext.Provider value={{ user: mockUser, loading: false, login, logout, ... }}>` (export `AuthContext` from `AuthContext.tsx`). Stub `localStorage` in tests that need refresh-token behaviour.
+- **API:** stub global `fetch` (`vi.stubGlobal('fetch', …)`) and match on the URL to return a
+  payload per endpoint. Reset with `clearTokens()` and fresh stubs in `beforeEach`. Never hit
+  the network.
+- **Auth:** for the real flow use `AuthProvider` and stub `/auth/login`, `/auth/me`,
+  `/auth/refresh`. For a fixed user, wrap in `<AuthContext.Provider value={…}>`.
+- **Routes with parameters:** a `/games/:id` page must be rendered inside
+  `<Routes><Route path="/games/:gameId" …>`. A bare `MemoryRouter` leaves `useParams()`
+  unresolved, so the test only ever sees the loading spinner and passes without testing
+  anything.
 
 ## Test file map
 
-| File | Coverage |
-|------|----------|
-| `src/api/client.test.ts` | `errorDetailToMessage`, token helpers, `apiJson`/`apiFetch`, 401 refresh flow |
-| `src/lib/orderParsing.test.ts` | `parseLegalOrder`, `groupLegalOrdersByType`, `getOrderTypesFromGrouped`, `getTargetOptionsForType`, `extractUnitFromOrderString` |
-| `src/lib/utils.test.ts` | `cn()` merge and Tailwind override behaviour |
-| `src/components/ui/button.test.tsx` | Button render, onClick, disabled |
-| `src/components/ui/input.test.tsx` | Input value, onChange, disabled, label association |
-| `src/components/ui/label.test.tsx` | Label render, htmlFor association |
-| `src/components/ui/card.test.tsx` | Card, CardHeader, CardTitle, CardContent, CardDescription |
-| `src/components/ui/alert.test.tsx` | Alert role, variants, AlertTitle/AlertDescription |
-| `src/components/ui/select.test.tsx` | Select trigger, placeholder, combobox |
-| `src/components/ui/textarea.test.tsx` | Textarea value, onChange, disabled |
-| `src/contexts/AuthContext.test.tsx` | Loading/user when no refresh, login sets user, logout clears user |
-| `src/App.test.tsx` | ProtectedRoute redirect when unauthenticated, protected content when user set |
-| `src/components/AppLayout.test.tsx` | Nav links when logged out/in, loading in nav |
-| `src/pages/Home.test.tsx` | Login/Register when logged out, greeting and nav when logged in, loading |
-| `src/pages/Login.test.tsx` | Form render, error on failure, navigate home on success |
-| `src/pages/Register.test.tsx` | Form render, client validation (password length), error on API failure |
-| `src/pages/ForgotPassword.test.tsx` | Form render, success message after submit, error on failure |
-| `src/pages/ResetPassword.test.tsx` | Invalid link when no token, form when token present, password mismatch, success message |
-| `src/pages/LinkTelegram.test.tsx` | Heading and generate code, code display on success, already-linked state |
-| `src/pages/GameList.test.tsx` | Loading then content, empty state and Create button, my games list, create API call |
-| `src/pages/GameView.test.tsx` | Renders and shows loading initially |
+| File | Covers |
+|------|--------|
+| `src/api/client.test.ts` | `errorDetailToMessage`, token helpers, `apiJson`/`apiFetch`, the 401 refresh flow |
+| `src/lib/orderParsing.test.ts` | Parsing and grouping legal orders for the order builder |
+| `src/lib/provinceNames.test.ts` | Province display names |
+| `src/lib/resultText.test.ts` | Human-readable order results |
+| `src/contexts/AuthContext.test.tsx` | Loading, login, logout, refresh |
+| `src/App.test.tsx` | `ProtectedRoute` redirect and protected content |
+| `src/components/AppLayout.test.tsx` | Nav when logged out and in, the source-code link |
+| `src/components/MapViewer.test.tsx` | The inline map and its full-size dialog, keyboard access |
+| `src/pages/Home.test.tsx` | Logged-out and logged-in home |
+| `src/pages/Login.test.tsx`, `Register.test.tsx` | Forms, validation, API errors, navigation |
+| `src/pages/ForgotPassword.test.tsx`, `ResetPassword.test.tsx` | The reset flow |
+| `src/pages/LinkTelegram.test.tsx` | Code generation and the already-linked state |
+| `src/pages/GameList.test.tsx` | Game lists, empty state, creating a game |
+| `src/pages/GameView.test.tsx` | The game page: board views, order building and submission, results, retreats and builds, seats, joining, draw votes, wait flags, messages |
 
 ## What to test
 
-### 1. Pure logic (unit tests)
-
-- **`src/lib/orderParsing.ts`** — `parseLegalOrder`, `groupLegalOrdersByType`, `getOrderTypesFromGrouped`, `extractUnitFromOrderString`, etc. No mocks needed; fast and stable.
-- **`src/lib/utils.ts`** — e.g. `cn()` if you add more helpers.
-- **API helpers** — `errorDetailToMessage` in `src/api/client.ts` can be unit-tested by exporting it (or testing via `apiJson` with mocked `fetch`).
-
-### 2. React components (component tests)
-
-- **UI primitives** (`src/components/ui/*`) — render with different props, assert labels, disabled state, and `onClick`/`onChange`.
-- **Pages** — wrap with required providers (`AuthProvider`, `BrowserRouter`) and mock `useAuth` or API:
-  - Login/Register: mock `login`/`register`, fill form, submit, assert navigation or error.
-  - GameList / GameView: mock `apiJson` or `apiFetch`, render, assert loading and list content.
-- **ProtectedRoute** — render with/without user, assert redirect to `/login` or children.
-
-### 3. Context and hooks
-
-- **AuthContext** — render `AuthProvider` with a test wrapper that mocks `apiJson`/`fetch` for `/auth/me` and `/auth/login`; assert `user`, `loading`, and that `login`/`logout` update state.
-
-## Patterns
-
-- Use **React Testing Library** queries: `getByRole`, `getByLabelText`, `getByPlaceholderText` to reflect how users interact.
-- Mock **API** with `vi.stubGlobal('fetch', …)` or by injecting a small API wrapper; avoid real network in tests.
-- For **router**: wrap the component in `<MemoryRouter>` or `<BrowserRouter>` and use `useNavigate()`; for assertions use a test router or check `window.location`.
-- For **AuthContext**: create a wrapper that provides `AuthProvider` (and optionally a mock auth state) so pages and `ProtectedRoute` behave as in the app.
-
-## Optional: E2E tests
-
-For full user flows (e.g. login → open game list → open a game), add **Playwright** or **Cypress** in a separate step. These run against the built app and a real or mocked backend. Start with Vitest + RTL for speed and stability, then add E2E for a few critical paths.
+- **Our logic and our pages.** The `src/components/ui/*` shadcn primitives are third-party
+  code; don't write tests for them.
+- **Assert what the user sees:** query by role, label or text (`getByRole`,
+  `getByLabelText`), and assert the exact text or request body, not just that something
+  rendered.
+- **Every test must be able to fail.** A new test should fail without the change it covers.
