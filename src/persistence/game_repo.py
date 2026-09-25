@@ -187,6 +187,7 @@ class GameRepo:
                 "status": row.status,
                 "deadline": row.deadline,
                 "phase_length_seconds": row.phase_length_seconds,
+                "deadline_schedule": row.deadline_schedule,
                 "phase_started_at": row.phase_started_at,
                 "current_turn": int(row.current_turn or 0),
                 "dummy_powers": sorted(row.dummy_powers or []),
@@ -224,6 +225,7 @@ class GameRepo:
         dummy_powers: Optional[list[str]] = None,
         auto_process: bool = False,
         join_password_hash: Optional[str] = None,
+        deadline_schedule: Optional[dict[str, Any]] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -250,6 +252,7 @@ class GameRepo:
                 auto_process=auto_process,
                 wait_flags={},
                 join_password_hash=join_password_hash,
+                deadline_schedule=deadline_schedule,
             )
             session.add(row)
             session.flush()  # assign the integer PK

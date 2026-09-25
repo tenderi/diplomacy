@@ -526,6 +526,8 @@ export default function GameView() {
   const [votingDraw, setVotingDraw] = useState(false)
   const [ordersStatus, setOrdersStatus] = useState<OrdersStatus | null>(null)
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null)
+  /** The weekly schedule that arms each phase's deadline, e.g. "Mon, Wed, Fri at 16:00 (UTC)". */
+  const [scheduleText, setScheduleText] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
   /** The last processed turn's per-order outcomes (GET .../last_resolution), so "what
    * happened to my orders" survives a reload, not just the inline process_turn response. */
@@ -641,14 +643,23 @@ export default function GameView() {
     if (!gameId || !state || state.status !== 'ACTIVE') {
       setOrdersStatus(null)
       setDeadlineIso(null)
+      setScheduleText(null)
       return
     }
     apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
       .then(setOrdersStatus)
       .catch(() => setOrdersStatus(null))
-    apiJson<{ deadline: string | null }>(`/games/${gameId}/deadline`)
-      .then((d) => setDeadlineIso(d.deadline ?? null))
-      .catch(() => setDeadlineIso(null))
+    apiJson<{ deadline: string | null; schedule?: { description: string } | null }>(
+      `/games/${gameId}/deadline`,
+    )
+      .then((d) => {
+        setDeadlineIso(d.deadline ?? null)
+        setScheduleText(d.schedule?.description ?? null)
+      })
+      .catch(() => {
+        setDeadlineIso(null)
+        setScheduleText(null)
+      })
   }, [gameId, state?.status, state?.phase])
 
   // Depends on state.phase (not just gameId/myPower) so that: (a) a phase change refetches
@@ -998,6 +1009,9 @@ export default function GameView() {
           <CardHeader>
             <CardTitle>Turn status</CardTitle>
             <CardDescription>{formatDeadline(deadlineIso, now)}</CardDescription>
+            {scheduleText && (
+              <CardDescription>Deadlines every {scheduleText}.</CardDescription>
+            )}
           </CardHeader>
           <CardContent className="space-y-2">
             {myPower && (

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import requests
 
 from server.telegram_bot.games import deadline, format_deadline, status
 
@@ -366,3 +367,135 @@ class TestStatusShowsFormattedDeadline:
         text = message.reply_text.call_args[0][0]
         assert "2099-01-01 00:00 UTC (in " in text
         assert "2099-01-01T00:00:00" not in text
+
+    @patch('server.telegram_bot.games.api_get')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_status_shows_the_weekly_schedule_escaped(self, mock_ctx_get, mock_get):
+        mock_ctx_get.return_value = _ONE_GAME
+
+        def fake_get(endpoint, **kwargs):
+            if endpoint.endswith("/deadline"):
+                return {
+                    "status": "ok", "deadline": None,
+                    "schedule": {"description": "Mon at 16:00 (America/New_York)"},
+                }
+            if endpoint.endswith("/orders_status"):
+                return {"submitted": [], "missing": []}
+            if endpoint.endswith("/draw_vote_status"):
+                return {"votes": [], "required": []}
+            return {"phase": "S1901M", "phase_type": "MOVEMENT", "year": 1901, "season": "SPRING"}
+
+        mock_get.side_effect = fake_get
+        update, context, message = _make_update_and_context(args=["1"])
+
+        asyncio.run(status(update, context))
+
+        assert "🗓 *Schedule:* Mon at 16:00 (America/New\\_York)\n" in message.reply_text.call_args[0][0]
+
+
+class TestDeadlineSchedule:
+    """``/deadline <id> schedule <days> <HH:MM> [timezone]`` and ``schedule off``."""
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_days_time_and_timezone_are_posted(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "ok",
+            "schedule": {"description": "Mon, Wed, Fri at 16:00 (Europe/Helsinki)"},
+            "deadline": "2099-01-05T14:00:00+00:00",
+        }
+        update, context, message = _make_update_and_context(
+            args=["1", "schedule", "mon,wed,fri", "16:00", "Europe/Helsinki"]
+        )
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/schedule",
+            {"telegram_id": "12345", "schedule": "mon,wed,fri 16:00", "timezone": "Europe/Helsinki"},
+        )
+        text = message.reply_text.call_args[0][0]
+        assert text.startswith(
+            "⏰ Game 1's deadlines are now Mon, Wed, Fri at 16:00 (Europe/Helsinki).\n"
+            "This phase's deadline: 2099-01-05 14:00 UTC (in "
+        )
+        assert text.endswith("\nEveryone has been told.")
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_without_a_timezone_the_server_default_applies(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "ok", "schedule": {"description": "Mon, Wed at 16:00 (UTC)"}, "deadline": None,
+        }
+        update, context, message = _make_update_and_context(args=["1", "schedule", "mon,", "wed", "16:00"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/schedule", {"telegram_id": "12345", "schedule": "mon, wed 16:00"}
+        )
+        assert message.reply_text.call_args[0][0] == (
+            "⏰ Game 1's deadlines are now Mon, Wed at 16:00 (UTC).\n"
+            "The first deadline is set when the game fills.\nEveryone has been told."
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_off_removes_it(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {"status": "ok", "schedule": None, "deadline": None}
+        update, context, message = _make_update_and_context(args=["1", "schedule", "off"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_called_once_with(
+            "/games/1/deadline/schedule", {"telegram_id": "12345", "schedule": None}
+        )
+        assert message.reply_text.call_args[0][0] == (
+            "Game 1 no longer has a weekly deadline schedule. The current deadline, "
+            "if any, stays; everyone has been told."
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_server_refusal_is_shown(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.side_effect = requests.RequestException("'funday' is not a day of the week; use Mon, Tue, ... Sun.")
+        update, context, message = _make_update_and_context(args=["1", "schedule", "funday", "16:00"])
+
+        asyncio.run(deadline(update, context))
+
+        assert message.reply_text.call_args[0][0] == (
+            "Could not set the deadline schedule: 'funday' is not a day of the week; use Mon, Tue, ... Sun."
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_bare_schedule_is_usage(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        update, context, message = _make_update_and_context(args=["1", "schedule"])
+
+        asyncio.run(deadline(update, context))
+
+        mock_post.assert_not_called()
+        assert message.reply_text.call_args[0][0].startswith("Usage:")
+
+    @patch('server.telegram_bot.games.api_get')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_show_mentions_the_schedule(self, mock_ctx_get, mock_get):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_get.return_value = {
+            "status": "ok", "deadline": None,
+            "schedule": {"description": "Mon, Wed, Fri at 16:00 (UTC)"},
+        }
+        update, context, message = _make_update_and_context(args=["1"])
+
+        asyncio.run(deadline(update, context))
+
+        texts = [c.args[0] for c in message.reply_text.call_args_list]
+        assert texts == [
+            "📅 Game 1 has a deadline every Mon, Wed, Fri at 16:00 (UTC). "
+            "Stop it with /deadline 1 schedule off."
+        ]

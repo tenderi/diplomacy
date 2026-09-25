@@ -453,6 +453,7 @@ function stubFetchActive(
     savedOrders?: string[]
     legalOrders?: Record<string, unknown>
     lastResolution?: Record<string, unknown>
+    deadline?: Record<string, unknown>
   } = {}
 ) {
   return vi.fn((url: string, init?: RequestInit) => {
@@ -465,7 +466,8 @@ function stubFetchActive(
       return jsonResponse(
         opts.ordersStatus ?? { phase: 'S1901M', active_powers: [], submitted: [], missing: [] }
       )
-    if (url.includes('/deadline')) return jsonResponse({ status: 'ok', deadline: null })
+    if (url.includes('/deadline'))
+      return jsonResponse(opts.deadline ?? { status: 'ok', deadline: null, schedule: null })
     if (url.includes('/draw_vote_status'))
       return jsonResponse({
         phase: 'S1901M', game_status: 'ACTIVE', required: [], votes: [], missing: [], quorum_reached: false,
@@ -692,6 +694,56 @@ describe('GameView — private games (W8)', () => {
     fireEvent.click(within(container).getByRole('button', { name: /^join$/i }))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0]).toMatchObject({ power: 'FRANCE', join_password: 'hunter2' })
+  })
+})
+
+describe('GameView — deadline schedule', () => {
+  it("shows the game's weekly deadline schedule under the countdown", async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, {
+        deadline: {
+          status: 'ok',
+          deadline: null,
+          schedule: {
+            timezone: 'Europe/Helsinki',
+            slots: [{ day: 'MON', time: '16:00' }],
+            description: 'Mon, Wed, Fri at 16:00 (Europe/Helsinki)',
+          },
+        },
+      })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(
+      await within(container).findByText('Deadlines every Mon, Wed, Fri at 16:00 (Europe/Helsinki).')
+    ).toBeInTheDocument()
+  })
+
+  it('shows no schedule line when the game has none', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await within(container).findByText('No deadline set for this phase.')).toBeInTheDocument()
+    expect(within(container).queryByText(/Deadlines every/)).not.toBeInTheDocument()
   })
 })
 
