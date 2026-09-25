@@ -41,14 +41,14 @@ deadline. The channel sees the public board, not anyone's intentions.
 
 ## Implementation
 
-- **API** (`src/server/api/routes/channels.py`): link, unlink, get/update settings, post map,
-  post broadcast, post battle results, post dashboard, timeline, threads, proposals, and
-  engagement analytics.
+- **API** (`src/server/api/routes/channels.py`): link, unlink, get/update settings, and
+  posts queued for the group: the current map, a broadcast, battle results, the player
+  dashboard, the timeline, a discussion thread.
 - **Bot** (`src/server/telegram_bot/channels.py`, `channel_commands.py`): the commands above
   plus the formatting and posting helpers.
 - **Persistence**: channel link and settings hang off the game row (`channel_id`,
-  `channel_settings`); channel messages and analytics have their own tables via
-  `DatabaseService`.
+  `channel_settings`); channel messages have their own table via `DatabaseService`. (A
+  `channel_analytics` table also exists; nothing has read or written it since Track AH.)
 - **Hooks**: the API queues everything for Telegram in the `bot_outbox` table, pulled and
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,

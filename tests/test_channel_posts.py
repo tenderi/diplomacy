@@ -229,12 +229,19 @@ class TestRoutesQueueForTheGroup:
         public = self._post(client, f"/games/{game_id}/channel/broadcast", json={"telegram_id": creator, "message": "hi"})
         assert public["message"] == "📢 *PUBLIC BROADCAST*\n\nhi"
 
+    def test_the_current_map_is_queued_by_path(self, client: TestClient) -> None:
+        """This route used to answer success and post nothing ("will be implemented")."""
+        game_id, _ = self._linked_game(client)
+        row = self._post(client, f"/games/{game_id}/channel/map")
+        assert (row["kind"], row["message"]) == ("channel_map", f"🗺️ Game {game_id} · Spring 1901 movement: the board now")
+        assert row["payload"] == {"game_id": game_id, "path": f"/games/{game_id}/map"}
+
     def test_thread_is_queued_with_its_title(self, client: TestClient) -> None:
         game_id, _ = self._linked_game(client)
         row = self._post(client, f"/games/{game_id}/channel/thread", json={"topic": "Spring talks", "phase": "S1901M"})
         assert (row["kind"], row["message"]) == ("channel_create_thread", "Spring talks - S1901M")
 
-    @pytest.mark.parametrize("route", ["dashboard", "timeline", "battle_results", "thread", "broadcast"])
+    @pytest.mark.parametrize("route", ["map", "dashboard", "timeline", "battle_results", "thread", "broadcast"])
     def test_an_unlinked_game_is_404_and_queues_nothing(self, client: TestClient, route: str) -> None:
         creator = _telegram_user(client, "nolink")
         game_id = str(client.post("/games/create", json=_as(creator, map_name="standard"), headers=BOT).json()["game_id"])
