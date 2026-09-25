@@ -10,15 +10,9 @@ protocol server for AI bots, SVG map rendering, PostgreSQL persistence, and a si
 Docker deployment (Postgres, API, bot and web on one VPS, deployed on every green merge).
 Python 3.14.
 
-The repository root is the whole codebase, what runs in production (it lived in
-`new_implementation/` until `v3.0.1`). It started as a rewrite of `old_implementation/`
-(Philip Paquette's AGPL-3.0 `diplomacy` package — a DATC engine, websocket server, React
-UI, and DAIDE adapter), which was removed in Track W (`v2.7.91`) after an audit found
-nothing here imports from it; `git show v2.7.68:old_implementation/<path>` still reads any
-file from it out of git history. The code was written anew, but the map data
-(`maps/standard.map`, `maps/standard.svg`) are adapted from that package's files, so the
-project is a derivative work and is licensed, like the original, under the **GNU AGPL,
-version 3 or later** (`LICENSE`; see the README).
+The code is a rewrite; the map data (`maps/standard.map`, `maps/standard.svg`) is adapted
+from Philip Paquette's `diplomacy` package, so the project is licensed, like that one, under
+the **GNU AGPL, version 3 or later** (`LICENSE`; see the README).
 
 ---
 
@@ -34,14 +28,14 @@ diplomacy/
 ├── tests/               # top-level test files + tests/datc/ + tests/engine/
 ├── frontend/            # React 18 + Vite + TypeScript SPA
 ├── maps/                # standard.map (topology) + standard.svg
-├── examples/            # demo_perfect_game.py + order visualization example
-├── docker/              # api / bot / web Dockerfiles, nginx template, Caddyfile
-├── infra/scripts/       # Operational scripts (DB maintenance, test runners)
+├── docker/              # api / bot / web / docs Dockerfiles, nginx configs, Caddyfile
+├── .github/workflows/   # test.yml (the required checks), deploy.yml (deploy on merge)
 ├── alembic/             # Database migrations
 ├── docs/                # User docs + specs/ + reference/rules.pdf
 ├── icons/               # Unit icon PNGs
 ├── docker-compose.yml   # the production stack; install.sh, ensure_env.sh, upgrade.sh,
 │                        #   backup.sh, harden_host.sh operate it (docs/DEPLOYMENT.md)
+├── mkdocs.yml           # the docs site (docs/ as a website)
 ├── README.md, LICENSE (AGPL-3.0-or-later), CLAUDE.md, CODEBASE_OVERVIEW.md
 ```
 
@@ -49,17 +43,14 @@ diplomacy/
 
 ## 2. Game engine (`src/engine/`)
 
-A from-scratch rewrite of the original engine, which had order-dependent (non-simultaneous)
-adjudication, gave convoyed armies unearned attack strength, no convoy-paradox handling,
-wrong support-cut exemptions, dead-on-arrival coast support, and unvalidated builds. The
-package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework dependencies —
-a Hypothesis property enforces this. Algorithm writeup:
+The package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework dependencies —
+`tests/engine/test_purity.py` checks every import. Algorithm writeup:
 [`docs/specs/adjudication.md`](docs/specs/adjudication.md).
 
 | File | Purpose |
 |---|---|
 | `types.py` | Frozen, hashable dataclasses: `Location` (province + optional coast), `Unit`, `DislodgedUnit`, one class per order kind (`Hold`, `Move`, `SupportHold`, `SupportMove`, `Convoy`, `Retreat`, `Disband`, `Build`, `Waive`), `OrderResult`, `Resolution`, `GameState`. Enums: `UnitKind`, `ProvinceType`, `Season`, `PhaseType`, `OrderType`, `ResultCode`, `GameStatus`. |
-| `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types, coast-first-class adjacency, supply centers, home centers, 1901 starting units, province aliases, and `display_names` (code → full name, from the `=` lines' left-hand side). Query API: `adjacent`, `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`. **The sole topology, alias and display-name source** — no hardcoded tables anywhere in the engine. Note `display_names` is for client *display* only; `aliases` is what the order parser consults, and full names deliberately do not parse. |
+| `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types, coast-first-class adjacency, supply centers, home centers, 1901 starting units, province aliases, and `display_names` (code → full name, from the `=` lines' left-hand side). Query API: `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`, `coasts_of`, `province_type`. **The sole topology, alias and display-name source** — no hardcoded tables anywhere in the engine. Note `display_names` is for client *display* only; `aliases` is what the order parser consults, and full names deliberately do not parse. |
 | `orders/parser.py` | One grammar for every order type: coast syntax (`F SPA/SC`), `VIA` convoy, aliases, optional power prefix. `parse_order` / `format_order` round-trip (Hypothesis-checked). |
 | `orders/validation.py` | The single legality path, `validate(order, state, map)` — used by `GameService.submit_orders` and by build legality in `adjudicator/adjustments.py`. |
 | `adjudicator/movement.py` | The heart of the engine: a **Kruijswijk fixed-point resolver**. Per-order UNRESOLVED/GUESSING/RESOLVED state, recursive resolve with dependency-cycle detection, attack/defend/prevent/hold strengths with the correct support-cut exemptions, BFS convoy paths over surviving fleets (multi-route), and cycle-breaking: circular movement succeeds, convoy-entangled cycles apply the **Szykman rule**. |
@@ -134,8 +125,7 @@ no topology of its own.
 
 `maps/` holds `standard.map` (the canonical topology source: 75 provinces, aliases, 7
 powers with home centers and starting units, unowned centers, coast-specific adjacency),
-`standard.svg` (the rendered base map, province regions identified by ID), `svg.dtd`, and
-`mini_variant.json` (a small test variant).
+`standard.svg` (the rendered base map, province regions identified by ID) and `svg.dtd`.
 
 ---
 
@@ -144,42 +134,45 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | File / Module | Purpose |
 |---|---|
 | `game_service.py` | **The single entry point from server code into the engine.** `GameService` wraps `engine.game.Game` + `serialization` + `orders/` over `GameRepo`: `create_game`, `submit_orders`, `process_turn`, `view`, `last_resolution`, `order_history`. Routes, the CLI `Server`, and DAIDE all go through this. |
-| `_api_module.py` | FastAPI application factory. Registers routes, initializes DB schema on startup, starts the deadline scheduler and the DAIDE listener in `lifespan`, and mounts the built frontend at `/app`. |
+| `_api_module.py` | FastAPI application factory. Registers routes, initializes the DB schema on startup, starts the deadline scheduler and the DAIDE listener in `lifespan`, and defines `/health`, `/healthz`, `/version` and a short `/` page. |
 | `legal_orders.py` | Pure, phase-aware enumeration of every legal order for a power (movement / retreat / build / disband), with no FastAPI or DB imports. Backs `GET /games/{id}/legal_orders/{power}`. |
 | `server.py` | `Server` — a text-command surface (`CREATE_GAME`, `ADD_PLAYER`, `SET_ORDERS`, `PROCESS_TURN`, `GET_GAME_STATE`), routed through `GameService`. Used by tests; the HTTP API does not depend on it. |
-| `errors.py` | `ServerError` / `ServerResponse` with standard codes: `GAME_NOT_FOUND`, `POWER_NOT_FOUND`, `INVALID_ORDER`, … |
+| `errors.py` | The CLI `Server`'s error responses (`UNKNOWN_COMMAND`, `MISSING_ARGUMENTS`, `GAME_NOT_FOUND`, `INVALID_ORDER`, `INTERNAL_ERROR`). The HTTP API uses FastAPI's `{"detail": …}`. |
 | `db_config.py` | Reads `SQLALCHEMY_DATABASE_URL` from the environment (defaults to local PostgreSQL). |
-| `response_cache.py` | In-memory response cache with TTL, LRU eviction, and invalidation, used on expensive endpoints. |
+| `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
 | `daide/` | The DAIDE protocol package — see §6. |
 
 ### API route modules (`src/server/api/routes/`)
 
 | Module | Endpoints |
 |---|---|
-| `games.py` | Create/list/get games, join/quit/replace/start, deadline get+set, process turn, snapshots + restore, history, draw vote and concede, spectators. |
-| `orders.py` | Submit orders, get current orders, clear orders, order history, order-submission status, legal orders (whole power or per unit). |
-| `users.py` | Register (persistent + session), list a user's games. |
+| `games.py` | Create/list/get games, join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
+| `orders.py` | Submit orders (replace, or merge one per unit), get current orders, clear orders, order history. |
+| `users.py` | Register a Telegram user, list a user's games. |
 | `auth.py` | JWT register/login/token/refresh/me, forgot + reset password, Telegram link code and link/unlink. |
 | `messages.py` | Private messages, broadcasts, message history. |
-| `maps.py` | Board / orders / resolution PNG generation, per-turn map history, map preview, and `GET /maps/{map}/provinces` — province metadata (full name, type, supply-centre flag, coasts), the one server-side source of display names for both clients. |
-| `waiting_list.py` | Automatic game matching: join/leave the queue, queue status. Owns the `waiting_list` table and creates the game itself when the queue fills, claiming exactly seven entries in one transaction first so a failure cannot orphan a game. This used to be an in-memory global in the Telegram bot. |
+| `maps.py` | Board / orders / resolution PNGs, per-turn boards and each turn's orders map (what the Telegram group gets after every turn), map preview, and `GET /maps/{map}/provinces` — province metadata (full name, type, supply-centre flag, coasts), the one server-side source of display names for both clients. |
+| `waiting_list.py` | Automatic game matching: join/leave the queue, queue status. Owns the `waiting_list` table and creates the game itself when the queue fills, claiming exactly seven entries in one transaction first so a failure cannot orphan a game. |
 | `channels.py` | Link/unlink a game's Telegram group, its settings, and posts queued for it: the current map, results, broadcasts, timelines, the player dashboard, threads. |
-| `admin.py` | Delete all games, cache management, counts. Requires the admin token. |
+| `admin.py` | Delete a game or all games, mark a seat inactive, cache and connection-pool management, counts. Requires the admin token. |
+| `archive.py` | Saved-game export and import (admin only: an export holds every private message). |
+| `bot_outbox.py` | The bot's pull endpoint for queued notifications, and its ack. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
-`shared.py` holds the `db_service` / `game_service` singletons, `game_view(game_id)`,
-loggers, `notify_user` / `notify_players` (which write `bot_outbox` rows — server code never
-talks to Telegram), and the **deadline scheduler**: a background async task that processes
+`shared.py` holds the `db_service` / `game_service` singletons, loggers, `notify_user` /
+`notify_players` / `post_to_game_group` (which write `bot_outbox` rows — server code never
+talks to Telegram), `finish_processed_turn` (everything after a turn, for every trigger),
+and the **deadline scheduler**: a background async task that processes
 turns whose deadline has passed, notifies players, and hourly purges delivered outbox rows
-and expired idempotency keys. `bot_outbox.py` (route) is the bot's pull endpoint for those
-rows; `idempotency.py` is the middleware that replays a stored response for a repeated
+and expired idempotency keys. `idempotency.py` is the middleware that replays a stored response for a repeated
 `Idempotency-Key`; `client_timestamp.py` normalises the composed-at time the bot sends.
 
 ### Auth
 
-Two modes coexist: **JWT Bearer** (browser) and **`telegram_id` in the request body**
-(Telegram bot). The dependency `get_current_user_or_telegram` accepts either; per-power
-authorization is enforced in route handlers.
+Two modes coexist: **JWT Bearer** (browser) and **`telegram_id` plus the bot secret**
+(Telegram bot). `resolve_user_or_telegram` turns either into a user; `require_bot_or_user`
+and `require_bot_secret` are the dependencies; per-power authorization is enforced in route
+handlers.
 
 ---
 
@@ -218,9 +211,9 @@ The primary player interface, built on `python-telegram-bot` 22.x. A **thin HTTP
 | `orders.py` | `/orders` (= `/order`), `/orderall`, `/selectunit`, `/myorders`, `/clearorders`, `/clear`, `/orderhistory`, `/processturn` (creator only, enforced by the API) — interactive unit and move selection via inline keyboards driven by `legal_orders`. |
 | `messages.py`, `maps.py` | `/message`, `/broadcast`, `/messages` (game id optional; `send_diplomatic_message`, `recent_messages_text`); `/map`, `/viewmap`, `/replay`. |
 | `ui.py`, `admin.py` | `/help`, `/rules`, `/examples`, `/refresh` (rebuild the keyboard menu), plain-text routing (private chats only); the solo demo (`start_demo_game`: six civil-disorder seats in a `map_name="demo"` game, where the server plays them with `engine.simple_ai`), `/debug`. |
-| `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`. Centralised because the same block was copy-pasted into three modules and all copies drifted into teaching syntax the engine rejects; `tests/test_bot_help_text.py` parses each documented order through the real grammar. |
-| `channels.py`, `channel_commands.py` | The text of group posts (timeline, player dashboard, battle results; the API queues them, the bot sends them); `/newgame`, `/linkgroup`, `/unlinkgroup`, and the older `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` (players of the game only). |
-| `notifications.py` | The two background loops: pull `GET /bot/outbox` and DM players (ack after Telegram accepts; late ones prefixed with their original time), and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
+| `help_text.py` | **Every order string shown to a player**, in one module, imported by `ui.py`, `admin.py` and `app.py`; `tests/test_bot_help_text.py` parses each documented order through the real grammar, so the help can never teach syntax the engine rejects. |
+| `channels.py`, `channel_commands.py` | The text of group posts (timeline, player dashboard, battle results; the API queues them, the bot sends them); `/newgame`, `/linkgroup`, `/unlinkgroup`, and `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` (players of the game only). |
+| `notifications.py` | The two background loops: pull `GET /bot/outbox` and send each row — a DM, a group post, or a group map fetched by its path (ack after Telegram accepts; late ones prefixed with their original time; an image the API refuses is failed, not retried) — and replay the local queue in order, DMing each result. Also `/queue`. No listener of any kind. |
 
 Command reference:
 [`docs/TELEGRAM_BOT_COMMANDS.md`](docs/TELEGRAM_BOT_COMMANDS.md).
@@ -230,10 +223,10 @@ Command reference:
 ## 8. Frontend (`frontend/`)
 
 React 18 + Vite + TypeScript SPA, Tailwind CSS + shadcn/ui, React Router, React Hook Form +
-Zod. Consumes the GameState-native view directly — there is no legacy `powers`-shaped view
-to translate. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/games`, `/games/:id`.
-Vite proxies API calls to `http://localhost:8000` in dev; `npm run build` outputs to
-`dist/`, which FastAPI serves at `/app`. Tests use Vitest + React Testing Library — see
+Zod. Consumes the GameState-native view directly. Routes: `/`, `/login`, `/register`,
+`/forgot-password`, `/reset-password`, `/link-telegram`, `/games`, `/games/:id`. Vite
+proxies `/api` to `http://localhost:8000` in dev; in production the `diplomacy_web` image
+builds `dist/` and nginx serves it. Tests use Vitest + React Testing Library — see
 [`frontend/docs/TESTING.md`](frontend/docs/TESTING.md).
 
 The board map is rendered server-side at 1835×1360 but the app column is `max-w-4xl` (896px),
@@ -247,8 +240,9 @@ tests need the polyfill in `MapViewer.test.tsx` or they silently assert nothing.
 ## 9. Tests
 
 Run with `PYTHONPATH=src python -m pytest tests/ -v` from the repository root with the
-venv active and Postgres up. CI enforces coverage: `--fail-under=60` overall, and
-`--include='src/engine/*' --fail-under=92` for the engine.
+venv active and Postgres up. CI enforces coverage: `--fail-under=80` overall,
+`--include='src/engine/*' --fail-under=95` for the engine, and the frontend thresholds in
+`frontend/vite.config.ts`. `tests/test_suite_hygiene.py` rejects a test that cannot fail.
 
 | Category | Location |
 |---|---|
@@ -270,8 +264,9 @@ looks falsely green. CI always provides a fresh `postgres:14` container.
 ## 10. Infrastructure
 
 Production is one Docker Compose stack on the UpCloud VPS, `docker-compose.yml`: `postgres`,
-`diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx: the SPA plus `/api/` → the API).
-Only nginx is published publicly; the API is on loopback, Postgres unpublished. Dockerfiles
+`diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx: the SPA plus `/api/` → the API),
+`caddy` (HTTPS) and `diplomacy_docs` (this documentation as a website). Only Caddy is
+public; nginx and the API are on loopback, Postgres unpublished. Dockerfiles
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
 `ensure_env.sh` (generates secrets on the host), `upgrade.sh` (build, restart, verify) and
 `backup.sh` (nightly `pg_dump`, copied off-host to Proton Drive with rclone). Full walkthrough:
@@ -279,12 +274,7 @@ and the nginx template are under `docker/`; host scripts are `install.sh` (first
 
 `.github/workflows/deploy.yml` deploys after a green Test Suite on `main`, writing
 `TELEGRAM_BOT_TOKEN` (the only host secret GitHub holds) into `.env` and running
-`upgrade.sh` (gated on `DEPLOY_CONTROL_ENABLED`). The VPS + home-server split over WireGuard
-(`v2.7.68`–`v2.7.84`) and the AWS/Terraform layout before it (removed in `v2.7.80`) are gone.
-
-`infra/scripts/` holds `start_api_server.py`, `run_bot_with_logs.sh`, `setup_test_db.sh`,
-`reset_database.py`, `migrate_database.py`, `add_database_indexes.py`,
-`compare_environments.py`, and the test runners.
+`upgrade.sh` (gated on `DEPLOY_CONTROL_ENABLED`).
 
 ---
 
@@ -296,13 +286,15 @@ and the nginx template are under `docker/`; host scripts are `install.sh` (first
 2. `POST /games/create` with `map_name` → `GameService.create_game` builds
    `Game.new_standard()` and persists its `state_json`.
 3. `/join` → `POST /games/{id}/join` → a row in `players` (never engine-coupled).
-4. `/selectunit` → bot fetches `GET /games/{id}/legal_orders/{power}` → inline keyboards →
-   `POST /games/set_orders` → `GameService.submit_orders` parses and validates, stores into
-   `pending_orders`.
-5. `/processturn` or deadline expiry → `POST /games/{id}/process_turn` →
+4. *Enter orders* (`/orderall`) → bot fetches `GET /games/{id}/legal_orders/{power}` →
+   inline keyboards per unit → `POST /games/set_orders` → `GameService.submit_orders`
+   parses and validates, stores into `pending_orders`.
+5. The last order in (auto-process), the creator's "process now", or the deadline →
    `GameService.process_turn` loads `state_json`, parses every power's pending orders, calls
    `Game.adjudicate(orders)`, advances the phase, persists the next `state_json` +
-   `last_resolution`, appends `order_history`, clears `pending_orders`, and notifies players.
+   `last_resolution`, appends the order and resolution histories, clears `pending_orders`;
+   then `finish_processed_turn` snapshots the board and notifies the players (and the
+   group, with the orders and result maps).
 6. `/map` → map endpoint → `src/rendering/` renders the SVG from the `GameService.view`
    shape (optionally with order/resolution arrows) → PNG back to the chat.
 
@@ -336,28 +328,5 @@ WAIVE                  # Waive a build
 | HTTP client | httpx + requests |
 | Testing | pytest, pytest-asyncio, pytest-mock, coverage, Hypothesis (engine properties) |
 | Frontend | React 18, Vite, TypeScript, Tailwind, shadcn/ui, Vitest, React Testing Library |
-| Infrastructure | Docker Compose on one VPS, nginx; GitHub Actions deploy-on-merge |
+| Infrastructure | Docker Compose on one VPS, nginx, Caddy (HTTPS), MkDocs (docs site); GitHub Actions deploy-on-merge |
 | Linting | Ruff (strict, pinned version — CI pins to avoid new-release rule-set breakage) |
-
----
-
-## 13. Old implementation (removed, Track W)
-
-`old_implementation/` was the original open-source engine this project started as a
-clean-room rewrite of: `diplomacy/engine/` (DATC-compliant `Game`, `map`, `power`,
-`renderer`), `diplomacy/server/` (websocket server), `diplomacy/client/`, `diplomacy/web/`
-(React UI), `diplomacy/daide/` (full DAIDE implementation), `diplomacy/maps/` (15+ variants),
-Sphinx docs, and `rules.pdf` (the official rulebook — relocated to
-`docs/reference/rules.pdf` before the rest was removed). A pre-deletion
-audit (`v2.7.90`) found nothing in the new code imports from it, so it was deleted
-in `v2.7.91`; `git show v2.7.68:old_implementation/<path>` still reads any file from it.
-
-| Aspect | Old (removed) | New |
-|---|---|---|
-| Server protocol | WebSockets (asyncio) | REST (FastAPI) + DAIDE TCP |
-| Client | React web UI + Python async client | Telegram bot + React SPA |
-| Engine | DATC-compliant, monolithic mutable `Game` | Kruijswijk fixed-point resolver, frozen value types |
-| Database | File-based / in-memory | PostgreSQL + SQLAlchemy |
-| Maps | 15+ variants | `standard` only |
-| Python | 3.5–3.7 | 3.14 |
-| License | AGPL-3.0 | none |

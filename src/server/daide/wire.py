@@ -26,9 +26,7 @@ Five message types make up the handshake and payload exchange:
   `ErrorCode` the recipient can log or use to close the connection cleanly.
 
 This module is written against `asyncio.StreamReader`/`StreamWriter` because
-the DAIDE listener (Track D's D4) is asyncio-based -- see
-`docs/specs/done_fixes.md`'s Track D Ground Rules for why Tornado (which
-`old_implementation` uses) is not an option here.
+the DAIDE listener runs on the API's asyncio event loop.
 """
 
 from __future__ import annotations

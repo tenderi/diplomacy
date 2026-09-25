@@ -11,21 +11,19 @@ also runs p2p's bot, which this stack does not touch.
                                   │                 durable queue (SQLite, /data)  │
                                   │        │ http://diplomacy_api:8000             │
                                   │        ▼                                       │
-  Browser ──── http://…:80 ─────► │ diplomacy_web   nginx: SPA + /api/ ──► API     │
+  Browser ─── https://DOMAIN ───► │ caddy           HTTPS, Let's Encrypt           │
+                                  │   ├─► diplomacy_web  nginx: SPA + /api/ ─► API │
+                                  │   └─► diplomacy_docs this site (DOCS_DOMAIN)   │
                                   │ diplomacy_api   FastAPI + engine + renderer    │
                                   │                 127.0.0.1:8000, DAIDE :8432    │
                                   │ postgres        not published; pg_data volume  │
                                   └────────────────────────────────────────────────┘
 ```
 
-Only nginx is reachable from the internet. The API is published on loopback
-only (for `upgrade.sh` and debugging); the bot and nginx reach it by its
-compose service name. Postgres is not published at all.
-
-Until `v2.7.85` the stack was split across the VPS (bot + web) and a home
-server (API + Postgres) joined by p2p's WireGuard tunnel. That layout was
-retired for simplicity: one host, one `.env`, every merge deploys everything.
-`done_fixes.md` Track V has the history.
+Only Caddy (ports 80/443) is reachable from the internet. nginx and the API are
+published on loopback only (for `upgrade.sh` and debugging); the bot and nginx
+reach the API by its compose service name. Postgres is not published at all.
+Without a `DOMAIN`, Caddy does not run and nginx serves plain HTTP on `WEB_BIND`.
 
 ## Secrets
 
@@ -38,9 +36,7 @@ All live in `/root/diplomacy/.env` on the VPS (mode 600).
 
 `DIPLOMACY_BOT_SECRET` is what the bot sends as `X-Bot-Secret` and the API
 checks. Both containers read it from the same `.env`, so it cannot drift.
-`ensure_env.sh` also regenerates it if it ever equals the Telegram token, and
-removes the old tunnel keys (`DIPLOMACY_API_URL`, `DIPLOMACY_API_UPSTREAM`,
-`WG_IP`) left from the two-host layout.
+`ensure_env.sh` also regenerates it if it ever equals the Telegram token.
 
 ## What "no message is ever lost" means
 
@@ -82,9 +78,9 @@ cd ~/diplomacy
 ```
 
 Put the bot token in `.env` (`TELEGRAM_BOT_TOKEN=` from @BotFather), or let
-the deploy workflow write it. Optionally set `DIPLOMACY_PASSWORD_RESET_BASE_URL`
-and `DIPLOMACY_CORS_ORIGINS` to the site's public URL (e.g.
-`http://87.58.144.64`). Then:
+the deploy workflow write it. Set `DOMAIN` for HTTPS (below); without one, set
+`DIPLOMACY_PASSWORD_RESET_BASE_URL` and `DIPLOMACY_CORS_ORIGINS` to the site's
+public URL. Then:
 
 ```bash
 ./upgrade.sh        # build, start (migrations run in the API entrypoint), verify
@@ -159,17 +155,6 @@ The reply never says whether the address has an account. Limits: 10 requests
 per IP per hour (then 429), and at most 3 links per address per hour (further
 requests are answered the same but send nothing).
 
-### The move out of `new_implementation/` (v3.0.1)
-
-Until `v3.0.1` the app lived in `new_implementation/` and Compose named the project
-after that directory. The move is handled on the first deploy after it, with no data
-touched: the deploy step moves the host's `.env` up (`new_implementation/.env` →
-`.env`); `docker-compose.yml` pins `name: diplomacy` and keeps the volumes' old names
-(`new_implementation_pg_data`, …); and `upgrade.sh` stops the old
-`new_implementation-*` containers before starting the new ones. The backup cron job
-repoints itself (`backup.sh --install` writes its own path). Afterwards
-`/root/diplomacy/new_implementation/` holds nothing tracked and can be deleted.
-
 ### Hardening
 
 What protects the host and the site, and where it lives:
@@ -215,7 +200,7 @@ It SSHes in as `root`, fetches and checks out the exact SHA that passed
 
 The token travels on stdin, never in a command line.
 
-One-time setup (done on 2026-09-23), from a machine that can SSH into the VPS:
+One-time setup, from a machine that can SSH into the VPS:
 
 ```bash
 # 1. A dedicated deploy key for GitHub (no passphrase), installed for root.
@@ -228,12 +213,10 @@ gh secret set VPS_HOST_KEY -R tenderi/diplomacy --body "$(ssh-keyscan -t ed25519
 gh variable set DEPLOY_CONTROL_ENABLED --body true -R tenderi/diplomacy
 ```
 
-The gate's name predates the single-host layout. Optional repository
-variables override the defaults: `VPS_HOST` (`87.58.144.64`), `VPS_USER`
-(`root` — the VPS has no other login user), `VPS_REPO_DIR`
-(`~/diplomacy`). Until `DEPLOY_CONTROL_ENABLED` is `true`
-the workflow is skipped, not red. The `DIPLOMACY_BOT_SECRET` repository secret
-from the two-host layout is no longer read and can be deleted.
+Optional repository variables override the defaults: `VPS_HOST`
+(`87.58.144.64`), `VPS_USER` (`root` — the VPS has no other login user),
+`VPS_REPO_DIR` (`~/diplomacy`). Until `DEPLOY_CONTROL_ENABLED` is `true` the
+workflow is skipped, not red.
 
 ## Running by hand
 
@@ -258,7 +241,7 @@ not exposed through the bot, which holds no admin token by design. On the VPS:
 cd /root/diplomacy
 ADMIN="X-Admin-Token: $(grep ^DIPLOMACY_ADMIN_TOKEN= .env | cut -d= -f2-)"
 curl -X DELETE -H "$ADMIN" http://127.0.0.1:8000/admin/games/42    # delete one game (players are told)
-curl -H "$ADMIN" http://127.0.0.1:8000/games/42/export > game42.json  # saved-game export (W5)
+curl -H "$ADMIN" http://127.0.0.1:8000/games/42/export > game42.json  # saved-game export
 ```
 
 ## Backups
@@ -331,9 +314,10 @@ docker compose up -d
 
 - `/queue` in Telegram: server reachability, this player's queued writes, and
   the last few delivered/refused ones.
-- `docker compose ps` -- all four services report `healthy` (Postgres, the
-  API and nginx have healthchecks; the bot's watches a heartbeat file both of
-  its background loops touch, so a wedged bot is restarted by Docker).
+- `docker compose ps` -- Postgres, the API, the bot, nginx and the docs site
+  report `healthy` (Caddy has no healthcheck; `upgrade.sh` checks the site
+  through it). The bot's healthcheck watches a heartbeat file both of its
+  background loops touch, so a wedged bot is restarted by Docker.
 - `docker compose logs diplomacy_bot` logs `API unreachable; player writes are
   being queued locally` once when the API drops and `API reachable again; N
   queued write(s) waiting` once when it returns, not on every poll.

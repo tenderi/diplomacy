@@ -20,11 +20,10 @@ The specific string↔bytes assignments below are not this module's invention:
 they are the external DAIDE specification, and any compliant client or
 server must use the same values to interoperate. (`old_implementation`'s
 `diplomacy/daide/tokens.py` documents the same table and was used, read-only,
-to cross-check every value here -- see Track D's Ground Rules in
-`docs/specs/done_fixes.md` for why this codebase can't simply import that file.)
+to cross-check every value here; nothing is imported or copied from it.)
 
 Province coverage is scoped to `maps/standard.map` (map variants are out of
-scope for this track). This module does **not** hand-maintain a second
+scope). This module does **not** hand-maintain a second
 province list: `verify_standard_map_coverage()` below loads the real map
 topology via `engine.map_loader.load_standard_map()` and asserts this table's
 provinces match it exactly, so a future edit to the map file can never
@@ -459,10 +458,9 @@ PARAMETER_TOKENS: tuple[Token, ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# Press (0x4A) -- syntax tokens for the PRP/ALY/... negotiation grammar. Track
-# D scopes press support to opaque, syntax-checked forwarding (see
-# docs/specs/done_fixes.md's Ground Rules), so these are registered for
-# completeness but D1/D2 do not attempt to parse press semantics.
+# Press (0x4A) -- syntax tokens for the PRP/ALY/... negotiation grammar. Press
+# is relayed opaquely, never parsed (a permanent scope decision), so these are
+# registered for completeness only.
 # ---------------------------------------------------------------------------
 
 ALY: Token = _register("ALY", 0x4A, 0x00)
