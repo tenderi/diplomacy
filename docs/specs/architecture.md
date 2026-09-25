@@ -96,8 +96,7 @@ adjudicated), `last_resolution` (the most recent `Resolution`, kept only so the
 resolution-map renderer has something to draw arrows from), and `order_history`
 (`{turn: {power: [order_str]}}`, appended on every `process_turn`, powering the
 Telegram bot's order-history view). Player-to-power assignments live in the separate
-`players` table (never engine-coupled). See `data_spec.md` for the exact column list,
-including the legacy relational tables that are no longer written.
+`players` table (never engine-coupled). See `data_spec.md` for the exact column list.
 
 `GameService` (`src/server/game_service.py`) is the funnel:
 `create_game` / `submit_orders` / `process_turn` / `view` / `last_resolution` /

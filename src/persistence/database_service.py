@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy import func as sa_func
 import logging
 from .database import (
-    GameModel, PlayerModel, OrderModel, TurnHistoryModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
+    GameModel, PlayerModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
     SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel,
     get_session_factory,
@@ -665,10 +665,6 @@ class DatabaseService:
     
 
     # --- Orders ---
-    def delete_all_orders(self) -> None:
-        with self.session_factory() as session:
-            session.query(OrderModel).delete()
-            session.commit()
 
     # --- Messages ---
     def create_message(
@@ -804,10 +800,6 @@ class DatabaseService:
             session.query(MapSnapshotModel).delete()
             session.commit()
 
-    def delete_all_game_history(self) -> None:
-        with self.session_factory() as session:
-            session.query(TurnHistoryModel).delete()
-            session.commit()
 
     def delete_all_players(self) -> None:
         with self.session_factory() as session:
@@ -819,20 +811,15 @@ class DatabaseService:
 
         The live schema does not match the models here: ``players`` and
         ``messages`` reference ``games`` with ``ON DELETE NO ACTION`` (the models
-        say CASCADE; the migrations never did), as do ``game_history`` and
-        ``game_snapshots`` -- tables the initial migration created that no code
-        reads or writes any more. Those are cleared explicitly; everything else
-        (snapshots, turn history, channel rows, spectators, the unused
-        units/orders/supply_centers) cascades. Returns False if there was no
-        such game.
+        say CASCADE; the migrations never did), so those are cleared explicitly;
+        everything else (map snapshots, spectators, ...) cascades. Returns False
+        if there was no such game.
         """
         with self.session_factory() as session:
             if session.query(GameModel.id).filter_by(id=game_id).first() is None:
                 return False
             session.query(MessageModel).filter_by(game_id=game_id).delete()
             session.query(PlayerModel).filter_by(game_id=game_id).delete()
-            session.execute(text("DELETE FROM game_history WHERE game_id = :gid"), {"gid": game_id})
-            session.execute(text("DELETE FROM game_snapshots WHERE game_id = :gid"), {"gid": game_id})
             session.query(GameModel).filter_by(id=game_id).delete()
             session.commit()
         return True
