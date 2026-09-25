@@ -1342,15 +1342,8 @@ def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
     ``GameRepo.save_state`` keys a turn's history entry by the phase counter
     *before* it increments, but records the following snapshot *after* -- so a
     snapshot at T and its own history entry are one apart, not the same key.
-    Turn 0's board has no snapshot (nothing has been processed yet); it is the
-    standard opening position, and ``state`` is null for it.
-
-    **This endpoint returned 500 for its entire existence before this fix.** It
-    read ``snapshot.phase`` and ``snapshot.state``, neither of which is a column
-    on ``MapSnapshotModel`` (they are ``phase_code`` and ``state_json``), so
-    every call raised ``AttributeError`` into the blanket handler below and came
-    back as "500 Internal Server Error". The ``resolution`` field is new: before
-    this only the *latest* turn's outcomes were kept anywhere.
+    Turn 0 is the opening position: nothing produced it, so it has no snapshot
+    and no orders, and it is a 404 like any turn not yet played.
     """
     row = db_service.get_game_by_game_id(str(game_id))
     if row is None:

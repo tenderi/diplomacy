@@ -354,8 +354,8 @@ class GameRepo:
         staleness check; the caller has already chosen to discard whatever is
         currently live. Also clears ``pending_orders``, ``draw_votes`` and ``wait_flags`` (all
         were submitted against whatever phase was live before the restore, not
-        the restored one) and marks the game ``active`` (a restore always
-        targets a playable phase).
+        the restored one) and takes ``status`` from the state itself, so a
+        finished game restored or imported is still listed as finished.
         """
         with self._session_factory() as session:
             row = self._row(session, game_id)
@@ -364,7 +364,7 @@ class GameRepo:
             row.state_json = state_json
             _stamp_phase_start(row, phase_code)
             row.phase_code = phase_code
-            row.status = "active"
+            row.status = str(state_json.get("status", "ACTIVE")).lower()
             row.pending_orders = {}
             row.draw_votes = {}
             row.wait_flags = {}
@@ -378,12 +378,14 @@ class GameRepo:
         order_history: Optional[dict[str, Any]] = None,
         resolution_history: Optional[dict[str, Any]] = None,
         current_turn: Optional[int] = None,
+        last_resolution: Optional[dict[str, Any]] = None,
     ) -> None:
         """Overwrite the per-turn histories wholesale, for importing a saved game.
 
         Not part of normal play -- ``save_state`` appends one turn at a time.
         ``current_turn`` is restored alongside them so the next processed turn
-        keys its history entry correctly rather than overwriting turn 0.
+        keys its history entry correctly rather than overwriting turn 0, and
+        ``last_resolution`` so "what happened last turn" still has an answer.
         """
         with self._session_factory() as session:
             row = self._row(session, game_id)
@@ -395,6 +397,8 @@ class GameRepo:
                 row.resolution_history = dict(resolution_history)
             if current_turn is not None:
                 row.current_turn = int(current_turn)
+            if last_resolution is not None:
+                row.last_resolution = dict(last_resolution)
             session.commit()
 
     def get_join_password_hash(self, game_id: str) -> Optional[str]:
