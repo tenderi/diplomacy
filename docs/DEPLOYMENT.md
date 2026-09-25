@@ -38,6 +38,13 @@ All live in `/root/diplomacy/.env` on the VPS (mode 600).
 checks. Both containers read it from the same `.env`, so it cannot drift.
 `ensure_env.sh` also regenerates it if it ever equals the Telegram token.
 
+`DIPLOMACY_ADMIN_TELEGRAM_ID` (optional, not a secret) is the maintainer's numeric
+Telegram id. With it set, every error the API or the bot logs is DMed there
+(throttled: once per 15 minutes per kind of error, 20 an hour in all; the next alert
+of a kind counts the ones held back), and so is every player's `/feedback`. Set it in
+`.env`, then `docker compose up -d`. You must have sent the bot `/start` once, or
+Telegram will not let it message you.
+
 ## What "no message is ever lost" means
 
 The API restarts on every deploy, and it can crash. That costs players
@@ -229,6 +236,15 @@ docker compose logs -f diplomacy_bot   # or diplomacy_api, diplomacy_web, postgr
 docker compose restart diplomacy_bot
 ```
 
+Every container logs to the host's systemd journal, so logs survive the container
+being recreated on each deploy (a Docker json-file log is deleted with its container).
+`docker compose logs` shows the current containers; to read further back:
+
+```bash
+journalctl COM_DOCKER_COMPOSE_SERVICE=diplomacy_api --since -2d        # or diplomacy_bot, ...
+journalctl COM_DOCKER_COMPOSE_SERVICE=diplomacy_api -p err --since -7d  # errors only
+```
+
 The deploy leaves the checkout on a detached SHA; `upgrade.sh` by hand there
 rebuilds that SHA without pulling. `git checkout main` first to pull.
 
@@ -242,6 +258,7 @@ cd /root/diplomacy
 ADMIN="X-Admin-Token: $(grep ^DIPLOMACY_ADMIN_TOKEN= .env | cut -d= -f2-)"
 curl -X DELETE -H "$ADMIN" http://127.0.0.1:8000/admin/games/42    # delete one game (players are told)
 curl -H "$ADMIN" http://127.0.0.1:8000/games/42/export > game42.json  # saved-game export
+curl -H "$ADMIN" "http://127.0.0.1:8000/admin/feedback?limit=50"      # player feedback, newest first
 ```
 
 ## Backups
@@ -312,6 +329,11 @@ docker compose up -d
 
 ## Monitoring
 
+- **Error alerts** in Telegram, with `DIPLOMACY_ADMIN_TELEGRAM_ID` set (see
+  [Secrets](#secrets)). Every 5xx the API returns is logged at ERROR with its method
+  and path, including a 500 a route raised on purpose, so it is alerted like any other
+  error. The API's alerts travel the bot outbox; the bot sends its own directly,
+  since they mostly happen while the API is down.
 - `/queue` in Telegram: server reachability, this player's queued writes, and
   the last few delivered/refused ones.
 - `docker compose ps` -- Postgres, the API, the bot, nginx and the docs site

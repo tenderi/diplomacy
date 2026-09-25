@@ -56,7 +56,7 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
                             # wraps engine.Game + serialization + parser/validation over
                             # GameRepo. Routes/CLI/DAIDE never touch engine internals directly.
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
-                             # tournaments, waiting_list, bot_outbox, archive
+                             # tournaments, waiting_list, bot_outbox, archive, feedback
   telegram_bot/              # thin HTTP client over the API — see below
   daide/                      # the DAIDE TCP protocol — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
@@ -190,6 +190,13 @@ There are three delivery surfaces, and they are not interchangeable:
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
   below is therefore "visible on next poll" for the browser, and that is not a gap to close
   with websockets unless someone decides it is.
+
+**The maintainer** (`DIPLOMACY_ADMIN_TELEGRAM_ID`, optional) gets two kinds of DM: every
+player's `/feedback` (`routes/feedback.py`, via `notify_user`), and every error either process
+logs (`telegram_bot/alerting.py`'s throttled `AdminAlertHandler`). The API's alerts are
+`bot_outbox` rows like any DM; the bot sends its own directly, since the bot's errors are
+mostly the ones that happen while the API is unreachable. `api/error_log.py` logs every 5xx
+the API returns at ERROR, so a route's own `HTTPException(500)` alerts too.
 
 (`DaideServer.notify_game_processed` is a fourth, protocol-level path — `NOW`/`ORD`/`OUT`/`SLO`
 to connected DAIDE bots. It is orthogonal to the table below and fires from both `process_turn`

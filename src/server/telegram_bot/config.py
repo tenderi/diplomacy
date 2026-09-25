@@ -3,6 +3,8 @@ Telegram bot configuration and token handling.
 """
 import os
 
+from server.telegram_bot.alerting import admin_telegram_id
+
 
 def get_telegram_token() -> str:
     """The bot token from ``TELEGRAM_BOT_TOKEN`` (empty string if unset).
@@ -17,3 +19,5 @@ def get_telegram_token() -> str:
 
 TELEGRAM_TOKEN = get_telegram_token()
 API_URL = os.environ.get("DIPLOMACY_API_URL", "http://localhost:8000")
+# The maintainer's chat: error alerts (``app.install_bot_alerts``). Unset: none.
+ADMIN_TELEGRAM_ID = admin_telegram_id(os.environ.get("DIPLOMACY_ADMIN_TELEGRAM_ID"))

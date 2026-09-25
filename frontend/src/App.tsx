@@ -10,6 +10,7 @@ import ResetPassword from './pages/ResetPassword'
 import LinkTelegram from './pages/LinkTelegram'
 import GameList from './pages/GameList'
 import GameView from './pages/GameView'
+import Feedback from './pages/Feedback'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -49,6 +50,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <GameView />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/feedback"
+        element={
+          <ProtectedRoute>
+            <Feedback />
           </ProtectedRoute>
         }
       />
