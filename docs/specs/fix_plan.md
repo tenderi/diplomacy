@@ -16,28 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-09-25, at `v3.0.15`.
-- **Track AR** (drop the unused tables) is the agent work left. **Track F** (a human
-  playing the game end to end, and host chores) is the maintainer's.
-
----
-
-# Track AR — Drop the unused tables
-
-Nine tables are in the schema but read and written by nothing: `units`, `orders`,
-`supply_centers`, `turn_history`, `game_history`, `game_snapshots`, `channel_messages`,
-`channel_proposals`, `channel_timeline_events` (`data_spec.md` §Unused tables). They cost a
-reader's attention and a line of `delete_game` (`game_history` and `game_snapshots` have
-non-cascading foreign keys, so it clears them by hand).
-
-- [ ] Confirm in production that each is empty (read-only `SELECT count(*)`; the command is
-      in `CLAUDE.md`). A table with rows gets a decision before its data is dropped.
-- [ ] One Alembic revision drops them (with a `downgrade` that recreates them); remove their
-      models from `persistence/database.py`, the raw SQL in `delete_game`, and any
-      `DatabaseService` method that only served them.
-- [ ] Update `data_spec.md` and `CODEBASE_OVERVIEW.md`.
-- [ ] **Done when:** the tables are gone in production after the deploy and CI's upgrade /
-      downgrade round-trip passes.
+- **Last updated:** 2026-09-25, at `v3.0.17`.
+- Everything an agent can do is done. **Track F** (a human playing the game end to end,
+  and host chores) is the maintainer's.
 
 ---
 

@@ -158,11 +158,8 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 `status`, `deadline`, `channel_id`, `channel_settings`, `observer_mode`, `created_at`,
 `updated_at`.
 
-**Unused tables.** `units`, `orders`, `supply_centers`, `turn_history`, `game_history`,
-`game_snapshots`, `channel_messages`, `channel_proposals` and `channel_timeline_events`
-exist in the schema but nothing reads or writes them (`state_json` holds the board;
-`map_snapshots` the per-turn boards). Do not add code that touches them;
-`fix_plan.md` has dropping them as open work.
+There are no relational unit, order or supply-centre tables: `state_json` holds the
+board, and `map_snapshots` one row per processed turn.
 
 ### `players` table (`PlayerModel`)
 

@@ -96,8 +96,8 @@ and full field list.
 
 Plus denormalized convenience columns (`map_name`, `current_turn`, `phase_code`, `status`,
 `deadline`, `channel_id`, ...) kept in sync for code that doesn't want to parse
-`state_json`. The legacy `units` / `orders` / `supply_centers` tables remain in the schema
-but are **never read or written** — don't add code that touches them.
+`state_json`. There are no relational unit, order or centre tables: the board is
+`state_json`, and each processed turn's board is a `map_snapshots` row.
 
 `waiting_list` (added by migration `g5a1c2d3e4f5`) holds the automatic-matching queue —
 `telegram_id` UNIQUE, ordered by `joined_at` — so it survives the bot restart every deploy

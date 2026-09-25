@@ -5,7 +5,7 @@ This migration implements the comprehensive database schema defined in data_spec
 with proper foreign key relationships and data validation constraints.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, CheckConstraint, Index, text, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index, text, inspect
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
@@ -109,10 +109,6 @@ class GameModel(Base):
     
     # Relationships
     players = relationship("PlayerModel", back_populates="game", cascade="all, delete-orphan")
-    units = relationship("UnitModel", back_populates="game", cascade="all, delete-orphan")
-    orders = relationship("OrderModel", back_populates="game", cascade="all, delete-orphan")
-    supply_centers = relationship("SupplyCenterModel", back_populates="game", cascade="all, delete-orphan")
-    turn_history = relationship("TurnHistoryModel", back_populates="game", cascade="all, delete-orphan")
     map_snapshots = relationship("MapSnapshotModel", back_populates="game", cascade="all, delete-orphan")
     messages = relationship("MessageModel", back_populates="game", cascade="all, delete-orphan")
     spectators = relationship("SpectatorModel", back_populates="game", cascade="all, delete-orphan")
@@ -299,114 +295,6 @@ class PlayerModel(Base):
     user = relationship("UserModel", back_populates="players")
 
 
-class UnitModel(Base):
-    """Units table"""
-    __tablename__ = 'units'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    power_name = Column(String(20), nullable=False)
-    unit_type = Column(String(1), nullable=False)
-    province = Column(String(20), nullable=False)
-    is_dislodged = Column(Boolean, default=False)
-    dislodged_by = Column(String(20))
-    can_retreat = Column(Boolean, default=True)
-    retreat_options = Column(JSON, default=list)
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Constraints
-    __table_args__ = (
-        UniqueConstraint('game_id', 'province', name='uq_game_province'),
-        CheckConstraint("unit_type IN ('A', 'F')", name='ck_unit_type'),
-    )
-    
-    # Relationships
-    game = relationship("GameModel", back_populates="units")
-
-
-class OrderModel(Base):
-    """Orders table"""
-    __tablename__ = 'orders'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    power_name = Column(String(20), nullable=False)
-    order_type = Column(String(20), nullable=False)
-    unit_type = Column(String(1), nullable=False)
-    unit_province = Column(String(20), nullable=False)
-    target_province = Column(String(20))
-    supported_unit_type = Column(String(1))
-    supported_unit_province = Column(String(20))
-    supported_target = Column(String(20))
-    convoyed_unit_type = Column(String(1))
-    convoyed_unit_province = Column(String(20))
-    convoyed_target = Column(String(20))
-    convoy_chain = Column(JSON, default=list)
-    build_type = Column(String(1))
-    build_province = Column(String(20))
-    build_coast = Column(String(10))
-    destroy_unit_type = Column(String(1))
-    destroy_unit_province = Column(String(20))
-    status = Column(String(20), default='pending')
-    failure_reason = Column(Text)
-    phase = Column(String(20), nullable=False)
-    turn_number = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Constraints and indexes
-    __table_args__ = (
-        CheckConstraint("unit_type IN ('A', 'F')", name='ck_order_unit_type'),
-        CheckConstraint("order_type IN ('move', 'hold', 'support', 'convoy', 'retreat', 'build', 'destroy')", name='ck_order_type'),
-        CheckConstraint("status IN ('pending', 'submitted', 'success', 'failed', 'bounced')", name='ck_order_status'),
-        Index('ix_orders_game_turn', 'game_id', 'turn_number'),
-    )
-    
-    # Relationships
-    game = relationship("GameModel", back_populates="orders")
-
-
-class SupplyCenterModel(Base):
-    """Supply centers table"""
-    __tablename__ = 'supply_centers'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    province = Column(String(20), nullable=False)
-    controlling_power = Column(String(20))
-    is_home_supply_center = Column(Boolean, default=False)
-    home_power = Column(String(20))
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Constraints
-    __table_args__ = (
-        UniqueConstraint('game_id', 'province', name='uq_game_supply_province'),
-    )
-    
-    # Relationships
-    game = relationship("GameModel", back_populates="supply_centers")
-
-
-class TurnHistoryModel(Base):
-    """Turn history table"""
-    __tablename__ = 'turn_history'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    turn_number = Column(Integer, nullable=False)
-    year = Column(Integer, nullable=False)
-    season = Column(String(10), nullable=False)
-    phase = Column(String(20), nullable=False)
-    phase_code = Column(String(10), nullable=False)
-    units_before = Column(JSON)
-    units_after = Column(JSON)
-    supply_centers_before = Column(JSON)
-    supply_centers_after = Column(JSON)
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Relationships
-    game = relationship("GameModel", back_populates="turn_history")
-
-
 class MapSnapshotModel(Base):
     """Map snapshots table"""
     __tablename__ = 'map_snapshots'
@@ -458,64 +346,6 @@ class MessageModel(Base):
     game = relationship("GameModel", back_populates="messages")
     sender = relationship("UserModel", foreign_keys=[sender_user_id], back_populates="messages_sent")
     # Note: recipient_user_id doesn't exist in database schema, only recipient_power
-
-
-class ChannelMessageModel(Base):
-    """Channel messages table (for Telegram channel integration)"""
-    __tablename__ = 'channel_messages'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    channel_id = Column(String(255), nullable=False)
-    message_id = Column(Integer, nullable=False)
-    message_type = Column(String(50), nullable=False)  # 'map', 'broadcast', 'notification', 'battle_results', 'dashboard', 'timeline'
-    content = Column(Text)
-    thread_id = Column(Integer, nullable=True)  # For forum topics/threads
-    parent_message_id = Column(Integer, nullable=True)  # For reply threading
-    reaction_counts = Column(JSON, nullable=True)  # JSONB for reaction tracking
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Relationships
-    game = relationship("GameModel")
-
-
-class ChannelProposalModel(Base):
-    """Channel proposals table (for voting on proposals)"""
-    __tablename__ = 'channel_proposals'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    channel_id = Column(String(255), nullable=False)
-    message_id = Column(Integer, nullable=False)
-    proposal_title = Column(String(255))
-    proposal_text = Column(Text, nullable=False)
-    power = Column(String(20), nullable=False)
-    votes_support = Column(Integer, default=0)
-    votes_oppose = Column(Integer, default=0)
-    votes_undecided = Column(Integer, default=0)
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Relationships
-    game = relationship("GameModel")
-
-
-class ChannelTimelineEventModel(Base):
-    """Channel timeline events table (for historical timeline)"""
-    __tablename__ = 'channel_timeline_events'
-    
-    id = Column(Integer, primary_key=True)
-    game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
-    turn_number = Column(Integer, nullable=False)
-    year = Column(Integer, nullable=False)
-    season = Column(String(10), nullable=False)
-    phase = Column(String(20), nullable=False)
-    event_type = Column(String(50), nullable=False)  # 'elimination', 'major_battle', 'supply_change', 'victory'
-    event_description = Column(Text, nullable=False)
-    power = Column(String(20), nullable=True)  # Power involved in event
-    created_at = Column(DateTime, default=utcnow_naive)
-    
-    # Relationships
-    game = relationship("GameModel")
 
 
 class TournamentModel(Base):

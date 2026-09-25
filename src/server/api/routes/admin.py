@@ -60,11 +60,9 @@ def admin_delete_all_games() -> Dict[str, Any]:
         games_count = db_service.get_game_count()
         
         # Delete all games and related data in correct order (respecting foreign key constraints)
-        db_service.delete_all_orders()
         db_service.delete_all_game_snapshots()
         db_service.delete_all_players()
         db_service.delete_all_messages()
-        db_service.delete_all_game_history()
         db_service.delete_all_games()
         
         # Note: We do NOT delete users - they should be preserved for future games
