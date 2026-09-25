@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from server.telegram_bot.orders import (
+    order_buttons,
     resolve_pending_order,
     selectunit,
     show_convoy_destinations,
@@ -203,10 +204,17 @@ def test_selectunit_adjustment_phase_disband(mock_ctx_get, mock_orders_get):
 # ---------------------------------------------------------------------------
 
 
+def _menu(context: Mock, game_id: str, orders: list[str]) -> int:
+    """Show an order menu the way the handlers do; return its menu id."""
+    rows = order_buttons(context, game_id, orders)
+    return int(rows[0][0].callback_data.split("|")[2])
+
+
 def test_resolve_pending_order_hit():
     context = Mock()
-    context.user_data = {"pending_orders": {"1": ["A BER H", "A BER - SIL"]}}
-    assert resolve_pending_order(context, "1", 1) == "A BER - SIL"
+    context.user_data = {}
+    menu = _menu(context, "1", ["A BER H", "A BER - SIL"])
+    assert resolve_pending_order(context, "1", menu, 1) == "A BER - SIL"
 
 
 def test_resolve_pending_order_missing_cache_returns_none():
@@ -214,28 +222,39 @@ def test_resolve_pending_order_missing_cache_returns_none():
     not raise, so the callback handler can show a clear expiry message."""
     context = Mock()
     context.user_data = {}
-    assert resolve_pending_order(context, "1", 0) is None
+    assert resolve_pending_order(context, "1", 1, 0) is None
 
 
 def test_resolve_pending_order_stale_index_returns_none():
     context = Mock()
-    context.user_data = {"pending_orders": {"1": ["A BER H"]}}
-    assert resolve_pending_order(context, "1", 5) is None
-    assert resolve_pending_order(context, "1", -1) is None
+    context.user_data = {}
+    menu = _menu(context, "1", ["A BER H"])
+    assert resolve_pending_order(context, "1", menu, 5) is None
+    assert resolve_pending_order(context, "1", menu, -1) is None
+
+
+def test_a_button_from_an_older_menu_resolves_to_nothing():
+    """Opening a second unit's menu replaces the cache. A button still showing in
+    the first unit's message must expire, not submit whatever order now sits at
+    its index in the second unit's list (here F KIE - DEN for "A BER - SIL")."""
+    context = Mock()
+    context.user_data = {}
+    first = _menu(context, "1", ["A BER H", "A BER - SIL"])
+    second = _menu(context, "1", ["F KIE H", "F KIE - DEN"])
+    assert resolve_pending_order(context, "1", first, 1) is None
+    assert resolve_pending_order(context, "1", second, 1) == "F KIE - DEN"
 
 
 def test_resolve_pending_order_does_not_leak_across_games():
     """Two games in flight at once must not share (or clobber) each other's cache."""
     context = Mock()
-    context.user_data = {
-        "pending_orders": {
-            "1": ["A BER H"],
-            "2": ["A PAR H", "A PAR - BUR"],
-        }
-    }
-    assert resolve_pending_order(context, "1", 0) == "A BER H"
-    assert resolve_pending_order(context, "2", 1) == "A PAR - BUR"
-    assert resolve_pending_order(context, "1", 1) is None
+    context.user_data = {}
+    one = _menu(context, "1", ["A BER H"])
+    two = _menu(context, "2", ["A PAR H", "A PAR - BUR"])
+    assert resolve_pending_order(context, "1", one, 0) == "A BER H"
+    assert resolve_pending_order(context, "2", two, 1) == "A PAR - BUR"
+    assert resolve_pending_order(context, "1", one, 1) is None
+    assert resolve_pending_order(context, "1", two, 0) is None
 
 
 @pytest.mark.asyncio

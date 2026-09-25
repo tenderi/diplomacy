@@ -196,3 +196,19 @@ def test_selectunit_still_sends_one_order_at_once(api) -> None:
     chat.press("go")
     chat.press("- RUH")
     assert api.post.call_args[0][1]["orders"] == ["A MUN - RUH"]
+
+
+def test_a_button_left_on_an_older_unit_menu_submits_nothing(api) -> None:
+    """Menus are separate messages, so the first unit's buttons stay tappable after
+    the second unit's menu opens. Tapping one must not submit the order at the
+    same position in the newer menu (A MUN - RUH would have become F KIE - DEN)."""
+    chat = Chat()
+    chat.buttons = [("go", "selunit|1|A MUN")]
+    chat.press("go")
+    mun_menu = chat.buttons
+    chat.buttons = [("go", "selunit|1|F KIE")]
+    chat.press("go")
+    chat.buttons = mun_menu
+    chat.press("- RUH")
+    api.post.assert_not_called()
+    assert "expired" in chat.text

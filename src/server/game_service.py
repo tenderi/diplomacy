@@ -779,6 +779,7 @@ class GameService:
         order_history: Optional[dict[str, Any]] = None,
         resolution_history: Optional[dict[str, Any]] = None,
         current_turn: Optional[int] = None,
+        last_resolution: Optional[dict[str, Any]] = None,
     ) -> None:
         """Restore per-turn histories onto an imported game (see ``routes/archive.py``)."""
         self._repo.set_histories(
@@ -786,6 +787,7 @@ class GameService:
             order_history=order_history,
             resolution_history=resolution_history,
             current_turn=current_turn,
+            last_resolution=last_resolution,
         )
 
     def restore_snapshot(
