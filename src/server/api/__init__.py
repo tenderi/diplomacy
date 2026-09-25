@@ -8,7 +8,6 @@ This package contains route modules organized by functionality:
 - routes.messages - Messaging between players
 - routes.admin - Administrative endpoints
 - routes.maps - Map generation endpoints
-- routes.dashboard - Dashboard API endpoints
 
 The main FastAPI app is re-exported here for backward compatibility (lazy to avoid circular import).
 """

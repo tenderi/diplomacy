@@ -22,7 +22,12 @@
 
 ## Status
 
-- **Last updated:** 2026-09-24, at `v3.0.12`.
+- **Last updated:** 2026-09-25, at `v3.0.13`.
+- **Track AH (`v3.0.13`):** the test audit's three open decisions, taken: the systemd-era
+  admin dashboard (no token, and `systemctl`/`journalctl` don't exist in the containers) and
+  the writer-less channel analytics are removed; `POST /games/{id}/channel/map` queues the
+  current board instead of answering success and posting nothing. Archived in
+  [`done_fixes.md`](done_fixes.md). **Track AQ** below: drop the now-unused table.
 - **Track AP (`v3.0.12`):** two orders for one unit or build site in one submission were
   both stored and the adjudicator kept one silently (the last move, the *first* build);
   the bot's winter walk offered `BUILD F KIE` after `BUILD A KIE`. Archived in
@@ -62,7 +67,7 @@
   tests found and fixed an order-dependent resolver case, stale cached reads, a render cache
   that ignored ownership, anonymous channel reads, a hard-coded Telegram admin id and more.
   Archived in [`done_fixes.md`](done_fixes.md). Floors raised: engine 95, total 80, frontend
-  90% lines. **Track AH** below holds what it surfaced for the maintainer to decide.
+  90% lines. What it surfaced for the maintainer became Track AH (`v3.0.13`).
 - **Track AF (`v3.0.3`):** the docs as a website at https://diplomacy-docs.xn--jalluthti-02a.fi
   (MkDocs Material, rebuilt on every deploy).
 - **Track AE (`v3.0.2`):** playing in a Telegram group (`/newgame` in the group, orders only
@@ -386,21 +391,14 @@ delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Tra
 
 
 
-# Track AH — Decisions the test audit surfaced (maintainer)
+# Track AQ — Drop the unused `channel_analytics` table (maintainer)
 
-Found while writing tests in Track AG; each is a product decision, not a bug with one
-obvious fix, so none was done silently.
-
-- [ ] **Channel analytics has no writer.** `log_channel_analytics_event` was only ever
-  called from the bot-side posting code Track AG removed (which never ran in production
-  anyway), so `/games/{id}/channel/analytics*` always answer empty. Either log from the
-  outbox delivery path or drop the routes, the DAL methods and the `channel_analytics` table.
-- [ ] **The admin dashboard page cannot authenticate.** `src/server/dashboard/static/dashboard.js`
-  sends no `X-Admin-Token`, so every `/dashboard/api/*` call it makes is refused (422), and its
-  analytics calls are now 403 for anyone but players. Fix (a token prompt) or remove the page.
-- [ ] **`POST /games/{id}/channel/map` is a stub** that answers success and posts nothing
-  ("will be implemented"). Queue the map like the other channel posts, or remove the route.
-- [ ] Out-of-scope code stays untested by design: tournaments, spectators, `discord_bot/`.
+- [ ] **Confirm it is empty in production, then drop it** with an Alembic migration (and
+  remove `ChannelAnalyticsModel`). Nothing has read or written it since Track AH
+  (`v3.0.13`); it was left in place because dropping a table is not undoable and its
+  production contents could not be checked from the agent session. Check with
+  `docker compose exec postgres psql -U <user> -d <db> -tAc 'select count(*) from channel_analytics'`
+  on the VPS.
 
 ---
 
@@ -518,7 +516,8 @@ Tracks A–E and G–I's acceptance criteria are recorded in [`done_fixes.md`](d
   compatibility, not dead code**; don't extend, don't delete).
 - Rendering redesign — new art, a new layout engine, or an interactive/zoomable frontend map
   component. G2 adds province *names* to client text; it does not restyle the board.
-- The aspirational spec docs (`dashboard.md`, `visualization_spec.md` §10).
+- The aspirational spec docs (`visualization_spec.md` §10). An admin web dashboard (the
+  systemd-era one was removed in Track AH, `v3.0.13`; the host is administered over SSH).
 - Map variants beyond `standard`.
 - **Old-server game options declined 2026-09-24 (W6):** engine rule switches (`BUILD_ANY`,
   `HOLD_WIN`, `SHARED_VICTORY`, `DONT_SKIP_PHASES`, `NO_CHECK`/`IGNORE_ERRORS`,

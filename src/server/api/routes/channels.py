@@ -10,10 +10,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
-from datetime import datetime
 
 from .auth import get_current_user_optional, http_bearer
-from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger
+from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label
 from ...response_cache import invalidate_cache
 
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -234,37 +233,28 @@ def update_channel_settings(game_id: str, req: ChannelSettingsRequest) -> Dict[s
 
 @router.post("/games/{game_id}/channel/map", dependencies=[Depends(require_game_player_or_bot)])
 def post_map_to_channel(game_id: str) -> Dict[str, Any]:
-    """Manually post the current game map to the linked channel."""
-    try:
-        from .maps import generate_map_for_snapshot
-        
-        # Get channel info
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        
-        channel_id = channel_info.get("channel_id")
-        
-        # Generate map
-        result = generate_map_for_snapshot(game_id)
-        map_path = result.get("map_path")
-        
-        # Post to channel (implementation will be in telegram_bot/channels.py)
-        # For now, return success - actual posting will be implemented in telegram_bot/channels.py
-        # message_id = post_map(channel_id, game_id, map_path)
-        
-        return {
-            "status": "ok",
-            "message": f"Map generation ready for channel {channel_id}",
-            "channel_id": channel_id,
-            "map_path": map_path,
-            "note": "Channel posting will be implemented in telegram_bot/channels.py"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting map to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Queue the current board for the linked group, now (the same post every
+    processed turn makes on its own; see ``api.shared._post_turn_to_channel``). The bot
+    fetches the image from ``payload.path`` when it sends."""
+    view = game_service.view(game_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    channel_info = db_service.get_game_channel_info(game_id)
+    if not channel_info:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
+    channel_id = channel_info.get("channel_id")
+    outbox_id = db_service.enqueue_bot_notification(
+        channel_id,
+        f"🗺️ Game {game_id} · {phase_label(view['phase'])}: the board now",
+        kind="channel_map",
+        payload={"game_id": game_id, "path": f"/games/{game_id}/map"},
+    )
+    return {
+        "status": "queued",
+        "message": f"Map queued for channel {channel_id}",
+        "channel_id": channel_id,
+        "outbox_id": outbox_id,
+    }
 
 
 @router.post("/games/{game_id}/channel/broadcast", dependencies=[Depends(require_game_player_or_bot)])
@@ -503,239 +493,3 @@ def post_battle_results(game_id: str) -> Dict[str, Any]:
 
 
 # --- Analytics Endpoints ---
-@router.get("/games/{game_id}/channel/analytics", dependencies=[Depends(require_game_player_or_bot)])
-def get_channel_analytics(
-    game_id: str,
-    channel_id: Optional[str] = None,
-    event_type: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
-) -> Dict[str, Any]:
-    """
-    Get analytics events for a game's channel.
-    
-    Query parameters:
-    - channel_id: Optional channel ID filter
-    - event_type: Optional event type filter ('message_posted', 'player_activity', 'order_submitted', 'vote_cast', 'message_read')
-    - start_date: Optional start date filter (ISO format)
-    - end_date: Optional end date filter (ISO format)
-    """
-    try:
-        # Get channel info if channel_id not provided
-        if not channel_id:
-            channel_info = db_service.get_game_channel_info(game_id)
-            if not channel_info:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-            channel_id = channel_info.get("channel_id")
-        
-        # Get analytics events
-        events = db_service.get_channel_analytics(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type=event_type,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return {
-            "status": "ok",
-            "game_id": game_id,
-            "channel_id": channel_id,
-            "event_count": len(events),
-            "events": events
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting analytics for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/games/{game_id}/channel/analytics/summary", dependencies=[Depends(require_game_player_or_bot)])
-def get_channel_analytics_summary(
-    game_id: str,
-    channel_id: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
-) -> Dict[str, Any]:
-    """
-    Get aggregated analytics summary for a game's channel.
-    
-    Query parameters:
-    - channel_id: Optional channel ID filter
-    - start_date: Optional start date filter (ISO format)
-    - end_date: Optional end date filter (ISO format)
-    """
-    try:
-        # Get channel info if channel_id not provided
-        if not channel_id:
-            channel_info = db_service.get_game_channel_info(game_id)
-            if not channel_info:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-            channel_id = channel_info.get("channel_id")
-        
-        # Get analytics summary
-        summary = db_service.get_channel_analytics_summary(
-            game_id=game_id,
-            channel_id=channel_id,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return {
-            "status": "ok",
-            "game_id": game_id,
-            "channel_id": channel_id,
-            "summary": summary
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting analytics summary for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/games/{game_id}/channel/analytics/engagement", dependencies=[Depends(require_game_player_or_bot)])
-def get_channel_engagement_metrics(
-    game_id: str,
-    channel_id: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
-) -> Dict[str, Any]:
-    """
-    Get engagement metrics for a game's channel.
-    
-    Returns metrics like:
-    - Messages per day
-    - Active players
-    - Engagement rate
-    - Response times
-    
-    Query parameters:
-    - channel_id: Optional channel ID filter
-    - start_date: Optional start date filter (ISO format)
-    - end_date: Optional end date filter (ISO format)
-    """
-    try:
-        
-        # Get channel info if channel_id not provided
-        if not channel_id:
-            channel_info = db_service.get_game_channel_info(game_id)
-            if not channel_info:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-            channel_id = channel_info.get("channel_id")
-        
-        # Get analytics summary
-        summary = db_service.get_channel_analytics_summary(
-            game_id=game_id,
-            channel_id=channel_id,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        # Calculate additional engagement metrics
-        total_events = summary.get("total_events", 0)
-        message_count = summary.get("message_count", 0)
-        player_activity_count = summary.get("player_activity_count", 0)
-        unique_users = summary.get("unique_users", 0)
-        
-        # Calculate messages per day (if date range provided)
-        messages_per_day = None
-        if start_date and end_date:
-            days = (end_date - start_date).days + 1
-            if days > 0:
-                messages_per_day = round(message_count / days, 2)
-        
-        # Engagement rate (player activity / total events)
-        engagement_rate = None
-        if total_events > 0:
-            engagement_rate = round((player_activity_count / total_events) * 100, 2)
-        
-        return {
-            "status": "ok",
-            "game_id": game_id,
-            "channel_id": channel_id,
-            "metrics": {
-                "total_events": total_events,
-                "message_count": message_count,
-                "player_activity_count": player_activity_count,
-                "unique_users": unique_users,
-                "messages_per_day": messages_per_day,
-                "engagement_rate": engagement_rate,
-                "events_by_type": summary.get("events_by_type", {}),
-                "events_by_subtype": summary.get("events_by_subtype", {})
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting engagement metrics for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/games/{game_id}/channel/analytics/players", dependencies=[Depends(require_game_player_or_bot)])
-def get_player_activity_stats(
-    game_id: str,
-    channel_id: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
-) -> Dict[str, Any]:
-    """
-    Get player activity statistics for a game's channel.
-    
-    Query parameters:
-    - channel_id: Optional channel ID filter
-    - start_date: Optional start date filter (ISO format)
-    - end_date: Optional end date filter (ISO format)
-    """
-    try:
-        # Get channel info if channel_id not provided
-        if not channel_id:
-            channel_info = db_service.get_game_channel_info(game_id)
-            if not channel_info:
-                raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-            channel_id = channel_info.get("channel_id")
-        
-        # Get analytics events filtered by player activity
-        events = db_service.get_channel_analytics(
-            game_id=game_id,
-            channel_id=channel_id,
-            event_type='player_activity',
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        # Group by user/power
-        player_stats: Dict[str, Dict[str, Any]] = {}
-        for event in events:
-            user_id = event.get("user_id")
-            power = event.get("power")
-            key = f"user_{user_id}" if user_id else f"power_{power}" if power else "unknown"
-            
-            if key not in player_stats:
-                player_stats[key] = {
-                    "user_id": user_id,
-                    "power": power,
-                    "activity_count": 0,
-                    "last_activity": None
-                }
-            
-            player_stats[key]["activity_count"] += 1
-            event_time = event.get("created_at")
-            if event_time:
-                if not player_stats[key]["last_activity"] or event_time > player_stats[key]["last_activity"]:
-                    player_stats[key]["last_activity"] = event_time
-        
-        return {
-            "status": "ok",
-            "game_id": game_id,
-            "channel_id": channel_id,
-            "player_count": len(player_stats),
-            "players": list(player_stats.values())
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting player activity stats for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-

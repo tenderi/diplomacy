@@ -1,5 +1,36 @@
 ---
 
+# Track AH — Decisions the test audit surfaced (maintainer request, 2026-09-25) — **done, `v3.0.13`**
+
+Found while writing tests in Track AG; each was a product decision, not a bug with one
+obvious fix. The maintainer asked for the track to be worked; the decisions taken:
+
+- [x] **Channel analytics has no writer → removed.** `log_channel_analytics_event` was only
+  ever called from the bot-side posting code Track AG removed (which never ran in production
+  anyway), so `/games/{id}/channel/analytics*` always answered empty, and their only reader
+  was the admin dashboard below. The four routes and three DAL methods are gone. **The
+  `channel_analytics` table and its model stay** (the model documents it as unused): dropping
+  a table cannot be undone and its production contents could not be checked from the agent
+  session, so the drop is Track AQ. Its foreign key to `games` is `ON DELETE CASCADE`, so
+  game deletion is unaffected.
+- [x] **The admin dashboard page could not authenticate → removed.** Beyond sending no
+  `X-Admin-Token`, it was built for the systemd deployment: service status and restart ran
+  `sudo systemctl` on `diplomacy`/`diplomacy-bot`, logs `journalctl`, neither of which exists
+  in the containers production runs; its table viewer listed tables (`turn_history`,
+  `orders`) the game no longer uses. Removed: `src/server/dashboard/`,
+  `api/routes/dashboard.py`, `/dashboard`, the `/` redirect to it (`/` now answers with a
+  short API page), `docs/specs/dashboard.md`. The host is administered over SSH.
+- [x] **`POST /games/{id}/channel/map` was a stub → implemented.** It queues the current
+  board for the group (`kind="channel_map"`, `payload.path=/games/{id}/map`, caption
+  "Game N · Spring 1901 movement: the board now"), the same way every other channel post
+  is sent.
+- [x] Out-of-scope code stays untested by design: tournaments, spectators, `discord_bot/`.
+
+**Evidence:** `tests/test_channel_posts.py` (the map row and its path; unlinked game 404),
+`tests/test_api_health.py` (the root page; `/dashboard*` 404).
+
+---
+
 # Track AP — One order per unit, per submission (maintainer request, 2026-09-24) — **done, `v3.0.12`**
 
 - [x] **Two orders for one unit in one submission: both stored, one silently dropped.**

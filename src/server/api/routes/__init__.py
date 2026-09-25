@@ -8,8 +8,7 @@ This package contains route modules organized by functionality:
 - messages: Private and broadcast messaging
 - maps: Map image generation
 - admin: Administrative endpoints
-- dashboard: Dashboard API endpoints
 """
-from . import games, orders, users, messages, maps, admin, dashboard, channels, tournaments
+from . import games, orders, users, messages, maps, admin, channels, tournaments
 
-__all__ = ["games", "orders", "users", "messages", "maps", "admin", "dashboard", "channels", "tournaments"]
+__all__ = ["games", "orders", "users", "messages", "maps", "admin", "channels", "tournaments"]
