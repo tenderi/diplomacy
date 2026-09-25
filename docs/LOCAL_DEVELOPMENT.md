@@ -91,13 +91,18 @@ Everything has a working default. To avoid exporting variables each session, put
 
 | Variable | Purpose |
 |---|---|
-| `SQLALCHEMY_DATABASE_URL` | PostgreSQL connection URL |
+| `SQLALCHEMY_DATABASE_URL` | PostgreSQL connection URL (`DIPLOMACY_DATABASE_URL` is also accepted by the tests) |
+| `DIPLOMACY_ENVIRONMENT` | `production` makes the API refuse to start with the default JWT secret or admin token |
 | `DIPLOMACY_JWT_SECRET` | JWT signing secret — **must** be set in production |
+| `DIPLOMACY_ADMIN_TOKEN` | The `X-Admin-Token` value for admin routes (default `changeme`, logged as insecure) |
+| `DIPLOMACY_API_DOCS` | `0` turns off Swagger/ReDoc/OpenAPI (production does); on by default |
+| `DIPLOMACY_DAIDE_PORT` | The DAIDE listener's port (default 8432) |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (bot process only) |
 | `DIPLOMACY_API_URL` | API base URL used by the bot (default `http://localhost:8000`) |
 | `DIPLOMACY_BOT_SECRET` | Shared secret between bot and API; also arms `Idempotency-Key` replay and the `/bot/outbox` endpoints |
 | `DIPLOMACY_BOT_DATA_DIR` | Where the bot keeps its durable queue (`outbox.sqlite3`; default `bot_data/`, git-ignored) |
 | `DIPLOMACY_NOTIFY_POLL_SECONDS` / `DIPLOMACY_OUTBOX_POLL_SECONDS` | Bot poll intervals for pulling notifications / replaying its queue (defaults 3 / 5) |
+| `DIPLOMACY_BOT_HEARTBEAT` | The file the bot's loops touch for its Docker healthcheck (default `/tmp/diplomacy-bot-heartbeat`) |
 | `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`; restrict in production) |
 | `DIPLOMACY_MAP_PATH` | Path to the map SVG (default `maps/standard.svg`) |
 | `DIPLOMACY_LOG_LEVEL` / `DIPLOMACY_LOG_FILE` | Log level (default `INFO`); log to a file instead of stdout |
@@ -141,7 +146,8 @@ The bot starts whether or not the API is up. With the API down, reads answer wit
 "server unreachable" message and writes (orders, messages) are queued in
 `bot_data/outbox.sqlite3` and delivered once the API answers — a convenient way to exercise
 the queue locally is to stop uvicorn, send `/order A PAR H`, check `/queue`, then start it
-again. Production runs the bot on a separate host; see [DEPLOYMENT.md](DEPLOYMENT.md).
+again. In production the bot is its own container next to the API; see
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 Commands: [TELEGRAM_BOT_COMMANDS.md](TELEGRAM_BOT_COMMANDS.md).
 
@@ -170,7 +176,6 @@ strategy: [`specs/testing_and_validation.md`](specs/testing_and_validation.md).
 | Lint | `ruff check src/` |
 | Frontend dev | `cd frontend && npm run dev` |
 | Telegram bot | `PYTHONPATH=src python -m server.telegram_bot` |
-| Demo game | `python examples/demo_perfect_game.py` |
 
 ## Troubleshooting
 
@@ -180,7 +185,8 @@ strategy: [`specs/testing_and_validation.md`](specs/testing_and_validation.md).
 **Database connection errors** — check that PostgreSQL is running (`pg_isready`), that the
 role and database exist, and that `SQLALCHEMY_DATABASE_URL` matches. Test directly with
 `psql -U diplomacy_user -h localhost -d diplomacy_db`. If columns are missing, run
-`alembic upgrade head`.
+`alembic upgrade head` — note that Alembic reads `.env` *over* your environment, so a
+different URL must go in `.env`, not on the command line.
 
 **401 on `/games/.../join` or `/auth/refresh`** — the access or refresh token is invalid or
 expired. Changing `DIPLOMACY_JWT_SECRET` invalidates every existing token; log in again.
@@ -197,7 +203,7 @@ list of what's legal right now is `GET /games/{id}/legal_orders/{power}`.
 install `libcairo2`.
 
 **Bot doesn't respond** — confirm `TELEGRAM_BOT_TOKEN` is set, the bot process is running,
-the API is reachable at `DIPLOMACY_API_URL`, and that you have sent `/register`.
+and the API is reachable at `DIPLOMACY_API_URL`. `/start` registers you.
 
 **Tests fail or skip unexpectedly** — check the database URL first (see above), then re-run
 the single test with `pytest tests/test_file.py::test_name -v`.

@@ -8,9 +8,9 @@ documented expected failures).
 https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](https://diplomacy-docs.xn--jalluthti-02a.fi/NEW_USER_GUIDE/)** (all docs:
 https://diplomacy-docs.xn--jalluthti-02a.fi).
 
-- **Telegram groups:** add the bot to your group and send `/newgame`. The group gets
-  results, maps and reminders, while orders stay in private chats, and a group's games
-  are visible only to its members.
+- **Telegram groups:** add the bot to your group and send `/newgame`. After every turn the
+  group gets a map of the orders and one of the result, plus reminders, while orders stay
+  in private chats, and a group's games are visible only to its members.
 - **Telegram bot:** the main way to play. A menu per game has buttons for ordering every
   unit (or just one), the map, messages, deadline votes and ready/wait. Turn notifications
   come with an *Enter orders* button, and orders and messages survive server restarts. There
@@ -84,7 +84,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 | [Browser client](docs/BROWSER_CLIENT.md) | Registering, logging in, linking Telegram |
 | [Server API](src/server/README.md) | REST endpoints, the CLI surface, DAIDE |
 | [Specs](docs/specs/) | Architecture, adjudication, data model, rules. These are authoritative |
-| [Fix plan](docs/specs/fix_plan.md) | Open work; completed work is in [done_fixes.md](docs/specs/done_fixes.md) |
+| [Fix plan](docs/specs/fix_plan.md) | Open work |
 | [CLAUDE.md](CLAUDE.md) | Conventions and gotchas for working on the code |
 
 ## License
@@ -92,8 +92,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 Copyright © 2025–2026 Helge Jalonen and contributors. This project builds on
 **[diplomacy/diplomacy](https://github.com/diplomacy/diplomacy)**, © 2019 Philip Paquette:
 it began as a fork of it, and its map data (`maps/standard.map`, `maps/standard.svg`) is
-adapted from that project's files. The code has since been rewritten, and the original
-tree was removed in `v2.7.91` (it is still in the git history, tag `v2.7.68`).
+adapted from that project's files. The code has since been rewritten.
 
 Like the original, this program is free software under the **GNU Affero General Public
 License, version 3 or (at your option) any later version**. See [LICENSE](LICENSE).
