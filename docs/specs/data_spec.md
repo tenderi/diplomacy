@@ -1,6 +1,6 @@
 # Data Model Specification
 
-> Reflects the post-rewrite (M0–M7) engine and persistence layout. Two layers, kept
+> The engine's types and the persistence layout. Two layers, kept
 > deliberately separate — see [`architecture.md`](architecture.md):
 >
 > 1. **Engine value types** (`src/engine/types.py`) — pure, immutable, no persistence
@@ -133,22 +133,24 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
 
 ### `games` table (`GameModel`, `src/persistence/database.py`)
 
-The columns that matter for the new engine (M6 additions, all nullable so they layer
-onto the pre-existing row shape without a destructive migration for *these* columns —
-though the `state_json`/`pending_orders` migration `a1b2c3d4e5f7` itself **does** wipe
-stored game rows; see `fix_plan.md` M6):
+The columns that matter for game state (all nullable):
 
 | Column | Type | Written by | Meaning |
 |---|---|---|---|
 | `state_json` | JSON | `GameRepo.create` / `.save_state` | The serialized `GameState` — the authoritative source of truth for a game's board. |
-| `pending_orders` | JSON | `GameRepo.set_pending_orders` | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
+| `pending_orders` | JSON | `GameRepo.modify_pending_orders` (locked read-modify-write) | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
 | `last_resolution` | JSON | `GameRepo.save_state` | The most recent `resolution_to_dict()` output — kept only so `/generate_map/resolution` can draw arrows for the turn just processed; not otherwise authoritative (superseded on the next `process_turn`). |
 | `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`. |
-| `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | W9: sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. In a game whose `map_name` is `"demo"` (the bot's solo demo), `process_turn` gives each dummy with no orders `engine.simple_ai` orders, seeded by game id and phase, and records them in `order_history` like anyone's. |
-| `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | W10: process the turn as soon as `orders_status` has nothing missing and no wait flag is up. Null/false = manual or deadline only. |
-| `wait_flags` | JSON | `GameRepo.set_wait_flags` | W10: `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
-| `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | W8: bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the W5 export leaves it out (an imported game comes back open). |
-| `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | W9: who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list, demo-seeder and pre-W9 games. Only the creator (or `X-Admin-Token`) may change `dummy_powers`. |
+| `resolution_history` | JSON | `GameRepo.save_state` | `{turn_number_str: resolution_dict}` — what each turn's orders did; powers `/resolutions`, `/history/{turn}` and each turn's orders map. |
+| `draw_votes` | JSON | `GameRepo.modify_draw_votes` | `{power: true}` for this phase's yes votes; cleared when a turn is processed. |
+| `pending_deadline_proposal` | JSON | `GameRepo` (locked read-modify-write) | The one open majority vote on a deadline change, with its yes/no votes and optional expiry. |
+| `phase_length_seconds` | Integer | `create_game`, `POST /deadline` | A recurring phase length a caller may arm a deadline from; never armed on its own. |
+| `phase_started_at` | DateTime | `GameRepo` (every phase change) | When the current phase began; order submissions composed earlier are refused (409). |
+| `dummy_powers` | JSON | `GameRepo.create` / `.set_dummy_powers` | Sorted list of powers played by civil disorder. Never joinable, never waited on (`orders_status`), excluded from draw quorum and deadline-proposal majorities (`GameService.active_powers`). Null/`[]` = none; at most six. In a game whose `map_name` is `"demo"` (the bot's solo demo), `process_turn` gives each dummy with no orders `engine.simple_ai` orders, seeded by game id and phase, and records them in `order_history` like anyone's. |
+| `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | Process the turn as soon as `orders_status` has nothing missing and no wait flag is up. Null/false = manual or deadline only. |
+| `wait_flags` | JSON | `GameRepo.modify_wait_flags` | `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
+| `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the saved-game export leaves it out (an imported game comes back open). |
+| `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | Who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list games. Only the creator (or `X-Admin-Token`) may change `dummy_powers` or the join password, or end a turn early. |
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
 `state_json` (deadline scheduler, game listings, channel posts): `map_name`,
@@ -156,43 +158,38 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 `status`, `deadline`, `channel_id`, `channel_settings`, `observer_mode`, `created_at`,
 `updated_at`.
 
-**Legacy relational columns/tables** — `units`, `orders`, `supply_centers` (as separate
-tables, still present in the schema) and the old per-game relational fields — predate the
-engine rewrite and are **no longer written or read** for game state; `state_json` fully
-supersedes them. They exist only because dropping them would be a separate, disruptive
-migration outside the rewrite's scope (`fix_plan.md` M6 explicitly deleted the *code*
-paths that wrote them — `unit_to_dict`/`order_to_dict`/`dict_to_order` — but left the
-tables themselves alone). Do not add new code that reads/writes them.
+**Unused tables.** `units`, `orders`, `supply_centers`, `turn_history`, `game_history`,
+`game_snapshots`, `channel_messages`, `channel_proposals` and `channel_timeline_events`
+exist in the schema but nothing reads or writes them (`state_json` holds the board;
+`map_snapshots` the per-turn boards). Do not add code that touches them;
+`fix_plan.md` has dropping them as open work.
 
 ### `players` table (`PlayerModel`)
 
-Unaffected by the engine rewrite — player-to-power assignment is not an engine concern.
+Player-to-power assignment is not an engine concern.
 Key columns: `game_id` (FK), `power_name`, `user_id` (FK to `users`), `is_active`,
 `is_eliminated`. `GameRepo.players(game_id)` reads this into `{power: {user_id,
 is_active}}` for the API view (§4).
 
 ### Other tables
 
-`users`, `link_codes`, `password_reset_tokens`, `messages`, `turn_history`,
-`map_snapshots`, tournament tables — all unchanged by the
-engine rewrite; see `database.py` for the full model list. `DatabaseService`
-(`database_service.py`) remains the DAL for all of these; only game *state* itself was
-carved out into `GameRepo` + `GameService`.
-
-Added by the split deployment (migration `h6b2c3d4e5f6`, Track J):
+`users`, `link_codes`, `password_reset_tokens`, `messages`, `map_snapshots` (the board at
+the start of each turn, with its `state_json`), `waiting_list`, the tournament and
+spectator tables — see `database.py` for the full model list. `DatabaseService`
+(`database_service.py`) is the DAL for all of these; only game *state* lives in `GameRepo` +
+`GameService`.
 
 | Table / column | Purpose |
 |---|---|
-| `bot_outbox` | Server → player notifications waiting for the bot: `kind` (`dm`), `telegram_id`, `message`, `payload` (spare JSON), `created_at`, `delivered_at` (NULL = pending), `attempts`, `last_error`. The bot pulls and acks; delivered rows are purged after 7 days. |
+| `bot_outbox` | Everything waiting for the bot to send: `kind` (`dm`, `channel_text`, `channel_map`, `channel_create_thread`), `telegram_id` (a user or a group chat), `message`, `payload` (buttons, `parse_mode`, a map's `path`, …), `created_at`, `delivered_at` (NULL = pending), `attempts`, `last_error`. The bot pulls and acks; delivered rows are purged after 7 days. |
 | `idempotency_keys` | First response stored per bot-supplied `Idempotency-Key`: `key`, `endpoint`, `status_code`, `response_json`, `created_at`. Purged after 7 days. |
-| `games.phase_started_at` | When the current `phase_code` began; stamped by `GameRepo` on every phase change. Order submissions with a `client_timestamp` older than this are refused (409). |
-| `messages.timestamp` | Now the time the message was *composed* when the client sends `client_timestamp`; otherwise now. |
+| `messages.timestamp` | The time the message was *composed* when the client sends `client_timestamp`; otherwise now. |
 
 ## 4. The HTTP API view shape
 
 `GameService.view(game_id)` (`src/server/game_service.py`) is the **single** place that
 builds the JSON a client sees for `GET /games/{id}/state` (and equivalent DAIDE/bot
-paths) — built directly from `GameState`, not from any legacy relational shape:
+paths) — built directly from `GameState`:
 
 ```jsonc
 {
@@ -212,10 +209,10 @@ paths) — built directly from `GameState`, not from any legacy relational shape
   ],
   "contested": ["BUR"],
   "players": { "FRANCE": {"user_id": 42, "is_active": true}, ... },
-  "dummy_powers": ["TURKEY"],           // W9: played by civil disorder; [] if none
-  "auto_process": false,                // W10: turn runs by itself once all orders are in
-  "wait_flags": ["ENGLAND"],            // W10: powers that asked the table to wait
-  "private": false,                     // W8: joining needs a password (never the hash)
+  "dummy_powers": ["TURKEY"],           // played by civil disorder; [] if none
+  "auto_process": false,                // turn runs by itself once all orders are in
+  "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
+  "private": false,                     // joining needs a password (never the hash)
   "orders": { "FRANCE": ["F BRE H", "A PAR - BUR"], ... }  // pending, truthfully re-lettered
 }
 ```
@@ -228,8 +225,7 @@ docstring). This is a display-only correction; adjudication always uses the actu
 unit, never the letter in the order string.
 
 Consumers of this exact shape: `frontend/src` (React SPA — `GameView.tsx` and friends),
-the Telegram bot's `api_client.py`, and `src/server/daide/session.py`. There is no legacy
-`powers`-keyed view left to support.
+the Telegram bot, and `src/server/daide/session.py`.
 
 ### Resolution-result shapes: `POST .../process_turn` and `GET .../last_resolution`
 

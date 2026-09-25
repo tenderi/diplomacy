@@ -42,8 +42,10 @@ the same whether or not the account exists.
 
 - **Development:** set `DIPLOMACY_PASSWORD_RESET_BASE_URL=http://localhost:5173` and
   `DIPLOMACY_DEV_SHOW_RESET_LINK=1` — the reset link appears on the confirmation page.
-- **Production:** set `DIPLOMACY_SMTP_HOST` (plus the other SMTP variables) so links are
-  emailed. See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#3-environment-variables).
+- **Production:** an account linked to Telegram gets the link from the bot; any other gets
+  it by email once `DIPLOMACY_SMTP_HOST` (plus the other SMTP variables) is set. See
+  [DEPLOYMENT.md](DEPLOYMENT.md) and
+  [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md#3-environment-variables).
 
 ## Production build
 
@@ -51,9 +53,10 @@ the same whether or not the account exists.
 cd frontend && npm run build
 ```
 
-FastAPI serves `frontend/dist` at `/app` when it exists. Set `DIPLOMACY_JWT_SECRET` for the
-API. If you serve the build from a separate static host, configure **SPA fallback** (serve
-`index.html` for unmatched routes) or `/games/123` and refresh will 404.
+In production the `diplomacy_web` image builds this and nginx serves it, proxying `/api/` to
+the API (`docker/web-nginx.conf.template`). If you serve the build from another static host,
+configure **SPA fallback** (serve `index.html` for unmatched routes) or `/games/123` and
+refresh will 404, and point `VITE_API_URL` at the API.
 
 ## Troubleshooting
 
