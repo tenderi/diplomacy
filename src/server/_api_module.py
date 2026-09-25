@@ -9,20 +9,17 @@ Route modules are organized by functionality:
 - messages: Private and broadcast messaging
 - maps: Map image generation
 - admin: Administrative endpoints
-- dashboard: Dashboard API endpoints
 - auth: Register, login, JWT, link Telegram
 """
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from typing import Dict, Any
 import contextlib
 from contextlib import asynccontextmanager
 import asyncio
 import logging
-from pathlib import Path
 
 from .db_config import SQLALCHEMY_DATABASE_URL
 from .api import shared as _api_shared
@@ -32,7 +29,7 @@ from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 from .api.idempotency import IdempotencyMiddleware
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, dashboard, channels, tournaments, auth, waiting_list, bot_outbox, archive
+from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -217,7 +214,6 @@ app.include_router(users.router)
 app.include_router(messages.router)
 app.include_router(maps.router)
 app.include_router(admin.router)
-app.include_router(dashboard.router)
 app.include_router(channels.router, tags=["channels"])
 app.include_router(tournaments.router)
 app.include_router(auth.router)
@@ -259,53 +255,25 @@ def version() -> Dict[str, str]:
         # Fallback if app.version is not set
         return {"version": "unknown"}
 
-# --- Dashboard Frontend Serving ---
-_dashboard_dir = Path(__file__).parent / "dashboard"
-_static_dir = _dashboard_dir / "static"
-
-# Mount static files if directory exists
-if _static_dir.exists():
-    app.mount("/dashboard/static", StaticFiles(directory=str(_static_dir)), name="dashboard-static")
-
 @app.get("/", response_class=HTMLResponse)
 def root() -> HTMLResponse:
-    """Root endpoint - redirect to dashboard or show info."""
-    dashboard_html = _dashboard_dir / "index.html"
-    if dashboard_html.exists():
-        return RedirectResponse(url="/dashboard")
-    else:
-        # Show API info if dashboard not available
-        return HTMLResponse(
-            content="""
-            <html>
-            <head><title>Diplomacy API</title></head>
-            <body>
-                <h1>Diplomacy Game Server API</h1>
-                <p>API is running. Available endpoints:</p>
-                <ul>
-                    <li><a href="/docs">API Documentation (Swagger)</a></li>
-                    <li><a href="/health">Health Check</a></li>
-                    <li><a href="/dashboard">Dashboard</a> (if deployed)</li>
-                </ul>
-            </body>
-            </html>
-            """,
-            status_code=200
-        )
-
-@app.get("/dashboard", response_class=HTMLResponse)
-def serve_dashboard() -> HTMLResponse:
-    """Serve the dashboard HTML page."""
-    dashboard_html = _dashboard_dir / "index.html"
-    if dashboard_html.exists():
-        with open(dashboard_html, "r", encoding="utf-8") as f:
-            content = f.read()
-        return HTMLResponse(content=content)
-    else:
-        return HTMLResponse(
-            content="<h1>Dashboard not found</h1><p>Dashboard files not installed.</p><p>Run <code>./deploy_dashboard.sh</code> to deploy the dashboard.</p>",
-            status_code=404
-        )
+    """The API answers at its root with where to look; the web app is served by nginx."""
+    return HTMLResponse(
+        content="""
+        <html>
+        <head><title>Diplomacy API</title></head>
+        <body>
+            <h1>Diplomacy Game Server API</h1>
+            <p>API is running. Available endpoints:</p>
+            <ul>
+                <li><a href="/docs">API Documentation (Swagger, when enabled)</a></li>
+                <li><a href="/health">Health Check</a></li>
+            </ul>
+        </body>
+        </html>
+        """,
+        status_code=200,
+    )
 
 if __name__ == "__main__":
     import uvicorn

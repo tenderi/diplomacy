@@ -112,8 +112,6 @@ def get_process_turn_lock(game_id: str) -> asyncio.Lock:
     return _process_turn_locks[game_id]
 
 
-# Allowed services for dashboard (moved to dashboard.py route module)
-# ALLOWED_SERVICES = ["diplomacy", "diplomacy-bot"]
 
 
 def game_buttons(game_id: Any, *, ended: bool = False) -> list[list[dict[str, str]]]:

@@ -38,6 +38,15 @@ def test_no_anonymous_environment_dump(client: TestClient) -> None:
     assert client.get("/health/environment").status_code == 404
 
 
+def test_the_root_says_where_to_look_and_there_is_no_dashboard(client: TestClient) -> None:
+    """The systemd-era admin page (``/dashboard``) could not authenticate and drove
+    ``systemctl``/``journalctl``, which the containers do not have; it is gone."""
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code == 200 and "Diplomacy Game Server API" in root.text
+    for path in ("/dashboard", "/dashboard/api/services/status", "/dashboard/static/dashboard.js"):
+        assert client.get(path, headers={"X-Admin-Token": "x"}).status_code == 404, path
+
+
 def test_the_three_version_numbers_agree(client: TestClient) -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     package = json.loads((ROOT / "frontend" / "package.json").read_text())["version"]

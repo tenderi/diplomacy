@@ -80,7 +80,7 @@ accept `client_timestamp`; the message is stored with it and the notification sa
 "(sent HH:MM UTC)" when it was delayed. Board, orders, and
 resolution PNGs via `/games/{id}/map` and `/games/{id}/generate_map[/orders|/resolution]`,
 plus `/games/{id}/map/history/{turn}` and `/maps/{map_name}/preview.png`. Channel linking,
-settings, posting, and analytics under `/games/{id}/channel/…`.
+settings and posting under `/games/{id}/channel/…`.
 
 ### Bot outbox and idempotency
 
@@ -93,10 +93,11 @@ Any mutating request that carries both `X-Bot-Secret` and an `Idempotency-Key` h
 first response stored (statuses below 500) and replayed to every later request with the same
 key, marked `Idempotent-Replayed: true`. This is how the bot's retry queue is safe.
 
-### Admin, dashboard, health
+### Admin and health
 
-`/admin/*` (delete all games, cache management, counts) and `/dashboard/api/*` (systemd
-status and restart, logs, read-only DB inspection) both require the `X-Admin-Token` header.
+`/admin/*` (delete a game or all games, cache management, counts) and the saved-game
+export/import require the `X-Admin-Token` header. There is no admin web page: the host is
+administered over SSH (`docker compose`, `psql`; see `docs/DEPLOYMENT.md`).
 `GET /health` and `GET /healthz` (both check the database; `upgrade.sh` and the web
 container's healthcheck use `/healthz`) and `GET /version` are open.
 

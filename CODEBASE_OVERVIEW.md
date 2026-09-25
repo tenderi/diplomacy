@@ -144,14 +144,13 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | File / Module | Purpose |
 |---|---|
 | `game_service.py` | **The single entry point from server code into the engine.** `GameService` wraps `engine.game.Game` + `serialization` + `orders/` over `GameRepo`: `create_game`, `submit_orders`, `process_turn`, `view`, `last_resolution`, `order_history`. Routes, the CLI `Server`, and DAIDE all go through this. |
-| `_api_module.py` | FastAPI application factory. Registers routes, initializes DB schema on startup, starts the deadline scheduler and the DAIDE listener in `lifespan`, mounts the dashboard and the built frontend at `/app`. |
+| `_api_module.py` | FastAPI application factory. Registers routes, initializes DB schema on startup, starts the deadline scheduler and the DAIDE listener in `lifespan`, and mounts the built frontend at `/app`. |
 | `legal_orders.py` | Pure, phase-aware enumeration of every legal order for a power (movement / retreat / build / disband), with no FastAPI or DB imports. Backs `GET /games/{id}/legal_orders/{power}`. |
 | `server.py` | `Server` — a text-command surface (`CREATE_GAME`, `ADD_PLAYER`, `SET_ORDERS`, `PROCESS_TURN`, `GET_GAME_STATE`), routed through `GameService`. Used by tests; the HTTP API does not depend on it. |
 | `errors.py` | `ServerError` / `ServerResponse` with standard codes: `GAME_NOT_FOUND`, `POWER_NOT_FOUND`, `INVALID_ORDER`, … |
 | `db_config.py` | Reads `SQLALCHEMY_DATABASE_URL` from the environment (defaults to local PostgreSQL). |
 | `response_cache.py` | In-memory response cache with TTL, LRU eviction, and invalidation, used on expensive endpoints. |
 | `daide/` | The DAIDE protocol package — see §6. |
-| `dashboard/` | Static HTML/CSS/JS for the admin dashboard served at `/dashboard`. |
 
 ### API route modules (`src/server/api/routes/`)
 
@@ -164,9 +163,8 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `messages.py` | Private messages, broadcasts, message history. |
 | `maps.py` | Board / orders / resolution PNG generation, per-turn map history, map preview, and `GET /maps/{map}/provinces` — province metadata (full name, type, supply-centre flag, coasts), the one server-side source of display names for both clients. |
 | `waiting_list.py` | Automatic game matching: join/leave the queue, queue status. Owns the `waiting_list` table and creates the game itself when the queue fills, claiming exactly seven entries in one transaction first so a failure cannot orphan a game. This used to be an in-memory global in the Telegram bot. |
-| `channels.py` | Link/unlink Telegram channels, settings, posting maps, results, broadcasts, timelines, proposals, analytics. |
+| `channels.py` | Link/unlink a game's Telegram group, its settings, and posts queued for it: the current map, results, broadcasts, timelines, the player dashboard, threads. |
 | `admin.py` | Delete all games, cache management, counts. Requires the admin token. |
-| `dashboard.py` | Service status and restart (systemd), log retrieval (`journalctl`), read-only DB table inspection and stats. Requires the admin token. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
 `shared.py` holds the `db_service` / `game_service` singletons, `game_view(game_id)`,
@@ -257,7 +255,7 @@ venv active and Postgres up. CI enforces coverage: `--fail-under=60` overall, an
 | **DATC conformance** | `tests/datc/test_datc_6a_*.py` … `6k_*.py` (~154 cases, `datc` marker), `test_adjudicator_mechanics.py`, `harness.py`, and `test_properties.py` (Hypothesis over random *supported* positions: determinism under order-shuffling, unit conservation, ≤1 unit/province, every offered retreat legal). |
 | **Engine units** | `tests/engine/` — value types, `.map` topology loading, order grammar and its errors, validation, adjustment edge rules, JSON round-trips, the phase machine, `simple_ai` (its orders must validate), plus a 7-AI-power self-play run. |
 | **Game service** | `test_game_service.py` (including resolution maps across every phase), `test_concurrent_processing.py` (`StaleGameError`, the cross-process guard), `test_order_overlay.py`, `test_view_adapter.py`, `test_legal_orders.py`. |
-| **API routes** | `test_api_routes_*.py`, `test_api_scheduler.py`, `test_api_health.py`, `test_cache_coherence.py` (no cached read shows the world before your own write), `test_game_archive.py`, `test_channel_posts.py`, `test_channel_analytics.py`, `test_background_jobs.py`. |
+| **API routes** | `test_api_routes_*.py`, `test_api_scheduler.py`, `test_api_health.py`, `test_cache_coherence.py` (no cached read shows the world before your own write), `test_game_archive.py`, `test_channel_posts.py`, `test_background_jobs.py`. |
 | **Auth** | `test_auth.py`, `test_authorization.py`, `test_auth_sweep.py`, `test_user_registration.py`. |
 | **Rendering** | `test_board_render.py` (pixels and the render cache key), `test_visualization.py`, `test_order_visualization.py`, `test_arrow_geometry.py`, `test_pending_order_styling.py` (`map` marker). |
 | **Telegram bot** | `test_bot_commands.py` (each command's HTTP contract), `test_bot_routing.py` (every button/keyboard route, every advertised command registered), `test_telegram_*.py`, `test_bot_*.py`, `test_api_client*.py`, `test_game_context.py`, `test_selectunit_phases.py`, `test_interactive_orders.py`. |

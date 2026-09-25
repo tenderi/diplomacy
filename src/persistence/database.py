@@ -519,7 +519,10 @@ class ChannelTimelineEventModel(Base):
 
 
 class ChannelAnalyticsModel(Base):
-    """Channel analytics table (for tracking engagement metrics)"""
+    """Channel analytics table. **Nothing reads or writes it** since Track AH (`v3.0.13`):
+    the only writer was bot-side posting code that never ran, the only reader the
+    admin dashboard (removed). Kept so the model matches the migrations until the
+    maintainer drops the table (``docs/specs/fix_plan.md``, Track AQ)."""
     __tablename__ = 'channel_analytics'
     
     id = Column(Integer, primary_key=True)
