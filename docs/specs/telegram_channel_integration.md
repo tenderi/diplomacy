@@ -47,8 +47,8 @@ deadline. The channel sees the public board, not anyone's intentions.
 - **Bot** (`src/server/telegram_bot/channels.py`, `channel_commands.py`): the commands above
   plus the formatting and posting helpers.
 - **Persistence**: channel link and settings hang off the game row (`channel_id`,
-  `channel_settings`); channel messages have their own table via `DatabaseService`. (A
-  `channel_analytics` table also exists; nothing has read or written it since Track AH.)
+  `channel_settings`); channel messages have their own table via `DatabaseService`. (The
+  unused `channel_analytics` table was dropped in Track AQ, `v3.0.14`.)
 - **Hooks**: the API queues everything for Telegram in the `bot_outbox` table, pulled and
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,

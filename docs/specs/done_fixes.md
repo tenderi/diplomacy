@@ -1,5 +1,18 @@
 ---
 
+# Track AQ — Drop the unused `channel_analytics` table (maintainer, 2026-09-25) — **done, `v3.0.14`**
+
+- [x] **Checked empty in production, then dropped.** `select count(*) from channel_analytics`
+  on the VPS returned 0 (2026-09-25, with the maintainer's go-ahead). Migration
+  `n2b8c9d0e1f2` drops it (`IF EXISTS`); its downgrade recreates the empty table exactly as
+  `f8a9b7c6d5e4` made it. `ChannelAnalyticsModel` is gone. Nothing had read or written the
+  table since Track AH (`v3.0.13`).
+
+**Evidence:** the migration run locally up, down and up again (table gone, back, gone);
+full suite green on the migrated schema.
+
+---
+
 # Track AH — Decisions the test audit surfaced (maintainer request, 2026-09-25) — **done, `v3.0.13`**
 
 Found while writing tests in Track AG; each was a product decision, not a bug with one

@@ -22,12 +22,14 @@
 
 ## Status
 
-- **Last updated:** 2026-09-25, at `v3.0.13`.
+- **Last updated:** 2026-09-25, at `v3.0.14`.
+- **Track AQ (`v3.0.14`):** the unused `channel_analytics` table is dropped (migration
+  `n2b8c9d0e1f2`; checked empty in production first). Archived in [`done_fixes.md`](done_fixes.md).
 - **Track AH (`v3.0.13`):** the test audit's three open decisions, taken: the systemd-era
   admin dashboard (no token, and `systemctl`/`journalctl` don't exist in the containers) and
   the writer-less channel analytics are removed; `POST /games/{id}/channel/map` queues the
   current board instead of answering success and posting nothing. Archived in
-  [`done_fixes.md`](done_fixes.md). **Track AQ** below: drop the now-unused table.
+  [`done_fixes.md`](done_fixes.md). Its follow-up, dropping the now-unused table, is Track AQ.
 - **Track AP (`v3.0.12`):** two orders for one unit or build site in one submission were
   both stored and the adjudicator kept one silently (the last move, the *first* build);
   the bot's winter walk offered `BUILD F KIE` after `BUILD A KIE`. Archived in
@@ -386,19 +388,6 @@ cd frontend && npx tsc -b --noEmit && npm run test:run && npm run build
 Merge procedure, branch-protection traps, and the `gh -R tenderi/diplomacy` requirement are in
 `CLAUDE.md`; the two traps that each cost a round-trip (chaining `gh pr merge` with a branch
 delete, and tagging a pre-rebase commit) are written up in `done_fixes.md`'s Track A section.
-
----
-
-
-
-# Track AQ — Drop the unused `channel_analytics` table (maintainer)
-
-- [ ] **Confirm it is empty in production, then drop it** with an Alembic migration (and
-  remove `ChannelAnalyticsModel`). Nothing has read or written it since Track AH
-  (`v3.0.13`); it was left in place because dropping a table is not undoable and its
-  production contents could not be checked from the agent session. Check with
-  `docker compose exec postgres psql -U <user> -d <db> -tAc 'select count(*) from channel_analytics'`
-  on the VPS.
 
 ---
 
