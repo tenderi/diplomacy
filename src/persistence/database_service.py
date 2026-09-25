@@ -15,7 +15,7 @@ import logging
 from .database import (
     GameModel, PlayerModel, MapSnapshotModel, MessageModel, UserModel, LinkCodeModel, PasswordResetTokenModel,
     TournamentModel, TournamentGameModel, TournamentPlayerModel,
-    SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel,
+    SpectatorModel, WaitingListModel, BotOutboxModel, IdempotencyKeyModel, FeedbackModel,
     get_session_factory,
     utcnow_naive,
 )
@@ -1096,6 +1096,63 @@ class DatabaseService:
     #
     # See ``BotOutboxModel``: every player DM is committed here and pulled by the
     # bot, so a bot or tunnel outage delays notifications instead of dropping them.
+
+    # --- Feedback ---
+    def create_feedback(
+        self,
+        *,
+        user_id: Optional[int],
+        source: str,
+        text: str,
+        game_id: Optional[str] = None,
+        phase_code: Optional[str] = None,
+    ) -> int:
+        """Record one player report. Returns its id."""
+        with self.session_factory() as session:
+            row = FeedbackModel(
+                user_id=user_id,
+                source=source,
+                text=text,
+                game_id=game_id,
+                phase_code=phase_code,
+                created_at=utcnow_naive(),
+            )
+            session.add(row)
+            session.commit()
+            return int(row.id)
+
+    def count_feedback_since(self, user_id: int, since: datetime) -> int:
+        with self.session_factory() as session:
+            return (
+                session.query(FeedbackModel)
+                .filter(FeedbackModel.user_id == user_id, FeedbackModel.created_at >= since)
+                .count()
+            )
+
+    def list_feedback(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """The newest reports first, with the reporter's name and Telegram id."""
+        with self.session_factory() as session:
+            rows = (
+                session.query(FeedbackModel, UserModel)
+                .outerjoin(UserModel, UserModel.id == FeedbackModel.user_id)
+                .order_by(FeedbackModel.id.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "id": f.id,
+                    "created_at": f.created_at.isoformat() if f.created_at else None,
+                    "source": f.source,
+                    "game_id": f.game_id,
+                    "phase_code": f.phase_code,
+                    "text": f.text,
+                    "user_id": f.user_id,
+                    "full_name": u.full_name if u is not None else None,
+                    "telegram_id": u.telegram_id if u is not None else None,
+                }
+                for f, u in rows
+            ]
 
     def enqueue_bot_notification(
         self,

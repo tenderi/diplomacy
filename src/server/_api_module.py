@@ -27,9 +27,10 @@ from .api.shared import deadline_scheduler, db_service
 from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
 
 from .api.idempotency import IdempotencyMiddleware
+from .api.error_log import ServerErrorLogMiddleware
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive
+from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive, feedback
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -207,6 +208,12 @@ app.add_middleware(
     get_secret=lambda: _api_shared.BOT_SECRET,
 )
 
+# Every 5xx is logged at ERROR -- including an ``HTTPException(500)`` a route
+# raised on purpose, which nothing else logs -- so it reaches the journal and,
+# with DIPLOMACY_ADMIN_TELEGRAM_ID set, the maintainer (install_admin_alerts).
+app.add_middleware(ServerErrorLogMiddleware)
+_api_shared.install_admin_alerts()
+
 # Register all route modules
 app.include_router(games.router)
 app.include_router(orders.router)
@@ -220,6 +227,7 @@ app.include_router(auth.router)
 app.include_router(waiting_list.router, tags=["waiting-list"])
 app.include_router(bot_outbox.router, tags=["bot-outbox"])
 app.include_router(archive.router, tags=["archive"])
+app.include_router(feedback.router, tags=["feedback"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

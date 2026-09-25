@@ -147,8 +147,10 @@ Group games can't be joined from the website. Join them through the group's butt
 
 ## 9. Beta: something odd?
 
-Tell the organiser or the maintainer what you did, what you expected and what happened,
-ideally with a screenshot and the game number. This is free software (GNU AGPL v3 or
+Send `/feedback` and what happened to the bot, e.g. `/feedback the map showed my fleet in
+the wrong place after the retreat`. On the website, use **Send feedback** at the bottom of
+any page. It goes straight to the maintainer with your current game and its phase
+attached. Say what you did, what you expected and what happened. This is free software (GNU AGPL v3 or
 later); the source is at https://github.com/tenderi/diplomacy.
 
 **Quick reference:** [all bot commands](TELEGRAM_BOT_COMMANDS.md) · [the rules](reference/rules.pdf)

@@ -187,6 +187,7 @@ a notification about -- so the game id is only needed to switch games.
 • Game creator: `/autoprocess <id> on|off`, `/dummy <id> <power> [off]`, and ⚙️ Process turn now in the game menu
 
 *🔧 Other*
+• `/feedback <text>` - Report a problem or an idea to the maintainer (your current game is attached)
 • `/queue` - Orders/messages waiting for the game server, if it is unreachable
 • `/rules`, `/examples` - Order syntax reference
 • `/cancel` - Stop writing a message or password
