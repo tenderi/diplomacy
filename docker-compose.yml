@@ -15,6 +15,19 @@
 # change what Compose calls things.
 name: diplomacy
 
+# Every service logs to the host's systemd journal, not to Docker's per-container
+# json-file: a deploy recreates the containers, and a json-file log is deleted
+# with its container, so every merge erased the logs of whatever had just gone
+# wrong. The journal is on disk (/var/log/journal) and journald rotates it (its
+# own SystemMaxUse cap). `docker compose logs` still shows the current
+# containers; lines from containers since replaced:
+#   journalctl COM_DOCKER_COMPOSE_SERVICE=diplomacy_api --since -2d
+x-logging: &logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+    labels: com.docker.compose.service
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -29,11 +42,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
@@ -64,6 +73,8 @@ services:
       - DIPLOMACY_SMTP_USER=${DIPLOMACY_SMTP_USER:-}
       - DIPLOMACY_SMTP_PASSWORD=${DIPLOMACY_SMTP_PASSWORD:-}
       - DIPLOMACY_SMTP_FROM=${DIPLOMACY_SMTP_FROM:-}
+      # The maintainer's Telegram id: error alerts and player feedback are DMed there. Blank: none.
+      - DIPLOMACY_ADMIN_TELEGRAM_ID=${DIPLOMACY_ADMIN_TELEGRAM_ID:-}
       # Trust X-Forwarded-For from any peer. Safe only because nothing but
       # nginx, the bot and the host's loopback can reach this port; it makes
       # the per-IP login/register rate limits key on the real client rather
@@ -77,11 +88,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
@@ -103,18 +110,19 @@ services:
       - DIPLOMACY_BOT_DATA_DIR=/data
       - DIPLOMACY_NOTIFY_POLL_SECONDS=${DIPLOMACY_NOTIFY_POLL_SECONDS:-3}
       - DIPLOMACY_OUTBOX_POLL_SECONDS=${DIPLOMACY_OUTBOX_POLL_SECONDS:-5}
+      - DIPLOMACY_ADMIN_TELEGRAM_ID=${DIPLOMACY_ADMIN_TELEGRAM_ID:-}
       - PYTHONUNBUFFERED=1
     volumes:
       # The durable outbox: orders and messages waiting for the API (during a
       # restart or deploy), and the per-user games cache.
       - bot_data:/data
+    # Started once the API answers its health check, so a deploy does not open
+    # with a burst of "API not healthy yet" retries. The bot still tolerates the
+    # API going away later (its durable outbox); this only orders the start.
     depends_on:
-      - diplomacy_api
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      diplomacy_api:
+        condition: service_healthy
+    logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
@@ -137,11 +145,7 @@ services:
       - ${WEB_BIND:-0.0.0.0}:${WEB_PORT:-80}:80
     depends_on:
       - diplomacy_api
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:
@@ -154,11 +158,7 @@ services:
       context: .
       dockerfile: docker/docs.Dockerfile
     profiles: ["tls"]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -188,11 +188,7 @@ services:
     depends_on:
       - diplomacy_web
       - diplomacy_docs
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
     security_opt:

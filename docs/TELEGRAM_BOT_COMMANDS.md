@@ -39,6 +39,7 @@ first, because a bare number there would be ambiguous.)
 | `/refresh` | Rebuild the keyboard menu if it gets out of sync. |
 | `/register` | Still works, but `/start`, joining and queueing register you automatically. |
 | `/cancel` | Stop writing a message or password the bot asked for. |
+| `/feedback <text>` | Send a report or an idea to the maintainer; your current game and its phase are attached. |
 
 ## Account linking
 

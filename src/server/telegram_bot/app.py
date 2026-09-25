@@ -7,15 +7,18 @@ All command handlers are organized in the telegram_bot package.
 import asyncio
 import logging
 import sys
+from typing import Optional
 
 from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 from telegram.ext import (
     Application, ApplicationBuilder, ApplicationHandlerStop, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
 )
 
 # Import directly from modules
-from server.telegram_bot.config import TELEGRAM_TOKEN, API_URL
+from server.telegram_bot.alerting import AdminAlertHandler
+from server.telegram_bot.config import ADMIN_TELEGRAM_ID, TELEGRAM_TOKEN, API_URL
 from server.telegram_bot.api_client import (
     wait_for_api_health, _validate_api_url,
 )
@@ -49,6 +52,7 @@ from server.telegram_bot.channel_commands import (
     link_channel, unlink_channel, channel_info, channel_settings, newgame, linkgroup, unlinkgroup,
 )
 from server.telegram_bot.link_account import link_account
+from server.telegram_bot.feedback import feedback
 
 logger = logging.getLogger("diplomacy.telegram_bot.main")
 
@@ -85,6 +89,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("quit", "Leave a game"),
     BotCommand("queue", "Orders/messages waiting for the game server"),
     BotCommand("link", "Link this Telegram account to a browser account"),
+    BotCommand("feedback", "Report a problem or an idea to the maintainer"),
     BotCommand("help", "Commands and how to write orders"),
     BotCommand("rules", "Basic Diplomacy rules and order syntax"),
 ]
@@ -146,7 +151,48 @@ async def _post_init(app: Application) -> None:
     """
     await app.bot.set_my_commands(BOT_COMMANDS)
     await app.bot.set_my_commands(GROUP_BOT_COMMANDS, scope=BotCommandScopeAllGroupChats())
+    install_bot_alerts(app)
     start_background_loops(app)
+
+
+def install_bot_alerts(app: Application) -> Optional[AdminAlertHandler]:
+    """DM every error the bot logs to ``ADMIN_TELEGRAM_ID`` (throttled; see
+    ``alerting.py``). Sent straight from the bot, not through the API: the
+    bot's errors are mostly the ones that happen while the API is down.
+    Needs the running loop, so it is called from ``_post_init``."""
+    if ADMIN_TELEGRAM_ID is None:
+        return None
+    admin_id = ADMIN_TELEGRAM_ID
+    loop = asyncio.get_running_loop()
+    pending: set[asyncio.Task[None]] = set()
+
+    async def deliver(text: str) -> None:
+        try:
+            await app.bot.send_message(chat_id=admin_id, text=text)
+        except TelegramError as e:
+            # WARNING, not ERROR: a failed alert must not raise another one.
+            logger.warning("Could not send an error alert: %s", e)
+
+    def schedule(text: str) -> None:
+        task = loop.create_task(deliver(text))
+        pending.add(task)
+        task.add_done_callback(pending.discard)
+
+    handler = AdminAlertHandler(lambda text: loop.call_soon_threadsafe(schedule, text), source="Diplomacy bot")
+    logging.getLogger().addHandler(handler)
+    return handler
+
+
+async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A command or button handler raised: log it at ERROR with what triggered it
+    (the command word or button data, never a message's text)."""
+    trigger = "an update"
+    if isinstance(update, Update):
+        if update.callback_query is not None and update.callback_query.data:
+            trigger = f"button {update.callback_query.data}"
+        elif update.effective_message is not None and (update.effective_message.text or "").startswith("/"):
+            trigger = (update.effective_message.text or "").split()[0]
+    logger.error("Error handling %s", trigger, exc_info=context.error)
 
 
 async def _post_shutdown(app: Application) -> None:
@@ -403,10 +449,13 @@ def main():
     app.add_handler(CommandHandler("examples", examples))
     app.add_handler(CommandHandler("link", link_account))
     app.add_handler(CommandHandler("queue", queue_status))
+    app.add_handler(CommandHandler("feedback", feedback))
     app.add_handler(CommandHandler("link_channel", link_channel))
     app.add_handler(CommandHandler("unlink_channel", unlink_channel))
     app.add_handler(CommandHandler("channel_info", channel_info))
     app.add_handler(CommandHandler("channel_settings", channel_settings))
+
+    app.add_error_handler(_on_handler_error)
 
     # Add handlers for interactive features
     app.add_handler(CallbackQueryHandler(button_callback))
