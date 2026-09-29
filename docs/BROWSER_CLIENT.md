@@ -27,6 +27,23 @@ routes, so refresh and back/forward work correctly. UI is Tailwind CSS + shadcn/
 **Register** → email, password (minimum 8 characters), optional full name. You are logged in
 immediately; from there use **My games / All games** and **Link Telegram**.
 
+## Sandbox
+
+**Sandbox** (in the header, or **Try orders in the sandbox** on a game's page) opens a scratch
+board where you give orders for all seven powers: to see how the rules resolve a position,
+or to play out what your neighbours might do. From a game it starts at that game's current
+position; from the header, at the opening position of 1901.
+
+- Pick a power, then choose each unit's order from the menus, or type them
+  (**Type ... orders instead**, one per line, e.g. `A PAR - BUR`). Units without an order hold.
+- **Resolve** adjudicates everyone's orders and moves to the next phase: retreats, then winter
+  builds and disbands, then the next spring, exactly as a real game would. Orders the rules
+  refuse are listed, and those units hold.
+- The map shows the board, the orders you have entered, or the last resolution.
+- **Step back** undoes the last resolution; **Start over** returns to where you began.
+
+Nothing in the sandbox affects the real game, and nothing is saved: leaving the page ends it.
+
 ## Link Telegram
 
 1. In the browser: **Link Telegram → Generate link code**.
