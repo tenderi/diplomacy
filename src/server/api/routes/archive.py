@@ -25,7 +25,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .admin import require_admin
-from ..shared import db_service, game_service, logger
+from ..shared import arm_scheduled_deadline, db_service, game_service, logger
+from ...deadline_schedule import from_json as schedule_from_json
 
 router = APIRouter()
 
@@ -123,6 +124,8 @@ def export_game(game_id: str) -> Dict[str, Any]:
             "created_by_telegram_id": getattr(creator, "telegram_id", None),
             "dummy_powers": meta.get("dummy_powers") or [],
             "auto_process": bool(meta.get("auto_process")),
+            # The weekly deadline schedule (stored form), or null.
+            "deadline_schedule": meta.get("deadline_schedule"),
         },
         "state": state,
         "players": player_rows,
@@ -159,12 +162,19 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     creator_telegram_id = source.get("created_by_telegram_id")
     creator = db_service.get_user_by_telegram_id(str(creator_telegram_id)) if creator_telegram_id else None
     try:
+        # Round-tripped through the parser so a malformed schedule is a 400 here,
+        # not a crash in the deadline scheduler later.
+        schedule = schedule_from_json(source.get("deadline_schedule"))
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise HTTPException(status_code=400, detail=f"Malformed deadline_schedule in the export: {e}") from e
+    try:
         game_id = game_service.create_game(
             map_name=str(source.get("map_name", "standard")),
             phase_length_seconds=source.get("phase_length_seconds"),
             created_by_user_id=int(creator.id) if creator is not None else None,
             dummy_powers=list(source.get("dummy_powers") or []),
             auto_process=bool(source.get("auto_process")),
+            deadline_schedule=schedule.to_json() if schedule else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Malformed game settings in the export: {e}") from e
@@ -196,6 +206,10 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         db_service.create_player(int(row.id), power, user_id=int(user.id))
         power_by_telegram[power] = str(telegram_id)
         players_linked += 1
+
+    # The export carries no deadline, so a scheduled game's current phase gets
+    # its next slot now (when the game is active and full), as on a fill.
+    deadline = arm_scheduled_deadline(str(game_id), int(row.id))
 
     user_id_by_power = {
         str(p.power_name): int(p.user_id)
@@ -248,4 +262,5 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         "messages_restored": messages_restored,
         "messages_skipped": messages_skipped,
         "snapshots_restored": snapshots_restored,
+        "deadline": deadline.isoformat() if deadline else None,
     }
