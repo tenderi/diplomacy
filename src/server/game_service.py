@@ -84,6 +84,7 @@ class GameService:
         dummy_powers: Optional[list[str]] = None,
         auto_process: bool = False,
         join_password_hash: Optional[str] = None,
+        deadline_schedule: Optional[dict[str, Any]] = None,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -91,6 +92,9 @@ class GameService:
         ``POST /games/{id}/deadline`` (a caller may arm a deadline from it
         explicitly); it does not itself set a deadline, and nothing re-arms one
         automatically after a turn is processed.
+
+        ``deadline_schedule`` (``server.deadline_schedule`` stored form) is the
+        game's weekly schedule; it arms the first deadline once the game fills.
 
         Returns the game's id (the integer PK as a string when not supplied).
         """
@@ -105,6 +109,7 @@ class GameService:
             dummy_powers=_check_dummy_set(dummy_powers or [], self._map),
             auto_process=auto_process,
             join_password_hash=join_password_hash,
+            deadline_schedule=deadline_schedule,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -758,7 +763,7 @@ class GameService:
 
     def meta(self, game_id: str) -> Optional[dict[str, Any]]:
         """The game's denormalized row fields -- ``map_name``, ``phase_code``,
-        ``status``, ``deadline``, ``phase_length_seconds``, ``phase_started_at``,
+        ``status``, ``deadline``, ``phase_length_seconds``, ``deadline_schedule``, ``phase_started_at``,
         ``current_turn`` -- without loading or parsing the board.
 
         For callers that need scheduling or bookkeeping facts rather than game

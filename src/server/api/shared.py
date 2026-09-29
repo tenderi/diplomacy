@@ -19,6 +19,7 @@ from persistence.game_repo import GameRepo, StaleGameError
 from sqlalchemy.exc import SQLAlchemyError
 from ..server import Server
 from ..game_service import GameOverError, GameService
+from .. import deadline_schedule
 from ..response_cache import invalidate_cache
 from ..telegram_bot.alerting import AdminAlertHandler, admin_telegram_id
 
@@ -377,8 +378,12 @@ def notify_turn_processed(
     exclude_telegram_id: Optional[str] = None,
     processed_turn: Optional[int] = None,
     processed_phase: Optional[str] = None,
+    next_deadline_text: Optional[str] = None,
 ) -> None:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
+
+    ``next_deadline_text`` names the new phase's deadline when the game's weekly
+    schedule armed one, and is appended to the DM and the channel post.
 
     ``processed_turn``/``processed_phase`` name the turn just adjudicated; with them
     the game's Telegram group also gets that turn's orders map and result map. (A
@@ -414,6 +419,8 @@ def notify_turn_processed(
         player_message = (
             f"The turn has been processed for game {game_id}. Your next orders are due."
         )
+    due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
+    player_message += due
 
     try:
         notify_players(
@@ -430,7 +437,7 @@ def notify_turn_processed(
 
     if not game_ended:
         _post_turn_to_channel(
-            game_id, "The turn has been processed. New orders are due -- send them to me in private.",
+            game_id, "The turn has been processed. New orders are due -- send them to me in private." + due,
             processed_turn, processed_phase,
         )
     else:
@@ -453,6 +460,61 @@ def next_deadline(
     if phase_length_seconds <= 0:
         return None
     return (now or datetime.now(timezone.utc)) + timedelta(seconds=phase_length_seconds)
+
+
+def game_schedule(game_id: str) -> Optional[deadline_schedule.DeadlineSchedule]:
+    """The game's weekly deadline schedule, or ``None`` if it has none."""
+    return deadline_schedule.from_json((game_service.meta(game_id) or {}).get("deadline_schedule"))
+
+
+def schedule_view(schedule: Optional[deadline_schedule.DeadlineSchedule]) -> Optional[Dict[str, Any]]:
+    """The API shape of a schedule: its stored form plus a readable ``description``."""
+    if schedule is None:
+        return None
+    return {**schedule.to_json(), "description": schedule.describe()}
+
+
+def format_scheduled_deadline(
+    deadline: datetime, schedule: Optional[deadline_schedule.DeadlineSchedule]
+) -> str:
+    """``format_deadline_utc``, plus the schedule's local time when it is not UTC:
+    ``"2026-09-28 13:00 UTC (Mon 16:00 Europe/Helsinki)"``."""
+    text = format_deadline_utc(deadline)
+    if schedule is None or schedule.tz_name == "UTC":
+        return text
+    aware = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+    local = aware.astimezone(pytz.timezone(schedule.tz_name))
+    return f"{text} ({local:%a %H:%M} {schedule.tz_name})"
+
+
+def seats_filled(game_id: str, numeric_game_id: int) -> bool:
+    """Whether every seat is taken (by a player row or a dummy): the game has started."""
+    seated = len(db_service.get_players_by_game_id(numeric_game_id))
+    return seated + len(game_service.dummy_powers(game_id)) >= 7
+
+
+def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:
+    """The deadline a phase beginning now gets: the next slot of the game's
+    weekly schedule, or ``None`` when it has none (or is over)."""
+    meta = game_service.meta(game_id) or {}
+    schedule = deadline_schedule.from_json(meta.get("deadline_schedule"))
+    if schedule is None or meta.get("status") != "active":
+        return None
+    return schedule.next_deadline(now or datetime.now(timezone.utc))
+
+
+def arm_scheduled_deadline(game_id: str, numeric_game_id: int) -> Optional[datetime]:
+    """Set the current phase's deadline to the schedule's next slot, when the
+    game has a schedule and every seat is filled. Returns what it set, or
+    ``None`` (nothing changed)."""
+    if not seats_filled(game_id, numeric_game_id):
+        return None
+    deadline = scheduled_deadline(game_id)
+    if deadline is not None:
+        db_service.update_game_deadline(numeric_game_id, deadline)
+        reminder_sent[numeric_game_id] = False
+        invalidate_cache(f"games/{game_id}")
+    return deadline
 
 
 class DeadlineProposalError(ValueError):
@@ -751,9 +813,11 @@ def finish_processed_turn(
             )
         except SQLAlchemyError as e:
             scheduler_logger.error(f"Failed to snapshot game {game_id} after its turn: {e}")
-    # A deadline is scoped to the phase it was set for (Track N): spent now,
-    # and nothing re-arms one.
-    db_service.update_game_deadline(numeric_game_id, None)
+    # A deadline is scoped to the phase it was set for (Track N): spent now.
+    # Only a weekly schedule the players set arms the next one.
+    game_ended = view is not None and view["status"] == "COMPLETED"
+    next_deadline_at = None if game_ended else scheduled_deadline(game_id)
+    db_service.update_game_deadline(numeric_game_id, next_deadline_at)
     # Wait flags ("don't process *this* phase yet", W10) were cleared with the
     # phase by ``save_state``; clearing them again here wiped flags already
     # raised for the new phase.
@@ -762,8 +826,13 @@ def finish_processed_turn(
         game_id,
         numeric_game_id,
         trigger=trigger,
-        game_ended=view is not None and view["status"] == "COMPLETED",
+        game_ended=game_ended,
         exclude_telegram_id=exclude_telegram_id,
+        next_deadline_text=(
+            format_scheduled_deadline(next_deadline_at, game_schedule(game_id))
+            if next_deadline_at is not None
+            else None
+        ),
         # save_state keys a turn's history by the counter *before* it increments.
         processed_turn=current_turn - 1 if current_turn > 0 else None,
         processed_phase=prev_phase_code,
@@ -857,8 +926,9 @@ def process_due_deadlines(now: datetime) -> None:
                         maybe_auto_process(game_id_str)
                         continue
                     # Processing failed: the deadline is still spent (Track N),
-                    # so the scheduler does not retry it every tick.
-                    db_service.update_game_deadline(game_id_val, None)
+                    # so the scheduler does not retry it every tick; a weekly
+                    # schedule tries again at its next slot.
+                    db_service.update_game_deadline(game_id_val, scheduled_deadline(game_id_str))
     except Exception as e:
         scheduler_logger.error(f"Error processing deadlines: {e}")
 

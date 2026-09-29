@@ -183,6 +183,7 @@ a notification about -- so the game id is only needed to switch games.
 *⏰ Pace*
 • `/notready` / `/ready` - Ask the table to wait before a turn auto-processes, or stop waiting
 • `/deadline <id>` - Show it; `/deadline <id> <hours|clear>` - set or remove it. To put a change to a vote, use ⏰ Deadline in the game menu
+• `/deadline <id> schedule mon,wed,fri 16:00 [Europe/Helsinki]` - A deadline every week at those times (`schedule off` stops it)
 • `/draw` / `/nodraw` - Vote to end the game as a draw
 • Game creator: `/autoprocess <id> on|off`, `/dummy <id> <power> [off]`, and ⚙️ Process turn now in the game menu
 
