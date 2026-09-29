@@ -204,10 +204,15 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
     try:
         deadline_data = api_get(f"/games/{game_id}/deadline")
         deadline = deadline_data.get("deadline") if deadline_data else None
+        schedule = deadline_data.get("schedule") if deadline_data else None
     except Exception:
         deadline = None
+        schedule = None
     if deadline:
         text += f"⏰ *Deadline:* {format_deadline(deadline)}\n"
+    if schedule:
+        # A timezone such as America/New_York carries a Markdown underscore.
+        text += f"🗓 *Schedule:* {escape_markdown(schedule['description'])}\n"
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
@@ -436,11 +441,45 @@ _DEADLINE_USAGE = (
     "processed automatically when it passes\n"
     "  /deadline <game_id> clear - remove the deadline (process by hand)\n"
     "  /deadline <game_id> - show the current deadline\n"
+    "  /deadline <game_id> schedule <days> <HH:MM> [timezone] - a deadline every "
+    "week at those times, e.g. schedule mon,wed,fri 16:00 Europe/Helsinki\n"
+    "  /deadline <game_id> schedule off - stop the weekly schedule\n"
     "  /deadline <game_id> propose <hours|clear> [vote_hours] - start a majority "
     "vote to change it instead of setting it unilaterally\n"
     "  /deadline <game_id> vote <yes|no> - vote on a pending proposal\n"
     "  /deadline <game_id> withdraw - cancel your own pending proposal"
 )
+
+
+def set_deadline_schedule(game_id: str, user_id: str, words: list[str]) -> str:
+    """``/deadline <id> schedule ...``: set the weekly schedule from ``words``
+    (``["mon,wed,fri", "16:00", "Europe/Helsinki"]``), or remove it with
+    ``["off"]``. A last word without a ``:`` is the timezone. The API parses
+    the days and times and names what it could not read."""
+    payload: dict[str, Any] = {"telegram_id": user_id}
+    if len(words) == 1 and words[0].lower() in ("off", "clear", "none", "remove"):
+        payload["schedule"] = None
+    else:
+        if len(words) >= 3 and ":" not in words[-1]:
+            payload["timezone"] = words[-1]
+            words = words[:-1]
+        payload["schedule"] = " ".join(words)
+    try:
+        result = api_post(f"/games/{game_id}/deadline/schedule", payload)
+    except requests.RequestException as e:
+        return f"Could not set the deadline schedule: {e}"
+    schedule = result.get("schedule")
+    if schedule is None:
+        return (
+            f"Game {game_id} no longer has a weekly deadline schedule. The current deadline, "
+            f"if any, stays; everyone has been told."
+        )
+    text = f"⏰ Game {game_id}'s deadlines are now {schedule['description']}."
+    if result.get("deadline"):
+        text += f"\nThis phase's deadline: {format_deadline(result['deadline'])}."
+    else:
+        text += "\nThe first deadline is set when the game fills."
+    return text + "\nEveryone has been told."
 
 
 def _format_proposal(game_id: str, proposal: dict) -> str:
@@ -516,9 +555,9 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     be ambiguous between game 12 and twelve hours. Setting goes through
     ``POST /games/{id}/deadline`` with the caller's ``telegram_id``, so the
     server checks membership and tells the other players. Deadlines are never
-    imposed by the server (Track N): this command (or a resolved
-    ``propose``/``vote``) is the only way a game gets one, and it is spent
-    when its phase is processed.
+    imposed by the server (Track N): this command (a one-off value, a
+    resolved ``propose``/``vote``, or a weekly ``schedule``) is the only way
+    a game gets one, and each deadline is spent when its phase is processed.
 
     ``<hours>``/``clear`` set it unilaterally, same as always -- any single
     player still can, nothing here removes that. ``propose``/``vote``/
@@ -555,9 +594,15 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"Could not read the deadline for game {game_id}: {e}")
             return
         current = data.get("deadline") if data else None
+        schedule = data.get("schedule") if data else None
+        if schedule:
+            await update.message.reply_text(
+                f"📅 Game {game_id} has a deadline every {schedule['description']}. "
+                f"Stop it with /deadline {game_id} schedule off."
+            )
         if current:
             await update.message.reply_text(f"⏰ Deadline for game {game_id}: {format_deadline(current)}")
-        else:
+        elif not schedule:
             await update.message.reply_text(
                 f"Game {game_id} has no deadline, so the turn waits until every order is in "
                 f"(with auto-process on) or the game's creator processes it. Set one with "
@@ -570,6 +615,13 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     arg = args[1].lower()
+
+    if arg == "schedule":
+        if len(args) < 3:
+            await update.message.reply_text(_DEADLINE_USAGE)
+            return
+        await update.message.reply_text(set_deadline_schedule(game_id, user_id, list(args[2:])))
+        return
 
     if arg == "propose":
         if len(args) < 3:

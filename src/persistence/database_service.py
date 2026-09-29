@@ -560,6 +560,16 @@ class DatabaseService:
             game.phase_length_seconds = phase_length_seconds
             session.commit()
 
+    def update_game_deadline_schedule(self, game_id: int, schedule: Optional[Dict[str, Any]]) -> None:
+        """Set (or, with ``None``, remove) the game's weekly deadline schedule.
+        Does not itself touch ``deadline``; the caller arms it."""
+        with self.session_factory() as session:
+            game = session.query(GameModel).filter_by(id=game_id).first()
+            if game is None:
+                return
+            game.deadline_schedule = schedule
+            session.commit()
+
     def get_pending_deadline_proposal(self, game_id: str) -> Optional[Dict[str, Any]]:
         """The in-flight deadline-change proposal for this game, or ``None`` if
         there isn't one (or the game doesn't exist)."""

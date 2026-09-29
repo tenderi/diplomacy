@@ -212,6 +212,7 @@ place the full picture exists.
 | **Game ended** (18 centres, draw, last power) | all players except the caller | notification (+ the final turn's two maps, unless a draw ended it) | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
+| Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
 | Player joined | all players | — | next poll | `routes/games.py` join |
 | Game full / started | all players | — | next poll | `routes/games.py` join |
 | Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
@@ -221,6 +222,9 @@ place the full picture exists.
 | Draw quorum reached → game ends | all players except the voter | notification | next poll | `notify_turn_processed(game_ended=True)` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
+
+When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
+post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
@@ -232,10 +236,24 @@ players would find out by refreshing. A concession is announced for the same rea
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
-**Deadlines are never imposed.** A game has a deadline only when one was set explicitly via
-`POST /games/{id}/deadline` (the bot's `/deadline <game_id> <hours|clear>`, or a majority
-vote through `deadline/propose`), and it is scoped to that phase: every processing path
-clears it once the phase is adjudicated and none sets a new one.
+**Deadlines are never imposed by the server.** A game has a deadline only when a player
+chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
+<hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's
+**weekly schedule**. A deadline is scoped to its phase: every processing path spends it once
+the phase is adjudicated (`finish_processed_turn`).
+
+**Weekly schedules** (`server/deadline_schedule.py`, `games.deadline_schedule`) are a
+standing choice such as "Mon, Wed, Fri at 16:00 (Europe/Helsinki)", set by any player via
+`POST /games/{id}/deadline/schedule` (the bot's `/deadline <game_id> schedule mon,wed,fri
+16:00 [timezone]`) or at creation (`deadline_schedule`/`deadline_timezone`). While a game
+has one, each phase's deadline is armed to the next slot at least an hour away
+(`MIN_NOTICE`, so a turn processed at 15:55 is not given a five-minute phase): when the
+game fills, when the schedule is set on a started game, and after every processed turn, in
+`finish_processed_turn` (and after a failed deadline run, so it retries at the next slot).
+Slot times are wall-clock times in the schedule's timezone, so they hold across daylight
+saving. Every phase type gets the next slot, retreats and adjustments included. A one-off
+`POST /deadline` (or an accepted proposal) overrides only the current phase; removing the
+schedule leaves the current deadline and arms none after it.
 
 **Conceding removes the power's units *and* releases its supply centres** (they become
 neutral, like the unowned centres at game start), so `Game.eliminated_powers()` reports it at
