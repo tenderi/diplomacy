@@ -11,6 +11,7 @@ import LinkTelegram from './pages/LinkTelegram'
 import GameList from './pages/GameList'
 import GameView from './pages/GameView'
 import Feedback from './pages/Feedback'
+import Sandbox from './pages/Sandbox'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -50,6 +51,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <GameView />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/sandbox"
+        element={
+          <ProtectedRoute>
+            <Sandbox />
           </ProtectedRoute>
         }
       />

@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-09-29, at `v3.0.22`.
+- **Last updated:** 2026-09-30, at `v3.0.23` (the web sandbox).
 - Everything an agent can do is done. **Track F** (a human playing the game end to end,
   and host chores) is the maintainer's.
 

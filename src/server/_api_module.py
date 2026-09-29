@@ -30,7 +30,7 @@ from .api.idempotency import IdempotencyMiddleware
 from .api.error_log import ServerErrorLogMiddleware
 
 # Import route modules
-from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive, feedback
+from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive, feedback, sandbox
 
 # Set up logger
 logger = logging.getLogger("diplomacy.server.api")
@@ -228,6 +228,7 @@ app.include_router(waiting_list.router, tags=["waiting-list"])
 app.include_router(bot_outbox.router, tags=["bot-outbox"])
 app.include_router(archive.router, tags=["archive"])
 app.include_router(feedback.router, tags=["feedback"])
+app.include_router(sandbox.router, tags=["sandbox"])
 
 # --- Core System Endpoints ---
 @app.get("/scheduler/status")

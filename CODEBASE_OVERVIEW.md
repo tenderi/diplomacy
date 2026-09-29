@@ -158,6 +158,7 @@ powers with home centers and starting units, unowned centers, coast-specific adj
 | `admin.py` | Delete a game or all games, mark a seat inactive, cache and connection-pool management, counts. Requires the admin token. |
 | `archive.py` | Saved-game export and import (admin only: an export holds every private message). |
 | `feedback.py` | `POST /feedback` (a signed-in player's report, with the named game's phase; DMed to `DIPLOMACY_ADMIN_TELEGRAM_ID`; 10 per hour) and `GET /admin/feedback`. |
+| `sandbox.py` | The web sandbox: `POST /sandbox/start`, `/legal_orders`, `/adjudicate`, `/map`. Stateless — the client sends the serialized board every time; `GameService.sandbox_state` validates it. |
 | `bot_outbox.py` | The bot's pull endpoint for queued notifications, and its ack. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
@@ -228,7 +229,8 @@ Command reference:
 
 React 18 + Vite + TypeScript SPA, Tailwind CSS + shadcn/ui, React Router, React Hook Form +
 Zod. Consumes the GameState-native view directly. Routes: `/`, `/login`, `/register`,
-`/forgot-password`, `/reset-password`, `/link-telegram`, `/games`, `/games/:id`. Vite
+`/forgot-password`, `/reset-password`, `/link-telegram`, `/games`, `/games/:id`, `/sandbox`
+(order every power on a scratch board; nothing is saved). Vite
 proxies `/api` to `http://localhost:8000` in dev; in production the `diplomacy_web` image
 builds `dist/` and nginx serves it. Tests use Vitest + React Testing Library — see
 [`frontend/docs/TESTING.md`](frontend/docs/TESTING.md).

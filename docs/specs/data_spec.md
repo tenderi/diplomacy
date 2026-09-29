@@ -296,6 +296,31 @@ Both return `image/png` bytes with the same 404-on-missing-game behavior as `GET
 .../map`, and lean on `Map.render_board_png*`'s own disk-backed byte cache rather
 than a second caching layer (see `get_map_preview_png`'s docstring in `maps.py`).
 
+### The sandbox: `POST /sandbox/*`
+
+The web sandbox (`routes/sandbox.py`) lets a player order every power on a scratch board and
+step it through movement, retreat and adjustment phases. **It stores nothing**: the client
+holds the board as a serialized `GameState` (`state_to_dict`, §2) and sends it with every
+request. Because it is client-supplied, `GameService.sandbox_state` validates it before use
+(`400 Invalid sandbox board: ...`): known powers and provinces only, each unit where its kind
+can stand (a fleet on a named coast of a split-coast province), one unit per province,
+ownership of supply centres only, dislodged units only in a retreat phase. All four routes
+need a signed-in caller (`require_bot_or_user`).
+
+| Route | Body | Returns |
+|---|---|---|
+| `POST /sandbox/start` | `{game_id?}` | `{source_game_id, state, view}`: that game's current board (404 if unknown), or the opening position |
+| `POST /sandbox/legal_orders` | `{state, power}` | `legal_orders_for_power`, the shape of `GET /games/{id}/legal_orders/{power}` |
+| `POST /sandbox/adjudicate` | `{state, orders: {power: [order_str]}}` | `{order_results: {power: [{order, ok, reason}]}, resolution, state, view}`; 409 once the board's game is over |
+| `POST /sandbox/map` | `{state, orders, overlay}` (`board`, `orders` or `resolution`) | `image/png`: the board, the orders as pending arrows, or the orders adjudicated on this board and coloured by result |
+
+`view` is `GameService.sandbox_view`: the board fields of §4 (`phase`, `phase_type`,
+`units_by_power`, `ownership`, `dislodged`, `contested`, `status`, `winners`, ...) plus
+`powers_to_order` (`powers_with_orders_to_give`). Orders are validated exactly as
+`submit_orders` validates them; a refused order is reported and left out, so its unit holds.
+`resolution` results carry `power` and a truthful `order_str`, as `last_resolution` does.
+At most 40 orders per power are accepted.
+
 ## 5. Validation
 
 Order legality (not grammar — grammar is `orders/parser.py`'s job) is centralized in
