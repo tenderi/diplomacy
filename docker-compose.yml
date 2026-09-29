@@ -116,12 +116,14 @@ services:
       # The durable outbox: orders and messages waiting for the API (during a
       # restart or deploy), and the per-user games cache.
       - bot_data:/data
-    # Started once the API answers its health check, so a deploy does not open
-    # with a burst of "API not healthy yet" retries. The bot still tolerates the
-    # API going away later (its durable outbox); this only orders the start.
+    # Started after the API container, but deliberately not gated on its health
+    # check: with `condition: service_healthy`, an API that never came up healthy
+    # (a failed migration, say) made `docker compose up` fail with the bot left
+    # stopped -- exactly when its durable outbox is needed to queue players'
+    # orders. The bot waits for the API itself at startup (wait_for_api_health)
+    # and queues writes until it answers.
     depends_on:
-      diplomacy_api:
-        condition: service_healthy
+      - diplomacy_api
     logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
