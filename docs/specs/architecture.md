@@ -56,7 +56,8 @@ src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot
                             # wraps engine.Game + serialization + parser/validation over
                             # GameRepo. Routes/CLI/DAIDE never touch engine internals directly.
   api/routes/               # games, orders, users, auth, messages, maps, channels, admin,
-                             # tournaments, waiting_list, bot_outbox, archive, feedback
+                             # tournaments, waiting_list, bot_outbox, archive, feedback,
+                             # sandbox
   telegram_bot/              # thin HTTP client over the API — see below
   daide/                      # the DAIDE TCP protocol — see below
   server.py                    # text-command CLI surface (CREATE_GAME, ADD_PLAYER, ...),
@@ -349,6 +350,12 @@ React 18 + Vite + TypeScript SPA (`frontend/`), Tailwind + shadcn/ui. Consumes t
 GameState-native `GET /games/{id}/state` view directly (`units_by_power`, `ownership`,
 `dislodged`, `contested`, `phase_type`, `players`, ...). Vite proxies `/api` to
 `http://localhost:8000` in dev; in production nginx serves the built app.
+
+The **sandbox** (`/sandbox`, `/sandbox?game=<id>`) is a scratch board on which a player
+orders all seven powers and steps through the phases, from a game's current position or the
+opening one. It is stateless on the server: the page holds the serialized `GameState` and
+sends it to `POST /sandbox/*` (`data_spec.md` §4), which validate, adjudicate and render it
+through `GameService` without touching the database. Leaving the page discards it.
 
 ## Out of scope for this document
 

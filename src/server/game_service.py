@@ -28,7 +28,7 @@ from engine.serialization import (
     state_to_dict,
     unit_to_dict,
 )
-from engine.types import Build, GameState, GameStatus, Order, PhaseType, Waive
+from engine.types import Build, GameState, GameStatus, Order, PhaseType, ProvinceType, UnitKind, Waive
 from server.legal_orders import adjustments_owed, powers_with_orders_to_give
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "GameOverError",
     "OrderError",
     "StaleGameError",
+    "board_view",
     "kind_by_province_of",
 ]
 
@@ -147,7 +148,45 @@ class GameService:
         _require_active(game, game_id)
         power = power.upper()
         state = game.state
+        results, accepted, accepted_keys = self._check_orders(state, power, order_strings)
 
+        waives_to_drop = sum(
+            1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
+        )
+
+        def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
+            new_orders = accepted
+            if merge:
+                # A build sent after a waive replaces it: the adjudicator honours
+                # adjustment orders in order, so a stored WAIVE ahead of the build
+                # took the only slot and the build came back VOID.
+                to_drop = waives_to_drop
+                kept = []
+                for existing in pending.get(power, []):
+                    parsed = parse_order(existing, power=power, map=self._map)
+                    if isinstance(parsed, Waive) and to_drop > 0:
+                        to_drop -= 1
+                        continue
+                    key = _order_key(parsed)
+                    if key is None or key not in accepted_keys:
+                        kept.append(existing)
+                new_orders = kept + accepted
+            return {**pending, power: new_orders}
+
+        # One locked read-modify-write, and only if the phase these orders were
+        # validated against is still the live one (StaleGameError otherwise).
+        self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
+        return results
+
+    def _check_orders(
+        self, state: GameState, power: str, order_strings: list[str]
+    ) -> tuple[list[dict[str, Any]], list[str], set[str]]:
+        """Parse and validate one power's orders against ``state``.
+
+        Returns ``(results, accepted, accepted_keys)``: one ``{order, ok, reason}``
+        per non-blank input, the accepted orders as storable strings, and the
+        provinces (``_order_key``) those orders are for.
+        """
         # Stored strings are re-parsed at adjudication, where the A/F letter
         # decides whether a destination coast survives (an army's is dropped).
         # Without the board's real kinds, ``F MAO - SPA/NC`` was stored as
@@ -189,34 +228,7 @@ class GameService:
                 results.append({"order": raw, "ok": True, "reason": None})
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
-
-        waives_to_drop = sum(
-            1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
-        )
-
-        def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
-            new_orders = accepted
-            if merge:
-                # A build sent after a waive replaces it: the adjudicator honours
-                # adjustment orders in order, so a stored WAIVE ahead of the build
-                # took the only slot and the build came back VOID.
-                to_drop = waives_to_drop
-                kept = []
-                for existing in pending.get(power, []):
-                    parsed = parse_order(existing, power=power, map=self._map)
-                    if isinstance(parsed, Waive) and to_drop > 0:
-                        to_drop -= 1
-                        continue
-                    key = _order_key(parsed)
-                    if key is None or key not in accepted_keys:
-                        kept.append(existing)
-                new_orders = kept + accepted
-            return {**pending, power: new_orders}
-
-        # One locked read-modify-write, and only if the phase these orders were
-        # validated against is still the live one (StaleGameError otherwise).
-        self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
-        return results
+        return results, accepted, accepted_keys
 
     def _orders_complete(self, power: str, state: GameState, orders: list[str]) -> bool:
         """Has ``power`` given an order to everything that must act this phase?
@@ -295,12 +307,7 @@ class GameService:
         # a successful move relocates the unit and a resolution fetched after a
         # reload has no other way to recover which kind made the order (see
         # last_resolution_view's docstring / kind_by_province_of).
-        kind_by_province = kind_by_province_of(game.state)
-        resolution_dict = resolution_to_dict(resolution)
-        resolution_dict["results"] = [
-            {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
-            for r in resolution_dict["results"]
-        ]
+        resolution_dict = _resolution_dict(resolution, game.state)
         self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
@@ -577,25 +584,125 @@ class GameService:
             "eliminated": eliminated,
         }
 
+    # -- sandbox (stateless) ------------------------------------------------
+    #
+    # The web sandbox lets a player order every power on a scratch board and
+    # step it through the phases. Nothing is stored: the client holds the
+    # serialized ``GameState`` and sends it with every request, so each method
+    # here validates it first (``sandbox_state``) -- it is untrusted input.
+
+    def sandbox_opening(self) -> dict[str, Any]:
+        """The serialized opening position (``state_to_dict`` shape)."""
+        return state_to_dict(_initial_state(self._map))
+
+    def sandbox_state(self, state_json: Any) -> GameState:
+        """Parse a client-held board, refusing one this map cannot hold.
+
+        Raises ``ValueError`` for a malformed payload, an unknown power or
+        province, a unit where its kind cannot stand, two units in one
+        province, or ownership of a non-centre -- the checks that keep a
+        hand-edited board from reaching the adjudicator or the renderer.
+        """
+        if not isinstance(state_json, dict):
+            raise ValueError("not a game state (expected an object)")
+        try:
+            state = state_from_dict(state_json)
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise ValueError(f"not a game state ({type(e).__name__}: {e})") from e
+        if not isinstance(state.year, int):
+            raise ValueError("not a game state (year must be a number)")
+        powers = frozenset(self._map.home_centers)
+        provinces = self._map.provinces
+
+        def check_unit(unit: Any, what: str) -> None:
+            if unit.power not in powers:
+                raise ValueError(f"{what} {unit}: unknown power {unit.power!r}")
+            province = unit.location.province
+            if province not in provinces:
+                raise ValueError(f"{what} {unit}: unknown province {province!r}")
+            if unit.kind is UnitKind.FLEET:
+                if unit.location not in self._map.fleet_locations(province):
+                    raise ValueError(f"{what} {unit}: a fleet cannot stand there")
+            elif self._map.province_type(province) is ProvinceType.WATER:
+                raise ValueError(f"{what} {unit}: an army cannot stand at sea")
+
+        occupied: set[str] = set()
+        for unit in state.units:
+            check_unit(unit, "unit")
+            if unit.province in occupied:
+                raise ValueError(f"two units in {unit.province}")
+            occupied.add(unit.province)
+        for du in state.dislodged:
+            check_unit(du.unit, "dislodged unit")
+            for loc in du.retreats:
+                if loc.province not in provinces:
+                    raise ValueError(f"dislodged unit {du.unit}: unknown retreat {loc}")
+        for province, owner in state.ownership.items():
+            if province not in self._map.supply_centers or owner not in powers:
+                raise ValueError(f"ownership {province}: {owner} is not a centre and a power")
+        if not state.contested <= provinces or not (state.winners or frozenset()) <= powers:
+            raise ValueError("unknown province or power in contested/winners")
+        if state.phase_type is not PhaseType.RETREAT and state.dislodged:
+            raise ValueError("dislodged units outside a retreat phase")
+        return state
+
+    def sandbox_view(self, state: GameState) -> dict[str, Any]:
+        """``board_view`` plus the powers with something to order this phase."""
+        return {
+            "map_name": "standard",
+            **board_view(state),
+            "powers_to_order": sorted(powers_with_orders_to_give(self._map, state)),
+        }
+
+    def sandbox_orders(
+        self, state: GameState, orders: dict[str, list[str]]
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[Order]]]:
+        """Validate every power's orders against ``state``, as ``submit_orders``
+        would. Returns the per-power ``{order, ok, reason}`` results and the
+        accepted orders, parsed. Raises ``OrderError`` for an unknown power."""
+        checks: dict[str, list[dict[str, Any]]] = {}
+        parsed: dict[str, list[Order]] = {}
+        for raw_power, strings in orders.items():
+            power = raw_power.upper()
+            if power not in self._map.home_centers:
+                raise OrderError(f"Unknown power {raw_power}")
+            results, accepted, _ = self._check_orders(state, power, strings)
+            checks[power] = results
+            if accepted:
+                parsed[power] = [parse_order(s, power=power, map=self._map) for s in accepted]
+        return checks, parsed
+
+    def sandbox_adjudicate(self, state: GameState, orders: dict[str, list[str]]) -> dict[str, Any]:
+        """Adjudicate ``orders`` on ``state`` and advance one phase, storing nothing.
+
+        Illegal orders are reported in ``order_results`` and left out, exactly as
+        a real turn leaves them out (their units hold; a missing adjustment is
+        made by civil disorder). Returns the next board as ``state`` (to send
+        back next time) and ``view``, and the ``resolution`` with each result's
+        ``power`` and truthful ``order_str``. Raises ``GameOverError`` once the
+        board's game has ended.
+        """
+        if state.status is GameStatus.COMPLETED:
+            raise GameOverError("this board's game is over; start again to keep playing")
+        game = Game(map=self._map, state=state)
+        checks, parsed = self.sandbox_orders(state, orders)
+        resolution, next_game = game.adjudicate([o for power_orders in parsed.values() for o in power_orders])
+        resolution_dict = _resolution_dict(resolution, state)
+        for r in resolution_dict["results"]:
+            r["power"] = r["order"]["power"]
+        return {
+            "order_results": checks,
+            "resolution": resolution_dict,
+            "state": state_to_dict(next_game.state),
+            "view": self.sandbox_view(next_game.state),
+        }
+
     # -- views ------------------------------------------------------------
 
     def opening_view(self, map_name: str) -> dict[str, Any]:
         """The board a new game on ``map_name`` starts from, view-shaped for the
         renderer (turn 0 has no snapshot to read it back from)."""
-        state = _initial_state(self._map)
-        units_by_power: dict[str, list[dict[str, Any]]] = {}
-        for u in sorted(state.units, key=lambda x: str(x.location)):
-            units_by_power.setdefault(u.power, []).append(unit_to_dict(u))
-        return {
-            "map_name": map_name,
-            "phase": state.phase_name,
-            "year": state.year,
-            "season": state.season.value,
-            "phase_type": state.phase_type.value,
-            "units_by_power": units_by_power,
-            "ownership": dict(state.ownership),
-            "dislodged": [],
-        }
+        return {"map_name": map_name, **board_view(_initial_state(self._map))}
 
     def view(self, game_id: str) -> Optional[dict[str, Any]]:
         """The clean, GameState-native API representation of a game."""
@@ -607,25 +714,10 @@ class GameService:
         players = self._repo.players(game_id)
         pending = self._repo.get_pending_orders(game_id)
 
-        units_by_power: dict[str, list[dict[str, Any]]] = {}
-        for u in sorted(state.units, key=lambda x: str(x.location)):
-            units_by_power.setdefault(u.power, []).append(unit_to_dict(u))
-
         return {
             "game_id": str(game_id),
             "map_name": meta.get("map_name", "standard"),
-            "phase": state.phase_name,
-            "year": state.year,
-            "season": state.season.value,
-            "phase_type": state.phase_type.value,
-            "status": state.status.value,
-            "winners": sorted(state.winners) if state.winners is not None else None,
-            "units": [unit_to_dict(u) for u in sorted(state.units, key=lambda x: str(x.location))],
-            "units_by_power": units_by_power,
-            "ownership": dict(state.ownership),
-            "supply_centers": dict(state.ownership),
-            "dislodged": [_dislodged_view(du) for du in state.dislodged],
-            "contested": sorted(state.contested),
+            **board_view(state),
             "players": players,
             "dummy_powers": meta.get("dummy_powers") or [],
             "auto_process": bool(meta.get("auto_process")),
@@ -878,6 +970,41 @@ def _require_active(game: Game, game_id: str) -> None:
             else "over"
         )
         raise GameOverError(f"game {game_id} is {outcome}; no further orders or votes are accepted")
+
+
+def _resolution_dict(resolution: Any, board: GameState) -> dict[str, Any]:
+    """``resolution_to_dict``, each result carrying a truthful ``order_str``
+    formatted against ``board``, the pre-adjudication state."""
+    kind_by_province = kind_by_province_of(board)
+    resolution_dict = resolution_to_dict(resolution)
+    resolution_dict["results"] = [
+        {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
+        for r in resolution_dict["results"]
+    ]
+    return resolution_dict
+
+
+def board_view(state: GameState) -> dict[str, Any]:
+    """The board half of ``GameService.view``: phase, units, centres, dislodged
+    units and standoffs of ``state``, with nothing about seats or pending orders."""
+    units = sorted(state.units, key=lambda x: str(x.location))
+    units_by_power: dict[str, list[dict[str, Any]]] = {}
+    for u in units:
+        units_by_power.setdefault(u.power, []).append(unit_to_dict(u))
+    return {
+        "phase": state.phase_name,
+        "year": state.year,
+        "season": state.season.value,
+        "phase_type": state.phase_type.value,
+        "status": state.status.value,
+        "winners": sorted(state.winners) if state.winners is not None else None,
+        "units": [unit_to_dict(u) for u in units],
+        "units_by_power": units_by_power,
+        "ownership": dict(state.ownership),
+        "supply_centers": dict(state.ownership),
+        "dislodged": [_dislodged_view(du) for du in state.dislodged],
+        "contested": sorted(state.contested),
+    }
 
 
 def _dislodged_view(du: Any) -> dict[str, Any]:
