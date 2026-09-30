@@ -20,6 +20,9 @@ export default function Home() {
               <Link to="/games">My games / All games</Link>
             </Button>
             <Button variant="outline" asChild>
+              <Link to="/sandbox">Sandbox</Link>
+            </Button>
+            <Button variant="outline" asChild>
               <Link to="/link-telegram">Link Telegram</Link>
             </Button>
             <Button variant="outline" onClick={logout}>

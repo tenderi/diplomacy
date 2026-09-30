@@ -26,6 +26,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   <Link to="/games">Games</Link>
                 </Button>
                 <Button variant="ghost" size="sm" asChild>
+                  <Link to="/sandbox">Sandbox</Link>
+                </Button>
+                <Button variant="ghost" size="sm" asChild>
                   <Link to="/link-telegram">Link Telegram</Link>
                 </Button>
                 <Button variant="outline" size="sm" onClick={logout}>
