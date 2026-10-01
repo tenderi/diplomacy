@@ -164,7 +164,12 @@ class GameService:
                 to_drop = waives_to_drop
                 kept = []
                 for existing in pending.get(power, []):
-                    parsed = parse_order(existing, power=power, map=self._map)
+                    parsed = self._parse_stored(existing, power)
+                    if parsed is None:
+                        # Unreadable (stored under older rules): adjudication
+                        # skips it anyway; keep it rather than 500 the merge.
+                        kept.append(existing)
+                        continue
                     if isinstance(parsed, Waive) and to_drop > 0:
                         to_drop -= 1
                         continue
@@ -231,6 +236,18 @@ class GameService:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
         return results, accepted, accepted_keys
 
+    def _parse_stored(self, stored: str, power: str) -> Optional[Order]:
+        """A stored pending-order string parsed, or ``None`` if it no longer parses.
+
+        Stored strings were valid when submitted, but one written under older
+        grammar rules can fail now; adjudication skips such a string, and every
+        other reader must too rather than raise out of a player's request.
+        """
+        try:
+            return parse_order(stored, power=power.upper(), map=self._map)
+        except OrderParseError:
+            return None
+
     def _orders_complete(self, power: str, state: GameState, orders: list[str]) -> bool:
         """Has ``power`` given an order to everything that must act this phase?
 
@@ -241,7 +258,8 @@ class GameService:
         at a time, and the turn must not run after the first. (A unit meant to
         stand still needs an explicit hold.)
         """
-        parsed = [parse_order(o, power=power, map=self._map) for o in orders]
+        # An unreadable stored order is skipped at adjudication, so it orders nothing.
+        parsed = [o for o in (self._parse_stored(s, power) for s in orders) if o is not None]
         ordered = {_order_key(o) for o in parsed} - {None}
         if state.phase_type == PhaseType.MOVEMENT:
             return {u.location.province for u in state.units_of(power)} <= ordered

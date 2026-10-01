@@ -83,9 +83,21 @@ def export_game(game_id: str) -> Dict[str, Any]:
             }
         )
 
+    sender_telegram: Dict[int, Optional[str]] = {}
+
+    def telegram_of(user_id: int) -> Optional[str]:
+        # Read from the sender's own user row, not the current seats: a player
+        # who has since quit holds no power, and their messages were exported
+        # with no sender at all, so an import dropped them.
+        if user_id not in sender_telegram:
+            sender = db_service.get_user_by_id(user_id)
+            sender_telegram[user_id] = getattr(sender, "telegram_id", None) if sender is not None else None
+        return sender_telegram[user_id]
+
     messages = [
         {
             "sender_power": power_by_user.get(int(m.sender_user_id)),
+            "sender_telegram_id": telegram_of(int(m.sender_user_id)),
             "recipient_power": m.recipient_power,
             "text": m.text,
             "timestamp": m.timestamp.isoformat() if m.timestamp else None,
@@ -218,7 +230,14 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
     }
     messages_restored, messages_skipped = 0, 0
     for m in req.messages or []:
-        sender_user_id = user_id_by_power.get(str(m.get("sender_power") or "").upper())
+        # By Telegram id first: it names the sender even when they no longer hold
+        # a seat. ``sender_power`` is the fallback for exports made before it.
+        sender_tg = m.get("sender_telegram_id")
+        sender = db_service.get_user_by_telegram_id(str(sender_tg)) if sender_tg else None
+        sender_user_id = (
+            int(sender.id) if sender is not None
+            else user_id_by_power.get(str(m.get("sender_power") or "").upper())
+        )
         if sender_user_id is None:
             messages_skipped += 1
             continue
