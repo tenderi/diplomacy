@@ -93,6 +93,30 @@ def test_the_game_is_full_when_humans_and_dummies_cover_every_seat(client: TestC
     assert any("has joined game" in m for m in probe.messages())
 
 
+def test_a_vacated_seat_made_a_dummy_is_not_counted_twice(client: TestClient) -> None:
+    """FRANCE quits and the creator hands it to civil disorder: FRANCE is one
+    seat, not a row *and* a dummy. Counting both announced the game full (and
+    armed its schedule) while TURKEY still had nobody."""
+    creator = _register_and_login(client, "dmy")
+    game_id = _create(client, creator, ["AUSTRIA", "GERMANY", "ITALY"])
+    a, b, c, d = (_telegram_user(client, n) for n in ("a", "b", "c", "d"))
+    assert client.post(f"/games/{game_id}/join", json=_as(a, power="ENGLAND")).status_code == 200
+    assert client.post(f"/games/{game_id}/join", json=_as(b, power="FRANCE")).status_code == 200
+    assert client.post(f"/games/{game_id}/quit", json=_as(b, power="FRANCE")).status_code == 200
+    made = client.post(f"/games/{game_id}/dummies", json={"power": "FRANCE", "dummy": True}, headers=creator)
+    assert made.status_code == 200, made.text
+
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/join", json=_as(c, power="RUSSIA")).status_code == 200
+    assert not any("is now full" in m for m in probe.messages())
+    listed = next(g for g in client.get("/games").json()["games"] if str(g["game_id"]) == str(game_id))
+    assert (listed["player_count"], listed["max_players"]) == (2, 3)  # ENGLAND, RUSSIA; TURKEY open
+
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/join", json=_as(d, power="TURKEY")).status_code == 200
+    assert any("is now full" in m for m in probe.messages())
+
+
 def test_dummies_play_by_civil_disorder_through_a_real_turn(client: TestClient) -> None:
     game_id = _create(client, _register_and_login(client, "dmy"), ["TURKEY"])
     before = sorted(u["location"] for u in client.get(f"/games/{game_id}/state").json()["units_by_power"]["TURKEY"])

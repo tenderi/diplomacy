@@ -16,6 +16,7 @@ from dataclasses import replace
 from typing import Any, Optional
 
 from persistence.game_repo import PhaseInputsChangedError, StaleGameError
+from engine.adjudicator.retreats import compute_retreat_options
 from engine.map_loader import MapData, load_standard_map
 from engine.game import Game, powers_on_board
 from engine.orders.parser import OrderParseError, format_order, parse_order
@@ -632,11 +633,20 @@ class GameService:
             if unit.province in occupied:
                 raise ValueError(f"two units in {unit.province}")
             occupied.add(unit.province)
+        dislodged_at: set[str] = set()
         for du in state.dislodged:
             check_unit(du.unit, "dislodged unit")
+            if du.province in dislodged_at:
+                raise ValueError(f"two dislodged units in {du.province}")
+            dislodged_at.add(du.province)
+            if du.attacker_origin is not None and du.attacker_origin not in provinces:
+                raise ValueError(f"dislodged unit {du.unit}: unknown attacker origin {du.attacker_origin!r}")
+            # The retreat phase trusts ``retreats`` as the legal set, so a
+            # hand-made one could send an army to sea or onto another unit.
+            legal = compute_retreat_options(self._map, du.unit, du.attacker_origin, occupied, state.contested)
             for loc in du.retreats:
-                if loc.province not in provinces:
-                    raise ValueError(f"dislodged unit {du.unit}: unknown retreat {loc}")
+                if loc not in legal:
+                    raise ValueError(f"dislodged unit {du.unit}: {loc} is not a legal retreat")
         for province, owner in state.ownership.items():
             if province not in self._map.supply_centers or owner not in powers:
                 raise ValueError(f"ownership {province}: {owner} is not a centre and a power")
@@ -712,7 +722,6 @@ class GameService:
         meta = self._repo.get_meta(game_id) or {}
         state = state_from_dict(sj)
         players = self._repo.players(game_id)
-        pending = self._repo.get_pending_orders(game_id)
 
         return {
             "game_id": str(game_id),
@@ -725,8 +734,20 @@ class GameService:
             "private": bool(meta.get("private")),
             # Who may end a turn early (clients show "Process turn" only to them).
             "created_by_user_id": meta.get("created_by_user_id"),
-            "orders": self._humanize_orders(pending, state),
         }
+
+    def pending_orders_view(self, game_id: str) -> Optional[dict[str, list[str]]]:
+        """Every power's pending orders for the current phase, truthfully re-lettered
+        (``_humanize_orders``), or ``None`` for an unknown game.
+
+        **Secret until the turn is processed**, so deliberately not part of
+        ``view()``, which public routes return as is: a caller hands a player
+        only their own power's list.
+        """
+        sj = self._repo.get_state_json(game_id)
+        if sj is None:
+            return None
+        return self._humanize_orders(self._repo.get_pending_orders(game_id), state_from_dict(sj))
 
     def _humanize_orders(
         self, pending: dict[str, list[str]], state: GameState

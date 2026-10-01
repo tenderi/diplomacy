@@ -131,8 +131,8 @@ def get_orders(
     (Telegram bot; GET has no body to carry them in) — same fallback pattern as
     ``GET /games/{game_id}/messages``.
     """
-    view = game_service.view(game_id)
-    if view is None:
+    pending = game_service.pending_orders_view(game_id)
+    if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
     if user is None and telegram_id and is_bot_secret(bot_secret):
@@ -145,7 +145,7 @@ def get_orders(
     power = player.power_name
     return [
         {"player_id": player.id, "power": power, "order": o}
-        for o in view["orders"].get(power, [])
+        for o in pending.get(power, [])
     ]
 
 
@@ -174,8 +174,8 @@ def get_orders_for_power(
     (Telegram bot; GET has no body to carry them in) — same fallback pattern as
     ``GET /games/{game_id}/messages``.
     """
-    view = game_service.view(game_id)
-    if view is None:
+    pending = game_service.pending_orders_view(game_id)
+    if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
     if user is None and telegram_id and is_bot_secret(bot_secret):
@@ -186,7 +186,7 @@ def get_orders_for_power(
     holder = getattr(player, "user_id", None)
     if user is None or holder is None or int(holder) != int(user.id):
         raise HTTPException(status_code=403, detail="You are not authorized to view orders for this power.")
-    return {"power": power, "orders": view["orders"].get(power.upper(), [])}
+    return {"power": power, "orders": pending.get(power.upper(), [])}
 
 
 class ClearOrdersRequest(BaseModel):

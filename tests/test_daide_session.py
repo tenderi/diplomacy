@@ -289,7 +289,7 @@ class TestSub:
         )
         frames = await _dispatch(session, writer, t.SUB, *move)
         assert t.MBV in frames[0]
-        assert service.view(gid)["orders"]["RUSSIA"] == ["F BLA - BUL/EC"]
+        assert service.pending_orders_view(gid)["RUSSIA"] == ["F BLA - BUL/EC"]
 
     async def test_not_sub_clears_pending_orders(self, service: GameService) -> None:
         session, writer, _server, gid = _identified_session(service)
@@ -372,7 +372,7 @@ class TestGameOver:
         clause = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.HLD)
         frames = await _dispatch(session, writer, t.SUB, *clause)
         assert frames == [[t.REJ, t.OPEN_PAREN, t.SUB, *clause, t.CLOSE_PAREN]]
-        assert service.view(gid)["orders"] == {}
+        assert service.pending_orders_view(gid) == {}
 
     async def test_drw_and_not_drw_after_game_over_are_rejected(self, service: GameService) -> None:
         session, writer, _gid = await self._drawn_game(service)

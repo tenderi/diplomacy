@@ -19,9 +19,14 @@ _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TU
 
 
 def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
-    """Build the channel-posting game_state dict from the new engine's view."""
+    """Build the channel-posting game_state dict from the new engine's view.
+
+    It goes to a group, so it says only *whether* each power has submitted
+    (as ``/orders_status`` does), never the orders themselves.
+    """
     v = game_service.view(game_id)
-    if v is None:
+    pending = game_service.pending_orders_view(game_id)
+    if v is None or pending is None:
         return None
     sc_by_power: Dict[str, list] = {p: [] for p in _ALL_POWERS}
     for prov, owner in v["ownership"].items():
@@ -41,12 +46,11 @@ def _legacy_state_dict(game_id: str) -> Optional[Dict[str, Any]]:
         "phase_code": v["phase"],
         "supply_centers": sc_by_power,
         "units": units_by_power,
-        "orders": {p: v["orders"].get(p, []) for p in _ALL_POWERS},
         "powers": {
             p: {
                 "is_eliminated": not units_by_power.get(p) and not sc_by_power.get(p),
                 "controlled_supply_centers": sc_by_power.get(p, []),
-                "orders_submitted": bool(v["orders"].get(p)),
+                "orders_submitted": bool(pending.get(p)),
                 "last_order_time": None,
                 "is_active": True,
             }

@@ -488,9 +488,15 @@ def format_scheduled_deadline(
 
 
 def seats_filled(game_id: str, numeric_game_id: int) -> bool:
-    """Whether every seat is taken (by a player row or a dummy): the game has started."""
-    seated = len(db_service.get_players_by_game_id(numeric_game_id))
-    return seated + len(game_service.dummy_powers(game_id)) >= 7
+    """Whether every power has a seat row or is a dummy: the game has started.
+
+    Counted as a set of powers, not rows plus dummies: a seat its player quit
+    keeps its row, and the creator may then make that power a dummy, so adding
+    the two counts saw one power twice and declared a game with an empty seat
+    "full". A vacated row still counts -- the game started when it was taken.
+    """
+    seated = {str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id)}
+    return len(seated | set(game_service.dummy_powers(game_id))) >= 7
 
 
 def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:
