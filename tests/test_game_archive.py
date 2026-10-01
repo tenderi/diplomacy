@@ -99,10 +99,42 @@ def test_people_without_an_account_here_are_reported_not_invented(client: TestCl
     doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
     for p in doc["players"]:
         p["telegram_id"] = "no-such-account-" + p["power"]
+    for m in doc["messages"]:
+        m["sender_telegram_id"] = "no-such-account-sender"
     report = client.post("/games/import", json=doc, headers=ADMIN).json()
     assert (report["players_linked"], report["players_unlinked"]) == (0, 2)
     # With nobody seated, the message has no sender to attribute it to.
     assert (report["messages_restored"], report["messages_skipped"]) == (0, 1)
+
+
+def test_a_message_from_a_player_who_quit_survives_the_round_trip(
+    client: TestClient, played_game: tuple[str, str, str]
+) -> None:
+    """The sender is named by their own Telegram id, not by the seat they held:
+    FRANCE quit, so no seat names them, and the export used to carry no sender
+    at all -- the import then dropped the message."""
+    game_id, fr, _ = played_game
+    assert client.post(f"/games/{game_id}/quit", json=_as(fr, power="FRANCE")).status_code == 200
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    assert [(m["sender_power"], m["sender_telegram_id"]) for m in doc["messages"]] == [(None, fr)]
+
+    report = client.post("/games/import", json=doc, headers=ADMIN).json()
+    assert (report["messages_restored"], report["messages_skipped"]) == (1, 0)
+    again = client.get(f"/games/{report['game_id']}/export", headers=ADMIN).json()
+    assert [(m["sender_telegram_id"], m["text"]) for m in again["messages"]] == [(fr, "Belgium is yours")]
+
+
+def test_an_export_without_sender_ids_still_resolves_senders_by_power(
+    client: TestClient, played_game: tuple[str, str, str]
+) -> None:
+    """Documents exported before ``sender_telegram_id`` existed name the sender
+    only by power."""
+    game_id, _, _ = played_game
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    for m in doc["messages"]:
+        del m["sender_telegram_id"]
+    report = client.post("/games/import", json=doc, headers=ADMIN).json()
+    assert (report["messages_restored"], report["messages_skipped"]) == (1, 0)
 
 
 def test_a_bare_board_is_enough_to_set_up_a_position(client: TestClient) -> None:
