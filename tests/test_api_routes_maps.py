@@ -171,38 +171,49 @@ class TestGetGameOrdersMapPng:
         assert resp.status_code == 404
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_orders_map_is_refused_to_anyone_not_seated(self, client):
+        """Pending orders are secret until the turn is processed: no caller
+        (403), and a signed-in user who holds no power here (403)."""
+        headers = _register_and_login(client, "ordersmap_out")
+        game_id = _create_game(client, headers)
+        assert client.get(f"/games/{game_id}/map/orders").status_code == 403
+        resp = client.get(f"/games/{game_id}/map/orders", headers=headers)
+        assert resp.status_code == 403, resp.text
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_orders_map_returns_real_png_with_no_orders_submitted(self, client):
-        """Renders a plain board when no orders have been submitted yet, same
-        as the POST variant."""
+        """Renders a plain board for a seated player who has no orders in yet."""
         headers = _register_and_login(client, "ordersmap")
         game_id = _create_game(client, headers)
-        resp = client.get(f"/games/{game_id}/map/orders")
-        assert resp.status_code == 200
+        join = client.post(f"/games/{game_id}/join", json={"power": "FRANCE"}, headers=headers)
+        assert join.status_code == 200, join.text
+        resp = client.get(f"/games/{game_id}/map/orders", headers=headers)
+        assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"] == "image/png"
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
-    def test_orders_map_returns_real_png_with_pending_orders(self, client):
-        """With a pending order submitted, the endpoint still renders bytes
-        (the arrow-overlay path, not the plain-board fallback)."""
-        headers = _register_and_login(client, "ordersmap2")
-        game_id = _create_game(client, headers)
-        join = client.post(
-            f"/games/{game_id}/join",
-            json={"game_id": int(game_id), "power": "FRANCE"},
-            headers=headers,
-        )
-        assert join.status_code == 200, join.text
-        set_resp = client.post(
-            "/games/set_orders",
-            json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"]},
-            headers=headers,
-        )
-        assert set_resp.status_code == 200, set_resp.text
+    def test_orders_map_draws_only_the_callers_own_orders(self, client):
+        """France and Germany both have orders in; France's map shows France's
+        arrows and none of Germany's."""
+        france = _register_and_login(client, "ordersmap_fr")
+        germany = _register_and_login(client, "ordersmap_de")
+        game_id = _create_game(client, france)
+        for headers, power, order in ((france, "FRANCE", "A PAR - BUR"), (germany, "GERMANY", "A MUN - RUH")):
+            join = client.post(f"/games/{game_id}/join", json={"power": power}, headers=headers)
+            assert join.status_code == 200, join.text
+            ordered = client.post(
+                "/games/set_orders", json={"game_id": game_id, "power": power, "orders": [order]}, headers=headers
+            )
+            assert ordered.status_code == 200, ordered.text
 
-        resp = client.get(f"/games/{game_id}/map/orders")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/png"
+        with patch("server.api.routes.maps.Map.render_board_png_orders", return_value=b"png") as render:
+            resp = client.get(f"/games/{game_id}/map/orders", headers=france)
+        assert resp.status_code == 200, resp.text
+        order_viz = render.call_args[0][2]
+        assert set(order_viz) == {"FRANCE"}, order_viz
+
+        resp = client.get(f"/games/{game_id}/map/orders", headers=france)
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 

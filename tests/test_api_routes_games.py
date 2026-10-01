@@ -9,11 +9,13 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service, server
 from tests.conftest import _get_db_url
 
 BOT_SECRET = "test_bot_secret_for_tests"
+
+ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
 
 
 @pytest.fixture
@@ -52,11 +54,22 @@ class TestAddPlayer:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
-        resp = client.post("/games/add_player", json={"game_id": game_id, "power": "france"})
+        resp = client.post("/games/add_player", json={"game_id": game_id, "power": "france"}, headers=ADMIN)
         assert resp.status_code == 200, resp.text
         assert [p["power"] for p in client.get(f"/games/{game_id}/players").json()] == ["FRANCE"]
-        assert client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}).status_code == 400
-        assert client.post("/games/add_player", json={"game_id": game_id, "power": "ATLANTIS"}).status_code == 400
+        assert client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN).status_code == 400
+        assert client.post("/games/add_player", json={"game_id": game_id, "power": "ATLANTIS"}, headers=ADMIN).status_code == 400
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_add_player_is_admin_only(self, client):
+        """A login is not enough: an empty seat row skips the join password and
+        the group rule, and stops the game from ever announcing its start."""
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        assert client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}).status_code == 422
+        wrong = client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"},
+                            headers={"X-Admin-Token": "not-the-token"})
+        assert wrong.status_code == 403
+        assert client.get(f"/games/{game_id}/players").json() == []
 
 
 @pytest.mark.unit
@@ -75,7 +88,7 @@ class TestGetGameState:
         assert (data["year"], data["season"], data["phase_type"]) == (1901, "SPRING", "MOVEMENT")
         assert data["ownership"]["PAR"] == "FRANCE" and data["ownership"]["STP"] == "RUSSIA"
         assert len(data["ownership"]) == 22  # home centres only; the 12 neutrals are unowned
-        assert data["orders"] == {}
+        assert "orders" not in data  # pending orders are secret; see test_cache_coherence
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_state_not_found(self, client):
@@ -92,12 +105,13 @@ class TestListGames:
     def test_list_games_success(self, client):
         """Test successful game listing."""
         game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
         resp = client.get("/games")
         assert resp.status_code == 200
         listed = [g for g in resp.json()["games"] if str(g["game_id"]) == str(game_id)]
         assert len(listed) == 1
-        assert (listed[0]["player_count"], listed[0]["max_players"], listed[0]["private"]) == (1, 7, False)
+        # An empty seat row is not a player: only seats a person holds count.
+        assert (listed[0]["player_count"], listed[0]["max_players"], listed[0]["private"]) == (0, 7, False)
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_a_listed_game_shows_its_real_phase(self, client):
@@ -119,7 +133,7 @@ class TestGetPlayers:
         """Test successful player listing."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
         resp = client.get(f"/games/{game_id}/players")
         assert resp.status_code == 200
         assert [(p["power"], p["user_id"], p["is_active"]) for p in resp.json()] == [("FRANCE", None, True)]
@@ -442,7 +456,7 @@ class TestLegalOrders:
         """Per-unit route returns real, non-empty content for an army at Paris."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A PAR")
         assert resp.status_code == 200
         data = resp.json()
@@ -456,7 +470,7 @@ class TestLegalOrders:
         """New power-level route: phase-aware dict with units/orders_by_unit/orders."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE")
         assert resp.status_code == 200
         data = resp.json()
@@ -482,7 +496,7 @@ class TestLegalOrders:
         """
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "FRANCE"}, headers=ADMIN)
         # No unit for FRANCE at Munich (that's a German home center).
         resp = client.get(f"/games/{game_id}/legal_orders/FRANCE/A MUN")
         assert resp.status_code == 200
@@ -493,7 +507,7 @@ class TestLegalOrders:
         """A bare 'F STP' finds a unit actually standing on 'STP/SC'."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
-        client.post("/games/add_player", json={"game_id": game_id, "power": "RUSSIA"})
+        client.post("/games/add_player", json={"game_id": game_id, "power": "RUSSIA"}, headers=ADMIN)
         resp = client.get(f"/games/{game_id}/legal_orders/RUSSIA/F STP")
         assert resp.status_code == 200
         data = resp.json()

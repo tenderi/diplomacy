@@ -82,7 +82,8 @@ player composed them). One older than the game's `phase_started_at` is refused w
 
 ### Maps
 
-PNGs: `/games/{id}/map` (the board), `/map/orders` (with pending orders),
+PNGs: `/games/{id}/map` (the board), `/map/orders` (the caller's own pending orders; players
+in the game only),
 `/map/resolution` (the last turn's results), `/map/history/{turn}` (the board when turn
 *turn* began), `/map/turn/{turn}/orders` (turn *turn*'s orders on that board, coloured by
 result), `/maps/{map}/preview.png`. `GET /maps/{map}/provinces` gives full names, types and

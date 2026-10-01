@@ -77,9 +77,10 @@ class TestLifecycle:
         results = service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "A PAR - MOS"])
         assert results[0]["ok"] is True  # PAR adjacent to BUR
         assert results[1]["ok"] is False  # PAR not adjacent to MOS
-        v = service.view(gid)
-        assert "FRANCE" in v["orders"]
-        assert v["orders"]["FRANCE"] == ["A PAR - BUR"]  # only the legal one stored
+        pending = service.pending_orders_view(gid)
+        assert pending == {"FRANCE": ["A PAR - BUR"]}  # only the legal one stored
+        # Pending orders are secret: the public view never carries them.
+        assert "orders" not in service.view(gid)
 
     def test_process_turn_advances_phase(self, service):
         gid = _new_game(service)
@@ -88,7 +89,7 @@ class TestLifecycle:
         assert out["phase"] == "F1901M"  # all-hold-ish spring -> fall movement
         v = service.view(gid)
         assert v["phase"] == "F1901M"
-        assert v["orders"] == {}  # pending cleared
+        assert service.pending_orders_view(gid) == {}  # pending cleared
         # France's Paris army advanced to Burgundy.
         provinces = {u["location"] for u in v["units"] if u["power"] == "FRANCE"}
         assert "BUR" in provinces and "PAR" not in provinces
@@ -141,14 +142,12 @@ class TestOrderDisplay:
         # France's fleet sits at BRE, a non-split-coast province. Stored via
         # format_order it would read "A BRE H"; the view must correct it to "F".
         service.submit_orders(gid, "FRANCE", ["F BRE H"])
-        v = service.view(gid)
-        assert v["orders"]["FRANCE"] == ["F BRE H"]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["F BRE H"]
 
     def test_army_order_still_displays_as_army(self, service):
         gid = _new_game(service)
         service.submit_orders(gid, "FRANCE", ["A PAR - BUR"])
-        v = service.view(gid)
-        assert v["orders"]["FRANCE"] == ["A PAR - BUR"]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["A PAR - BUR"]
 
 
 class TestOrderHistory:
@@ -545,8 +544,7 @@ class TestDrawVoteAndConcede:
 
         service.concede(gid, "GERMANY")
 
-        view = service.view(gid)
-        assert view["orders"].get("GERMANY", []) == []
+        assert service.pending_orders_view(gid).get("GERMANY", []) == []
         assert service.get_draw_votes(gid)["votes"] == []
 
 
@@ -593,7 +591,7 @@ class TestPhaseAwareOrders:
         assert [r["ok"] for r in results] == [False, False]
         assert "movement phase (S1901M)" in results[0]["reason"]
         assert "movement phase (S1901M)" in results[1]["reason"]
-        assert service.view(gid)["orders"].get("FRANCE", []) == []
+        assert service.pending_orders_view(gid).get("FRANCE", []) == []
 
     def test_move_typed_during_retreat_is_refused_with_the_phase(self, service):
         gid = self._to_retreat_phase(service)
@@ -668,7 +666,7 @@ class TestGameOverGuard:
         assert view["status"] == "COMPLETED"
         assert view["winners"] == ["FRANCE", "GERMANY"]
         assert len(view["units"]) == 2
-        assert view["orders"] == {}
+        assert service.pending_orders_view(gid) == {}
 
     def test_game_over_error_is_not_an_order_error(self, service):
         # Routes map OrderError to 404 "not found"; a finished game is found.
@@ -716,7 +714,7 @@ class TestSplitCoastOrdersSurviveStorage:
     def test_fleet_move_from_the_sea_into_a_named_coast(self, service):
         gid = self._board(service, PhaseType.MOVEMENT)
         assert service.submit_orders(gid, "FRANCE", ["F MAO - SPA/NC"])[0]["ok"] is True
-        assert service.view(gid)["orders"]["FRANCE"] == ["F MAO - SPA/NC"]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["F MAO - SPA/NC"]
         results = service.process_turn(gid)["resolution"]["results"]
         french = next(r for r in results if r["order"]["power"] == "FRANCE")
         assert (french["result"], french["order_str"]) == ("OK", "F MAO - SPA/NC")
@@ -751,7 +749,7 @@ class TestMergedAdjustmentOrders:
         service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
         service.submit_orders(gid, "FRANCE", ["WAIVE"], merge=True)
         service.submit_orders(gid, "FRANCE", ["BUILD A PAR"], merge=True)
-        assert service.view(gid)["orders"]["FRANCE"] == ["BUILD A PAR"]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["BUILD A PAR"]
         results = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in results] == [("BUILD A PAR", "BUILD")]
 
@@ -768,7 +766,7 @@ class TestTwoOrdersForOneUnitInOneSubmission:
             {"order": "A PAR - BUR", "ok": False, "reason": "replaced by a later order for PAR in the same submission"},
             {"order": "A PAR H", "ok": True, "reason": None},
         ]
-        assert service.view(gid)["orders"]["FRANCE"] == ["A PAR H"]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["A PAR H"]
 
     def test_the_later_build_stands(self, service):
         gid = _new_game(service)
