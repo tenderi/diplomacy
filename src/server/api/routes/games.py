@@ -11,6 +11,7 @@ from datetime import datetime
 
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
+from .admin import require_admin
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
@@ -257,7 +258,7 @@ def create_game(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     """Create a new game. The new engine starts it immediately at S1901M with every
-    power's opening units; players then claim powers via add_player/join.
+    power's opening units; players then claim powers via join.
 
     **Authentication is required, deliberately** (G6 decision, recorded
     2026-07-30). An unauthenticated game-creation endpoint is an obvious spam
@@ -443,12 +444,15 @@ def set_dummy_power(
     return {"status": "ok", "dummy_powers": dummies}
 
 
-@router.post("/games/add_player")
-def add_player(
-    req: AddPlayerRequest,
-    _: None = Depends(require_bot_or_user),
-) -> Dict[str, Any]:
-    """Assign a power in a game to a player (power->user, in the players table)."""
+@router.post("/games/add_player", dependencies=[Depends(require_admin)])
+def add_player(req: AddPlayerRequest) -> Dict[str, Any]:
+    """Create an empty seat row for ``power`` (no user). **Admin only.**
+
+    No client uses it; players take seats with ``/join``. It used to need only a
+    login, which let anyone add empty seat rows to any game -- past its join
+    password and group rule -- so that every later join claimed a "vacated" seat
+    and the game never announced its start or armed its deadline schedule.
+    """
     row = db_service.get_game_by_game_id(str(req.game_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -809,7 +813,9 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
                 "current_phase": g.current_phase,
                 "phase_code": g.phase_code,
                 "status": g.status,
-                "player_count": len(players),
+                # Seats a person holds now: a seat its player quit keeps its row
+                # (with no user) until someone takes it over.
+                "player_count": sum(1 for p in players if p.user_id is not None),
                 # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
                 "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
                 "dummy_powers": sorted(g.dummy_powers or []),
@@ -901,16 +907,11 @@ def get_spectators(game_id: str) -> Dict[str, Any]:
 @router.get("/games/{game_id}/observer_state")
 @cached_response(ttl=30, key_params=["game_id"])
 def get_observer_state(game_id: str) -> Dict[str, Any]:
-    """
-    Get game state for observers: same as /state but with orders hidden
-    (pending orders, retreats, builds, destroys, order_history, adjudication_results).
-    """
+    """Game state for observers: the same as ``/state``, which no longer carries
+    anyone's pending orders. Kept for backward compatibility."""
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    # Observers see the board but not submitted orders.
-    view = dict(view)
-    view["orders"] = {}
     return view
 
 

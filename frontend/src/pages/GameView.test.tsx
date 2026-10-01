@@ -472,6 +472,12 @@ function stubFetchActive(
       return jsonResponse({
         phase: 'S1901M', game_status: 'ACTIVE', required: [], votes: [], missing: [], quorum_reached: false,
       })
+    if (url.includes('/map/orders'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        blob: () => Promise.resolve(new Blob(['png'], { type: 'image/png' })),
+      } as Response)
     if (url.includes('/legal_orders/'))
       return jsonResponse(opts.legalOrders ?? { orders: [], orders_by_unit: {} })
     if (url.includes('/state')) return jsonResponse(state)
@@ -1012,8 +1018,12 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).getByText(/PIC, GAS/)).toBeInTheDocument()
   })
 
-  it('lets the viewer switch the board image between board / pending orders / last resolution', async () => {
-    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+  it('lets the viewer switch the board image between board / own pending orders / last resolution', async () => {
+    const fetchMock = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal('fetch', fetchMock)
+    // jsdom has no object URLs; the orders map is shown from one.
+    URL.createObjectURL = vi.fn(() => 'blob:orders-map')
+    URL.revokeObjectURL = vi.fn()
 
     const { container } = render(
       <MemoryRouter initialEntries={['/games/10']}>
@@ -1034,12 +1044,15 @@ describe('GameView — results panel (E4)', () => {
     expect(img.src).not.toContain('/map/orders')
     expect(img.src).not.toContain('/map/resolution')
 
-    fireEvent.click(within(container).getByRole('button', { name: 'Pending orders' }))
+    // Pending orders are secret: the image is fetched with credentials (a bare
+    // <img src> sends none) and shown from a blob URL.
+    fireEvent.click(within(container).getByRole('button', { name: 'My pending orders' }))
     await waitFor(() => {
-      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toContain(
-        '/games/10/map/orders?'
+      expect((container.querySelector('[data-testid="map-inline"]') as HTMLImageElement).src).toBe(
+        'blob:orders-map'
       )
     })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/games/10/map/orders'))).toBe(true)
 
     fireEvent.click(within(container).getByRole('button', { name: 'Last resolution' }))
     await waitFor(() => {
@@ -1047,6 +1060,27 @@ describe('GameView — results panel (E4)', () => {
         '/games/10/map/resolution?'
       )
     })
+  })
+
+  it('offers the pending-orders map only to a player seated in the game', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, [
+      { power: 'ENGLAND', user_id: 99, is_active: true, full_name: 'Someone else' },
+    ]))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByRole('button', { name: 'Last resolution' })).toBeInTheDocument()
+    })
+    expect(within(container).queryByRole('button', { name: 'My pending orders' })).toBeNull()
   })
 
   // Track I1: the map is downscaled to ~47% in this max-w-4xl column, so it must be

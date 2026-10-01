@@ -218,7 +218,27 @@ def _with(**changes: Any) -> dict[str, Any]:
         ),
         (
             _with(phase_type="RETREAT", dislodged=[{"unit": _unit("A", "GERMANY", "MUN"), "retreats": ["XXX"]}]),
-            "dislodged unit A MUN: unknown retreat XXX",
+            "dislodged unit A MUN: XXX is not a legal retreat",
+        ),
+        # The retreat phase trusts ``retreats``: an army sent to sea, or onto a
+        # unit (which the retreat silently replaced), must not get that far.
+        (
+            _with(phase_type="RETREAT", dislodged=[{"unit": _unit("A", "GERMANY", "MUN"), "retreats": ["NTH"]}]),
+            "dislodged unit A MUN: NTH is not a legal retreat",
+        ),
+        (
+            _with(phase_type="RETREAT", dislodged=[{"unit": _unit("A", "GERMANY", "MUN"), "retreats": ["RUH"]}]),
+            "dislodged unit A MUN: RUH is not a legal retreat",
+        ),
+        (
+            _with(
+                phase_type="RETREAT",
+                dislodged=[
+                    {"unit": _unit("A", "GERMANY", "MUN"), "retreats": ["BOH"]},
+                    {"unit": _unit("A", "AUSTRIA", "MUN"), "retreats": []},
+                ],
+            ),
+            "two dislodged units in MUN",
         ),
     ],
 )

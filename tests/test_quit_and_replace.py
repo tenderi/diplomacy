@@ -96,7 +96,10 @@ class TestQuit:
         r = client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"]))
         assert r.status_code == 200
         client.post(f"/games/{game_id}/quit", json=_as(a))
-        assert client.get(f"/games/{game_id}/state").json()["orders"] == {"FRANCE": ["A PAR - BUR"]}
+        b = _telegram_user(client, "inheritor")
+        assert client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE")).status_code == 200
+        inherited = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": b, "bot_secret": BOT_SECRET})
+        assert inherited.json()["orders"] == ["A PAR - BUR"]
 
 
 class TestFillingAVacatedSeat:

@@ -97,7 +97,7 @@ class Server:
                         ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id}
                     )
                 # One order per SET_ORDERS call, appended to the power's pending set.
-                existing = self._svc.view(game_id)["orders"].get(power_name, [])
+                existing = (self._svc.pending_orders_view(game_id) or {}).get(power_name, [])
                 results = self._svc.submit_orders(game_id, power_name, existing + [order_str])
                 rejected = [r for r in results if not r["ok"]]
                 if rejected:
@@ -126,7 +126,9 @@ class Server:
                     return ServerError.create_error_response(
                         ErrorCode.GAME_NOT_FOUND, f"Game {game_id} not found", {"game_id": game_id}
                     )
-                return {"status": "ok", "state": view}
+                # A local, trusted surface (tests): unlike the public HTTP view it
+                # carries every power's pending orders.
+                return {"status": "ok", "state": {**view, "orders": self._svc.pending_orders_view(game_id) or {}}}
 
             return ServerError.unknown_command(cmd)
         except Exception as e:

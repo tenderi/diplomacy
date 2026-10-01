@@ -38,7 +38,7 @@ def _send(client: TestClient, game_id: str, tg: str, orders: list[str], merge: b
 
 
 def _pending(game_id: str) -> list[str]:
-    return sorted(game_service.view(game_id)["orders"]["GERMANY"])
+    return sorted(game_service.pending_orders_view(game_id)["GERMANY"])
 
 
 def test_one_at_a_time_adds_up(client: TestClient) -> None:
