@@ -18,7 +18,9 @@ Five things talk to one Postgres database: the FastAPI HTTP server, the Telegram
 thin HTTP client, never touches the engine or DB directly), the React SPA, DAIDE TCP
 clients (a real `asyncio` listener, `src/server/daide/`, started alongside the API
 process — see "DAIDE protocol support" below), and the deadline scheduler background task
-inside the API process.
+inside the API process. The scheduler's loop sleeps on the event loop but does each 30-second
+tick's work (processing due turns, reminders, proposal expiry, housekeeping) on a worker
+thread (`asyncio.to_thread`), so processing a turn never stalls the API or DAIDE clients.
 
 ## Package boundaries
 

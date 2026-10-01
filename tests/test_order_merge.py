@@ -85,3 +85,20 @@ def test_auto_processing_waits_for_every_unit_not_the_first_order(client: TestCl
     client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["A MAR H"], merge=True))
     last = client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["F BRE H"], merge=True)).json()
     assert last["auto_processed"] == 1
+
+
+def test_an_unreadable_stored_order_does_not_break_the_next_submission(client: TestClient) -> None:
+    """A stored string that no longer parses (written under older grammar rules)
+    is skipped at adjudication. Every other reader skipped it too, except the
+    merge and the "has everyone ordered?" check, which raised -- a 500 on every
+    later submission in the game, and on its ``/orders_status``."""
+    game_id, tg = _germany(client)
+    game_service.set_auto_process(game_id, True)
+    game_service._repo.modify_pending_orders(game_id, lambda pending: {**pending, "GERMANY": ["A BER FLY TO MOON"]})
+
+    _send(client, game_id, tg, ["A MUN - RUH"], merge=True)
+
+    assert _pending(game_id) == ["A BER FLY TO MOON", "A MUN - RUH"]
+    status = client.get(f"/games/{game_id}/orders_status")
+    assert status.status_code == 200, status.text
+    assert "GERMANY" in status.json()["incomplete"]  # the unreadable one orders nothing
