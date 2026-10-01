@@ -12,9 +12,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials
 
-from ..shared import db_service, game_service
-from .auth import require_bot_or_user
+from ..shared import db_service, game_service, is_bot_secret
+from .auth import get_current_user_optional, http_bearer, require_bot_or_user, require_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
 from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
@@ -153,9 +154,46 @@ def get_game_map_png(game_id: str) -> Response:
     return Response(content=img_bytes, media_type="image/png")
 
 
+def _own_pending_orders(
+    game_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials],
+    telegram_id: Optional[str],
+    bot_secret: Optional[str],
+) -> Dict[str, Any]:
+    """The caller's own power's pending orders, parsed (``{power: [Order]}``).
+
+    Pending orders are secret until the turn is processed, so an orders map
+    shows only the caller's: a Bearer user, or the bot passing ``telegram_id``
+    and ``bot_secret`` as query parameters (GET has no body), seated in the
+    game. Anyone else gets 403.
+    """
+    user = get_current_user_optional(credentials)
+    if user is None and telegram_id and is_bot_secret(bot_secret):
+        user = db_service.get_user_by_telegram_id(telegram_id)
+    row = db_service.get_game_by_game_id(game_id)
+    player = (
+        db_service.get_player_by_game_id_and_user_id(game_id=int(row.id), user_id=int(user.id))
+        if user is not None and row is not None
+        else None
+    )
+    if player is None:
+        raise HTTPException(
+            status_code=403, detail="Only a player in this game can see their pending orders on the map."
+        )
+    power = str(player.power_name)
+    pending = game_service.pending_orders_parsed(game_id).get(power)
+    return {power: pending} if pending else {}
+
+
 @router.get("/games/{game_id}/map/orders", response_class=Response)
-def get_game_orders_map_png(game_id: str) -> Response:
-    """Stream the orders-overlay PNG (board + arrows for pending orders) as bytes.
+def get_game_orders_map_png(
+    game_id: str,
+    telegram_id: Optional[str] = None,
+    bot_secret: Optional[str] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+) -> Response:
+    """Stream the orders-overlay PNG (board + arrows for the caller's own pending
+    orders) as bytes. Players in the game only -- see ``_own_pending_orders``.
 
     Mirrors ``GET /games/{game_id}/map`` -- same view lookup, same rendering
     inputs, same disk-backed ``Map.render_board_png*``-internal cache instead of
@@ -171,7 +209,7 @@ def get_game_orders_map_png(game_id: str) -> Response:
         raise HTTPException(status_code=404, detail="Game not found")
     svg_path = svg_path_for_map_name(view["map_name"])
     order_viz = orders_by_power_to_viz(
-        game_service.pending_orders_parsed(game_id), _kind_by_province(view)
+        _own_pending_orders(game_id, credentials, telegram_id, bot_secret), _kind_by_province(view)
     )
     try:
         img_bytes = Map.render_board_png_orders(
@@ -382,10 +420,11 @@ def generate_map_for_snapshot(game_id: str, _: None = Depends(require_bot_or_use
 
 
 @router.post("/games/{game_id}/generate_map/orders")
-def generate_orders_map(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
-    """Generate an orders map: the board plus arrows for the current pending orders.
+def generate_orders_map(game_id: str, _: None = Depends(require_bot_secret)) -> Dict[str, Any]:
+    """Generate an orders map: the board plus arrows for every power's pending orders.
 
-    Renders a plain board when no orders have been submitted yet.
+    Renders a plain board when no orders have been submitted yet. Bot secret
+    only: the picture shows orders that are secret until the turn is processed.
     """
     view = game_service.view(game_id)
     if view is None:

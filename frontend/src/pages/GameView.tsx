@@ -120,7 +120,7 @@ type MapMode = 'board' | 'orders' | 'resolution'
  * dialog announces the same words the player clicked. */
 const MAP_MODE_LABELS: Record<MapMode, string> = {
   board: 'Board',
-  orders: 'Pending orders',
+  orders: 'My pending orders',
   resolution: 'Last resolution',
 }
 /** Render a submission/order deadline as a short relative countdown. */
@@ -286,8 +286,30 @@ export default function GameView() {
 
   useEffect(() => {
     if (!gameId) return
-    const suffix = mapMode === 'board' ? '' : `/${mapMode}`
-    setMapUrl(`${API_BASE}/games/${gameId}/map${suffix}?t=${Date.now()}`)
+    if (mapMode !== 'orders') {
+      const suffix = mapMode === 'board' ? '' : `/${mapMode}`
+      setMapUrl(`${API_BASE}/games/${gameId}/map${suffix}?t=${Date.now()}`)
+      return
+    }
+    // Pending orders are secret: the server draws only the caller's own, so the
+    // image needs the Bearer token, which a plain <img src> would not send.
+    let objectUrl: string | null = null
+    let cancelled = false
+    apiFetch(`/games/${gameId}/map/orders`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setMapUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setMapMode('board')
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
   }, [gameId, state?.phase, mapMode])
 
   // A phase change means the previously chosen overlay may no longer be the most useful
@@ -822,7 +844,9 @@ export default function GameView() {
       {mapUrl && (
         <div className="mb-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {(Object.entries(MAP_MODE_LABELS) as [MapMode, string][]).map(([mode, label]) => (
+            {(Object.entries(MAP_MODE_LABELS) as [MapMode, string][])
+              .filter(([mode]) => mode !== 'orders' || myPower)
+              .map(([mode, label]) => (
               <Button
                 key={mode}
                 type="button"

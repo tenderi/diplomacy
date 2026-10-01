@@ -52,14 +52,19 @@ def test_joining_shows_in_my_games_and_the_seat_list(client: TestClient) -> None
     assert _seats(client, game_id) == {"FRANCE": tg}
 
 
-def test_submitted_and_cleared_orders_show_in_the_state(client: TestClient) -> None:
+def test_pending_orders_stay_out_of_the_public_state(client: TestClient) -> None:
+    """Pending orders are secret until the turn is processed: the cached public
+    ``/state`` never carries them, and the owner reads them from
+    ``/orders/{power}`` (uncached), which follows every write."""
     game_id, tg = _game(client)
     client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
-    assert _state(client, game_id)["orders"] == {}  # warm
+    own = {"telegram_id": tg, "bot_secret": BOT_SECRET}
+    assert "orders" not in _state(client, game_id)  # warm
     assert client.post("/games/set_orders", json=_as(tg, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"])).status_code == 200
-    assert _state(client, game_id)["orders"] == {"FRANCE": ["A PAR - BUR"]}
+    assert "orders" not in _state(client, game_id)
+    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own).json()["orders"] == ["A PAR - BUR"]
     assert client.post(f"/games/{game_id}/orders/FRANCE/clear", json=_as(tg)).status_code == 200
-    assert _state(client, game_id)["orders"] in ({}, {"FRANCE": []})
+    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own).json()["orders"] == []
 
 
 def test_a_processed_turn_shows_the_new_phase(client: TestClient) -> None:

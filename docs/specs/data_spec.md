@@ -211,17 +211,22 @@ paths) — built directly from `GameState`:
   "dummy_powers": ["TURKEY"],           // played by civil disorder; [] if none
   "auto_process": false,                // turn runs by itself once all orders are in
   "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
-  "private": false,                     // joining needs a password (never the hash)
-  "orders": { "FRANCE": ["F BRE H", "A PAR - BUR"], ... }  // pending, truthfully re-lettered
+  "private": false                      // joining needs a password (never the hash)
 }
 ```
 
-`orders` is re-derived every call via `_humanize_orders`: stored pending-order strings
-are reparsed and reformatted against the *current* board so the A/F unit letter is always
-correct (a fleet at a non-split-coast province displays `F`, not the coast-inferred
-guess `format_order` would otherwise produce — see `orders/parser.py`'s `format_order`
-docstring). This is a display-only correction; adjudication always uses the actual board
-unit, never the letter in the order string.
+**The view carries no pending orders.** It is public (`GET /games/{id}/state` needs no
+login, and game ids are sequential), and orders are secret until the turn is processed.
+A player reads their own from `GET /games/{id}/orders/{power}` (or `GET
+/games/{id}/orders`), which answer only the user holding that power; server code reads
+them from `GameService.pending_orders_view` (every power, for trusted callers only).
+Those lists are re-derived every call via `_humanize_orders`: stored pending-order
+strings are reparsed and reformatted against the *current* board so the A/F unit letter
+is always correct (a fleet at a non-split-coast province displays `F`, not the
+coast-inferred guess `format_order` would otherwise produce — see `orders/parser.py`'s
+`format_order` docstring). This is a display-only correction; adjudication always uses
+the actual board unit, never the letter in the order string. Once a turn is processed its
+orders are public: `/history/{turn}`, `/orders/history`, `/map/turn/{turn}/orders`.
 
 Consumers of this exact shape: `frontend/src` (React SPA — `GameView.tsx` and friends),
 the Telegram bot, and `src/server/daide/session.py`.
@@ -286,8 +291,12 @@ mirror it with overlay arrows drawn on top, so a browser can render them directl
 `{"map_path": "/tmp/diplomacy_maps/..."}` — a server-filesystem path, unreachable
 from a browser; both routes are kept for existing server-side callers):
 
-- `GET /games/{id}/map/orders` — the board plus arrows for the current *pending*
-  orders (plain board if none submitted yet).
+- `GET /games/{id}/map/orders` — the board plus arrows for the **caller's own**
+  pending orders (plain board if none submitted yet). Players in the game only (Bearer,
+  or `telegram_id` + `bot_secret` query parameters); anyone else gets 403, since pending
+  orders are secret. The web client fetches it with its token and shows it from a blob
+  URL, as an `<img src>` sends no credentials. `POST .../generate_map/orders` draws every
+  power's pending orders and so takes the bot secret only.
 - `GET /games/{id}/map/resolution` — the board plus arrows for the *last processed
   turn's* orders, coloured by `ResultCode`, plus standoff markers (plain board if no
   turn has been processed yet).
