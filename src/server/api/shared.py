@@ -234,9 +234,8 @@ def notify_players(
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
     """Bridge `DaideServer.notify_game_processed` (async) into whatever
-    context a *synchronous* call site (`process_due_deadlines`, run from the
-    scheduler's `async def` loop without an `await`, and directly from tests)
-    happens to run in. No-op when no DAIDE listener is up (`daide_server` is
+    context a *synchronous* call site (`process_due_deadlines`, run on a worker
+    thread by the scheduler, and directly from tests) happens to run in. No-op when no DAIDE listener is up (`daide_server` is
     `None` in most test contexts and whenever the listener failed to bind).
 
     There's no existing sync-calls-async bridge elsewhere in this codebase to
@@ -1007,19 +1006,33 @@ async def deadline_scheduler() -> None:
     without a majority. On startup, immediately process any missed deadlines.
     Roughly hourly it also runs ``run_housekeeping``.
     """
+    # The work is synchronous -- database round trips, adjudication, map
+    # rendering for the group posts -- so it runs on a worker thread. Called
+    # inline it held the event loop for the whole tick, and every request to the
+    # API (and every DAIDE client) waited on a turn being processed.
+    # ``_notify_daide_processed`` hands DAIDE news back to ``main_loop`` from
+    # there, as it does for the sync routes.
     # On startup: process any missed deadlines immediately
-    now = datetime.now(timezone.utc)
-    process_due_deadlines(now)
-    expire_deadline_proposals(now)
+    await asyncio.to_thread(_scheduler_tick, datetime.now(timezone.utc), startup=True)
     tick = 0
     # Main loop
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
-        now = datetime.now(timezone.utc)
-        process_due_deadlines(now)
-        check_and_send_reminders(now)
-        expire_deadline_proposals(now)
         tick += 1
-        if tick % _HOUSEKEEPING_EVERY_TICKS == 0:
-            run_housekeeping()
+        await asyncio.to_thread(
+            _scheduler_tick,
+            datetime.now(timezone.utc),
+            housekeeping=tick % _HOUSEKEEPING_EVERY_TICKS == 0,
+        )
+
+
+def _scheduler_tick(now: datetime, *, startup: bool = False, housekeeping: bool = False) -> None:
+    """One pass of ``deadline_scheduler``'s work. At startup: missed deadlines and
+    expired proposals only (a reminder for a deadline already past is noise)."""
+    process_due_deadlines(now)
+    if not startup:
+        check_and_send_reminders(now)
+    expire_deadline_proposals(now)
+    if housekeeping:
+        run_housekeeping()
 

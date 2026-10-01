@@ -105,6 +105,29 @@ def test_the_scheduler_catches_up_then_checks_every_tick_and_housekeeps_hourly(m
     assert per_tick.count("run_housekeeping") == 1  # once in the first 121 ticks (~1 h)
 
 
+def test_the_schedulers_work_runs_off_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Processing a turn renders maps and talks to the database; run on the loop,
+    it stalled every API request (and DAIDE client) until it finished."""
+    threads: dict[str, int] = {}
+
+    async def fake_sleep(seconds: float) -> None:
+        raise _Stop
+
+    for name in ("process_due_deadlines", "expire_deadline_proposals"):
+        monkeypatch.setattr(shared, name, Mock(side_effect=lambda *a, _n=name: threads.setdefault(_n, threading.get_ident())))
+
+    async def run() -> int:
+        loop_thread = threading.get_ident()
+        with pytest.raises(_Stop):
+            await shared.deadline_scheduler()
+        return loop_thread
+
+    with patch.object(shared.asyncio, "sleep", new=AsyncMock(side_effect=fake_sleep)):
+        loop_thread = asyncio.run(run())
+    assert set(threads) == {"process_due_deadlines", "expire_deadline_proposals"}
+    assert loop_thread not in threads.values()
+
+
 def test_housekeeping_failure_is_logged_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shared.db_service, "purge_delivered_bot_notifications", Mock(side_effect=RuntimeError("db gone")))
     with patch.object(shared.scheduler_logger, "error") as log:
