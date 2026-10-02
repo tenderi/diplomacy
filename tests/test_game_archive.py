@@ -194,3 +194,16 @@ def test_a_malformed_deadline_schedule_is_400_and_creates_nothing(client: TestCl
     assert resp.status_code == 400
     assert resp.json()["detail"].startswith("Malformed deadline_schedule in the export")
     assert len(client.get("/games", headers=BOT).json()["games"]) == games_before
+
+
+@pytest.mark.parametrize("anonymous", [True, False])
+def test_an_anonymous_game_imports_anonymous(client: TestClient, anonymous: bool) -> None:
+    """Whether players are known only by their power is carried, or an import of
+    an anonymous game would start naming everyone."""
+    fr = _telegram_user(client, "Archive Anon")
+    created = client.post("/games/create", json=_as(fr, map_name="standard", anonymous=anonymous), headers=BOT)
+    game_id = str(created.json()["game_id"])
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    assert doc["game"]["anonymous"] is anonymous
+    new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
+    assert game_service.meta(str(new_id))["anonymous"] is anonymous

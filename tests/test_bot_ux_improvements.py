@@ -207,6 +207,26 @@ class TestMarkdownEscaping:
 
     @patch("server.telegram_bot.games.api_get")
     @patch("server.telegram_bot.game_context.api_get")
+    def test_players_in_an_anonymous_game_lists_powers_without_names(self, mock_ctx_get, mock_games_get):
+        mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
+
+        def fake_get(path, *args, **kwargs):
+            if path.endswith("/players"):
+                return [
+                    {"power": "FRANCE", "seated": True, "user_id": None, "nickname": None, "is_active": True},
+                    {"power": "ITALY", "seated": False, "user_id": None, "nickname": None, "is_active": False},
+                ]
+            return {"dummy_powers": []}
+
+        mock_games_get.side_effect = fake_get
+        update, context, message = _make_update_and_context()
+
+        asyncio.run(players(update, context))
+
+        assert message.reply_text.call_args[0][0].splitlines()[2:] == ["✅ *FRANCE*", "❌ *ITALY* - open"]
+
+    @patch("server.telegram_bot.games.api_get")
+    @patch("server.telegram_bot.game_context.api_get")
     def test_players_survives_reply_failure_instead_of_going_silent(self, mock_ctx_get, mock_games_get):
         """Before this fix, /players had no try/except around its final
         reply_text call at all -- a Markdown-breaking name made it do
@@ -256,18 +276,15 @@ class TestMessagesSenderAttribution:
                     "messages": [
                         {
                             "id": 1,
-                            "sender_user_id": 42,
+                            "sender_user_id": None,
+                            "sender_power": "GERMANY",
+                            "sender_name": None,
                             "recipient_power": "FRANCE",
                             "text": "Let's ally",
                             "timestamp": "2024-01-01T00:00:00",
                         }
                     ]
                 }
-            if endpoint.endswith("/players"):
-                return [
-                    {"user_id": 42, "power": "GERMANY"},
-                    {"user_id": 43, "power": "FRANCE"},
-                ]
             raise AssertionError(f"unexpected endpoint {endpoint}")
 
         mock_get.side_effect = side_effect
@@ -276,37 +293,28 @@ class TestMessagesSenderAttribution:
         asyncio.run(messages(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "GERMANY" in text
-        assert "FRANCE" in text
-        assert "Let's ally" in text
+        assert "[2024-01-01T00:00:00] GERMANY -> FRANCE: Let's ally" in text
 
     @patch("server.telegram_bot.messages.api_get")
-    def test_messages_degrades_to_unknown_when_players_lookup_fails(self, mock_get):
-        def side_effect(endpoint, *args, **kwargs):
-            if "/messages" in endpoint:
-                return {
-                    "messages": [
-                        {
-                            "id": 1,
-                            "sender_user_id": 42,
-                            "recipient_power": None,
-                            "text": "hello all",
-                            "timestamp": "2024-01-01T00:00:00",
-                        }
-                    ]
+    def test_messages_says_unknown_for_a_sender_with_no_seat(self, mock_get):
+        mock_get.return_value = {
+            "messages": [
+                {
+                    "id": 1,
+                    "sender_user_id": 42,
+                    "sender_power": None,
+                    "recipient_power": None,
+                    "text": "hello all",
+                    "timestamp": "2024-01-01T00:00:00",
                 }
-            if endpoint.endswith("/players"):
-                raise Exception("network blip")
-            raise AssertionError(f"unexpected endpoint {endpoint}")
-
-        mock_get.side_effect = side_effect
+            ]
+        }
         update, context, message = _make_update_and_context(args=["1"])
 
         asyncio.run(messages(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "Unknown" in text
-        assert "hello all" in text
+        assert "[2024-01-01T00:00:00] Unknown -> ALL: hello all" in text
 
 
 # ---------------------------------------------------------------------------

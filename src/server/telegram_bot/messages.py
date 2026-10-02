@@ -120,25 +120,12 @@ def _excerpt(text: str, limit: int = 60) -> str:
     return f'"{text}"' if len(text) <= limit else f'"{text[: limit - 1]}…"'
 
 
-def _sender_power_map(game_id: str) -> Dict[Any, str]:
-    """``sender_user_id`` (a numeric DB id) -> power name, built from ``GET
-    /games/{id}/players``. ``GET /games/{id}/messages`` only returns
-    ``sender_user_id`` (see ``src/server/api/routes/messages.py``), not the
-    sender's power, so callers that want to show who actually sent a message
-    need this lookup -- no new API endpoint required. Returns ``{}`` (rather
-    than raising) if the players lookup fails, so a transient failure here
-    degrades message attribution to "Unknown" instead of hiding the messages
-    entirely.
-    """
-    try:
-        players_list = api_get(f"/games/{game_id}/players")
-    except Exception:
-        return {}
-    return {
-        p["user_id"]: p.get("power", "Unknown")
-        for p in (players_list or [])
-        if p.get("user_id") is not None
-    }
+def _sender_label(message: Dict[str, Any]) -> str:
+    """Who sent ``message``: its ``sender_power``, with ``sender_name`` beside
+    it when the game is public (an anonymous game sends no name)."""
+    power = message.get("sender_power") or "Unknown"
+    name = message.get("sender_name")
+    return f"{power} ({name})" if name else power
 
 
 async def messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -164,8 +151,8 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
 
     Diplomacy is all about negotiation, so knowing *who* sent a message
     matters -- ``[ts] To FRANCE: ...`` alone doesn't say who sent it. Each
-    line reads ``[ts] GERMANY -> FRANCE: ...`` (sender resolved via
-    ``_sender_power_map``).
+    line reads ``[ts] GERMANY -> FRANCE: ...``, or ``GERMANY (Anna) -> ...`` in
+    a public game (``_sender_label``).
     """
     try:
         result = api_get(f"/games/{game_id}/messages?telegram_id={user_id}")
@@ -176,10 +163,9 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
         return f"No messages in game {game_id} yet."
     if limit is not None:
         messages_list = messages_list[-limit:]
-    sender_power = _sender_power_map(game_id)
     lines = [f"Messages for game {game_id}:"]
     for m in messages_list:
         recipient = m["recipient_power"] or "ALL"
-        sender = sender_power.get(m.get("sender_user_id"), "Unknown")
+        sender = _sender_label(m)
         lines.append(f"[{m['timestamp']}] {sender} -> {recipient}: {m['text']}")
     return "\n".join(lines)

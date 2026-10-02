@@ -15,6 +15,7 @@ type AllGame = {
   player_count: number
   max_players?: number
   private?: boolean
+  anonymous?: boolean
 }
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
@@ -32,6 +33,8 @@ export default function GameList() {
   const [autoProcess, setAutoProcess] = useState(false)
   // W8: optional join password; blank = open game.
   const [joinPassword, setJoinPassword] = useState('')
+  // Anonymous: players are known only by their power. Fixed once the game exists.
+  const [anonymous, setAnonymous] = useState(false)
 
   const load = () => {
     Promise.all([
@@ -59,6 +62,7 @@ export default function GameList() {
           map_name: 'standard',
           dummy_powers: dummies,
           auto_process: autoProcess,
+          anonymous,
           ...(joinPassword ? { join_password: joinPassword } : {}),
         }),
       })
@@ -110,6 +114,21 @@ export default function GameList() {
           <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
           Process each turn as soon as all orders are in (players can ask to wait)
         </label>
+        <fieldset>
+          <legend className="text-sm text-muted-foreground mb-1">
+            Player names (can't be changed once the game exists):
+          </legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <label className="flex items-center gap-1 text-sm">
+              <input type="radio" name="naming" checked={!anonymous} onChange={() => setAnonymous(false)} />
+              Public — nicknames are shown next to powers
+            </label>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="radio" name="naming" checked={anonymous} onChange={() => setAnonymous(true)} />
+              Anonymous — players are known only by their power
+            </label>
+          </div>
+        </fieldset>
         <label className="flex flex-wrap items-center gap-2 text-sm">
           Private game password (optional, 4–64 characters):
           <input
@@ -153,7 +172,7 @@ export default function GameList() {
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
                   <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
-                    {g.private ? '🔒 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
+                    {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
                   </Link>
                 </CardTitle>
               </CardHeader>

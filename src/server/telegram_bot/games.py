@@ -65,7 +65,8 @@ WELCOME_TEXT = (
 
 GROUP_WELCOME = (
     "🏛️ *Diplomacy in this group*\n\n"
-    "• /newgame -- start a game for this group; everyone joins with the button I post\n"
+    "• /newgame anonymous|public -- start a game for this group (players known only by power, or by nickname); "
+    "everyone joins with the button I post\n"
     "• /linkgroup [game id] -- attach an existing game to this group\n\n"
     "After every turn I post two maps here -- the orders, then the result -- plus deadline reminders and players' "
     "broadcasts. *Orders and private messages go to me in a private chat* -- never "
@@ -772,10 +773,17 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = [f"👥 *Players in Game {game_id}*\n"]
     for player in players_list:
         power = player.get('power', 'Unknown')
-        nickname = player.get('nickname')
         is_active = player.get('is_active', True)
         status_emoji = "✅" if is_active else "❌"
-        lines.append(f"{status_emoji} *{power}*" + (f" - {escape_markdown(nickname)}" if nickname else ""))
+        # A held seat with no nickname -- or any seat of an anonymous game,
+        # which sends none -- is the power alone.
+        if player.get('nickname'):
+            who = f" - {escape_markdown(player['nickname'])}"
+        elif player.get('seated', player.get('user_id') is not None):
+            who = ""
+        else:
+            who = " - open"
+        lines.append(f"{status_emoji} *{power}*{who}")
     for power in dummies:
         lines.append(f"🤖 *{power}* - civil disorder")
 
@@ -834,10 +842,11 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
         return f"Could not retrieve game {game_id}.", None
 
     # Bare list, not {"players": [...]}. A seat whose player quit still has a
-    # row but no user_id -- it is open, and /join takes it over.
+    # row but nobody in it -- it is open, and /join takes it over. ``seated``,
+    # not ``user_id``: an anonymous game never says who holds a seat.
     players_data = api_get(f"/games/{game_id}/players")
     taken_powers = {
-        player.get('power') for player in (players_data or []) if player.get('user_id') is not None
+        player.get('power') for player in (players_data or []) if player.get('seated', player.get('user_id') is not None)
     }
     # Civil-disorder dummies (W9) are not joinable; the game's creator opens them.
     taken_powers |= set(game_state.get("dummy_powers") or [])

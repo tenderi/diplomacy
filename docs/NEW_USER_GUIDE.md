@@ -37,7 +37,8 @@ This is how most beta games work. It needs one person, the **organiser**, to set
 
 **Organiser:**
 1. Add **@IronChancellorBot** to your Telegram group (group menu → *Add members*).
-2. In the group, send **`/newgame`**.
+2. In the group, send **`/newgame anonymous`** (players are known only by their power) or
+   **`/newgame public`** (nicknames are shown next to powers). The choice can't be changed later.
 3. The bot posts **"Game N for this group"** with a **🎮 Join this game** button.
 
 **Everyone (including the organiser):**

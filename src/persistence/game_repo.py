@@ -196,6 +196,7 @@ class GameRepo:
                 "wait_flags": sorted(p for p, on in (row.wait_flags or {}).items() if on),
                 # W8: whether joining needs a password -- never the hash itself.
                 "private": row.join_password_hash is not None,
+                "anonymous": bool(row.anonymous),
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -226,6 +227,7 @@ class GameRepo:
         auto_process: bool = False,
         join_password_hash: Optional[str] = None,
         deadline_schedule: Optional[dict[str, Any]] = None,
+        anonymous: bool = False,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -253,6 +255,7 @@ class GameRepo:
                 wait_flags={},
                 join_password_hash=join_password_hash,
                 deadline_schedule=deadline_schedule,
+                anonymous=anonymous,
             )
             session.add(row)
             session.flush()  # assign the integer PK

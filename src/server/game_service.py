@@ -87,6 +87,7 @@ class GameService:
         auto_process: bool = False,
         join_password_hash: Optional[str] = None,
         deadline_schedule: Optional[dict[str, Any]] = None,
+        anonymous: bool = False,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -97,6 +98,9 @@ class GameService:
 
         ``deadline_schedule`` (``server.deadline_schedule`` stored form) is the
         game's weekly schedule; it arms the first deadline once the game fills.
+
+        ``anonymous`` hides who plays which power for the game's whole life
+        (announcements name the power alone); it cannot be changed later.
 
         Returns the game's id (the integer PK as a string when not supplied).
         """
@@ -112,6 +116,7 @@ class GameService:
             auto_process=auto_process,
             join_password_hash=join_password_hash,
             deadline_schedule=deadline_schedule,
+            anonymous=anonymous,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -740,6 +745,13 @@ class GameService:
         meta = self._repo.get_meta(game_id) or {}
         state = state_from_dict(sj)
         players = self._repo.players(game_id)
+        anonymous = bool(meta.get("anonymous"))
+        if anonymous:
+            # Which seats are held, never by whom (see api.shared.player_rows).
+            players = {
+                power: {**seat, "user_id": None, "seated": seat.get("user_id") is not None}
+                for power, seat in players.items()
+            }
 
         return {
             "game_id": str(game_id),
@@ -750,6 +762,7 @@ class GameService:
             "auto_process": bool(meta.get("auto_process")),
             "wait_flags": meta.get("wait_flags") or [],
             "private": bool(meta.get("private")),
+            "anonymous": anonymous,
             # Who may end a turn early (clients show "Process turn" only to them).
             "created_by_user_id": meta.get("created_by_user_id"),
         }

@@ -86,7 +86,7 @@ class TestGroupGuard:
 
 class TestNewGame:
     def test_creates_a_group_game_and_posts_a_private_join_link(self) -> None:
-        update, context = _message_update("/newgame")
+        update, context = _message_update("/newgame public")
         with patch("server.telegram_bot.channel_commands.api_post") as post, \
              patch("server.telegram_bot.channel_commands.ensure_registered"):
             post.side_effect = lambda path, body: {"game_id": 42} if path == "/games/create" else {"status": "ok"}
@@ -94,10 +94,34 @@ class TestNewGame:
         (create_path, create_body), (link_path, link_body) = [c[0] for c in post.call_args_list]
         assert create_path == "/games/create"
         assert create_body["telegram_id"] == "555" and create_body["auto_process"] is True
+        assert create_body["anonymous"] is False
         assert link_path == "/games/42/channel/link" and link_body["channel_id"] == str(GROUP_CHAT)
         button = update.message.reply_text.call_args[1]["reply_markup"].inline_keyboard[0][0]
         assert button.url == "https://t.me/DiplomacyTestBot?start=join_42"
         assert button.callback_data is None  # a link, never a callback button in a group
+
+    @pytest.mark.parametrize("word, anonymous, says", [
+        ("anonymous", True, "known only by their power"),
+        ("Public", False, "nickname is shown next to their power"),
+    ])
+    def test_the_naming_choice_is_sent_and_announced(self, word: str, anonymous: bool, says: str) -> None:
+        update, context = _message_update(f"/newgame {word}")
+        with patch("server.telegram_bot.channel_commands.api_post") as post, \
+             patch("server.telegram_bot.channel_commands.ensure_registered"):
+            post.side_effect = lambda path, body: {"game_id": 42} if path == "/games/create" else {"status": "ok"}
+            asyncio.run(newgame(update, context))
+        assert post.call_args_list[0][0][1]["anonymous"] is anonymous
+        assert says in update.message.reply_text.call_args[0][0]
+
+    @pytest.mark.parametrize("text", ["/newgame", "/newgame secret", "/newgame anonymous public"])
+    def test_without_a_naming_choice_it_explains_both_and_creates_nothing(self, text: str) -> None:
+        update, context = _message_update(text)
+        with patch("server.telegram_bot.channel_commands.api_post") as post:
+            asyncio.run(newgame(update, context))
+        post.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == channel_commands.NEWGAME_CHOICE
+        assert "/newgame anonymous" in channel_commands.NEWGAME_CHOICE
+        assert "/newgame public" in channel_commands.NEWGAME_CHOICE
 
     def test_in_a_private_chat_it_says_where_it_belongs(self) -> None:
         update, context = _message_update("/newgame", chat_type="private")
