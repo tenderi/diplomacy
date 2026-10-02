@@ -66,6 +66,10 @@ whenever you are deciding whether to start something new.
    list`), `docs/specs/fix_plan.md`, and production health (see below). Then read
    `CLAUDE.md` and `CODEBASE_OVERVIEW.md`. They are the project's rules, and your workers
    follow them too.
+   **If the last entry says "stopped:"** (usage limit, crash, timeout), the previous run died
+   mid-cycle. That entry was written by the workflow, not by an agent. Before anything new:
+   recover its subagent reports with the command in that entry, finish, fix or close the
+   open PRs it lists, and record any findings that would otherwise be lost.
 2. **Triage authorized input first.** Take every open issue you are allowed to act on (see
    above), oldest first. For each one, either fix it, or answer it on the issue if it needs
    a decision from the maintainer. Only ask about real decisions, such as a feature with
@@ -100,8 +104,29 @@ whenever you are deciding whether to start something new.
    `gh run list -w Deploy -L 1`, then `gh run watch`. Then check health (see below). If you
    broke production, fix forward or revert, in this same run if time allows. Otherwise put
    it first in the journal for the next run.
-10. **Write the journal.** Add one comment to the journal issue (format below). Close or
+10. **Finish the journal entry** you posted at the start (format below). Close or
     answer every issue you acted on, linking the PR.
+
+### Save as you go: a run can stop at any moment
+
+Runs share the maintainer's Claude usage limit. When it runs out, you stop mid-sentence.
+You can't wrap up, because wrapping up needs tokens too. The workflow then posts a salvage
+entry: your last report, the open PRs and a link to the transcript. Anything that existed
+only in your context is gone. So write things down as soon as they exist, not at the end:
+
+- **Post the journal entry at the start** of the run, with health and the plan, and edit
+  it as you go (`gh api -X PATCH repos/tenderi/diplomacy/issues/comments/<id> -f body=...`).
+  End it with what you would do next if you stopped now.
+- **Record findings the moment a subagent reports them.** A bug list from a play-through
+  goes into `fix_plan.md` (through a small PR) or into the journal entry before you start
+  delegating any of it.
+- **Every PR stands on its own.** A worker's PR must make sense to a later run that never
+  saw your brief: the PR body carries the goal and the state of the work.
+- **Spend in order of value.** Start the work that matters most first. Don't start four
+  large parallel agents when one would answer the question, and run discovery sweeps
+  (play-throughs, audits) one at a time. If a subagent fails with `rate_limit` / HTTP 429,
+  the limit has been reached: spawn nothing more, and spend what's left updating the
+  journal entry.
 
 If after honest looking nothing is worth doing, write a short journal entry saying so and
 stop. An empty night is fine. Make-work PRs are not.
