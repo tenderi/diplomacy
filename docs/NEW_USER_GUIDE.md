@@ -125,7 +125,8 @@ zoomable map, results of the last turn, messages, and order entry.
 1. **Register** with your email and a password.
 2. **Link Telegram** (top menu): the site shows a code; send `/link <code>` to the bot.
    Your web account and your Telegram player are now the same, and your games appear
-   on both.
+   on both. (If you already played through Telegram, your web login moves onto that
+   player; log in again in the browser.)
 3. **Forgot your password?** *Login → Forgot password?* The reset link comes as a
    Telegram message from the bot, if your account is linked (otherwise by email).
 
