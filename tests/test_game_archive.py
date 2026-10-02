@@ -207,3 +207,16 @@ def test_an_anonymous_game_imports_anonymous(client: TestClient, anonymous: bool
     assert doc["game"]["anonymous"] is anonymous
     new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
     assert game_service.meta(str(new_id))["anonymous"] is anonymous
+
+
+@pytest.mark.parametrize("random_powers", [True, False])
+def test_a_random_powers_game_imports_random(client: TestClient, random_powers: bool) -> None:
+    """Whether joiners are dealt a random power is carried, or an import would
+    let them choose."""
+    fr = _telegram_user(client, "Archive Random")
+    created = client.post("/games/create", json=_as(fr, map_name="standard", random_powers=random_powers), headers=BOT)
+    game_id = str(created.json()["game_id"])
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    assert doc["game"]["random_powers"] is random_powers
+    new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
+    assert game_service.meta(str(new_id))["random_powers"] is random_powers

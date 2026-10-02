@@ -187,14 +187,16 @@ class TestFindAGame:
             {"id": 6, "status": "active", "player_count": 1, "max_players": 1, "map_name": "demo"},
             {"id": 8, "status": "completed", "player_count": 2, "max_players": 7},
             {"id": 9, "status": "active", "player_count": 1, "max_players": 7, "private": True},
+            {"id": 10, "status": "active", "player_count": 1, "max_players": 7, "random_powers": True},
         ]}
         with patch("server.telegram_bot.hub.api_get", return_value=listing), \
              patch("server.telegram_bot.game_context.api_get", return_value=TWO_GAMES):
             query, _ = _press("find_game")
         buttons = _buttons(query.edit_message_text.call_args[1]["reply_markup"])
         games = [d for _t, d in buttons if d.startswith("select_game_")]
-        assert games == ["select_game_1", "select_game_9"]
+        assert games == ["select_game_1", "select_game_9", "select_game_10"]
         assert any(t.startswith("🔒") for t, d in buttons if d == "select_game_9")
+        assert dict((d, t) for t, d in buttons)["select_game_10"] == "🎲 Game 10 · 1/7 players"
         assert ("⏳ Queue for the next new game", "join_waiting_list") in buttons
 
 
