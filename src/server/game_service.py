@@ -930,6 +930,46 @@ class GameService:
             "auto_process": bool((self._repo.get_meta(game_id) or {}).get("auto_process")),
         }
 
+    def phase_duties(self, game_id: str) -> Optional[dict[str, Any]]:
+        """What each power has to order in the current phase, for the turn
+        notification. ``None`` for an unknown game.
+
+        Returns ``{"phase": "F1901R", "phase_type": "RETREAT", "duties": {...}}``
+        where ``duties`` has one key per power in ``powers_with_orders_to_give``
+        other than a civil-disorder dummy (the set ``orders_status`` waits on):
+
+        - RETREAT: ``{"retreats": [{"unit": "A BUR", "options": ["BEL", "PIC"]}]}``,
+          the options being ``DislodgedUnit.retreats`` as the adjudicator computed
+          them (``compute_retreat_options``), not recomputed here;
+        - ADJUSTMENT: ``{"build": n, "waived": m}`` or ``{"disband": n}``, ``n``
+          from ``adjustments_owed`` and ``m`` the builds the centre count allows
+          but no free home centre can take;
+        - MOVEMENT: ``{}``.
+        """
+        sj = self._repo.get_state_json(game_id)
+        if sj is None:
+            return None
+        state = state_from_dict(sj)
+        duties: dict[str, dict[str, Any]] = {}
+        # A civil-disorder dummy (W9) is played by the engine; nobody waits on it.
+        dummies = self.dummy_powers(game_id)
+        for power in sorted(p for p in powers_with_orders_to_give(self._map, state) if p not in dummies):
+            if state.phase_type is PhaseType.RETREAT:
+                duties[power] = {
+                    "retreats": [
+                        {"unit": f"{du.kind.value} {du.location}", "options": [str(loc) for loc in du.retreats]}
+                        for du in sorted(state.dislodged, key=lambda d: str(d.location))
+                        if du.power == power
+                    ]
+                }
+            elif state.phase_type is PhaseType.ADJUSTMENT:
+                delta = len(state.centers_of(power)) - len(state.units_of(power))
+                owed = adjustments_owed(self._map, state, power)
+                duties[power] = {"build": owed, "waived": delta - owed} if delta > 0 else {"disband": owed}
+            else:
+                duties[power] = {}
+        return {"phase": state.phase_name, "phase_type": state.phase_type.value, "duties": duties}
+
     def meta(self, game_id: str) -> Optional[dict[str, Any]]:
         """The game's denormalized row fields -- ``map_name``, ``phase_code``,
         ``status``, ``deadline``, ``phase_length_seconds``, ``deadline_schedule``, ``phase_started_at``,
