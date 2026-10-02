@@ -146,3 +146,6 @@ bot_data/
 *.sqlite3-wal
 *.sqlite3-shm
 *.db
+
+# Claude Code subagent worktrees
+.claude/worktrees/

@@ -1,0 +1,215 @@
+name: Lead agent
+
+# Runs the autonomous lead developer (.claude/lead/CHARTER.md): headless Claude Code that
+# triages the maintainer's issues, finds its own improvements, delegates them to worker
+# subagents (.claude/agents/), reviews, merges and checks the deploy.
+#
+# The runner has no route to the home network, and that is one of the two hard limits;
+# see the charter. The other is enforced by the token: LEAD_AGENT_GH_TOKEN is a
+# fine-grained PAT on tenderi/diplomacy only, with Contents, Pull requests, Issues,
+# Workflows: read/write and Actions: read -- and no Administration permission, so it can't
+# delete the repo or change branch protection. It has to be a PAT, not GITHUB_TOKEN:
+# pushes and merges made with GITHUB_TOKEN don't trigger the Test Suite or Deploy.
+#
+# Setup:
+#   gh secret set CLAUDE_CODE_OAUTH_TOKEN -R tenderi/diplomacy   # from `claude setup-token`
+#                                                                 #   (or ANTHROPIC_API_KEY)
+#   gh secret set LEAD_AGENT_GH_TOKEN -R tenderi/diplomacy       # the PAT above
+#   gh label create agent -R tenderi/diplomacy --description "Forward to the lead agent"
+#   gh variable set LEAD_AGENT_AUTHORIZED_USERS --body '["friend1","friend2"]' -R tenderi/diplomacy
+#     (optional; the repo owner is always authorized)
+#   gh variable set LEAD_AGENT_ENABLED --body true -R tenderi/diplomacy
+#
+# Off switch: gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy
+# (the PAT has no Variables permission, so the agent can't turn it back on).
+# VPS access reuses the deploy key (VPS_SSH_KEY / VPS_HOST_KEY).
+
+on:
+  schedule:
+    - cron: "0 0 * * *"   # nightly; clear of the 03:17 backup and the 04:30 reboot window
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional extra instruction for this run"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One lead at a time. A trigger during a run queues (GitHub keeps one pending run, which is
+# enough: every run reads all open issues).
+concurrency:
+  group: lead-agent
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  lead:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    # Only authorized people can trigger a run: the repo is public, and an issue from anyone
+    # else must not start an agent with root on the VPS. Authorized = the repo owner plus the
+    # logins in the LEAD_AGENT_AUTHORIZED_USERS variable (a JSON array). It's a variable, not a
+    # secret, because secrets aren't available to a job's `if:`. Variables are visible only to
+    # collaborators, and the PAT has no Variables permission, so the agent can't extend the list.
+    # The `agent` label (collaborators only) forwards anyone else's issue. The
+    # <!-- lead-agent --> marker on everything the agent writes (it writes as tenderi, through
+    # the PAT) keeps it from triggering itself.
+    if: >-
+      vars.LEAD_AGENT_ENABLED == 'true' && (
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issues' && github.event.action == 'opened' &&
+         (github.event.issue.user.login == github.repository_owner ||
+          contains(fromJSON(vars.LEAD_AGENT_AUTHORIZED_USERS || '[]'), github.event.issue.user.login)) &&
+         !contains(github.event.issue.body, '<!-- lead-agent -->')) ||
+        (github.event_name == 'issues' && github.event.action == 'labeled' &&
+         github.event.label.name == 'agent') ||
+        (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+         (github.event.comment.user.login == github.repository_owner ||
+          contains(fromJSON(vars.LEAD_AGENT_AUTHORIZED_USERS || '[]'), github.event.comment.user.login)) &&
+         !contains(github.event.comment.body, '<!-- lead-agent -->'))
+      )
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: diplomacy_user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: diplomacy_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check required secrets
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LEAD_AGENT_GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          missing=""
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN"
+          for name in LEAD_AGENT_GH_TOKEN VPS_SSH_KEY; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing -- see the header of this workflow"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
+          fetch-depth: 0   # tags: the agent picks the next free v3.0.N
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y libcairo2 libcairo2-dev postgresql-client
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt ruff==0.15.12 bandit pip-audit
+          npm install -g @anthropic-ai/claude-code
+
+      # The tests wipe the database they run against, so parallel workers each get one.
+      - name: Create per-worker test databases
+        run: |
+          for db in w1 w2 w3 w4 review; do
+            psql "postgresql://diplomacy_user:password@localhost:5432/diplomacy_db" \
+              -c "CREATE DATABASE diplomacy_$db"
+          done
+
+      - name: Set up SSH to the VPS
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          # Multiplexed: the VPS rate-limits new SSH connections (6 per 30 s).
+          cat > ~/.ssh/config <<EOF
+          Host diplomacy-vps
+            HostName ${{ vars.VPS_HOST || '87.58.144.64' }}
+            User root
+            IdentityFile ~/.ssh/vps_key
+            BatchMode yes
+            ConnectTimeout 20
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%C
+            ControlPersist 10m
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Configure git
+        run: |
+          git config --global user.name "Lead agent"
+          git config --global user.email "lead-agent@users.noreply.github.com"
+
+      - name: Run the lead
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
+          TEST_DB_BASE: postgresql+psycopg2://diplomacy_user:password@localhost:5432
+          # CI watches and test suites outlast the default 2-minute Bash timeout.
+          BASH_DEFAULT_TIMEOUT_MS: "1800000"
+          BASH_MAX_TIMEOUT_MS: "3600000"
+          # Event details travel as env, never interpolated into the script.
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          FOCUS: ${{ inputs.focus }}
+          # Whose issues and comments are instructions (the charter's trust rules).
+          AUTHORIZED_USERS: ${{ github.repository_owner }} ${{ join(fromJSON(vars.LEAD_AGENT_AUTHORIZED_USERS || '[]'), ' ') }}
+        run: |
+          set -o pipefail
+          export RUN_STARTED=$(date +%s)
+          export RUN_DEADLINE=$((RUN_STARTED + 330 * 60))
+          prompt="You are the lead agent. Read .claude/lead/CHARTER.md and follow it to run one cycle.
+          This run was triggered by: ${EVENT_NAME}${ISSUE_NUMBER:+ on issue #$ISSUE_NUMBER (handle it first)}."
+          [ -n "$FOCUS" ] && prompt="$prompt
+          The maintainer added for this run: $FOCUS"
+          claude -p "$prompt" \
+              --model claude-opus-5-5 \
+              --permission-mode bypassPermissions \
+              --output-format stream-json --verbose \
+            | tee "$RUNNER_TEMP/transcript.jsonl" \
+            | jq --unbuffered -rj 'select(.type == "assistant") | .message.content[]?
+                | if .type == "text" then .text + "\n"
+                  elif .type == "tool_use" then "  > \(.name) \(.input.description // .input.command // .input.file_path // "" | tostring | .[0:160])\n"
+                  else empty end'
+
+      - name: Upload transcript
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: lead-transcript-${{ github.run_id }}
+          path: ${{ runner.temp }}/transcript.jsonl
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/vps_key
