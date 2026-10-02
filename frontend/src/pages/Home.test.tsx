@@ -38,7 +38,7 @@ describe('Home', () => {
     const mockUser = {
       id: 1,
       email: 'a@b.com',
-      full_name: 'Test User',
+      nickname: 'Test User',
       telegram_id: null,
       telegram_linked: false,
     }

@@ -18,6 +18,9 @@ import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
+from sqlalchemy.exc import IntegrityError
+
+from server.nickname import normalize_nickname
 
 from ..shared import db_service, is_bot_secret, notify_user
 
@@ -155,7 +158,12 @@ _LINK_RATE_LIMIT_WINDOW = 600  # 10 minutes
 class RegisterRequest(BaseModel):
     email: str
     password: str
-    full_name: Optional[str] = None
+    nickname: Optional[str] = None
+
+    @field_validator("nickname")
+    @classmethod
+    def nickname_rules(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_nickname(v)
 
     @field_validator("email")
     @classmethod
@@ -375,7 +383,7 @@ def _user_response(user: Any) -> Dict[str, Any]:
     return {
         "id": user.id,
         "email": getattr(user, "email", None),
-        "full_name": getattr(user, "full_name", None),
+        "nickname": getattr(user, "nickname", None),
         "telegram_id": getattr(user, "telegram_id", None),
         "telegram_linked": getattr(user, "telegram_id", None) is not None and str(user.telegram_id).strip() != "",
     }
@@ -400,12 +408,17 @@ def register(req: RegisterRequest, request: Request) -> Dict[str, Any]:
     existing = db_service.get_user_by_email(email)
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    if req.nickname and db_service.nickname_taken(req.nickname):
+        raise HTTPException(status_code=409, detail="That nickname is taken")
     password_hash = _hash_password(req.password)
-    user = db_service.create_user_with_password(
-        email=email,
-        password_hash=password_hash,
-        full_name=req.full_name,
-    )
+    try:
+        user = db_service.create_user_with_password(
+            email=email,
+            password_hash=password_hash,
+            nickname=req.nickname,
+        )
+    except IntegrityError:  # the nickname was taken between the check and the write
+        raise HTTPException(status_code=409, detail="That nickname is taken")
     access = _create_access_token(user.id)
     refresh = _create_refresh_token(user.id)
     return {
@@ -499,6 +512,33 @@ def refresh(req: RefreshRequest) -> Dict[str, Any]:
 def me(current_user: Any = Depends(get_current_user)) -> Dict[str, Any]:
     """Return current user (requires Bearer token)."""
     return _user_response(current_user)
+
+
+class NicknameRequest(BaseModel):
+    #: ``None`` or blank clears it.
+    nickname: Optional[str] = None
+
+    @field_validator("nickname")
+    @classmethod
+    def nickname_rules(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_nickname(v)
+
+
+def set_nickname_or_409(user_id: int, nickname: Optional[str]) -> None:
+    """Set ``user_id``'s nickname, or 409 if another account has it (ignoring case)."""
+    if nickname and db_service.nickname_taken(nickname, except_user_id=user_id):
+        raise HTTPException(status_code=409, detail="That nickname is taken")
+    try:
+        db_service.set_nickname(user_id, nickname)
+    except IntegrityError:  # taken between the check and the write
+        raise HTTPException(status_code=409, detail="That nickname is taken")
+
+
+@router.patch("/me")
+def update_me(req: NicknameRequest, current_user: Any = Depends(get_current_user)) -> Dict[str, Any]:
+    """Set or clear the caller's nickname."""
+    set_nickname_or_409(int(current_user.id), req.nickname)
+    return _user_response(db_service.get_user_by_id(int(current_user.id)))
 
 
 @router.post("/me/link_code")

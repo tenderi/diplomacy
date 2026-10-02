@@ -171,16 +171,16 @@ class TestApiClientErrorDetail:
 
 class TestMarkdownEscaping:
     @patch("server.telegram_bot.games.api_post")
-    def test_register_sends_a_markdown_name_as_plain_text(self, mock_post):
-        """The confirmation carries the player's own name, so it is sent
-        without Markdown: an unescaped ``_``/``*`` made Telegram reject it."""
+    def test_register_neither_sends_nor_echoes_the_telegram_name(self, mock_post):
+        """The system holds no real names: registration sends only the Telegram id,
+        and the confirmation does not repeat the profile name."""
         mock_post.return_value = {"status": "ok"}
         update, context, message = _make_update_and_context(first_name="John_Snow*Bot")
 
         asyncio.run(register(update, context))
 
-        assert "John_Snow*Bot" in message.reply_text.call_args[0][0]
-        assert message.reply_text.call_args[1].get("parse_mode") is None
+        mock_post.assert_called_once_with("/users/persistent_register", {"telegram_id": str(update.effective_user.id)})
+        assert "John" not in message.reply_text.call_args[0][0]
 
     @patch("server.telegram_bot.games.api_post")
     def test_a_failed_registration_says_so(self, mock_post):
@@ -196,7 +196,7 @@ class TestMarkdownEscaping:
     def test_players_escapes_full_name_with_markdown_chars(self, mock_ctx_get, mock_games_get):
         mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
         mock_games_get.return_value = [
-            {"power": "FRANCE", "full_name": "Al_ice*", "is_active": True},
+            {"power": "FRANCE", "nickname": "Al_ice*", "is_active": True},
         ]
         update, context, message = _make_update_and_context()
 
@@ -213,7 +213,7 @@ class TestMarkdownEscaping:
         nothing, with no error shown either."""
         mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
         mock_games_get.return_value = [
-            {"power": "FRANCE", "full_name": "Whatever", "is_active": True},
+            {"power": "FRANCE", "is_active": True},
         ]
         update, context, message = _make_update_and_context()
         message.reply_text.side_effect = [Exception("boom"), None]

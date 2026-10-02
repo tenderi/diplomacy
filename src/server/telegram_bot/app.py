@@ -27,7 +27,7 @@ from server.telegram_bot.maps import send_default_map, send_game_map, map_comman
 from server.telegram_bot.games import (
     start, register, show_power_selection, join, join_from_button,
     quit, replace, wait, leave_waiting_list, status, players, draw, nodraw, deadline, dummy,
-    ready, notready, autoprocess,
+    ready, notready, autoprocess, nickname,
 )
 from server.telegram_bot.hub import (
     cancel, find_game, game_command, games, games_list_callback, handle_game_callback,
@@ -89,6 +89,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("quit", "Leave a game"),
     BotCommand("queue", "Orders/messages waiting for the game server"),
     BotCommand("link", "Link this Telegram account to a browser account"),
+    BotCommand("nickname", "Show or set the nickname other players see"),
     BotCommand("feedback", "Report a problem or an idea to the maintainer"),
     BotCommand("help", "Commands and how to write orders"),
     BotCommand("rules", "Basic Diplomacy rules and order syntax"),
@@ -448,6 +449,7 @@ def main():
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("examples", examples))
     app.add_handler(CommandHandler("link", link_account))
+    app.add_handler(CommandHandler("nickname", nickname))
     app.add_handler(CommandHandler("queue", queue_status))
     app.add_handler(CommandHandler("feedback", feedback))
     app.add_handler(CommandHandler("link_channel", link_channel))

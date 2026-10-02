@@ -63,18 +63,38 @@ class DatabaseService:
         with self.session_factory() as session:
             return session.query(UserModel).filter_by(id=user_id).first()
 
-    def create_user(self, telegram_id: str, full_name: Optional[str] = None, username: Optional[str] = None) -> UserModel:
+    def create_user(self, telegram_id: str, nickname: Optional[str] = None) -> UserModel:
+        """A Telegram account. No name is taken from Telegram; ``nickname`` is only
+        ever one the player chose (``set_nickname``)."""
         with self.session_factory() as session:
             user = UserModel(
                 telegram_id=str(telegram_id),
-                full_name=full_name or str(telegram_id),
-                username=username,
+                nickname=nickname,
                 is_active=True,
             )
             session.add(user)
             session.commit()
             session.refresh(user)
             return user
+
+    def nickname_taken(self, nickname: str, except_user_id: Optional[int] = None) -> bool:
+        """Whether another account already uses ``nickname``, ignoring case."""
+        with self.session_factory() as session:
+            q = session.query(UserModel.id).filter(sa_func.lower(UserModel.nickname) == nickname.lower())
+            if except_user_id is not None:
+                q = q.filter(UserModel.id != except_user_id)
+            return q.first() is not None
+
+    def set_nickname(self, user_id: int, nickname: Optional[str]) -> None:
+        """Set (or, with ``None``, clear) a user's nickname. Raises ``ValueError`` if
+        the user does not exist; the unique index raises ``IntegrityError`` if
+        another account took the nickname meanwhile."""
+        with self.session_factory() as session:
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            user.nickname = nickname
+            session.commit()
 
     def get_user_by_email(self, email: str) -> Optional[UserModel]:
         with self.session_factory() as session:
@@ -84,13 +104,13 @@ class DatabaseService:
         self,
         email: str,
         password_hash: str,
-        full_name: Optional[str] = None,
+        nickname: Optional[str] = None,
     ) -> UserModel:
         with self.session_factory() as session:
             user = UserModel(
                 email=email.strip().lower(),
                 password_hash=password_hash,
-                full_name=full_name or email.split("@")[0],
+                nickname=nickname,
                 telegram_id=None,
                 is_active=True,
             )
@@ -150,7 +170,7 @@ class DatabaseService:
             session.query(FeedbackModel).filter(FeedbackModel.user_id == web_user_id).update(
                 {FeedbackModel.user_id: telegram_user_id}, synchronize_session=False
             )
-            email, password_hash, username = web.email, web.password_hash, web.username
+            email, password_hash, nickname = web.email, web.password_hash, web.nickname
             # The reset-token backref has no ORM cascade (it would try to null a
             # NOT NULL column), so clear it explicitly; link codes do cascade.
             session.query(PasswordResetTokenModel).filter(
@@ -159,8 +179,8 @@ class DatabaseService:
             session.delete(web)  # frees the unique email before it moves
             session.flush()
             tg.email, tg.password_hash = email, password_hash
-            if not tg.username and username:
-                tg.username = username
+            if not tg.nickname and nickname:
+                tg.nickname = nickname  # the web one was freed with its row
             tg.updated_at = utcnow_naive()
             session.commit()
             return True
@@ -340,7 +360,7 @@ class DatabaseService:
             return session.query(PlayerModel).filter_by(game_id=game_id).all()
 
     # --- Waiting list (automatic game matching) ---
-    def add_to_waiting_list(self, telegram_id: str, full_name: Optional[str] = None) -> bool:
+    def add_to_waiting_list(self, telegram_id: str) -> bool:
         """Queue a player. Returns ``False`` if they were already queued.
 
         ``telegram_id`` is UNIQUE, so this is idempotent by construction: a
@@ -357,7 +377,6 @@ class DatabaseService:
             session.add(
                 WaitingListModel(
                     telegram_id=str(telegram_id),
-                    full_name=full_name,
                     joined_at=utcnow_naive(),
                 )
             )
@@ -375,21 +394,21 @@ class DatabaseService:
             session.commit()
             return bool(deleted)
 
-    def get_waiting_list(self) -> List[Tuple[str, Optional[str]]]:
-        """Everyone queued, longest-waiting first, as ``(telegram_id, full_name)``."""
+    def get_waiting_list(self) -> List[str]:
+        """Everyone queued (Telegram ids), longest-waiting first."""
         with self.session_factory() as session:
             rows = (
-                session.query(WaitingListModel.telegram_id, WaitingListModel.full_name)
+                session.query(WaitingListModel.telegram_id)
                 .order_by(WaitingListModel.joined_at, WaitingListModel.id)
                 .all()
             )
-        return [(str(r[0]), r[1]) for r in rows]
+        return [str(r[0]) for r in rows]
 
     def count_waiting_list(self) -> int:
         with self.session_factory() as session:
             return session.query(WaitingListModel).count()
 
-    def claim_waiting_list_entries(self, count: int) -> List[Tuple[str, Optional[str]]]:
+    def claim_waiting_list_entries(self, count: int) -> List[str]:
         """Atomically remove and return the ``count`` longest-waiting entries.
 
         Returns ``[]`` (claiming nothing) unless at least ``count`` are queued.
@@ -420,15 +439,13 @@ class DatabaseService:
             if len(rows) < count:
                 session.rollback()
                 return []
-            claimed = [(str(r.telegram_id), r.full_name) for r in rows]
+            claimed = [str(r.telegram_id) for r in rows]
             for row in rows:
                 session.delete(row)
             session.commit()
         return claimed
 
-    def requeue_waiting_list_entries(
-        self, entries: List[Tuple[str, Optional[str]]]
-    ) -> None:
+    def requeue_waiting_list_entries(self, entries: List[str]) -> None:
         """Put claimed entries back after a failed game creation.
 
         Re-inserted at the *front* of the queue (``joined_at`` preserved is not
@@ -443,7 +460,7 @@ class DatabaseService:
                 sa_func.min(WaitingListModel.joined_at)
             ).scalar()
             base = earliest or utcnow_naive()
-            for offset, (telegram_id, full_name) in enumerate(entries):
+            for offset, telegram_id in enumerate(entries):
                 already = (
                     session.query(WaitingListModel)
                     .filter_by(telegram_id=str(telegram_id))
@@ -454,7 +471,6 @@ class DatabaseService:
                 session.add(
                     WaitingListModel(
                         telegram_id=str(telegram_id),
-                        full_name=full_name,
                         # microseconds before the current head, order preserved
                         joined_at=base - timedelta(microseconds=len(entries) - offset),
                     )
@@ -1032,7 +1048,7 @@ class DatabaseService:
                     "user_id": tp.user_id,
                     "seed": tp.seed,
                     "final_rank": tp.final_rank,
-                    "full_name": u.full_name if u else None,
+                    "nickname": u.nickname if u else None,
                     "email": u.email if u else None,
                 }
                 for tp, u in rows
@@ -1141,7 +1157,7 @@ class DatabaseService:
                 {
                     "user_id": s.user_id,
                     "joined_at": s.joined_at.isoformat() if s.joined_at else None,
-                    "full_name": u.full_name,
+                    "nickname": u.nickname,
                     "email": u.email,
                 }
                 for s, u in rows
@@ -1216,7 +1232,7 @@ class DatabaseService:
                     "phase_code": f.phase_code,
                     "text": f.text,
                     "user_id": f.user_id,
-                    "full_name": u.full_name if u is not None else None,
+                    "nickname": u.nickname if u is not None else None,
                     "telegram_id": u.telegram_id if u is not None else None,
                 }
                 for f, u in rows

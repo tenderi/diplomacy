@@ -107,8 +107,8 @@ class TestPlayerDashboard:
             "ITALY": {"orders_submitted": False, "last_order_time": None, "is_eliminated": False},
             "TURKEY": {"orders_submitted": False, "last_order_time": None, "is_eliminated": True},
         }
-        players = [{"power": "FRANCE", "full_name": "Ann-Marie", "telegram_id": "1"},
-                   {"power": "ITALY", "full_name": None, "telegram_id": "555"}]
+        players = [{"power": "FRANCE", "nickname": "Ann-Marie", "telegram_id": "1"},
+                   {"power": "ITALY", "nickname": None, "telegram_id": "555"}]
         assert _lines(format_player_dashboard(self._state(powers), players)) == [
             "👥 *PLAYER STATUS DASHBOARD - GAME 7*",
             "📅 SPRING 1901 - MOVEMENT Phase",
@@ -117,7 +117,7 @@ class TestPlayerDashboard:
             "🇫🇷 FRANCE (Ann-Marie) - Submitted",
             "",
             "❌ *No Orders:*",
-            "🇮🇹 ITALY (User 555) - No orders",
+            "🇮🇹 ITALY - No orders",
             "🇹🇷 TURKEY - Eliminated",
             "",
         ]
@@ -190,6 +190,8 @@ class TestRoutesQueueForTheGroup:
 
     def _linked_game(self, client: TestClient) -> tuple[str, str]:
         creator = _telegram_user(client, "Ann-Marie")
+        self.nickname = f"Ann {creator[-6:]}"  # nicknames are unique; the test DB outlives a run
+        assert client.post("/users/nickname", json=_as(creator, nickname=self.nickname)).status_code == 200
         game_id = str(client.post("/games/create", json=_as(creator, map_name="standard"), headers=BOT).json()["game_id"])
         assert client.post(f"/games/{game_id}/join", json=_as(creator, power="FRANCE")).status_code == 200
         assert client.post(f"/games/{game_id}/channel/link", json={"channel_id": GROUP}, headers=BOT).status_code == 200
@@ -209,7 +211,7 @@ class TestRoutesQueueForTheGroup:
         row = self._post(client, f"/games/{game_id}/channel/dashboard")
         assert row["kind"] == "channel_text" and row["payload"]["parse_mode"] == "Markdown"
         assert row["message"].startswith(f"👥 *PLAYER STATUS DASHBOARD - GAME {game_id}*\n📅 SPRING 1901 - MOVEMENT Phase")
-        assert "🇫🇷 FRANCE (Ann-Marie) - Submitted" in row["message"]
+        assert f"🇫🇷 FRANCE ({self.nickname}) - Submitted" in row["message"]
         assert "🇩🇪 GERMANY - No orders" in row["message"]
 
     def test_timeline_and_battle_results_rank_the_opening_board(self, client: TestClient) -> None:

@@ -25,7 +25,7 @@ afterEach(() => cleanup())
 const mockUser = {
   id: 1,
   email: 'a@b.com',
-  full_name: 'Test',
+  nickname: 'Test',
   telegram_id: null,
   telegram_linked: false,
 }
@@ -61,7 +61,7 @@ function stubFetchFor(gameState: Record<string, unknown>, legalOrders: Record<st
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve([{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]),
+        json: () => Promise.resolve([{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' }]),
         text: () => Promise.resolve('[]'),
       } as Response)
     if (url.includes('/orders/'))
@@ -324,7 +324,7 @@ describe('GameView — draw vote', () => {
     players: { FRANCE: { user_id: 1, is_active: true } },
     orders: {},
   }
-  const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]
+  const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' }]
 
   it('renders the current draw-vote tally for the logged-in user', async () => {
     vi.stubGlobal(
@@ -417,7 +417,7 @@ describe('GameView — draw vote', () => {
   })
 
   it('does not show the draw-vote control for a user with no power in the game', async () => {
-    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Other' }]
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Other' }]
     const noOwnPowerState = { ...baseGameState, units: [], units_by_power: {} }
     vi.stubGlobal('fetch', stubFetchForDrawVote(noOwnPowerState, otherPlayers, [
       { phase: 'S1901M', game_status: 'ACTIVE', required: ['GERMANY'], votes: [], missing: ['GERMANY'], quorum_reached: false },
@@ -505,7 +505,7 @@ const activeMovementState = {
   players: { FRANCE: { user_id: 1, is_active: true } },
   orders: {},
 }
-const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Test' }]
+const francePlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test' }]
 
 describe('GameView — process turn: the creator only, and confirmed', () => {
   it('hides it from a seated player who did not create the game, and says why', async () => {
@@ -529,7 +529,7 @@ describe('GameView — process turn: the creator only, and confirmed', () => {
   })
 
   it('hides the process-turn action entirely for a user with no power in the game', async () => {
-    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Other' }]
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Other' }]
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, otherPlayers))
 
     const { container } = render(
@@ -583,8 +583,8 @@ describe('GameView — process turn: the creator only, and confirmed', () => {
 describe('GameView — roster', () => {
   it('renders every power with its controlling player or Open', async () => {
     const rosterPlayers = [
-      { power: 'FRANCE', user_id: 1, is_active: true, full_name: 'Alice' },
-      { power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' },
+      { power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Alice' },
+      { power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' },
     ]
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, rosterPlayers))
 
@@ -611,7 +611,7 @@ describe('GameView — roster', () => {
 
 describe('GameView — civil-disorder dummies (W9)', () => {
   it('labels a dummy seat and keeps it out of the join menu', async () => {
-    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' }]
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' }]
     const state = { ...activeMovementState, dummy_powers: ['AUSTRIA', 'TURKEY'] }
     vi.stubGlobal('fetch', stubFetchActive(state, otherPlayers))
 
@@ -674,7 +674,7 @@ describe('GameView — auto-processing and wait flags (W10)', () => {
 describe('GameView — private games (W8)', () => {
   it('asks for the password and sends it with the join', async () => {
     const posts: unknown[] = []
-    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, full_name: 'Bob' }]
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' }]
     const base = stubFetchActive({ ...activeMovementState, private: true }, otherPlayers)
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
       if (url.includes('/join') && init?.method === 'POST') {
@@ -1064,7 +1064,7 @@ describe('GameView — results panel (E4)', () => {
 
   it('offers the pending-orders map only to a player seated in the game', async () => {
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, [
-      { power: 'ENGLAND', user_id: 99, is_active: true, full_name: 'Someone else' },
+      { power: 'ENGLAND', user_id: 99, is_active: true, nickname: 'Someone else' },
     ]))
 
     const { container } = render(

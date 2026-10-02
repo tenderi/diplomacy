@@ -26,6 +26,7 @@ from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.game_repo import StaleGameError
 from server.game_service import GameOverError, OrderError
+from server.nickname import display_name
 
 router = APIRouter()
 
@@ -844,7 +845,7 @@ def get_players(game_id: str) -> List[Dict[str, Any]]:
                 "user_id": p.user_id,
                 "is_active": getattr(p, 'is_active', True),
                 "telegram_id": getattr(user, 'telegram_id', None) if user else None,
-                "full_name": getattr(user, 'full_name', None) if user else None,
+                "nickname": getattr(user, 'nickname', None) if user else None,
             })
         return result
     except HTTPException:
@@ -985,7 +986,7 @@ def join_game(
         try:
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
-                notify_players(int(game.id), f"Player {user.full_name or telegram_id_val or 'Player'} has joined game {game_id} as {req.power}.")  # type: ignore
+                notify_players(int(game.id), f"{display_name(user)} has joined game {game_id} as {req.power}.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # Game start notification
@@ -1049,7 +1050,7 @@ def quit_game(
             notify_user(telegram_id_val, f"You have quit game {game_id}.")
         try:
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-            notify_players(game_id, f"Player {user.full_name or getattr(user, 'telegram_id', None) or 'Player'} has left game {game_id} (power {power_name}).")
+            notify_players(game_id, f"{display_name(user, f'The {power_name} player')} has left game {game_id} (power {power_name}).")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
@@ -1092,7 +1093,7 @@ def replace_player(
         try:
             notify_players(
                 game_id,
-                f"{user.full_name or telegram_id_val or 'A new player'} has taken over "
+                f"{display_name(user, 'A new player')} has taken over "
                 f"{req.power.upper()} in game {game_id}.",
                 exclude_telegram_id=telegram_id_val,
             )

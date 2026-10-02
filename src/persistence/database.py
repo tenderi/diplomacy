@@ -5,7 +5,7 @@ This migration implements the comprehensive database schema defined in data_spec
 with proper foreign key relationships and data validation constraints.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index, text, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index, text, inspect, func
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
@@ -127,8 +127,9 @@ class UserModel(Base):
     email = Column(String(255), unique=True, nullable=True)  # For browser login
     password_hash = Column(String(255), nullable=True)  # For browser login
     telegram_id = Column(String(255), unique=True, nullable=True)  # For Telegram; null until linked from web
-    full_name = Column(String(255), nullable=False)
-    username = Column(String(255))
+    #: Chosen by the player; optional; unique ignoring case (``uq_users_nickname_lower``).
+    #: Never a real name: the system stores none (the bot does not send Telegram names).
+    nickname = Column(String(24), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=utcnow_naive)
     updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
@@ -138,6 +139,8 @@ class UserModel(Base):
     messages_sent = relationship("MessageModel", foreign_keys="MessageModel.sender_user_id", back_populates="sender")
     # Note: messages_received removed - recipient_user_id doesn't exist in database schema
     link_codes = relationship("LinkCodeModel", back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (Index("uq_users_nickname_lower", func.lower(nickname), unique=True),)
 
 
 class LinkCodeModel(Base):
@@ -195,7 +198,6 @@ class WaitingListModel(Base):
 
     id = Column(Integer, primary_key=True)
     telegram_id = Column(String(255), unique=True, nullable=False)
-    full_name = Column(String(255), nullable=True)
     joined_at = Column(DateTime, default=utcnow_naive, nullable=False)
 
     __table_args__ = (

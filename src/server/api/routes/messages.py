@@ -13,6 +13,7 @@ from .auth import resolve_user_or_telegram, get_current_user_optional, http_bear
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
 from ..shared import db_service, game_service, scheduler_logger, logger, notify_players, notify_user, is_bot_secret
 from persistence.database import MessageModel
+from server.nickname import sender_label
 
 router = APIRouter()
 
@@ -102,7 +103,7 @@ def send_private_message(
                     notify_user(
                         recipient_telegram_id,
                         f"New private message in game {game_id} from "
-                        f"{user.full_name or getattr(user, 'telegram_id', None)}"
+                        f"{sender_label(player, user)}"
                         f"{sent_at_suffix(sent_at)}: {req.text}",
                     )
         except Exception as e:
@@ -142,7 +143,7 @@ def send_broadcast_message(
             notify_players(
                 game_id,
                 f"Broadcast in game {game_id} from "
-                f"{user.full_name or getattr(user, 'telegram_id', None)}"
+                f"{sender_label(player, user)}"
                 f"{sent_at_suffix(sent_at)}: {req.text}",
                 exclude_telegram_id=getattr(user, "telegram_id", None),
             )

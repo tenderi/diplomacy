@@ -38,6 +38,7 @@ first, because a bare number there would be ambiguous.)
 | `/examples` | Order syntax examples. |
 | `/refresh` | Rebuild the keyboard menu if it gets out of sync. |
 | `/register` | Still works, but `/start`, joining and queueing register you automatically. |
+| `/nickname [name]` | Show your nickname, set it (`/nickname Talleyrand`), or clear it (`/nickname -`). Other players see your power, plus this nickname if you set one. 2–24 letters, digits, spaces, `.`, `_` or `-`; unique. Your Telegram name is never stored. |
 | `/cancel` | Stop writing a message or password the bot asked for. |
 | `/feedback <text>` | Send a report or an idea to the maintainer; your current game and its phase are attached. |
 
@@ -186,7 +187,7 @@ Send these **in the group**:
 
 | Command | Description |
 |---|---|
-| `/debug` | Shows your Telegram user id, username and name (what an admin needs to find you). |
+| `/debug` | Shows your Telegram user id, username and name, as Telegram reports them (nothing of it is stored; the id is what an admin needs to find you). |
 
 ## Troubleshooting
 
