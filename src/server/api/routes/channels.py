@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Any, Dict, Optional
 
 from .auth import get_current_user_optional, http_bearer
-from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label
+from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows
 from ...response_cache import invalidate_cache
 
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -421,17 +421,8 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
         players_data = None
         try:
             row = db_service.get_game_by_game_id(game_id)
-            players_list = db_service.get_players_by_game_id(int(row.id)) if row else []
-            players_data = []
-            for p in players_list:
-                user = db_service.get_user_by_id(int(p.user_id)) if p.user_id else None
-                players_data.append({
-                    "power": p.power_name,
-                    "user_id": p.user_id,
-                    "is_active": getattr(p, 'is_active', True),
-                    "telegram_id": getattr(user, 'telegram_id', None) if user else None,
-                    "nickname": getattr(user, 'nickname', None) if user else None,
-                })
+            # Names (public games only) ride along with each power.
+            players_data = player_rows(row) if row else []
         except Exception as e:
             logger.warning(f"Could not get players data for dashboard: {e}")
 

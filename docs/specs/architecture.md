@@ -229,6 +229,15 @@ place the full picture exists.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 
+**How a player is named** depends on the game (`games.anonymous`, fixed at creation).
+Every notification that names a power — join, quit, takeover, wait flag, draw vote,
+concession, deadline proposals and votes, private messages and broadcasts (DM and group
+post) — names it through `api.shared.power_label`: `FRANCE` in an anonymous game, `FRANCE
+(Anna)` in a public one (the power alone for a player with no nickname). A join or takeover in an anonymous game says "A new player has
+joined … as ITALY". The bot relays every message between players, so in an anonymous game
+nobody learns who holds a power except by being told. The same rule holds for API reads
+(`api.shared.player_rows`; `docs/specs/data_spec.md` §4).
+
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
 directly) and returns the outcome to the *voter* only. The game is then `COMPLETED`, so the

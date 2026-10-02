@@ -19,7 +19,7 @@ from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
-    post_to_game_group,
+    post_to_game_group, is_anonymous, player_rows, power_label,
 )
 from ...deadline_schedule import ScheduleError, parse_schedule
 from ...legal_orders import legal_orders_for_power
@@ -50,6 +50,11 @@ class CreateGameRequest(BaseModel):
     auto_process: bool = False
     # W8: make the game private -- /join then needs this password (the creator is exempt).
     join_password: Optional[str] = None
+    # Anonymous: players are known only by their power -- announcements and
+    # relayed messages name the power alone, and no API read says who holds a
+    # seat. Public (the default): the player's nickname rides along with the power.
+    # Fixed for the game's life.
+    anonymous: bool = False
     # The bot's way of saying who is creating the game (a browser caller is the
     # Bearer user); recorded as the game's creator.
     telegram_id: Optional[str] = None
@@ -298,6 +303,7 @@ def create_game(
             auto_process=req.auto_process,
             join_password_hash=_checked_join_password(req.join_password),
             deadline_schedule=schedule,
+            anonymous=req.anonymous,
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -393,11 +399,12 @@ def set_wait_flag(
     except (GameOverError, StaleGameError) as e:  # stale: the phase was processed meanwhile
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+    label = power_label(game_id, power)
     notify_players(
         int(game.id),
-        f"{power} asks game {game_id} to wait before the turn is processed."
+        f"{label} asks game {game_id} to wait before the turn is processed."
         if req.waiting
-        else f"{power} is ready in game {game_id}.",
+        else f"{label} is ready in game {game_id}.",
         exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
     )
     processed = 0 if req.waiting else api_shared.maybe_auto_process(game_id)
@@ -719,7 +726,7 @@ def submit_draw_vote(
                 required = result.get("required") or []
                 notify_players(
                     int(row.id),
-                    f"{req.power} has voted to end game {game_id} in a draw "
+                    f"{power_label(game_id, req.power)} has voted to end game {game_id} in a draw "
                     f"({len(votes)}/{len(required)} agreed). "
                     f"Use /draw to agree or /nodraw to withdraw.",
                     exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
@@ -754,6 +761,7 @@ def concede_game(
     _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
+    label = power_label(game_id, req.power)
     try:
         result = game_service.concede(game_id, req.power)
     except OrderError as e:
@@ -772,7 +780,7 @@ def concede_game(
         if row is not None:
             notify_players(
                 int(row.id),
-                f"{req.power} has conceded and left game {game_id}. "
+                f"{label} has conceded and left game {game_id}. "
                 f"Its units have been removed and its supply centres are now neutral; "
                 f"the remaining powers play on.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
@@ -821,7 +829,16 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
                 "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
                 "dummy_powers": sorted(g.dummy_powers or []),
                 "private": g.join_password_hash is not None,  # W8; never the hash
-                "players": [{"power": p.power_name, "user_id": p.user_id} for p in players],
+                "anonymous": bool(g.anonymous),
+                # An anonymous game says which seats are held, never by whom.
+                "players": [
+                    {
+                        "power": p.power_name,
+                        "seated": p.user_id is not None,
+                        "user_id": None if g.anonymous else p.user_id,
+                    }
+                    for p in players
+                ],
                 **({"channel_id": g.channel_id} if bot else {}),
             })
         return {"games": result}
@@ -831,23 +848,13 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
 @router.get("/games/{game_id}/players")
 @cached_response(ttl=60, key_params=["game_id"])
 def get_players(game_id: str) -> List[Dict[str, Any]]:
-    """Get all players in a game."""
+    """A game's seats. An anonymous game says which are held, never by whom
+    (``api.shared.player_rows``)."""
     try:
         game = db_service.get_game_by_game_id(game_id)
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
-        players = db_service.get_players_by_game_id(int(game.id))  # type: ignore
-        result = []
-        for p in players:
-            user = db_service.get_user_by_id(int(p.user_id)) if p.user_id else None  # type: ignore
-            result.append({
-                "power": p.power_name,
-                "user_id": p.user_id,
-                "is_active": getattr(p, 'is_active', True),
-                "telegram_id": getattr(user, 'telegram_id', None) if user else None,
-                "nickname": getattr(user, 'nickname', None) if user else None,
-            })
-        return result
+        return player_rows(game)
     except HTTPException:
         raise
     except Exception as e:
@@ -979,14 +986,16 @@ def join_game(
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
-            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power}.", game_buttons(game_id))
+            hidden = " It is anonymous: the other players know you only as your power." if is_anonymous(game_id) else ""
+            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power.upper()}.{hidden}", game_buttons(game_id))
         # Get player model for return value
         player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         player_id = player_model.id if player_model else user.id
         try:
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
-                notify_players(int(game.id), f"{display_name(user)} has joined game {game_id} as {req.power}.")  # type: ignore
+                who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
+                notify_players(int(game.id), f"{who} has joined game {game_id} as {req.power.upper()}.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # Game start notification
@@ -1050,7 +1059,7 @@ def quit_game(
             notify_user(telegram_id_val, f"You have quit game {game_id}.")
         try:
             power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-            notify_players(game_id, f"{display_name(user, f'The {power_name} player')} has left game {game_id} (power {power_name}).")
+            notify_players(game_id, f"{power_label(game_id, str(power_name), user)} has left game {game_id}.")
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of quit event: {e}")
         return {"status": "ok"}
@@ -1091,9 +1100,10 @@ def replace_player(
             invalidate_cache(f"users/{telegram_id_val}")
         invalidate_cache(f"games/{game_id}")
         try:
+            who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
             notify_players(
                 game_id,
-                f"{display_name(user, 'A new player')} has taken over "
+                f"{who} has taken over "
                 f"{req.power.upper()} in game {game_id}.",
                 exclude_telegram_id=telegram_id_val,
             )
@@ -1196,7 +1206,7 @@ def propose_deadline(
         if result["status"] == "accepted":
             notify_players(
                 int(game.id),
-                f"{req.power}'s deadline proposal for game {game_id} was accepted "
+                f"{power_label(game_id, req.power)}'s deadline proposal for game {game_id} was accepted "
                 f"immediately (they're the only active power): deadline now "
                 f"{_deadline_text(result['deadline'])}.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
@@ -1206,7 +1216,7 @@ def propose_deadline(
             what = f"{req.hours}h" if req.hours is not None else "clearing it"
             notify_players(
                 int(game.id),
-                f"{req.power} proposes changing game {game_id}'s deadline to {what}. "
+                f"{power_label(game_id, req.power)} proposes changing game {game_id}'s deadline to {what}. "
                 f"Needs {needed} yes votes ({len(result['yes_votes'])}/{needed} so far). "
                 f"Use /deadline {game_id} vote yes|no.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
@@ -1246,7 +1256,7 @@ def vote_deadline_proposal(
         elif result["status"] == "rejected":
             notify_players(
                 int(game.id),
-                f"Game {game_id}'s deadline proposal (from {result['proposed_by']}) "
+                f"Game {game_id}'s deadline proposal (from {power_label(game_id, result['proposed_by'])}) "
                 f"was voted down; nothing changed.",
                 exclude_telegram_id=exclude,
             )
@@ -1254,7 +1264,7 @@ def vote_deadline_proposal(
             needed = result["needed_for_majority"]
             notify_players(
                 int(game.id),
-                f"{req.power} voted yes on game {game_id}'s deadline proposal "
+                f"{power_label(game_id, req.power)} voted yes on game {game_id}'s deadline proposal "
                 f"({len(result['yes_votes'])}/{needed} needed).",
                 exclude_telegram_id=exclude,
             )

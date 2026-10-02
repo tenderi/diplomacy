@@ -63,6 +63,11 @@ class GameModel(Base):
     wait_flags = Column(JSON, nullable=True)
     # W8: bcrypt hash of the join password; null = open game. Never serialized.
     join_password_hash = Column(String(100), nullable=True)
+    # Chosen at creation and fixed for the game's life. True: players are known
+    # only by their power -- every announcement and relayed message names the
+    # power alone, and the API hides who holds which seat. False (public): the
+    # player's nickname rides along with their power.
+    anonymous = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

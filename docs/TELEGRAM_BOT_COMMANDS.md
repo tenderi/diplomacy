@@ -169,7 +169,7 @@ Send these **in the group**:
 
 | Command | Description |
 |---|---|
-| `/newgame` | Create a game for this group. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
+| `/newgame anonymous` / `/newgame public` | Create a game for this group, choosing how players are named (fixed for the game's life): **anonymous** -- everyone is known only by their power, and messages and announcements name the power alone; **public** -- nicknames (`/nickname`) are shown next to powers. A bare `/newgame` explains the two and creates nothing. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
 | `/linkgroup [game_id]` | Attach one of your existing games to this group. |
 | `/unlinkgroup [game_id]` | Detach it again. |
 | `/status [game_id]`, `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |

@@ -56,12 +56,10 @@ class TestRules:
         assert display_name(None, "The FRANCE player") == "The FRANCE player"
 
     def test_messages_are_from_the_power(self) -> None:
-        class P:
-            power_name = "FRANCE"
         class U:
             nickname = "Talleyrand"
-        assert sender_label(P(), None) == "FRANCE"
-        assert sender_label(P(), U()) == "FRANCE (Talleyrand)"
+        assert sender_label("FRANCE", None) == "FRANCE"
+        assert sender_label("FRANCE", U()) == "FRANCE (Talleyrand)"
 
 
 @needs_db

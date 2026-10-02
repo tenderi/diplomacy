@@ -1262,3 +1262,67 @@ describe('GameView — player actions', () => {
     expect(await within(container).findByText('You are not authorized to act for this power.')).toBeInTheDocument()
   })
 })
+
+describe('GameView — anonymous and public games', () => {
+  const anonymousState = {
+    ...activeMovementState,
+    anonymous: true,
+    players: { FRANCE: { user_id: null, is_active: true, seated: true } },
+  }
+  // An anonymous game's player list carries seats, never who holds them.
+  const anonymousPlayers = [
+    { power: 'FRANCE', user_id: null, is_active: true, nickname: null, seated: true },
+    { power: 'GERMANY', user_id: null, is_active: true, nickname: null, seated: true },
+  ]
+
+  function withMessages(
+    base: ReturnType<typeof stubFetchActive>,
+    messages: Record<string, unknown>[],
+    myGames: Record<string, unknown>[] = []
+  ) {
+    return vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/users/me/games')) return jsonResponse({ games: myGames })
+      if (url.includes('/messages')) return jsonResponse({ messages })
+      return base(url, init)
+    })
+  }
+
+  it('shows held seats without names, and finds the viewer\'s own power from their games list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      withMessages(stubFetchActive(anonymousState, anonymousPlayers), [], [{ game_id: 10, power: 'FRANCE' }])
+    )
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText('Anonymous')).toBeInTheDocument()
+    const roster = within(container).getByRole('heading', { name: 'Players' }).closest('section') as HTMLElement
+    await waitFor(() => expect(within(roster).getByText('FRANCE (you)')).toBeInTheDocument())
+    const germanyRow = within(roster).getByText('GERMANY').closest('li') as HTMLElement
+    expect(within(germanyRow).getByText('Taken')).toBeInTheDocument()
+    const austriaRow = within(roster).getByText('AUSTRIA').closest('li') as HTMLElement
+    expect(within(austriaRow).getByText('Open')).toBeInTheDocument()
+    // A held seat is not offered to join, though no user id says who holds it.
+    const select = within(container).queryByLabelText('Power to join as')
+    expect(select).toBeNull()
+  })
+
+  it('names a message sender by power alone in an anonymous game', async () => {
+    const messages = [{ id: 1, sender_user_id: null, sender_power: 'GERMANY', sender_name: null, recipient_power: 'FRANCE', text: 'Ally?' }]
+    vi.stubGlobal(
+      'fetch',
+      withMessages(stubFetchActive(anonymousState, anonymousPlayers), messages, [{ game_id: 10, power: 'FRANCE' }])
+    )
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText('GERMANY → FRANCE: Ally?')).toBeInTheDocument()
+  })
+
+  it('names a message sender by power and name in a public game', async () => {
+    const messages = [{ id: 1, sender_user_id: 2, sender_power: 'GERMANY', sender_name: 'Bob', recipient_power: null, text: 'Hello all' }]
+    vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), messages))
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText('GERMANY (Bob) → ALL: Hello all')).toBeInTheDocument()
+    expect(within(container).queryByText('Anonymous')).toBeNull()
+  })
+})
