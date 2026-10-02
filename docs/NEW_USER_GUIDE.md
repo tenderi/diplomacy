@@ -122,7 +122,8 @@ Deals are not binding, and neither are promises. That's the game.
 At **https://diplomacy.xn--jalluthti-02a.fi** you can see your games with a large,
 zoomable map, results of the last turn, messages, and order entry.
 
-1. **Register** with your email and a password.
+1. **Register** with your email and a password, and a nickname if you like (not your real
+   name). In Telegram, `/nickname <name>` sets the same thing.
 2. **Link Telegram** (top menu): the site shows a code; send `/link <code>` to the bot.
    Your web account and your Telegram player are now the same, and your games appear
    on both. (If you already played through Telegram, your web login moves onto that

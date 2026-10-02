@@ -43,7 +43,7 @@ def _drawn_game(client) -> tuple[str, str]:
     ``submit_draw_vote`` path (status persisted by ``save_state``).
     """
     tg = f"go_{int(time.time() * 1000)}"
-    client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": "Over"})
+    client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg})
     headers = _register_and_login(client, "gameover")
     game_id = client.post("/games/create", json={"map_name": "standard"}, headers=headers).json()["game_id"]
     join = client.post(

@@ -41,8 +41,8 @@ class TestSendPrivateMessage:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_send_private_message_success(self, client):
         """Test successful private message sending."""
-        client.post("/users/persistent_register", json={"telegram_id": "sender1", "full_name": "Sender", "bot_secret": BOT_SECRET})
-        client.post("/users/persistent_register", json={"telegram_id": "recipient1", "full_name": "Recipient", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "sender1", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "recipient1", "bot_secret": BOT_SECRET})
 
         headers = _register_and_login(client, "msg_priv1")
         game_id = _create_game(client, headers)
@@ -64,7 +64,7 @@ class TestSendPrivateMessage:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_send_private_message_not_in_game(self, client):
         """Test sending message when sender not in game."""
-        client.post("/users/persistent_register", json={"telegram_id": "outsider", "full_name": "Outsider", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "outsider", "bot_secret": BOT_SECRET})
 
         headers = _register_and_login(client, "msg_out")
         game_id = _create_game(client, headers)
@@ -80,7 +80,7 @@ class TestSendPrivateMessage:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_send_private_message_missing_recipient(self, client):
         """Test sending message without recipient."""
-        client.post("/users/persistent_register", json={"telegram_id": "sender2", "full_name": "Sender", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "sender2", "bot_secret": BOT_SECRET})
 
         headers = _register_and_login(client, "msg_norec")
         game_id = _create_game(client, headers)
@@ -102,7 +102,7 @@ class TestSendBroadcast:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_send_broadcast_success(self, client):
         """Test successful broadcast message sending."""
-        client.post("/users/persistent_register", json={"telegram_id": "broadcaster", "full_name": "Broadcaster", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "broadcaster", "bot_secret": BOT_SECRET})
 
         headers = _register_and_login(client, "msg_bcast")
         game_id = _create_game(client, headers)
@@ -127,7 +127,7 @@ class TestGetGameMessages:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_game_messages_success(self, client):
         """Test successful message retrieval."""
-        client.post("/users/persistent_register", json={"telegram_id": "msg_user", "full_name": "Message User", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "msg_user", "bot_secret": BOT_SECRET})
 
         headers = _register_and_login(client, "msg_get")
         game_id = _create_game(client, headers)

@@ -34,8 +34,7 @@ class TestRegisterUser:
         """Test persistent user registration."""
         resp = client.post("/users/persistent_register", json={
             "bot_secret": "test_bot_secret_for_tests",
-            "telegram_id": "persistent_user",
-            "full_name": "Persistent User"
+            "telegram_id": "persistent_user"
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -48,16 +47,14 @@ class TestRegisterUser:
         # Register first time
         resp1 = client.post("/users/persistent_register", json={
             "bot_secret": "test_bot_secret_for_tests",
-            "telegram_id": "duplicate_user",
-            "full_name": "Duplicate User"
+            "telegram_id": "duplicate_user"
         })
         assert resp1.status_code == 200
 
         # Register again - may return "ok" or "already_registered" depending on implementation
         resp2 = client.post("/users/persistent_register", json={
             "bot_secret": "test_bot_secret_for_tests",
-            "telegram_id": "duplicate_user",
-            "full_name": "Duplicate User"
+            "telegram_id": "duplicate_user"
         })
         assert resp2.status_code == 200
         assert resp2.json()["status"] in ["ok", "already_registered"]
@@ -74,7 +71,7 @@ class TestGetUserGames:
         """One player in two games, as a different power in each."""
         import time as _t
         tg = str(int(_t.time() * 1000000) % 10**12)
-        client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": tg, "full_name": "Two Games"})
+        client.post("/users/persistent_register", json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": tg})
         joined = {}
         for power in ("FRANCE", "GERMANY"):
             game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=BOT).json()["game_id"])
@@ -100,7 +97,6 @@ class TestGetUserGames:
         reg = client.post("/auth/register", json={
             "email": _unique_email(),
             "password": "pass12345",
-            "full_name": "Me Games User",
         })
         if reg.status_code != 200:
             pytest.skip("Auth register failed (e.g. duplicate email)")
@@ -117,8 +113,7 @@ class TestGetUserGames:
         # Register user
         client.post("/users/persistent_register", json={
             "bot_secret": "test_bot_secret_for_tests",
-            "telegram_id": "quit_user",
-            "full_name": "Quit User"
+            "telegram_id": "quit_user"
         })
 
         # Create and join game (needs auth)

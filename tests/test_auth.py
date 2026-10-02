@@ -48,7 +48,6 @@ def test_register_and_login(client):
     reg = client.post("/auth/register", json={
         "email": email,
         "password": password,
-        "full_name": "Auth Test User",
     })
     assert reg.status_code == 200
     data = reg.json()
@@ -248,7 +247,6 @@ def test_me_with_bearer(client):
     reg = client.post("/auth/register", json={
         "email": _unique_email("me"),
         "password": "pass12345",
-        "full_name": "Me User",
     })
     assert reg.status_code == 200
     token = reg.json()["access_token"]
@@ -370,7 +368,7 @@ def test_forgot_password_and_reset(client):
     _skip_if_no_db()
     email = _unique_email("forgot")
     password = "oldpass123"
-    reg = client.post("/auth/register", json={"email": email, "password": password, "full_name": "Forgot User"})
+    reg = client.post("/auth/register", json={"email": email, "password": password})
     assert reg.status_code == 200
 
     forgot = client.post("/auth/forgot_password", json={"email": email})

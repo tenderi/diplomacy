@@ -42,21 +42,16 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def _full_name(user: Any) -> str:
-    return f"{user.first_name} {user.last_name}".strip() if user.last_name else user.first_name
-
-
 def ensure_registered(user: Any) -> None:
     """Register the Telegram user with the server (idempotent).
 
     Called by /start and before joining, so "register" is never a step a
     player has to know about. Raises ``requests.RequestException`` on failure.
     """
-    api_post("/users/persistent_register", {
-        "telegram_id": str(user.id),
-        "full_name": _full_name(user),
-        "username": user.username or "",
-    })
+    # Only the id: the system holds no real names, so nothing from the Telegram
+    # profile (first/last name, @username) is sent. A nickname is the player's
+    # own choice (/nickname).
+    api_post("/users/persistent_register", {"telegram_id": str(user.id)})
 
 
 WELCOME_TEXT = (
@@ -134,12 +129,7 @@ async def _start_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, k
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/register -- kept for players who learned it; /start registers already.
-
-    Replies without Markdown: ``full_name`` comes from the player's Telegram
-    profile, and an unescaped ``_`` or ``*`` in it made Telegram reject the
-    confirmation (reported as a failed registration that had in fact worked).
-    """
+    """/register -- kept for players who learned it; /start registers already."""
     user = update.effective_user
     if not user or not update.message:
         return
@@ -149,9 +139,48 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Registration error: {e}")
         return
     await update.message.reply_text(
-        f"✅ You're registered, {_full_name(user)}. Tap 🎲 Find a game to start playing.",
+        "✅ You're registered. Tap 🎲 Find a game to start playing.\n"
+        "Other players see your power, plus a nickname if you set one: /nickname <name>.",
         reply_markup=main_keyboard(),
     )
+
+
+async def nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/nickname [name] -- show, set, or (``/nickname -``) clear your nickname.
+
+    The only name the system keeps for a player; Telegram names are never stored.
+    Plain-text replies: the nickname is user-controlled.
+    """
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    text = (update.message.text or "").split(maxsplit=1)
+    try:
+        ensure_registered(user)
+        if len(text) < 2:
+            me = api_post("/users/persistent_register", {"telegram_id": str(user.id)})
+            current = me.get("nickname")
+            await update.message.reply_text(
+                (f"Your nickname is {current}." if current else "You have no nickname; other players see only your power.")
+                + "\nSet one with /nickname <name> (2-24 letters, digits, spaces, . _ -), clear it with /nickname -."
+            )
+            return
+        wanted = text[1].strip()
+        api_post("/users/nickname", {"telegram_id": str(user.id), "nickname": None if wanted == "-" else wanted})
+    except requests.HTTPError as e:
+        detail = "That nickname can't be used."
+        if e.response is not None:
+            if e.response.status_code == 409:
+                detail = "That nickname is taken."
+            elif e.response.status_code == 422:
+                detail = "A nickname is 2-24 characters: letters, digits, spaces, '.', '_' or '-'."
+        await update.message.reply_text(f"❌ {detail}")
+        return
+    except requests.RequestException as e:
+        logger.error(f"Nickname update failed for {user.id}: {e}")
+        await update.message.reply_text("❌ Could not reach the game server. Please try again in a minute.")
+        return
+    await update.message.reply_text("✅ Nickname cleared." if wanted == "-" else f"✅ Your nickname is now {' '.join(wanted.split())}.")
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -736,18 +765,17 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No players found in game {game_id}.")
         return
 
-    # Format player list. `full_name` is user-controlled (the player's Telegram
-    # profile name) and this message is sent with parse_mode='Markdown', so it
-    # must be escaped -- an unescaped `_`/`*`/`` ` ``/`[` here previously made
-    # Telegram reject the whole message with no try/except around this call to
-    # catch it, so /players silently did nothing for that player.
+    # Format player list. `nickname` is user-controlled and this message is sent
+    # with parse_mode='Markdown', so it must be escaped -- an unescaped
+    # `_`/`*`/`` ` ``/`[` once made Telegram reject the whole message, so
+    # /players silently did nothing for that player.
     lines = [f"👥 *Players in Game {game_id}*\n"]
     for player in players_list:
         power = player.get('power', 'Unknown')
-        username = escape_markdown(player.get('full_name') or 'Unknown')
+        nickname = player.get('nickname')
         is_active = player.get('is_active', True)
         status_emoji = "✅" if is_active else "❌"
-        lines.append(f"{status_emoji} *{power}* - {username}")
+        lines.append(f"{status_emoji} *{power}*" + (f" - {escape_markdown(nickname)}" if nickname else ""))
     for power in dummies:
         lines.append(f"🤖 *{power}* - civil disorder")
 
@@ -1068,9 +1096,7 @@ async def wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(user.id)
     try:
         ensure_registered(user)
-        result = api_post(
-            "/waiting_list/join", {"telegram_id": user_id, "full_name": _full_name(user)}
-        )
+        result = api_post("/waiting_list/join", {"telegram_id": user_id})
     except requests.RequestException as e:
         logger.error(f"Failed to join waiting list for {user_id}: {e}")
         await _answer(update, "❌ Could not join the queue right now. Please try again in a minute.")

@@ -42,7 +42,7 @@ def _telegram_user(client, name):
     global _tg_seq
     _tg_seq += 1
     tg = str(int(time.time() * 1000) % 10**9 * 10 + _tg_seq % 10)
-    r = client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": name})
+    r = client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg})
     assert r.status_code == 200, r.text
     return tg
 

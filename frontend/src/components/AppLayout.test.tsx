@@ -47,7 +47,7 @@ describe('AppLayout', () => {
     const mockUser = {
       id: 1,
       email: 'a@b.com',
-      full_name: 'Test',
+      nickname: 'Test',
       telegram_id: null,
       telegram_linked: false,
     }
@@ -111,7 +111,7 @@ describe('AppLayout', () => {
 
   it('offers feedback to a signed-in user, about the game on screen', () => {
     const auth = {
-      user: { id: 1, email: 'a@b.com', full_name: 'Test', telegram_id: null, telegram_linked: false },
+      user: { id: 1, email: 'a@b.com', nickname: 'Test', telegram_id: null, telegram_linked: false },
       loading: false, login: vi.fn(), register: vi.fn(), logout: vi.fn(), refreshUser: vi.fn(),
     }
     const onGame = render(

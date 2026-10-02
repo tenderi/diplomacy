@@ -67,7 +67,7 @@ def test_players_lists_dummies_as_civil_disorder(mock_ctx_get, mock_get):
     mock_ctx_get.return_value = {"games": [{"game_id": "7", "power": "FRANCE"}]}
     mock_get.side_effect = lambda path: (
         {"dummy_powers": ["TURKEY"]} if path.endswith("/state")
-        else [{"power": "FRANCE", "full_name": "Ann", "is_active": True}]
+        else [{"power": "FRANCE", "nickname": "Ann", "is_active": True}]
     )
     update, context, message = _update([])
     asyncio.run(players(update, context))

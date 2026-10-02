@@ -57,6 +57,7 @@ def test_a_telegram_report_is_stored_with_the_phase_and_dmed_to_the_maintainer(
     client: TestClient, admin_chat: int
 ) -> None:
     tg = _telegram_user(client, "Feedback France")
+    assert client.post("/users/nickname", json=_as(tg, nickname=f"Feedback {tg[-6:]}")).status_code == 200
     game_id = str(client.post("/games/create", json=_as(tg, map_name="standard"), headers=BOT).json()["game_id"])
     before = len(_admin_dms())
 
@@ -69,7 +70,7 @@ def test_a_telegram_report_is_stored_with_the_phase_and_dmed_to_the_maintainer(
         "the map is wrong", game_id, "S1901M", "telegram", tg,
     )
     assert _admin_dms()[before:] == [
-        f"💬 Feedback #{feedback_id} from Feedback France (telegram, game {game_id} (S1901M)):\n\nthe map is wrong"
+        f"💬 Feedback #{feedback_id} from Feedback {tg[-6:]} (telegram, game {game_id} (S1901M)):\n\nthe map is wrong"
     ]
 
 

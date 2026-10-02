@@ -53,7 +53,6 @@ class WaitingListRequest(BaseModel):
     ``telegram_id``.
     """
     telegram_id: str
-    full_name: Optional[str] = None
 
 
 def _notify(telegram_id: str, message: str, game_id: Optional[str] = None) -> None:
@@ -97,19 +96,19 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
     orphan_id: Optional[int] = None
     try:
         users = []
-        for telegram_id, full_name in claimed:
+        for telegram_id in claimed:
             user = db_service.get_user_by_telegram_id(telegram_id)
             if user is None:
                 raise ValueError(
                     f"telegram_id {telegram_id} is queued but has no registered user"
                 )
-            users.append((telegram_id, full_name, int(user.id)))
+            users.append((telegram_id, int(user.id)))
 
         shuffled = list(users)
         random.shuffle(shuffled)
-        assignments: List[Tuple[str, Optional[str], int, str]] = [
-            (telegram_id, full_name, user_id, power)
-            for (telegram_id, full_name, user_id), power in zip(shuffled, POWERS)
+        assignments: List[Tuple[str, int, str]] = [
+            (telegram_id, user_id, power)
+            for (telegram_id, user_id), power in zip(shuffled, POWERS)
         ]
 
         game_id = game_service.create_game(map_name="standard")
@@ -118,7 +117,7 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
             raise RuntimeError(f"game {game_id} was created but cannot be read back")
         orphan_id = int(row.id)
 
-        for _telegram_id, _full_name, user_id, power in assignments:
+        for _telegram_id, user_id, power in assignments:
             db_service.create_player(int(row.id), power, user_id=user_id)
     except Exception as e:
         db_service.requeue_waiting_list_entries(claimed)
@@ -132,10 +131,10 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
 
     # Committed. Everything below is best-effort: a Telegram outage must not
     # undo a game that exists.
-    for telegram_id, _full_name, _user_id, _power in assignments:
+    for telegram_id, _user_id, _power in assignments:
         # Their notification's game-menu button reads this list.
         invalidate_cache(f"users/{telegram_id}")
-    for telegram_id, _full_name, _user_id, power in assignments:
+    for telegram_id, _user_id, power in assignments:
         _notify(
             telegram_id,
             f"🎮 Game {game_id} created! You've been assigned {power}.",
@@ -151,7 +150,7 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
     )
     return {
         "game_id": game_id,
-        "assignments": {power: telegram_id for telegram_id, _f, _u, power in assignments},
+        "assignments": {power: telegram_id for telegram_id, _u, power in assignments},
     }
 
 
@@ -172,7 +171,7 @@ def join_waiting_list(
             detail="No registered user for this telegram_id -- register before joining the waiting list",
         )
 
-    added = db_service.add_to_waiting_list(req.telegram_id, req.full_name)
+    added = db_service.add_to_waiting_list(req.telegram_id)
     created = try_fill_waiting_list()
 
     return {

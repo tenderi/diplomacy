@@ -10,6 +10,8 @@ import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
+from .utils import escape_markdown
+
 logger = logging.getLogger("diplomacy.telegram_bot.channels")
 
 
@@ -208,12 +210,9 @@ def format_player_dashboard(game_state: Dict[str, Any], players_data: Optional[L
                 if players_data:
                     for player in players_data:
                         if player.get("power") == power_name:
-                            full_name = player.get("full_name")
-                            telegram_id = player.get("telegram_id")
-                            if full_name:
-                                user_info = f" ({full_name})"
-                            elif telegram_id:
-                                user_info = f" (User {telegram_id})"
+                            nickname = player.get("nickname")
+                            if nickname:
+                                user_info = f" ({escape_markdown(nickname)})"  # Markdown post
                             break
                 
                 player_line = f"{emoji} {power_name}{user_info}"

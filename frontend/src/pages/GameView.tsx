@@ -47,7 +47,7 @@ import {
   toUnitOut,
 } from '@/components/OrderEntry'
 
-type Player = { power: string; user_id: number | null; is_active: boolean; full_name?: string }
+type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null }
 /**
  * The GameState-native view returned by GET /games/{id}/state (see GameService.view).
  * `phase` is a code like "S1901M"; `phase_type` drives the order UI.
@@ -819,7 +819,7 @@ export default function GameView() {
           {POWERS.map((p) => {
             const pl = players.find((x) => x.power === p)
             const label = pl?.user_id
-              ? pl.full_name || `Player #${pl.user_id}`
+              ? pl.nickname || 'Player'
               : dummyPowers.has(p)
                 ? 'Civil disorder'
                 : 'Open'

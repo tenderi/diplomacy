@@ -153,7 +153,7 @@ class TestJoinGame:
     def test_join_game_success(self, client):
         """Test successful game join."""
         # Register user first
-        client.post("/users/persistent_register", json={"telegram_id": "test123", "full_name": "Test User", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "test123", "bot_secret": BOT_SECRET})
         
         # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
@@ -170,7 +170,7 @@ class TestJoinGame:
     def test_join_game_already_joined(self, client):
         """Test joining game when already joined."""
         # Register user
-        client.post("/users/persistent_register", json={"telegram_id": "test456", "full_name": "Test User", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "test456", "bot_secret": BOT_SECRET})
         
         # Create game
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
@@ -382,7 +382,7 @@ class TestDeadlineEndpoints:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         tg = f"dl_{int(datetime.now().timestamp() * 1000000)}"
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": "Deadline"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg})
         join = client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"})
         assert join.status_code == 200, join.text
         
@@ -404,7 +404,7 @@ class TestGameHistory:
         game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
         assert client.get(f"/games/{game_id}/history/1").status_code == 404  # nothing played yet
         tg = f"hist_{int(datetime.now().timestamp() * 1000000)}"
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg, "full_name": "History"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg})
         client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"})
         ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
                                                          "telegram_id": tg, "bot_secret": BOT_SECRET})

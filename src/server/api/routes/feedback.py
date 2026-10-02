@@ -61,7 +61,7 @@ def send_feedback(
         user_id=int(user.id), source=req.source, text=text, game_id=game_id, phase_code=phase_code
     )
     if api_shared.ADMIN_TELEGRAM_ID is not None:
-        who = user.full_name or getattr(user, "email", None) or f"user {user.id}"
+        who = getattr(user, "nickname", None) or getattr(user, "email", None) or f"user {user.id}"
         where = f", game {game_id}" + (f" ({phase_code})" if phase_code else "") if game_id else ""
         notify_user(api_shared.ADMIN_TELEGRAM_ID, f"💬 Feedback #{feedback_id} from {who} ({req.source}{where}):\n\n{text}")
     return {"status": "ok", "id": feedback_id}

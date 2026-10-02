@@ -223,6 +223,9 @@ monitoring, troubleshooting — is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).**
 - **`PYTHONPATH=src` is required** to import `server.*` and `engine.*`. Forgetting it produces `ModuleNotFoundError`. Tests handle it via `pytest.ini` (`pythonpath = . src`).
 - **Type hints are mandatory** on new code. Ruff is in strict mode; CI fails on lint errors.
 - **Never add a blanket `except Exception`.** `src/rendering/` uses specific exception tuples so that a real programming bug raises instead of being logged and swallowed behind a subtly wrong image. Where a route already has a generic `except Exception`, it must be preceded by `except HTTPException: raise`, or the route's own 404/403 comes out as a 500.
+- **No real names.** A player is their power plus an optional, self-chosen `users.nickname`
+  (unique ignoring case; `server/nickname.py` holds the rules). Never store or send anything
+  from a Telegram profile (first/last name, @username) and never derive a name from an email.
 - **Never write to an ORM row returned by a `DatabaseService` getter.** It is detached once the getter's session closes, and `DatabaseService.commit()` is a no-op, so `row.x = y` is silently discarded. Add a DAL method that opens its own session and commits.
 - **`require_bot_or_user` proves the caller is *someone*, not the person the request acts on.** A route taking a `telegram_id` or `power` must resolve the caller (`resolve_user_or_telegram`) and check membership itself, or use `require_bot_secret`. Auth on a `@cached_response` route must be a *dependency*: a check in the body runs only on cache misses.
 - **`Game.history` does not survive a `GameRepo` round-trip** (`GameService.load` builds `Game` without it). Anything that needs the pre-adjudication board must compute it during `process_turn` and persist it.

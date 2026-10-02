@@ -86,7 +86,7 @@ class TestGenerateOrdersMap:
     @pytest.mark.map
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_generate_orders_map_success_with_pending_orders(self, client):
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "genmap_orders", "full_name": "Maps"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "genmap_orders"})
         headers = _register_and_login(client, "genmap_orders")
         game_id = _create_game(client, headers)
         join = client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "genmap_orders", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})

@@ -171,7 +171,9 @@ is_active}}` for the API view (§4).
 
 ### Other tables
 
-`users`, `link_codes`, `password_reset_tokens`, `messages`, `map_snapshots` (the board at
+`users` (`email` + `password_hash` for web login, `telegram_id`, and an optional
+`nickname` — unique ignoring case, chosen by the player; **no real names are stored**, nothing
+is copied from a Telegram profile), `link_codes`, `password_reset_tokens`, `messages`, `map_snapshots` (the board at
 the start of each turn, with its `state_json`), `waiting_list`, the tournament and
 spectator tables — see `database.py` for the full model list. `DatabaseService`
 (`database_service.py`) is the DAL for all of these; only game *state* lives in `GameRepo` +
