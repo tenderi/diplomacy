@@ -16,10 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.26` (Track AY: the map overhaul -- outcome pictures
-  on the board the orders were given on, every marker on its own unit, a new symbol set,
-  letter tokens and a distinct palette, dislodged units clear of the victor, the key below
-  the map).
+- **Last updated:** 2026-10-02, at `v3.0.27` (linking a fresh web login to a Telegram that
+  already plays moves the web login onto the Telegram account instead of refusing forever).
 - Everything an agent can do is done. **Track F** (a human playing the game end to end,
   and host chores) is the maintainer's. F2's judgement pass now covers the new map too.
 

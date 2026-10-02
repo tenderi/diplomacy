@@ -663,7 +663,20 @@ def link_telegram(req: LinkTelegramRequest, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid or expired code")
     existing = db_service.get_user_by_telegram_id(req.telegram_id)
     if existing and existing.id != user_id:
-        raise HTTPException(status_code=409, detail="This Telegram is already linked to another account")
+        # Played on Telegram first, registered on the web later: the Telegram
+        # account holds the games, so it takes over the web login.
+        if db_service.merge_web_login_into_telegram_account(user_id, int(existing.id)):
+            return {
+                "status": "ok",
+                "merged": True,
+                "message": "Your web login now opens this Telegram account and its games. "
+                "Log in again in the browser.",
+            }
+        raise HTTPException(
+            status_code=409,
+            detail="This Telegram is already linked to another account that has its own web login "
+            "or games. Log in on the web with that account instead, or unlink Telegram from it first.",
+        )
     if existing and existing.id == user_id:
         return {"status": "ok", "message": "Telegram already linked to your account."}
     db_service.set_user_telegram_id(user_id, req.telegram_id)

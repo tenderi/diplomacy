@@ -64,7 +64,7 @@ class TestLink:
         assert reply == "✅ Linked to pat@example.com."
 
     @pytest.mark.parametrize(("status", "expected"), [
-        (409, "❌ This Telegram is already linked to another account."),
+        (409, "❌ Invalid or expired code"),  # a 409 relays the API's reason as given
         (400, "❌ Invalid or expired code. Get a new code from the web app (Link Telegram).\nDetails: Invalid or expired code"),
     ])
     def test_a_refusal_says_why(self, status: int, expected: str) -> None:
