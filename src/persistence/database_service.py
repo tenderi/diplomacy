@@ -508,6 +508,25 @@ class DatabaseService:
             )
         return [str(r[0]) for r in rows if r[0] is not None and str(r[0]) != ""]
 
+    def get_player_powers_by_telegram_id(self, game_id: int) -> Dict[str, List[str]]:
+        """``get_player_telegram_ids``, keyed: each linked Telegram ID -> the
+        powers that user holds in the game (sorted), for notifications that
+        differ by power."""
+        with self.session_factory() as session:
+            rows = (
+                session.query(UserModel.telegram_id, PlayerModel.power_name)
+                .join(PlayerModel, PlayerModel.user_id == UserModel.id)
+                .filter(PlayerModel.game_id == game_id)
+                .filter(UserModel.telegram_id.isnot(None))
+                .all()
+            )
+        out: Dict[str, List[str]] = {}
+        for telegram_id, power in rows:
+            if telegram_id is None or str(telegram_id) == "":
+                continue
+            out.setdefault(str(telegram_id), []).append(str(power).upper())
+        return {tg: sorted(powers) for tg, powers in out.items()}
+
     def get_players_by_user_id(self, user_id: int) -> List[PlayerModel]:
         with self.session_factory() as session:
             # Only return active players (user_id is not None and is_active is True)
