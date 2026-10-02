@@ -28,7 +28,7 @@ from .auth import require_bot_or_user
 from engine.types import GameState, GameStatus
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
-from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
+from rendering.view_adapter import phase_info, retreat_options_for_render, svg_path_for_map_name, units_for_render
 from server.game_service import GameOverError, OrderError
 from server.legal_orders import legal_orders_for_power
 
@@ -146,5 +146,5 @@ def sandbox_map(req: SandboxMapRequest) -> Response:
             **common,
         )
     else:
-        img = Map.render_board_png(svg_path, units_for_render(view), **common)
+        img = Map.render_board_png(svg_path, units_for_render(view), retreat_options=retreat_options_for_render(view), **common)
     return Response(content=img, media_type="image/png")
