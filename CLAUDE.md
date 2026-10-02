@@ -181,6 +181,17 @@ All bot and group messages use legacy `parse_mode='Markdown'`: bold is `*single*
 
 React 18 + Vite + TypeScript SPA with Tailwind + shadcn/ui. Routes: `/`, `/login`, `/register`, `/link-telegram`, `/forgot-password`, `/reset-password`, `/games`, `/games/:id`, `/sandbox`. Add a component with `npx shadcn@latest add <component>`. Any test touching a `/games/:id` page must wrap it in `<Routes><Route path="/games/:gameId" …>` — a bare `MemoryRouter` leaves `useParams()` unresolved and silently tests the loading spinner.
 
+## The lead agent (autonomous development)
+
+An unattended Claude Code "lead" develops this project on its own:
+`.github/workflows/lead-agent.yml` runs it nightly and whenever an authorized user opens
+or comments on an issue. Its rules are in **[`.claude/lead/CHARTER.md`](.claude/lead/CHARTER.md)**:
+the two hard limits (the repo keeps existing; the home server is never touched), whose
+input counts as an instruction, and the run cycle. It triages issues, finds its own work,
+delegates to the `worker` and `reviewer` subagents in `.claude/agents/`, merges, and
+checks the deploy. It reports in the pinned **Lead agent journal** issue. Off switch:
+`gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy`.
+
 ## Deployment (one VPS)
 
 Production is **one host**, the UpCloud VPS `87.58.144.64` (login `root`; the checkout is
