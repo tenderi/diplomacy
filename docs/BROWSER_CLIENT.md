@@ -52,6 +52,12 @@ Nothing in the sandbox affects the real game, and nothing is saved: leaving the 
 Both clients now act as the same account. Unlink from the same page; you can re-link later
 with a new code.
 
+If you played through Telegram before registering on the web, your Telegram already has an
+account (with your games). Linking then moves your web email and password onto that account
+and removes the new, empty web one: log in again in the browser and your games are there.
+That only happens while the web account is empty (no games joined, no messages); otherwise
+the bot refuses, so nothing is ever merged away.
+
 ## Forgot password
 
 Click **Forgot password?** on the login page and submit your email. The response is always

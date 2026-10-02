@@ -107,6 +107,64 @@ class DatabaseService:
             user.telegram_id = str(telegram_id)
             session.commit()
 
+    def merge_web_login_into_telegram_account(self, web_user_id: int, telegram_user_id: int) -> bool:
+        """Give a Telegram-only account the web login of a fresh web account, then
+        delete the web account. ``True`` if merged, ``False`` if it is not safe.
+
+        The usual way to arrive here: someone plays through the bot first (which
+        creates a Telegram-only account holding their seats), later registers on the
+        web, and links. The link proves they own both, but the Telegram is already
+        on the first account, so linking alone could never succeed. Merging the
+        other way round would mean moving every seat, message and history row.
+
+        Safe only when the Telegram account has no web login of its own, and the web
+        account has no Telegram, no seats, no messages, and no tournament or
+        spectator rows -- i.e. it holds nothing but its credentials. The games it
+        created and the feedback it sent are re-pointed; its link codes and reset
+        tokens are deleted with it. Both rows are locked for the duration.
+        """
+        with self.session_factory() as session:
+            rows = {
+                u.id: u
+                for u in session.query(UserModel)
+                .filter(UserModel.id.in_([web_user_id, telegram_user_id]))
+                .with_for_update()
+                .populate_existing()
+            }
+            web, tg = rows.get(web_user_id), rows.get(telegram_user_id)
+            if web is None or tg is None or web_user_id == telegram_user_id:
+                return False
+            if tg.email or tg.password_hash or web.telegram_id or not web.email:
+                return False
+            for model, column in (
+                (PlayerModel, PlayerModel.user_id),
+                (MessageModel, MessageModel.sender_user_id),
+                (TournamentPlayerModel, TournamentPlayerModel.user_id),
+                (SpectatorModel, SpectatorModel.user_id),
+            ):
+                if session.query(model).filter(column == web_user_id).first() is not None:
+                    return False
+            session.query(GameModel).filter(GameModel.created_by_user_id == web_user_id).update(
+                {GameModel.created_by_user_id: telegram_user_id}, synchronize_session=False
+            )
+            session.query(FeedbackModel).filter(FeedbackModel.user_id == web_user_id).update(
+                {FeedbackModel.user_id: telegram_user_id}, synchronize_session=False
+            )
+            email, password_hash, username = web.email, web.password_hash, web.username
+            # The reset-token backref has no ORM cascade (it would try to null a
+            # NOT NULL column), so clear it explicitly; link codes do cascade.
+            session.query(PasswordResetTokenModel).filter(
+                PasswordResetTokenModel.user_id == web_user_id
+            ).delete(synchronize_session=False)
+            session.delete(web)  # frees the unique email before it moves
+            session.flush()
+            tg.email, tg.password_hash = email, password_hash
+            if not tg.username and username:
+                tg.username = username
+            tg.updated_at = utcnow_naive()
+            session.commit()
+            return True
+
     def unlink_telegram(self, user_id: int) -> None:
         """Clear telegram_id for the user (unlink Telegram account)."""
         with self.session_factory() as session:
