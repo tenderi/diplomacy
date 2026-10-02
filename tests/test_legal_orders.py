@@ -26,6 +26,7 @@ from engine.types import (
     Unit,
     UnitKind,
 )
+from server.game_service import GameService
 from server.legal_orders import legal_orders_for_power, powers_with_orders_to_give
 from tests.datc.harness import Harness
 
@@ -494,3 +495,81 @@ class TestConvoyChains:
         bucket = _assert_all_orders_valid(_MAP, state, "GERMANY")["orders_by_unit"]["A BEL"]
         assert "A BEL S A MUN - RUH" in bucket
         assert "A BEL S A MUN" not in bucket  # a support-hold does need MUN in reach
+
+
+class TestOfferedConvoysAreReal:
+    """A fleet in a sea was offered ``C A X - Y`` for every pair of coasts it
+    touched, whatever stood there: ~40 entries for F NTH in F1901, including
+    DEN's German fleet. Submitting ``F ION C A ALB - APU`` with an Austrian
+    fleet in ALB then 500'd ``/games/set_orders`` and lost the whole batch."""
+
+    def _adriatic(self) -> GameState:
+        return GameState(
+            year=1901, season=Season.FALL, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+                Unit(UnitKind.FLEET, "AUSTRIA", Location("ALB")),
+                Unit(UnitKind.ARMY, "ITALY", Location("TUN")),
+            }),
+            ownership={},
+        )
+
+    def test_only_convoys_of_armies_on_the_board_are_offered(self) -> None:
+        bucket = _assert_all_orders_valid(_MAP, self._adriatic(), "ITALY")["orders_by_unit"]["F ION"]
+        convoys = [o for o in bucket if " C " in o]
+        assert convoys == [
+            "F ION C A TUN - ALB", "F ION C A TUN - APU", "F ION C A TUN - GRE", "F ION C A TUN - NAP",
+        ]
+
+    def test_a_fleet_with_no_army_on_its_shores_offers_no_convoy(self) -> None:
+        state = GameState(
+            year=1901, season=Season.FALL, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+                Unit(UnitKind.FLEET, "GERMANY", Location("DEN")),
+            }),
+            ownership={},
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]["F NTH"]
+        assert [o for o in bucket if " C " in o] == []
+
+    @pytest.mark.parametrize("power", ["ENGLAND", "FRANCE", "ITALY"])
+    def test_every_offered_order_is_accepted_by_submission(self, power: str) -> None:
+        """The menu and ``GameService`` must agree: every entry is accepted, and
+        stored in a form that parses back (the 500 was in that re-parse)."""
+        state = GameState(
+            year=1901, season=Season.FALL, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("ENG")),
+                Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),
+                Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+                Unit(UnitKind.FLEET, "AUSTRIA", Location("ALB")),
+            }),
+            ownership={},
+        )
+        service = GameService(None, _MAP)
+        offered = legal_orders_for_power(_MAP, state, power)["orders"]
+        refused = []
+        for order in offered:  # one at a time: the menu holds several per unit
+            checks, parsed = service.sandbox_orders(state, {power: [order]})
+            if not checks[power][0]["ok"] or len(parsed.get(power, [])) != 1:
+                refused.append(checks[power][0])
+        assert len(offered) > 10
+        assert refused == []
+
+    def test_a_multi_fleet_chain_is_still_offered(self) -> None:
+        state = GameState(
+            year=1901, season=Season.FALL, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("ENG")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("MAO")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("WES")),
+            }),
+            ownership={},
+        )
+        data = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]
+        for fleet in ("F ENG", "F MAO", "F WES"):
+            assert f"{fleet} C A LON - TUN" in data[fleet]
+        assert "A LON - TUN VIA" in data["A LON"]

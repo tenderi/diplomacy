@@ -29,7 +29,7 @@ from engine.serialization import (
     state_to_dict,
     unit_to_dict,
 )
-from engine.types import Build, GameState, GameStatus, Order, PhaseType, ProvinceType, UnitKind, Waive
+from engine.types import Build, GameState, GameStatus, Move, Order, PhaseType, ProvinceType, UnitKind, Waive
 from server.legal_orders import adjustments_owed, powers_with_orders_to_give
 
 __all__ = [
@@ -223,6 +223,26 @@ class GameService:
                 continue
             vr = validate(order, state, self._map)
             if vr.ok:
+                if (
+                    isinstance(order, Move)
+                    and not order.via_convoy
+                    and kinds.get(order.unit.province) == "A"
+                    and not self._map.is_adjacent(order.unit, order.dest, UnitKind.ARMY)
+                ):
+                    # A valid non-adjacent army move is a convoyed one (``A NWY - YOR``).
+                    # Store it as ``... VIA`` so the map overlay and DAIDE (which read
+                    # ``via_convoy``) show it as the convoy the adjudicator resolves.
+                    order = replace(order, via_convoy=True)
+                stored = format_order(order, kinds)
+                # The stored string is what adjudication (and the merge in
+                # ``submit_orders``) parses back. An order that validates but
+                # whose stored form does not parse would 500 the whole batch
+                # there; refuse it here, as one rejected order, instead.
+                try:
+                    parse_order(stored, power=power, map=self._map)
+                except OrderParseError as exc:
+                    results.append({"order": raw, "ok": False, "reason": f"parse error: {exc}"})
+                    continue
                 key = _order_key(order)
                 if key is not None and key in accepted_keys:
                     # Two orders for one unit (or build site) in one submission:
@@ -236,7 +256,6 @@ class GameService:
                         "ok": False,
                         "reason": f"replaced by a later order for {key} in the same submission",
                     }
-                stored = format_order(order, kinds)
                 accepted.append(stored)
                 if key is not None:
                     accepted_keys.add(key)

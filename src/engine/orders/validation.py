@@ -174,7 +174,7 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
     if isinstance(order, SupportMove):
         return _validate_support_move(order, unit, map)
     if isinstance(order, Convoy):
-        return _validate_convoy(order, unit, map)
+        return _validate_convoy(order, unit, state, map)
 
     return ValidationResult(False, f"unsupported order type: {order.order_type}")
 
@@ -190,8 +190,19 @@ def _check_ownership(order: Order, unit: Unit) -> ValidationResult | None:
 def _validate_move(order: Move, unit: Unit, map: MapData) -> ValidationResult:
     dest = order.dest
     kind = unit.kind
+    if dest.province == unit.location.province:
+        return ValidationResult(False, f"{unit.location} cannot move to its own province")
 
-    if order.via_convoy:
+    # A non-adjacent army move between two coasts is a convoyed move whether or
+    # not it says VIA (the rulebook writes ``A Lon-Bel``); the adjudicator
+    # already treats it as one (``_uses_convoy``), so accept it as one here.
+    convoyed = order.via_convoy or (
+        kind is UnitKind.ARMY
+        and not map.is_adjacent(unit.location, dest, kind)
+        and map.province_type(unit.location.province) is ProvinceType.COAST
+        and map.province_type(dest.province) is ProvinceType.COAST
+    )
+    if convoyed:
         if kind is not UnitKind.ARMY:
             return ValidationResult(False, "only an army may move via convoy")
         if map.province_type(unit.location.province) is not ProvinceType.COAST:
@@ -231,7 +242,9 @@ def _validate_support_move(order: SupportMove, unit: Unit, map: MapData) -> Vali
     return ValidationResult(True)
 
 
-def _validate_convoy(order: Convoy, unit: Unit, map: MapData) -> ValidationResult:
+def _validate_convoy(
+    order: Convoy, unit: Unit, state: GameState, map: MapData
+) -> ValidationResult:
     if unit.kind is not UnitKind.FLEET:
         return ValidationResult(False, "only a fleet may convoy")
     if map.province_type(unit.location.province) is not ProvinceType.WATER:
@@ -240,6 +253,16 @@ def _validate_convoy(order: Convoy, unit: Unit, map: MapData) -> ValidationResul
         return ValidationResult(False, f"{order.origin.province} is not a coastal province")
     if map.province_type(order.dest.province) is not ProvinceType.COAST:
         return ValidationResult(False, f"{order.dest.province} is not a coastal province")
+    # Only an army can be convoyed. The stored order is written with the unit
+    # letters actually on the board, so a convoy of a fleet would be stored as
+    # ``F ION C F ALB - APU`` -- a string the parser refuses.
+    carried = state.unit_at(order.origin.province)
+    if carried is None:
+        return ValidationResult(False, f"no army at {order.origin.province} to convoy")
+    if carried.kind is not UnitKind.ARMY:
+        return ValidationResult(
+            False, f"the unit at {order.origin.province} is a fleet; only an army can be convoyed"
+        )
     return ValidationResult(True)
 
 
