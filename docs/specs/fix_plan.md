@@ -10,15 +10,16 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **AZ**.
+>   history. Track letters run in sequence; the next free one is **BA**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.30` (a game is created anonymous -- players known
-  only by their power -- or public, with nicknames shown next to powers).
-- Everything an agent can do is done. **Track F** (a human playing the game end to end,
+- **Last updated:** 2026-10-02, at `v3.0.31` (frontend `npm audit`: 28 findings down to 8
+  with in-range upgrades; the remaining 8 need major upgrades, proposed as **Track AZ**).
+- **Track AZ** (frontend major dependency upgrades) is proposed, awaiting the maintainer's
+  go-ahead. **Track F** (a human playing the game end to end,
   and host chores) is the maintainer's. F2's judgement pass now covers the new map too.
 
 ---
@@ -61,6 +62,25 @@ coherent* to use.
       until sure — it held no games). The tunnel and p2p's stack there are not ours.
 - [ ] Delete the unused `DIPLOMACY_BOT_SECRET` repository secret
       (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); nothing reads it.
+
+# Track AZ — Frontend major dependency upgrades (proposed)
+
+After `v3.0.31` (in-range `npm audit fix`), `npm audit` in `frontend/` still reports 8
+findings (5 moderate, 1 high, 2 critical), each fixable only by a major upgrade:
+
+- **vite 5 → 6.4.3+** (high; esbuild ≤0.24.2 dev-server request forgery, `.map` path
+  traversal, Windows `server.fs.deny` bypass). Dev-server only; the production image ships
+  static files built by vite, not vite itself.
+- **vitest / @vitest/coverage-v8 2 → 4.1.11+** (critical; Vitest UI server file read,
+  `@vitest/mocker` path traversal). Test tooling only; we never run the Vitest UI server.
+- **react-router-dom 6 → 7.17.1+** (moderate; open redirect via a backslash in `<Link>` /
+  `useNavigate`, SSR `deserializeErrors`). No fix on 6.x. The app navigates only to fixed
+  paths and does no SSR, so neither is reachable today.
+
+- [ ] AZ1 — vite 6+ with vitest 4+ (`@vitejs/plugin-react` to match); frontend gates and
+      coverage thresholds green, `npm run dev` proxy to the API still works.
+- [ ] AZ2 — react-router 7 (follow its v6→v7 migration guide; the future flags first).
+- [ ] **Done when:** `npm audit` in `frontend/` reports 0 vulnerabilities.
 
 ---
 
