@@ -151,6 +151,32 @@ describe('GameList', () => {
     expect(posts[0].anonymous).toBe(anonymous)
   })
 
+  it.each([
+    [false, false],
+    [true, true],
+  ])('ticked=%s sends random_powers=%s', async (tick, randomPowers) => {
+    const posts: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: RequestInit) => {
+      if (opts?.method === 'POST' && url.includes('/games/create')) posts.push(JSON.parse(String(opts.body)))
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(opts?.method === 'POST' ? { game_id: '99' } : { games: [] }),
+      } as Response)
+    }))
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const box = await within(container).findByRole('checkbox', { name: /assign powers at random/i })
+    if (tick) fireEvent.click(box)
+    fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].random_powers).toBe(randomPowers)
+  })
+
   it('a refused create says why and stays on the list', async () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, opts?: RequestInit) =>
       Promise.resolve(opts?.method === 'POST'

@@ -16,6 +16,7 @@ type AllGame = {
   max_players?: number
   private?: boolean
   anonymous?: boolean
+  random_powers?: boolean
 }
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY']
@@ -35,6 +36,8 @@ export default function GameList() {
   const [joinPassword, setJoinPassword] = useState('')
   // Anonymous: players are known only by their power. Fixed once the game exists.
   const [anonymous, setAnonymous] = useState(false)
+  // Random powers: joiners don't choose; the server deals each an open power.
+  const [randomPowers, setRandomPowers] = useState(false)
 
   const load = () => {
     Promise.all([
@@ -63,6 +66,7 @@ export default function GameList() {
           dummy_powers: dummies,
           auto_process: autoProcess,
           anonymous,
+          random_powers: randomPowers,
           ...(joinPassword ? { join_password: joinPassword } : {}),
         }),
       })
@@ -113,6 +117,10 @@ export default function GameList() {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={autoProcess} onChange={(e) => setAutoProcess(e.target.checked)} />
           Process each turn as soon as all orders are in (players can ask to wait)
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={randomPowers} onChange={(e) => setRandomPowers(e.target.checked)} />
+          Assign powers at random — players join without choosing one (can't be changed later)
         </label>
         <fieldset>
           <legend className="text-sm text-muted-foreground mb-1">
@@ -172,7 +180,7 @@ export default function GameList() {
               <CardHeader className="py-2">
                 <CardTitle className="text-sm font-medium">
                   <Link to={`/games/${g.id}`} className="text-primary underline underline-offset-2">
-                    {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
+                    {g.private ? '🔒 ' : ''}{g.anonymous ? '🕶️ ' : ''}{g.random_powers ? '🎲 ' : ''}Game {g.id} — {g.map_name} — {g.player_count}/{g.max_players ?? 7} — turn {g.current_turn}
                   </Link>
                 </CardTitle>
               </CardHeader>

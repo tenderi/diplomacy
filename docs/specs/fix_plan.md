@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.33` (Track BA recorded: defects from an agent's
-  play-through of the API).
+- **Last updated:** 2026-10-02, at `v3.0.34` (a game's creator may deal the powers at
+  random: joiners don't choose).
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
   (frontend major dependency upgrades) is proposed. **Track F** (a human playing the game
   end to end, and host chores) is the maintainer's.

@@ -152,6 +152,7 @@ The columns that matter for game state (all nullable):
 | `wait_flags` | JSON | `GameRepo.modify_wait_flags` | `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
 | `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the saved-game export leaves it out (an imported game comes back open). |
 | `anonymous` | Boolean, not null, default false | `GameRepo.create` | Chosen at creation (`POST /games/create` `anonymous`, the bot's `/newgame anonymous\|public`, the web's create form) and never changed. **True:** players are known only by their power — every announcement and relayed message names the power alone (`api.shared.power_label`), and no API read says who holds a seat (`api.shared.player_rows`: `user_id`, `telegram_id`, `nickname` are null; `seated` says whether the seat is held). **False (public):** the player's nickname, when they have set one, rides along with the power, `FRANCE (Anna)`. Carried by the saved-game export. |
+| `random_powers` | Boolean, not null, default false | `GameRepo.create` | Chosen at creation (`POST /games/create` `random_powers`, the bot's `/newgame … random`, the web's create form) and never changed. **True:** a joining player does not choose a power — `POST /games/{id}/join` must leave `power` out, and the server seats them in an open power (no seat held, not a civil-disorder dummy; a vacated seat counts as open) drawn with `secrets.SystemRandom`, trying the others in turn if it loses a race for one. `POST /games/{id}/replace`, which names a power, is refused (400). **False:** the joiner names the power. Either way the join response carries the `power` taken. Carried by the saved-game export. |
 | `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | Who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list games. Only the creator (or `X-Admin-Token`) may change `dummy_powers` or the join password, or end a turn early. |
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
@@ -217,13 +218,14 @@ paths) — built directly from `GameState`:
   "auto_process": false,                // turn runs by itself once all orders are in
   "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
   "private": false,                     // joining needs a password (never the hash)
-  "anonymous": false                    // players known only by their power (games.anonymous)
+  "anonymous": false,                   // players known only by their power (games.anonymous)
+  "random_powers": false                // joiners are dealt an open power (games.random_powers)
 }
 ```
 
 **Who a player is known as.** `GET /games/{id}/players` returns one row per seat:
 `power`, `seated`, `is_active`, `user_id`, `telegram_id`, `nickname` — the last three
-null in an anonymous game. `GET /games` lists each game's `anonymous` flag and its seats as
+null in an anonymous game. `GET /games` lists each game's `anonymous` and `random_powers` flags and its seats as
 `{power, seated, user_id}` (`user_id` null when anonymous). `GET /games/{id}/messages`
 gives each message's `sender_power` (the seat its sender holds now; null if they left) and,
 in a public game only, `sender_name`; an anonymous game nulls `sender_user_id`. A client

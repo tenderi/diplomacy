@@ -4,6 +4,8 @@ Game management API routes.
 This module contains all endpoints related to game creation, state management,
 player management (join/quit/replace), deadlines, snapshots, and history.
 """
+import secrets
+
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
@@ -55,6 +57,9 @@ class CreateGameRequest(BaseModel):
     # seat. Public (the default): the player's nickname rides along with the power.
     # Fixed for the game's life.
     anonymous: bool = False
+    # Random powers: a joining player does not choose -- the server seats them
+    # in a random open power. Fixed for the game's life.
+    random_powers: bool = False
     # The bot's way of saying who is creating the game (a browser caller is the
     # Bearer user); recorded as the game's creator.
     telegram_id: Optional[str] = None
@@ -124,7 +129,9 @@ class JoinGameRequest(BaseModel):
     telegram_id: Optional[str] = None  # Optional when using Bearer token (browser)
     bot_secret: Optional[str] = None
     game_id: Optional[int] = None  # redundant with the path; validated to agree if sent
-    power: str
+    # Required, except in a random-powers game, where it must be left out: the
+    # server picks the power and returns it in the response.
+    power: Optional[str] = None
     join_password: Optional[str] = None  # W8: required for a private game
 
 class QuitGameRequest(BaseModel):
@@ -304,6 +311,7 @@ def create_game(
             join_password_hash=_checked_join_password(req.join_password),
             deadline_schedule=schedule,
             anonymous=req.anonymous,
+            random_powers=req.random_powers,
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -830,6 +838,7 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
                 "dummy_powers": sorted(g.dummy_powers or []),
                 "private": g.join_password_hash is not None,  # W8; never the hash
                 "anonymous": bool(g.anonymous),
+                "random_powers": bool(g.random_powers),
                 # An anonymous game says which seats are held, never by whom.
                 "players": [
                     {
@@ -923,6 +932,59 @@ def get_observer_state(game_id: str) -> Dict[str, Any]:
     return view
 
 
+def _take_chosen_seat(game_id: int, user_id: int, power: str) -> Any:
+    """Seat ``user_id`` in ``power``, or 409 if someone holds it. Returns the
+    vacant seat row it took over, or None for a new seat.
+
+    A seat row with no user is *vacant* (its player quit, or an admin marked it
+    inactive): joining it is the ordinary way back in -- the web client lists
+    such seats as "Open", and /replace is the same operation under another name.
+    Both writes are race-safe: a vacant seat is claimed only while still vacant,
+    and a new seat row is unique per (game, power). Whoever loses a
+    simultaneous join is told the power is taken, not that they joined.
+    """
+    taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+    if taken is not None and taken.user_id is not None:
+        raise HTTPException(status_code=409, detail="Power already taken")
+    if taken is not None:
+        if not db_service.claim_vacant_seat(int(taken.id), user_id):  # type: ignore
+            raise HTTPException(status_code=409, detail="Power already taken")
+        return taken
+    # Assign the power to this user (players table only; state is engine-owned).
+    try:
+        db_service.create_player(game_id, power, user_id=user_id)
+    except IntegrityError as e:
+        raise HTTPException(status_code=409, detail="Power already taken") from e
+    return None
+
+
+def _take_random_seat(game_id: int, user_id: int, dummy_powers: List[str]) -> tuple[str, Any]:
+    """Seat ``user_id`` in a random open power of a random-powers game.
+
+    Returns ``(power, vacant seat row taken over or None)``, like
+    ``_take_chosen_seat``. The open powers are tried in a random order, so a
+    join that loses a race for one seat moves on to the next instead of failing.
+    """
+    seats = {str(p.power_name): p for p in db_service.get_players_by_game_id(game_id)}
+    open_powers = [
+        p for p in sorted(REQUIRED_POWERS)
+        if p not in dummy_powers and (p not in seats or seats[p].user_id is None)
+    ]
+    secrets.SystemRandom().shuffle(open_powers)
+    for power in open_powers:
+        seat = seats.get(power)
+        if seat is not None:
+            if db_service.claim_vacant_seat(int(seat.id), user_id):  # type: ignore
+                return power, seat
+            continue
+        try:
+            db_service.create_player(game_id, power, user_id=user_id)
+        except IntegrityError:
+            continue
+        return power, None
+    raise HTTPException(status_code=409, detail=f"Game {game_id} is full: every power is taken.")
+
+
 @router.post("/games/{game_id}/join")
 def join_game(
     game_id: int,
@@ -944,14 +1006,21 @@ def join_game(
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         _require_group_join_via_bot(str(game_id), user, req.bot_secret)
-        # Validate power name
-        valid_powers = {'ENGLAND', 'FRANCE', 'GERMANY', 'RUSSIA', 'TURKEY', 'AUSTRIA', 'ITALY'}
-        if req.power.upper() not in valid_powers:
-            raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
         view = game_service.view(str(game_id))
+        random_powers = bool(view and view.get("random_powers"))
+        if random_powers:
+            if req.power is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Powers are assigned at random in game {game_id}: join without choosing one.",
+                )
+        elif req.power is None:
+            raise HTTPException(status_code=400, detail="Choose a power to join as.")
+        elif req.power.upper() not in REQUIRED_POWERS:
+            raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
         if view is not None and view["status"] == "COMPLETED":
             raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
-        if view is not None and req.power.upper() in view.get("dummy_powers", []):
+        if req.power is not None and view is not None and req.power.upper() in view.get("dummy_powers", []):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -962,40 +1031,26 @@ def join_game(
         # Check if already joined
         existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if existing:
-            return {"status": "already_joined", "player_id": existing.id}
+            return {"status": "already_joined", "player_id": existing.id, "power": existing.power_name}
         _require_join_password(str(game_id), user, req.join_password)
-        # Check if power is taken. A seat row with no user is *vacant* (its
-        # player quit, or an admin marked it inactive): joining it is the
-        # ordinary way back in -- the web client lists such seats as "Open",
-        # and /replace is the same operation under another name.
-        taken = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
-        if taken is not None and taken.user_id is not None:
-            raise HTTPException(status_code=409, detail="Power already taken")
-        # Both writes are race-safe: a vacant seat is claimed only while still
-        # vacant, and a new seat row is unique per (game, power). Whoever loses
-        # a simultaneous join is told the power is taken, not that they joined.
-        if taken is not None:
-            if not db_service.claim_vacant_seat(int(taken.id), int(user.id)):  # type: ignore
-                raise HTTPException(status_code=409, detail="Power already taken")
+        if random_powers:
+            power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
         else:
-            # Assign the power to this user (players table only; state is engine-owned).
-            try:
-                db_service.create_player(game_id, req.power.upper(), user_id=int(user.id))  # type: ignore
-            except IntegrityError as e:
-                raise HTTPException(status_code=409, detail="Power already taken") from e
+            power = str(req.power).upper()
+            taken = _take_chosen_seat(game_id, int(user.id), power)
         # Notification logic (only if user has telegram_id)
         telegram_id_val = getattr(user, "telegram_id", None)
         if telegram_id_val:
             hidden = " It is anonymous: the other players know you only as your power." if is_anonymous(game_id) else ""
-            notify_user(telegram_id_val, f"You have joined game {game_id} as {req.power.upper()}.{hidden}", game_buttons(game_id))
+            notify_user(telegram_id_val, f"You have joined game {game_id} as {power}.{hidden}", game_buttons(game_id))
         # Get player model for return value
-        player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
+        player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
         player_id = player_model.id if player_model else user.id
         try:
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
                 who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-                notify_players(int(game.id), f"{who} has joined game {game_id} as {req.power.upper()}.")  # type: ignore
+                notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.")  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # Game start notification
@@ -1021,7 +1076,7 @@ def join_game(
         if telegram_id_val:
             # The bot resolves "which game am I in" from this list right after a join.
             invalidate_cache(f"users/{telegram_id_val}")
-        return {"status": "ok", "player_id": player_id}
+        return {"status": "ok", "player_id": player_id, "power": power}
     except HTTPException:
         raise
     except Exception as e:
@@ -1078,6 +1133,13 @@ def replace_player(
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
         _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+        if (game_service.meta(str(game_id)) or {}).get("random_powers"):
+            # Picking the seat to take over would sidestep the draw: /join
+            # takes over a vacant seat too, at random.
+            raise HTTPException(
+                status_code=400,
+                detail=f"Powers are assigned at random in game {game_id}: use join, which seats you in an open power.",
+            )
         # Find the player slot for this power
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
         if player is None:

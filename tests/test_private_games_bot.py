@@ -101,3 +101,32 @@ def test_a_private_game_button_asks_for_the_password_then_joins_with_it():
     message.delete.assert_awaited_once()
     assert "You joined game 7 as ENGLAND" in update.effective_chat.send_message.call_args[0][0]
     assert AWAITING not in context.user_data
+
+
+@patch("server.telegram_bot.games.api_get")
+def test_a_random_powers_game_offers_one_join_button(mock_get):
+    mock_get.side_effect = lambda path: (
+        {"random_powers": True} if path.endswith("/state") else [{"power": "FRANCE", "seated": True}]
+    )
+    text, keyboard = _power_selection_prompt("7")
+    assert "at random" in text
+    offered = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert offered == ["join_game_7_RANDOM", "back_to_games"]
+
+
+@patch("server.telegram_bot.games.api_get")
+def test_a_full_random_powers_game_says_so(mock_get):
+    mock_get.side_effect = lambda path: (
+        {"random_powers": True, "dummy_powers": ["TURKEY"]} if path.endswith("/state")
+        else [{"power": p, "seated": True} for p in ("AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA")]
+    )
+    assert _power_selection_prompt("7") == ("Game 7 is full. All powers are taken.", None)
+
+
+@patch("server.telegram_bot.games.api_post")
+def test_a_random_join_sends_no_power_and_names_the_dealt_one(mock_post):
+    mock_post.return_value = {"status": "ok", "power": "ITALY"}
+    update, context, message = _update(["7", "random"])
+    asyncio.run(join(update, context))
+    assert "power" not in mock_post.call_args[0][1]
+    assert "You joined game 7 as ITALY" in message.reply_text.call_args[0][0]

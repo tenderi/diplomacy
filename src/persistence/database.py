@@ -68,6 +68,9 @@ class GameModel(Base):
     # power alone, and the API hides who holds which seat. False (public): the
     # player's nickname rides along with their power.
     anonymous = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Chosen at creation and fixed for the game's life. True: a joining player
+    # does not pick a power -- the server seats them in a random open one.
+    random_powers = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)
