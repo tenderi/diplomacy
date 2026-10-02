@@ -1050,7 +1050,8 @@ def join_game(
             game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
             if game:
                 who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-                notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.")  # type: ignore
+                # The joiner was told "You have joined ..." above; not twice.
+                notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.", exclude_telegram_id=telegram_id_val)  # type: ignore
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players of join event: {e}")
         # Game start notification

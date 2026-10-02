@@ -78,6 +78,11 @@ def send_private_message(
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
             raise HTTPException(status_code=400, detail="Recipient power required for private message")
         recipient_power = req.recipient_power.upper()
+        if recipient_power == str(player.power_name).upper():
+            raise HTTPException(
+                status_code=400,
+                detail=f"You play {recipient_power}: a private message goes to another power.",
+            )
         recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=recipient_power)
         # A seat whose player quit still has a row, with no user: nobody would
         # ever read the message, so say so instead of storing it silently.

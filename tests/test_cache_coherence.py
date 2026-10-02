@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app
+from server.api.shared import db_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
@@ -41,7 +42,12 @@ def _my_games(client: TestClient, tg: str) -> list[str]:
 
 
 def _seats(client: TestClient, game_id: str) -> dict[str, object]:
-    return {p["power"]: p["telegram_id"] for p in client.get(f"/games/{game_id}/players").json()}
+    """power -> the Telegram id of whoever holds it (the route sends only ``user_id``)."""
+    seats = {}
+    for p in client.get(f"/games/{game_id}/players").json():
+        user = db_service.get_user_by_id(p["user_id"]) if p["user_id"] is not None else None
+        seats[p["power"]] = user.telegram_id if user is not None else None
+    return seats
 
 
 def test_joining_shows_in_my_games_and_the_seat_list(client: TestClient) -> None:
