@@ -754,6 +754,142 @@ class TestMergedAdjustmentOrders:
         results = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in results] == [("BUILD A PAR", "BUILD")]
 
+    def _germany_one_build(self, service) -> str:
+        """GERMANY: 3 centres, 2 units, KIE vacant -- one build."""
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "GERMANY", Location("BER")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }),
+            ownership={"BER": "GERMANY", "MUN": "GERMANY", "KIE": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        return gid
+
+    def test_a_waive_sent_after_a_build_replaces_it(self, service):
+        """BUILD F KIE then WAIVE was stored as both: the build happened and
+        the waive was VOID. The later order stands, as with build-after-waive."""
+        gid = self._germany_one_build(service)
+        service.submit_orders(gid, "GERMANY", ["BUILD F KIE"], merge=True)
+        assert service.submit_orders(gid, "GERMANY", ["WAIVE"], merge=True)[0]["ok"] is True
+        assert service.pending_orders_view(gid)["GERMANY"] == ["WAIVE"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        assert [(r["order_str"], r["result"]) for r in results] == [("WAIVE", "WAIVE")]
+
+    def test_merged_orders_never_exceed_the_slots(self, service):
+        """Two builds owed: a third merged order displaces the oldest build."""
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))}),
+            ownership={"BER": "GERMANY", "MUN": "GERMANY", "KIE": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        service.submit_orders(gid, "GERMANY", ["BUILD A BER"], merge=True)
+        service.submit_orders(gid, "GERMANY", ["WAIVE"], merge=True)
+        assert service.pending_orders_view(gid)["GERMANY"] == ["BUILD A BER", "WAIVE"]
+        service.submit_orders(gid, "GERMANY", ["BUILD F KIE"], merge=True)
+        assert service.pending_orders_view(gid)["GERMANY"] == ["BUILD A BER", "BUILD F KIE"]
+        service.submit_orders(gid, "GERMANY", ["WAIVE"], merge=True)
+        assert service.pending_orders_view(gid)["GERMANY"] == ["BUILD F KIE", "WAIVE"]
+
+    def test_merged_disbands_never_exceed_the_count(self, service):
+        """One disband owed: a second merged disband replaces the first."""
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.WINTER, PhaseType.ADJUSTMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "GERMANY", Location("BER")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }),
+            ownership={"BER": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        service.submit_orders(gid, "GERMANY", ["D A BER"], merge=True)
+        service.submit_orders(gid, "GERMANY", ["D A MUN"], merge=True)
+        assert service.pending_orders_view(gid)["GERMANY"] == ["D A MUN"]
+
+
+class TestAdjustmentCounts:
+    """Each repro from an agent's play-through: accepted (``ok``), then VOID at
+    adjudication. Validation now holds a submission to what the power owes."""
+
+    def _standard_winter(self, service, ownership: dict[str, str], units: list[Unit]) -> str:
+        gid = _new_game(service)
+        state = GameState(1901, Season.WINTER, PhaseType.ADJUSTMENT, units=frozenset(units), ownership=ownership)
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
+        return gid
+
+    def test_build_at_delta_zero(self, service):
+        gid = self._standard_winter(
+            service,
+            {"VIE": "AUSTRIA", "BUD": "AUSTRIA"},
+            [Unit(UnitKind.ARMY, "AUSTRIA", Location("VIE")), Unit(UnitKind.ARMY, "AUSTRIA", Location("GAL"))],
+        )
+        assert service.submit_orders(gid, "AUSTRIA", ["BUILD A BUD"]) == [{
+            "order": "BUILD A BUD", "ok": False,
+            "reason": "AUSTRIA has no build to make (2 supply centres, 2 units); it has no adjustment to make",
+        }]
+        assert service.pending_orders_view(gid).get("AUSTRIA", []) == []
+
+    def test_two_builds_for_one_slot(self, service):
+        gid = self._standard_winter(
+            service,
+            {"LON": "ENGLAND", "EDI": "ENGLAND", "LVP": "ENGLAND"},
+            [Unit(UnitKind.ARMY, "ENGLAND", Location("LVP")), Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))],
+        )
+        assert service.submit_orders(gid, "ENGLAND", ["BUILD F LON", "BUILD A EDI"]) == [
+            {"order": "BUILD F LON", "ok": True, "reason": None},
+            {"order": "BUILD A EDI", "ok": False, "reason": "ENGLAND has 1 build; 2 builds/waives submitted"},
+        ]
+        assert service.pending_orders_view(gid)["ENGLAND"] == ["BUILD F LON"]
+
+    def test_disband_when_builds_are_owed(self, service):
+        gid = self._standard_winter(
+            service,
+            {"BER": "GERMANY", "KIE": "GERMANY", "MUN": "GERMANY", "DEN": "GERMANY"},
+            [Unit(UnitKind.FLEET, "GERMANY", Location("DEN")), Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))],
+        )
+        assert service.submit_orders(gid, "GERMANY", ["F DEN D"]) == [{
+            "order": "F DEN D", "ok": False,
+            "reason": "GERMANY has no unit to disband (4 supply centres, 2 units); it may build 2 units",
+        }]
+
+    def test_two_waives_for_one_slot(self, service):
+        gid = self._standard_winter(
+            service,
+            {"ANK": "TURKEY", "CON": "TURKEY", "SMY": "TURKEY"},
+            [Unit(UnitKind.ARMY, "TURKEY", Location("CON")), Unit(UnitKind.FLEET, "TURKEY", Location("BLA"))],
+        )
+        assert service.submit_orders(gid, "TURKEY", ["WAIVE", "WAIVE"]) == [
+            {"order": "WAIVE", "ok": True, "reason": None},
+            {"order": "WAIVE", "ok": False, "reason": "TURKEY has 1 build; 2 builds/waives submitted"},
+        ]
+        assert service.pending_orders_view(gid)["TURKEY"] == ["WAIVE"]
+
+    def test_builds_capped_at_the_free_home_sites(self, service):
+        """Three centres up but one vacant home centre: one build/waive, as
+        ``legal_orders`` reports in ``adjustment.slots``."""
+        gid = self._standard_winter(
+            service,
+            {"PAR": "FRANCE", "BRE": "FRANCE", "MAR": "FRANCE", "SPA": "FRANCE", "POR": "FRANCE", "BEL": "FRANCE"},
+            [Unit(UnitKind.ARMY, "FRANCE", Location(p)) for p in ("PAR", "MAR", "BUR")],
+        )
+        results = service.submit_orders(gid, "FRANCE", ["BUILD F BRE", "WAIVE"])
+        assert [r["reason"] for r in results] == [None, "FRANCE has 1 build; 2 builds/waives submitted"]
+
+    def test_too_many_disbands(self, service):
+        gid = self._standard_winter(
+            service,
+            {"BER": "GERMANY"},
+            [Unit(UnitKind.ARMY, "GERMANY", Location("BER")), Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))],
+        )
+        results = service.submit_orders(gid, "GERMANY", ["D A BER", "D A MUN"])
+        assert [r["reason"] for r in results] == [None, "GERMANY has 1 disband; 2 disbands submitted"]
+        assert service.pending_orders_view(gid)["GERMANY"] == ["D A BER"]
+
 
 class TestTwoOrdersForOneUnitInOneSubmission:
     """Both were stored, and the adjudicator kept one without a word -- the last

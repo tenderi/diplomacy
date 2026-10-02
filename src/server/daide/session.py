@@ -228,6 +228,12 @@ def _reason_to_note_token(reason: Optional[str]) -> Token:
     if "cannot build a fleet on landlocked" in r or "cannot build an army at sea" in r:
         return t.NAS  # "not at sea" -- wrong terrain for the unit kind being built
 
+    # -- adjustment counts (validation's direction check, GameService's count) --
+    if "has no build to" in r or ("waive" in r and r.endswith(" submitted")):
+        return t.NMB  # "no more builds allowed": none owed, or more given than owed
+    if "has no unit to disband" in r or ("disband" in r and r.endswith(" submitted")):
+        return t.NMR  # "no more removals allowed": none owed, or more given than owed
+
     # -- retreats --------------------------------------------------------------
     if "is not a legal retreat for" in r:
         return t.NVR  # "not a valid retreat space"

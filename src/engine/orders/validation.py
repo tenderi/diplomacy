@@ -111,6 +111,33 @@ def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
     )
 
 
+def _check_adjustment_direction(order: Order, state: GameState) -> ValidationResult | None:
+    """Refuse a build or waive from a power that has no build to make, and a
+    disband from one that has no unit to remove (adjustment phase only; run
+    after the order's own checks, whose reasons are more specific).
+
+    A power with more centres than units builds; one with fewer disbands; one
+    with as many does neither. The adjudicator voids an order on the wrong
+    side of that line, so accepting it at submit time only told the player
+    ``success`` and then dropped it.
+    """
+    centers = len(state.centers_of(order.power))
+    units = len(state.units_of(order.power))
+    counts = f"{_plural(centers, 'supply centre')}, {_plural(units, 'unit')}"
+    if isinstance(order, (Build, Waive)) and centers <= units:
+        verb = "make" if isinstance(order, Build) else "waive"
+        owes = f"must disband {_plural(units - centers, 'unit')}" if centers < units else "has no adjustment to make"
+        return ValidationResult(False, f"{order.power} has no build to {verb} ({counts}); it {owes}")
+    if isinstance(order, Disband) and centers >= units:
+        owes = f"may build {_plural(centers - units, 'unit')}" if centers > units else "has no adjustment to make"
+        return ValidationResult(False, f"{order.power} has no unit to disband ({counts}); it {owes}")
+    return None
+
+
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
     """Validate ``order`` against the current ``state`` and ``map`` topology.
 
@@ -124,10 +151,13 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         return phase_error
 
     if isinstance(order, Waive):
-        return ValidationResult(True)
+        return _check_adjustment_direction(order, state) or ValidationResult(True)
 
     if isinstance(order, Build):
-        return _validate_build(order, state, map)
+        result = _validate_build(order, state, map)
+        if not result.ok:
+            return result
+        return _check_adjustment_direction(order, state) or result
 
     if isinstance(order, Retreat):
         du = state.dislodged_at(order.unit.province)
@@ -149,6 +179,8 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         ownership_error = _check_ownership(order, unit)
         if ownership_error is not None:
             return ownership_error
+        if state.phase_type is PhaseType.ADJUSTMENT:
+            return _check_adjustment_direction(order, state) or ValidationResult(True)
         return ValidationResult(True)
 
     # Hold / Move / SupportHold / SupportMove / Convoy: an on-board unit.
