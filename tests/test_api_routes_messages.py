@@ -94,6 +94,26 @@ class TestSendPrivateMessage:
         })
         assert resp.status_code == 400, resp.text
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_a_private_message_to_your_own_power_is_refused(self, client):
+        """FRANCE -> FRANCE used to be stored and DMed back to the sender."""
+        client.post("/users/persistent_register", json={"telegram_id": "selfmsg1", "bot_secret": BOT_SECRET})
+        headers = _register_and_login(client, "msg_self")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{game_id}/join", json={"telegram_id": "selfmsg1", "bot_secret": BOT_SECRET, "power": "FRANCE"})
+
+        resp = client.post(f"/games/{game_id}/message", json={
+            "telegram_id": "selfmsg1",
+            "bot_secret": BOT_SECRET,
+            "recipient_power": "france",
+            "text": "Note to self",
+        })
+        assert (resp.status_code, resp.json()["detail"]) == (
+            400, "You play FRANCE: a private message goes to another power.",
+        )
+        listed = client.get(f"/games/{game_id}/messages", params={"telegram_id": "selfmsg1", "bot_secret": BOT_SECRET})
+        assert listed.json()["messages"] == []
+
 
 @pytest.mark.unit
 class TestSendBroadcast:

@@ -42,7 +42,7 @@ deadline. The channel sees the public board, not anyone's intentions.
 ## Implementation
 
 - **API** (`src/server/api/routes/channels.py`): link, unlink, get/update settings, and
-  posts queued for the group: the current map, a broadcast, battle results, the player
+  posts queued for the group: the current map, a broadcast, the player
   dashboard, the timeline, a discussion thread.
 - **Bot** (`src/server/telegram_bot/channels.py`, `channel_commands.py`): the commands above
   plus the formatting and posting helpers.
@@ -52,7 +52,7 @@ deadline. The channel sees the public board, not anyone's intentions.
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,
   `"channel_create_thread"`) from the `/games/{id}/channel/*` routes. `telegram_bot/channels.py`
-  only *formats* those posts (timeline, player dashboard, battle results); nothing in the
+  only *formats* those posts (timeline, player dashboard); nothing in the
   bot sends to a group except the outbox loop. All group posts use legacy
   `parse_mode='Markdown'`: bold is `*single*`.
 - **After every processed turn** the group gets the notification and two `kind="channel_map"`

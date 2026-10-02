@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app
+from server.api.shared import db_service
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
 
@@ -87,7 +88,7 @@ class TestWhoHoldsASeat:
         seats = {p["power"]: p for p in client.get(f"/games/{game_id}/players").json()}
         assert seats["FRANCE"] == {
             "power": "FRANCE", "seated": True, "user_id": None, "is_active": True,
-            "telegram_id": None, "nickname": None,
+            "nickname": None,
         }
         assert {p["power"]: (p["seated"], p["user_id"]) for p in _listed(client, game_id)["players"]} == {
             "FRANCE": (True, None), "GERMANY": (True, None),
@@ -99,7 +100,9 @@ class TestWhoHoldsASeat:
         game_id, anna, _bert, bert_nick = _game(client, anonymous=False)
         seats = {p["power"]: p for p in client.get(f"/games/{game_id}/players").json()}
         assert seats["GERMANY"]["nickname"] == bert_nick
-        assert seats["FRANCE"]["telegram_id"] == anna
+        # A public game names a seat by nickname, never by its Telegram account.
+        assert sorted(seats["FRANCE"]) == ["is_active", "nickname", "power", "seated", "user_id"]
+        assert seats["FRANCE"]["user_id"] == db_service.get_user_by_telegram_id(anna).id
         assert seats["FRANCE"]["seated"] is True
         assert isinstance(seats["FRANCE"]["user_id"], int)
         assert isinstance(_listed(client, game_id)["players"][0]["user_id"], int)
@@ -116,20 +119,28 @@ class TestAnnouncements:
             assert client.post(f"/games/{game_id}/join", json=_as(cleo, power="ITALY")).status_code == 200
         sent = probe.by_recipient()
         assert f"A new player has joined game {game_id} as ITALY." in sent[anna]
-        assert sent[cleo][0] == (
+        assert sent[cleo] == [
             f"You have joined game {game_id} as ITALY. "
             f"It is anonymous: the other players know you only as your power."
-        )
+        ]
         assert not any(cleo_nick in m for m in probe.messages())
 
     def test_a_public_join_names_the_player(self, client):
         game_id, anna, *_ = _game(client, anonymous=False)
         cleo, cleo_nick = _telegram_user(client, "Cleo")
         with OutboxProbe() as probe:
-            assert client.post(f"/games/{game_id}/join", json=_as(cleo, power="ITALY")).status_code == 200
+            # Lower case in, upper case out -- the announcement and the response.
+            r = client.post(f"/games/{game_id}/join", json=_as(cleo, power="italy"))
+            assert (r.status_code, r.json()["power"]) == (200, "ITALY")
         sent = probe.by_recipient()
         assert f"{cleo_nick} has joined game {game_id} as ITALY." in sent[anna]
-        assert sent[cleo][0] == f"You have joined game {game_id} as ITALY."
+        # The joiner hears it once, as "You have joined", not again as "Cleo has joined".
+        assert sent[cleo] == [f"You have joined game {game_id} as ITALY."]
+
+    def test_my_orders_name_my_power_in_upper_case(self, client):
+        game_id, anna, *_ = _game(client, anonymous=False)
+        r = client.get(f"/games/{game_id}/orders/france", params={"telegram_id": anna, "bot_secret": BOT_SECRET})
+        assert (r.status_code, r.json()) == (200, {"power": "FRANCE", "orders": []})
 
     @pytest.mark.parametrize("anonymous", [True, False])
     def test_a_wait_flag_names_the_power_and_in_a_public_game_the_player(self, client, anonymous):

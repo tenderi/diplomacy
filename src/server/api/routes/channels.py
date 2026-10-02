@@ -444,47 +444,4 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/games/{game_id}/channel/battle_results", dependencies=[Depends(require_game_player_or_bot)])
-def post_battle_results(game_id: str) -> Dict[str, Any]:
-    """Queue formatted battle results for the linked channel. See
-    ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
-    rather than posting inline."""
-    try:
-        from ...telegram_bot.channels import format_battle_results
-
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
-
-        game_state_dict = _legacy_state_dict(game_id)
-        if game_state_dict is None:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-
-        # order_history/previous_supply_centers are left None: game_service now
-        # does retain per-turn order/resolution history (Track W, v2.7.90), but
-        # its {turn: {power: [order_str]}} shape doesn't match what
-        # format_battle_results expects here and adapting it is unstarted --
-        # not "the engine doesn't have this" any more, just not plumbed through.
-        previous_supply_centers = None
-        order_history = None
-
-        formatted = format_battle_results(game_state_dict, order_history, previous_supply_centers)
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
-        )
-
-        return {
-            "status": "queued",
-            "message": f"Battle results queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting battle results to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # --- Analytics Endpoints ---
