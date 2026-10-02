@@ -211,9 +211,10 @@ def notify_players(
 
     ``buttons`` (see ``game_buttons``) ride along as inline buttons on each DM.
 
-    ``exclude_telegram_id`` skips one player -- used by the manual
-    ``process_turn`` route, whose caller already has the resolution in their HTTP
-    response and does not need to be told a second time.
+    ``exclude_telegram_id`` skips one player: whoever caused the event (a draw
+    vote, a concession, a deadline change, ...) and already has the outcome in
+    their HTTP response. The turn-processed DM is per player and goes through
+    ``notify_user`` directly (see ``notify_turn_processed``).
 
     **This function used to send nothing at all, ever.** It iterated
     ``PlayerModel`` rows and read ``getattr(player, 'telegram_id', None)``, but
@@ -457,46 +458,110 @@ def notify_turn_processed(
     notified is deliberately identical either way; see the notification matrix in
     ``docs/specs/architecture.md``.
 
+    The DM is per player and names the new phase (``turn_message``): in a
+    retreat or adjustment phase only the powers ``GameService.phase_duties``
+    lists owe orders, and they are told their dislodged units' retreat options
+    or their build/disband count; everyone else is told to wait. The caller is
+    excluded except when they owe orders in such a phase -- their HTTP response
+    carries the resolution, not those options.
+
     Synchronous on purpose, so the sync scheduler path and the ``async`` route
     can share it unchanged. Since notifications became outbox inserts
     (``notify_user``) that costs one short database write per player rather
     than the two-second HTTP timeout it used to risk. Every send is
     best-effort and logged.
     """
-    if game_ended:
-        player_message = f"Game {game_id} has ended!"
-    elif trigger == "deadline":
-        player_message = (
-            f"The turn has been processed for game {game_id} because its deadline passed. "
-            f"Your next orders are due."
-        )
-    else:
-        player_message = (
-            f"The turn has been processed for game {game_id}. Your next orders are due."
-        )
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
-    player_message += due
-
-    try:
-        notify_players(
-            numeric_game_id,
-            player_message,
-            exclude_telegram_id=exclude_telegram_id,
-            buttons=game_buttons(game_id, ended=game_ended),
-        )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
-
     # A new turn means the next deadline gets its own 10-minute reminder.
     reminder_sent[numeric_game_id] = False
 
-    if not game_ended:
-        _post_turn_to_channel(
-            game_id, "The turn has been processed. New orders are due -- send them to me in private." + due,
-            processed_turn, processed_phase,
+    if game_ended:
+        try:
+            notify_players(
+                numeric_game_id,
+                f"Game {game_id} has ended!",
+                exclude_telegram_id=exclude_telegram_id,
+                buttons=game_buttons(game_id, ended=True),
+            )
+        except Exception as e:
+            scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
+        _post_turn_to_channel(game_id, f"Game {game_id} has ended.", processed_turn, processed_phase)
+        return
+
+    duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
+    label = phase_label(duties_view["phase"])
+    phase_type = duties_view["phase_type"]
+    duties: dict[str, dict[str, Any]] = duties_view["duties"]
+    header = f"The turn has been processed for game {game_id}" + (
+        " because its deadline passed." if trigger == "deadline" else "."
+    )
+    try:
+        for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
+            mine = [p for p in powers if p in duties]
+            # The caller already has the resolution in their HTTP response -- but
+            # not their dislodged units' retreat options or their build count, so
+            # in a retreat or adjustment phase they are told too when they owe
+            # orders. In a movement phase their own client is already asking.
+            if (
+                exclude_telegram_id is not None
+                and str(telegram_id) == str(exclude_telegram_id)
+                and (phase_type == "MOVEMENT" or not mine)
+            ):
+                continue
+            notify_user(
+                telegram_id,
+                turn_message(header, label, phase_type, {p: duties[p] for p in mine}) + due,
+                game_buttons(game_id),
+            )
+    except Exception as e:
+        scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
+
+    if phase_type == "MOVEMENT":
+        channel_text = f"The turn has been processed. {label}: new orders are due -- send them to me in private."
+    elif duties:
+        channel_text = (
+            f"The turn has been processed. {label}: orders are due from {', '.join(sorted(duties))}"
+            f" -- send them to me in private."
         )
     else:
-        _post_turn_to_channel(game_id, f"Game {game_id} has ended.", processed_turn, processed_phase)
+        channel_text = f"The turn has been processed. {label}: nobody has anything to order."
+    _post_turn_to_channel(game_id, channel_text + due, processed_turn, processed_phase)
+
+
+def _units(n: int) -> str:
+    return f"{n} unit" if n == 1 else f"{n} units"
+
+
+def turn_message(header: str, label: str, phase_type: str, duties: dict[str, dict[str, Any]]) -> str:
+    """The "turn processed" DM for one player, from ``GameService.phase_duties``
+    restricted to the powers that player holds and owes orders for.
+
+    Plain text: player DMs are sent without a ``parse_mode``. A movement phase
+    says orders are due; a retreat phase names each dislodged unit and where
+    it may go; an adjustment phase gives the build or disband count. A player
+    with nothing to order in a retreat or adjustment phase is told to wait.
+    """
+    if phase_type == "MOVEMENT":
+        return f"{header} Orders are due for {label}."
+    if not duties:
+        return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
+    lines = [f"{header} {label}: orders are due from {', '.join(sorted(duties))}."]
+    for power in sorted(duties):
+        duty = duties[power]
+        for retreat in duty.get("retreats", []):
+            if retreat["options"]:
+                lines.append(
+                    f"{power}'s {retreat['unit']} was dislodged: it may retreat to "
+                    f"{', '.join(retreat['options'])}, or disband."
+                )
+            else:
+                lines.append(f"{power}'s {retreat['unit']} was dislodged and has nowhere to retreat: it must disband.")
+        if duty.get("build"):
+            waived = f" ({duty['waived']} more waived: no free home supply centre)" if duty.get("waived") else ""
+            lines.append(f"{power} may build {_units(duty['build'])}{waived}.")
+        if duty.get("disband"):
+            lines.append(f"{power} must disband {_units(duty['disband'])}.")
+    return "\n".join(lines)
 
 
 def next_deadline(
