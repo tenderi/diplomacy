@@ -211,7 +211,7 @@ place the full picture exists.
 | Event | Telegram DM | Channel post | Web client | Where |
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
-| **Turn processed** (manual, or auto-processed) | all players **except the caller** | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
+| **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
 | **Game ended** (18 centres, draw, last power) | all players except the caller | notification (+ the final turn's two maps, unless a draw ended it) | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
@@ -225,6 +225,23 @@ place the full picture exists.
 | Draw quorum reached → game ends | all players except the voter | notification | next poll | `notify_turn_processed(game_ended=True)` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
+
+**What the turn-processed DM says** is per player and names the new phase in words
+(`api.shared.turn_message`, fed by `GameService.phase_duties`, which uses the same
+`powers_with_orders_to_give` set `orders_status` waits on, civil-disorder dummies left out):
+
+- movement — "Orders are due for Spring 1902 movement.";
+- retreat — to each dislodged power, every dislodged unit with its retreat options as the
+  adjudicator computed them ("GERMANY's A BUR was dislodged: it may retreat to GAS, PIC,
+  RUH, or disband.", or "…has nowhere to retreat: it must disband.");
+- adjustment — the build count (`adjustments_owed`, plus how many more are waived for want
+  of a free home centre) or the disband count;
+- a player with nothing to order in a retreat or adjustment phase is told so and to wait.
+
+The DM is plain text (no `parse_mode`). The channel post names the phase too, and in a
+retreat or adjustment phase the powers that owe orders. The caller of a manual process is
+skipped unless they owe orders in a new retreat or adjustment phase: their HTTP response
+carries the resolution, not their retreat options or build count.
 
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".

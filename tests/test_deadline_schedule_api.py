@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from server.api import app
 from server.api import shared as api_shared
 from server.deadline_schedule import parse_schedule
+from tests.reliability_helpers import OutboxProbe
 
 pytestmark = [pytest.mark.integration, pytest.mark.database]
 
@@ -134,19 +135,20 @@ def test_every_processed_turn_arms_the_next_slot_and_says_when():
     past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     assert client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=users["FRANCE"]).status_code == 200
 
-    with patch("server.api.shared.notify_players") as notify:
+    # One player with Telegram linked, to read the DM back from the outbox.
+    telegram_id = str(900_000_000 + int(game_id))
+    france_id = int(client.get("/auth/me", headers=users["FRANCE"]).json()["id"])
+    api_shared.db_service.set_user_telegram_id(france_id, telegram_id)
+
+    with OutboxProbe() as probe:
         api_shared.process_due_deadlines(datetime.now(timezone.utc))
 
     assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"
     armed = _deadline(client, game_id)
     assert armed in _expected("daily 12:00")
-    processed = [
-        c[0][1] for c in notify.call_args_list
-        if c[0][0] == int(game_id) and "has been processed" in c[0][1]
-    ]
-    assert processed == [
+    assert probe.by_recipient()[telegram_id] == [
         f"The turn has been processed for game {game_id} because its deadline passed. "
-        f"Your next orders are due. Next deadline: {api_shared.format_deadline_utc(armed)}."
+        f"Orders are due for Fall 1901 movement. Next deadline: {api_shared.format_deadline_utc(armed)}."
     ]
 
 

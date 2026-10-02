@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.36` (convoy validation: BA1 and BA5 done).
+- **Last updated:** 2026-10-02, at `v3.0.38` (the turn-processed DM names the new phase
+  and tells each player what they owe in it: BA4; convoy validation BA1 and BA5 done at
+  `v3.0.36`).
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
   (frontend major dependency upgrades) is proposed. **Track F** (a human playing the game
   end to end, and host chores) is the maintainer's.
@@ -45,7 +47,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
       with one slot, a disband when builds are owed, two waives for one slot are all
       `success: true`. And the bot's merge path stores `BUILD F KIE` then `WAIVE` as both
       (build happens, waive VOID): waive-after-build must replace like build-after-waive.
-- [ ] BA4 — **The turn notification is generic and wrong for retreat/adjustment phases.**
+- [x] BA4 — **The turn notification is generic and wrong for retreat/adjustment phases.**
       `api/shared.py` `notify_turn_processed` tells every player "Your next orders are due"
       without naming the phase; in a retreat phase only the dislodged powers have orders,
       and they are not told which unit was dislodged or where it may go. Name the new phase,
