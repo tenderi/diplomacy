@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
+import { LinkTelegramButton } from '@/components/LinkTelegramButton'
 
 export const SOURCE_URL = 'https://github.com/tenderi/diplomacy'
 
@@ -28,9 +29,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/sandbox">Sandbox</Link>
                 </Button>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/link-telegram">Link Telegram</Link>
-                </Button>
+                <LinkTelegramButton variant="ghost" size="sm" />
                 <Button variant="outline" size="sm" onClick={logout}>
                   Logout
                 </Button>

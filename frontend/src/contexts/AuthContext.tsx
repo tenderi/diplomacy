@@ -4,7 +4,7 @@ import { apiJson, API_BASE, clearTokens, getAccessToken, REFRESH_STORAGE_KEY, se
 export type User = {
   id: number
   email: string | null
-  full_name: string | null
+  nickname: string | null
   telegram_id: string | null
   telegram_linked: boolean
 }
@@ -13,7 +13,7 @@ type AuthState = {
   user: User | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, fullName?: string) => Promise<void>
+  register: (email: string, password: string, nickname?: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -80,10 +80,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(data.user)
   }, [])
 
-  const register = useCallback(async (email: string, password: string, fullName?: string) => {
+  const register = useCallback(async (email: string, password: string, nickname?: string) => {
     const data = await apiJson<{ user: User; access_token: string; refresh_token: string }>(
       '/auth/register',
-      { method: 'POST', body: JSON.stringify({ email, password, full_name: fullName || null }) }
+      { method: 'POST', body: JSON.stringify({ email, password, nickname: nickname || null }) }
     )
     setTokens(data.access_token, data.refresh_token)
     setUser(data.user)

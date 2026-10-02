@@ -49,7 +49,7 @@ class TestPersistentUserRegistration:
         """Test successful registration of a new user."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id}
         )
         assert response.status_code == 200
         data = response.json()
@@ -74,7 +74,7 @@ class TestPersistentUserRegistration:
         # First registration
         response1 = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id}
         )
         assert response1.status_code == 200
         user_id1 = response1.json()["user_id"]
@@ -82,7 +82,7 @@ class TestPersistentUserRegistration:
         # Second registration with same telegram_id (idempotent)
         response2 = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User Updated"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id}
         )
         assert response2.status_code == 200
         data = response2.json()
@@ -101,7 +101,7 @@ class TestPersistentUserRegistration:
         """Test registration fails with empty telegram_id."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "", "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": ""}
         )
         assert response.status_code == 422
         assert response.json()["detail"][0]["msg"].endswith("telegram_id is required and cannot be empty or whitespace")
@@ -110,7 +110,7 @@ class TestPersistentUserRegistration:
         """Test registration fails with whitespace-only telegram_id."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "   ", "full_name": "Test User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": "   "}
         )
         assert response.status_code == 422
     
@@ -121,7 +121,7 @@ class TestPersistentUserRegistration:
             unique_id = f"{self.unique_id}_{i}"
             response = self.client.post(
                 "/users/persistent_register",
-                json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": unique_id, "full_name": f"User {i}"}
+                json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": unique_id}
             )
             assert response.status_code == 200
             data = response.json()
@@ -135,7 +135,7 @@ class TestPersistentUserRegistration:
         """Test registration with special characters in full_name."""
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id, "full_name": "Test User with 'quotes' and émojis 🎮"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": self.unique_id}
         )
         assert response.status_code == 200
         data = response.json()
@@ -146,7 +146,7 @@ class TestPersistentUserRegistration:
         numeric_id = f"{self.unique_id}_123456789"
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": numeric_id, "full_name": "Numeric User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": numeric_id}
         )
         assert response.status_code == 200
         data = response.json()
@@ -158,7 +158,7 @@ class TestPersistentUserRegistration:
         long_id = f"{self.unique_id}_{'a' * 200}"[:255]
         response = self.client.post(
             "/users/persistent_register",
-            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": long_id, "full_name": "Long ID User"}
+            json={"bot_secret": "test_bot_secret_for_tests", "telegram_id": long_id}
         )
         assert response.status_code == 200
         data = response.json()
@@ -193,7 +193,7 @@ class TestUserRegistrationErrorHandling:
         """Test registration with wrong content type."""
         response = self.client.post(
             "/users/persistent_register",
-            data={"telegram_id": "123", "full_name": "Test"},
+            data={"telegram_id": "123"},
             headers={"Content-Type": "text/plain"}
         )
         # FastAPI should handle this gracefully

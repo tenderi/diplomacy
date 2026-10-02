@@ -46,7 +46,7 @@ class TestOrderSubmissionAuthorization:
         """Test that user can submit orders for their assigned power."""
         headers = _register_and_login(client, "auth_user1")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user1", "full_name": "Auth User 1", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user1", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user1",
             "bot_secret": BOT_SECRET,
@@ -70,8 +70,8 @@ class TestOrderSubmissionAuthorization:
         """Test that user cannot submit orders for another user's power."""
         headers = _register_and_login(client, "auth_user2")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user2", "full_name": "Auth User 2", "bot_secret": BOT_SECRET})
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user3", "full_name": "Auth User 3", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user2", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user3", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user2",
             "bot_secret": BOT_SECRET,
@@ -116,7 +116,7 @@ class TestOrderSubmissionAuthorization:
         """Test that users not in a game cannot submit orders for that game."""
         headers = _register_and_login(client, "auth_create4")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user4", "full_name": "Auth User 4", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user4", "bot_secret": BOT_SECRET})
 
         resp = client.post("/games/set_orders", json={
             "game_id": game_id,
@@ -139,7 +139,7 @@ class TestOrderClearAuthorization:
         """Test that user can clear orders for their assigned power."""
         headers = _register_and_login(client, "auth_clear5")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user5", "full_name": "Auth User 5", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user5", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user5",
             "bot_secret": BOT_SECRET,
@@ -165,8 +165,8 @@ class TestOrderClearAuthorization:
         """Test that user cannot clear orders for another user's power."""
         headers = _register_and_login(client, "auth_clear6")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user6", "full_name": "Auth User 6", "bot_secret": BOT_SECRET})
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user7", "full_name": "Auth User 7", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user6", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user7", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user6",
             "bot_secret": BOT_SECRET,
@@ -205,8 +205,8 @@ class TestMessageAuthorization:
         """Test that users in a game can send messages."""
         headers = _register_and_login(client, "auth_msg8")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user8", "full_name": "Auth User 8", "bot_secret": BOT_SECRET})
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user9", "full_name": "Auth User 9", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user8", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user9", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user8",
             "bot_secret": BOT_SECRET,
@@ -235,7 +235,7 @@ class TestMessageAuthorization:
         """Test that users not in a game cannot send messages."""
         headers = _register_and_login(client, "auth_msg10")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user10", "full_name": "Auth User 10", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user10", "bot_secret": BOT_SECRET})
 
         resp = client.post(f"/games/{game_id}/message", json={
             "telegram_id": "auth_user10",
@@ -257,7 +257,7 @@ class TestGameManagementAuthorization:
         """Test that users can quit games they're in."""
         headers = _register_and_login(client, "auth_quit11")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user11", "full_name": "Auth User 11", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user11", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user11",
             "bot_secret": BOT_SECRET,
@@ -277,8 +277,8 @@ class TestGameManagementAuthorization:
         """Test that users cannot quit another user's power."""
         headers = _register_and_login(client, "auth_quit12")
         game_id = _create_game(client, headers)
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user12", "full_name": "Auth User 12", "bot_secret": BOT_SECRET})
-        client.post("/users/persistent_register", json={"telegram_id": "auth_user13", "full_name": "Auth User 13", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user12", "bot_secret": BOT_SECRET})
+        client.post("/users/persistent_register", json={"telegram_id": "auth_user13", "bot_secret": BOT_SECRET})
         client.post(f"/games/{int(game_id)}/join", json={
             "telegram_id": "auth_user12",
             "bot_secret": BOT_SECRET,

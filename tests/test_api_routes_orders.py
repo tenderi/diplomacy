@@ -41,7 +41,7 @@ class TestSetOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_orders_success(self, client):
         """Test successful order submission."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user"})
         headers = _register_and_login(client, "ord_set1")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -61,8 +61,8 @@ class TestSetOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_orders_unauthorized(self, client):
         """Test order submission with unauthorized user."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user1", "full_name": "User1"})
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user2", "full_name": "User2"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user1"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user2"})
         headers = _register_and_login(client, "ord_unauth")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -79,7 +79,7 @@ class TestSetOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_orders_invalid_order(self, client):
         """Test order submission with invalid order."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user2", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user2"})
         headers = _register_and_login(client, "ord_inv")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -104,7 +104,7 @@ class TestGetOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_success(self, client):
         """Test successful order retrieval."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user3", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user3"})
         headers = _register_and_login(client, "ord_get3")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user3", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -126,7 +126,7 @@ class TestGetOrderHistory:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_order_history_success(self, client):
         """Test successful order history retrieval."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user4", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user4"})
         headers = _register_and_login(client, "ord_hist4")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user4", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -145,7 +145,7 @@ class TestGetOrdersTelegramAuth:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_via_telegram_id(self, client):
         """The bot (no JWT) can read its own power's orders via telegram_id+bot_secret."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders1", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders1"})
         headers = _register_and_login(client, "ord_tg1")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -163,7 +163,7 @@ class TestGetOrdersTelegramAuth:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_wrong_bot_secret_is_anonymous(self, client):
         """A bad bot_secret must not resolve a user; falls back to the anonymous []."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders2", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders2"})
         headers = _register_and_login(client, "ord_tg2")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -175,7 +175,7 @@ class TestGetOrdersTelegramAuth:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_for_power_via_telegram_id(self, client):
         """The bot can read a named power's orders it owns via telegram_id+bot_secret."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders3", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders3"})
         headers = _register_and_login(client, "ord_tg3")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders3", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -189,8 +189,8 @@ class TestGetOrdersTelegramAuth:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_for_power_via_telegram_id_unauthorized(self, client):
         """A different telegram user may not read a power they were not assigned."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4a", "full_name": "Owner"})
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4b", "full_name": "Other"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4a"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "tg_orders4b"})
         headers = _register_and_login(client, "ord_tg4")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders4a", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -228,7 +228,7 @@ class TestGetOrdersForPower:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_orders_for_power_still_rejects_wrong_bearer_user(self, client):
         """A Bearer-authenticated user who does not hold the power still gets 403."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user_bearer_owner", "full_name": "Owner"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user_bearer_owner"})
         owner_headers = _register_and_login(client, "ord_bearer_owner")
         other_headers = _register_and_login(client, "ord_bearer_other")
         game_id = _create_game(client, owner_headers)
@@ -245,7 +245,7 @@ class TestClearOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_clear_orders_success(self, client):
         """Test successful order clearing."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user6", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user6"})
         headers = _register_and_login(client, "ord_clear6")
         game_id = _create_game(client, headers)
         game_id_int = int(game_id)
@@ -259,8 +259,8 @@ class TestClearOrders:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_clear_orders_unauthorized(self, client):
         """Test clearing orders with unauthorized user."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user7", "full_name": "User7"})
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user8", "full_name": "User8"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user7"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user8"})
         headers = _register_and_login(client, "ord_clrunauth")
         game_id = _create_game(client, headers)
         game_id_int = int(game_id)

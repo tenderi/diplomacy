@@ -45,7 +45,7 @@ describe('App', () => {
       const mockUser = {
         id: 1,
         email: 'a@b.com',
-        full_name: 'Test',
+        nickname: 'Test',
         telegram_id: null,
         telegram_linked: false,
       }

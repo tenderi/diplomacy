@@ -11,7 +11,7 @@ export default function Register() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
+  const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
 
   if (user) navigate('/', { replace: true })
@@ -24,7 +24,7 @@ export default function Register() {
       return
     }
     try {
-      await register(email, password, fullName || undefined)
+      await register(email, password, nickname.trim() || undefined)
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
@@ -57,13 +57,17 @@ export default function Register() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="fullName">Full name (optional)</Label>
+          <Label htmlFor="nickname">Nickname (optional)</Label>
           <Input
-            id="fullName"
+            id="nickname"
             type="text"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            value={nickname}
+            maxLength={24}
+            onChange={(e) => setNickname(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            What other players see next to your power. Please don't use your real name.
+          </p>
         </div>
         {error && (
           <Alert variant="destructive">

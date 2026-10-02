@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
+import { LinkTelegramButton } from '@/components/LinkTelegramButton'
+import { NicknameForm } from '@/components/NicknameForm'
 
 export default function Home() {
   const { user, loading, logout } = useAuth()
@@ -13,8 +15,9 @@ export default function Home() {
       {user ? (
         <>
           <p className="text-muted-foreground mb-4">
-            Hello, {user.full_name || user.email || 'Player'}.
+            Hello, {user.nickname || user.email || 'Player'}.
           </p>
+          <NicknameForm />
           <nav className="flex flex-wrap gap-2">
             <Button asChild>
               <Link to="/games">My games / All games</Link>
@@ -22,9 +25,7 @@ export default function Home() {
             <Button variant="outline" asChild>
               <Link to="/sandbox">Sandbox</Link>
             </Button>
-            <Button variant="outline" asChild>
-              <Link to="/link-telegram">Link Telegram</Link>
-            </Button>
+            <LinkTelegramButton />
             <Button variant="outline" onClick={logout}>
               Logout
             </Button>

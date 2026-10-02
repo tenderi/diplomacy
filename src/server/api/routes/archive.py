@@ -78,7 +78,7 @@ def export_game(game_id: str) -> Dict[str, Any]:
                 # user id: importing into another database has to re-link people,
                 # and the numeric id means nothing there.
                 "telegram_id": getattr(user, "telegram_id", None) if user is not None else None,
-                "full_name": getattr(user, "full_name", None) if user is not None else None,
+                "nickname": getattr(user, "nickname", None) if user is not None else None,
                 "is_active": getattr(p, "is_active", None),
             }
         )

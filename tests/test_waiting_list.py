@@ -61,10 +61,10 @@ def _register(client: TestClient, tag: str) -> str:
     return telegram_id
 
 
-def _join(client: TestClient, telegram_id: str, name: str = "Test Player") -> dict:
+def _join(client: TestClient, telegram_id: str) -> dict:
     resp = client.post(
         "/waiting_list/join",
-        json={"telegram_id": telegram_id, "full_name": name},
+        json={"telegram_id": telegram_id},
         headers={"X-Bot-Secret": api_shared.BOT_SECRET} if api_shared.BOT_SECRET else {},
     )
     assert resp.status_code == 200, resp.text
@@ -161,7 +161,7 @@ def test_an_eighth_player_is_held_for_the_next_game_not_dropped() -> None:
     client = TestClient(app)
     ids = [_register(client, f"p{i}") for i in range(WAITING_LIST_SIZE + 1)]
     for telegram_id in ids:
-        assert api_shared.db_service.add_to_waiting_list(telegram_id, "Seeded")
+        assert api_shared.db_service.add_to_waiting_list(telegram_id)
     assert api_shared.db_service.count_waiting_list() == WAITING_LIST_SIZE + 1
 
     with OutboxProbe() as mock_post:
@@ -173,7 +173,7 @@ def test_an_eighth_player_is_held_for_the_next_game_not_dropped() -> None:
 
     remaining = api_shared.db_service.get_waiting_list()
     assert len(remaining) == 1
-    assert remaining[0][0] == ids[-1], (
+    assert remaining[0] == ids[-1], (
         f"FIFO violated: expected the newest joiner to remain, got {remaining}"
     )
 
@@ -216,7 +216,7 @@ def test_a_failure_mid_fill_leaves_the_queue_intact_and_mints_no_orphan() -> Non
     assert result["game_created"] is False, "reported success despite a mid-fill failure"
 
     # Every player is still queued -- nobody silently lost their place.
-    queued = {tid for tid, _name in api_shared.db_service.get_waiting_list()}
+    queued = set(api_shared.db_service.get_waiting_list())
     assert queued == set(ids), f"queue was corrupted by the failure: {queued}"
 
     # And the retry works, rather than compounding the problem.
@@ -291,7 +291,7 @@ def test_queue_survives_a_process_restart() -> None:
 
     fresh = DatabaseService(SQLALCHEMY_DATABASE_URL)
     assert fresh.count_waiting_list() == 3
-    assert {tid for tid, _n in fresh.get_waiting_list()} == set(ids)
+    assert set(fresh.get_waiting_list()) == set(ids)
 
 
 def test_claim_is_all_or_nothing() -> None:
@@ -302,13 +302,13 @@ def test_claim_is_all_or_nothing() -> None:
     db = api_shared.db_service
     db.clear_waiting_list()
     for i in range(3):
-        db.add_to_waiting_list(f"claim_{i}", f"Player {i}")
+        db.add_to_waiting_list(f"claim_{i}")
 
     assert db.claim_waiting_list_entries(WAITING_LIST_SIZE) == []
     assert db.count_waiting_list() == 3, "a failed claim consumed entries"
 
     claimed = db.claim_waiting_list_entries(3)
-    assert [tid for tid, _n in claimed] == ["claim_0", "claim_1", "claim_2"], claimed
+    assert claimed == ["claim_0", "claim_1", "claim_2"], claimed
     assert db.count_waiting_list() == 0
 
 
@@ -316,11 +316,11 @@ def test_requeue_preserves_order_at_the_front() -> None:
     """Players who nearly got a game keep their place ahead of newcomers."""
     db = api_shared.db_service
     db.clear_waiting_list()
-    claimed = [("early_a", "A"), ("early_b", "B")]
-    db.add_to_waiting_list("latecomer", "Late")
+    claimed = ["early_a", "early_b"]
+    db.add_to_waiting_list("latecomer")
     db.requeue_waiting_list_entries(claimed)
 
-    order = [tid for tid, _n in db.get_waiting_list()]
+    order = db.get_waiting_list()
     assert order == ["early_a", "early_b", "latecomer"], order
 
 
@@ -328,7 +328,7 @@ def test_requeue_is_idempotent() -> None:
     """A double re-queue must not violate the UNIQUE constraint or duplicate a slot."""
     db = api_shared.db_service
     db.clear_waiting_list()
-    entries = [("dup_a", "A")]
+    entries = ["dup_a"]
     db.requeue_waiting_list_entries(entries)
     db.requeue_waiting_list_entries(entries)
     assert db.count_waiting_list() == 1
