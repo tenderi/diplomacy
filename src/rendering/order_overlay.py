@@ -1,21 +1,32 @@
-"""Adapt engine ``Order``/``Resolution`` data into the renderer's order-dict format.
+"""Adapt engine ``Order``/``Resolution`` data into the renderer's order dicts.
 
-``rendering.map.Map._draw_comprehensive_order_visualization`` draws move/support/
-convoy/hold/retreat/build/destroy arrows from a ``{power: [order_dict]}`` structure
-whose per-order dicts look like::
+``rendering.overlays`` draws from a ``{power: [order_dict]}`` structure. Every dict
+carries the unit's own province (``province``), so each marker is drawn on the unit
+that gave the order, plus the outcome:
 
-    {"type": "move",    "unit": "A PAR", "target": "BUR", "status": "success"}
-    {"type": "support", "unit": "F BRE", "supported_action": "move",
-     "supported_unit_province": "PIC", "supported_target": "BEL", "status": "success"}
+    {"type": "move", "unit": "A PAR", "province": "PAR", "target": "BUR",
+     "result": "ok", "dislodged": False, "status": "success", "convoy_chain": []}
 
-The new engine speaks in frozen ``Order`` dataclasses (locations only, no A/F letter)
-and ``OrderResult`` codes, so this module is the single translation point between the
-two. It lives in ``rendering`` (not ``engine``) to keep the engine free of display
-concerns.
+- ``result`` is the engine's ``ResultCode`` in lower case (``ok``, ``bounce``,
+  ``cut``, ``void``, ``no_convoy``, ``dislodged``, ``disband``, ``build``), or
+  ``pending`` for an order not yet adjudicated.
+- ``dislodged`` is ``OrderResult.dislodged``: the unit was knocked out *whatever*
+  its own order did. A move that bounced and was then dislodged is ``bounce`` and
+  dislodged; reading only the result code drew such a unit as a plain bounce.
+- ``status`` is the coarse ``success``/``bounced``/``failed``/``dislodged``/
+  ``pending`` word kept for callers that only want pass/fail.
+
+Convoys: the army's ``Move`` carries ``convoy_chain``, the fleets convoying it on
+that route, so the move is drawn *through* them; each fleet's ``Convoy`` order is
+still its own entry (it is marked on its own fleet, and may be dislodged on its
+own). A chain whose army never ordered the move is drawn by its convoys alone.
+
+This module lives in ``rendering`` (not ``engine``) to keep the engine free of
+display concerns.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from engine.serialization import order_from_dict
 from engine.types import (
@@ -25,202 +36,117 @@ from engine.types import (
     Hold,
     Move,
     Order,
-    OrderResult,
     Retreat,
     ResultCode,
     SupportHold,
     SupportMove,
 )
 
-# ResultCode → the status string the renderer styles arrows by.
-_STATUS_BY_CODE: dict[ResultCode, str] = {
-    ResultCode.OK: "success",
-    ResultCode.BOUNCE: "bounced",
-    ResultCode.CUT: "failed",
-    ResultCode.VOID: "failed",
-    ResultCode.NO_CONVOY: "failed",
-    ResultCode.DISLODGED: "dislodged",
-    ResultCode.DISBAND: "success",
-    ResultCode.BUILD: "success",
-    ResultCode.WAIVE: "success",
+_STATUS_BY_RESULT: dict[str, str] = {
+    "pending": "pending",
+    "ok": "success",
+    "build": "success",
+    "waive": "success",
+    "disband": "success",
+    "bounce": "bounced",
+    "cut": "failed",
+    "void": "failed",
+    "no_convoy": "failed",
+    "dislodged": "dislodged",
 }
-
-# Merging a convoy chain can combine fleets with different individual statuses
-# (e.g. one fleet dislodged, its siblings reporting NO_CONVOY once the chain
-# breaks). The merged entry gets a single status: the worst one present, so a
-# dislodged fleet's marker isn't hidden by a merely-"failed" sibling.
-_CONVOY_STATUS_PRIORITY: dict[str, int] = {"success": 0, "bounced": 1, "failed": 2, "dislodged": 3}
-
-
-def _merge_convoy_status(statuses: Iterable[str]) -> str:
-    return max(statuses, key=lambda s: _CONVOY_STATUS_PRIORITY.get(s, 0))
 
 
 def _unit_label(province: str, kind_by_province: Optional[dict[str, str]]) -> str:
-    """``"A PAR"``/``"F BRE"`` for the renderer. Only the province is used for
-    placement; the A/F letter is cosmetic, so fall back to ``A`` when unknown."""
-    kind = (kind_by_province or {}).get(province, "A")
-    return f"{kind} {province}"
+    """``"A PAR"``/``"F BRE"``. Placement uses only the province; the letter falls
+    back to ``A`` when unknown."""
+    return f"{(kind_by_province or {}).get(province, 'A')} {province}"
 
 
 def order_to_viz(
     order: Order,
-    status: str = "success",
+    result: str = "pending",
     kind_by_province: Optional[dict[str, str]] = None,
+    *,
+    dislodged: bool = False,
 ) -> Optional[dict[str, Any]]:
-    """Translate one ``Order`` into a renderer order-dict, or ``None`` if it draws
-    nothing (a waive)."""
-    if isinstance(order, Move):
-        return {
-            "type": "move",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "target": order.dest.province,
-            "status": status,
-        }
-    if isinstance(order, Hold):
-        return {
-            "type": "hold",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "status": status,
-        }
-    if isinstance(order, SupportHold):
-        return {
-            "type": "support",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "supported_action": "hold",
-            "supported_unit_province": order.target.province,
-            "status": status,
-        }
-    if isinstance(order, SupportMove):
-        return {
-            "type": "support",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "supported_action": "move",
-            "supported_unit_province": order.origin.province,
-            "supported_target": order.dest.province,
-            "status": status,
-        }
-    if isinstance(order, Convoy):
-        return {
-            "type": "convoy",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "convoyed_army_province": order.origin.province,
-            "target": order.dest.province,
-            "convoy_chain": [order.unit.province],
-            "status": status,
-        }
-    if isinstance(order, Retreat):
-        return {
-            "type": "retreat",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "target": order.dest.province,
-            "status": status,
-        }
-    if isinstance(order, Disband):
-        return {
-            "type": "destroy",
-            "unit": _unit_label(order.unit.province, kind_by_province),
-            "status": status,
-        }
+    """One ``Order`` as a renderer order dict, or ``None`` if it draws nothing (a waive)."""
+    base: dict[str, Any] = {
+        "power": order.power,
+        "result": result,
+        "status": _STATUS_BY_RESULT.get(result, "failed"),
+        "dislodged": dislodged,
+    }
     if isinstance(order, Build):
-        return {
-            "type": "build",
-            "unit": "",
-            "target": order.location.province,
-            "status": status,
-        }
-    # Waive (and any future draw-nothing order) has no visual.
-    return None
-
-
-def _merge_convoy_group(
-    group: list[tuple[Convoy, str]],
-    kind_by_province: Optional[dict[str, str]],
-) -> Optional[dict[str, Any]]:
-    """Build one merged viz entry for a group of ``Convoy`` orders that share the
-    same ``(origin, dest)`` -- i.e. every fleet convoying the same army on the
-    same route, possibly owned by different powers.
-
-    ``convoy_chain`` lists the fleets in the order they appear in the input list.
-    A true route order (army -> fleet -> fleet -> ... -> dest) would need the sea
-    adjacency graph to walk the chain, but that lives in ``engine.map_loader``'s
-    ``MapData`` -- this module only ever sees ``Order`` objects, never the map, so
-    a topological ordering isn't derivable here. Insertion order is what callers
-    already control (they build the order list), so it's the best available
-    approximation without threading ``MapData`` through this module.
-    """
-    first_order, _ = group[0]
-    merged_status = _merge_convoy_status(status for _, status in group)
-    viz = order_to_viz(first_order, merged_status, kind_by_province)
-    if viz is None:
+        return {**base, "type": "build", "unit": "", "province": order.location.province,
+                "target": order.location.province, "unit_kind": order.kind.value}
+    unit = getattr(order, "unit", None)
+    if unit is None:  # Waive, and any future order with nothing to draw
         return None
-    viz["convoy_chain"] = [order.unit.province for order, _ in group]
-    return viz
+    unit_province = unit.province
+    base |= {"unit": _unit_label(unit_province, kind_by_province), "province": unit_province}
+    if isinstance(order, Move):
+        return {**base, "type": "move", "target": order.dest.province,
+                "via_convoy": order.via_convoy, "convoy_chain": []}
+    if isinstance(order, Hold):
+        return {**base, "type": "hold"}
+    if isinstance(order, SupportHold):
+        return {**base, "type": "support", "supported_action": "hold",
+                "supported_unit_province": order.target.province}
+    if isinstance(order, SupportMove):
+        return {**base, "type": "support", "supported_action": "move",
+                "supported_unit_province": order.origin.province, "supported_target": order.dest.province}
+    if isinstance(order, Convoy):
+        return {**base, "type": "convoy", "convoyed_army_province": order.origin.province,
+                "target": order.dest.province, "convoy_chain": [unit_province]}
+    if isinstance(order, Retreat):
+        return {**base, "type": "retreat", "target": order.dest.province}
+    if isinstance(order, Disband):
+        return {**base, "type": "destroy"}
+    return None  # pragma: no cover - every unit order is handled above
+
+
+def _to_viz(
+    entries: list[tuple[Order, str, bool]], kind_by_province: Optional[dict[str, str]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Translate ``(order, result, dislodged)`` triples and wire up convoy chains."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    chains: dict[tuple[str, str], list[str]] = {}
+    for order, _, _ in entries:
+        if isinstance(order, Convoy):
+            chains.setdefault((order.origin.province, order.dest.province), []).append(order.unit.province)
+    for order, result, dislodged in entries:
+        viz = order_to_viz(order, result, kind_by_province, dislodged=dislodged)
+        if viz is None:
+            continue
+        key = (viz.get("province", ""), viz.get("target", ""))
+        if viz["type"] == "move" and viz["via_convoy"] and key in chains:
+            viz["convoy_chain"] = list(chains[key])
+        if viz["type"] == "convoy":
+            viz["convoy_chain"] = list(chains[(viz["convoyed_army_province"], viz["target"])])
+        out.setdefault(order.power, []).append(viz)
+    return out
 
 
 def orders_by_power_to_viz(
     orders_by_power: dict[str, list[Order]],
     kind_by_province: Optional[dict[str, str]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Pre-adjudication orders (all ``pending``/``success``) → renderer structure.
-
-    ``Convoy`` orders sharing an (origin, dest) -- possibly submitted by different
-    powers escorting the same army -- are merged into one multi-fleet chain entry,
-    filed under the first such order's power (the renderer picks convoy arrow color
-    from ``visualization_config``, not the power color, so the filing power only
-    affects which power's order list the entry lives in).
-    """
-    out: dict[str, list[dict[str, Any]]] = {}
-    convoy_groups: dict[tuple[str, str], list[tuple[Convoy, str]]] = {}
-    for power, orders in orders_by_power.items():
-        for o in orders:
-            if isinstance(o, Convoy):
-                convoy_groups.setdefault((o.origin.province, o.dest.province), []).append((o, "success"))
-                continue
-            viz = order_to_viz(o, "success", kind_by_province)
-            if viz is not None:
-                out.setdefault(power, []).append(viz)
-    for group in convoy_groups.values():
-        viz = _merge_convoy_group(group, kind_by_province)
-        if viz is not None:
-            out.setdefault(group[0][0].power, []).append(viz)
-    return out
+    """Orders not yet adjudicated → renderer structure (every result ``pending``)."""
+    entries = [(o, "pending", False) for orders in orders_by_power.values() for o in orders]
+    return _to_viz(entries, kind_by_province)
 
 
 def resolution_dict_to_viz(
     resolution: dict[str, Any],
     kind_by_province: Optional[dict[str, str]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """A persisted ``resolution_to_dict`` → renderer structure, one arrow per order
-    with the status coloured by its ``OrderResult`` code.
-
-    ``Convoy`` orders sharing an (origin, dest) are merged the same way as in
-    ``orders_by_power_to_viz`` -- see ``_merge_convoy_group`` for the chain-order
-    caveat and ``_merge_convoy_status`` for how a mixed-status group collapses to
-    one status.
-    """
-    out: dict[str, list[dict[str, Any]]] = {}
-    convoy_groups: dict[tuple[str, str], list[tuple[Convoy, str]]] = {}
-    for result_dict in resolution.get("results", []):
-        result = OrderResult(
-            order=order_from_dict(result_dict["order"]),
-            result=ResultCode(result_dict["result"]),
-            dislodged=result_dict.get("dislodged", False),
-            retreat_options=(),
-        )
-        status = _STATUS_BY_CODE.get(result.result, "success")
-        order = result.order
-        if isinstance(order, Convoy):
-            convoy_groups.setdefault((order.origin.province, order.dest.province), []).append((order, status))
-            continue
-        viz = order_to_viz(order, status, kind_by_province)
-        if viz is not None:
-            out.setdefault(order.power, []).append(viz)
-    for group in convoy_groups.values():
-        viz = _merge_convoy_group(group, kind_by_province)
-        if viz is not None:
-            out.setdefault(group[0][0].power, []).append(viz)
-    return out
+    """A persisted ``resolution_to_dict`` → renderer structure, each entry carrying
+    its result and whether its unit was dislodged."""
+    entries = [
+        (order_from_dict(r["order"]), ResultCode(r["result"]).value.lower(), bool(r.get("dislodged", False)))
+        for r in resolution.get("results", [])
+    ]
+    return _to_viz(entries, kind_by_province)
 
 
 def standoff_provinces(resolution: dict[str, Any]) -> list[str]:

@@ -1,338 +1,255 @@
-"""Context-aware map legend: the on-image key for order/result symbols and power
-colors, drawn onto the board after everything else.
+"""The footer strip under the map: what the picture shows, and its key.
+
+The old legend was a box drawn *on* the map's bottom-left corner, over Portugal
+and the Mid-Atlantic, two provinces a unit can stand in. The footer is appended
+below the map instead, so it can never hide anything, and it lists only the
+symbols the picture actually uses (each drawing function reports its keys).
 """
 from __future__ import annotations
 
-from PIL import Image, ImageDraw, ImageFont
+import math
+from typing import Any, Callable
 
-from .board import KNOWN_POWER_NAMES, _convert_color_to_rgb
+from PIL import Image, ImageDraw
+
+from .antialias import DrawTarget, antialiased_overlay
+from .arrows import (
+    burst,
+    catmull_rom,
+    draw_arrow,
+    draw_bar,
+    draw_cross,
+    draw_polygon_outline,
+    draw_ring,
+    octagon,
+    stroke_path,
+)
+from .tokens import font, paste_token, rgb, token_radius
 from .visualization_config import get_config
 
-_viz_config = get_config()
+_cfg = get_config()
+
+_SEASONS = {"SPRING": "Spring", "FALL": "Fall", "AUTUMN": "Fall", "WINTER": "Winter"}
+_PHASES = {"MOVEMENT": "movement", "RETREAT": "retreats", "ADJUSTMENT": "builds"}
+
+#: Neutral ink for symbols that are drawn in a power's colour on the map.
+_INK = (70, 70, 70)
 
 
-def _draw_legend(image: Image.Image, map_type: str, active_powers: list[str] | None = None) -> None:
-    """
-    Draw a context-aware legend on the map image.
+def phase_title(phase_info: dict | None) -> str:
+    """``"Spring 1901 movement · S1901M"`` from the renderer's phase dict."""
+    if not phase_info:
+        return ""
+    season = _SEASONS.get(str(phase_info.get("season", "")).upper(), str(phase_info.get("season") or ""))
+    phase = _PHASES.get(str(phase_info.get("phase", "")).upper(), str(phase_info.get("phase") or "").lower())
+    words = " ".join(str(w) for w in (season, phase_info.get("year") or "", phase) if w)
+    code = phase_info.get("phase_code")
+    return f"{words} · {code}" if code and words else (words or str(code or ""))
 
-    Args:
-        image: PIL Image to draw on
-        map_type: Type of map - "orders", "resolution", "initial", "final", "builds"
-        active_powers: List of active power names to show in legend
-    """
-    if not _viz_config.is_legend_enabled():
-        return
 
-    legend_specs = _viz_config.get_legend_specs()
-    padding = legend_specs["padding"]
-    item_spacing = legend_specs["item_spacing"]
-    symbol_size = legend_specs["symbol_size"]
-    title_font_size = legend_specs["title_font_size"]
-    item_font_size = legend_specs["item_font_size"]
+def _casing() -> tuple[int, int, int]:
+    return rgb(_cfg.get_color("casing"))
 
-    # Determine legend items based on map type
-    legend_items = []
 
-    if map_type == "orders":
-        legend_items = [
-            ("move", "Move"),
-            ("hold", "Hold"),
-            ("support", "Support"),
-            ("convoy", "Convoy"),
-        ]
-    elif map_type == "resolution":
-        legend_items = [
-            ("success", "Success"),
-            ("failed", "Failed"),
-            ("bounce", "Bounced"),
-            ("dislodged", "Dislodged"),
-            ("cut", "Support Cut"),
-        ]
-    elif map_type == "builds":
-        legend_items = [
-            ("build", "Build"),
-            ("destroy", "Destroy"),
-        ]
-    elif map_type in ["initial", "final"]:
-        # Just show power colors for initial/final maps
-        legend_items = []
+def _arrow(draw: DrawTarget, pts: list[tuple[float, float]], colour: Any, width: float,
+           dash: tuple[float, float] | None = None) -> None:
+    a = _cfg.get_arrow_specs()
+    draw_arrow(draw, pts, colour, width, casing=_casing(), casing_width=a["casing"],
+               head_length=12, head_half_width=6, head_notch=3, dash=dash)
 
-    # Add power colors if active_powers provided (only use known power names; ignore unit strings like "A BUD" if wrong format was passed)
-    power_items = []
-    if active_powers:
-        for power in sorted(active_powers):
-            if power in KNOWN_POWER_NAMES:
-                power_items.append(("power", power))
 
-    # Calculate legend dimensions
-    total_items = len(legend_items) + len(power_items)
-    if total_items == 0:
-        return
+def _dash(style: str) -> tuple[float, float]:
+    s = _cfg.get_line_style(style)
+    return (s["dash"], s["gap"])
 
-    # Estimate text width (approximate)
-    max_text_width = 100  # Default
-    for _, label in legend_items + power_items:
-        max_text_width = max(max_text_width, len(label) * 8)
 
-    legend_width = padding * 2 + symbol_size + 10 + max_text_width
-    item_height = max(symbol_size, 18) + item_spacing
+def _sym_move(d: DrawTarget, x: float, y: float, w: float) -> None:
+    _arrow(d, [(x, y), (x + w, y)], _INK, 4)
 
-    # Add title height if we have legend items
-    title_height = title_font_size + 10 if legend_items else 0
 
-    # Add separator height if we have both legend items and power items
-    separator_height = 15 if legend_items and power_items else 0
+def _sym_hold(d: DrawTarget, x: float, y: float, w: float) -> None:
+    draw_polygon_outline(d, octagon((x + w / 2, y), 10), _INK, 3)
 
-    legend_height = padding * 2 + title_height + (len(legend_items) * item_height) + separator_height + (len(power_items) * item_height)
 
-    # Position legend (bottom-left by default)
-    position = legend_specs.get("position", "bottom-left")
-    if position == "bottom-left":
-        legend_x = 20
-        legend_y = image.height - legend_height - 20
-    elif position == "bottom-right":
-        legend_x = image.width - legend_width - 20
-        legend_y = image.height - legend_height - 20
-    elif position == "top-left":
-        legend_x = 20
-        legend_y = 20
-    else:  # top-right
-        legend_x = image.width - legend_width - 20
-        legend_y = 20
+def _sym_support_hold(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w - 14, y)], _INK, 2.5, dash=(6, 4))
+    draw_ring(d, (x + w - 7, y), 6, _INK, 2.5)
 
-    # Create overlay for legend with transparency
-    overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
 
-    # Draw legend background
-    bg_color = tuple(legend_specs["background_color"])
-    border_color = tuple(legend_specs["border_color"])
-    border_width = legend_specs["border_width"]
+def _sym_support_move(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w - 5, y)], _INK, 2.5, dash=(6, 4))
+    d.ellipse([x + w - 9, y - 4, x + w - 1, y + 4], fill=_INK)
 
-    overlay_draw.rectangle(
-        [legend_x, legend_y, legend_x + legend_width, legend_y + legend_height],
-        fill=bg_color,
-        outline=border_color[:3],
-        width=border_width
-    )
 
-    # Draw legend title if we have legend items
-    current_y = legend_y + padding
-    if legend_items:
-        title_text = {
-            "orders": "Orders",
-            "resolution": "Results",
-            "builds": "Adjustments",
-        }.get(map_type, "Legend")
+def _sym_convoy(d: DrawTarget, x: float, y: float, w: float) -> None:
+    curve = catmull_rom([(x, y + 6), (x + w / 2, y - 4), (x + w, y + 6)], 8)
+    _arrow(d, curve, _INK, 3)
+    for k in range(0, 12, 2):
+        a0, a1 = k * math.pi / 6, (k + 1) * math.pi / 6
+        stroke_path(d, [(x + w / 2 + 7 * math.cos(a0 + (a1 - a0) * t / 3), y - 4 + 7 * math.sin(a0 + (a1 - a0) * t / 3))
+                        for t in range(4)], _INK, 2)
 
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", title_font_size)
-        except OSError:
-            font = ImageFont.load_default()
 
-        overlay_draw.text(
-            (legend_x + padding, current_y),
-            title_text,
-            fill=(0, 0, 0, 255),
-            font=font
-        )
-        current_y += title_font_size + 10
+def _sym_retreat(d: DrawTarget, x: float, y: float, w: float) -> None:
+    _arrow(d, [(x, y), (x + w, y)], _INK, 3, dash=_dash("dashed"))
 
-    # Draw legend items
-    try:
-        item_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", item_font_size)
-    except OSError:
-        item_font = ImageFont.load_default()
 
-    symbol_x = legend_x + padding
-    text_x = symbol_x + symbol_size + 10
+def _sym_bounce(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w - 6, y)], _INK, 4, casing=_casing(), casing_width=1)
+    draw_bar(d, (x + w - 4, y), (1.0, 0.0), rgb(_cfg.get_color("failure")), half_length=8, width=4,
+             casing=_casing(), casing_width=1)
 
-    for item_type, label in legend_items:
-        symbol_center_y = current_y + symbol_size // 2
 
-        # Draw the symbol based on type
-        if item_type == "move":
-            # Draw a small arrow
-            arrow_start = (symbol_x, symbol_center_y)
-            arrow_end = (symbol_x + symbol_size, symbol_center_y)
-            _draw_mini_arrow(overlay_draw, arrow_start, arrow_end, (0, 0, 0), "solid")
-        elif item_type == "hold":
-            # Draw a dashed circle
-            r = symbol_size // 3
-            overlay_draw.ellipse(
-                [symbol_x + symbol_size//2 - r, symbol_center_y - r,
-                 symbol_x + symbol_size//2 + r, symbol_center_y + r],
-                outline=(100, 100, 100, 255),
-                width=2
-            )
-        elif item_type == "support":
-            # Draw a dashed line with green tint
-            _draw_mini_arrow(overlay_draw,
-                (symbol_x, symbol_center_y),
-                (symbol_x + symbol_size, symbol_center_y),
-                (144, 238, 144), "dashed")
-        elif item_type == "convoy":
-            # Draw golden curved line
-            _draw_mini_arrow(overlay_draw,
-                (symbol_x, symbol_center_y),
-                (symbol_x + symbol_size, symbol_center_y),
-                (255, 215, 0), "solid")
-        elif item_type == "success":
-            # Draw checkmark
-            _draw_mini_checkmark(overlay_draw,
-                (symbol_x + symbol_size//2, symbol_center_y), (0, 200, 0))
-        elif item_type == "failed":
-            # Draw X
-            _draw_mini_x(overlay_draw,
-                (symbol_x + symbol_size//2, symbol_center_y), (255, 0, 0))
-        elif item_type == "bounce":
-            # Draw orange X
-            _draw_mini_x(overlay_draw,
-                (symbol_x + symbol_size//2, symbol_center_y), (255, 165, 0))
-        elif item_type == "dislodged":
-            # Draw red-bordered circle
-            r = symbol_size // 3
-            overlay_draw.ellipse(
-                [symbol_x + symbol_size//2 - r, symbol_center_y - r,
-                 symbol_x + symbol_size//2 + r, symbol_center_y + r],
-                fill=(200, 200, 200, 255),
-                outline=(255, 0, 0, 255),
-                width=3
-            )
-        elif item_type == "cut":
-            # Draw support line with X through it
-            _draw_mini_arrow(overlay_draw,
-                (symbol_x, symbol_center_y),
-                (symbol_x + symbol_size, symbol_center_y),
-                (144, 238, 144), "dashed")
-            _draw_mini_x(overlay_draw,
-                (symbol_x + symbol_size//2, symbol_center_y), (255, 0, 0), size=6)
-        elif item_type == "build":
-            # Draw green circle with plus
-            r = symbol_size // 3
-            cx, cy = symbol_x + symbol_size//2, symbol_center_y
-            overlay_draw.ellipse(
-                [cx - r, cy - r, cx + r, cy + r],
-                fill=(0, 200, 0, 255),
-                outline=(0, 100, 0, 255),
-                width=2
-            )
-            overlay_draw.line([cx - r + 3, cy, cx + r - 3, cy], fill=(255, 255, 255), width=2)
-            overlay_draw.line([cx, cy - r + 3, cx, cy + r - 3], fill=(255, 255, 255), width=2)
-        elif item_type == "destroy":
-            # Draw red circle with X
-            r = symbol_size // 3
-            cx, cy = symbol_x + symbol_size//2, symbol_center_y
-            overlay_draw.ellipse(
-                [cx - r, cy - r, cx + r, cy + r],
-                fill=(200, 0, 0, 255),
-                outline=(100, 0, 0, 255),
-                width=2
-            )
-            _draw_mini_x(overlay_draw, (cx, cy), (255, 255, 255), size=r-2)
+def _sym_standoff(d: DrawTarget, x: float, y: float, w: float) -> None:
+    d.polygon(burst((x + w / 2, y), 11, 5), fill=rgb(_cfg.get_color("standoff")), outline=_casing())
 
-        # Draw label
-        overlay_draw.text(
-            (text_x, current_y + (symbol_size - item_font_size) // 2),
-            label,
-            fill=(0, 0, 0, 255),
-            font=item_font
-        )
 
-        current_y += item_height
+def _sym_dislodged(d: DrawTarget, x: float, y: float, w: float) -> None:
+    draw_ring(d, (x + w / 2, y), 9, rgb(_cfg.get_color("failure")), 3, casing=(255, 255, 255), casing_width=1)
 
-    # Draw separator line if we have both sections
-    if legend_items and power_items:
-        current_y += 5
-        overlay_draw.line(
-            [legend_x + padding, current_y, legend_x + legend_width - padding, current_y],
-            fill=(150, 150, 150, 255),
-            width=1
-        )
-        current_y += 10
 
-    # Draw power color items
-    for item_type, power in power_items:
-        symbol_center_y = current_y + symbol_size // 2
+def _sym_cut(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w, y)], _INK, 2.5, dash=(6, 4))
+    draw_cross(d, (x + w / 2, y), 6, rgb(_cfg.get_color("failure")), 3, casing=(255, 255, 255), casing_width=1)
 
-        # Draw power color box
-        power_color = _viz_config.get_power_color(power)
-        rgb_color = _convert_color_to_rgb(power_color)
-        # Ensure rgb_color is a tuple, not a string
-        if isinstance(rgb_color, str):
-            # Convert named color to RGB using PIL
-            from PIL import ImageColor
-            try:
-                rgb_color = ImageColor.getrgb(rgb_color)
-            except ValueError:
-                rgb_color = (128, 128, 128)  # Fallback to gray
-        r = symbol_size // 3
-        cx, cy = symbol_x + symbol_size//2, symbol_center_y
-        overlay_draw.ellipse(
-            [cx - r, cy - r, cx + r, cy + r],
-            fill=rgb_color + (255,),
-            outline=(0, 0, 0, 255),
-            width=2
-        )
 
-        # Draw power name
-        overlay_draw.text(
-            (text_x, current_y + (symbol_size - item_font_size) // 2),
-            power.title(),
-            fill=(0, 0, 0, 255),
-            font=item_font
-        )
+def _sym_void(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w, y)], rgb(_cfg.get_color("void")), 2.5, dash=(6, 4))
 
-        current_y += item_height
 
-    # Composite overlay onto image
-    if image.mode == 'RGBA':
-        image.alpha_composite(overlay)
+def _sym_failed(d: DrawTarget, x: float, y: float, w: float) -> None:
+    _arrow(d, [(x, y), (x + w - 8, y)], _INK, 3, dash=_dash("dashed"))
+    draw_cross(d, (x + w - 4, y), 5, rgb(_cfg.get_color("failure")), 3, casing=(255, 255, 255), casing_width=1)
+
+
+def _sym_retreat_option(d: DrawTarget, x: float, y: float, w: float) -> None:
+    stroke_path(d, [(x, y), (x + w - 8, y)], _INK, 2.5, dash=_dash("dotted"))
+    d.ellipse([x + w - 8, y - 5, x + w + 2, y + 5], outline=_INK, width=3)
+
+
+def _sym_no_retreat(d: DrawTarget, x: float, y: float, w: float) -> None:
+    draw_cross(d, (x + w / 2, y), 6, rgb(_cfg.get_color("failure")), 3, casing=(255, 255, 255), casing_width=1)
+
+
+Symbol = Callable[[DrawTarget, float, float, float], None]
+
+#: key -> (label, symbol). The order here is the order in the footer.
+LEGEND: dict[str, tuple[str, Symbol | None]] = {
+    "move": ("Move", _sym_move),
+    "hold": ("Hold", _sym_hold),
+    "support_hold": ("Support to hold", _sym_support_hold),
+    "support_move": ("Support to move", _sym_support_move),
+    "convoy": ("Convoy", _sym_convoy),
+    "retreat": ("Retreat", _sym_retreat),
+    "build": ("Build", None),
+    "disband": ("Disband", None),
+    "bounce": ("Bounced", _sym_bounce),
+    "standoff": ("Standoff", _sym_standoff),
+    "dislodged": ("Dislodged", _sym_dislodged),
+    "cut": ("Support cut", _sym_cut),
+    "void": ("Had no effect", _sym_void),
+    "failed": ("Failed", _sym_failed),
+    "dislodged_unit": ("Dislodged unit", None),
+    "retreat_option": ("May retreat to", _sym_retreat_option),
+    "no_retreat": ("No retreat: disbands", _sym_no_retreat),
+}
+
+
+def _token_symbol(image: Image.Image, key: str, x: float, y: float, w: float) -> None:
+    """Symbols built from a unit token are pasted, not drawn."""
+    center = (x + w / 2, y)
+    grey = "#9E9E9E"
+    if key == "build":
+        paste_token(image, center, "A", grey, alpha=_cfg.get_unit_specs()["build_alpha"])
     else:
-        # Convert to RGBA, composite, convert back
-        image_rgba = image.convert('RGBA')
-        image_rgba.alpha_composite(overlay)
-        # Paste back (for RGB images)
-        image.paste(image_rgba.convert('RGB'))
+        paste_token(image, center, "A", grey)
 
 
-def _draw_mini_arrow(
-    draw: ImageDraw.ImageDraw, start: tuple[float, float], end: tuple[float, float], color: tuple, style: str = "solid"
-) -> None:
-    """Draw a small arrow for legend."""
-    x1, y1 = start
-    x2, y2 = end
-
-    if style == "dashed":
-        # Draw dashed line
-        for i in range(0, int(x2 - x1), 6):
-            draw.line([x1 + i, y1, x1 + i + 3, y2], fill=color + (255,), width=2)
-    else:
-        draw.line([x1, y1, x2, y2], fill=color + (255,), width=2)
-
-    # Draw arrowhead
-    arrow_size = 5
-    draw.polygon([
-        (x2, y2),
-        (x2 - arrow_size, y2 - arrow_size//2),
-        (x2 - arrow_size, y2 + arrow_size//2)
-    ], fill=color + (255,))
+def _token_marks(d: DrawTarget, key: str, x: float, y: float, w: float) -> None:
+    center = (x + w / 2, y)
+    r = token_radius()
+    if key == "build":
+        _plus_badge(d, (center[0] + r * 0.7, center[1] - r * 0.7))
+    elif key == "disband":
+        draw_cross(d, center, r * 0.75, rgb(_cfg.get_color("failure")), 4, casing=(255, 255, 255), casing_width=1.5)
+    elif key == "dislodged_unit":
+        draw_ring(d, center, r + 1, rgb(_cfg.get_color("failure")), 3)
 
 
-def _draw_mini_checkmark(draw: ImageDraw.ImageDraw, center: tuple[float, float], color: tuple) -> None:
-    """Draw a small checkmark for legend."""
-    x, y = center
-    size = 8
-    points = [
-        (x - size, y),
-        (x - size//3, y + size//2),
-        (x + size, y - size//2)
-    ]
-    draw.line([points[0], points[1], points[2]], fill=color + (255,), width=3)
+def _plus_badge(d: DrawTarget, at: tuple[float, float]) -> None:
+    m = _cfg.get_marker_specs()
+    br = m["build_badge_radius"]
+    x, y = at
+    d.ellipse([x - br, y - br, x + br, y + br], fill=rgb(_cfg.get_color("build")), outline=(255, 255, 255), width=2)
+    d.line([(x - br * 0.55, y), (x + br * 0.55, y)], fill=(255, 255, 255), width=2.5)
+    d.line([(x, y - br * 0.55), (x, y + br * 0.55)], fill=(255, 255, 255), width=2.5)
 
 
-def _draw_mini_x(draw: ImageDraw.ImageDraw, center: tuple[float, float], color: tuple, size: int = 8) -> None:
-    """Draw a small X for legend."""
-    x, y = center
-    draw.line([x - size, y - size, x + size, y + size], fill=color + (255,), width=3)
-    draw.line([x - size, y + size, x + size, y - size], fill=color + (255,), width=3)
+def add_footer(
+    image: Image.Image,
+    phase_info: dict | None,
+    legend_keys: set[str],
+    powers: list[str],
+    title_prefix: str = "",
+) -> Image.Image:
+    """``image`` with the footer strip appended below it: the title (phase, with an
+    optional prefix such as ``"Orders"``), then the key for ``legend_keys`` in
+    ``LEGEND`` order, then a swatch per power in ``powers``, wrapping onto as many
+    rows as needed."""
+    spec = _cfg.get_footer_specs()
+    pad, row_h, gap, sym_w = spec["padding"], spec["row_height"], spec["item_gap"], spec["symbol_width"]
+    title_font = font(spec["title_font_size"])
+    item_font = font(spec["item_font_size"], bold=False)
+    title = " — ".join(t for t in (title_prefix, phase_title(phase_info)) if t)
+    measure = ImageDraw.Draw(image)
+
+    # Lay the items out first, to know how many rows the strip needs.
+    items: list[tuple[str, str, Any]] = []  # (kind, key/power, label)
+    if title:
+        items.append(("title", "", title))
+    items += [("legend", key, LEGEND[key][0]) for key in LEGEND if key in legend_keys]
+    items += [("power", p, p.capitalize()) for p in powers]
+    placed: list[tuple[tuple[str, str, Any], float, int]] = []
+    x, row = float(pad), 0
+    for item in items:
+        kind, _, label = item
+        f = title_font if kind == "title" else item_font
+        width = measure.textlength(label, font=f) + (0 if kind == "title" else sym_w + 8)
+        if x > pad and x + width > image.width - pad:
+            x, row = float(pad), row + 1
+        placed.append((item, x, row))
+        x += width + gap * (1.5 if kind == "title" else 1)
+
+    rows = max(1, row + 1) if items else 0
+    height = rows * row_h + 2 * pad if rows else 0
+    out = Image.new("RGBA", (image.width, image.height + height), rgb(_cfg.get_color("footer_background")) + (255,))
+    out.alpha_composite(image, (0, 0))
+    if not rows:
+        return out
+    draw = ImageDraw.Draw(out)
+    draw.line([(0, image.height), (image.width, image.height)], fill=_casing(), width=2)
+    ink = rgb(_cfg.get_color("footer_text"))
+
+    def mid(r: int) -> float:
+        return image.height + pad + r * row_h + row_h / 2
+
+    for (kind, key, label), x, r in placed:
+        y = mid(r)
+        if kind == "title":
+            draw.text((x, y), label, fill=ink, font=title_font, anchor="lm")
+            continue
+        if kind == "power":
+            paste_token(out, (x + sym_w / 2, y), "", _cfg.get_power_color(key))
+        elif LEGEND[key][1] is None:
+            _token_symbol(out, key, x, y, sym_w)
+        draw.text((x + sym_w + 8, y), label, fill=ink, font=item_font, anchor="lm")
+    with antialiased_overlay(out) as d:
+        for (kind, key, _), x, r in placed:
+            if kind != "legend":
+                continue
+            symbol = LEGEND[key][1]
+            if symbol is not None:
+                symbol(d, x, mid(r), sym_w)
+            else:
+                _token_marks(d, key, x, mid(r), sym_w)
+    return out

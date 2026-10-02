@@ -17,9 +17,14 @@ from typing import Any
 
 from PIL import Image, ImageChops, ImageDraw
 
+from .visualization_config import get_config
 from .board import _engine_map, _get_cached_svg_data, _hex_to_rgb, _is_water_province
 
 logger = logging.getLogger("diplomacy.rendering.map")
+
+#: SVG path ids that differ from the engine's province codes. The Gulf of Lyon's
+#: shape is ``_gol``; without this a fleet there never tinted its sea.
+_SVG_ALIASES = {"GOL": "LYO"}
 
 
 def _color_provinces_by_power_with_transparency(
@@ -54,6 +59,7 @@ def _color_provinces_by_power_with_transparency(
         tree, jdip_coords, _ = _get_cached_svg_data(svg_path)
         root = tree.getroot()
 
+        tints = get_config().get_marker_specs()
         # Create a separate transparent overlay layer
         overlay = Image.new('RGBA', bg_image.size, (0, 0, 0, 0))
         overlay_draw = ImageDraw.Draw(overlay)
@@ -75,7 +81,7 @@ def _color_provinces_by_power_with_transparency(
         for path in all_paths:
             province_id = path.get('id')
             if province_id:
-                normalized_id = province_id.lstrip('_').upper()
+                normalized_id = _SVG_ALIASES.get(province_id.lstrip('_').upper(), province_id.lstrip('_').upper())
                 # Prioritize paths with underscore prefix, but also track non-underscore paths
                 if province_id.startswith('_'):
                     # Path with underscore - preferred
@@ -128,7 +134,7 @@ def _color_provinces_by_power_with_transparency(
             province_id = path_elem.get('id')
             if province_id:
                 # Remove underscore prefix and convert to uppercase
-                normalized_id = province_id.lstrip('_').upper()
+                normalized_id = _SVG_ALIASES.get(province_id.lstrip('_').upper(), province_id.lstrip('_').upper())
 
                 if normalized_id in province_power_map:
                     colored_provinces.add(normalized_id)
@@ -143,11 +149,11 @@ def _color_provinces_by_power_with_transparency(
                     if path_data:
                         if _is_water_province(normalized_id):
                             polygon_points = _extract_polygon_points_from_path(path_data, 195, 170)
-                            pattern_color = (*rgb_color, 120)
+                            pattern_color = (*rgb_color, tints["sea_hatch_alpha"])
                             if polygon_points and len(polygon_points) >= 3:
                                 _draw_ocean_pattern(overlay, polygon_points, pattern_color, spacing=10, angle=45, line_width=1)
                         else:
-                            transparent_color = (*rgb_color, 90)
+                            transparent_color = (*rgb_color, tints["land_tint_alpha"])
                             _fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 170)
 
         # Log warning for provinces in province_power_map but not found in SVG paths

@@ -27,12 +27,11 @@ diplomacy/
 │   └── server/          # FastAPI + Telegram bot + DAIDE + CLI Server
 ├── tests/               # top-level test files + tests/datc/ + tests/engine/
 ├── frontend/            # React 18 + Vite + TypeScript SPA
-├── maps/                # standard.map (topology) + standard.svg
+├── maps/                # standard.map (topology), standard.svg, place_dislodged_anchors.py
 ├── docker/              # api / bot / web / docs Dockerfiles, nginx configs, Caddyfile
 ├── .github/workflows/   # test.yml (the required checks), deploy.yml (deploy on merge)
 ├── alembic/             # Database migrations
 ├── docs/                # User docs + specs/ + reference/rules.pdf
-├── icons/               # Unit icon PNGs
 ├── docker-compose.yml   # the production stack; install.sh, ensure_env.sh, upgrade.sh,
 │                        #   backup.sh, harden_host.sh operate it (docs/DEPLOYMENT.md)
 ├── mkdocs.yml           # the docs site (docs/ as a website)
@@ -114,18 +113,21 @@ no topology of its own.
 
 | File | Purpose |
 |---|---|
-| `map.py` | A thin `Map` facade — staticmethod bindings over the modules below, kept so importers didn't have to change. |
-| `board.py`, `svg_paths.py` | SVG loading, province coloring by controlling power, path/coordinate parsing. |
-| `overlays.py`, `arrows.py` | Order and resolution overlays: movement/support/convoy/retreat arrows, hold and dislodged markers, status indicators. All four arrow variants share one geometry builder (`_arrow_geometry`) and one barbed-head stroker, and both ends are trimmed clear of the unit icons. |
-| `antialias.py` | `PIL.ImageDraw` does no anti-aliasing, so overlays are drawn onto a 3× transparent layer through a coordinate/width-scaling `ScaledDraw` proxy and LANCZOS-downscaled onto the board. The legend and phase banner deliberately bypass it. |
-| `icons.py`, `legend.py`, `cache.py` | Unit icons from `icons/`, the context-aware legend, and the in-memory + on-disk (`/tmp/diplomacy_map_cache`) caches. |
-| `order_overlay.py` | Adapts engine `Order`/`Resolution` objects into the renderer's arrow-primitive dicts. Merges multi-fleet convoy chains into one entry; `DISLODGED` gets its own status. |
-| `view_adapter.py` | Pure helpers turning a `GameService.view` dict into render inputs (`units_for_render`, `phase_info`, `svg_path_for_map_name`). |
-| `visualization_config.py` / `.json` | Colors, sizes, line widths, dash patterns, legend layout. |
+| `map.py` | The `Map` namespace: the public render entry points (`render_board_png`, `render_board_png_orders`, `render_board_png_resolution`) and cache controls. |
+| `board.py`, `svg_paths.py` | SVG raster (flattened onto white), province tints, unit placement (`place_units`: centre, or the `DISLODGED_UNIT` spot) and the units layer, retreat options, the plain board render. |
+| `overlays.py` | What each order and outcome looks like (`plan_orders` → under-the-units lines, token ops, over-the-units markers), drawn on the board the orders were given on, every marker on the unit that gave the order. |
+| `arrows.py` | Geometry (trim, offset, spline through a convoy chain, heads, bars, octagon, burst) as pure functions, plus cased drawing primitives. |
+| `tokens.py` | Unit tokens: a power-coloured disc with a bold `A`/`F`, sprites supersampled and cached. |
+| `antialias.py` | `PIL.ImageDraw` does no anti-aliasing, so overlays are drawn onto a 3× transparent layer through a coordinate/width-scaling `ScaledDraw` proxy and LANCZOS-downscaled onto the board. |
+| `legend.py`, `cache.py` | The footer strip under the map (title, the key for the symbols actually drawn, power swatches); the in-memory + on-disk (`/tmp/diplomacy_map_cache`) cache, keyed with `RENDERER_VERSION`. |
+| `order_overlay.py` | Adapts engine `Order`/`Resolution` objects into the overlay's order dicts: each carries its unit's province, the raw result and the `dislodged` flag; a convoyed move carries its fleet chain. |
+| `view_adapter.py` | Pure helpers turning a `GameService.view` dict into render inputs (`units_for_render`, `retreat_options_for_render`, `phase_info`, `svg_path_for_map_name`). |
+| `visualization_config.py` / `.json` | Colours, sizes, line widths, dash patterns, footer layout (the two are kept identical by a test). |
 
 `maps/` holds `standard.map` (the canonical topology source: 75 provinces, aliases, 7
 powers with home centers and starting units, unowned centers, coast-specific adjacency),
-`standard.svg` (the rendered base map, province regions identified by ID) and `svg.dtd`.
+`standard.svg` (the rendered base map, province regions identified by ID, with each province's
+unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the latter) and `svg.dtd`.
 
 ---
 

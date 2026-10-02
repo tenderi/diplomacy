@@ -8,100 +8,110 @@ truth for meaning.**
 
 ## Map types
 
-Three renders, all produced from a `GameService.view` dict plus optional order/resolution
-data (never from engine internals):
+Three renders, all produced from a `GameService.view`-shaped dict plus optional order or
+resolution data (never from engine internals):
 
 | Type | Entry point | Content |
 |---|---|---|
-| **Board** | `render_board_png` | Unit positions, supply-center ownership, phase overlay. No order indicators. |
+| **Board** | `render_board_png` | Units, centre ownership, dislodged units with where they may retreat. |
 | **Orders** | `render_board_png_orders` | The board plus every submitted order, before adjudication. |
-| **Resolution** | `render_board_png_resolution` | The board plus order outcomes: successes, failures, bounces, cuts, dislodgements, standoffs. |
+| **Results** | `render_board_png_resolution` | A processed turn's orders, each drawn with its outcome, **on the board they were given on**. |
 
-Available on demand via the map endpoints. After every processed turn a game's Telegram
-group gets two: that turn's orders, drawn with their outcomes on the board they were given
-on (`/games/{id}/map/turn/{turn}/orders`), and the board they produced
-(`/games/{id}/map/history/{turn+1}`).
+The results picture is always drawn on the board the turn was played on (snapshot `n` for
+turn `n`; the opening position for turn 0). Drawn over the board the turn *produced*, the
+unit in a province is often not the one that gave or received the order there, and every
+marker lands on the wrong unit. `/games/{id}/map/resolution` is the last processed turn's
+picture; `/games/{id}/map/turn/{n}/orders` is any turn's. After every processed turn a
+game's Telegram group gets that picture and the board the turn produced
+(`/games/{id}/map/history/{n+1}`).
 
-**Visual clarity principle:** each order type gets a distinct colour *and* line style, so a
-crowded board stays readable.
+## The one rule
 
-## Province and supply-center colouring
+**Every marker belongs to the unit that gave the order and is drawn at that unit**, never
+at a province centre where another unit may stand. A bounced attack is marked on the
+attacker's arrow, not on the defender; a dislodgement is marked on the unit dislodged.
 
-- Provinces are filled with the controlling power's colour at a light tint.
-- Supply centers keep the **owner's** colour when unoccupied — ownership persists, it isn't
-  derived from unit presence.
-- When a unit occupies a province, that province shows the **occupying** unit's power colour.
-- Ownership is recomputed only after the Fall turn fully settles, so resolution and retreat
-  maps still show the pre-Fall controller. This is deliberate: it matches when the engine
-  actually flips ownership.
+## Units and provinces
 
-Power colours (`colors.power_colors`): Austria `#c48f85`, England `darkviolet`, France
-`royalblue`, Germany `#a08a75`, Italy `forestgreen`, Russia `#757d91`, Turkey `#b9a61c`.
+- **Unit:** a disc in the power's colour with a bold `A` or `F` (white on dark colours,
+  near-black on light ones). A letter survives Telegram's downscaling; a silhouette did not.
+- **Dislodged unit** (on a retreat board): the same disc with a red ring, drawn at its
+  province's `DISLODGED_UNIT` position — a spot clear of the province's own unit and of every
+  neighbour's (`maps/place_dislodged_anchors.py` derives them from the rendered map) — and
+  drawn last, so it is never under the unit that replaced it.
+- **Retreat options** (retreat board): a thin dotted line from the dislodged unit to each
+  province it may retreat to, ending in a small open circle; a red ✗ beside a unit with
+  nowhere to go.
+- **Provinces** are tinted with the owner's colour; an occupied province shows the
+  occupant's. Seas are hatched instead of filled. Ownership is recomputed only after Fall
+  settles, matching the engine.
+- **Power colours** (`colors.power_colors`): Austria red, England purple, France blue,
+  Germany charcoal, Italy green, Russia teal, Turkey yellow — seven hues no two of which are
+  close, and none of which is an outcome colour.
 
-## Markers
+## Orders
 
-All arrows share one shape and arrowhead size (`arrows.*` in the config) and differ only in
-colour and dash pattern. Two line widths exist: `line_width_primary` for movement,
-`line_width_secondary` for everything else.
+Lines are in the ordering power's colour with a dark casing, so they read on land, sea and
+any tint. Order lines run **under** the unit tokens; markers sit **over** them.
 
-| Element | Style |
+| Order | Drawn as |
 |---|---|
-| **Unit** | Filled circle in the power colour, black border, `A`/`F` label centred. |
-| **Dislodged unit** | Same circle, red border, a `D` badge, drawn at `units.dislodged_offset` from the province center. Shown on any board in a retreat phase. |
-| **Move** | Solid arrow in the mover's power colour. |
-| **Hold** | Dashed circle around the unit, larger than the unit marker. |
-| **Support (hold)** | Dashed line to the defended unit plus a solid ring around it in the *supporter's* power colour. |
-| **Support (move)** | Dashed two-segment arrow: supporter → supported unit → target. |
-| **Convoy** | Solid curved path in the convoy colour through every convoying fleet to the destination, with a ring on each fleet. A multi-fleet chain renders as **one** merged path, not one arrow per fleet. |
-| **Retreat** | Dotted arrow from the dislodged unit's offset position to the destination. |
-| **Build / disband** | Green circle with `+` and the unit letter / red circle with `×`. |
-| **Success / failure** | Green checkmark / red `×` at the arrow tip. |
-| **Dislodged (order status)** | A heavy hollow ring, visually distinct from both success and failure. Only `Hold` and `Convoy` orders can carry this status. |
-| **Support cut** | Red `×` across the middle of the support line. |
-| **Standoff / bounce** | Standoff marker at a province two or more moves bounced out of (read from the stored resolution); a bounce is shown as a dashed return curve. |
+| **Move** | Solid arrow from the unit to the destination; it stops short of a unit standing there and reaches the centre of an empty province. |
+| **Opposed moves** (A→B and B→A) | The two arrows side by side, each offset to its own right, never on top of each other. |
+| **Convoyed move** | The same arrow, curving through every convoying fleet in route order. |
+| **Hold** | An octagon round the unit, outside the disc. (A unit with no order holds too, but is not marked.) |
+| **Support to hold** | A dashed line, no arrowhead, ending in a ring round the supported unit (rings stack outward when several powers support one unit). |
+| **Support to move** | A dashed line, no arrowhead, ending in a dot on the supported move's arrow. |
+| **Convoy** | A dashed ring round the convoying fleet. A route no army took is shown as a thin dotted arrow. |
+| **Retreat** | A dashed arrow from the dislodged unit. |
+| **Build** | The new unit, translucent, with a green `+` badge. |
+| **Disband** | A red ✗ over the unit. |
 
-### Draw order (bottom to top)
+## Outcomes (results picture)
 
-Base map → province fills → hold indicators → support lines and rings → convoy routes →
-movement arrows → retreat arrows → unit markers → build/disband markers → standoff markers
-→ status indicators → phase overlay → legend.
+Success is the default and is not marked. Only what went wrong is.
 
-This keeps primary actions (movement arrows) visible above context (support, convoy), unit
-markers always visible, and status indicators on top.
+| Outcome | Drawn as |
+|---|---|
+| **Bounced** | The move's arrow stops at the border (half way along its last leg) on a red bar. |
+| **Standoff** | An orange burst in the province nobody got into — at its centre, or at its free spot when a unit (one that moved out) is drawn there. |
+| **Dislodged** | A red ring round the unit, whatever its own order did (the engine's `dislodged` flag, not only the `DISLODGED` result). |
+| **Support cut** | The support line faded, with a red ✗ across it near the supporter. |
+| **Had no effect** (void) | The support line grey. |
+| **Failed** (void move, no convoy path) | The arrow dashed and faded, with a red ✗ at its tip. |
+| **Retreat failed** | The retreat arrow stops on a red bar, like a bounce. |
 
-### Legend
+The orders picture shows no outcome at all: nothing red, nothing grey.
 
-Bottom-left, semi-transparent white with a black border, and **context-aware** — an orders
-map legends move/hold/support/convoy, a resolution map legends success/failed/bounced/
-dislodged/support-cut, an adjustment map legends build/disband. Every legend includes the
-power colour swatches for the powers actually on the board.
+## Footer
 
-## Phase overlay
-
-Top corner, on a readable background: year, season, phase name, and optionally the phase
-code (`S1901M`).
+A strip **below** the map, never on it (a key drawn on the map covered Portugal and the
+Mid-Atlantic): the title (`Orders` / `Results`, then the phase, e.g. `Spring 1901 movement ·
+S1901M`), the key for exactly the symbols the picture uses, and a swatch per power on the
+board, wrapping onto more rows when needed.
 
 ## Technical
 
-- **Format:** PNG, 24-bit RGB with alpha for overlays. Base render is the SVG's native
-  resolution.
-- **Pipeline:** load `standard.svg` → parse province coordinates from path data → fill
-  provinces → draw units → draw overlays in priority order → phase text → legend → export
-  via CairoSVG + Pillow.
-- **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by everything
-  that changes the picture (units, phase, orders, centre ownership). First render of a map
-  is slow; the rest are not.
-- **Determinism:** the same state and orders must render byte-identically. Any change meant
-  to be behaviour-preserving should be validated by comparing PNG sha256 before and after
-  with the cache cleared — see [`testing_and_validation.md`](testing_and_validation.md).
+- **Format:** PNG; the SVG is rasterized at its native 1835×1360 and flattened onto white
+  (the raster is transparent along every border, which a dark viewer showed as black), then
+  the footer is appended below.
+- **Layers:** base map and tints → order lines → unit tokens → build tokens → markers →
+  footer. Overlays are drawn on a 3× supersampled layer and downscaled (`antialias.py`).
+- **Caching:** in memory and on disk at `/tmp/diplomacy_map_cache`, keyed by everything that
+  changes the picture, plus `cache.RENDERER_VERSION`. **Bump `RENDERER_VERSION` whenever the
+  drawing for the same inputs changes**, or a restart serves the old picture from disk.
+- **Determinism:** the same state and orders render byte-identically.
+- **Tests** check the picture by its numbers, not by "a PNG came back": geometry in
+  `tests/test_arrow_geometry.py`, every symbol's placement against real adjudications in
+  `tests/test_order_symbols.py`, pixels in `tests/test_board_render.py`, the dislodged spots
+  in `tests/test_dislodged_anchors.py`.
 
 ## Configuration
 
-`visualization_config.json` groups values under `arrows`, `colors` (including
-`power_colors`), `units`, `line_styles`, and `legend`. Add new visual constants there rather
-than in code; the loader falls back to built-in defaults for anything missing, so the file
-must stay beside `visualization_config.py` — moved elsewhere, every override silently
-reverts to a default.
+`visualization_config.json` groups values under `colors` (including `power_colors`),
+`units`, `arrows`, `line_styles`, `markers` and `footer`. Add new visual constants there
+rather than in code. `VisualizationConfig.DEFAULT_CONFIG` holds the same values so a missing
+file still renders; a test keeps the two identical.
 
 ## Out of scope
 
