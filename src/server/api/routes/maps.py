@@ -18,7 +18,7 @@ from ..shared import db_service, game_service, is_bot_secret
 from .auth import get_current_user_optional, http_bearer, require_bot_or_user, require_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
-from rendering.view_adapter import phase_info, svg_path_for_map_name, units_for_render
+from rendering.view_adapter import phase_info, retreat_options_for_render, svg_path_for_map_name, units_for_render
 
 router = APIRouter()
 
@@ -148,6 +148,7 @@ def get_game_map_png(game_id: str) -> Response:
             units_for_render(view),
             phase_info=phase_info(view, _turn_of(game_id)),
             supply_center_control=dict(view["ownership"]),
+            retreat_options=retreat_options_for_render(view),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
@@ -224,44 +225,64 @@ def get_game_orders_map_png(
     return Response(content=img_bytes, media_type="image/png")
 
 
+def _last_processed_turn(game_id: str) -> Optional[int]:
+    """The number of the most recent processed turn, or ``None`` before the first."""
+    turns = [int(t) for t in game_service.resolution_history(game_id)]
+    return max(turns) if turns else None
+
+
+def _turn_board(game_id: str, row: Any, turn: int) -> Dict[str, Any]:
+    """The board turn ``turn`` was played on: snapshot ``turn`` (taken when the turn
+    began), or the opening position for turn 0, which has no snapshot."""
+    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
+    if snapshot is not None:
+        return _view_from_snapshot(str(row.map_name), snapshot)
+    if turn == 0:
+        return game_service.opening_view(str(row.map_name))
+    raise HTTPException(status_code=404, detail="No board recorded for the start of this turn.")
+
+
+def _render_turn(board: Dict[str, Any], resolution: Dict[str, Any], turn: int) -> bytes:
+    """A processed turn's orders, each drawn with its outcome, on ``board``."""
+    return Map.render_board_png_resolution(
+        svg_path_for_map_name(board["map_name"]),
+        units_for_render(board),
+        resolution_dict_to_viz(resolution, _kind_by_province(board)),
+        {"conflicts": [{"province": prov, "result": "standoff"} for prov in standoff_provinces(resolution)]},
+        phase_info=phase_info(board, turn),
+        supply_center_control=dict(board["ownership"]),
+    )
+
+
 @router.get("/games/{game_id}/map/resolution", response_class=Response)
 def get_game_resolution_map_png(game_id: str) -> Response:
-    """Stream the resolution-overlay PNG (board + adjudicated order arrows,
-    coloured by result, plus standoff markers) as bytes.
+    """Stream the picture of the last processed turn: its orders, each drawn with its
+    outcome, on the board they were given on -- the same picture as
+    ``/map/turn/{turn}/orders`` for that turn.
 
-    Same streaming-bytes rationale as ``GET /games/{game_id}/map/orders`` above.
-    Falls back to a plain board PNG when no turn has been processed yet (no
-    ``last_resolution``), matching ``POST .../generate_map/resolution``.
+    It used to draw those arrows over the board the turn *produced*, where the unit
+    in a province is often not the one that gave or received the order there: a won
+    attack's winner wore the loser's dislodged ring. Falls back to the current board
+    before any turn has been processed.
     """
-    view = game_service.view(game_id)
+    row = db_service.get_game_by_game_id(game_id)
+    view = game_service.view(game_id) if row is not None else None
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    svg_path = svg_path_for_map_name(view["map_name"])
-    resolution = game_service.last_resolution(game_id)
+    turn = _last_processed_turn(game_id)
     try:
-        if not resolution:
+        if turn is None:
             img_bytes = Map.render_board_png(
-                svg_path,
+                svg_path_for_map_name(view["map_name"]),
                 units_for_render(view),
                 phase_info=phase_info(view, _turn_of(game_id)),
                 supply_center_control=dict(view["ownership"]),
+                retreat_options=retreat_options_for_render(view),
             )
         else:
-            order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
-            resolution_data = {
-                "conflicts": [
-                    {"province": prov, "result": "standoff"}
-                    for prov in sorted(set(view.get("contested", [])) | set(standoff_provinces(resolution)))
-                ],
-            }
-            img_bytes = Map.render_board_png_resolution(
-                svg_path,
-                units_for_render(view),
-                order_viz,
-                resolution_data,
-                phase_info=phase_info(view, _turn_of(game_id)),
-                supply_center_control=dict(view["ownership"]),
-            )
+            img_bytes = _render_turn(_turn_board(game_id, row, turn), game_service.resolution_history(game_id)[str(turn)], turn)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
     return Response(content=img_bytes, media_type="image/png")
@@ -291,6 +312,7 @@ def get_game_map_history_png(game_id: str, turn: int) -> Response:
             units_for_render(hist_view),
             phase_info=phase_info(hist_view, turn),
             supply_center_control=dict(hist_view["ownership"]),
+            retreat_options=retreat_options_for_render(hist_view),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
@@ -314,26 +336,9 @@ def get_turn_orders_map_png(game_id: str, turn: int) -> Response:
     resolution = game_service.resolution_history(game_id).get(str(turn))
     if not resolution:
         raise HTTPException(status_code=404, detail="No orders recorded for this turn.")
-    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
-    if snapshot is not None:
-        board = _view_from_snapshot(str(row.map_name), snapshot)
-    elif turn == 0:
-        board = game_service.opening_view(str(row.map_name))
-    else:
-        raise HTTPException(status_code=404, detail="No board recorded for the start of this turn.")
-    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(board))
-    resolution_data = {
-        "conflicts": [{"province": prov, "result": "standoff"} for prov in standoff_provinces(resolution)],
-    }
+    board = _turn_board(game_id, row, turn)
     try:
-        img_bytes = Map.render_board_png_resolution(
-            svg_path_for_map_name(board["map_name"]),
-            units_for_render(board),
-            order_viz,
-            resolution_data,
-            phase_info=phase_info(board, turn),
-            supply_center_control=dict(board["ownership"]),
-        )
+        img_bytes = _render_turn(board, resolution, turn)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
     return Response(content=img_bytes, media_type="image/png")
@@ -345,17 +350,22 @@ def _render_and_save(
     suffix: str = "",
     order_viz: Optional[Dict[str, Any]] = None,
     resolution_data: Optional[Dict[str, Any]] = None,
+    board: Optional[Dict[str, Any]] = None,
+    board_turn: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Render the current board and save it under ``/tmp/diplomacy_maps``.
 
     When ``order_viz`` is given, move/support/convoy arrows are drawn over the board
     (orders map). When ``resolution_data`` is also given, standoff/conflict markers
-    are drawn too (resolution map). On any render error, falls back to a plain board.
+    are drawn too (resolution map), on ``board`` (turn ``board_turn``) when given --
+    the board those orders were played on. On any render error, falls back to a
+    plain board.
     """
-    svg_path = svg_path_for_map_name(view["map_name"])
-    units = units_for_render(view)
-    phase_info_dict = phase_info(view, _turn_of(game_id))
-    scc = dict(view["ownership"])
+    drawn = board if board is not None else view
+    svg_path = svg_path_for_map_name(drawn["map_name"])
+    units = units_for_render(drawn)
+    phase_info_dict = phase_info(drawn, board_turn if board_turn is not None else _turn_of(game_id))
+    scc = dict(drawn["ownership"])
     render_warnings: List[str] = []
     try:
         if resolution_data is not None:
@@ -371,6 +381,7 @@ def _render_and_save(
         else:
             img_bytes = Map.render_board_png(
                 svg_path, units, phase_info=phase_info_dict, supply_center_control=scc,
+                retreat_options=retreat_options_for_render(drawn),
             )
     except Exception as e:
         render_warnings.append(f"render_failed_primary: {e}")
@@ -437,26 +448,25 @@ def generate_orders_map(game_id: str, _: None = Depends(require_bot_secret)) -> 
 
 @router.post("/games/{game_id}/generate_map/resolution")
 def generate_resolution_map(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
-    """Generate a resolution map: the board after the last processed turn, with each
-    adjudicated order's arrow coloured by its result plus standoff markers.
+    """Generate a resolution map: the last processed turn's orders, each drawn with
+    its outcome, on the board they were given on (as ``GET .../map/resolution``).
 
-    The resolution is stored at ``process_turn``; if none exists yet (no turn has been
-    processed), falls back to a plain board.
+    Falls back to a plain board when no turn has been processed yet.
     """
-    view = game_service.view(game_id)
+    row = db_service.get_game_by_game_id(game_id)
+    view = game_service.view(game_id) if row is not None else None
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    resolution = game_service.last_resolution(game_id)
-    if not resolution:
+    turn = _last_processed_turn(game_id)
+    if turn is None:
         return _render_and_save(game_id, view, suffix="resolution")
-    order_viz = resolution_dict_to_viz(resolution, _kind_by_province(view))
+    resolution = game_service.resolution_history(game_id)[str(turn)]
+    board = _turn_board(game_id, row, turn)
     resolution_data = {
-        "conflicts": [
-            {"province": prov, "result": "standoff"}
-            for prov in sorted(set(view.get("contested", [])) | set(standoff_provinces(resolution)))
-        ],
+        "conflicts": [{"province": prov, "result": "standoff"} for prov in standoff_provinces(resolution)],
     }
     return _render_and_save(
         game_id, view, suffix="resolution",
-        order_viz=order_viz, resolution_data=resolution_data,
+        order_viz=resolution_dict_to_viz(resolution, _kind_by_province(board)),
+        resolution_data=resolution_data, board=board, board_turn=turn,
     )

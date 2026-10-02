@@ -10,16 +10,18 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **AY**.
+>   history. Track letters run in sequence; the next free one is **AZ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-01, at `v3.0.25` (Track AX: export keeps messages from players
-  who quit, unreadable stored orders no longer 500, scheduler off the event loop).
+- **Last updated:** 2026-10-02, at `v3.0.26` (Track AY: the map overhaul -- outcome pictures
+  on the board the orders were given on, every marker on its own unit, a new symbol set,
+  letter tokens and a distinct palette, dislodged units clear of the victor, the key below
+  the map).
 - Everything an agent can do is done. **Track F** (a human playing the game end to end,
-  and host chores) is the maintainer's.
+  and host chores) is the maintainer's. F2's judgement pass now covers the new map too.
 
 ---
 
@@ -72,7 +74,7 @@ coherent* to use.
 - Tournaments, Discord, observer/spectator mode, AI-powered analysis. `tournaments.py`,
   `discord_bot/`, `run_discord_bot.py` and the spectator routes are kept for backward
   compatibility: don't extend, don't delete.
-- A rendering redesign (new art, a new layout engine, an interactive map component).
+- An interactive map component, animation, or a new layout engine.
 - Map variants beyond `standard`.
 - An admin web page: the host is administered over SSH (`docs/DEPLOYMENT.md`).
 - Game options beyond the standard rules: engine rule switches (`BUILD_ANY`, `HOLD_WIN`,

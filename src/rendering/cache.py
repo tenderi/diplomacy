@@ -17,6 +17,11 @@ from typing import Any
 
 logger = logging.getLogger("diplomacy.rendering.map")
 
+#: Part of every cache key. Bump it whenever the *picture* for the same inputs
+#: changes (new symbols, colours, layout): the disk cache outlives a process, and
+#: without this a restart after a deploy would serve the old drawing.
+RENDERER_VERSION = "ay-1"
+
 
 class MapCache:
     """Comprehensive map caching system for performance optimization."""
@@ -46,11 +51,14 @@ class MapCache:
         moves: dict | None = None,
         supply_center_control: dict | None = None,
         color_only_supply_centers: bool = False,
+        extra: dict | None = None,
     ) -> str:
         """Generate a unique cache key for map parameters: everything that changes
         the picture. Centre ownership belongs here -- it outlives occupancy, so two
         boards can share every unit and the phase and still colour differently."""
         key_data = {
+            "renderer": RENDERER_VERSION,
+            "extra": extra,
             "svg_path": svg_path,
             "units": units,
             "phase_info": phase_info,

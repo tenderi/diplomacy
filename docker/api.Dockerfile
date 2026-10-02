@@ -28,7 +28,6 @@ RUN adduser --disabled-password --gecos "" app \
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app maps ./maps
-COPY --chown=app:app icons ./icons
 COPY --chown=app:app src ./src
 COPY --chown=app:app docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh

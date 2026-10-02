@@ -48,6 +48,15 @@ def units_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
     return out
 
 
+def retreat_options_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
+    """``{province: [province, ...]}`` -- where each dislodged unit on a retreat
+    board may go (coasts stripped). Empty outside a retreat phase."""
+    return {
+        du["unit"]["location"].split("/")[0]: sorted({r.split("/")[0] for r in du.get("retreats", [])})
+        for du in view.get("dislodged", [])
+    }
+
+
 def phase_info(view: dict[str, Any], turn: int) -> dict[str, Any]:
     """Build the renderer's phase-label dict from a view (or view-shaped) dict."""
     return {

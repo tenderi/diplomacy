@@ -1,89 +1,70 @@
 {
-  "arrows": {
-    "arrowhead_size": 18,
-    "arrowhead_base_width": 22,
-    "arrowhead_length": 26,
-    "arrowhead_half_width": 9,
-    "arrowhead_notch": 7,
-    "unit_clearance": 20,
-    "line_width_primary": 6,
-    "line_width_secondary": 4,
-    "outline_width": 2,
-    "shape": "triangular"
-  },
   "colors": {
-    "success": "#00FF00",
-    "failure": "#FF0000",
-    "convoy": "#FFD700",
-    "support_defensive": "#90EE90",
-    "support_offensive": "#FFB6C1",
     "power_colors": {
-      "AUSTRIA": "#c48f85",
-      "ENGLAND": "darkviolet",
-      "FRANCE": "royalblue",
-      "GERMANY": "#a08a75",
-      "ITALY": "forestgreen",
-      "RUSSIA": "#757d91",
-      "TURKEY": "#b9a61c"
-    }
+      "AUSTRIA": "#D32F2F",
+      "ENGLAND": "#7B1FA2",
+      "FRANCE": "#1E88E5",
+      "GERMANY": "#424242",
+      "ITALY": "#2E7D32",
+      "RUSSIA": "#00897B",
+      "TURKEY": "#FBC02D"
+    },
+    "casing": "#111111",
+    "halo": "#FFFFFF",
+    "failure": "#E00000",
+    "void": "#8A8A8A",
+    "standoff": "#FF6F00",
+    "build": "#2E7D32",
+    "footer_background": "#F4F1EA",
+    "footer_text": "#1A1A1A"
   },
   "units": {
-    "diameter": 32,
-    "border_width": 4,
-    "dislodged_border_width": 5,
-    "dislodged_offset": [20, 20],
-    "label_font_size": 11,
-    "dislodged_indicator_size": 9,
-    "dislodged_indicator_offset": [6, 6],
-    "background_circle": true,
-    "background_circle_color": [255, 255, 255, 230]
+    "diameter": 30,
+    "outline_width": 2,
+    "font_size": 17,
+    "light_text_threshold": 500,
+    "build_alpha": 150
+  },
+  "arrows": {
+    "move_width": 5,
+    "support_width": 3,
+    "retreat_width": 4,
+    "casing": 1.5,
+    "head_length": 18,
+    "head_half_width": 9,
+    "head_notch": 5,
+    "token_gap": 3,
+    "bounce_bar_half_length": 8,
+    "bounce_bar_width": 5,
+    "opposed_offset": 9,
+    "support_dot_radius": 5,
+    "convoy_steps_per_leg": 16
   },
   "line_styles": {
-    "solid": {},
-    "dashed": {
-      "dash": 8,
-      "gap": 4
-    },
-    "dotted": {
-      "dot": 4,
-      "gap": 4
-    }
+    "dashed": {"dash": 9, "gap": 6},
+    "dotted": {"dash": 3, "gap": 5}
   },
   "markers": {
-    "hold_indicator_diameter": 32,
-    "hold_indicator_border_width": 4,
-    "support_circle_diameter": 32,
-    "support_circle_border_width": 5,
-    "convoy_fleet_marker_diameter": 30,
-    "convoy_fleet_marker_border_width": 4,
-    "build_marker_diameter": 18,
-    "build_marker_border_width": 4,
-    "destroy_marker_diameter": 18,
-    "destroy_marker_border_width": 4,
-    "battle_indicator_size": 22,
-    "battle_indicator_border_width": 4,
-    "standoff_indicator_size": 20,
-    "standoff_indicator_border_width": 4,
-    "status_indicator_size": 16,
-    "status_indicator_line_width": 4
+    "hold_gap": 5,
+    "hold_width": 3,
+    "support_ring_gap": 9,
+    "support_ring_width": 3,
+    "dislodged_gap": 4,
+    "dislodged_width": 4,
+    "cross_size": 8,
+    "cross_width": 4,
+    "standoff_radius": 15,
+    "build_badge_radius": 8,
+    "faded_alpha": 140,
+    "land_tint_alpha": 72,
+    "sea_hatch_alpha": 120
   },
-  "fonts": {
-    "unit_label_size": 11,
-    "hold_label_size": 9,
-    "phase_overlay_size": 16,
-    "conflict_label_size": 11,
-    "standoff_label_size": 9
-  },
-  "legend": {
-    "enabled": true,
-    "position": "bottom-left",
-    "padding": 15,
-    "item_spacing": 8,
-    "background_color": [255, 255, 255, 200],
-    "border_color": [0, 0, 0, 255],
-    "border_width": 2,
-    "title_font_size": 14,
-    "item_font_size": 11,
-    "symbol_size": 20
+  "footer": {
+    "padding": 12,
+    "row_height": 30,
+    "item_gap": 26,
+    "symbol_width": 34,
+    "title_font_size": 18,
+    "item_font_size": 15
   }
 }

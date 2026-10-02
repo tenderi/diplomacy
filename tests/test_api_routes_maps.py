@@ -251,6 +251,22 @@ class TestGetGameResolutionMapPng:
         assert resp.status_code == 200 and resp.content[:8] == b"\x89PNG\r\n\x1a\n"
         assert render.call_args.args[3]["conflicts"] == [{"province": "BUR", "result": "standoff"}]
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_resolution_map_is_drawn_on_the_board_the_orders_were_given_on(self, client):
+        """It used to draw the arrows over the board the turn produced, where the army
+        that moved PAR->BUR stands in BUR and wore the markers of whatever happened there."""
+        from server.api.shared import game_service
+        from rendering.overlays import render_board_png_resolution
+
+        game_id = _create_game(client, _register_and_login(client, "resboard"))
+        game_service.submit_orders(game_id, "FRANCE", ["A PAR - BUR"])
+        assert client.post(f"/games/{game_id}/process_turn", headers=_BOT).status_code == 200
+        with patch("server.api.routes.maps.Map.render_board_png_resolution", side_effect=render_board_png_resolution) as render:
+            assert client.get(f"/games/{game_id}/map/resolution").status_code == 200
+        units = render.call_args.args[1]
+        assert "A PAR" in units["FRANCE"] and "A BUR" not in units["FRANCE"]
+        assert render.call_args.kwargs["phase_info"]["phase_code"] == "S1901M"
+
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_resolution_map_after_process_turn(self, client):

@@ -31,7 +31,7 @@ Latest release: [3.0.0](https://github.com/tenderi/diplomacy/releases/tag/v3.0.0
 | `src/engine/` | The rules engine: pure logic, stdlib only, no I/O |
 | `src/server/` | FastAPI app (`api/`), Telegram bot (`telegram_bot/`), DAIDE server (`daide/`) |
 | `src/persistence/`, `alembic/` | SQLAlchemy models and data access; database migrations |
-| `src/rendering/`, `maps/`, `icons/` | SVG → PNG board rendering; map data |
+| `src/rendering/`, `maps/` | SVG → PNG board rendering; map data |
 | `frontend/` | React + Vite + TypeScript web app |
 | `tests/` | pytest suite, including DATC conformance in `tests/datc/` |
 | `docker/`, `docker-compose.yml`, `*.sh` | The production stack and the scripts that run it |
