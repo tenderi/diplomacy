@@ -39,7 +39,7 @@ def _create_game(client, headers):
 class TestDrawVote:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_draw_vote_success(self, client):
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_user1", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_user1"})
         headers = _register_and_login(client, "dv_ok")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "dv_user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -57,8 +57,8 @@ class TestDrawVote:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_draw_vote_unauthorized(self, client):
         """A user who does not hold the power gets 403, not a silently-cast vote."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_owner", "full_name": "Owner"})
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_other", "full_name": "Other"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_owner"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "dv_other"})
         headers = _register_and_login(client, "dv_unauth")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "dv_owner", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -114,7 +114,7 @@ class TestDrawVote:
 class TestConcede:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_concede_success(self, client):
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_user1", "full_name": "Test"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_user1"})
         headers = _register_and_login(client, "cc_ok")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "cc_user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
@@ -137,8 +137,8 @@ class TestConcede:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_concede_unauthorized(self, client):
         """A user who does not hold the power gets 403, and its units stay put."""
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_owner", "full_name": "Owner"})
-        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_other", "full_name": "Other"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_owner"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_other"})
         headers = _register_and_login(client, "cc_unauth")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "cc_owner", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})

@@ -24,8 +24,11 @@ routes, so refresh and back/forward work correctly. UI is Tailwind CSS + shadcn/
 
 ## Register
 
-**Register** → email, password (minimum 8 characters), optional full name. You are logged in
+**Register** → email, password (minimum 8 characters), optional nickname. You are logged in
 immediately; from there use **My games / All games** and **Link Telegram**.
+
+The nickname is what other players see next to your power; change or clear it on the home
+page. Please don't use your real name: the system keeps none.
 
 ## Sandbox
 
@@ -49,8 +52,9 @@ Nothing in the sandbox affects the real game, and nothing is saved: leaving the 
 1. In the browser: **Link Telegram → Generate link code**.
 2. In Telegram, send `/link <code>` to the bot.
 
-Both clients now act as the same account. Unlink from the same page; you can re-link later
-with a new code.
+Both clients now act as the same account, and the **Link Telegram** button becomes inactive
+with "You are already linked". To unlink, open `/link-telegram` directly; you can re-link
+later with a new code.
 
 If you played through Telegram before registering on the web, your Telegram already has an
 account (with your games). Linking then moves your web email and password onto that account

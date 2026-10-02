@@ -166,7 +166,7 @@ class TestAdminMarkPlayerInactive:
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_mark_player_inactive_success(self, client, admin_headers, bot_headers):
         """Test successfully marking player inactive."""
-        client.post("/users/persistent_register", json={"telegram_id": "inactive_user", "full_name": "Inactive", "bot_secret": BOT_SECRET or ""})
+        client.post("/users/persistent_register", json={"telegram_id": "inactive_user", "bot_secret": BOT_SECRET or ""})
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=bot_headers)
         game_id = int(game_resp.json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"telegram_id": "inactive_user", "bot_secret": BOT_SECRET or "", "game_id": game_id, "power": "FRANCE"})

@@ -38,7 +38,7 @@ def _game_with_two_bot_players(client):
     sender, other = f"71{digits}", f"72{digits}"
     for tid, name in ((sender, "Sender"), (other, "Other")):
         r = client.post("/users/persistent_register",
-                        json={"telegram_id": tid, "full_name": name, "bot_secret": SECRET})
+                        json={"telegram_id": tid, "bot_secret": SECRET})
         assert r.status_code == 200, r.text
     reg = client.post("/auth/register", json={"email": f"idem_{stamp}@example.com", "password": "testpass123"})
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}

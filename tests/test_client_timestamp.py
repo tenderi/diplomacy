@@ -65,7 +65,7 @@ def _seed(client):
     fr, de = f"81{digits}", f"82{digits}"
     for tid, name in ((fr, "F"), (de, "G")):
         assert client.post("/users/persistent_register",
-                           json={"telegram_id": tid, "full_name": name, "bot_secret": SECRET}).status_code == 200
+                           json={"telegram_id": tid, "bot_secret": SECRET}).status_code == 200
     reg = client.post("/auth/register", json={"email": f"ts_{stamp}@example.com", "password": "testpass123"})
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
     game_id = str(client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"},

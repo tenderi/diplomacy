@@ -8,7 +8,8 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
-from .auth import get_current_user, get_current_user_optional, http_bearer
+from .auth import get_current_user, get_current_user_optional, http_bearer, set_nickname_or_409
+from server.nickname import normalize_nickname
 from ..shared import db_service, is_bot_secret
 from ...response_cache import cached_response
 
@@ -16,8 +17,10 @@ router = APIRouter()
 
 # --- Request Models ---
 class RegisterPersistentUserRequest(BaseModel):
+    """No name: the bot must not send the player's Telegram name (the system holds
+    no real names). A nickname is set separately, by the player."""
+
     telegram_id: str
-    full_name: Optional[str] = None
     bot_secret: Optional[str] = None
 
     @field_validator("telegram_id")
@@ -42,23 +45,45 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
                 "status": "already_registered",
                 "user_id": existing_user.id,
                 "telegram_id": existing_user.telegram_id,
-                "full_name": existing_user.full_name
+                "nickname": existing_user.nickname,
             }
         
         # Create new user
-        user = db_service.create_user(
-            telegram_id=req.telegram_id,
-            full_name=req.full_name or ""
-        )
+        user = db_service.create_user(telegram_id=req.telegram_id)
         
         return {
             "status": "ok",
             "user_id": user.id,
             "telegram_id": user.telegram_id,
-            "full_name": user.full_name
+            "nickname": user.nickname,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class BotNicknameRequest(BaseModel):
+    telegram_id: str
+    bot_secret: Optional[str] = None
+    #: ``None`` or blank clears it.
+    nickname: Optional[str] = None
+
+    @field_validator("nickname")
+    @classmethod
+    def nickname_rules(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_nickname(v)
+
+
+@router.post("/users/nickname")
+def set_nickname_from_bot(req: BotNicknameRequest) -> Dict[str, Any]:
+    """The bot's ``/nickname``: set or clear the caller's nickname. Bot secret only;
+    409 if another account has it, 422 if it breaks the rules."""
+    if not is_bot_secret(req.bot_secret):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = db_service.get_user_by_telegram_id(req.telegram_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Not registered")
+    set_nickname_or_409(int(user.id), req.nickname)
+    return {"status": "ok", "nickname": req.nickname}
+
 
 def _user_games_response(user: Any) -> Dict[str, Any]:  # noqa: ANN401
     """Build games list for a user (shared by get_user_games and get_me_games)."""

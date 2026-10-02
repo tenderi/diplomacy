@@ -16,8 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.27` (linking a fresh web login to a Telegram that
-  already plays moves the web login onto the Telegram account instead of refusing forever).
+- **Last updated:** 2026-10-02, at `v3.0.28` (no real names: `users.full_name` became an
+  optional, unique `nickname` and every stored name was cleared; the bot sends nothing from a
+  Telegram profile; `/nickname`; the web's Link Telegram button goes inactive once linked).
 - Everything an agent can do is done. **Track F** (a human playing the game end to end,
   and host chores) is the maintainer's. F2's judgement pass now covers the new map too.
 

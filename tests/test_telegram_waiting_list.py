@@ -60,7 +60,7 @@ def test_wait_posts_to_the_waiting_list_endpoint() -> None:
 
     endpoint, payload = mock_post.call_args.args
     assert endpoint == "/waiting_list/join"
-    assert payload == {"telegram_id": "4242", "full_name": "Ada Lovelace"}
+    assert payload == {"telegram_id": "4242"}
     assert "3/7" in _reply(update)
 
 

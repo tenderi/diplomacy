@@ -430,7 +430,7 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
                     "user_id": p.user_id,
                     "is_active": getattr(p, 'is_active', True),
                     "telegram_id": getattr(user, 'telegram_id', None) if user else None,
-                    "full_name": getattr(user, 'full_name', None) if user else None,
+                    "nickname": getattr(user, 'nickname', None) if user else None,
                 })
         except Exception as e:
             logger.warning(f"Could not get players data for dashboard: {e}")
