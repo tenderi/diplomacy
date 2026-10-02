@@ -92,7 +92,7 @@ coasts. `POST /games/{id}/generate_map[/orders|/resolution]` renders to a file.
 ### Telegram groups (`/games/{id}/channel…`)
 
 Link, unlink, read and change the settings of the game's group; queue posts for it (the
-current map, a broadcast, the timeline, the player dashboard, battle results, a discussion
+current map, a broadcast, the timeline, the player dashboard, a discussion
 thread). A player of the game, the bot or an admin only.
 
 ### Bot outbox and idempotency

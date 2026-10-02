@@ -37,7 +37,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
       `C A X - Y` for every coastal pair next to the fleet whatever is on the board (≈40
       bogus entries for F NTH in F1901, shown by the bot's convoy menu). Offer only convoys
       of armies that exist (the chain-based block already does).
-- [ ] BA2 — **Every player's Telegram ID is public.** `GET /games/{id}/players` (no auth)
+- [x] BA2 — **Every player's Telegram ID is public.** `GET /games/{id}/players` (no auth)
       returns `telegram_id` per seat (`routes/games.py` `get_players`). Drop it from the
       public response (check the bot and frontend for readers first).
 - [ ] BA3 — **Adjustment orders accepted, then VOID.** Validation never checks the counts
@@ -59,17 +59,17 @@ Adjudication itself was correct in every case checked; these are the paths aroun
       advances). Decide with the maintainer whether the creator's manual process should
       require a full table (the demo game's AI seats must keep working).
 - [ ] BA7 — Smaller issues:
-  - [ ] The joining player also gets "A player has joined game N as X" (`join_game` passes
+  - [x] The joining player also gets "A player has joined game N as X" (`join_game` passes
         no `exclude_telegram_id`); the power is lower-case there and in `GET /orders/france`.
   - [ ] `orders_status.submitted` counts powers with nothing to do or an empty list
         (`/status` shows "✅ Submitted").
   - [ ] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
         should say why (attacker's origin, contested, occupied).
   - [ ] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
-  - [ ] A private message to your own power is accepted.
+  - [x] A private message to your own power is accepted.
   - [ ] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
   - [ ] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
-  - [ ] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
+  - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
         tie numbering) — delete it.
 - [ ] **Done when:** every box above is checked.
 

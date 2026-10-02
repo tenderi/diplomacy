@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app
-from server.telegram_bot.channels import format_battle_results, format_historical_timeline, format_player_dashboard
+from server.telegram_bot.channels import format_historical_timeline, format_player_dashboard
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
@@ -41,59 +41,6 @@ class TestNoDoubleAsteriskBold:
                     if re.search(r"\*\*[^\s*]", node.value):
                         offenders.append(f"{path.name}:{node.lineno}: {node.value[:60]!r}")
         assert not offenders, "\n".join(offenders)
-
-
-class TestBattleResults:
-    CENTERS = {
-        "RUSSIA": ["MOS", "WAR", "SEV", "STP"],
-        "AUSTRIA": ["VIE", "BUD", "TRI"],
-        "ENGLAND": ["LON", "EDI", "LVP"],
-        "ITALY": ["ROM", "VEN"],
-    }
-
-    def _state(self, **extra: object) -> dict:
-        return {"current_year": 1902, "current_season": "Fall", "supply_centers": self.CENTERS, "units": {}, **extra}
-
-    def test_as_the_route_calls_it_header_and_dense_ranking(self) -> None:
-        assert _lines(format_battle_results(self._state())) == [
-            "⚔️ *ADJUDICATION RESULTS - FALL 1902*",
-            "",
-            "📈 *Power Rankings:*",
-            "1. 🇷🇺 RUSSIA (4 centers)",
-            "2. 🇦🇹 AUSTRIA (3 centers)",
-            "2. 🇬🇧 ENGLAND (3 centers)",
-            "3. 🇮🇹 ITALY (2 centers)",
-        ]
-
-    def test_moves_are_split_into_attacks_and_bounces(self) -> None:
-        history = {
-            "AUSTRIA": [{"order_type": "move", "status": "success", "unit": {"unit_type": "A", "province": "VIE"}, "target_province": "TRI"}],
-            "ENGLAND": [
-                {"order_type": "MOVE", "status": "bounced", "unit": {"unit_type": "F", "province": "NTH"}, "target_province": "NOR"},
-                {"order_type": "move", "status": "failed", "unit": {"unit_type": "A", "province": "LVP"}, "target_province": "YOR"},
-                {"order_type": "hold", "status": "success", "unit": {"unit_type": "F", "province": "LON"}},
-            ],
-        }
-        text = format_battle_results(self._state(), order_history=history)
-        assert "🎯 *Successful Attacks:*\n• A VIE → TRI\n\n" in text
-        assert "🔄 *Bounced Movements:*\n• F NTH → NOR (bounced)\n• A LVP → YOR (bounced)\n\n" in text
-        assert "LON" not in text.split("📈")[0]  # a hold is neither
-
-    def test_dislodgements_name_the_attacker(self) -> None:
-        units = {"ITALY": [{"unit_type": "A", "province": "DISLODGED_VEN", "is_dislodged": True, "dislodged_by": "A TRI"}]}
-        assert "💥 *Dislodgements:*\n• A VEN dislodged by A TRI\n\n" in format_battle_results(self._state(units=units))
-
-    def test_center_changes_and_trend_arrows(self) -> None:
-        previous = {**self.CENTERS, "AUSTRIA": ["VIE", "BUD"], "ITALY": ["ROM", "VEN", "TRI"]}
-        text = format_battle_results(self._state(), previous_supply_centers=previous)
-        changes = text.split("📊 *Supply Center Changes:*\n")[1].split("\n\n")[0].splitlines()
-        assert sorted(changes) == ["🇦🇹 AUSTRIA: +1 (TRI captured)", "🇮🇹 ITALY: -1 (TRI lost)"]
-        assert "2. 🇦🇹 AUSTRIA (3 centers) ↗️" in text
-        assert "3. 🇮🇹 ITALY (2 centers) ↘️" in text
-        assert "1. 🇷🇺 RUSSIA (4 centers) →" in text
-
-    def test_bad_input_degrades_to_an_error_post_instead_of_raising(self) -> None:
-        assert format_battle_results(None).startswith("⚔️ *ADJUDICATION RESULTS*\n\nError formatting results:")  # type: ignore[arg-type]
 
 
 class TestPlayerDashboard:
@@ -214,12 +161,10 @@ class TestRoutesQueueForTheGroup:
         assert f"🇫🇷 FRANCE ({self.nickname}) - Submitted" in row["message"]
         assert "🇩🇪 GERMANY - No orders" in row["message"]
 
-    def test_timeline_and_battle_results_rank_the_opening_board(self, client: TestClient) -> None:
+    def test_timeline_ranks_the_opening_board(self, client: TestClient) -> None:
         game_id, _ = self._linked_game(client)
         timeline = self._post(client, f"/games/{game_id}/channel/timeline")["message"]
         assert "• 🇷🇺 RUSSIA: 4 centers" in timeline
-        results = self._post(client, f"/games/{game_id}/channel/battle_results")["message"]
-        assert "1. 🇷🇺 RUSSIA (4 centers)" in results and "🇮🇹 ITALY (3 centers)" in results
         assert client.get(f"/games/{game_id}/channel/timeline", headers=BOT).json()["timeline"] == timeline
 
     def test_broadcast_is_attributed_and_escaped(self, client: TestClient) -> None:
@@ -243,7 +188,7 @@ class TestRoutesQueueForTheGroup:
         row = self._post(client, f"/games/{game_id}/channel/thread", json={"topic": "Spring talks", "phase": "S1901M"})
         assert (row["kind"], row["message"]) == ("channel_create_thread", "Spring talks - S1901M")
 
-    @pytest.mark.parametrize("route", ["map", "dashboard", "timeline", "battle_results", "thread", "broadcast"])
+    @pytest.mark.parametrize("route", ["map", "dashboard", "timeline", "thread", "broadcast"])
     def test_an_unlinked_game_is_404_and_queues_nothing(self, client: TestClient, route: str) -> None:
         creator = _telegram_user(client, "nolink")
         game_id = str(client.post("/games/create", json=_as(creator, map_name="standard"), headers=BOT).json()["game_id"])
