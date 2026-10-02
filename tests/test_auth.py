@@ -428,3 +428,74 @@ def test_set_orders_with_bearer(client):
         headers=headers,
     )
     assert set_orders.status_code == 200
+
+
+class TestLinkingAFreshWebLoginToAPlayedTelegram:
+    """Someone plays through the bot first (a Telegram-only account holding their seat),
+    then registers on the web and links. The link proves they own both; it used to
+    refuse with "already linked to another account", forever."""
+
+    def _played_on_telegram(self, client):
+        from tests.test_quit_and_replace import _game_with_france
+        return _game_with_france(client)
+
+    def _web_code(self, client, prefix="merge"):
+        email = _unique_email(prefix)
+        reg = client.post("/auth/register", json={"email": email, "password": "pass12345"})
+        assert reg.status_code == 200, reg.text
+        token = reg.json()["access_token"]
+        code = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"}).json()["code"]
+        return email, token, reg.json()["user"]["id"], code
+
+    def test_the_telegram_account_takes_over_the_web_login(self, client):
+        _skip_if_no_db()
+        from server.api.shared import db_service
+
+        game_id, tg = self._played_on_telegram(client)
+        played = db_service.get_user_by_telegram_id(tg)
+        email, old_token, web_id, code = self._web_code(client)
+
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["merged"] is True
+
+        login = client.post("/auth/login", json={"email": email, "password": "pass12345"})
+        assert login.status_code == 200, login.text
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {login.json()['access_token']}"}).json()
+        assert (me["id"], me["telegram_id"], me["email"]) == (played.id, tg, email)
+        # The seat came along, because nothing moved: the web login moved to it.
+        seat = next(p for p in client.get(f"/games/{game_id}/players").json() if p["power"] == "FRANCE")
+        assert seat["user_id"] == played.id
+        # The empty web account is gone, and so is its session.
+        assert db_service.get_user_by_id(web_id) is None
+        assert client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+
+    def test_a_telegram_account_with_its_own_web_login_is_not_taken_over(self, client):
+        _skip_if_no_db()
+        first_email, _, _, first_code = self._web_code(client, "owner")
+        tg = f"tg_owned_{int(time.time() * 1000)}"
+        assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": first_code}).status_code == 200
+        _, _, second_id, second_code = self._web_code(client, "intruder")
+
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": second_code})
+        assert resp.status_code == 409
+        assert resp.json()["detail"].startswith("This Telegram is already linked to another account that has its own web login")
+        from server.api.shared import db_service
+        assert db_service.get_user_by_telegram_id(tg).email == first_email
+        assert db_service.get_user_by_id(second_id) is not None
+
+    def test_a_web_account_that_already_plays_is_not_folded_in(self, client):
+        _skip_if_no_db()
+        from server.api.shared import db_service
+
+        _, tg = self._played_on_telegram(client)
+        email, token, web_id, _ = self._web_code(client, "busy")
+        other_game = client.post("/games/create", json={"map_name": "standard"}, headers={"Authorization": f"Bearer {token}"}).json()["game_id"]
+        joined = client.post(f"/games/{other_game}/join", json={"power": "ENGLAND"}, headers={"Authorization": f"Bearer {token}"})
+        assert joined.status_code == 200 and joined.json()["status"] == "ok", joined.text
+        code = client.post("/auth/me/link_code", headers={"Authorization": f"Bearer {token}"}).json()["code"]
+
+        resp = client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code})
+        assert resp.status_code == 409
+        assert db_service.get_user_by_id(web_id).email == email
+        assert db_service.get_user_by_telegram_id(tg).email is None

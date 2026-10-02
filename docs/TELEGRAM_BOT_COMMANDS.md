@@ -49,7 +49,9 @@ first, because a bare number there would be ambiguous.)
 
 Get the code from the web app: **Link Telegram → Generate link code**, then send
 `/link 123456` here. One Telegram account can be linked to one browser account; unlink from
-the web app if you need to re-link.
+the web app if you need to re-link. If you played here before registering on the web, the
+link moves your new web login onto this Telegram account and its games (then log in again in
+the browser), as long as the web account has not joined a game yet.
 
 ## Game management
 
