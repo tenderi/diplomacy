@@ -10,17 +10,69 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BA**.
+>   history. Track letters run in sequence; the next free one is **BB**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.31` (frontend `npm audit`: 28 findings down to 8
-  with in-range upgrades; the remaining 8 need major upgrades, proposed as **Track AZ**).
-- **Track AZ** (frontend major dependency upgrades) is proposed, awaiting the maintainer's
-  go-ahead. **Track F** (a human playing the game end to end,
-  and host chores) is the maintainer's. F2's judgement pass now covers the new map too.
+- **Last updated:** 2026-10-02, at `v3.0.33` (Track BA recorded: defects from an agent's
+  play-through of the API).
+- **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
+  (frontend major dependency upgrades) is proposed. **Track F** (a human playing the game
+  end to end, and host chores) is the maintainer's.
+
+---
+
+# Track BA — Play-through defects (orders, notifications, privacy)
+
+Found by an agent playing four games against a local API as several powers (2026-10-02).
+Adjudication itself was correct in every case checked; these are the paths around it.
+
+- [ ] BA1 — **A convoy the menu offers returns a 500 and loses the whole order batch.**
+      `F ION C A ALB - APU` with a *fleet* in ALB: `_check_orders` accepts it, re-formats it
+      as `F ION C F ALB - APU`, and `submit_orders` re-parses that outside any try block.
+      `engine/orders/validation.py` `_validate_convoy` must reject a convoy whose origin
+      holds no army, with a 400-class error, and no stored order may fail to re-parse.
+      Also `server/legal_orders.py` `_movement_orders`: the `ProvinceType.WATER` loop offers
+      `C A X - Y` for every coastal pair next to the fleet whatever is on the board (≈40
+      bogus entries for F NTH in F1901, shown by the bot's convoy menu). Offer only convoys
+      of armies that exist (the chain-based block already does).
+- [ ] BA2 — **Every player's Telegram ID is public.** `GET /games/{id}/players` (no auth)
+      returns `telegram_id` per seat (`routes/games.py` `get_players`). Drop it from the
+      public response (check the bot and frontend for readers first).
+- [ ] BA3 — **Adjustment orders accepted, then VOID.** Validation never checks the counts
+      `legal_orders` already reports in `adjustment.slots`: a build at delta 0, two builds
+      with one slot, a disband when builds are owed, two waives for one slot are all
+      `success: true`. And the bot's merge path stores `BUILD F KIE` then `WAIVE` as both
+      (build happens, waive VOID): waive-after-build must replace like build-after-waive.
+- [ ] BA4 — **The turn notification is generic and wrong for retreat/adjustment phases.**
+      `api/shared.py` `notify_turn_processed` tells every player "Your next orders are due"
+      without naming the phase; in a retreat phase only the dislodged powers have orders,
+      and they are not told which unit was dislodged or where it may go. Name the new phase,
+      tell powers with nothing to do that they wait, tell dislodged powers their units and
+      retreat options, and powers with builds/disbands their count.
+- [ ] BA5 — **An army's convoyed move without `VIA` is rejected.** `A NWY - YOR` (F NTH in
+      place) → "YOR is not adjacent to NWY". `docs/specs/adjudication.md` §6 says
+      non-adjacent army moves are always convoyed and the rulebook writes `A Lon-Bel`.
+      Accept a non-adjacent army move to a coastal province as a convoyed move.
+- [ ] BA6 — **Turns can be processed before the game is full** (creator, 1 of 7 seated →
+      advances). Decide with the maintainer whether the creator's manual process should
+      require a full table (the demo game's AI seats must keep working).
+- [ ] BA7 — Smaller issues:
+  - [ ] The joining player also gets "A player has joined game N as X" (`join_game` passes
+        no `exclude_telegram_id`); the power is lower-case there and in `GET /orders/france`.
+  - [ ] `orders_status.submitted` counts powers with nothing to do or an empty list
+        (`/status` shows "✅ Submitted").
+  - [ ] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
+        should say why (attacker's origin, contested, occupied).
+  - [ ] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
+  - [ ] A private message to your own power is accepted.
+  - [ ] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
+  - [ ] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
+  - [ ] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
+        tie numbering) — delete it.
+- [ ] **Done when:** every box above is checked.
 
 ---
 
