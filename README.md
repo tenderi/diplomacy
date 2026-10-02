@@ -8,7 +8,11 @@ documented expected failures).
 https://diplomacy.xn--jalluthti-02a.fi. **New here? Read the [new player guide](https://diplomacy-docs.xn--jalluthti-02a.fi/NEW_USER_GUIDE/)** (all docs:
 https://diplomacy-docs.xn--jalluthti-02a.fi).
 
-- **Telegram groups:** add the bot to your group and send `/newgame`. After every turn the
+- **Anonymous or public games:** the creator picks whether players are known only by their
+  power (the bot relays every message naming the power alone) or by nickname, shown next
+  to their power.
+- **Telegram groups:** add the bot to your group and send `/newgame anonymous` or
+  `/newgame public`. After every turn the
   group gets a map of the orders and one of the result, plus reminders, while orders stay
   in private chats, and a group's games are visible only to its members.
 - **Telegram bot:** the main way to play. A menu per game has buttons for ordering every

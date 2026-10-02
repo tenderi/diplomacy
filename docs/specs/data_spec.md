@@ -151,6 +151,7 @@ The columns that matter for game state (all nullable):
 | `auto_process` | Boolean | `GameRepo.create` / `.set_auto_process` | Process the turn as soon as `orders_status` has nothing missing and no wait flag is up. Null/false = manual or deadline only. |
 | `wait_flags` | JSON | `GameRepo.modify_wait_flags` | `{power: true}` for players who asked the table to wait. Cleared by `finish_processed_turn` on every processed turn; never stops a deadline or `/processturn`. |
 | `join_password_hash` | String(100) | `GameRepo.create` / `.set_join_password_hash` | bcrypt hash of a private game's join password; null = open. Never serialized: views and `GET /games` carry only `private`, and the saved-game export leaves it out (an imported game comes back open). |
+| `anonymous` | Boolean, not null, default false | `GameRepo.create` | Chosen at creation (`POST /games/create` `anonymous`, the bot's `/newgame anonymous\|public`, the web's create form) and never changed. **True:** players are known only by their power — every announcement and relayed message names the power alone (`api.shared.power_label`), and no API read says who holds a seat (`api.shared.player_rows`: `user_id`, `telegram_id`, `nickname` are null; `seated` says whether the seat is held). **False (public):** the player's nickname, when they have set one, rides along with the power, `FRANCE (Anna)`. Carried by the saved-game export. |
 | `created_by_user_id` | Integer FK `users.id`, `ON DELETE SET NULL` | `GameRepo.create` | Who created the game (Bearer user, or the bot's `telegram_id`). Null for waiting-list games. Only the creator (or `X-Admin-Token`) may change `dummy_powers` or the join password, or end a turn early. |
 
 Plus denormalized convenience columns kept in sync for code that doesn't want to parse
@@ -167,7 +168,8 @@ board, and `map_snapshots` one row per processed turn.
 Player-to-power assignment is not an engine concern.
 Key columns: `game_id` (FK), `power_name`, `user_id` (FK to `users`), `is_active`,
 `is_eliminated`. `GameRepo.players(game_id)` reads this into `{power: {user_id,
-is_active}}` for the API view (§4).
+is_active}}` for the API view (§4); in an anonymous game the view nulls `user_id` and adds
+`seated`.
 
 ### Other tables
 
@@ -210,12 +212,23 @@ paths) — built directly from `GameState`:
   ],
   "contested": ["BUR"],
   "players": { "FRANCE": {"user_id": 42, "is_active": true}, ... },
+                                        // anonymous game: {"user_id": null, "is_active": true, "seated": true}
   "dummy_powers": ["TURKEY"],           // played by civil disorder; [] if none
   "auto_process": false,                // turn runs by itself once all orders are in
   "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
-  "private": false                      // joining needs a password (never the hash)
+  "private": false,                     // joining needs a password (never the hash)
+  "anonymous": false                    // players known only by their power (games.anonymous)
 }
 ```
+
+**Who a player is known as.** `GET /games/{id}/players` returns one row per seat:
+`power`, `seated`, `is_active`, `user_id`, `telegram_id`, `nickname` — the last three
+null in an anonymous game. `GET /games` lists each game's `anonymous` flag and its seats as
+`{power, seated, user_id}` (`user_id` null when anonymous). `GET /games/{id}/messages`
+gives each message's `sender_power` (the seat its sender holds now; null if they left) and,
+in a public game only, `sender_name`; an anonymous game nulls `sender_user_id`. A client
+finds its own seat in an anonymous game from `GET /users/me/games` (or
+`/users/{telegram_id}/games`).
 
 **The view carries no pending orders.** It is public (`GET /games/{id}/state` needs no
 login, and game ids are sequential), and orders are secret until the turn is processed.

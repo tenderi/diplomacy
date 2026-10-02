@@ -138,6 +138,8 @@ def export_game(game_id: str) -> Dict[str, Any]:
             "auto_process": bool(meta.get("auto_process")),
             # The weekly deadline schedule (stored form), or null.
             "deadline_schedule": meta.get("deadline_schedule"),
+            # Whether players are known only by their power.
+            "anonymous": bool(meta.get("anonymous")),
         },
         "state": state,
         "players": player_rows,
@@ -187,6 +189,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
             dummy_powers=list(source.get("dummy_powers") or []),
             auto_process=bool(source.get("auto_process")),
             deadline_schedule=schedule.to_json() if schedule else None,
+            anonymous=bool(source.get("anonymous")),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Malformed game settings in the export: {e}") from e

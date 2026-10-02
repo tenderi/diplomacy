@@ -149,7 +149,7 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 
 | Module | Endpoints |
 |---|---|
-| `games.py` | Create/list/get games, join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
+| `games.py` | Create/list/get games (anonymous or public naming), join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
 | `orders.py` | Submit orders (replace, or merge one per unit), get current orders, clear orders, order history. |
 | `users.py` | Register a Telegram user, list a user's games. |
 | `auth.py` | JWT register/login/token/refresh/me, forgot + reset password, Telegram link code and link/unlink. |
@@ -166,7 +166,8 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 
 `shared.py` holds the `db_service` / `game_service` singletons, loggers, `notify_user` /
 `notify_players` / `post_to_game_group` (which write `bot_outbox` rows — server code never
-talks to Telegram), `finish_processed_turn` (everything after a turn, for every trigger),
+talks to Telegram), `power_label` / `player_rows` (how a player is named: the power alone in an
+anonymous game, `FRANCE (Anna)` in a public one), `finish_processed_turn` (everything after a turn, for every trigger),
 and the **deadline scheduler**: a background async task that processes
 turns whose deadline has passed, notifies players, and hourly purges delivered outbox rows
 and expired idempotency keys. `idempotency.py` is the middleware that replays a stored response for a repeated

@@ -37,9 +37,9 @@ def display_name(user: Any, fallback: str = "A player") -> str:
     return (getattr(user, "nickname", None) if user is not None else None) or fallback
 
 
-def sender_label(player: Any, user: Any) -> str:
-    """Who a message is from: the power, with the nickname if there is one --
-    ``"FRANCE"`` or ``"FRANCE (Talleyrand)"``."""
-    power = str(getattr(player, "power_name", "") or "A player")
+def sender_label(power: str, user: Any) -> str:
+    """A power and its player, as a public game names them: the power, with the
+    nickname if there is one -- ``"FRANCE"`` or ``"FRANCE (Talleyrand)"``. An
+    anonymous game names the power alone (``api.shared.power_label``)."""
     nickname = getattr(user, "nickname", None) if user is not None else None
     return f"{power} ({nickname})" if nickname else power

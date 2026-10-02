@@ -47,7 +47,8 @@ import {
   toUnitOut,
 } from '@/components/OrderEntry'
 
-type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null }
+/** A seat from GET /games/{id}/players. An anonymous game sends `seated` but no `user_id` or name. */
+type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null; seated?: boolean }
 /**
  * The GameState-native view returned by GET /games/{id}/state (see GameService.view).
  * `phase` is a code like "S1901M"; `phase_type` drives the order UI.
@@ -71,11 +72,22 @@ type GameState = {
   dummy_powers?: string[]
   /** W8: joining needs the game's password (the creator is exempt). */
   private?: boolean
+  /** Players are known only by their power: no API read says who holds a seat. */
+  anonymous?: boolean
   /** The user who created the game -- the only one who may end a turn early. */
   created_by_user_id?: number | null
   orders: Record<string, string[]>
 }
-type Message = { id?: number; sender_user_id?: number; recipient_power?: string; text?: string; is_broadcast?: boolean }
+type Message = {
+  id?: number
+  sender_user_id?: number | null
+  /** The sender's power; `sender_name` only in a public game. */
+  sender_power?: string | null
+  sender_name?: string | null
+  recipient_power?: string
+  text?: string
+  is_broadcast?: boolean
+}
 /**
  * GET /games/{id}/draw_vote_status response (see GameService.get_draw_votes).
  * `required` is every surviving power that still has a unit; `votes` is who among
@@ -204,6 +216,12 @@ function ResultsSection({
   )
 }
 
+/** Who sent a message: the power, and the player's name in a public game. */
+function senderLabel(m: Message): string {
+  const power = m.sender_power ?? 'Unknown'
+  return m.sender_name ? `${power} (${m.sender_name})` : power
+}
+
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>()
   const { user } = useAuth()
@@ -254,6 +272,9 @@ export default function GameView() {
    * Static per map, so it is fetched once and never refreshed; `{}` until it arrives, which
    * every consumer renders correctly by falling back to the code. */
   const [provinceNames, setProvinceNames] = useState<ProvinceNames>({})
+  /** The viewer's own power from GET /users/me/games: an anonymous game's player list
+   * has no user ids to find it by. */
+  const [ownPower, setOwnPower] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (!gameId) return
@@ -271,13 +292,24 @@ export default function GameView() {
       .finally(() => setLoading(false))
   }, [gameId])
 
-  const myPower = user ? players.find((p) => p.user_id === user.id)?.power : null
+  const myPower = user ? (players.find((p) => p.user_id === user.id)?.power ?? ownPower) : null
   const isCreator = !!user && state?.created_by_user_id != null && state.created_by_user_id === user.id
-  const takenPowers = new Set(players.filter((p) => p.user_id).map((p) => p.power))
+  const isSeated = (p: Player | undefined) => !!p && (p.seated ?? p.user_id != null)
+  const takenPowers = new Set(players.filter(isSeated).map((p) => p.power))
   const dummyPowers = new Set(state?.dummy_powers ?? [])
   const availablePowers = POWERS.filter((p) => !takenPowers.has(p) && !dummyPowers.has(p))
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!gameId || !user || !state?.anonymous) {
+      setOwnPower(null)
+      return
+    }
+    apiJson<{ games?: { game_id: number | string; power: string }[] }>('/users/me/games')
+      .then((d) => setOwnPower(d.games?.find((g) => String(g.game_id) === String(gameId))?.power ?? null))
+      .catch(() => setOwnPower(null))
+  }, [gameId, user, state?.anonymous, players])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000)
@@ -730,6 +762,14 @@ export default function GameView() {
               Game over
             </span>
           )}
+          {state.anonymous && (
+            <span
+              className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground"
+              title="Players are known only by their power"
+            >
+              Anonymous
+            </span>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
           {seasonLabel} {state.year} · {state.phase}
@@ -818,8 +858,9 @@ export default function GameView() {
         <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           {POWERS.map((p) => {
             const pl = players.find((x) => x.power === p)
-            const label = pl?.user_id
-              ? pl.nickname || 'Player'
+            const seated = isSeated(pl)
+            const label = seated
+              ? pl?.nickname || (pl?.user_id != null ? 'Player' : 'Taken')
               : dummyPowers.has(p)
                 ? 'Civil disorder'
                 : 'Open'
@@ -832,7 +873,7 @@ export default function GameView() {
                   {p}
                   {p === myPower ? ' (you)' : ''}
                 </span>
-                <span className={cn('text-muted-foreground', !pl?.user_id && 'italic')}>
+                <span className={cn('text-muted-foreground', !seated && 'italic')}>
                   {label}
                 </span>
               </li>
@@ -1097,7 +1138,7 @@ export default function GameView() {
           {messages.length === 0 && <li className="text-muted-foreground text-sm">No messages yet.</li>}
           {messages.map((m, i) => (
             <li key={m.id ?? i} className="text-sm">
-              {m.recipient_power ? `To ${m.recipient_power}: ` : '(Broadcast) '}{m.text}
+              {senderLabel(m)} → {m.recipient_power ?? 'ALL'}: {m.text}
             </li>
           ))}
         </ul>

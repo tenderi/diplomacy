@@ -18,6 +18,7 @@ from persistence.database_service import DatabaseService, DeadlineProposalChange
 from persistence.game_repo import GameRepo, StaleGameError
 from sqlalchemy.exc import SQLAlchemyError
 from ..server import Server
+from ..nickname import sender_label
 from ..game_service import GameOverError, GameService
 from .. import deadline_schedule
 from ..response_cache import invalidate_cache
@@ -230,6 +231,61 @@ def notify_players(
         if exclude_telegram_id is not None and str(telegram_id_val) == str(exclude_telegram_id):
             continue
         notify_user(telegram_id_val, message, buttons)
+
+
+# --- Player identity: anonymous and public games ------------------------------
+#
+# A game is created anonymous or public (``games.anonymous``) and stays that way.
+# In an anonymous game players are known only by their power: every announcement
+# and relayed message names the power alone, and no API read says who holds a
+# seat -- not the name, not the Telegram id, not the numeric user id (which a
+# public game's player list would map straight back to a name). In a public game
+# the player's name rides along with the power everywhere it is announced.
+
+
+def is_anonymous(game_id: Any) -> bool:
+    """Whether ``game_id`` (the public id or the numeric primary key) is an
+    anonymous game. An unknown game reads as public."""
+    meta = game_service.meta(str(game_id))
+    return bool(meta and meta.get("anonymous"))
+
+
+def power_label(game_id: Any, power: str, user: Any = None) -> str:
+    """How an announcement names ``power``: ``FRANCE`` in an anonymous game,
+    ``FRANCE (Alice)`` in a public one.
+
+    ``user`` is the player to name, for a caller that already has them -- or
+    whose seat was just vacated, so a lookup would find nobody. Without it the
+    seat's current holder is named. A seat nobody holds, or a player with no
+    nickname, is the power alone.
+    """
+    power = power.upper()
+    if is_anonymous(game_id):
+        return power
+    if user is None:
+        seat = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+        user_id = getattr(seat, "user_id", None) if seat is not None else None
+        user = db_service.get_user_by_id(int(user_id)) if user_id is not None else None
+    return sender_label(power, user)
+
+
+def player_rows(game: Any) -> list[dict[str, Any]]:
+    """A game's seats as API clients see them (``GET /games/{id}/players``, the
+    group dashboard): ``power``, ``seated``, ``is_active`` and, in a public game
+    only, ``user_id``/``telegram_id``/``nickname`` (``None`` when anonymous)."""
+    anonymous = bool(getattr(game, "anonymous", False))
+    rows: list[dict[str, Any]] = []
+    for p in db_service.get_players_by_game_id(int(game.id)):
+        user = db_service.get_user_by_id(int(p.user_id)) if p.user_id is not None and not anonymous else None
+        rows.append({
+            "power": p.power_name,
+            "seated": p.user_id is not None,
+            "user_id": None if anonymous else p.user_id,
+            "is_active": getattr(p, "is_active", True),
+            "telegram_id": getattr(user, "telegram_id", None) if user is not None else None,
+            "nickname": getattr(user, "nickname", None) if user is not None else None,
+        })
+    return rows
 
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
@@ -772,7 +828,7 @@ def expire_deadline_proposals(now: datetime) -> None:
                 notify_players(
                     int(game.id),
                     f"The deadline proposal in game {game_id_str} (from "
-                    f"{proposal.get('proposed_by')}) expired without a majority; nothing changed.",
+                    f"{power_label(game_id_str, str(proposal.get('proposed_by')))}) expired without a majority; nothing changed.",
                 )
             except Exception as e:
                 scheduler_logger.error(

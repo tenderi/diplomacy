@@ -316,6 +316,18 @@ class TestMenuActions:
             ("📣 Everyone", "g|3|msg|ALL"), ("⬅️ Game menu", "g|3|hub"),
         ]  # not yourself (GERMANY), not an empty seat (ITALY)
 
+    def test_messages_in_an_anonymous_game_offer_the_seated_powers(self, two_games) -> None:
+        # An anonymous game sends no user ids, only whether each seat is held.
+        players = [{"power": "GERMANY", "user_id": None, "seated": True},
+                   {"power": "FRANCE", "user_id": None, "seated": True},
+                   {"power": "ITALY", "user_id": None, "seated": False}]
+        with patch("server.telegram_bot.hub.api_get", return_value=players), \
+             patch("server.telegram_bot.hub.recent_messages_text", return_value="No messages in game 3 yet."):
+            query, _ = _press("g|3|msgs")
+        assert _buttons(query.edit_message_text.call_args[1]["reply_markup"]) == [
+            ("✉️ France", "g|3|msg|FRANCE"), ("📣 Everyone", "g|3|msg|ALL"), ("⬅️ Game menu", "g|3|hub"),
+        ]
+
     def test_process_now_with_orders_missing_asks_for_confirmation(self, two_games) -> None:
         with patch("server.telegram_bot.hub.api_get", return_value={"missing": ["ITALY", "TURKEY"]}), \
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:

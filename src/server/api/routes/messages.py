@@ -11,9 +11,11 @@ from datetime import datetime
 
 from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
-from ..shared import db_service, game_service, scheduler_logger, logger, notify_players, notify_user, is_bot_secret
+from ..shared import (
+    db_service, game_service, scheduler_logger, logger, notify_players, notify_user, is_bot_secret,
+    is_anonymous, power_label,
+)
 from persistence.database import MessageModel
-from server.nickname import sender_label
 
 router = APIRouter()
 
@@ -100,10 +102,11 @@ def send_private_message(
                 recipient_user = db_service.get_user_by_id(recipient_user_id)
                 recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
                 if recipient_telegram_id is not None:
+                    # The sender is named by power -- and, in a public game, by name.
                     notify_user(
                         recipient_telegram_id,
                         f"New private message in game {game_id} from "
-                        f"{sender_label(player, user)}"
+                        f"{power_label(game_id, str(player.power_name), user)}"
                         f"{sent_at_suffix(sent_at)}: {req.text}",
                     )
         except Exception as e:
@@ -143,7 +146,7 @@ def send_broadcast_message(
             notify_players(
                 game_id,
                 f"Broadcast in game {game_id} from "
-                f"{sender_label(player, user)}"
+                f"{power_label(game_id, str(player.power_name), user)}"
                 f"{sent_at_suffix(sent_at)}: {req.text}",
                 exclude_telegram_id=getattr(user, "telegram_id", None),
             )
@@ -158,10 +161,10 @@ def send_broadcast_message(
         try:
             channel_info = db_service.get_game_channel_info(str(game_id))
             if channel_info and (channel_info.get("settings") or {}).get("auto_post_broadcasts", True):
-                power_label = f" ({player.power_name})" if player else ""
                 db_service.enqueue_bot_notification(
                     channel_info.get("channel_id"),
-                    f"📢 Broadcast in game {game_id}{power_label}: {req.text}",
+                    f"📢 Broadcast in game {game_id} from "
+                    f"{power_label(game_id, str(player.power_name), user)}: {req.text}",
                     kind="channel_text",
                 )
         except Exception as e:
@@ -209,10 +212,24 @@ def get_game_messages(
             # Unauthenticated: only return public broadcast messages (no private messages)
             query = query.filter(MessageModel.recipient_power.is_(None))
         messages = query.order_by(MessageModel.timestamp.asc()).all()
+        # Who sent each message, by the seat they hold now: ``sender_power``
+        # always, ``sender_name`` in a public game only. An anonymous game hides
+        # ``sender_user_id`` too -- a public game's player list maps it to a name.
+        anonymous = is_anonymous(game_id)
+        power_of: Dict[int, str] = {}
+        name_of: Dict[int, Optional[str]] = {}
+        for seat in db_service.get_players_by_game_id(int(game_model.id)):  # type: ignore
+            if seat.user_id is not None:
+                power_of[int(seat.user_id)] = str(seat.power_name)
+                if not anonymous:
+                    sender = db_service.get_user_by_id(int(seat.user_id))
+                    name_of[int(seat.user_id)] = getattr(sender, "nickname", None) if sender else None
         result = [
             {
                 "id": m.id,
-                "sender_user_id": m.sender_user_id,
+                "sender_user_id": None if anonymous else m.sender_user_id,
+                "sender_power": power_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+                "sender_name": name_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
                 "recipient_power": m.recipient_power,
                 "text": m.text,
                 "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp),

@@ -295,7 +295,11 @@ async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -
         players = api_get(f"/games/{game_id}/players") or []
     except requests.RequestException:
         players = []
-    seated = sorted({p["power"] for p in players if p.get("user_id") is not None and p.get("power") != power})
+    # ``seated``, not ``user_id``: an anonymous game never says who holds a seat.
+    seated = sorted({
+        p["power"] for p in players
+        if p.get("seated", p.get("user_id") is not None) and p.get("power") != power
+    })
     buttons = [_btn(f"✉️ {p.title()}", game_id, "msg", p) for p in seated if p in POWERS]
     rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
     rows.append([_btn("📣 Everyone", game_id, "msg", "ALL")])
