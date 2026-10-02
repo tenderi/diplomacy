@@ -153,7 +153,9 @@ move, unless it wins).
 A convoyed move is only *recognized as convoyed* — as opposed to illegal or a plain land
 move — under specific conditions (`_uses_convoy`):
 
-- Non-adjacent army moves are always convoyed (there's no other way to make the trip).
+- Non-adjacent army moves are always convoyed (there's no other way to make the trip),
+  so `A NWY - YOR` and `A NWY - YOR VIA` are the same order; validation accepts either
+  between two coastal provinces (`data_spec.md` §5).
 - For an **adjacent** move: an explicit `VIA` forces convoy semantics whenever *some*
   fleet (any power) has actually been ordered to carry it (DATC 6.G.10/6.G.14) — with no
   matching Convoy order, `VIA` is ignored and the army walks (6.G.8). Without `VIA`,

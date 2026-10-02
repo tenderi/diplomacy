@@ -16,8 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.34` (a game's creator may deal the powers at
-  random: joiners don't choose).
+- **Last updated:** 2026-10-02, at `v3.0.36` (convoy validation: BA1 and BA5 done).
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
   (frontend major dependency upgrades) is proposed. **Track F** (a human playing the game
   end to end, and host chores) is the maintainer's.
@@ -29,7 +28,7 @@
 Found by an agent playing four games against a local API as several powers (2026-10-02).
 Adjudication itself was correct in every case checked; these are the paths around it.
 
-- [ ] BA1 — **A convoy the menu offers returns a 500 and loses the whole order batch.**
+- [x] BA1 — **A convoy the menu offers returns a 500 and loses the whole order batch.**
       `F ION C A ALB - APU` with a *fleet* in ALB: `_check_orders` accepts it, re-formats it
       as `F ION C F ALB - APU`, and `submit_orders` re-parses that outside any try block.
       `engine/orders/validation.py` `_validate_convoy` must reject a convoy whose origin
@@ -52,7 +51,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
       and they are not told which unit was dislodged or where it may go. Name the new phase,
       tell powers with nothing to do that they wait, tell dislodged powers their units and
       retreat options, and powers with builds/disbands their count.
-- [ ] BA5 — **An army's convoyed move without `VIA` is rejected.** `A NWY - YOR` (F NTH in
+- [x] BA5 — **An army's convoyed move without `VIA` is rejected.** `A NWY - YOR` (F NTH in
       place) → "YOR is not adjacent to NWY". `docs/specs/adjudication.md` §6 says
       non-adjacent army moves are always convoyed and the rulebook writes `A Lon-Bel`.
       Accept a non-adjacent army move to a coastal province as a convoyed move.

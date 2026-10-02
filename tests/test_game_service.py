@@ -7,6 +7,7 @@ import uuid
 import pytest
 from sqlalchemy.orm import sessionmaker
 
+from engine.orders.validation import ValidationResult
 from engine.serialization import state_to_dict
 from engine.types import DislodgedUnit, GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
 from persistence.game_repo import GameRepo
@@ -780,3 +781,63 @@ class TestTwoOrdersForOneUnitInOneSubmission:
         assert [r["ok"] for r in results] == [False, True]
         resolution = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in resolution] == [("BUILD F BRE", "BUILD")]
+
+
+class TestConvoyOrdersSurviveStorage:
+    """``F ION C A ALB - APU`` with an Austrian *fleet* in ALB validated, was
+    stored with the board's letters as ``F ION C F ALB - APU``, and the re-parse
+    in ``submit_orders`` raised: HTTP 500, and the rest of the batch was lost."""
+
+    def _board(self, service: GameService, *units: Unit) -> str:
+        gid = _new_game(service)
+        state = GameState(1901, Season.SPRING, PhaseType.MOVEMENT, units=frozenset(units), ownership={})
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        return gid
+
+    def test_a_convoy_of_a_fleet_is_one_refused_order(self, service):
+        gid = self._board(
+            service,
+            Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+            Unit(UnitKind.ARMY, "ITALY", Location("ROM")),
+            Unit(UnitKind.FLEET, "AUSTRIA", Location("ALB")),
+        )
+        results = service.submit_orders(gid, "ITALY", ["F ION C A ALB - APU", "A ROM - TUS"])
+        assert results == [
+            {"order": "F ION C A ALB - APU", "ok": False,
+             "reason": "the unit at ALB is a fleet; only an army can be convoyed"},
+            {"order": "A ROM - TUS", "ok": True, "reason": None},
+        ]
+        assert service.pending_orders_view(gid)["ITALY"] == ["A ROM - TUS"]
+
+    def test_an_order_whose_stored_form_does_not_parse_is_refused(self, service, monkeypatch):
+        """Belt and braces: whatever validation lets through, a stored string
+        that will not parse back is refused here, not raised later."""
+        gid = self._board(
+            service,
+            Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+            Unit(UnitKind.FLEET, "AUSTRIA", Location("ALB")),
+        )
+        monkeypatch.setattr("server.game_service.validate", lambda *_a: ValidationResult(True))
+        [result] = service.submit_orders(gid, "ITALY", ["F ION C A ALB - APU"])
+        assert result == {
+            "order": "F ION C A ALB - APU", "ok": False,
+            "reason": "parse error: malformed convoy order (must carry an army): 'F ION C F ALB - APU'",
+        }
+        assert service.pending_orders_view(gid).get("ITALY", []) == []
+
+    def test_a_convoyed_move_without_via_is_carried(self, service):
+        """The rulebook's ``A Nwy-Yor``: no VIA, still a convoyed move."""
+        gid = self._board(
+            service,
+            Unit(UnitKind.ARMY, "ENGLAND", Location("NWY")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+        )
+        results = service.submit_orders(gid, "ENGLAND", ["A NWY - YOR", "F NTH C A NWY - YOR"])
+        assert [r["ok"] for r in results] == [True, True]
+        # Stored in the canonical convoyed form, which the map overlay and DAIDE read.
+        assert service.pending_orders_view(gid)["ENGLAND"] == ["A NWY - YOR VIA", "F NTH C A NWY - YOR"]
+        resolution = service.process_turn(gid)["resolution"]["results"]
+        assert sorted((r["order_str"], r["result"]) for r in resolution) == [
+            ("A NWY - YOR VIA", "OK"), ("F NTH C A NWY - YOR", "OK"),
+        ]
+        assert {"kind": "A", "power": "ENGLAND", "location": "YOR"} in service.view(gid)["units"]

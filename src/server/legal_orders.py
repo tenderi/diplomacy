@@ -337,30 +337,6 @@ def _movement_orders(
                             )
                         )
 
-        if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER:
-            coastal = sorted(
-                {
-                    loc.province
-                    for loc in map.fleet_moves(u.location)
-                    if map.province_type(loc.province) is ProvinceType.COAST
-                }
-            )
-            for origin_prov in coastal:
-                for dest_prov in coastal:
-                    if origin_prov == dest_prov:
-                        continue
-                    bucket.append(
-                        format_order(
-                            Convoy(
-                                power,
-                                unit=u.location,
-                                origin=Location(origin_prov),
-                                dest=Location(dest_prov),
-                            ),
-                            own_kbp,
-                        )
-                    )
-
         orders_by_unit[key] = bucket
         flat.extend(bucket)
 

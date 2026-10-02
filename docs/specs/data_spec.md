@@ -367,6 +367,17 @@ for an adjustment phase meant a player's build was silently waived. Interactive 
 offered such orders (`legal_orders.py` is phase-aware); the gate covers free-text input
 from every client.
 
+Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
+move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
+`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). Any other
+non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
+province (`LON cannot move to its own province`). A `Convoy` is refused unless an army
+stands at its origin (`no army at ALB to convoy`, `the unit at ALB is a fleet; only an army
+can be convoyed`). `submit_orders` stores each accepted order as `format_order` writes it with
+the board's real unit letters, and refuses (as one `ok=False` entry, `parse error: ...`) any
+order whose stored form would not parse back, so a single bad order can never fail the
+batch.
+
 `GameService.orders_status` (and so `GET /games/{id}/orders_status` and
 `process_turn?require_all=true`) counts only the powers that have a decision to make this
 phase, via `server.legal_orders.powers_with_orders_to_give`: every power with a unit in a

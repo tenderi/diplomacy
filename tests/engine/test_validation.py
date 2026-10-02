@@ -115,6 +115,30 @@ class TestMove:
         assert result.reason.startswith(f"{inland} is not coastal")
 
 
+    def test_army_convoyed_move_without_via_ok(self, m):
+        """The rulebook writes a convoyed move as ``A Lon-Bel``: a non-adjacent
+        army move between two coasts is convoyed, VIA or not (adjudication.md §6)."""
+        state = _state([Unit(UnitKind.ARMY, "ENGLAND", Location("NWY"))])
+        result = validate(Move("ENGLAND", Location("NWY"), Location("YOR")), state, m)
+        assert (result.ok, result.reason) == (True, None)
+
+    def test_non_adjacent_army_move_from_inland_still_rejected(self, m):
+        state = _state([Unit(UnitKind.ARMY, "GERMANY", Location("MUN"))])
+        result = validate(Move("GERMANY", Location("MUN"), Location("BEL")), state, m)
+        assert (result.ok, result.reason) == (False, "BEL is not adjacent to MUN")
+
+    def test_non_adjacent_fleet_move_still_rejected(self, m):
+        state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("LON"))])
+        result = validate(Move("ENGLAND", Location("LON"), Location("BEL")), state, m)
+        assert (result.ok, result.reason) == (False, "BEL is not adjacent to LON")
+
+    @pytest.mark.parametrize("via", [False, True])
+    def test_a_move_to_its_own_province_rejected(self, m, via):
+        state = _state([Unit(UnitKind.ARMY, "ENGLAND", Location("LON"))])
+        result = validate(Move("ENGLAND", Location("LON"), Location("LON"), via_convoy=via), state, m)
+        assert (result.ok, result.reason) == (False, "LON cannot move to its own province")
+
+
 class TestSupport:
     def test_support_hold_in_range_ok(self, m):
         state = _state(
@@ -157,7 +181,10 @@ class TestSupport:
 
 class TestConvoy:
     def test_convoy_ok(self, m):
-        state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))])
+        state = _state([
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+        ])
         order = Convoy("ENGLAND", Location("NTH"), Location("LON"), Location("BEL"))
         assert validate(order, state, m).ok is True
 
@@ -182,6 +209,32 @@ class TestConvoy:
         state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("LON"))])
         result = validate(Convoy("ENGLAND", Location("LON"), Location("YOR"), Location("BEL")), state, m)
         assert (result.ok, result.reason) == (False, "a convoying fleet must be in a sea space")
+
+
+    def test_convoy_of_a_fleet_rejected(self, m):
+        """``F ION C A ALB - APU`` with an Austrian *fleet* in ALB used to be
+        accepted, stored as ``F ION C F ALB - APU`` and 500 the whole batch."""
+        state = _state([
+            Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+            Unit(UnitKind.FLEET, "AUSTRIA", Location("ALB")),
+        ])
+        result = validate(Convoy("ITALY", Location("ION"), Location("ALB"), Location("APU")), state, m)
+        assert (result.ok, result.reason) == (
+            False, "the unit at ALB is a fleet; only an army can be convoyed"
+        )
+
+    def test_convoy_of_an_empty_province_rejected(self, m):
+        state = _state([Unit(UnitKind.FLEET, "ITALY", Location("ION"))])
+        result = validate(Convoy("ITALY", Location("ION"), Location("ALB"), Location("APU")), state, m)
+        assert (result.ok, result.reason) == (False, "no army at ALB to convoy")
+
+    def test_convoy_of_a_foreign_army_ok(self, m):
+        state = _state([
+            Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+            Unit(UnitKind.ARMY, "AUSTRIA", Location("ALB")),
+        ])
+        result = validate(Convoy("ITALY", Location("ION"), Location("ALB"), Location("APU")), state, m)
+        assert (result.ok, result.reason) == (True, None)
 
 
 class TestRetreat:
