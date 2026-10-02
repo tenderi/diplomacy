@@ -47,10 +47,10 @@ src/persistence/       # SQLAlchemy models + DAL
                             #   order and resolution histories
 
 src/rendering/          # SVG -> PNG map rendering
-  board.py, overlays.py,   # the board, order/resolution arrows, legend, icons, caches;
-  arrows.py, ...           #   map.py is a thin Map facade over them
+  board.py, overlays.py,   # the board and units, order/outcome symbols, footer key,
+  arrows.py, tokens.py ... #   cache; map.py is the Map namespace over them
   view_adapter.py          # GameService.view dict -> renderer inputs
-  order_overlay.py         # adapts engine Order/Resolution into the renderer's arrow format
+  order_overlay.py         # adapts engine Order/Resolution into the overlay's order dicts
   visualization_config.py   # colors/sizes/layout config
 
 src/server/             # FastAPI app, CLI Server, DAIDE, Telegram bot

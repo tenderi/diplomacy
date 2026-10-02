@@ -1,251 +1,152 @@
-"""
-Configuration loader for visualization settings.
+"""Every size, colour and line style the renderer uses, read from
+``visualization_config.json`` beside this module.
 
-This module provides a centralized way to manage all visualization parameters
-as specified in the visualization specification. All visual elements should
-use this configuration to ensure consistency and easy customization.
+``DEFAULT_CONFIG`` is the same data, so a missing or partial file still renders;
+``tests/test_visualization.py`` keeps the two identical. What each value *means*
+is in ``docs/specs/visualization_spec.md``.
 """
+from __future__ import annotations
 
+import copy
 import json
-import os
 import logging
-from typing import Dict, Any, Optional
+import os
+from typing import Any, Optional
 
 logger = logging.getLogger("diplomacy.rendering.visualization_config")
 
 
 class VisualizationConfig:
-    """
-    Configuration class for visualization parameters.
-    
-    Loads configuration from JSON file with fallback to defaults.
-    Provides methods to access all visualization parameters.
-    """
-    
-    # Default configuration matching spec section 3.4 (with doubled line widths for clarity)
-    DEFAULT_CONFIG = {
-        "arrows": {
-            "arrowhead_size": 18,
-            "arrowhead_base_width": 22,
-            # Explicit head dimensions (Track I2). "arrowhead_size" is kept as the
-            # legacy single-number scale that older callers and tests read; these
-            # three describe the barbed head actually drawn. Length > 2 * half_width
-            # on purpose: a head as wide as it is long reads as a blunt stub.
-            "arrowhead_length": 26,
-            "arrowhead_half_width": 9,
-            "arrowhead_notch": 7,
-            # How far each end of an arrow stays clear of the province centre, so the
-            # 32px unit icons at both ends stay visible. Slightly over the icon radius.
-            "unit_clearance": 20,
-            "line_width_primary": 6,
-            "line_width_secondary": 4,
-            "shape": "triangular"
-        },
+    """The renderer's visual constants, file values merged over the defaults."""
+
+    DEFAULT_CONFIG: dict[str, Any] = {
         "colors": {
-            "success": "#00FF00",
-            "failure": "#FF0000",
-            "convoy": "#FFD700",
-            "support_defensive": "#90EE90",
-            "support_offensive": "#FFB6C1",
             "power_colors": {
-                "AUSTRIA": "#c48f85",
-                "ENGLAND": "darkviolet",
-                "FRANCE": "royalblue",
-                "GERMANY": "#a08a75",
-                "ITALY": "forestgreen",
-                "RUSSIA": "#757d91",
-                "TURKEY": "#b9a61c"
-            }
+                "AUSTRIA": "#D32F2F",
+                "ENGLAND": "#7B1FA2",
+                "FRANCE": "#1E88E5",
+                "GERMANY": "#424242",
+                "ITALY": "#2E7D32",
+                "RUSSIA": "#00897B",
+                "TURKEY": "#FBC02D",
+            },
+            "casing": "#111111",
+            "halo": "#FFFFFF",
+            "failure": "#E00000",
+            "void": "#8A8A8A",
+            "standoff": "#FF6F00",
+            "build": "#2E7D32",
+            "footer_background": "#F4F1EA",
+            "footer_text": "#1A1A1A",
         },
         "units": {
-            "diameter": 32,
-            "border_width": 4,
-            "dislodged_border_width": 5,
-            "dislodged_offset": [20, 20],
-            "label_font_size": 11,
-            "dislodged_indicator_size": 9,
-            "dislodged_indicator_offset": [6, 6],
-            "background_circle": True,
-            "background_circle_color": [255, 255, 255, 230]
+            "diameter": 30,
+            "outline_width": 2,
+            "font_size": 17,
+            "light_text_threshold": 500,
+            "build_alpha": 150,
+        },
+        "arrows": {
+            "move_width": 5,
+            "support_width": 3,
+            "retreat_width": 4,
+            "casing": 1.5,
+            "head_length": 18,
+            "head_half_width": 9,
+            "head_notch": 5,
+            "token_gap": 3,
+            "bounce_bar_half_length": 8,
+            "bounce_bar_width": 5,
+            "opposed_offset": 9,
+            "support_dot_radius": 5,
+            "convoy_steps_per_leg": 16,
         },
         "line_styles": {
-            "solid": {},
-            "dashed": {"dash": 8, "gap": 4},
-            "dotted": {"dot": 4, "gap": 4}
+            "dashed": {"dash": 9, "gap": 6},
+            "dotted": {"dash": 3, "gap": 5},
         },
         "markers": {
-            "hold_indicator_diameter": 32,
-            "hold_indicator_border_width": 4,
-            "support_circle_diameter": 32,
-            "support_circle_border_width": 5,
-            "convoy_fleet_marker_diameter": 30,
-            "convoy_fleet_marker_border_width": 4,
-            "build_marker_diameter": 18,
-            "build_marker_border_width": 4,
-            "destroy_marker_diameter": 18,
-            "destroy_marker_border_width": 4,
-            "battle_indicator_size": 22,
-            "battle_indicator_border_width": 4,
-            "standoff_indicator_size": 20,
-            "standoff_indicator_border_width": 4,
-            "status_indicator_size": 16,
-            "status_indicator_line_width": 4
+            "hold_gap": 5,
+            "hold_width": 3,
+            "support_ring_gap": 9,
+            "support_ring_width": 3,
+            "dislodged_gap": 4,
+            "dislodged_width": 4,
+            "cross_size": 8,
+            "cross_width": 4,
+            "standoff_radius": 15,
+            "build_badge_radius": 8,
+            "faded_alpha": 140,
+            "land_tint_alpha": 72,
+            "sea_hatch_alpha": 120,
         },
-        "fonts": {
-            "unit_label_size": 11,
-            "hold_label_size": 9,
-            "phase_overlay_size": 16,
-            "conflict_label_size": 11,
-            "standoff_label_size": 9
+        "footer": {
+            "padding": 12,
+            "row_height": 30,
+            "item_gap": 26,
+            "symbol_width": 34,
+            "title_font_size": 18,
+            "item_font_size": 15,
         },
-        "legend": {
-            "enabled": True,
-            "position": "bottom-left",
-            "padding": 15,
-            "item_spacing": 8,
-            "background_color": [255, 255, 255, 200],
-            "border_color": [0, 0, 0, 255],
-            "border_width": 2,
-            "title_font_size": 14,
-            "item_font_size": 11,
-            "symbol_size": 20
-        }
     }
-    
-    def __init__(self, config_path: Optional[str] = None):
-        """
-        Initialize configuration from file or use defaults.
-        
-        Args:
-            config_path: Path to JSON configuration file. If None, uses default
-                        location relative to this module.
-        """
+
+    def __init__(self, config_path: Optional[str] = None) -> None:
         if config_path is None:
-            # Default location: same directory as this module
-            module_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.join(module_dir, "visualization_config.json")
-        
-        self.config = self.DEFAULT_CONFIG.copy()
-        
+            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualization_config.json")
+        self.config: dict[str, Any] = copy.deepcopy(self.DEFAULT_CONFIG)
         if os.path.exists(config_path):
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    file_config = json.load(f)
-                    # Deep merge with defaults
-                    self._merge_config(self.config, file_config)
-                logger.info(f"Loaded visualization config from {config_path}")
-            except (json.JSONDecodeError, IOError) as e:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    self._merge_config(self.config, json.load(f))
+            except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load config from {config_path}: {e}. Using defaults.")
         else:
             logger.info(f"Config file not found at {config_path}. Using defaults.")
-    
-    def _merge_config(self, base: Dict[str, Any], override: Dict[str, Any]) -> None:
-        """Recursively merge override config into base config."""
+
+    def _merge_config(self, base: dict[str, Any], override: dict[str, Any]) -> None:
         for key, value in override.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 self._merge_config(base[key], value)
             else:
                 base[key] = value
-    
-    def get_arrow_specs(self) -> Dict[str, Any]:
-        """Return arrow configuration."""
-        return self.config["arrows"].copy()
-    
+
     def get_color(self, name: str) -> str:
-        """
-        Get color by semantic name.
-        
-        Args:
-            name: Color name (e.g., "success", "failure", "convoy", 
-                  "support_defensive", "support_offensive")
-        
-        Returns:
-            Color string (hex or named color)
-        """
+        """A semantic colour (``failure``, ``standoff``, ...)."""
         colors = self.config["colors"]
         if name in colors and name != "power_colors":
-            return colors[name]
-        logger.warning(f"Unknown color name: {name}. Returning black.")
-        return "#000000"
-    
+            return str(colors[name])
+        raise KeyError(f"unknown colour {name!r}")
+
     def get_power_color(self, power: str) -> str:
-        """
-        Get power-specific color.
-        
-        Args:
-            power: Power name (e.g., "AUSTRIA", "ENGLAND")
-        
-        Returns:
-            Color string (hex or named color)
-        """
-        power_colors = self.config["colors"]["power_colors"]
-        if power in power_colors:
-            return power_colors[power]
-        logger.warning(f"Unknown power: {power}. Returning black.")
-        return "#000000"
-    
-    def get_unit_specs(self) -> Dict[str, Any]:
-        """Return unit marker configuration."""
-        return self.config["units"].copy()
-    
-    def get_line_style(self, style: str) -> Dict[str, Any]:
-        """
-        Get line style pattern.
-        
-        Args:
-            style: Style name ("solid", "dashed", "dotted")
-        
-        Returns:
-            Dictionary with style parameters
-        """
-        line_styles = self.config["line_styles"]
-        if style in line_styles:
-            return line_styles[style].copy()
-        logger.warning(f"Unknown line style: {style}. Returning solid.")
-        return {}
-    
-    def get_marker_specs(self) -> Dict[str, Any]:
-        """Return marker configuration."""
-        return self.config["markers"].copy()
-    
-    def get_font_specs(self) -> Dict[str, Any]:
-        """Return font configuration."""
-        return self.config["fonts"].copy()
-    
-    def get_legend_specs(self) -> Dict[str, Any]:
-        """Return legend configuration."""
-        return self.config.get("legend", {
-            "enabled": True,
-            "position": "bottom-left",
-            "padding": 15,
-            "item_spacing": 8,
-            "background_color": [255, 255, 255, 200],
-            "border_color": [0, 0, 0, 255],
-            "border_width": 2,
-            "title_font_size": 14,
-            "item_font_size": 11,
-            "symbol_size": 20
-        }).copy()
-    
-    def is_legend_enabled(self) -> bool:
-        """Check if legend is enabled."""
-        legend = self.config.get("legend", {})
-        return legend.get("enabled", True)
+        """``power``'s colour; grey for anything that is not one of the seven."""
+        return str(self.config["colors"]["power_colors"].get(power.upper(), "#9E9E9E"))
+
+    def get_power_colors(self) -> dict[str, str]:
+        return dict(self.config["colors"]["power_colors"])
+
+    def get_unit_specs(self) -> dict[str, Any]:
+        return dict(self.config["units"])
+
+    def get_arrow_specs(self) -> dict[str, Any]:
+        return dict(self.config["arrows"])
+
+    def get_line_style(self, style: str) -> dict[str, Any]:
+        """Dash pattern for ``dashed``/``dotted``; ``{}`` (unbroken) for anything else."""
+        return dict(self.config["line_styles"].get(style, {}))
+
+    def get_marker_specs(self) -> dict[str, Any]:
+        return dict(self.config["markers"])
+
+    def get_footer_specs(self) -> dict[str, Any]:
+        return dict(self.config["footer"])
 
 
-# Global singleton instance
 _config_instance: Optional[VisualizationConfig] = None
 
 
 def get_config() -> VisualizationConfig:
-    """
-    Get the global configuration instance (singleton pattern).
-    
-    Returns:
-        VisualizationConfig instance
-    """
+    """The process-wide configuration, loaded once."""
     global _config_instance
     if _config_instance is None:
         _config_instance = VisualizationConfig()
     return _config_instance
-
