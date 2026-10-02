@@ -149,7 +149,7 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 
 | Module | Endpoints |
 |---|---|
-| `games.py` | Create/list/get games (anonymous or public naming), join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
+| `games.py` | Create/list/get games (anonymous or public naming, chosen or random powers), join/quit/replace, private-game passwords, dummies, auto-process and wait flags, deadlines (set and majority vote), process turn, snapshots + restore, history and resolutions, draw vote and concede, legal orders, spectators (out of scope, kept). |
 | `orders.py` | Submit orders (replace, or merge one per unit), get current orders, clear orders, order history. |
 | `users.py` | Register a Telegram user, list a user's games. |
 | `auth.py` | JWT register/login/token/refresh/me, forgot + reset password, Telegram link code and link/unlink. |

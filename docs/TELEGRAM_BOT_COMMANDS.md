@@ -61,11 +61,12 @@ the browser), as long as the web account has not joined a game yet.
 | `/games` | Your games, as buttons that open each game's menu (⭐ marks the current game). |
 | `/game [game_id]` | Open a game's menu, and make it your current game. |
 | `/findgame` | Open games you could join, the queue, and the solo demo — the 🎲 Find a game key. |
-| `/join <game_id>` | Shows a menu of available powers to join as. |
+| `/join <game_id>` | Shows a menu of available powers to join as. In a 🎲 random-powers game, one **Join (random power)** button instead. |
+| `/join <game_id> random [password]` | Join a 🎲 random-powers game: the bot deals you one of the open powers. Naming a power there is refused. |
 | `/join <game_id> <power>` | Join directly as a specific power, skipping the menu. |
 | `/join <game_id> <power> <password>` | Join a **private** game (🔒 in the game list). Ask the game's creator for the password. The bot deletes your message afterwards so the password doesn't stay in the chat. Five wrong guesses lock you out of that game for 15 minutes. |
 | `/quit <game_id>` | Leave a game. Your seat is vacated — units and any orders you submitted stay exactly as they are for whoever takes it over — and you can no longer act for that power (or see it under `/games`). |
-| `/replace <game_id> <power> [password]` | Take over a vacated power (a private game needs its password). `/join <game_id> <power>` on a vacated seat does the same thing. |
+| `/replace <game_id> <power> [password]` | Take over a vacated power (a private game needs its password). `/join <game_id> <power>` on a vacated seat does the same thing. Not in a random-powers game, where `/join` deals the vacated seats at random. |
 | `/wait` | Join the queue for a new game (the "⏳ Queue for the next new game" button); a game is created automatically once 7 players are waiting, and everyone in the queue is messaged with their assigned power. The queue is stored server-side, so it survives a bot restart. |
 | `/leavequeue` | Leave the queue (`/unwait` still works). |
 | `/players [game_id]` | List all players and their powers. |
@@ -169,7 +170,7 @@ Send these **in the group**:
 
 | Command | Description |
 |---|---|
-| `/newgame anonymous` / `/newgame public` | Create a game for this group, choosing how players are named (fixed for the game's life): **anonymous** -- everyone is known only by their power, and messages and announcements name the power alone; **public** -- nicknames (`/nickname`) are shown next to powers. A bare `/newgame` explains the two and creates nothing. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
+| `/newgame anonymous` / `/newgame public` | Create a game for this group, choosing how players are named (fixed for the game's life): **anonymous** -- everyone is known only by their power, and messages and announcements name the power alone; **public** -- nicknames (`/nickname`) are shown next to powers. A bare `/newgame` explains the two and creates nothing. Add **`random`** (`/newgame anonymous random`) to deal the powers at random: nobody picks, each joiner is given an open power. Fixed for the game's life too. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
 | `/linkgroup [game_id]` | Attach one of your existing games to this group. |
 | `/unlinkgroup [game_id]` | Detach it again. |
 | `/status [game_id]`, `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |

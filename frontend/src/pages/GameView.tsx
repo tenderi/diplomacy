@@ -74,6 +74,8 @@ type GameState = {
   private?: boolean
   /** Players are known only by their power: no API read says who holds a seat. */
   anonymous?: boolean
+  /** Joiners don't choose a power: the server deals each an open one. */
+  random_powers?: boolean
   /** The user who created the game -- the only one who may end a turn early. */
   created_by_user_id?: number | null
   orders: Record<string, string[]>
@@ -498,7 +500,7 @@ export default function GameView() {
   const iHaveSubmitted = !!(myPower && ordersStatus?.submitted.includes(myPower))
 
   async function handleJoin() {
-    if (!gameId || !joinPower) return
+    if (!gameId || !(joinPower || state?.random_powers)) return
     setJoining(true)
     setError('')
     try {
@@ -506,7 +508,7 @@ export default function GameView() {
         method: 'POST',
         body: JSON.stringify({
           game_id: parseInt(gameId, 10),
-          power: joinPower,
+          ...(state?.random_powers ? {} : { power: joinPower }),
           ...(joinPassword ? { join_password: joinPassword } : {}),
         }),
       })
@@ -913,24 +915,27 @@ export default function GameView() {
             <>
               <p className="text-sm text-muted-foreground mb-2">
                 {state.private ? '🔒 Private game — ask its creator for the password. ' : ''}
+                {state.random_powers ? '🎲 Powers are dealt at random — you get one of the open powers. ' : ''}
                 {takenPowers.size} / {POWERS.length - dummyPowers.size} powers claimed
                 {dummyPowers.size > 0 ? ` (${[...dummyPowers].join(', ')} in civil disorder)` : ''}
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={joinPower}
-                  onChange={(e) => setJoinPower(e.target.value)}
-                  aria-label="Power to join as"
-                  className={cn(
-                    'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-                  )}
-                >
-                  <option value="">Select power</option>
-                  {availablePowers.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                {!state.random_powers && (
+                  <select
+                    value={joinPower}
+                    onChange={(e) => setJoinPower(e.target.value)}
+                    aria-label="Power to join as"
+                    className={cn(
+                      'h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                    )}
+                  >
+                    <option value="">Select power</option>
+                    {availablePowers.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                )}
                 {state.private && (
                   <input
                     type="password"
@@ -945,8 +950,8 @@ export default function GameView() {
                     )}
                   />
                 )}
-                <Button onClick={handleJoin} disabled={!joinPower || joining}>
-                  {joining ? 'Joining...' : 'Join'}
+                <Button onClick={handleJoin} disabled={(!joinPower && !state.random_powers) || joining}>
+                  {joining ? 'Joining...' : state.random_powers ? 'Join (random power)' : 'Join'}
                 </Button>
               </div>
             </>

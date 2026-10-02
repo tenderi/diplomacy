@@ -254,17 +254,20 @@ NEWGAME_CHOICE = (
     "Pick how players are named -- it can't be changed once the game exists:\n\n"
     "• /newgame anonymous -- players are known only by their power; I relay "
     "messages and announcements naming the power alone.\n"
-    "• /newgame public -- everyone's nickname is shown next to their power."
+    "• /newgame public -- everyone's nickname is shown next to their power.\n\n"
+    "Add random (/newgame anonymous random) to deal the powers at random: "
+    "players join without choosing, and I seat each one in an open power."
 )
 
 
 async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/newgame anonymous|public (in a group) -- a game for this group; members join with a button.
+    """/newgame anonymous|public [random] (in a group) -- a game for this group; members join with a button.
 
     ``anonymous``: players are known only by their power (the group knows who
     its members are, but not who plays what). ``public``: nicknames are shown with
     powers. There is no default -- the choice is fixed for the game's life, so
-    a bare /newgame explains both and creates nothing.
+    a bare /newgame explains both and creates nothing. ``random`` (optional, in
+    either order) deals the powers at random: joiners don't choose one.
 
     The sender becomes the game's creator (they may leave seats to civil
     disorder with /dummy, and end a turn early). Turns are processed as soon as
@@ -274,15 +277,17 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user or not update.message or not await _in_group(update, "newgame"):
         return
     args = [a.lower() for a in (context.args or [])]
-    if len(args) != 1 or args[0] not in NEWGAME_MODES:
+    random_powers = "random" in args
+    modes = [a for a in args if a != "random"]
+    if len(modes) != 1 or modes[0] not in NEWGAME_MODES or len(args) != len(set(args)):
         await update.message.reply_text(NEWGAME_CHOICE)
         return
-    anonymous = NEWGAME_MODES[args[0]]
+    anonymous = NEWGAME_MODES[modes[0]]
     try:
         ensure_registered(user)
         game_id = str(api_post("/games/create", {
             "map_name": "standard", "telegram_id": str(user.id), "auto_process": True,
-            "anonymous": anonymous,
+            "anonymous": anonymous, "random_powers": random_powers,
         })["game_id"])
         api_post(f"/games/{game_id}/channel/link", {"channel_id": str(chat.id), "channel_name": chat.title})
     except requests.RequestException as e:
@@ -294,10 +299,15 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if anonymous
         else "👥 *Public:* everyone's nickname is shown next to their power (set yours with /nickname)."
     )
+    pick = (
+        "🎲 *Random powers:* tap the button to join and I'll deal you a power at random"
+        if random_powers
+        else "Tap the button to pick your power"
+    )
     await update.message.reply_text(
         f"🎮 *Game {game_id} for this group!*\n\n"
         f"{naming}\n\n"
-        f"Tap the button to pick your power -- it opens a private chat with me, where "
+        f"{pick} -- it opens a private chat with me, where "
         f"you'll also send your orders. The game begins when all seven powers are taken; "
         f"with fewer players, the creator can leave seats to civil disorder "
         f"(/dummy {game_id} <power> in the private chat).\n\n"

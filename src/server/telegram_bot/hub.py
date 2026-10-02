@@ -386,7 +386,8 @@ async def find_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             continue
         lock = "🔒 " if g.get("private") else ""
         group = "👥 " if g.get("channel_id") else ""
-        rows.append([InlineKeyboardButton(f"{lock}{group}Game {game_id} · {players}/{seats} players", callback_data=f"select_game_{game_id}")])
+        dealt = "🎲 " if g.get("random_powers") else ""
+        rows.append([InlineKeyboardButton(f"{lock}{group}{dealt}Game {game_id} · {players}/{seats} players", callback_data=f"select_game_{game_id}")])
         if len(rows) == 8:
             break
     rows.append([InlineKeyboardButton("⏳ Queue for the next new game", callback_data="join_waiting_list")])

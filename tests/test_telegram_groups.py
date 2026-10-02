@@ -113,7 +113,23 @@ class TestNewGame:
         assert post.call_args_list[0][0][1]["anonymous"] is anonymous
         assert says in update.message.reply_text.call_args[0][0]
 
-    @pytest.mark.parametrize("text", ["/newgame", "/newgame secret", "/newgame anonymous public"])
+    @pytest.mark.parametrize("text, random_powers", [
+        ("/newgame public", False),
+        ("/newgame anonymous random", True),
+        ("/newgame random public", True),
+    ])
+    def test_random_deals_the_powers(self, text: str, random_powers: bool) -> None:
+        update, context = _message_update(text)
+        with patch("server.telegram_bot.channel_commands.api_post") as post, \
+             patch("server.telegram_bot.channel_commands.ensure_registered"):
+            post.side_effect = lambda path, body: {"game_id": 42} if path == "/games/create" else {"status": "ok"}
+            asyncio.run(newgame(update, context))
+        assert post.call_args_list[0][0][1]["random_powers"] is random_powers
+        assert ("deal you a power at random" in update.message.reply_text.call_args[0][0]) is random_powers
+
+    @pytest.mark.parametrize("text", [
+        "/newgame", "/newgame secret", "/newgame anonymous public", "/newgame random", "/newgame public random random",
+    ])
     def test_without_a_naming_choice_it_explains_both_and_creates_nothing(self, text: str) -> None:
         update, context = _message_update(text)
         with patch("server.telegram_bot.channel_commands.api_post") as post:

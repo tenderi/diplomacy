@@ -88,6 +88,7 @@ class GameService:
         join_password_hash: Optional[str] = None,
         deadline_schedule: Optional[dict[str, Any]] = None,
         anonymous: bool = False,
+        random_powers: bool = False,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -101,6 +102,9 @@ class GameService:
 
         ``anonymous`` hides who plays which power for the game's whole life
         (announcements name the power alone); it cannot be changed later.
+
+        ``random_powers``: players do not choose a power -- each join is seated
+        in a random open one. Also fixed for the game's life.
 
         Returns the game's id (the integer PK as a string when not supplied).
         """
@@ -117,6 +121,7 @@ class GameService:
             join_password_hash=join_password_hash,
             deadline_schedule=deadline_schedule,
             anonymous=anonymous,
+            random_powers=random_powers,
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -763,6 +768,7 @@ class GameService:
             "wait_flags": meta.get("wait_flags") or [],
             "private": bool(meta.get("private")),
             "anonymous": anonymous,
+            "random_powers": bool(meta.get("random_powers")),
             # Who may end a turn early (clients show "Process turn" only to them).
             "created_by_user_id": meta.get("created_by_user_id"),
         }

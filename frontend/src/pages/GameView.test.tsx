@@ -703,6 +703,37 @@ describe('GameView — private games (W8)', () => {
   })
 })
 
+describe('GameView — random powers', () => {
+  it('offers one join button and sends no power', async () => {
+    const posts: Record<string, unknown>[] = []
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' }]
+    const base = stubFetchActive({ ...activeMovementState, random_powers: true }, otherPlayers)
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/join') && init?.method === 'POST') {
+        posts.push(JSON.parse(String(init.body)))
+        return jsonResponse({ status: 'ok', player_id: 5, power: 'ITALY' })
+      }
+      return base(url, init)
+    }))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await within(container).findByText(/Powers are dealt at random/)).toBeInTheDocument()
+    expect(within(container).queryByLabelText('Power to join as')).toBeNull()
+    fireEvent.click(within(container).getByRole('button', { name: 'Join (random power)' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).not.toHaveProperty('power')
+  })
+})
+
 describe('GameView — deadline schedule', () => {
   it("shows the game's weekly deadline schedule under the countdown", async () => {
     vi.stubGlobal(
