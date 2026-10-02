@@ -186,7 +186,8 @@ def get_orders_for_power(
     holder = getattr(player, "user_id", None)
     if user is None or holder is None or int(holder) != int(user.id):
         raise HTTPException(status_code=403, detail="You are not authorized to view orders for this power.")
-    return {"power": power, "orders": pending.get(power.upper(), [])}
+    # The seat's own name: a request for "france" answers for FRANCE.
+    return {"power": player.power_name, "orders": pending.get(player.power_name, [])}
 
 
 class ClearOrdersRequest(BaseModel):
