@@ -62,6 +62,20 @@ def test_join_menu_leaves_out_dummies(mock_get):
 
 
 @patch("server.telegram_bot.games.api_get")
+def test_join_menu_of_an_anonymous_game_leaves_out_held_seats(mock_get):
+    # An anonymous game sends no user ids, only whether each seat is held.
+    mock_get.side_effect = lambda path: (
+        {"dummy_powers": []} if path.endswith("/state")
+        else [{"power": "FRANCE", "user_id": None, "seated": True},
+              {"power": "ITALY", "user_id": None, "seated": False}]
+    )
+    _text, keyboard = _power_selection_prompt("7")
+    offered = {row[0].callback_data for row in keyboard.inline_keyboard}
+    assert "join_game_7_FRANCE" not in offered
+    assert "join_game_7_ITALY" in offered
+
+
+@patch("server.telegram_bot.games.api_get")
 @patch("server.telegram_bot.game_context.api_get")
 def test_players_lists_dummies_as_civil_disorder(mock_ctx_get, mock_get):
     mock_ctx_get.return_value = {"games": [{"game_id": "7", "power": "FRANCE"}]}

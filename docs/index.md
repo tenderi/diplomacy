@@ -47,7 +47,8 @@ and on the web.
 
 1. Open **[@IronChancellorBot](https://t.me/IronChancellorBot)** in Telegram and press
    **Start**.
-2. **With friends:** add the bot to your Telegram group and send `/newgame` there. Everyone
+2. **With friends:** add the bot to your Telegram group and send `/newgame anonymous` or
+   `/newgame public` there (players known only by their power, or by nickname). Everyone
    taps **Join**. **Alone:** try **🎲 Find a game → 🎮 Solo demo**.
 3. When a turn comes, tap **📝 Enter orders**: the bot goes through your units one by
    one.

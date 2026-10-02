@@ -126,6 +126,31 @@ describe('GameList', () => {
     expect(await within(container).findByText('game page')).toBeInTheDocument()
   })
 
+  it.each([
+    ['Public', false],
+    ['Anonymous', true],
+  ])('creates a %s game when that naming is picked', async (label, anonymous) => {
+    const posts: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: RequestInit) => {
+      if (opts?.method === 'POST' && url.includes('/games/create')) posts.push(JSON.parse(String(opts.body)))
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(opts?.method === 'POST' ? { game_id: '99' } : { games: [] }),
+      } as Response)
+    }))
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <GameList />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    fireEvent.click(await within(container).findByRole('radio', { name: new RegExp(`^${label}`) }))
+    fireEvent.click(within(container).getByRole('button', { name: /create new game/i }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].anonymous).toBe(anonymous)
+  })
+
   it('a refused create says why and stays on the list', async () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, opts?: RequestInit) =>
       Promise.resolve(opts?.method === 'POST'

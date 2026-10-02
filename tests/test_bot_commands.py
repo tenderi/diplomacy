@@ -123,16 +123,21 @@ class TestMessages:
             if path.startswith("/games/7/messages"):
                 assert path == f"/games/7/messages?telegram_id={ME}"
                 return {"messages": [
-                    {"timestamp": "t1", "sender_user_id": 1, "recipient_power": "FRANCE", "text": "Hi"},
-                    {"timestamp": "t2", "sender_user_id": 2, "recipient_power": None, "text": "All: peace"},
-                    {"timestamp": "t3", "sender_user_id": 99, "recipient_power": "GERMANY", "text": "?"},
+                    # A public game names the sender; an anonymous one sends the power alone.
+                    {"timestamp": "t1", "sender_power": "GERMANY", "sender_name": "Anna",
+                     "recipient_power": "FRANCE", "text": "Hi"},
+                    {"timestamp": "t2", "sender_power": "FRANCE", "sender_name": None,
+                     "recipient_power": None, "text": "All: peace"},
+                    # A sender who has since left holds no seat.
+                    {"timestamp": "t3", "sender_power": None, "sender_name": None,
+                     "recipient_power": "GERMANY", "text": "?"},
                 ]}
-            return [{"user_id": 1, "power": "GERMANY"}, {"user_id": 2, "power": "FRANCE"}]
+            raise AssertionError(f"unexpected endpoint {path}")
         with patch.object(bot_messages, "api_get", side_effect=fake_get):
             reply = _run(bot_messages.messages, *_command([]))
         assert reply.splitlines() == [
             "Messages for game 7:",
-            "[t1] GERMANY -> FRANCE: Hi",
+            "[t1] GERMANY (Anna) -> FRANCE: Hi",
             "[t2] FRANCE -> ALL: All: peace",
             "[t3] Unknown -> GERMANY: ?",
         ]
