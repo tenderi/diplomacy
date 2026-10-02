@@ -169,6 +169,7 @@ jobs:
           git config --global user.email "lead-agent@users.noreply.github.com"
 
       - name: Run the lead
+        id: lead
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -184,7 +185,7 @@ jobs:
           # Whose issues and comments are instructions (the charter's trust rules).
           AUTHORIZED_USERS: ${{ github.repository_owner }} ${{ join(fromJSON(vars.LEAD_AGENT_AUTHORIZED_USERS || '[]'), ' ') }}
         run: |
-          set -o pipefail
+          set +e   # GitHub runs this with -eo pipefail; keep going to record claude's exit code
           export RUN_STARTED=$(date +%s)
           export RUN_DEADLINE=$((RUN_STARTED + 330 * 60))
           prompt="You are the lead agent. Read .claude/lead/CHARTER.md and follow it to run one cycle.
@@ -200,6 +201,17 @@ jobs:
                 | if .type == "text" then .text + "\n"
                   elif .type == "tool_use" then "  > \(.name) \(.input.description // .input.command // .input.file_path // "" | tostring | .[0:160])\n"
                   else empty end'
+          # The exit code is judged by the wrap-up step, which also handles the usage limit.
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # No model calls: works even when the agent stopped because the usage limit ran out.
+      - name: Wrap up (usage limit, crash, timeout)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
+          TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+          LEAD_RC: ${{ steps.lead.outputs.rc }}
+        run: .github/scripts/lead-wrapup.sh
 
       - name: Upload transcript
         if: always()
