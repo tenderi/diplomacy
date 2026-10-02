@@ -828,6 +828,11 @@ async def dummy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"{power} {what} in game {game_id}. Civil-disorder powers: {now}.")
 
 
+# Stands in for a power in a random-powers game's join button (and /join <id>
+# random): the join is sent without a power, and the server picks one.
+RANDOM_POWER = "RANDOM"
+
+
 def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardMarkup]]:
     """Build the "choose a power" text + keyboard for ``game_id``.
 
@@ -851,6 +856,18 @@ def _power_selection_prompt(game_id: str) -> Tuple[str, Optional[InlineKeyboardM
     # Civil-disorder dummies (W9) are not joinable; the game's creator opens them.
     taken_powers |= set(game_state.get("dummy_powers") or [])
     private = bool(game_state.get("private"))
+    if game_state.get("random_powers"):
+        # Nobody picks: one button, and the server deals an open power.
+        if all(power in taken_powers for power in POWERS):
+            return f"Game {game_id} is full. All powers are taken.", None
+        text = f"🎲 *Game {game_id} deals powers at random.* Join, and you'll be given an open power."
+        if private:
+            text += " It is private: after the button, send the password the game's creator gave you."
+        keyboard = [
+            [InlineKeyboardButton("🎲 Join (random power)", callback_data=f"join_game_{game_id}_{RANDOM_POWER}")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_games")],
+        ]
+        return text, InlineKeyboardMarkup(keyboard)
     keyboard = []
     for power in POWERS:
         if power not in taken_powers:
@@ -929,8 +946,11 @@ async def join_from_button(query: Any, context: ContextTypes.DEFAULT_TYPE, game_
 
 
 def join_game(user: Any, game_id: str, power: str, password: Optional[str]) -> str:
-    """Register (if needed) and take ``power`` in ``game_id``. Returns the reply."""
-    payload: dict = {"telegram_id": str(user.id), "game_id": int(game_id), "power": power}
+    """Register (if needed) and take ``power`` in ``game_id`` -- or, with
+    ``RANDOM_POWER``, whichever open power the server deals. Returns the reply."""
+    payload: dict = {"telegram_id": str(user.id), "game_id": int(game_id)}
+    if power.upper() != RANDOM_POWER:
+        payload["power"] = power
     if password is not None:
         payload["join_password"] = password
     try:
@@ -938,6 +958,7 @@ def join_game(user: Any, game_id: str, power: str, password: Optional[str]) -> s
         result = api_post(f"/games/{game_id}/join", payload)
     except requests.RequestException as e:  # an HTTP error's text is the server's detail
         return f"❌ Could not join game {game_id}: {e}"
+    power = str(result.get("power") or power)
     if result.get("status") == "already_joined":
         return f"You are already in game {game_id} as {power}."
     if result.get("status") != "ok":
@@ -985,7 +1006,8 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ``/join <game_id>`` (no power) shows the inline power-selection menu --
     this is what docs/TELEGRAM_BOT_COMMANDS.md documents. ``/join <game_id>
     <power>`` joins directly, for players who already know which power they
-    want (e.g. scripted use, or after seeing the menu once).
+    want (e.g. scripted use, or after seeing the menu once); ``/join <game_id>
+    random`` joins a random-powers game.
     """
     user = update.effective_user
     if not user or not update.message:

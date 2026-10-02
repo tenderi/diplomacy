@@ -175,7 +175,7 @@ a notification about -- so the game id is only needed to switch games.
 • `/message <power> <text>`, `/broadcast <text>` - Or use 💬 Messages in the game menu and just type
 
 *👥 Playing with your Telegram group*
-• Add me to the group and send `/newgame anonymous` (players known only by their power) or `/newgame public` (nicknames shown) there; everyone joins with the button I post
+• Add me to the group and send `/newgame anonymous` (players known only by their power) or `/newgame public` (nicknames shown) there -- add `random` to deal the powers at random; everyone joins with the button I post
 • After every turn the group sees two maps (the orders, then the result), deadline reminders and broadcasts
 • Orders and private messages always come here, to this private chat
 • Only a group's members can see or join its games

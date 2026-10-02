@@ -197,6 +197,7 @@ class GameRepo:
                 # W8: whether joining needs a password -- never the hash itself.
                 "private": row.join_password_hash is not None,
                 "anonymous": bool(row.anonymous),
+                "random_powers": bool(row.random_powers),
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -228,6 +229,7 @@ class GameRepo:
         join_password_hash: Optional[str] = None,
         deadline_schedule: Optional[dict[str, Any]] = None,
         anonymous: bool = False,
+        random_powers: bool = False,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
@@ -256,6 +258,7 @@ class GameRepo:
                 join_password_hash=join_password_hash,
                 deadline_schedule=deadline_schedule,
                 anonymous=anonymous,
+                random_powers=random_powers,
             )
             session.add(row)
             session.flush()  # assign the integer PK
