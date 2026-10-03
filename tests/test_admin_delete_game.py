@@ -43,7 +43,7 @@ def test_deletes_the_game_and_everything_hanging_off_it(client: TestClient) -> N
     other_id, _ = _game_with_france(client)
     numeric = int(game_id)
     assert db_service.get_players_by_game_id(numeric)
-    assert db_service.get_game_snapshots_by_game_id(numeric)  # the processed turn left one
+    assert 1 in {s.turn_number for s in db_service.get_game_snapshots_by_game_id(numeric)}  # the processed turn left one
     assert client.get(f"/users/{a}/games", headers=BOT).json()["games"]
 
     with OutboxProbe() as probe:

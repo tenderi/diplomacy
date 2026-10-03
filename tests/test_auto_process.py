@@ -76,7 +76,7 @@ def test_the_last_order_processes_the_turn(client: TestClient) -> None:
     assert any(u["location"] == "NTH" for u in state["units_by_power"]["ENGLAND"])
     # The same finish as every other trigger: both players told, a snapshot taken.
     assert {e, f} <= probe.recipients()
-    assert db_service.get_game_snapshots_by_game_id(int(game_id))
+    assert sorted(s.turn_number for s in db_service.get_game_snapshots_by_game_id(int(game_id))) == [0, 1]
 
 
 def test_a_wait_flag_holds_it_and_lowering_it_processes(client: TestClient) -> None:

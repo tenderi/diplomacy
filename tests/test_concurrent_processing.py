@@ -77,7 +77,9 @@ def test_the_route_answers_409_and_announces_nothing(client: TestClient) -> None
     assert resp.status_code == 409
     assert "already processed concurrently" in resp.json()["detail"]
     assert probe.rows() == []
-    assert db_service.get_game_snapshots_by_game_id(int(db_service.get_game_by_game_id(game_id).id)) == []
+    # Only the opening board (turn 0): the refused turn left no snapshot.
+    snaps = db_service.get_game_snapshots_by_game_id(int(db_service.get_game_by_game_id(game_id).id))
+    assert [s.turn_number for s in snaps] == [0]
 
 
 def test_the_deadline_scheduler_skips_a_game_another_worker_processed(client: TestClient) -> None:

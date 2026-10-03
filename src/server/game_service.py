@@ -117,13 +117,15 @@ class GameService:
         ``random_powers``: players do not choose a power -- each join is seated
         in a random open one. Also fixed for the game's life.
 
+        The opening board is recorded as the game's turn-0 snapshot.
+
         Returns the game's id (the integer PK as a string when not supplied).
         """
-        game = Game(map=self._map, state=_initial_state(self._map))
+        opening = self.opening_snapshot()
         return self._repo.create(
             map_name=map_name,
-            state_json=state_to_dict(game.state),
-            phase_code=game.state.phase_name,
+            state_json=opening["state"],
+            phase_code=opening["phase_code"],
             game_id=game_id,
             phase_length_seconds=phase_length_seconds,
             created_by_user_id=created_by_user_id,
@@ -133,6 +135,7 @@ class GameService:
             deadline_schedule=deadline_schedule,
             anonymous=anonymous,
             random_powers=random_powers,
+            opening_board={"units": opening["units"], "supply_centers": opening["supply_centers"]},
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -809,6 +812,20 @@ class GameService:
         """The board a new game on ``map_name`` starts from, view-shaped for the
         renderer (turn 0 has no snapshot to read it back from)."""
         return {"map_name": map_name, **board_view(_initial_state(self._map))}
+
+    def opening_snapshot(self) -> dict[str, Any]:
+        """The turn-0 snapshot ``create_game`` records, shaped like a
+        ``map_snapshots`` row (``phase_code``, ``state``, ``units``,
+        ``supply_centers``): for games created before it was recorded, which
+        all started from the same board."""
+        state = _initial_state(self._map)
+        board = board_view(state)
+        return {
+            "phase_code": state.phase_name,
+            "state": state_to_dict(state),
+            "units": board["units"],
+            "supply_centers": board["supply_centers"],
+        }
 
     def view(self, game_id: str) -> Optional[dict[str, Any]]:
         """The clean, GameState-native API representation of a game."""
