@@ -63,7 +63,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
 - [ ] BA7 — Smaller issues:
   - [x] The joining player also gets "A player has joined game N as X" (`join_game` passes
         no `exclude_telegram_id`); the power is lower-case there and in `GET /orders/france`.
-  - [ ] `orders_status.submitted` counts powers with nothing to do or an empty list
+  - [x] `orders_status.submitted` counts powers with nothing to do or an empty list
         (`/status` shows "✅ Submitted").
   - [x] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
         should say why (attacker's origin, contested, occupied).

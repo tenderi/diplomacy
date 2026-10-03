@@ -416,6 +416,14 @@ phase only powers that must disband or that are owed a build and have a vacant o
 centre to put it on. A power `legal_orders_for_power` would offer nothing but `WAIVE` is
 not waited on.
 
+Those powers (civil-disorder dummies left out) are `active_powers`, and each of them is in
+exactly one of `submitted` — it has at least one stored order this phase — and `missing`.
+An empty stored list (what a submission whose every order was refused leaves) is
+`missing`, not submitted. `incomplete` is the part of `submitted` that has not yet ordered
+everything that must act. `nothing_to_do` lists every other non-dummy power still in the
+game (a unit or a centre): no order is due from it, so it is neither submitted nor waited
+on. The bot's `/status` and the web turn-status card show the three groups separately.
+
 ## 6. Out of scope here
 
 Full DB migration history: `alembic/versions/`. Route-by-route request/response models: the
