@@ -56,6 +56,9 @@ class SendBroadcastRequest(BaseModel):
     bot_secret: Optional[str] = None
     text: str
     client_timestamp: Optional[datetime] = None
+    # A rumour: the broadcast goes to the same people, but names nobody. The
+    # sender is stored for the record and never shown to anyone else.
+    anonymous: bool = False
 
 # --- Message Endpoints ---
 @router.post("/games/{game_id}/message")
@@ -124,35 +127,51 @@ def send_private_message(
 
 @router.post("/games/{game_id}/broadcast")
 def send_broadcast_message(
-    game_id: int,
+    game_id: str,
     req: SendBroadcastRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
+    """A message to every player in the game, and to its linked group.
+
+    ``game_id`` is the public id; the player lookup and the message row use
+    the game's numeric primary key. With ``anonymous`` it is a rumour: the DMs
+    and the group post name no power and no player.
+    """
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        game_model = db_service.get_game_by_game_id(str(game_id))
+        if not game_model:
+            raise HTTPException(status_code=404, detail="Game not found")
+        numeric_id = int(game_model.id)  # type: ignore
         # Validate sender is in the game
-        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+        player = db_service.get_player_by_game_id_and_user_id(game_id=numeric_id, user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=403, detail="Sender not in game")
         sent_at = normalize_client_timestamp(req.client_timestamp)
         msg = db_service.create_message(
-            game_id=game_id,
+            game_id=numeric_id,
             sender_user_id=int(user.id),  # type: ignore
             recipient_power=None,
             text=req.text,
             timestamp=sent_at,
-            phase_code=_phase_code_for(str(game_id), game_id, sent_at),
+            phase_code=_phase_code_for(str(game_id), numeric_id, sent_at),
+            anonymous=req.anonymous,
         )
+        if req.anonymous:
+            dm_heading = f"🕵️ Rumour in game {game_id}"
+            group_heading = f"🕵️ Rumour in game {game_id}"
+        else:
+            sender = power_label(game_id, str(player.power_name), user)
+            dm_heading = f"Broadcast in game {game_id} from {sender}"
+            group_heading = f"📢 Broadcast in game {game_id} from {sender}"
         # Broadcast message notification. The sender is excluded: they have
         # the bot's own "Broadcast sent" confirmation (or, for a queued
         # broadcast, its "delivered" report), and hearing their own words back
         # as a DM was noise.
         try:
             notify_players(
-                game_id,
-                f"Broadcast in game {game_id} from "
-                f"{power_label(game_id, str(player.power_name), user)}"
-                f"{sent_at_suffix(sent_at)}: {req.text}",
+                numeric_id,
+                f"{dm_heading}{sent_at_suffix(sent_at)}: {req.text}",
                 exclude_telegram_id=getattr(user, "telegram_id", None),
             )
         except Exception as e:
@@ -168,8 +187,7 @@ def send_broadcast_message(
             if channel_info and (channel_info.get("settings") or {}).get("auto_post_broadcasts", True):
                 db_service.enqueue_bot_notification(
                     channel_info.get("channel_id"),
-                    f"📢 Broadcast in game {game_id} from "
-                    f"{power_label(game_id, str(player.power_name), user)}: {req.text}",
+                    f"{group_heading}: {req.text}",
                     kind="channel_text",
                 )
         except Exception as e:
@@ -229,12 +247,20 @@ def get_game_messages(
                 if not anonymous:
                     sender = db_service.get_user_by_id(int(seat.user_id))
                     name_of[int(seat.user_id)] = getattr(sender, "nickname", None) if sender else None
+        reader_id = int(user.id) if user is not None else None  # type: ignore
+
+        def hidden(m: MessageModel) -> bool:
+            # A rumour names its sender to nobody but the sender themself, so
+            # their own log still reads as theirs.
+            return bool(m.anonymous) and (reader_id is None or int(m.sender_user_id) != reader_id)
+
         result = [
             {
                 "id": m.id,
-                "sender_user_id": None if anonymous else m.sender_user_id,
-                "sender_power": power_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
-                "sender_name": name_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+                "sender_user_id": None if anonymous or hidden(m) else m.sender_user_id,
+                "sender_power": None if hidden(m) else power_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+                "sender_name": None if hidden(m) else name_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+                "anonymous": bool(m.anonymous),
                 "recipient_power": m.recipient_power,
                 "text": m.text,
                 "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp),

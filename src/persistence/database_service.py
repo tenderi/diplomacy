@@ -778,6 +778,7 @@ class DatabaseService:
         text: str,
         timestamp: Optional[datetime] = None,
         phase_code: Optional[str] = None,
+        anonymous: bool = False,
     ):
         """Store a diplomatic message.
 
@@ -791,6 +792,9 @@ class DatabaseService:
         ``phase_code`` is the game phase the message was written in, so a game
         log can be read phase by phase. Callers resolve it from ``timestamp`` via
         ``get_phase_code_at``.
+
+        ``anonymous`` marks a rumour: a broadcast whose sender is stored but
+        never shown to anyone else.
         """
         if timestamp is None:
             timestamp = utcnow_naive()
@@ -804,6 +808,7 @@ class DatabaseService:
                 text=text,
                 timestamp=timestamp,
                 phase_code=phase_code,
+                anonymous=anonymous,
             )
             session.add(msg)
             session.commit()

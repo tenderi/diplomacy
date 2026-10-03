@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
+from sqlalchemy import false as sa_false
 from datetime import datetime, timezone
 
 Base = declarative_base()
@@ -372,6 +373,11 @@ class MessageModel(Base):
     # NULL for messages written before this column existed, and whenever the
     # phase cannot be determined.
     phase_code = Column(String(10), nullable=True)
+    # A rumour: a broadcast sent anonymously. ``sender_user_id`` is still
+    # stored (for the record), but no read path shows it to anyone other than
+    # the sender -- see ``GET /games/{id}/messages``. (``sa_false()``, not
+    # ``text("false")``: in this class body ``text`` is the column above.)
+    anonymous = Column(Boolean, nullable=False, default=False, server_default=sa_false())
 
     # Constraints and indexes
     __table_args__ = (

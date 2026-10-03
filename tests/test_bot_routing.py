@@ -51,6 +51,11 @@ class TestRegistration:
         assert taught, "the extractor found nothing -- the texts changed shape"
         assert taught - registered_commands == set()
 
+    def test_rumour_is_offered_and_answers_to_both_spellings(self, registered_commands: set[str]) -> None:
+        assert "rumour" in {c.command for c in bot_app.BOT_COMMANDS}
+        assert {"rumour", "rumor"} <= registered_commands
+        assert "rumour" not in bot_app.GROUP_COMMANDS  # sent in a group, everyone would see who wrote it
+
     def test_commands_allowed_in_a_group_exist(self, registered_commands: set[str]) -> None:
         assert bot_app.GROUP_COMMANDS - registered_commands == set()
 
