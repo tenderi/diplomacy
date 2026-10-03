@@ -79,7 +79,9 @@ whenever you are deciding whether to start something new.
 4. **Then find your own work** (see Discovery). Write each item into `fix_plan.md` before
    it is done, as the project requires. The PR that does the work also checks it off.
 5. **Plan the batch.** Pick 1–4 items that are independent: they don't touch the same
-   files, and at most one of them adds an Alembic migration. Take the next free versions
+   files, and at most one of them adds an Alembic migration. Keep each item small (see
+   "Small steps" below): split a large one into steps and give a worker only the first.
+   Take the next free versions
    from `origin/main`'s tags (`git ls-remote --tags origin 'v3.0.*'`) and give each worker
    its own, in the order you intend to merge.
 6. **Delegate.** Start one `worker` subagent per item, in parallel, each with
@@ -120,6 +122,13 @@ only in your context is gone. So write things down as soon as they exist, not at
 - **Record findings the moment a subagent reports them.** A bug list from a play-through
   goes into `fix_plan.md` (through a small PR) or into the journal entry before you start
   delegating any of it.
+- **Small steps.** Running out mid-change should cost one small step, not a night's work.
+  Split anything bigger than one worker can finish, get reviewed and merge in about an
+  hour into a sequence of steps. Each step is its own PR and leaves `main` working and
+  deployable. Write the steps into `fix_plan.md` as separate checkboxes, then ship and
+  merge them one at a time: a merged step survives a stop, an unmerged branch may not.
+  Prefer merging two small PRs now over one large PR later. The same applies to work you
+  do yourself: commit and push as you go, never hold an hour of edits only in a worktree.
 - **Every PR stands on its own.** A worker's PR must make sense to a later run that never
   saw your brief: the PR body carries the goal and the state of the work.
 - **Spend in order of value.** Start the work that matters most first. Don't start four
