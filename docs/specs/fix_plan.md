@@ -80,6 +80,9 @@ Adjudication itself was correct in every case checked; these are the paths aroun
         component's first render.
   - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
         tie numbering) — delete it.
+- [x] BA8 — **A private command typed in a group stays there under its author's name.** A
+      `/rumour` sent to the group by mistake was refused but left readable, naming its
+      author. The bot now deletes it when it has the right to (and says so).
 - [ ] **Done when:** every box above is checked.
 
 ---
