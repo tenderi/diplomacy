@@ -14,7 +14,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Which jobs this change needs. A docs-only change (Markdown, docs/) skips the other three.
+  # Which jobs this change needs. A docs-only change (Markdown, docs/) skips test, frontend
+  # and security; `docs` runs only when the docs site's inputs changed.
   # The skip is a job-level `if:`, not `paths-ignore`: a job skipped by its `if:` reports
   # success to branch protection, while a workflow that never starts leaves the required
   # checks pending forever. The Deploy workflow still follows a green run on main, so the
@@ -23,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      docs: ${{ steps.diff.outputs.docs }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -177,3 +179,23 @@ jobs:
           name: bandit-report
           path: bandit-report.json
           if-no-files-found: ignore
+
+  # The docs site's strict build (docker/docs.Dockerfile), so a broken link fails the PR
+  # rather than the deploy after the merge. Same pins as the Dockerfile; a test checks.
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install MkDocs
+        run: pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10"
+
+      - name: Build the docs site (strict)
+        run: mkdocs build --strict --site-dir "$RUNNER_TEMP/site"
