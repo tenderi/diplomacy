@@ -615,6 +615,22 @@ class TestPhaseAwareOrders:
         service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
         assert service.orders_status(gid)["missing"] == []
 
+    def test_orders_status_tells_nothing_to_do_and_empty_lists_from_submitted(self, service):
+        """BA7: a power with nothing to retreat, or whose every order was
+        refused, has an empty ``pending_orders`` entry -- and was listed as
+        submitted, so the bot's /status showed it "✅ Submitted"."""
+        gid = self._to_retreat_phase(service)
+        service.submit_orders(gid, "FRANCE", ["A RUH - KIE"])   # nothing to retreat: refused
+        service.submit_orders(gid, "GERMANY", ["A MUN - KIE"])  # a move, not a retreat: refused
+        assert service.pending_orders_view(gid) == {"FRANCE": [], "GERMANY": []}
+        status = service.orders_status(gid)
+        assert (status["submitted"], status["missing"], status["nothing_to_do"], status["incomplete"]) == (
+            [], ["GERMANY"], ["FRANCE"], []
+        )
+        service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])
+        status = service.orders_status(gid)
+        assert (status["submitted"], status["missing"], status["nothing_to_do"]) == (["GERMANY"], [], ["FRANCE"])
+
     def test_orders_status_in_adjustment_waits_only_on_powers_with_a_delta(self, service):
         gid = self._to_retreat_phase(service)
         service.submit_orders(gid, "GERMANY", ["A MUN R SIL"])

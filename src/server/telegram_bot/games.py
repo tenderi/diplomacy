@@ -251,11 +251,14 @@ def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] 
     if orders_status:
         submitted = orders_status.get("submitted", [])
         missing = orders_status.get("missing", [])
+        idle = orders_status.get("nothing_to_do", [])
         text += (
             "\n✅ *Submitted:* " + (", ".join(submitted) if submitted else "none") + "\n"
         )
         if missing:
             text += "⏳ *Waiting on:* " + ", ".join(missing) + "\n"
+        if idle:
+            text += "💤 *Nothing to order this phase:* " + ", ".join(idle) + "\n"
         if orders_status.get("incomplete"):
             text += "✏️ *Only some units ordered:* " + ", ".join(orders_status["incomplete"]) + "\n"
         if orders_status.get("auto_process"):

@@ -140,7 +140,7 @@ The columns that matter for game state (all nullable):
 | `state_json` | JSON | `GameRepo.create` / `.save_state` | The serialized `GameState` — the authoritative source of truth for a game's board. |
 | `pending_orders` | JSON | `GameRepo.modify_pending_orders` (locked read-modify-write) | `{power: [order_str, ...]}`, submitted but not yet adjudicated; cleared after `process_turn`. |
 | `last_resolution` | JSON | `GameRepo.save_state` / `.set_histories` (saved-game import) | The most recent `resolution_to_dict()` output — what `/last_resolution` answers and what `/generate_map/resolution` draws arrows from; not otherwise authoritative (superseded on the next `process_turn`). |
-| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`. |
+| `order_history` | JSON | `GameRepo.save_state` | `{turn_number_str: {power: [order_str, ...]}}`, appended (never overwritten) each `process_turn`, using the *truthful* A/F-lettered order text. Powers `/orders/history`, which also returns `phases` (`{turn_number_str: phase_code}`, from each turn's `map_snapshots` row) so clients label a turn `S1901M`, not by its counter. |
 | `resolution_history` | JSON | `GameRepo.save_state` | `{turn_number_str: resolution_dict}` — what each turn's orders did; powers `/resolutions`, `/history/{turn}` and each turn's orders map. |
 | `draw_votes` | JSON | `GameRepo.modify_draw_votes` | `{power: true}` for this phase's yes votes; cleared when a turn is processed. |
 | `pending_deadline_proposal` | JSON | `GameRepo` (locked read-modify-write) | The one open majority vote on a deadline change, with its yes/no votes and optional expiry. |
@@ -162,7 +162,11 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 `updated_at`.
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
-board, and `map_snapshots` one row per processed turn.
+board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the
+opening board, is written by `GameRepo.create`; every later one after the turn before it is
+processed). `/history/{turn}` and `/map/history/{turn}` read it; for a game created
+before the turn-0 row existed they fall back to the opening board, which every game starts
+from.
 
 ### `players` table (`PlayerModel`)
 
@@ -415,6 +419,14 @@ movement phase, only powers with a dislodged unit in a retreat phase, and in an 
 phase only powers that must disband or that are owed a build and have a vacant owned home
 centre to put it on. A power `legal_orders_for_power` would offer nothing but `WAIVE` is
 not waited on.
+
+Those powers (civil-disorder dummies left out) are `active_powers`, and each of them is in
+exactly one of `submitted` — it has at least one stored order this phase — and `missing`.
+An empty stored list (what a submission whose every order was refused leaves) is
+`missing`, not submitted. `incomplete` is the part of `submitted` that has not yet ordered
+everything that must act. `nothing_to_do` lists every other non-dummy power still in the
+game (a unit or a centre): no order is due from it, so it is neither submitted nor waited
+on. The bot's `/status` and the web turn-status card show the three groups separately.
 
 ## 6. Out of scope here
 

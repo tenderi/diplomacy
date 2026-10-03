@@ -233,7 +233,8 @@ def _last_processed_turn(game_id: str) -> Optional[int]:
 
 def _turn_board(game_id: str, row: Any, turn: int) -> Dict[str, Any]:
     """The board turn ``turn`` was played on: snapshot ``turn`` (taken when the turn
-    began), or the opening position for turn 0, which has no snapshot."""
+    began; ``create_game`` records turn 0), or the opening position for turn 0 of a
+    game created before that snapshot was recorded."""
     snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
     if snapshot is not None:
         return _view_from_snapshot(str(row.map_name), snapshot)
@@ -290,10 +291,10 @@ def get_game_resolution_map_png(game_id: str) -> Response:
 
 @router.get("/games/{game_id}/map/history/{turn}", response_class=Response)
 def get_game_map_history_png(game_id: str, turn: int) -> Response:
-    """Return the rendered PNG for a historical turn.
+    """Return the rendered PNG for a historical turn (``_turn_board``).
 
     Historical state comes from ``map_snapshots`` (``MapSnapshotModel``), written
-    automatically after each ``process_turn`` and by the manual
+    when a game is created (turn 0), automatically after each ``process_turn`` and by the manual
     ``POST /games/{game_id}/generate_map`` snapshot path (see ``routes/games.py``
     and ``database_service.create_game_snapshot``). ``_view_from_snapshot`` bridges
     that persisted shape back to the view shape the renderer helpers expect.
@@ -301,10 +302,7 @@ def get_game_map_history_png(game_id: str, turn: int) -> Response:
     row = db_service.get_game_by_game_id(game_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
-    if snapshot is None:
-        raise HTTPException(status_code=404, detail="No map snapshot found for this turn.")
-    hist_view = _view_from_snapshot(str(row.map_name), snapshot)
+    hist_view = _turn_board(game_id, row, turn)
     svg_path = svg_path_for_map_name(hist_view["map_name"])
     try:
         img_bytes = Map.render_board_png(

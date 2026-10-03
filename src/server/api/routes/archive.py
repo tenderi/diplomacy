@@ -259,7 +259,12 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         messages_restored += 1
 
     snapshots_restored = 0
+    # create_game already recorded the opening board as turn 0, and every game
+    # starts from it: an exported turn-0 snapshot would only duplicate it.
+    recorded_turns = {int(snap.turn_number) for snap in db_service.get_game_snapshots_by_game_id(int(row.id))}
     for s in req.snapshots or []:
+        if int(s.get("turn", 0)) in recorded_turns:
+            continue
         try:
             db_service.create_game_snapshot(
                 game_id=int(row.id),

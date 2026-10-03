@@ -298,8 +298,9 @@ def test_both_triggers_snapshot_the_processed_turn() -> None:
     deadline_snapshots = snapshot_turns(game_id2)
     deadline_deadline = client.get(f"/games/{game_id2}/deadline").json()["deadline"]
 
-    assert manual_snapshots, "the manual trigger recorded no snapshot"
-    assert deadline_snapshots, "the deadline trigger recorded no snapshot (K1)"
+    # Turn 0 is the opening board, recorded when each game was created.
+    assert manual_snapshots == {0, 1}, "the manual trigger recorded no snapshot"
+    assert deadline_snapshots == {0, 1}, "the deadline trigger recorded no snapshot (K1)"
     assert manual_snapshots == deadline_snapshots, (
         f"the two triggers snapshot different turns: {manual_snapshots} vs {deadline_snapshots}"
     )

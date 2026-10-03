@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
 from server.api import ADMIN_TOKEN, app
-from server.api.shared import db_service, server
+from server.api.shared import db_service, game_service, server
 from tests.conftest import _get_db_url
 
 BOT_SECRET = "test_bot_secret_for_tests"
@@ -420,6 +420,39 @@ class TestGameHistory:
 
 
 @pytest.mark.unit
+class TestOpeningBoardHistory:
+    """BA7: ``/history/0`` is the board a game starts on, not a 404."""
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_a_new_game_has_its_opening_board_at_turn_0(self, client):
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        turn = client.get(f"/games/{game_id}/history/0")
+        assert turn.status_code == 200, turn.text
+        body = turn.json()
+        opening = game_service.opening_snapshot()
+        assert (body["turn"], body["phase_code"], body["orders"], body["resolution"]) == (0, "S1901M", None, None)
+        assert (body["state"], body["units"], body["supply_centers"]) == (
+            opening["state"], opening["units"], opening["supply_centers"],
+        )
+        assert len(body["units"]) == 22 and body["supply_centers"]["PAR"] == "FRANCE"
+        assert client.get(f"/games/{game_id}/history/1").status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_a_game_created_before_the_snapshot_still_answers_turn_0(self, client):
+        from persistence.database import MapSnapshotModel
+
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        numeric = int(db_service.get_game_by_game_id(str(game_id)).id)
+        with db_service.session_factory() as session:
+            session.query(MapSnapshotModel).filter_by(game_id=numeric).delete()
+            session.commit()
+        body = client.get(f"/games/{game_id}/history/0").json()
+        assert (body["phase_code"], body["state"]) == ("S1901M", game_service.opening_snapshot()["state"])
+        png = client.get(f"/games/{game_id}/map/history/0")
+        assert (png.status_code, png.content[:8]) == (200, b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.unit
 class TestGameSnapshots:
     """Test game snapshot endpoints."""
     
@@ -430,11 +463,14 @@ class TestGameSnapshots:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
+        opening = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
         resp = client.post(f"/games/{game_id}/snapshot")
         assert resp.status_code == 200, resp.text
         assert resp.json()["turn"] == 0
         listed = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
-        assert [(s["id"], s["turn"], s["phase_code"]) for s in listed] == [(resp.json()["snapshot_id"], 0, "S1901M")]
+        assert sorted((s["id"], s["turn"], s["phase_code"]) for s in listed) == [
+            (opening[0]["id"], 0, "S1901M"), (resp.json()["snapshot_id"], 0, "S1901M"),
+        ]
     
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_get_snapshots(self, client):
@@ -443,7 +479,9 @@ class TestGameSnapshots:
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
         
-        assert client.get(f"/games/{game_id}/snapshots").json()["snapshots"] == []
+        # The opening board, recorded when the game was created (BA7).
+        listed = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
+        assert [(s["turn"], s["phase_code"]) for s in listed] == [(0, "S1901M")]
         assert client.get("/games/nonexistent/snapshots").status_code == 404
 
 

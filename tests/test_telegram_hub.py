@@ -15,7 +15,7 @@ import requests
 from server.telegram_bot import app as bot_app
 from server.telegram_bot import hub
 from server.telegram_bot.game_context import GameContextError, resolve_game_and_power, set_current_game
-from server.telegram_bot.games import AWAITING, start
+from server.telegram_bot.games import AWAITING, start, status_text
 from server.telegram_bot.notifications import _send_outbox_item
 
 pytestmark = pytest.mark.unit
@@ -349,3 +349,22 @@ class TestMenuActions:
             query, _ = _press("g|42|pt")
         run.assert_not_awaited()
         assert "42" in query.edit_message_text.call_args[0][0]
+
+
+class TestStatusText:
+    def test_nothing_to_do_is_its_own_line_not_submitted(self) -> None:
+        """BA7: a power with nothing to order this phase is neither submitted nor
+        waited on, and /status says so instead of "✅ Submitted"."""
+
+        def api_get(path: str, **_kw):
+            if path.endswith("/orders_status"):
+                return {"submitted": ["GERMANY"], "missing": ["ITALY"], "nothing_to_do": ["ENGLAND", "FRANCE"]}
+            return _hub_api_get(path)
+
+        with patch("server.telegram_bot.games.api_get", side_effect=api_get):
+            text = status_text("3", "GERMANY", "555")
+        assert [line for line in text.splitlines() if line.startswith(("✅", "⏳", "💤"))] == [
+            "✅ *Submitted:* GERMANY",
+            "⏳ *Waiting on:* ITALY",
+            "💤 *Nothing to order this phase:* ENGLAND, FRANCE",
+        ]

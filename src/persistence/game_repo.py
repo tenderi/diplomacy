@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from persistence.database import GameModel, PlayerModel, utcnow_naive
+from persistence.database import GameModel, MapSnapshotModel, PlayerModel, utcnow_naive
 
 __all__ = ["GameRepo", "PhaseInputsChangedError", "StaleGameError"]
 
@@ -230,11 +230,17 @@ class GameRepo:
         deadline_schedule: Optional[dict[str, Any]] = None,
         anonymous: bool = False,
         random_powers: bool = False,
+        opening_board: Optional[dict[str, Any]] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
 
         When ``game_id`` is not given it defaults to the integer primary key (as a
         string), keeping ids stable and numeric for callers.
+
+        ``opening_board``, when given, is the view-shaped ``units`` and
+        ``supply_centers`` of ``state_json``: they are recorded, in the same
+        transaction, as the game's turn-0 ``map_snapshots`` row (the board turn 0
+        is played on), so ``/history/0`` reads like every later turn.
         """
         with self._session_factory() as session:
             row = GameModel(
@@ -264,6 +270,15 @@ class GameRepo:
             session.flush()  # assign the integer PK
             if game_id is None:
                 row.game_id = str(row.id)
+            if opening_board is not None:
+                session.add(MapSnapshotModel(
+                    game_id=row.id,
+                    turn_number=0,
+                    phase_code=phase_code,
+                    units=opening_board["units"],
+                    supply_centers=opening_board["supply_centers"],
+                    state_json=state_json,
+                ))
             session.commit()
             return row.game_id
 
