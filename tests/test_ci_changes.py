@@ -2,7 +2,8 @@
 
 A path wrongly classed as docs-only merges with no tests run, so these pin the
 classification in both directions, and the workflow wiring that makes a skip
-satisfy branch protection rather than block it.
+satisfy branch protection rather than block it. The `docs` output gates the
+strict MkDocs build, which must see every input of the docs image.
 """
 from __future__ import annotations
 
@@ -17,11 +18,19 @@ SCRIPT = REPO_ROOT / ".github" / "scripts" / "ci-changes.sh"
 TEST_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "test.yml"
 
 
-def _classify(*paths: str) -> str:
+def _outputs(*paths: str) -> list[str]:
     result = subprocess.run(
         ["bash", str(SCRIPT)], input="\n".join(paths) + "\n", capture_output=True, text=True, check=True
     )
-    return result.stdout.strip()
+    return result.stdout.splitlines()
+
+
+def _classify(*paths: str) -> str:
+    return _outputs(*paths)[0]
+
+
+def _docs(*paths: str) -> str:
+    return _outputs(*paths)[1]
 
 
 @pytest.mark.infrastructure
@@ -60,7 +69,50 @@ def test_anything_else_runs_everything(paths: tuple[str, ...]) -> None:
 @pytest.mark.infrastructure
 def test_an_unknown_diff_runs_everything() -> None:
     """A new branch's all-zero `before` makes `git diff` fail, leaving an empty list."""
-    assert _classify() == "code=true"
+    assert _outputs() == ["code=true", "docs=true"]
+
+
+@pytest.mark.infrastructure
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ("docs/index.md",),
+        ("docs/TELEGRAM_BOT_COMMANDS.md",),
+        ("docs/reference/rules.pdf",),
+        ("mkdocs.yml",),
+        ("docker/docs.Dockerfile",),
+        ("src/engine/game.py", "docs/specs/fix_plan.md"),
+    ],
+)
+def test_any_docs_site_input_runs_the_docs_build(paths: tuple[str, ...]) -> None:
+    assert _docs(*paths) == "docs=true"
+
+
+@pytest.mark.infrastructure
+@pytest.mark.parametrize(
+    "paths",
+    [
+        ("README.md", "CLAUDE.md"),  # Markdown outside docs/ isn't on the site
+        ("src/engine/game.py",),
+        ("docker/api.Dockerfile",),
+    ],
+)
+def test_other_changes_skip_the_docs_build(paths: tuple[str, ...]) -> None:
+    assert _docs(*paths) == "docs=false"
+
+
+@pytest.mark.infrastructure
+def test_the_docs_job_builds_like_the_docs_image() -> None:
+    """Same MkDocs pins and `--strict` as docker/docs.Dockerfile, or CI would pass a site
+    the deploy then fails to build (or the other way round)."""
+    workflow = TEST_WORKFLOW.read_text()
+    dockerfile = (REPO_ROOT / "docker" / "docs.Dockerfile").read_text()
+    pins = re.findall(r'"(mkdocs[\w-]*[<>=][^"]+)"', dockerfile)
+    assert pins == ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
+    job = workflow.split("\n  docs:\n", 1)[1]
+    assert "    needs: changes\n    if: needs.changes.outputs.docs == 'true'\n" in job
+    assert re.findall(r'"(mkdocs[\w-]*[<>=][^"]+)"', job) == pins
+    assert "mkdocs build --strict" in job
 
 
 @pytest.mark.infrastructure

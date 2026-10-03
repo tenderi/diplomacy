@@ -22,6 +22,10 @@ file anywhere, or anything under `docs/`), all three are skipped. A job skipped 
 deploys. `docs/TELEGRAM_BOT_COMMANDS.md` is the exception: a test parses it, so changing
 it runs everything. `tests/test_ci_changes.py` pins the classification.
 
+A fifth job, `docs`, runs `mkdocs build --strict` whenever an input of the docs site
+changes (`docs/`, `mkdocs.yml`, `docker/docs.Dockerfile`). It uses the same pins as the
+docs image, so a broken link fails the PR instead of the deploy after the merge.
+
 Coverage floors: **engine ≥95%** (`coverage report --include='src/engine/*'`), **overall
 ≥80%**, and the frontend thresholds in `frontend/vite.config.ts` (90% of lines). Each sits
 two to three points under the measured number: room to delete covered dead code, not to
