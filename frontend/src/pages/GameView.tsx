@@ -106,14 +106,17 @@ type DrawVoteStatus = {
   quorum_reached: boolean
 }
 /**
- * GET /games/{id}/orders_status response (see GameService.orders_status). Powers
- * with no units this phase are never "missing" -- there's nothing for them to order.
+ * GET /games/{id}/orders_status response (see GameService.orders_status). Every
+ * active power is in exactly one of `submitted` (has an order stored) and `missing`;
+ * a power with nothing to order this phase is in `nothing_to_do` instead.
  */
 type OrdersStatus = {
   phase: string
   active_powers: string[]
   submitted: string[]
   missing: string[]
+  /** Powers still in the game with no order due this phase (e.g. nothing to retreat). */
+  nothing_to_do?: string[]
   /** W10: powers that asked the table to wait before auto-processing. */
   waiting?: string[]
   /** W10: the turn runs by itself once nothing is missing and nobody waits. */
@@ -498,6 +501,7 @@ export default function GameView() {
   }, [legalOrders])
 
   const iHaveSubmitted = !!(myPower && ordersStatus?.submitted.includes(myPower))
+  const iHaveNothingToDo = !!(myPower && ordersStatus?.nothing_to_do?.includes(myPower))
 
   async function handleJoin() {
     if (!gameId || !(joinPower || state?.random_powers)) return
@@ -798,14 +802,16 @@ export default function GameView() {
               <p
                 className={cn(
                   'text-sm font-medium',
-                  iHaveSubmitted
+                  iHaveSubmitted || iHaveNothingToDo
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : 'text-amber-600 dark:text-amber-400'
                 )}
               >
-                {iHaveSubmitted
-                  ? `Your orders are in for ${myPower}.`
-                  : `You still need to submit orders for ${myPower}.`}
+                {iHaveNothingToDo
+                  ? `${myPower} has nothing to order this phase.`
+                  : iHaveSubmitted
+                    ? `Your orders are in for ${myPower}.`
+                    : `You still need to submit orders for ${myPower}.`}
               </p>
             )}
             {ordersStatus && (

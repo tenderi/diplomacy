@@ -1487,7 +1487,7 @@ def set_deadline(
 
 @router.get("/games/{game_id}/history/{turn}")
 def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
-    """Everything known about one past turn: the board it resulted in, the orders
+    """Everything known about one turn: the board it was played on, the orders
     submitted to get there, and what those orders did.
 
     **Turn numbering.** ``turn`` T means: the snapshot written when T *began*
@@ -1497,24 +1497,36 @@ def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
     ``GameRepo.save_state`` keys a turn's history entry by the phase counter
     *before* it increments, but records the following snapshot *after* -- so a
     snapshot at T and its own history entry are one apart, not the same key.
-    Turn 0 is the opening position: nothing produced it, so it has no snapshot
-    and no orders, and it is a 404 like any turn not yet played.
+    Turn 0 is the opening position: ``GameService.create_game`` records it as the
+    turn-0 snapshot, and nothing produced it, so it has no orders. A game created
+    before that snapshot existed gets the same opening board
+    (``GameService.opening_snapshot``) -- every game starts from it.
     """
     row = db_service.get_game_by_game_id(str(game_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
     snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
+    board: Optional[Dict[str, Any]] = None
+    if snapshot is not None:
+        board = {
+            "phase_code": snapshot.phase_code,
+            "state": snapshot.state_json,
+            "units": snapshot.units,
+            "supply_centers": snapshot.supply_centers,
+        }
+    elif turn == 0:
+        board = game_service.opening_snapshot()
     orders = game_service.order_history(str(game_id)).get(str(turn - 1))
     resolution = game_service.resolution_history(str(game_id)).get(str(turn - 1))
-    if snapshot is None and orders is None and resolution is None:
+    if board is None and orders is None and resolution is None:
         raise HTTPException(status_code=404, detail="Nothing recorded for this turn.")
     return {
         "game_id": str(game_id),
         "turn": turn,
-        "phase_code": snapshot.phase_code if snapshot is not None else None,
-        "state": snapshot.state_json if snapshot is not None else None,
-        "units": snapshot.units if snapshot is not None else None,
-        "supply_centers": snapshot.supply_centers if snapshot is not None else None,
+        "phase_code": board["phase_code"] if board is not None else None,
+        "state": board["state"] if board is not None else None,
+        "units": board["units"] if board is not None else None,
+        "supply_centers": board["supply_centers"] if board is not None else None,
         "orders": orders,
         "resolution": resolution,
     }

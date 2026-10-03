@@ -117,13 +117,15 @@ class GameService:
         ``random_powers``: players do not choose a power -- each join is seated
         in a random open one. Also fixed for the game's life.
 
+        The opening board is recorded as the game's turn-0 snapshot.
+
         Returns the game's id (the integer PK as a string when not supplied).
         """
-        game = Game(map=self._map, state=_initial_state(self._map))
+        opening = self.opening_snapshot()
         return self._repo.create(
             map_name=map_name,
-            state_json=state_to_dict(game.state),
-            phase_code=game.state.phase_name,
+            state_json=opening["state"],
+            phase_code=opening["phase_code"],
             game_id=game_id,
             phase_length_seconds=phase_length_seconds,
             created_by_user_id=created_by_user_id,
@@ -133,6 +135,7 @@ class GameService:
             deadline_schedule=deadline_schedule,
             anonymous=anonymous,
             random_powers=random_powers,
+            opening_board={"units": opening["units"], "supply_centers": opening["supply_centers"]},
         )
 
     def load(self, game_id: str) -> Optional[Game]:
@@ -810,6 +813,20 @@ class GameService:
         renderer (turn 0 has no snapshot to read it back from)."""
         return {"map_name": map_name, **board_view(_initial_state(self._map))}
 
+    def opening_snapshot(self) -> dict[str, Any]:
+        """The turn-0 snapshot ``create_game`` records, shaped like a
+        ``map_snapshots`` row (``phase_code``, ``state``, ``units``,
+        ``supply_centers``): for games created before it was recorded, which
+        all started from the same board."""
+        state = _initial_state(self._map)
+        board = board_view(state)
+        return {
+            "phase_code": state.phase_name,
+            "state": state_to_dict(state),
+            "units": board["units"],
+            "supply_centers": board["supply_centers"],
+        }
+
     def view(self, game_id: str) -> Optional[dict[str, Any]]:
         """The clean, GameState-native API representation of a game."""
         sj = self._repo.get_state_json(game_id)
@@ -943,37 +960,39 @@ class GameService:
         return self._repo.get_resolution_history(game_id)
 
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
-        """Which powers have submitted orders for the current phase, and which
-        still have something to order and haven't. ``None`` if the game doesn't
-        exist. A power counts as "submitted" once it has a ``pending_orders`` entry
-        for this phase, even an empty one (0 valid orders still means it acted).
+        """Where each power stands on its orders for the current phase. ``None``
+        if the game doesn't exist.
 
-        ``active_powers`` is phase-shaped (``powers_with_orders_to_give``): in a
-        retreat phase only powers with a dislodged unit are expected to act, in
-        an adjustment phase only powers with a build or disband to make. Before
-        this, every power with a unit was "missing" in every phase, so a retreat
-        phase told the one player who had to retreat that six others were still
-        being waited on, and ``require_all`` blocked on them."""
+        ``active_powers`` is phase-shaped (``powers_with_orders_to_give``, minus
+        civil-disorder dummies): in a retreat phase only powers with a dislodged
+        unit are expected to act, in an adjustment phase only powers with a build
+        or disband to make. Every active power is in exactly one of
+        ``submitted`` (it has at least one stored order this phase) or
+        ``missing`` (none yet -- an empty stored list, which is what a batch of
+        nothing but refused orders leaves, still has nothing in it).
+        ``nothing_to_do`` is every other power still in the game (a unit or a
+        centre) that is not a dummy: no order is due from it, so it is neither
+        submitted nor waited on. ``incomplete`` is the part of ``submitted``
+        that has not yet ordered everything that must act."""
         sj = self._repo.get_state_json(game_id)
         if sj is None:
             return None
         state = state_from_dict(sj)
-        submitted = set(self._repo.get_pending_orders(game_id).keys())
+        pending = self._repo.get_pending_orders(game_id)
         # A civil-disorder dummy (W9) is never waited on: it submits nothing and
         # the engine plays it by the civil-disorder rules.
         dummies = self.dummy_powers(game_id)
         active_powers = sorted(p for p in powers_with_orders_to_give(self._map, state) if p not in dummies)
-        pending = self._repo.get_pending_orders(game_id)
+        submitted = [p for p in active_powers if pending.get(p)]
+        alive = {u.power for u in state.units} | set(state.ownership.values())
         return {
             "phase": state.phase_name,
             "active_powers": active_powers,
-            "submitted": sorted(submitted),
-            "missing": sorted(p for p in active_powers if p not in submitted),
+            "submitted": submitted,
+            "missing": [p for p in active_powers if p not in submitted],
+            "nothing_to_do": sorted(alive - set(active_powers) - set(dummies)),
             # Submitted something, but not an order for everything that must act.
-            "incomplete": sorted(
-                p for p in active_powers
-                if p in submitted and not self._orders_complete(p, state, pending.get(p, []))
-            ),
+            "incomplete": [p for p in submitted if not self._orders_complete(p, state, pending[p])],
             # W10: who asked to wait, and whether the turn runs by itself.
             "waiting": sorted(self.wait_flags(game_id)),
             "auto_process": bool((self._repo.get_meta(game_id) or {}).get("auto_process")),

@@ -53,7 +53,10 @@ def test_a_played_game_round_trips_under_a_new_id(client: TestClient, played_gam
     assert new_id != game_id
     assert (report["players_linked"], report["players_unlinked"]) == (2, 0)
     assert (report["messages_restored"], report["messages_skipped"]) == (1, 0)
-    assert report["snapshots_restored"] == len(doc["snapshots"])
+    # Turn 0 (the opening board) is recorded by create_game itself, so only the
+    # played turn's snapshot is imported -- and the copy has both, once each.
+    assert sorted(s["turn"] for s in doc["snapshots"]) == [0, 1]
+    assert report["snapshots_restored"] == 1
 
     original, restored = game_service.view(game_id), game_service.view(new_id)
     for key in ("phase", "units_by_power", "ownership"):
@@ -62,6 +65,7 @@ def test_a_played_game_round_trips_under_a_new_id(client: TestClient, played_gam
     for key in ("state", "order_history", "resolution_history"):
         assert again[key] == doc[key], key
     assert again["game"]["current_turn"] == 1  # the next turn will not overwrite turn 0's history
+    assert sorted((s["turn"], s["phase_code"]) for s in again["snapshots"]) == [(0, "S1901M"), (1, "F1901M")]
     # Seat rows come back in no guaranteed order.
     assert sorted((p["power"], p["telegram_id"]) for p in again["players"]) == sorted((p["power"], p["telegram_id"]) for p in doc["players"])
 
