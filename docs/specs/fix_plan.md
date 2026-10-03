@@ -16,9 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-03, at `v3.0.40` (frontend toolchain on vite 7, vitest 4 and
-  plugin-react 5, which clears the vite, esbuild and vitest audit findings: AZ1).
-  `v3.0.38` made the turn-processed DM name the new phase (BA4).
+- **Last updated:** 2026-10-03, at `v3.0.42` (retreat-phase and split-coast order errors
+  say what is wrong: two BA7 items). `v3.0.40` moved the frontend toolchain to vite 7,
+  vitest 4 and plugin-react 5 (AZ1).
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
   (frontend major dependency upgrades) is in progress: AZ1 done, AZ2 and AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
@@ -65,9 +65,9 @@ Adjudication itself was correct in every case checked; these are the paths aroun
         no `exclude_telegram_id`); the power is lower-case there and in `GET /orders/france`.
   - [ ] `orders_status.submitted` counts powers with nothing to do or an empty list
         (`/status` shows "✅ Submitted").
-  - [ ] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
+  - [x] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
         should say why (attacker's origin, contested, occupied).
-  - [ ] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
+  - [x] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
   - [x] A private message to your own power is accepted.
   - [ ] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
   - [ ] No history snapshot of the starting board: `/games/{id}/history/0` → 404.

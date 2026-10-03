@@ -37,7 +37,7 @@ from engine.types import (
     UnitKind,
 )
 
-__all__ = ["compute_retreat_options", "adjudicate_retreats"]
+__all__ = ["compute_retreat_options", "retreat_refusal", "adjudicate_retreats"]
 
 
 def compute_retreat_options(
@@ -59,16 +59,52 @@ def compute_retreat_options(
     else:
         dests = list(map.fleet_moves(unit.location))
 
-    opts: list[Location] = []
-    for d in dests:
-        if attacker_origin is not None and d.province == attacker_origin:
-            continue
-        if d.province in occupied:
-            continue
-        if d.province in contested:
-            continue
-        opts.append(d)
+    opts = [
+        d for d in dests if _blocked_reason(d.province, attacker_origin, occupied, contested) is None
+    ]
     return tuple(sorted(set(opts)))
+
+
+def retreat_refusal(
+    map: MapData,
+    unit: Unit,
+    dest: Location,
+    attacker_origin: Optional[str],
+    occupied: frozenset[str] | set[str],
+    contested: frozenset[str] | set[str],
+) -> Optional[str]:
+    """Why ``unit`` may not retreat to ``dest``, or ``None`` if nothing forbids it.
+
+    The same rules as :func:`compute_retreat_options`, phrased for a player: the
+    destination is out of reach, it is where the attacker came from, a unit now
+    stands there, or a standoff left it empty this turn. A fleet's ``dest``
+    without a coast counts as reachable when any coast of it is.
+    """
+    if unit.kind is UnitKind.ARMY:
+        reachable = dest.province in map.army_moves(unit.province)
+    elif dest.coast is None:
+        reachable = any(d.province == dest.province for d in map.fleet_moves(unit.location))
+    else:
+        reachable = dest in map.fleet_moves(unit.location)
+    if not reachable:
+        return f"it is not adjacent to {unit.location}"
+    return _blocked_reason(dest.province, attacker_origin, occupied, contested)
+
+
+def _blocked_reason(
+    province: str,
+    attacker_origin: Optional[str],
+    occupied: frozenset[str] | set[str],
+    contested: frozenset[str] | set[str],
+) -> Optional[str]:
+    """The retreat-only exclusions for a reachable ``province`` (``None``: open)."""
+    if attacker_origin is not None and province == attacker_origin:
+        return "the unit that dislodged it attacked from there"
+    if province in occupied:
+        return "another unit stands there"
+    if province in contested:
+        return "a standoff left it empty this turn, and no unit may retreat there"
+    return None
 
 
 def adjudicate_retreats(
@@ -93,8 +129,8 @@ def adjudicate_retreats(
     for du in state.dislodged:
         o = order_by_prov.get(du.province)
         dest: Optional[Location] = None
-        if isinstance(o, Retreat) and _retreat_is_legal(o, du):
-            dest = _canonical_dest(o.dest, du)
+        if isinstance(o, Retreat):
+            dest = _legal_dest(o, du)
         attempts[du.province] = (du, dest)
 
     # Standoff: any province two or more units try to retreat into fails for all.
@@ -131,27 +167,18 @@ def adjudicate_retreats(
     return Resolution(tuple(results)), new_state
 
 
-def _retreat_is_legal(order: Retreat, du: DislodgedUnit) -> bool:
-    """A Retreat is legal iff its destination is in the precomputed legal set.
+def _legal_dest(order: Retreat, du: DislodgedUnit) -> Optional[Location]:
+    """The legal destination ``order`` names (coast-corrected), or ``None``.
 
-    Coast handling mirrors movement: for a split-coast destination the order must
-    name the coast (matched exactly); elsewhere the coast is ignored.
+    Coast handling mirrors movement: a split-coast destination named with a
+    coast must match that coast exactly; named without one, it is the sole
+    legal coast when there is exactly one, and illegal (ambiguous) otherwise.
+    Elsewhere the coast is irrelevant.
     """
-    for legal in du.retreats:
-        if legal.province != order.dest.province:
-            continue
-        if legal.coast is None:
-            return True  # non-split destination; coast irrelevant
-        if order.dest.coast == legal.coast:
-            return True
-    return False
-
-
-def _canonical_dest(dest: Location, du: DislodgedUnit) -> Location:
-    """Return the legal destination Location (coast-corrected) for ``dest``."""
-    for legal in du.retreats:
-        if legal.province == dest.province and (
-            legal.coast is None or legal.coast == dest.coast
-        ):
+    matches = [legal for legal in du.retreats if legal.province == order.dest.province]
+    for legal in matches:
+        if legal.coast is None or legal.coast == order.dest.coast:
             return legal
-    return dest
+    if order.dest.coast is None and len(matches) == 1:
+        return matches[0]
+    return None
