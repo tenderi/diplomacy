@@ -224,3 +224,21 @@ def test_a_random_powers_game_imports_random(client: TestClient, random_powers: 
     assert doc["game"]["random_powers"] is random_powers
     new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
     assert game_service.meta(str(new_id))["random_powers"] is random_powers
+
+
+def test_a_rumour_round_trips_still_anonymous(client: TestClient, played_game: tuple[str, str, str]) -> None:
+    """The export keeps a rumour's sender (it is the admin's full record, like
+    every private message in it) and its ``anonymous`` flag, so the imported
+    game still hides who spread it."""
+    game_id, fr, de = played_game
+    sent = client.post(f"/games/{game_id}/broadcast", json=_as(fr, text="Russia is lying", anonymous=True))
+    assert sent.status_code == 200, sent.text
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    assert [(m["sender_telegram_id"], m["anonymous"], m["text"]) for m in doc["messages"]] == [
+        (fr, False, "Belgium is yours"), (fr, True, "Russia is lying"),
+    ]
+    new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
+    logged = client.get(f"/games/{new_id}/messages", params=_as(de)).json()["messages"]
+    assert [(m["sender_power"], m["anonymous"], m["text"]) for m in logged] == [
+        ("FRANCE", False, "Belgium is yours"), (None, True, "Russia is lying"),
+    ]

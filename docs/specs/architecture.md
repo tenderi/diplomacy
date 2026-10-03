@@ -219,7 +219,8 @@ place the full picture exists.
 | Player joined | all players | — | next poll | `routes/games.py` join |
 | Game full / started | all players | — | next poll | `routes/games.py` join |
 | Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
-| Broadcast message | all players | the broadcast text | next poll | `routes/messages.py` |
+| Broadcast message | all players except the sender | the broadcast text (when `auto_post_broadcasts`, default on) | next poll | `routes/messages.py` |
+| Rumour (anonymous broadcast) | all players except the sender: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
 | Draw vote cast (not final) | all players except the voter | — | next poll | `routes/games.py` `submit_draw_vote` |
 | Draw quorum reached → game ends | all players except the voter | notification | next poll | `notify_turn_processed(game_ended=True)` |
@@ -254,6 +255,12 @@ post) — names it through `api.shared.power_label`: `FRANCE` in an anonymous ga
 joined … as ITALY". The bot relays every message between players, so in an anonymous game
 nobody learns who holds a power except by being told. The same rule holds for API reads
 (`api.shared.player_rows`; `docs/specs/data_spec.md` §4).
+
+A **rumour** (`POST /games/{id}/broadcast` with `anonymous: true`; the bot's `/rumour`, or
+"🕵️ Rumour (anonymous)" on the game menu's Messages screen) names nobody in any game: not
+the power, not the nickname, in the DMs, the group post or `GET /games/{id}/messages`
+(only the sender sees it as theirs). The sender is stored and appears only in the
+admin-only export.
 
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
