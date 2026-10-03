@@ -47,6 +47,7 @@ def _message_update(text: str, chat_type: str = "group", user_id: int = 555) -> 
     # The bot has no admin rights by default: deleting the command is refused.
     update.message.delete = AsyncMock(side_effect=BadRequest("Message can't be deleted"))
     update.effective_chat.send_message = AsyncMock()
+    update.message.is_topic_message = False
     context = Mock()
     context.bot = _bot()
     context.args = text.split()[1:]
@@ -74,6 +75,22 @@ class TestGroupGuard:
         assert update.effective_chat.send_message.call_args[0][0] == (
             "🤫 /rumour is private -- I deleted it so the group can't read it. Send it to me in a private chat."
         )
+
+    def test_a_private_command_is_stopped_even_when_the_pointer_cannot_be_sent(self) -> None:
+        update, context = _message_update("/rumour Italy will stab")
+        update.message.delete = AsyncMock()
+        update.effective_chat.send_message = AsyncMock(side_effect=BadRequest("Topic_closed"))
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(bot_app.group_command_guard(update, context))
+
+    def test_the_pointer_stays_in_the_commands_forum_topic(self) -> None:
+        update, context = _message_update("/rumour Italy will stab")
+        update.message.delete = AsyncMock()
+        update.message.is_topic_message = True
+        update.message.message_thread_id = 77
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(bot_app.group_command_guard(update, context))
+        assert update.effective_chat.send_message.call_args[1]["message_thread_id"] == 77
 
     def test_a_private_command_the_bot_may_not_delete_gets_a_reply(self) -> None:
         update, context = _message_update("/rumour Italy will stab")

@@ -150,10 +150,16 @@ async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE
     markup = InlineKeyboardMarkup([[InlineKeyboardButton(
         "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
     )]])
-    if deleted:  # a reply to a deleted message would fail
-        await chat.send_message(text, reply_markup=markup)
-    else:
-        await message.reply_text(text, reply_markup=markup)
+    # Any failure to answer must still stop the command: an exception other than
+    # ApplicationHandlerStop would let the real handler run in the group.
+    try:
+        if deleted:  # a reply to a deleted message would fail; stay in its forum topic
+            thread_id = message.message_thread_id if message.is_topic_message else None
+            await chat.send_message(text, reply_markup=markup, message_thread_id=thread_id)
+        else:
+            await message.reply_text(text, reply_markup=markup)
+    except TelegramError as e:
+        logger.warning(f"Could not point /{command} in chat {chat.id} to a private chat: {e}")
     raise ApplicationHandlerStop
 
 
