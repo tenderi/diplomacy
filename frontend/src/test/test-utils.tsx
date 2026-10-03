@@ -1,6 +1,6 @@
 import React, { ReactElement } from 'react'
 import { render, RenderOptions } from '@testing-library/react'
-import { MemoryRouter, MemoryRouterProps } from 'react-router-dom'
+import { MemoryRouter, MemoryRouterProps } from 'react-router'
 import { AuthProvider } from '@/contexts/AuthContext'
 
 export interface RenderWithProvidersOptions extends Omit<RenderOptions, 'wrapper'> {

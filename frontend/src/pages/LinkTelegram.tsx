@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { apiJson } from '@/api/client'
