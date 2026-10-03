@@ -127,6 +127,13 @@ only in your context is gone. So write things down as soon as they exist, not at
   (play-throughs, audits) one at a time. If a subagent fails with `rate_limit` / HTTP 429,
   the limit has been reached: spawn nothing more, and spend what's left updating the
   journal entry.
+- **Obey the usage warning.** The workflow watches the usage limit for you. Once any usage
+  window is 90% used (`LEAD_USAGE_STOP`), every tool result carries a
+  `USAGE LIMIT NEARLY SPENT` note, and your subagents get it too. From then on, start
+  nothing and merge nothing. Collect what the workers report, finish the journal entry
+  with the open PRs and what the next run should do first, and end the run. The last 10%
+  is reserved for that, so don't spend it on anything else. A run that would start with a
+  window already at the threshold is skipped by preflight.
 
 If after honest looking nothing is worth doing, write a short journal entry saying so and
 stop. An empty night is fine. Make-work PRs are not.

@@ -19,6 +19,8 @@ name: Lead agent
 #   gh variable set LEAD_AGENT_AUTHORIZED_USERS --body '["friend1","friend2"]' -R tenderi/diplomacy
 #     (optional; the repo owner is always authorized)
 #   gh variable set LEAD_AGENT_ENABLED --body true -R tenderi/diplomacy
+#   gh variable set LEAD_USAGE_STOP --body 0.85 -R tenderi/diplomacy
+#     (optional; how full a Claude usage window may get before the lead wraps up, default 0.90)
 #
 # Off switch: gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy
 # (the PAT has no Variables permission, so the agent can't turn it back on).
@@ -110,6 +112,7 @@ jobs:
           GH_TOKEN: ${{ secrets.LEAD_AGENT_GH_TOKEN }}
           MODEL: claude-opus-5-5
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          LEAD_USAGE_STOP: ${{ vars.LEAD_USAGE_STOP || '0.90' }}
         run: |
           npm install -g @anthropic-ai/claude-code
           .github/scripts/lead-usage-probe.sh
@@ -214,12 +217,21 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           FOCUS: ${{ inputs.focus }}
+          # The usage guard (.github/scripts/lead-usage-guard.sh) reads the transcript and tells
+          # the agent to wrap up once any usage window is this full (a fraction; 0.90 = 10% left).
+          LEAD_TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
+          LEAD_USAGE_STOP: ${{ vars.LEAD_USAGE_STOP || '0.90' }}
           # Whose issues and comments are instructions (the charter's trust rules).
           AUTHORIZED_USERS: ${{ github.repository_owner }} ${{ join(fromJSON(vars.LEAD_AGENT_AUTHORIZED_USERS || '[]'), ' ') }}
         run: |
           set +e   # GitHub runs this with -eo pipefail; keep going to record claude's exit code
           export RUN_STARTED=$(date +%s)
           export RUN_DEADLINE=$((RUN_STARTED + 330 * 60))
+          # A copy, so the hook keeps working whatever the lead checks out in the workspace.
+          guard="$RUNNER_TEMP/lead-usage-guard.sh"
+          cp .github/scripts/lead-usage-guard.sh "$guard"
+          settings=$(jq -nc --arg cmd "$guard" \
+            '{hooks: {PostToolUse: [{matcher: "*", hooks: [{type: "command", command: $cmd}]}]}}')
           prompt="You are the lead agent. Read .claude/lead/CHARTER.md and follow it to run one cycle.
           This run was triggered by: ${EVENT_NAME}${ISSUE_NUMBER:+ on issue #$ISSUE_NUMBER (handle it first)}."
           [ -n "$FOCUS" ] && prompt="$prompt
@@ -227,8 +239,9 @@ jobs:
           claude -p "$prompt" \
               --model claude-opus-5-5 \
               --permission-mode bypassPermissions \
+              --settings "$settings" \
               --output-format stream-json --verbose \
-            | tee "$RUNNER_TEMP/transcript.jsonl" \
+            | tee "$LEAD_TRANSCRIPT" \
             | jq --unbuffered -rj 'select(.type == "assistant") | .message.content[]?
                 | if .type == "text" then .text + "\n"
                   elif .type == "tool_use" then "  > \(.name) \(.input.description // .input.command // .input.file_path // "" | tostring | .[0:160])\n"
