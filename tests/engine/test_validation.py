@@ -362,8 +362,53 @@ class TestBuild:
 
 class TestWaive:
     def test_waive_ok_in_adjustment(self, m):
-        state = _state([], phase_type=PhaseType.ADJUSTMENT)
+        state = _state([], phase_type=PhaseType.ADJUSTMENT, ownership={"PAR": "FRANCE"})
         assert validate(Waive("FRANCE"), state, m).ok is True
+
+
+class TestAdjustmentDirection:
+    """A build or waive needs builds owed, a disband needs disbands owed: the
+    adjudicator voids anything else, so validation refuses it up front."""
+
+    PAR = Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))
+    BUR = Unit(UnitKind.ARMY, "FRANCE", Location("BUR"))
+
+    def test_build_and_waive_at_delta_zero_rejected(self, m):
+        state = _state([self.BUR], ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
+        build = validate(Build("FRANCE", Location("PAR"), UnitKind.ARMY), state, m)
+        assert (build.ok, build.reason) == (
+            False, "FRANCE has no build to make (1 supply centre, 1 unit); it has no adjustment to make"
+        )
+        waive = validate(Waive("FRANCE"), state, m)
+        assert (waive.ok, waive.reason) == (
+            False, "FRANCE has no build to waive (1 supply centre, 1 unit); it has no adjustment to make"
+        )
+
+    def test_build_while_owing_disbands_rejected(self, m):
+        state = _state([self.BUR, Unit(UnitKind.ARMY, "FRANCE", Location("PIC"))],
+                       ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Build("FRANCE", Location("PAR"), UnitKind.ARMY), state, m)
+        assert (result.ok, result.reason) == (
+            False, "FRANCE has no build to make (1 supply centre, 2 units); it must disband 1 unit"
+        )
+
+    def test_disband_at_delta_zero_or_while_owed_builds_rejected(self, m):
+        level = _state([self.BUR], ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Disband("FRANCE", Location("BUR")), level, m)
+        assert (result.ok, result.reason) == (
+            False, "FRANCE has no unit to disband (1 supply centre, 1 unit); it has no adjustment to make"
+        )
+        up = _state([self.BUR], ownership={"PAR": "FRANCE", "MAR": "FRANCE", "BRE": "FRANCE"},
+                    phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Disband("FRANCE", Location("BUR")), up, m)
+        assert (result.ok, result.reason) == (
+            False, "FRANCE has no unit to disband (3 supply centres, 1 unit); it may build 2 units"
+        )
+
+    def test_retreat_phase_disband_is_not_counted(self, m):
+        du = DislodgedUnit(self.PAR)
+        state = _state([self.BUR], ownership={"PAR": "FRANCE"}, dislodged=[du], phase_type=PhaseType.RETREAT)
+        assert validate(Disband("FRANCE", Location("PAR")), state, m).ok is True
 
 
 class TestPhaseGate:
