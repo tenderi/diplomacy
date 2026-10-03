@@ -124,6 +124,8 @@ Deals are not binding, and neither are promises. That's the game.
 
 At **https://diplomacy.xn--jalluthti-02a.fi** you can see your games with a large,
 zoomable map, results of the last turn, messages, and order entry.
+A message to everyone can be sent as a **rumour**: tick *Send anonymously (rumour)* and
+nobody is told who sent it. It shows as "🕵️ Rumour" in everyone's message list.
 
 1. **Register** with your email and a password, and a nickname if you like (not your real
    name). In Telegram, `/nickname <name>` sets the same thing.

@@ -89,6 +89,9 @@ type Message = {
   recipient_power?: string
   text?: string
   is_broadcast?: boolean
+  /** A rumour: a broadcast sent anonymously. The sender is hidden from everyone but
+   *  the sender, who still gets their own `sender_power`. */
+  anonymous?: boolean
 }
 /**
  * GET /games/{id}/draw_vote_status response (see GameService.get_draw_votes).
@@ -223,6 +226,7 @@ function ResultsSection({
 
 /** Who sent a message: the power, and the player's name in a public game. */
 function senderLabel(m: Message): string {
+  if (m.anonymous) return m.sender_power ? `🕵️ Rumour (you, ${m.sender_power})` : '🕵️ Rumour'
   const power = m.sender_power ?? 'Unknown'
   return m.sender_name ? `${power} (${m.sender_name})` : power
 }
@@ -254,6 +258,7 @@ export default function GameView() {
   const [messageText, setMessageText] = useState('')
   const [messageRecipient, setMessageRecipient] = useState('')
   const [broadcast, setBroadcast] = useState(false)
+  const [anonymousBroadcast, setAnonymousBroadcast] = useState(false)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [drawStatus, setDrawStatus] = useState<DrawVoteStatus | null>(null)
   const [votingDraw, setVotingDraw] = useState(false)
@@ -707,7 +712,9 @@ export default function GameView() {
       if (broadcast) {
         await apiJson(`/games/${gameId}/broadcast`, {
           method: 'POST',
-          body: JSON.stringify({ text: messageText.trim() }),
+          body: JSON.stringify(
+            anonymousBroadcast ? { text: messageText.trim(), anonymous: true } : { text: messageText.trim() }
+          ),
         })
       } else {
         if (!messageRecipient) return
@@ -717,6 +724,7 @@ export default function GameView() {
         })
       }
       setMessageText('')
+      setAnonymousBroadcast(false)
       toast.success('Message sent')
       const res = await apiJson<{ messages?: Message[] }>(`/games/${gameId}/messages`)
       setMessages(res.messages || [])
@@ -1158,6 +1166,21 @@ export default function GameView() {
             <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
             Broadcast to all
           </Label>
+          {broadcast && (
+            <div className="pl-6">
+              <Label className="flex items-start gap-2 leading-snug">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  aria-describedby="rumour-hint"
+                  checked={anonymousBroadcast}
+                  onChange={(e) => setAnonymousBroadcast(e.target.checked)}
+                />
+                <span className="min-w-0">Send anonymously (rumour)</span>
+              </Label>
+              <p id="rumour-hint" className="text-xs text-muted-foreground mt-0.5">Nobody is told who sent it.</p>
+            </div>
+          )}
           {!broadcast && (
             <select
               value={messageRecipient}
