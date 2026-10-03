@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, within, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router'
-import { AuthProvider } from '@/contexts/AuthContext'
+import { Link, MemoryRouter, Routes, Route } from 'react-router'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Register from './Register'
-import { clearTokens } from '@/api/client'
+import { clearTokens, REFRESH_STORAGE_KEY } from '@/api/client'
 
 describe('Register', () => {
   beforeEach(() => {
@@ -97,5 +97,40 @@ describe('Register', () => {
     await waitFor(() => {
       expect(within(container).getByRole('alert')).toHaveTextContent(/email already registered/i)
     })
+  })
+
+  it('sends an already signed-in user home', async () => {
+    localStorage.setItem(REFRESH_STORAGE_KEY, JSON.stringify({ refresh_token: 'ref' }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        const body = url.includes('/auth/refresh')
+          ? { access_token: 'tok', refresh_token: 'ref' }
+          : { id: 1, email: 'a@b.com', nickname: 'Test', telegram_id: null, telegram_linked: false }
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) } as Response)
+      })
+    )
+    function LinkOnceSignedIn() {
+      const { user } = useAuth()
+      return user ? <Link to="/register">go</Link> : null
+    }
+    const { container } = render(
+      <MemoryRouter initialEntries={['/start']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<p>home page</p>} />
+            <Route path="/start" element={<LinkOnceSignedIn />} />
+            <Route path="/register" element={<Register />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+    // Open the page only once the session is restored: it then mounts with the
+    // user already known, which is when a navigate() during render is lost.
+    fireEvent.click(await within(container).findByRole('link', { name: 'go' }))
+    await waitFor(() => {
+      expect(container).toHaveTextContent('home page')
+    })
+    expect(container.querySelector('#email')).toBeNull()
   })
 })
