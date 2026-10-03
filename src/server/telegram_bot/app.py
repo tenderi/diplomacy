@@ -133,12 +133,27 @@ async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE
             await start(update, context)  # the group explanation
             raise ApplicationHandlerStop
         return
-    await message.reply_text(
-        f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
-            "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
-        )]]),
+    # The command itself may carry a secret (an order, a private message, a
+    # rumour that must not be traced to its author): take it down if the bot is
+    # allowed to. Without admin rights in the group Telegram refuses, and the
+    # reply says the message is still there.
+    try:
+        await message.delete()
+        deleted = True
+    except TelegramError:
+        deleted = False
+    text = (
+        f"🤫 /{command} is private -- I deleted it so the group can't read it. Send it to me in a private chat."
+        if deleted
+        else f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat."
     )
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+        "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
+    )]])
+    if deleted:  # a reply to a deleted message would fail
+        await chat.send_message(text, reply_markup=markup)
+    else:
+        await message.reply_text(text, reply_markup=markup)
     raise ApplicationHandlerStop
 
 

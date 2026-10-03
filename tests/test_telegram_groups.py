@@ -44,6 +44,9 @@ def _message_update(text: str, chat_type: str = "group", user_id: int = 555) -> 
     update.effective_chat = Mock(id=GROUP_CHAT, type=chat_type, title="Friday Diplomacy")
     update.effective_message = update.message = Mock(text=text)
     update.message.reply_text = AsyncMock()
+    # The bot has no admin rights by default: deleting the command is refused.
+    update.message.delete = AsyncMock(side_effect=BadRequest("Message can't be deleted"))
+    update.effective_chat.send_message = AsyncMock()
     context = Mock()
     context.bot = _bot()
     context.args = text.split()[1:]
@@ -60,6 +63,26 @@ class TestGroupGuard:
         markup = update.message.reply_text.call_args[1]["reply_markup"]
         assert "private" in text
         assert markup.inline_keyboard[0][0].url == "https://t.me/DiplomacyTestBot?start=group"
+
+    def test_a_private_command_is_deleted_when_the_bot_may_delete_it(self) -> None:
+        update, context = _message_update("/rumour Italy will stab")
+        update.message.delete = AsyncMock()
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(bot_app.group_command_guard(update, context))
+        update.message.delete.assert_awaited_once()
+        update.message.reply_text.assert_not_called()
+        assert update.effective_chat.send_message.call_args[0][0] == (
+            "🤫 /rumour is private -- I deleted it so the group can't read it. Send it to me in a private chat."
+        )
+
+    def test_a_private_command_the_bot_may_not_delete_gets_a_reply(self) -> None:
+        update, context = _message_update("/rumour Italy will stab")
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(bot_app.group_command_guard(update, context))
+        update.effective_chat.send_message.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == (
+            "🤫 /rumour is private -- in a group, everyone would see it. Send it to me in a private chat."
+        )
 
     @pytest.mark.parametrize("command", ["/newgame", "/linkgroup 3", "/viewmap@DiplomacyTestBot", "/status"])
     def test_group_commands_pass(self, command: str) -> None:
