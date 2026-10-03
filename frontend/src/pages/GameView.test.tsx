@@ -845,6 +845,36 @@ describe('GameView — orders status', () => {
       expect(within(container).getByText(/Your orders are in for FRANCE/)).toBeInTheDocument()
     })
   })
+
+  it('tells a power with nothing to order this phase so, instead of asking for orders', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive(activeMovementState, francePlayers, {
+        ordersStatus: {
+          phase: 'S1901R',
+          active_powers: ['GERMANY'],
+          submitted: [],
+          missing: ['GERMANY'],
+          nothing_to_do: ['FRANCE'],
+        },
+      })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(within(container).getByText('FRANCE has nothing to order this phase.')).toBeInTheDocument()
+    })
+    expect(within(container).queryByText(/You still need to submit orders/)).toBeNull()
+  })
 })
 
 describe('GameView — Adjustment build slots restored from the server', () => {
