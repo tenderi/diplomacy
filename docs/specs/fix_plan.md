@@ -16,12 +16,12 @@
 
 ## Status
 
-- **Last updated:** 2026-10-02, at `v3.0.38` (the turn-processed DM names the new phase
-  and tells each player what they owe in it: BA4; convoy validation BA1 and BA5 done at
-  `v3.0.36`).
+- **Last updated:** 2026-10-03, at `v3.0.40` (frontend toolchain on vite 7, vitest 4 and
+  plugin-react 5, which clears the vite, esbuild and vitest audit findings: AZ1).
+  `v3.0.38` made the turn-processed DM name the new phase (BA4).
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
-  (frontend major dependency upgrades) is proposed. **Track F** (a human playing the game
-  end to end, and host chores) is the maintainer's.
+  (frontend major dependency upgrades) is in progress: AZ1 done, AZ2 and AZ3 open.
+  **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
 
@@ -130,9 +130,16 @@ findings (5 moderate, 1 high, 2 critical), each fixable only by a major upgrade:
   `useNavigate`, SSR `deserializeErrors`). No fix on 6.x. The app navigates only to fixed
   paths and does no SSR, so neither is reachable today.
 
-- [ ] AZ1 — vite 6+ with vitest 4+ (`@vitejs/plugin-react` to match); frontend gates and
+- [x] AZ1 — vite 6+ with vitest 4+ (`@vitejs/plugin-react` to match); frontend gates and
       coverage thresholds green, `npm run dev` proxy to the API still works.
 - [ ] AZ2 — react-router 7 (follow its v6→v7 migration guide; the future flags first).
+- [ ] AZ3 — **`braces` (high, every version: stack-exhaustion DoS on deeply nested
+      patterns)**, advisory published after AZ was written, with no fixed release yet. It
+      reaches us through `tailwindcss` 3 (via `chokidar`, `fast-glob`, `micromatch`) and the
+      `shadcn` CLI (via `fast-glob`, `ts-morph`): 8 of the 10 findings left after AZ1. Both
+      are build/dev tooling and parse only our own globs. `npm audit` proposes tailwindcss 4
+      (a config rewrite) and a shadcn downgrade to 1.0.0; neither removes `braces` until
+      `braces` itself ships a fix. Recheck then, before taking on tailwind 4.
 - [ ] **Done when:** `npm audit` in `frontend/` reports 0 vulnerabilities.
 
 ---

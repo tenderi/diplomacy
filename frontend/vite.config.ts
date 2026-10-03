@@ -21,7 +21,10 @@ export default defineConfig({
       // (vendored Radix wrappers, tested upstream).
       exclude: ['src/test/**', '**/*.d.ts', '**/*.config.*', '**/*.test.{ts,tsx}', 'src/components/ui/**', 'src/main.tsx'],
       // A few points under today's numbers: room to delete dead code, not to lose tests.
-      thresholds: { lines: 90, statements: 90, functions: 85, branches: 77 },
+      // Measured with vitest 4's AST-aware v8 remapping, which counts only executable
+      // code (not JSX markup, imports or type-only lines): lines 89.97, statements 86.49,
+      // functions 85.61, branches 79.61.
+      thresholds: { lines: 87, statements: 84, functions: 83, branches: 77 },
     },
   },
   server: {
