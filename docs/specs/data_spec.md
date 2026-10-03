@@ -192,6 +192,7 @@ spectator tables — see `database.py` for the full model list. `DatabaseService
 | `feedback` | Player reports (`POST /feedback`, the bot's `/feedback`): `user_id` (FK `users`, `SET NULL`), `source` (`telegram`/`web`), `game_id` (the public id as given; not a FK, so a report outlives its game), `phase_code` (that game's phase when reported), `text` (≤ 2000 chars), `created_at`. At most 10 per player per hour. `GET /admin/feedback` lists them. |
 | `idempotency_keys` | First response stored per bot-supplied `Idempotency-Key`: `key`, `endpoint`, `status_code`, `response_json`, `created_at`. Purged after 7 days. |
 | `messages.timestamp` | The time the message was *composed* when the client sends `client_timestamp`; otherwise now. |
+| `messages.anonymous` | A rumour: a broadcast (`recipient_power` NULL) sent with `anonymous: true`. `sender_user_id` is still stored, for the record and the admin export, but no player-facing read or notification names the sender. Default false. |
 
 ## 4. The HTTP API view shape
 
@@ -233,7 +234,9 @@ anonymous game. It never carries a Telegram id: the route needs no login, and th
 names a real Telegram account. `GET /games` lists each game's `anonymous` and `random_powers` flags and its seats as
 `{power, seated, user_id}` (`user_id` null when anonymous). `GET /games/{id}/messages`
 gives each message's `sender_power` (the seat its sender holds now; null if they left) and,
-in a public game only, `sender_name`; an anonymous game nulls `sender_user_id`. A client
+in a public game only, `sender_name`; an anonymous game nulls `sender_user_id`. Each message
+also carries `anonymous`: for a rumour, `sender_user_id`, `sender_power` and `sender_name`
+are null for every reader except the sender themself, who sees their own. A client
 finds its own seat in an anonymous game from `GET /users/me/games` (or
 `/users/{telegram_id}/games`).
 

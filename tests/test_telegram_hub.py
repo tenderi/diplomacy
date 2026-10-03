@@ -152,6 +152,23 @@ class TestWritingAMessage:
         with patch("server.telegram_bot.messages.api_post_reliable", return_value=delivered) as post:
             asyncio.run(hub.handle_awaited_text(update, context))
         assert post.call_args[0][0] == "/games/3/broadcast"
+        assert "anonymous" not in post.call_args[0][1]
+
+    def test_rumour_is_an_anonymous_broadcast(self, two_games) -> None:
+        query, context = _press("g|3|msg|RUMOUR")
+        assert query.edit_message_text.call_args[0][0] == (
+            "✏️ Type your message to everyone, as an anonymous rumour (game 3) and send it. /cancel to stop."
+        )
+        update = Mock()
+        update.effective_user = Mock(id=555)
+        update.message = Mock(text="Italy will stab")
+        update.message.reply_text = AsyncMock()
+        delivered = SimpleNamespace(status="delivered", response={}, error=None)
+        with patch("server.telegram_bot.messages.api_post_reliable", return_value=delivered) as post:
+            asyncio.run(hub.handle_awaited_text(update, context))
+        endpoint, body = post.call_args[0][:2]
+        assert (endpoint, body) == ("/games/3/broadcast", {"telegram_id": "555", "text": "Italy will stab", "anonymous": True})
+        assert update.message.reply_text.call_args[0][0] == "🕵️ Rumour spread in game 3: nobody is told it came from you."
 
 
 class TestDeadlineButtons:
@@ -315,7 +332,7 @@ class TestMenuActions:
             query, _ = _press("g|3|msgs")
         assert _buttons(query.edit_message_text.call_args[1]["reply_markup"]) == [
             ("✉️ Austria", "g|3|msg|AUSTRIA"), ("✉️ France", "g|3|msg|FRANCE"),
-            ("📣 Everyone", "g|3|msg|ALL"), ("⬅️ Game menu", "g|3|hub"),
+            ("📣 Everyone", "g|3|msg|ALL"), ("🕵️ Rumour (anonymous)", "g|3|msg|RUMOUR"), ("⬅️ Game menu", "g|3|hub"),
         ]  # not yourself (GERMANY), not an empty seat (ITALY)
 
     def test_messages_in_an_anonymous_game_offer_the_seated_powers(self, two_games) -> None:
@@ -327,7 +344,7 @@ class TestMenuActions:
              patch("server.telegram_bot.hub.recent_messages_text", return_value="No messages in game 3 yet."):
             query, _ = _press("g|3|msgs")
         assert _buttons(query.edit_message_text.call_args[1]["reply_markup"]) == [
-            ("✉️ France", "g|3|msg|FRANCE"), ("📣 Everyone", "g|3|msg|ALL"), ("⬅️ Game menu", "g|3|hub"),
+            ("✉️ France", "g|3|msg|FRANCE"), ("📣 Everyone", "g|3|msg|ALL"), ("🕵️ Rumour (anonymous)", "g|3|msg|RUMOUR"), ("⬅️ Game menu", "g|3|hub"),
         ]
 
     def test_process_now_with_orders_missing_asks_for_confirmation(self, two_games) -> None:

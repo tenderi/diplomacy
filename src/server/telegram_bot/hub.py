@@ -51,6 +51,10 @@ logger = logging.getLogger("diplomacy.telegram_bot.hub")
 DEADLINE_CHOICES = (12, 24, 48)
 
 
+# The Messages screen's "recipient" for an anonymous broadcast (a rumour).
+RUMOUR = "RUMOUR"
+
+
 def _btn(text: str, game_id: str, action: str, arg: Optional[str] = None) -> InlineKeyboardButton:
     data = f"g|{game_id}|{action}" + (f"|{arg}" if arg is not None else "")
     return InlineKeyboardButton(text, callback_data=data)
@@ -234,7 +238,7 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
         await _show_messages(send, user_id, game_id, power)
     elif action == "msg":
         context.user_data[AWAITING] = {"kind": "compose", "game_id": game_id, "recipient": arg}
-        who = "everyone" if arg == "ALL" else arg
+        who = {"ALL": "everyone", RUMOUR: "everyone, as an anonymous rumour"}.get(arg or "", arg)
         await send(
             f"✏️ Type your message to {who} (game {game_id}) and send it. /cancel to stop.",
             parse_mode=None,
@@ -302,7 +306,7 @@ async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -
     })
     buttons = [_btn(f"✉️ {p.title()}", game_id, "msg", p) for p in seated if p in POWERS]
     rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
-    rows.append([_btn("📣 Everyone", game_id, "msg", "ALL")])
+    rows.append([_btn("📣 Everyone", game_id, "msg", "ALL"), _btn("🕵️ Rumour (anonymous)", game_id, "msg", RUMOUR)])
     rows.append(_back(game_id))
     if len(text) > 3500:
         text = "…" + text[-3500:]
@@ -422,7 +426,10 @@ async def handle_awaited_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.effective_chat.send_message(join_game(user, game_id, awaiting["power"], text))
         return True
     recipient = awaiting.get("recipient")
-    reply = send_diplomatic_message(str(user.id), user.id, game_id, None if recipient == "ALL" else recipient, text)
+    reply = send_diplomatic_message(
+        str(user.id), user.id, game_id, None if recipient in ("ALL", RUMOUR) else recipient, text,
+        anonymous=recipient == RUMOUR,
+    )
     await update.message.reply_text(
         reply,
         reply_markup=InlineKeyboardMarkup([[_btn("💬 Messages", game_id, "msgs"), _btn("🎮 Game menu", game_id, "hub")]]),
