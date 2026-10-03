@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router'
 import { toast } from 'sonner'
 import { apiJson, apiFetch, API_BASE, ApiError } from '@/api/client'
 import {

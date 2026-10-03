@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router'
 import { apiJson } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'

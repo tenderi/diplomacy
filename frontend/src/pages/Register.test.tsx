@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, within, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router'
 import { AuthProvider } from '@/contexts/AuthContext'
 import Register from './Register'
 import { clearTokens } from '@/api/client'
