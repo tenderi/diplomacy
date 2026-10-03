@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, Navigate, useNavigate } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,7 +14,7 @@ export default function Register() {
   const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
 
-  if (user) navigate('/', { replace: true })
+  if (user) return <Navigate to="/" replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
