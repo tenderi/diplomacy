@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,19 +8,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function Login() {
   const { login, user } = useAuth()
-  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  if (user) navigate('/', { replace: true })
+  if (user) return <Navigate to="/" replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     try {
       await login(email, password)
-      navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     }
