@@ -15,9 +15,10 @@ Guidance for Claude Code (claude.ai/code) when working with code in this reposit
 
 ## Workflow: every change lands through a PR, tagged
 
-`main` is protected. Required status checks: **`test`, `frontend`, `security`** (all in
-[`.github/workflows/test.yml`](.github/workflows/test.yml); a docs-only change skips them, which
-counts as passing). Strict mode is on (a branch must
+`main` is protected. Required status checks: **`test`, `frontend`, `security`, `docs`** (all
+in [`.github/workflows/test.yml`](.github/workflows/test.yml); a job skipped because the change
+doesn't need it counts as passing: a docs-only change skips the first three, and `docs` runs
+only when the docs site's inputs change). Strict mode is on (a branch must
 be up to date with `main`), admin enforcement is on, force-push and branch deletion are
 blocked, no reviews required. **A bare `git push origin main` is always rejected.**
 
