@@ -6,25 +6,24 @@ tests. For what each test file covers, see
 
 ## Gates
 
-CI ([`.github/workflows/test.yml`](https://github.com/tenderi/diplomacy/blob/main/.github/workflows/test.yml)) runs three jobs,
-all three of which are required status checks on `main`:
+CI ([`.github/workflows/test.yml`](https://github.com/tenderi/diplomacy/blob/main/.github/workflows/test.yml)) runs five jobs.
+The last four are required status checks on `main`:
 
 | Job | What it runs |
 |---|---|
+| `changes` | Classifies the changed files (`.github/scripts/ci-changes.sh`) and decides which of the jobs below run. |
 | `test` | `ruff check src/`, the full pytest suite against a fresh `postgres:14`, and two coverage floors. |
 | `frontend` | `npx tsc -b --noEmit`, `npm run test:coverage` (Vitest with coverage thresholds), `npm run build`. |
 | `security` | `pip-audit` on `requirements.txt` and `bandit` on `src/`. |
+| `docs` | `mkdocs build --strict` with the docs image's pins, so a broken link fails the PR instead of the deploy after the merge. |
 
-A fourth job, `changes`, runs first and decides whether the other three are needed
-(`.github/scripts/ci-changes.sh`). When every changed file is documentation (a Markdown
-file anywhere, or anything under `docs/`), all three are skipped. A job skipped by its
-`if:` counts as passed for branch protection, so a docs-only PR still merges and still
-deploys. `docs/TELEGRAM_BOT_COMMANDS.md` is the exception: a test parses it, so changing
-it runs everything. `tests/test_ci_changes.py` pins the classification.
-
-A fifth job, `docs`, runs `mkdocs build --strict` whenever an input of the docs site
-changes (`docs/`, `mkdocs.yml`, `docker/docs.Dockerfile`). It uses the same pins as the
-docs image, so a broken link fails the PR instead of the deploy after the merge.
+`test`, `frontend` and `security` are skipped when every changed file is documentation
+(a Markdown file anywhere, or anything under `docs/`). `docs/TELEGRAM_BOT_COMMANDS.md` is
+the exception: a test parses it, so changing it runs everything. `docs` runs only when an
+input of the docs site changes (`docs/`, `mkdocs.yml`, `docker/docs.Dockerfile`). A job
+skipped by its `if:` counts as passed for branch protection, so a docs-only PR still
+merges and still deploys. An unknown diff runs every job. `tests/test_ci_changes.py` pins
+the classification.
 
 Coverage floors: **engine ≥95%** (`coverage report --include='src/engine/*'`), **overall
 ≥80%**, and the frontend thresholds in `frontend/vite.config.ts` (90% of lines). Each sits
