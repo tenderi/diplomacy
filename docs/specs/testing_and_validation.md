@@ -15,6 +15,13 @@ all three of which are required status checks on `main`:
 | `frontend` | `npx tsc -b --noEmit`, `npm run test:coverage` (Vitest with coverage thresholds), `npm run build`. |
 | `security` | `pip-audit` on `requirements.txt` and `bandit` on `src/`. |
 
+A fourth job, `changes`, runs first and decides whether the other three are needed
+(`.github/scripts/ci-changes.sh`). When every changed file is documentation (a Markdown
+file anywhere, or anything under `docs/`), all three are skipped. A job skipped by its
+`if:` counts as passed for branch protection, so a docs-only PR still merges and still
+deploys. `docs/TELEGRAM_BOT_COMMANDS.md` is the exception: a test parses it, so changing
+it runs everything. `tests/test_ci_changes.py` pins the classification.
+
 Coverage floors: **engine ≥95%** (`coverage report --include='src/engine/*'`), **overall
 ≥80%**, and the frontend thresholds in `frontend/vite.config.ts` (90% of lines). Each sits
 two to three points under the measured number: room to delete covered dead code, not to
