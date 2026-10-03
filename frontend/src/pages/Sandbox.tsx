@@ -10,7 +10,7 @@
  * the session.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router'
 import { apiFetch, apiJson } from '@/api/client'
 import {
   provinceNamesFromResponse,
