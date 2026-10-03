@@ -133,12 +133,33 @@ async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE
             await start(update, context)  # the group explanation
             raise ApplicationHandlerStop
         return
-    await message.reply_text(
-        f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
-            "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
-        )]]),
+    # The command itself may carry a secret (an order, a private message, a
+    # rumour that must not be traced to its author): take it down if the bot is
+    # allowed to. Without admin rights in the group Telegram refuses, and the
+    # reply says the message is still there.
+    try:
+        await message.delete()
+        deleted = True
+    except TelegramError:
+        deleted = False
+    text = (
+        f"🤫 /{command} is private -- I deleted it so the group can't read it. Send it to me in a private chat."
+        if deleted
+        else f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat."
     )
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+        "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
+    )]])
+    # Any failure to answer must still stop the command: an exception other than
+    # ApplicationHandlerStop would let the real handler run in the group.
+    try:
+        if deleted:  # a reply to a deleted message would fail; stay in its forum topic
+            thread_id = message.message_thread_id if message.is_topic_message else None
+            await chat.send_message(text, reply_markup=markup, message_thread_id=thread_id)
+        else:
+            await message.reply_text(text, reply_markup=markup)
+    except TelegramError as e:
+        logger.warning(f"Could not point /{command} in chat {chat.id} to a private chat: {e}")
     raise ApplicationHandlerStop
 
 
