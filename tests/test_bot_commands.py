@@ -131,6 +131,11 @@ class TestMessages:
                     # A sender who has since left holds no seat.
                     {"timestamp": "t3", "sender_power": None, "sender_name": None,
                      "recipient_power": "GERMANY", "text": "?"},
+                    # A rumour: the server names its sender only to the sender.
+                    {"timestamp": "t4", "sender_power": None, "sender_name": None, "anonymous": True,
+                     "recipient_power": None, "text": "Italy will stab"},
+                    {"timestamp": "t5", "sender_power": "FRANCE", "sender_name": "Pat", "anonymous": True,
+                     "recipient_power": None, "text": "Russia is bluffing"},
                 ]}
             raise AssertionError(f"unexpected endpoint {path}")
         with patch.object(bot_messages, "api_get", side_effect=fake_get):
@@ -140,7 +145,30 @@ class TestMessages:
             "[t1] GERMANY (Anna) -> FRANCE: Hi",
             "[t2] FRANCE -> ALL: All: peace",
             "[t3] Unknown -> GERMANY: ?",
+            "[t4] 🕵️ Rumour -> ALL: Italy will stab",
+            "[t5] 🕵️ Rumour (you, FRANCE) -> ALL: Russia is bluffing",
         ]
+
+    @pytest.mark.parametrize("args", [["Italy", "will", "stab"], ["7", "Italy", "will", "stab"]])
+    def test_rumour_is_an_anonymous_broadcast(self, args: list[str]) -> None:
+        with patch.object(bot_messages, "api_post_reliable", return_value=delivered()) as post:
+            reply = _run(bot_messages.rumour, *_command(args))
+        endpoint, body = post.call_args[0]
+        assert (endpoint, body) == ("/games/7/broadcast", {"telegram_id": str(ME), "text": "Italy will stab", "anonymous": True})
+        assert post.call_args[1]["description"] == 'rumour in game 7: "Italy will stab"'
+        assert reply == "🕵️ Rumour spread in game 7: nobody is told it came from you."
+
+    def test_rumour_without_text_is_usage_not_a_send(self) -> None:
+        with patch.object(bot_messages, "api_post_reliable") as post:
+            assert _run(bot_messages.rumour, *_command(["7"])) == (
+                "Usage: /rumour [game_id] <text>\n\n"
+                "Every player (and the game's group) reads it, and nobody is told who sent it."
+            )
+        post.assert_not_called()
+
+    def test_a_refused_rumour_shows_the_servers_reason(self) -> None:
+        with patch.object(bot_messages, "api_post_reliable", return_value=rejected("Sender not in game")):
+            assert _run(bot_messages.rumour, *_command(["hi"])) == "Rumour error: Sender not in game"
 
     def test_no_messages_yet(self) -> None:
         with patch.object(bot_messages, "api_get", return_value={"messages": []}):

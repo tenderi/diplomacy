@@ -102,6 +102,10 @@ def export_game(game_id: str) -> Dict[str, Any]:
             "text": m.text,
             "timestamp": m.timestamp.isoformat() if m.timestamp else None,
             "phase_code": m.phase_code,
+            # A rumour keeps its sender here: the export is the admin's full
+            # record (it holds every private message too), and an import
+            # restores the rumour still anonymous.
+            "anonymous": bool(m.anonymous),
         }
         for m in db_service.get_messages_by_game_id(int(row.id)).all()
     ]
@@ -255,6 +259,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
             text=str(m.get("text", "")),
             timestamp=datetime.fromisoformat(timestamp) if timestamp else None,
             phase_code=m.get("phase_code"),
+            anonymous=bool(m.get("anonymous", False)),
         )
         messages_restored += 1
 

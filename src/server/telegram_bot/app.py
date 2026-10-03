@@ -39,7 +39,7 @@ from server.telegram_bot.orders import (
     resolve_pending_order, run_process_turn,
     orderall, active_walk, record_walk_choice, show_walk_step, handle_walk_action
 )
-from server.telegram_bot.messages import message, broadcast, messages
+from server.telegram_bot.messages import message, broadcast, messages, rumour
 from server.telegram_bot.ui import (
     show_main_menu, show_help, refresh_keyboard, handle_menu_buttons,
     rules, examples
@@ -78,6 +78,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("messages", "Messages in your game"),
     BotCommand("message", "Message a power: /message FRANCE hello"),
     BotCommand("broadcast", "Message every player"),
+    BotCommand("rumour", "Message every player anonymously"),
     BotCommand("notready", "Ask the table to wait before auto-processing"),
     BotCommand("ready", "Stop waiting; let the turn auto-process"),
     BotCommand("deadline", "Show or change a game's deadline"),
@@ -436,6 +437,7 @@ def main():
     app.add_handler(CommandHandler("orderhistory", orderhistory))
     app.add_handler(CommandHandler("message", message))
     app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler(["rumour", "rumor"], rumour))
     app.add_handler(CommandHandler("messages", messages))
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("replay", replay))

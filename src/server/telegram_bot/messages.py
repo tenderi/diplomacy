@@ -42,12 +42,18 @@ def _target_game(user_id: str, args: list[str]) -> tuple[str, list[str]]:
 
 
 def send_diplomatic_message(
-    user_id: str, chat_id: int, game_id: str, recipient_power: Optional[str], text: str
+    user_id: str, chat_id: int, game_id: str, recipient_power: Optional[str], text: str,
+    anonymous: bool = False,
 ) -> str:
-    """Send ``text`` to ``recipient_power`` in ``game_id`` (``None``: to everyone).
-    Returns the reply for the sender. Shared by /message, /broadcast and the
-    game menu's Messages screen."""
-    if recipient_power:
+    """Send ``text`` to ``recipient_power`` in ``game_id`` (``None``: to everyone;
+    with ``anonymous``, to everyone as a rumour that names nobody).
+    Returns the reply for the sender. Shared by /message, /broadcast, /rumour
+    and the game menu's Messages screen."""
+    if anonymous:
+        endpoint, body = f"/games/{game_id}/broadcast", {"telegram_id": user_id, "text": text, "anonymous": True}
+        what = f"rumour in game {game_id}"
+        done = f"🕵️ Rumour spread in game {game_id}: nobody is told it came from you."
+    elif recipient_power:
         endpoint, body = f"/games/{game_id}/message", {
             "telegram_id": user_id, "recipient_power": recipient_power, "text": text,
         }
@@ -62,7 +68,8 @@ def send_diplomatic_message(
         return done
     if outcome.status == "queued":
         return queued_reply(outcome)
-    return f"{'Message' if recipient_power else 'Broadcast'} error: {outcome.error}"
+    kind = "Rumour" if anonymous else "Message" if recipient_power else "Broadcast"
+    return f"{kind} error: {outcome.error}"
 
 
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -114,6 +121,34 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(send_diplomatic_message(user_id, user.id, game_id, None, " ".join(rest)))
 
 
+async def rumour(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/rumour [game_id] <text> (or /rumor) -- an anonymous broadcast: every
+    player, and the game's linked group, read it without a sender."""
+    user = update.effective_user
+    if not user or not update.message:
+        if update.message:
+            await update.message.reply_text("Rumour failed: No user context.")
+        return
+    user_id = str(user.id)
+    try:
+        game_id, rest = _target_game(user_id, context.args or [])
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except ApiUnreachableError as e:  # no cached game list, and no game id given
+        await update.message.reply_text(str(e))
+        return
+    if not rest:
+        await update.message.reply_text(
+            "Usage: /rumour [game_id] <text>\n\n"
+            "Every player (and the game's group) reads it, and nobody is told who sent it."
+        )
+        return
+    await update.message.reply_text(
+        send_diplomatic_message(user_id, user.id, game_id, None, " ".join(rest), anonymous=True)
+    )
+
+
 def _excerpt(text: str, limit: int = 60) -> str:
     """A short quote of the message for queue listings and delivery reports."""
     text = " ".join(text.split())
@@ -122,7 +157,12 @@ def _excerpt(text: str, limit: int = 60) -> str:
 
 def _sender_label(message: Dict[str, Any]) -> str:
     """Who sent ``message``: its ``sender_power``, with ``sender_name`` beside
-    it when the game is public (an anonymous game sends no name)."""
+    it when the game is public (an anonymous game sends no name). A rumour is
+    ``🕵️ Rumour``; the server names its sender only to the sender, whose own
+    rumours read ``🕵️ Rumour (you, FRANCE)``, as on the web."""
+    if message.get("anonymous"):
+        power = message.get("sender_power")
+        return f"🕵️ Rumour (you, {power})" if power else "🕵️ Rumour"
     power = message.get("sender_power") or "Unknown"
     name = message.get("sender_name")
     return f"{power} ({name})" if name else power

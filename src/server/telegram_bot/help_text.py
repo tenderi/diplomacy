@@ -173,6 +173,7 @@ a notification about -- so the game id is only needed to switch games.
 *💬 Talking*
 • `/messages` - Messages in your game
 • `/message <power> <text>`, `/broadcast <text>` - Or use 💬 Messages in the game menu and just type
+• `/rumour <text>` - A broadcast that names nobody: every player and the game's group read it, nobody is told it came from you
 
 *👥 Playing with your Telegram group*
 • Add me to the group and send `/newgame anonymous` (players known only by their power) or `/newgame public` (nicknames shown) there -- add `random` to deal the powers at random; everyone joins with the button I post

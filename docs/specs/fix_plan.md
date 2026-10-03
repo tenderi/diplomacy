@@ -21,6 +21,8 @@
   opening board is its turn-0 snapshot). `v3.0.47` moved the frontend to react-router 7,
   which clears the react-router audit findings (AZ2); `v3.0.46` made retreat-phase and
   split-coast order errors say what is wrong.
+- `v3.0.51` added rumours (anonymous broadcasts, #157) to the API and the bot; the web
+  composer is step 2.
 - **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
   (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
@@ -79,6 +81,20 @@ Adjudication itself was correct in every case checked; these are the paths aroun
   - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
         tie numbering) — delete it.
 - [ ] **Done when:** every box above is checked.
+
+---
+
+# #157 — Rumours: anonymous broadcasts
+
+The maintainer: "Broadcast messages should be sent to linked Telegram group. And players
+should be able to choose to do it anonymously to spread rumours." A broadcast reaches the
+linked group under `auto_post_broadcasts`; a rumour is a broadcast with `anonymous: true`
+that names nobody anywhere (architecture.md §Notifications).
+
+- [x] Step 1 — API and bot: `messages.anonymous`, `anonymous` on `POST
+      /games/{id}/broadcast`, the log hiding a rumour's sender from everyone but the
+      sender, `/rumour` (`/rumor`) and the game menu's "🕵️ Rumour (anonymous)" key.
+- [ ] Step 2 — web composer: send as rumour.
 
 ---
 
