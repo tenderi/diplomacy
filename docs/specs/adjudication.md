@@ -262,6 +262,10 @@ its **supply-center count** independently, power by power:
 - **`centers == units`**: no adjustment is owed; any `Build`/`Disband`/`Waive` submitted
   is `VOID`.
 
+Submission refuses wrong-direction orders and more orders than the count (`data_spec.md`
+§5), so these `VOID`s are reached only by orders that bypass `GameService` (tests, the
+engine called directly).
+
 ## 10. The phase machine
 
 `src/engine/game.py`'s `Game.adjudicate()` dispatches to whichever of the three

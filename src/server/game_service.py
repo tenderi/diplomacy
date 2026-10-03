@@ -29,7 +29,18 @@ from engine.serialization import (
     state_to_dict,
     unit_to_dict,
 )
-from engine.types import Build, GameState, GameStatus, Move, Order, PhaseType, ProvinceType, UnitKind, Waive
+from engine.types import (
+    Build,
+    Disband,
+    GameState,
+    GameStatus,
+    Move,
+    Order,
+    PhaseType,
+    ProvinceType,
+    UnitKind,
+    Waive,
+)
 from server.legal_orders import adjustments_owed, powers_with_orders_to_give
 
 __all__ = [
@@ -160,18 +171,12 @@ class GameService:
         power = power.upper()
         state = game.state
         results, accepted, accepted_keys = self._check_orders(state, power, order_strings)
-
-        waives_to_drop = sum(
-            1 for s in accepted if isinstance(parse_order(s, power=power, map=self._map), Build)
-        )
+        adjusting = state.phase_type is PhaseType.ADJUSTMENT
+        slots = adjustments_owed(self._map, state, power) if adjusting else 0
 
         def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
             new_orders = accepted
             if merge:
-                # A build sent after a waive replaces it: the adjudicator honours
-                # adjustment orders in order, so a stored WAIVE ahead of the build
-                # took the only slot and the build came back VOID.
-                to_drop = waives_to_drop
                 kept = []
                 for existing in pending.get(power, []):
                     parsed = self._parse_stored(existing, power)
@@ -180,12 +185,11 @@ class GameService:
                         # skips it anyway; keep it rather than 500 the merge.
                         kept.append(existing)
                         continue
-                    if isinstance(parsed, Waive) and to_drop > 0:
-                        to_drop -= 1
-                        continue
                     key = _order_key(parsed)
                     if key is None or key not in accepted_keys:
                         kept.append(existing)
+                if adjusting:
+                    kept = self._make_room(kept, len(accepted), slots, power)
                 new_orders = kept + accepted
             return {**pending, power: new_orders}
 
@@ -211,7 +215,9 @@ class GameService:
         results: list[dict[str, Any]] = []
         accepted: list[str] = []
         accepted_keys: set[str] = set()
-        first_by_key: dict[str, tuple[str, int]] = {}  # key -> (stored string, results index)
+        # Parallel to ``accepted``: each accepted order parsed, and its results index.
+        accepted_orders: list[Order] = []
+        accepted_at: list[int] = []
         for raw in order_strings:
             raw = raw.strip()
             if not raw:
@@ -249,21 +255,64 @@ class GameService:
                     # the later one stands, as it would across two submissions.
                     # Both used to be stored and the adjudicator kept one --
                     # the last move but the *first* build -- without a word.
-                    earlier = first_by_key[key]
-                    accepted.remove(earlier[0])
-                    results[earlier[1]] = {
-                        "order": results[earlier[1]]["order"],
+                    i = next(i for i, o in enumerate(accepted_orders) if _order_key(o) == key)
+                    results[accepted_at[i]] = {
+                        "order": results[accepted_at[i]]["order"],
                         "ok": False,
                         "reason": f"replaced by a later order for {key} in the same submission",
                     }
+                    del accepted[i], accepted_orders[i], accepted_at[i]
                 accepted.append(stored)
+                accepted_orders.append(order)
+                accepted_at.append(len(results))
                 if key is not None:
                     accepted_keys.add(key)
-                    first_by_key[key] = (stored, len(results))
                 results.append({"order": raw, "ok": True, "reason": None})
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
+
+        slots = adjustments_owed(self._map, state, power) if state.phase_type is PhaseType.ADJUSTMENT else None
+        if slots is not None and len(accepted_orders) > slots:
+            # Each order passed on its own, and validation already refused one on
+            # the wrong side (a build when disbands are owed): every accepted
+            # order here is a build/waive, or every one a disband. Together they
+            # may still ask for more than the power has -- two builds for one
+            # slot, two waives. The adjudicator honours them in order and voids
+            # the rest, so refuse the excess (the later ones), naming the count.
+            n = len(accepted_orders)
+            if isinstance(accepted_orders[0], Disband):
+                reason = f"{power} has {_plural(slots, 'disband')}; {_plural(n, 'disband')} submitted"
+            else:
+                reason = (
+                    f"{power} has {_plural(slots, 'build')}; "
+                    f"{_plural(n, 'build/waive', 'builds/waives')} submitted"
+                )
+            for i in range(slots, n):
+                results[accepted_at[i]] = {"order": results[accepted_at[i]]["order"], "ok": False, "reason": reason}
+                key = _order_key(accepted_orders[i])
+                if key is not None:
+                    accepted_keys.discard(key)
+            del accepted[slots:]
         return results, accepted, accepted_keys
+
+    def _make_room(self, kept: list[str], n_new: int, slots: int, power: str) -> list[str]:
+        """Trim a power's stored adjustment orders so that, with ``n_new`` new
+        ones added, they do not exceed its ``slots``.
+
+        The bot sends adjustment orders one at a time, each adding to the
+        last, and the adjudicator honours them in order up to the count: a
+        stored ``BUILD F KIE`` followed by a new ``WAIVE`` built in Kiel and
+        voided the waive. The newest orders win -- stored waives go first (a
+        build sent after a waive replaces it), then the oldest stored orders.
+        The new orders were already held to ``slots`` by ``_check_orders``.
+        """
+        excess = len(kept) + n_new - slots
+        if excess <= 0:
+            return kept
+        waives = [i for i, s in enumerate(kept) if isinstance(self._parse_stored(s, power), Waive)]
+        others = [i for i in range(len(kept)) if i not in waives]
+        drop = set((waives + others)[:excess])
+        return [s for i, s in enumerate(kept) if i not in drop]
 
     def _parse_stored(self, stored: str, power: str) -> Optional[Order]:
         """A stored pending-order string parsed, or ``None`` if it no longer parses.
@@ -1044,6 +1093,10 @@ def _initial_state(map: MapData) -> GameState:
         units=map.starting_units,
         ownership=dict(map.initial_ownership),
     )
+
+
+def _plural(n: int, noun: str, nouns: Optional[str] = None) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {nouns or noun + 's'}"
 
 
 def _order_key(order: Order) -> Optional[str]:

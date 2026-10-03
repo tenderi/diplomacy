@@ -42,7 +42,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
 - [x] BA2 — **Every player's Telegram ID is public.** `GET /games/{id}/players` (no auth)
       returns `telegram_id` per seat (`routes/games.py` `get_players`). Drop it from the
       public response (check the bot and frontend for readers first).
-- [ ] BA3 — **Adjustment orders accepted, then VOID.** Validation never checks the counts
+- [x] BA3 — **Adjustment orders accepted, then VOID.** Validation never checks the counts
       `legal_orders` already reports in `adjustment.slots`: a build at delta 0, two builds
       with one slot, a disband when builds are owed, two waives for one slot are all
       `success: true`. And the bot's merge path stores `BUILD F KIE` then `WAIVE` as both

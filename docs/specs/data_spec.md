@@ -379,6 +379,18 @@ the board's real unit letters, and refuses (as one `ok=False` entry, `parse erro
 order whose stored form would not parse back, so a single bad order can never fail the
 batch.
 
+In an adjustment phase an order must also be on the right side of the power's delta
+(centres minus units), checked after the order's own checks: a `Build` or `Waive` needs a
+positive delta and a `Disband` a negative one (`FRANCE has no unit to disband (3 supply
+centres, 1 unit); it may build 2 units`). The adjudicator voids anything else. The *count*
+is a whole-submission rule and lives in `GameService._check_orders`: a submission may hold
+at most `adjustments_owed` builds/waives (the delta, capped at the vacant owned home
+centres — the `adjustment.slots` of `legal_orders`) or disbands; the later ones beyond it
+are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are merged
+(`merge=true`, every bot path) the stored ones are trimmed to make room for the new ones —
+stored waives first, then the oldest — so the stored list never exceeds the count: a
+`WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does.
+
 `GameService.orders_status` (and so `GET /games/{id}/orders_status` and
 `process_turn?require_all=true`) counts only the powers that have a decision to make this
 phase, via `server.legal_orders.powers_with_orders_to_give`: every power with a unit in a
