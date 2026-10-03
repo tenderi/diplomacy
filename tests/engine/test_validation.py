@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from engine.adjudicator.retreats import compute_retreat_options
 from engine.map_loader import load_standard_map
+from engine.orders.parser import parse_order
 from engine.orders.validation import validate
 from engine.types import (
     Build,
@@ -84,11 +86,24 @@ class TestMove:
         assert result.ok is False
         assert "adjacent" in result.reason
 
-    def test_fleet_into_split_coast_without_coast_rejected(self, m):
-        state = _state([Unit(UnitKind.FLEET, "RUSSIA", Location("BAR"))])
-        order = Move("RUSSIA", Location("BAR"), Location("STP"))
-        result = validate(order, state, m)
-        assert result.ok is False
+    def test_fleet_move_to_a_split_coast_province_it_cannot_reach_is_not_adjacent(self, m):
+        # ANK borders no coast of BUL: that is the problem, not a missing coast.
+        state = _state([Unit(UnitKind.FLEET, "TURKEY", Location("ANK"))])
+        result = validate(parse_order("F ANK - BUL", power="TURKEY", map=m), state, m)
+        assert (result.ok, result.reason) == (False, "BUL is not adjacent to ANK")
+
+    def test_fleet_move_to_the_only_reachable_coast_needs_no_coast(self, m):
+        # BLA touches only BUL/EC (the adjudicator infers it, _move_dest_location).
+        state = _state([Unit(UnitKind.FLEET, "TURKEY", Location("BLA"))])
+        result = validate(parse_order("F BLA - BUL", power="TURKEY", map=m), state, m)
+        assert (result.ok, result.reason) == (True, None)
+
+    def test_fleet_move_with_two_reachable_coasts_must_name_one(self, m):
+        state = _state([Unit(UnitKind.FLEET, "TURKEY", Location("CON"))])
+        result = validate(parse_order("F CON - BUL", power="TURKEY", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False, "fleet move into split-coast BUL must name a coast (BUL/EC or BUL/SC)"
+        )
 
     def test_fleet_into_split_coast_with_correct_coast_ok(self, m):
         state = _state([Unit(UnitKind.FLEET, "RUSSIA", Location("BAR"))])
@@ -270,13 +285,68 @@ class TestRetreat:
         result = validate(Retreat("GERMANY", Location("PAR"), Location("BUR")), state, m)
         assert (result.ok, result.reason) == (False, "unit at PAR belongs to FRANCE, not GERMANY")
 
-    def test_a_fleet_retreating_to_a_split_coast_must_name_the_legal_coast(self, m):
+    def test_a_fleet_retreating_to_a_split_coast_takes_the_only_reachable_coast(self, m):
         du = DislodgedUnit(Unit(UnitKind.FLEET, "RUSSIA", Location("BOT")), retreats=(Location("STP", "SC"),))
         state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
         bare = validate(Retreat("RUSSIA", Location("BOT"), Location("STP")), state, m)
-        assert (bare.ok, bare.reason) == (False, "fleet retreat into split-coast STP must name a coast")
-        assert validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "NC")), state, m).ok is False
+        assert (bare.ok, bare.reason) == (True, None)
+        wrong = validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "NC")), state, m)
+        assert (wrong.ok, wrong.reason) == (
+            False, "STP/NC is not a legal retreat for F BOT: it is not adjacent to BOT"
+        )
         assert validate(Retreat("RUSSIA", Location("BOT"), Location("STP", "SC")), state, m).ok is True
+
+    def test_a_fleet_retreat_with_two_legal_coasts_must_name_one(self, m):
+        fleet = Unit(UnitKind.FLEET, "TURKEY", Location("CON"))
+        du = DislodgedUnit(fleet, "SMY", compute_retreat_options(m, fleet, "SMY", set(), set()))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("F CON R BUL", power="TURKEY", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False, "fleet retreat into split-coast BUL must name a coast (BUL/EC or BUL/SC)"
+        )
+
+
+class TestRetreatRefusalReasons:
+    """A refused retreat says why. French A PAR was dislodged from BUR; a German
+    army now stands in PIC and GAS stood off: only BRE is open."""
+
+    ARMY = Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))
+
+    @pytest.fixture
+    def state(self, m):
+        occupied = {"PIC"}
+        contested = frozenset({"GAS"})
+        du = DislodgedUnit(
+            self.ARMY, "BUR", compute_retreat_options(m, self.ARMY, "BUR", occupied, contested)
+        )
+        assert du.retreats == (Location("BRE"),)
+        return GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({Unit(UnitKind.ARMY, "GERMANY", Location("PIC"))}),
+            ownership={}, dislodged=(du,), contested=contested,
+        )
+
+    @pytest.mark.parametrize(
+        "text,reason",
+        [
+            ("A PAR R BUR", "BUR is not a legal retreat for A PAR: "
+             "the unit that dislodged it attacked from there"),
+            ("A PAR R PIC", "PIC is not a legal retreat for A PAR: another unit stands there"),
+            ("A PAR R GAS", "GAS is not a legal retreat for A PAR: "
+             "a standoff left it empty this turn, and no unit may retreat there"),
+            ("A PAR R MUN", "MUN is not a legal retreat for A PAR: it is not adjacent to PAR"),
+            ("A PAR R BRE", None),
+        ],
+    )
+    def test_reason(self, m, state, text, reason):
+        result = validate(parse_order(text, power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (reason is None, reason)
+
+    def test_a_retreat_missing_from_a_hand_made_legal_set_has_no_reason_to_give(self, m):
+        du = DislodgedUnit(self.ARMY, "BUR", retreats=())
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(Retreat("FRANCE", Location("PAR"), Location("BRE")), state, m)
+        assert (result.ok, result.reason) == (False, "BRE is not a legal retreat for A PAR")
 
 
 class TestDisband:
@@ -473,6 +543,27 @@ class TestPhaseGate:
         assert result.ok is False
         assert "adjustment phase" in result.reason
         assert "S1901A" in result.reason
+
+    def test_a_move_by_a_dislodged_unit_hints_at_the_retreat_spelling(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "PAR", (Location("RUH"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("A BUR - RUH", power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False,
+            "a move order is not accepted during the retreat phase (S1901R); "
+            "to retreat, write A BUR R RUH",
+        )
+
+    def test_no_retreat_hint_for_another_powers_dislodged_unit(self, m):
+        # Germany's army now stands where French A BUR was dislodged; telling
+        # Germany to write "A BUR R RUH" would only earn an ownership error.
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "MUN", (Location("RUH"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("A BUR - RUH", power="GERMANY", map=m), state, m)
+        assert result.ok is False
+        assert result.reason.startswith(
+            "a move order is not accepted during the retreat phase (S1901R); only "
+        )
 
     def test_reason_names_the_offending_order_kind(self, m):
         state = _state([self.PAR_ARMY], phase_type=PhaseType.RETREAT)

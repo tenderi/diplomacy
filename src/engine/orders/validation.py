@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from engine.adjudicator.retreats import retreat_refusal
 from engine.map_loader import MapData
 from engine.types import (
     Build,
@@ -104,10 +105,19 @@ def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
         return None
     kind = _ORDER_LABEL[type(order)]
     phase = _PHASE_LABEL[state.phase_type]
+    refusal = f"a {kind} order is not accepted during the {phase} phase ({state.phase_name})"
+    # ``A BUR - RUH`` for a dislodged unit is a retreat written as a move:
+    # show the retreat spelling rather than the list of accepted order kinds.
+    if isinstance(order, Move) and state.phase_type is PhaseType.RETREAT:
+        du = state.dislodged_at(order.unit.province)
+        if du is not None and du.unit.power == order.power:
+            return ValidationResult(
+                False,
+                f"{refusal}; to retreat, write "
+                f"{du.unit.kind.value} {order.unit.province} R {order.dest}",
+            )
     return ValidationResult(
-        False,
-        f"a {kind} order is not accepted during the {phase} phase "
-        f"({state.phase_name}); only {_ACCEPTED_LABEL[state.phase_type]} orders are",
+        False, f"{refusal}; only {_ACCEPTED_LABEL[state.phase_type]} orders are"
     )
 
 
@@ -166,7 +176,7 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         ownership_error = _check_ownership(order, du.unit)
         if ownership_error is not None:
             return ownership_error
-        return _validate_retreat(order, du, map)
+        return _validate_retreat(order, du, state, map)
 
     if isinstance(order, Disband):
         if state.phase_type is PhaseType.RETREAT:
@@ -248,9 +258,13 @@ def _validate_move(order: Move, unit: Unit, map: MapData) -> ValidationResult:
         return ValidationResult(True)
 
     if kind is UnitKind.FLEET and map.is_split_coast(dest.province) and dest.coast is None:
-        return ValidationResult(
-            False, f"fleet move into split-coast {dest.province} must name a coast"
-        )
+        # Infer the coast when only one is reachable (the adjudicator's
+        # ``_move_dest_location`` does); demand one only when it is ambiguous.
+        coasts = _reachable_coasts(map, unit.location, dest.province)
+        if len(coasts) > 1:
+            return ValidationResult(False, _must_name_coast("move", dest.province, coasts))
+        if coasts:
+            return ValidationResult(True)
     if not map.is_adjacent(unit.location, dest, kind):
         return ValidationResult(False, f"{dest} is not adjacent to {unit.location}")
     return ValidationResult(True)
@@ -298,26 +312,42 @@ def _validate_convoy(
     return ValidationResult(True)
 
 
-def _validate_retreat(order: Retreat, du: DislodgedUnit, map: MapData) -> ValidationResult:
+def _reachable_coasts(map: MapData, frm: Location, province: str) -> list[str]:
+    """The coasts of split-coast ``province`` a fleet at ``frm`` could move to."""
+    return sorted(d.coast for d in map.fleet_moves(frm) if d.province == province and d.coast)
+
+
+def _must_name_coast(verb: str, province: str, coasts: list[str]) -> str:
+    named = " or ".join(f"{province}/{c}" for c in coasts)
+    return f"fleet {verb} into split-coast {province} must name a coast ({named})"
+
+
+def _validate_retreat(
+    order: Retreat, du: DislodgedUnit, state: GameState, map: MapData
+) -> ValidationResult:
     """Validate a retreat against the unit's precomputed legal destinations.
 
     ``du.retreats`` already encodes adjacency, post-resolution occupancy, the
     ``contested`` standoff set and the attacker-origin exclusion, so legality is
-    exact membership. Coast requirements at split-coast provinces are surfaced
-    with a clear message before the membership check.
+    exact membership -- except that a fleet naming no coast gets the sole legal
+    coast when there is one (as a move does). A refusal says why, from
+    ``retreat_refusal``: out of reach, the attacker's origin, occupied, or
+    left empty by a standoff.
     """
     dest = order.dest
     unit = du.unit
-    if unit.kind is UnitKind.FLEET and map.is_split_coast(dest.province) and dest.coast is None:
-        return ValidationResult(
-            False, f"fleet retreat into split-coast {dest.province} must name a coast"
-        )
-    for legal in du.retreats:
-        if legal.province != dest.province:
-            continue
-        if legal.coast is None or legal.coast == dest.coast:
-            return ValidationResult(True)
-    return ValidationResult(False, f"{dest} is not a legal retreat for {unit.location}")
+    matches = [legal for legal in du.retreats if legal.province == dest.province]
+    if any(legal.coast is None or legal.coast == dest.coast for legal in matches):
+        return ValidationResult(True)
+    if dest.coast is None and len(matches) == 1:
+        return ValidationResult(True)
+    if dest.coast is None and len(matches) > 1:
+        coasts = sorted(legal.coast for legal in matches if legal.coast)
+        return ValidationResult(False, _must_name_coast("retreat", dest.province, coasts))
+    occupied = {u.province for u in state.units}
+    why = retreat_refusal(map, unit, dest, du.attacker_origin, occupied, state.contested)
+    reason = f"{dest} is not a legal retreat for {unit}"
+    return ValidationResult(False, f"{reason}: {why}" if why else reason)
 
 
 def legal_builds(power: str, state: GameState, map: MapData) -> list[Build]:

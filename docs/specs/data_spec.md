@@ -366,18 +366,35 @@ build typed during a movement phase, or a move typed during a retreat or build p
 accepted with `ok=True`, stored, shown as pending, and then dropped without a word — which
 for an adjustment phase meant a player's build was silently waived. Interactive menus never
 offered such orders (`legal_orders.py` is phase-aware); the gate covers free-text input
-from every client.
+from every client. One case gets a hint instead of the list: a move by a unit that is
+dislodged in this retreat phase is a retreat written as a move, so it is refused with the
+retreat spelling (`a move order is not accepted during the retreat phase (S1901R); to
+retreat, write A BUR R RUH`). It is refused rather than read as a retreat so that each
+order string has one meaning in every phase and what is stored is what the player wrote.
 
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
 `A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). Any other
 non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
-province (`LON cannot move to its own province`). A `Convoy` is refused unless an army
+province (`LON cannot move to its own province`). A fleet moving to a split-coast province
+(BUL, SPA, STP) without naming a coast is accepted when exactly one coast is reachable from
+where it stands (`F BLA - BUL` arrives on BUL/EC; the adjudicator infers it), refused as
+ambiguous when both are (`fleet move into split-coast BUL must name a coast (BUL/EC or
+BUL/SC)`), and refused as not adjacent when neither is (`BUL is not adjacent to ANK`). A
+`Convoy` is refused unless an army
 stands at its origin (`no army at ALB to convoy`, `the unit at ALB is a fleet; only an army
 can be convoyed`). `submit_orders` stores each accepted order as `format_order` writes it with
 the board's real unit letters, and refuses (as one `ok=False` entry, `parse error: ...`) any
 order whose stored form would not parse back, so a single bad order can never fail the
 batch.
+
+Retreats. A `Retreat` is legal iff its destination is in the dislodged unit's precomputed
+`retreats` (`adjudication.md` §8); a fleet naming no coast gets the sole legal coast, as a
+move does, and must name one when two are legal. A refusal says why, through
+`retreats.retreat_refusal` (the same rules as `compute_retreat_options`): `BUR is not a legal
+retreat for A PAR:` followed by `the unit that dislodged it attacked from there`, `another
+unit stands there`, `a standoff left it empty this turn, and no unit may retreat there`, or
+`it is not adjacent to PAR`.
 
 In an adjustment phase an order must also be on the right side of the power's delta
 (centres minus units), checked after the order's own checks: a `Build` or `Waive` needs a
