@@ -15,9 +15,10 @@ Design notes:
   lookup) with a fallback to an already-canonical uppercase code. There is no
   separate alias table in this module.
 - Coasts are recognised in both ``PROV/XX`` and ``PROV(XX)`` spellings. Armies
-  may never carry a coast (rejected, not silently stripped). A fleet order
-  naming a split-coast province with no coast is a parse-time ambiguity and is
-  rejected here rather than deferred to validation.
+  ignore a coast qualifier (DATC 6.B.12), and a coast on a single-coast
+  province is dropped. A fleet order naming a split-coast province with no
+  coast parses; ``orders/validation.py`` infers the coast when only one is
+  reachable and refuses the order as ambiguous when two are.
 - ``Order`` dataclasses (other than ``Build``) do not record which unit kind
   issued them — that is looked up from ``GameState`` at adjudication time.
   Consequently ``format_order`` cannot always recover the original "A"/"F"

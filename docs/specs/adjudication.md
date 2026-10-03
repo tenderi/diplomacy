@@ -224,6 +224,10 @@ split-coast province gets one candidate per reachable coast); it is **not**
 convoyed); no **surviving** unit already occupies it; and it isn't in `contested` (a
 province that stood off this same movement phase admits no retreats either — too much
 traffic).
+`retreat_refusal` applies the same rules to one destination and returns the reason it is
+refused (out of reach, the attacker's origin, occupied, standoff), which validation hands to
+the player. A fleet retreat naming no coast takes the sole legal coast of that province, as
+a move does (`_legal_dest`); with two legal coasts it is ambiguous and the unit disbands.
 
 The retreat phase itself (`adjudicate_retreats`) resolves each dislodged unit's
 attempted destination (a legal `Retreat` order, or `None` for an explicit `Disband` or no

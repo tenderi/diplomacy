@@ -121,6 +121,15 @@ def test_a_fleet_retreat_naming_the_unreachable_coast_disbands():
     assert h.final_at("STP") is None
 
 
+def test_a_fleet_retreat_naming_no_coast_takes_the_only_reachable_one():
+    # BOT touches only STP/SC, so ``R STP`` is unambiguous, as ``F BOT - STP`` is.
+    h = _fleet_dislodged_from_bothnia()
+    h.retreats("RUSSIA", "F BOT R STP")
+    h.adjudicate_retreats()
+    h.assert_retreat_ok("F BOT")
+    assert h.retreat_state.unit_at("STP").location.coast == "SC"
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 def test_a_support_against_ones_own_moving_unit_still_defends_head_to_head(reverse):
     """Found by the determinism property: the result used to depend on submission order.
