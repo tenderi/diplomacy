@@ -73,6 +73,9 @@ Adjudication itself was correct in every case checked; these are the paths aroun
   - [x] A private message to your own power is accepted.
   - [x] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
   - [x] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
+  - [x] A signed-in user who opens `/login` or `/register` from inside the app sees the
+        form: the pages called `navigate()` during render, which React Router drops on a
+        component's first render.
   - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
         tie numbering) — delete it.
 - [ ] **Done when:** every box above is checked.

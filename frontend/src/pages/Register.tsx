@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,13 +8,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function Register() {
   const { register, user } = useAuth()
-  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
 
-  if (user) navigate('/', { replace: true })
+  if (user) return <Navigate to="/" replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -25,7 +24,6 @@ export default function Register() {
     }
     try {
       await register(email, password, nickname.trim() || undefined)
-      navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     }
