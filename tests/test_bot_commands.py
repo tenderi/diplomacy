@@ -217,6 +217,20 @@ class TestOrderReadouts:
             reply = _run(bot_orders.orderhistory, *_command([]))
         assert [line for line in reply.splitlines() if line.startswith("Turn")] == ["Turn 1:", "Turn 2:", "Turn 10:"]
 
+    def test_orderhistory_labels_turns_by_phase_code(self) -> None:
+        """BA7: "S1901M", not the internal turn counter; the counter only where the
+        API has no phase for a turn."""
+        history = {"0": {"FRANCE": ["A PAR - BUR"]}, "1": {"FRANCE": ["A BUR - MUN"]}, "2": {"FRANCE": ["A MUN H"]}}
+        phases = {"0": "S1901M", "1": "F1901M"}
+        with patch.object(bot_orders, "api_get", return_value={"order_history": history, "phases": phases}):
+            reply = _run(bot_orders.orderhistory, *_command([]))
+        assert reply == (
+            "Order history for game 7:\n"
+            "\nS1901M:\n  FRANCE:\n    A PAR - BUR\n"
+            "\nF1901M:\n  FRANCE:\n    A BUR - MUN\n"
+            "\nTurn 2:\n  FRANCE:\n    A MUN H"
+        )
+
     def test_a_long_history_keeps_the_latest_turns(self) -> None:
         history = {str(t): {"FRANCE": [f"A PAR H  # turn {t:03d} " + "x" * 80]} for t in range(80)}
         with patch.object(bot_orders, "api_get", return_value={"order_history": history}):

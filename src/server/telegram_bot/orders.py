@@ -395,11 +395,13 @@ def orderhistory_text(game_id: str) -> str:
     except requests.RequestException as e:
         return f"Error retrieving order history: {e}"
     history = result.get("order_history", {})
+    phases = result.get("phases") or {}
     if not history:
         return f"No turns have been processed in game {game_id} yet."
     lines = [f"Order history for game {game_id}:"]
     for turn in sorted(history.keys(), key=lambda x: int(x)):
-        lines.append(f"\nTurn {turn}:")
+        # The phase code (S1901M); the bare turn counter only when none was recorded.
+        lines.append(f"\n{phases.get(turn) or f'Turn {turn}'}:")
         for power, power_orders in history[turn].items():
             lines.append(f"  {power}:")
             for o in power_orders:

@@ -133,9 +133,34 @@ class TestGetOrderHistory:
 
         resp = client.get(f"/games/{game_id}/orders/history")
         assert resp.status_code == 200
-        data = resp.json()
-        assert "game_id" in data
-        assert "order_history" in data
+        assert resp.json() == {"game_id": str(game_id), "order_history": {}, "phases": {}}
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_each_turn_comes_with_its_phase_code(self, client):
+        """BA7: the bot labelled turns "Turn 0/1" -- the counter, not the phase."""
+        from persistence.database import MapSnapshotModel
+        from server.api.shared import db_service
+
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user_phases"})
+        headers = _register_and_login(client, "ord_hist_phases")
+        game_id = str(_create_game(client, headers))
+        client.post(f"/games/{game_id}/join", json={"telegram_id": "test_user_phases", "bot_secret": BOT_SECRET, "power": "FRANCE"})
+        for order in ("A PAR - BUR", "A BUR - MUN"):
+            ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": [order],
+                                                             "telegram_id": "test_user_phases", "bot_secret": BOT_SECRET})
+            assert ordered.status_code == 200, ordered.text
+            assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
+
+        data = client.get(f"/games/{game_id}/orders/history").json()
+        assert data["order_history"] == {"0": {"FRANCE": ["A PAR - BUR"]}, "1": {"FRANCE": ["A BUR - MUN"]}}
+        assert data["phases"] == {"0": "S1901M", "1": "F1901M"}
+
+        # A game created before the turn-0 snapshot existed still names turn 0.
+        numeric = int(db_service.get_game_by_game_id(game_id).id)
+        with db_service.session_factory() as session:
+            session.query(MapSnapshotModel).filter_by(game_id=numeric, turn_number=0).delete()
+            session.commit()
+        assert client.get(f"/games/{game_id}/orders/history").json()["phases"] == {"0": "S1901M", "1": "F1901M"}
 
 
 @pytest.mark.unit

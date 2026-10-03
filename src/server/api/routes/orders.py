@@ -151,13 +151,26 @@ def get_orders(
 
 @router.get("/games/{game_id}/orders/history")
 def get_order_history(game_id: str) -> Dict[str, Any]:
-    """Per-turn history of submitted orders, ``{turn: {power: [order_str]}}``.
+    """Per-turn history of submitted orders, ``{turn: {power: [order_str]}}``, and
+    ``phases``, ``{turn: phase_code}`` -- the phase each of those turns was (the
+    phase code of the snapshot taken when it began; the opening phase for a turn 0
+    with no snapshot). A turn with no recorded snapshot has no ``phases`` entry.
 
     Accumulated by ``process_turn`` (the ``GameState`` snapshot itself does not retain
     past orders); empty until the first turn is processed."""
-    if not game_service.exists(game_id):
+    row = db_service.get_game_by_game_id(game_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return {"game_id": game_id, "order_history": game_service.order_history(game_id)}
+    history = game_service.order_history(game_id)
+    phases: Dict[str, str] = {"0": str(game_service.opening_snapshot()["phase_code"])}
+    # Oldest first, so a later snapshot of the same turn (e.g. after a restore) wins.
+    for snap in sorted(db_service.get_game_snapshots_by_game_id(int(row.id)), key=lambda s: s.id):
+        phases[str(snap.turn_number)] = str(snap.phase_code)
+    return {
+        "game_id": game_id,
+        "order_history": history,
+        "phases": {turn: phases[turn] for turn in history if turn in phases},
+    }
 
 
 @router.get("/games/{game_id}/orders/{power}")
