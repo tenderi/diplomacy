@@ -100,7 +100,7 @@ jobs:
         with:
           sparse-checkout: .github/scripts
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -157,7 +157,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -260,7 +260,7 @@ jobs:
 
       - name: Upload transcript
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: lead-transcript-${{ github.run_id }}
           path: ${{ runner.temp }}/transcript.jsonl
