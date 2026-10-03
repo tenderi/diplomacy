@@ -5,31 +5,50 @@
 # When the limit is exhausted, the call fails at once with the same "You've hit your ... limit"
 # result the lead would hit, and the run is skipped before any setup is spent.
 #
+# The answer also carries the account's usage so far (stream-json's rate_limit_event). A window
+# already at LEAD_USAGE_STOP (default 0.90) counts as out of usage too: the lead's usage guard
+# would tell it to wrap up at its first tool call, so starting it would only spend the rest.
+#
 # Writes available=true|false to $GITHUB_OUTPUT. Out of usage is a graceful skip (exit 0, and a
 # note on the triggering issue, so the maintainer knows when it'll be picked up); any other
 # failure (bad token, CLI error) fails the job, because that needs fixing.
 set -uo pipefail
 
 # A one-line system prompt and no tools keep it to ~500 input tokens (~$0.002, against ~$0.23
-# with Claude Code's default context). stderr is kept apart: a warning line mixed into stdout
-# would make the JSON unparseable and turn a healthy probe into a failure.
+# with Claude Code's default context). stderr is kept apart, and stdout is read line by line
+# with `fromjson?`, so a stray warning line can't turn a healthy probe into a failure.
 errfile=$(mktemp)
-out=$(claude -p "Reply with the single word OK." --model "${MODEL:?}" --max-turns 1 \
+stream=$(claude -p "Reply with the single word OK." --model "${MODEL:?}" --max-turns 1 \
         --system-prompt "You are a health check." --tools "" \
-        --output-format json 2>"$errfile")
+        --output-format stream-json --verbose 2>"$errfile")
 rc=$?
 err=$(cat "$errfile"); rm -f "$errfile"
+out=$(jq -cR 'fromjson? | select(.type? == "result")' <<<"$stream" 2>/dev/null | tail -1)
 result=$(jq -r '.result // empty' <<<"$out" 2>/dev/null || true)
 is_error=$(jq -r '.is_error | tostring' <<<"$out" 2>/dev/null || true)  # not `//`: it treats false as missing
+# The fullest usage window, as "<fraction> <window>"; empty for API-key auth, which has none.
+usage=$(jq -cR 'fromjson? | select(.type? == "rate_limit_event")' <<<"$stream" 2>/dev/null | tail -1 \
+        | jq -r '.rate_limit_info
+  | [ (.unifiedWindows // {} | to_entries[] | {w: .key, u: .value.utilization}),
+      {w: (.rateLimitType // "current"), u: .utilization} ]
+  | map(select(.u != null)) | max_by(.u) // empty | "\(.u) \(.w)"' 2>/dev/null || true)
+read -r used window <<<"$usage"
+limit=${LEAD_USAGE_STOP:-0.90}
 
+reason=""
 if [ "$rc" = "0" ] && [ "$is_error" = "false" ]; then
-  echo "Usage available (probe answered: ${result:0:40})."
-  echo "available=true" >> "$GITHUB_OUTPUT"
-  exit 0
+  if [ -n "${used:-}" ] && awk -v u="$used" -v l="$limit" 'BEGIN { exit !(u >= l) }'; then
+    reason="the $window usage window is $(awk -v u="$used" 'BEGIN { printf "%d", u * 100 }')% used; runs start only below $(awk -v l="$limit" 'BEGIN { printf "%d", l * 100 }')%"
+  else
+    echo "Usage available (probe answered: ${result:0:40}; fullest window: ${usage:-not reported})."
+    echo "available=true" >> "$GITHUB_OUTPUT"
+    exit 0
+  fi
+elif grep -qiE "hit your .*limit|usage limit|rate_limit" <<<"$result $out $err"; then
+  reason=${result:-$(grep -oiE "you've hit your[^\"]*" <<<"$out $err" | head -1)}
 fi
 
-if grep -qiE "hit your .*limit|usage limit|rate_limit" <<<"$result $out $err"; then
-  reason=${result:-$(grep -oiE "you've hit your[^\"]*" <<<"$out $err" | head -1)}
+if [ -n "$reason" ]; then
   echo "available=false" >> "$GITHUB_OUTPUT"
   echo "::warning::Skipping the lead run: out of Claude usage ($reason)."
   printf '## Lead run skipped: out of Claude usage\n%s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
@@ -41,5 +60,5 @@ if grep -qiE "hit your .*limit|usage limit|rate_limit" <<<"$result $out $err"; t
   exit 0
 fi
 
-echo "::error::Usage probe failed (exit $rc): ${out:0:300} ${err:0:300}"
+echo "::error::Usage probe failed (exit $rc): ${out:-${stream:0:300}} ${err:0:300}"
 exit 1
