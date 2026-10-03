@@ -94,7 +94,7 @@ def test_deadline_past_on_startup():
     # process_turn route -- so `/history/{turn}` and the bot's `/replay` had a
     # permanent hole for every turn a missed deadline advanced.
     snapshots = client2.get(f"/games/{game_id}/snapshots").json()["snapshots"]
-    assert snapshots, "the deadline scheduler recorded no snapshot for the processed turn"
+    assert sorted(s["turn"] for s in snapshots) == [0, 1], "the deadline scheduler recorded no snapshot for the processed turn"
 
 
 def test_overlapping_deadlines():
@@ -121,7 +121,7 @@ def test_overlapping_deadlines():
     resp = client2.get(f"/games/{game2_id}/deadline")
     assert resp.json()["deadline"] is None
     for gid in (game1_id, game2_id):
-        assert client2.get(f"/games/{gid}/snapshots").json()["snapshots"], (
+        assert sorted(s["turn"] for s in client2.get(f"/games/{gid}/snapshots").json()["snapshots"]) == [0, 1], (
             f"game {gid} was processed by the scheduler but got no snapshot"
         )
 
@@ -166,7 +166,7 @@ def test_deadline_set_to_now():
     client2 = TestClient(app)
     resp = client2.get(f"/games/{game_id}/deadline")
     assert resp.json()["deadline"] is None
-    assert client2.get(f"/games/{game_id}/snapshots").json()["snapshots"]
+    assert sorted(s["turn"] for s in client2.get(f"/games/{game_id}/snapshots").json()["snapshots"]) == [0, 1]
 
 
 def test_manual_processing_never_imposes_a_deadline():

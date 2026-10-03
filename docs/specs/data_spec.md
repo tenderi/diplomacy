@@ -162,7 +162,11 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 `updated_at`.
 
 There are no relational unit, order or supply-centre tables: `state_json` holds the
-board, and `map_snapshots` one row per processed turn.
+board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the
+opening board, is written by `GameRepo.create`; every later one after the turn before it is
+processed). `/history/{turn}` and `/map/history/{turn}` read it; for a game created
+before the turn-0 row existed they fall back to the opening board, which every game starts
+from.
 
 ### `players` table (`PlayerModel`)
 

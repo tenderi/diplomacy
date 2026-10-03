@@ -70,7 +70,7 @@ Adjudication itself was correct in every case checked; these are the paths aroun
   - [x] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
   - [x] A private message to your own power is accepted.
   - [ ] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
-  - [ ] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
+  - [x] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
   - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
         tie numbering) — delete it.
 - [ ] **Done when:** every box above is checked.
