@@ -14,7 +14,35 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Which jobs this change needs. A docs-only change (Markdown, docs/) skips the other three.
+  # The skip is a job-level `if:`, not `paths-ignore`: a job skipped by its `if:` reports
+  # success to branch protection, while a workflow that never starts leaves the required
+  # checks pending forever. The Deploy workflow still follows a green run on main, so the
+  # docs site picks the change up.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # An unknown base (a new branch's all-zero `before`, a force-push) yields an empty
+          # list, which the script treats as code.
+          files=$(git diff --name-only "$BASE...$HEAD" 2>/dev/null || true)
+          printf 'Changed files:\n%s\n' "${files:-(unknown)}"
+          .github/scripts/ci-changes.sh <<<"$files" | tee -a "$GITHUB_OUTPUT"
+
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -90,6 +118,8 @@ jobs:
         run: coverage report --fail-under=80
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,6 +148,8 @@ jobs:
         run: npm run build
 
   security:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
