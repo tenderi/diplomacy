@@ -1311,6 +1311,46 @@ describe('GameView — player actions', () => {
     expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/games/10/messages')).length).toBeGreaterThanOrEqual(2)
   })
 
+  it('sends a broadcast as an anonymous rumour when asked, then resets the toggle', async () => {
+    const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, francePlayers))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('checkbox', { name: 'Broadcast to all' }))
+    const rumour = within(container).getByRole('checkbox', { name: 'Send anonymously (rumour)' })
+    expect(rumour).toHaveAccessibleDescription('Nobody is told who sent it.')
+    fireEvent.click(rumour)
+    fireEvent.change(within(container).getByPlaceholderText('Type a message...'), { target: { value: 'Russia is lying' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ url: '/api/games/10/broadcast', body: { text: 'Russia is lying', anonymous: true } })
+    await waitFor(() =>
+      expect(within(container).getByRole('checkbox', { name: 'Send anonymously (rumour)' })).not.toBeChecked()
+    )
+  })
+
+  it('offers no rumour toggle for a private message, and never sends one', async () => {
+    const players = [...francePlayers, { power: 'GERMANY', user_id: 2, is_active: true, nickname: null }]
+    const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, players))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    // Ticked on a broadcast, then switched back to a private message: the toggle goes
+    // away and the private message stays signed.
+    const toEveryone = await within(container).findByRole('checkbox', { name: 'Broadcast to all' })
+    fireEvent.click(toEveryone)
+    fireEvent.click(within(container).getByRole('checkbox', { name: 'Send anonymously (rumour)' }))
+    fireEvent.click(toEveryone)
+    const recipient = within(container).getByLabelText('Message recipient power')
+    expect(within(container).queryByRole('checkbox', { name: 'Send anonymously (rumour)' })).toBeNull()
+    await waitFor(() => expect(within(recipient as HTMLElement).getByRole('option', { name: 'GERMANY' })).toBeInTheDocument())
+    fireEvent.change(recipient, { target: { value: 'GERMANY' } })
+    fireEvent.change(within(container).getByPlaceholderText('Type a message...'), { target: { value: 'Ally?' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ url: '/api/games/10/message', body: { recipient_power: 'GERMANY', text: 'Ally?' } })
+  })
+
   it('a refused action shows the server\'s reason', async () => {
     const base = stubFetchActive(activeMovementState, francePlayers)
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
@@ -1376,6 +1416,18 @@ describe('GameView — anonymous and public games', () => {
     const { container } = renderGame10()
 
     expect(await within(container).findByText('GERMANY → FRANCE: Ally?')).toBeInTheDocument()
+  })
+
+  it('shows a rumour without its sender, and the sender their own rumour with their power', async () => {
+    const messages = [
+      { id: 1, sender_user_id: null, sender_power: null, sender_name: null, recipient_power: null, text: 'Italy plans a stab', anonymous: true },
+      { id: 2, sender_user_id: 1, sender_power: 'FRANCE', sender_name: null, recipient_power: null, text: 'England is weak', anonymous: true },
+    ]
+    vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), messages))
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText('🕵️ Rumour → ALL: Italy plans a stab')).toBeInTheDocument()
+    expect(within(container).getByText('🕵️ Rumour (you, FRANCE) → ALL: England is weak')).toBeInTheDocument()
   })
 
   it('names a message sender by power and name in a public game', async () => {
