@@ -1,5 +1,5 @@
 import { render, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import { AuthContext } from '@/contexts/AuthContext'
 import { LinkTelegramButton } from './LinkTelegramButton'
