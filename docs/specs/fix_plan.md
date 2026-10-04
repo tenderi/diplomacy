@@ -10,7 +10,7 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BB**.
+>   history. Track letters run in sequence; the next free one is **BC**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
@@ -23,9 +23,51 @@
   split-coast order errors say what is wrong.
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
-- **Track BA** (play-through defects) is the open agent work, top-down. **Track AZ**
+- **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
+  **Track BA** has only BA6 left, waiting on the maintainer (#145). **Track AZ**
   (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
+
+---
+
+# Track BB — Telegram groups and messaging (#158, play-through 2026-10-03)
+
+#158 (maintainer): `/status` in a group answered for Game 1 though Game 2 belongs to that
+group. Neither production game is linked to a group; a group's commands ignore the group
+link anyway and use the caller's current game. Wanted: exactly one game per group, the link
+controllable from the web and from Telegram. The rest come from an agent's messaging
+play-through in a group game.
+
+- [ ] BB1 — **A group resolves to its linked game, and a group has at most one.**
+      `/status` (and the menu header it shares) typed in a group uses the game linked to
+      that group, and says how to link one (`/linkgroup <id>`) when none is. In a group it
+      never prints the caller's own power ("You are: GERMANY" breaks anonymity). Linking a
+      game to a group that already has one moves the link (the reply names the game it
+      replaced); a partial unique index on `games.channel_id` makes two impossible.
+- [ ] BB2 — **Link and unlink from the web game page.** Show the linked group (name) with
+      an Unlink button; "Link a Telegram group" opens
+      `https://t.me/<bot>?startgroup=link_<game_id>`, and the bot links the game when it
+      receives `/start link_<game_id>` in a group from a player of that game.
+- [ ] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
+      messages**, and a rumour's sender doesn't see it marked as theirs:
+      `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no
+      bot secret and the API treats the bot as anonymous. `tests/test_bot_commands.py`
+      asserts the bug. Also: an invalid JWT on `GET /games/{id}/messages` returns 200 with
+      broadcasts only instead of 401.
+- [ ] BB4 — **Blank and oversized messages.** Blank or whitespace-only messages and
+      broadcasts are accepted and sent (`routes/messages.py`): 400. Anything that would
+      exceed Telegram's 4096 characters with its heading is dropped by the bot as a
+      permanent error: cap the text with a clear 400.
+- [ ] BB5 — **The group guard (v3.0.53) deletes other bots' and unknown commands** when the
+      bot is an admin (`/weather@OtherBot`): `app.py` drops the `@bot` suffix unchecked.
+      Ignore commands addressed to another bot and commands this bot doesn't have. Its
+      "🤫 /rumour is private" notice tells the group who is about to spread a rumour: word
+      it generically.
+- [ ] BB6 — Smaller: an unknown power in a message gets "no player is assigned"; `/messages`
+      shows raw ISO timestamps; the group's orders map is titled "Results — …". A rumour's
+      sender is the only player who gets no DM, which hints at the author (needs a design
+      call; ask the maintainer).
+- [ ] **Done when:** every box above is checked.
 
 ---
 
