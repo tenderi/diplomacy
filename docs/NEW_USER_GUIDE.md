@@ -64,7 +64,8 @@ The group's games are **only visible to the group's members**. Nobody else can f
 join them. If you type an order command in the group by mistake, the bot won't take it:
 it points you to your private chat, because everyone in the group would see it. If the bot
 is a group admin it also deletes the command, so an order or a rumour isn't left there
-under your name.
+under your name; its notice doesn't say which command it was. Other bots' commands are
+none of its business and stay where they are.
 
 ---
 
