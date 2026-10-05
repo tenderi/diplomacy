@@ -587,7 +587,10 @@ export default function GameView() {
       // *before* the friendly message is set, not after -- otherwise the
       // reload silently wipes the message we just showed the user.
       if (e instanceof ApiError && e.status === 409) load()
-      setError(describeActionError(e, 'Process turn failed'))
+      // BA6: a game with empty seats is refused with a 409 naming them. That
+      // message is the answer; the generic "someone else updated" one is not.
+      const unseated = e instanceof ApiError && e.status === 409 && e.message.includes('unseated')
+      setError(unseated ? (e as ApiError).message : describeActionError(e, 'Process turn failed'))
     } finally {
       setProcessing(false)
     }

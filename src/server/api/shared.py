@@ -615,8 +615,23 @@ def seats_filled(game_id: str, numeric_game_id: int) -> bool:
     the two counts saw one power twice and declared a game with an empty seat
     "full". A vacated row still counts -- the game started when it was taken.
     """
+    return not unseated_powers(game_id, numeric_game_id)
+
+
+def unseated_powers(game_id: str, numeric_game_id: int) -> list[str]:
+    """The powers with neither a seat row nor dummy status, sorted; empty once
+    the table is full (see ``seats_filled``)."""
     seated = {str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id)}
-    return len(seated | set(game_service.dummy_powers(game_id))) >= 7
+    taken = seated | set(game_service.dummy_powers(game_id))
+    return sorted(set(game_service.map.initial_ownership.values()) - taken)
+
+
+def unseated_message(unseated: list[str]) -> str:
+    """Why a turn of a game that is not full cannot be processed (BA6)."""
+    count = len(unseated)
+    noun = "power is" if count == 1 else "powers are"
+    names = ", ".join(p.title() for p in unseated)
+    return f"{count} {noun} unseated ({names}): seat players or mark them as dummies."
 
 
 def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:
@@ -974,7 +989,8 @@ MAX_AUTO_PHASES = 6
 
 def maybe_auto_process(game_id: str) -> int:
     """W10: process the turn now if the game has ``auto_process`` on, every power
-    that has something to order has submitted, and nobody has asked to wait.
+    that has something to order has submitted, nobody has asked to wait, and
+    every power is seated or a dummy (``seats_filled``).
     Repeats while the next phase is complete from the start. Returns how many
     phases were processed (0 almost always).
 
@@ -986,6 +1002,11 @@ def maybe_auto_process(game_id: str) -> int:
     means "someone else did it".
     """
     processed = 0
+    row = db_service.get_game_by_game_id(game_id)
+    # A game is not processed until every power is seated or a dummy (BA6).
+    # Checked once: no step below unseats a power.
+    if row is None or not seats_filled(game_id, int(row.id)):
+        return 0
     while processed < MAX_AUTO_PHASES and game_service.ready_to_auto_process(game_id):
         prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
         try:
@@ -1019,6 +1040,18 @@ def process_due_deadlines(now: datetime) -> None:
                 if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
+                    game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
+                    if not seats_filled(game_id_str, int(game_id_val)):
+                        # BA6: a game with an empty seat is not processed. The
+                        # deadline is spent (logged once, not every tick); a
+                        # weekly schedule moves to its next slot, and filling
+                        # the last seat arms a fresh one.
+                        scheduler_logger.info(
+                            "Deadline for game %s passed with seats unfilled; not processing.",
+                            game_id_str,
+                        )
+                        db_service.update_game_deadline(game_id_val, scheduled_deadline(game_id_str))
+                        continue
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
                     # Process the turn. Double-processing within this worker is
                     # prevented by GameRepo.save_state's expected_phase_code check
@@ -1026,7 +1059,6 @@ def process_due_deadlines(now: datetime) -> None:
                     # would only guard this one process anyway, not a second uvicorn
                     # worker racing to process the same missed deadline, so it isn't
                     # a real guard and has been removed rather than kept for show.
-                    game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
                     prev_view = game_service.view(game_id_str)
                     prev_phase_code = prev_view["phase"] if prev_view else None
                     try:

@@ -16,11 +16,13 @@
 
 ## Status
 
-- **Last updated:** 2026-10-05, at `v3.0.62` (BB9 and BB2a done: a game is linked to a
-  group only from inside it -- the link endpoint is bot or admin only, `/link_channel` no
-  longer takes a chat id, `/newgame` creates and links in one call or creates nothing, and
-  `/start link_<id>` in a group links the game for a player of it; BB2b, the web page's
-  side, is open). `v3.0.61` did BB7 (`/viewmap`, `/map` and `/players`
+- **Last updated:** 2026-10-05, at `v3.0.63` (BA6 done: the maintainer chose a full table
+  in #145, so no turn is processed, by hand, by auto-process or at a deadline, while a
+  power is neither seated nor a dummy; Track BA is complete). `v3.0.62` did BB9 and BB2a (a
+  game is linked to a group only from inside it -- the link endpoint is bot or admin only,
+  `/link_channel` no longer takes a chat id, `/newgame` creates and links in one call or
+  creates nothing, and `/start link_<id>` in a group links the game for a player of it;
+  BB2b, the web page's side, is open). `v3.0.61` did BB7 (`/viewmap`, `/map` and `/players`
   typed in a group answer for the group's game, and an id for another game is refused
   there). `v3.0.59` did BB1 (a Telegram group has at most one
   game, only a player of the game it replaces may move the link, and `/status` in a group
@@ -32,8 +34,7 @@
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
-  **Track BA** has only BA6 left, waiting on the maintainer (#145). **Track AZ**
-  (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
+  **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -92,64 +93,6 @@ play-through in a group game.
       Only the bot (with a chat id it saw the command in) or an admin may link. And
       `/newgame` creates the game, then links: a refused link (409) leaves an unlinked
       orphan game in the public list.
-- [ ] **Done when:** every box above is checked.
-
----
-
-# Track BA — Play-through defects (orders, notifications, privacy)
-
-Found by an agent playing four games against a local API as several powers (2026-10-02).
-Adjudication itself was correct in every case checked; these are the paths around it.
-
-- [x] BA1 — **A convoy the menu offers returns a 500 and loses the whole order batch.**
-      `F ION C A ALB - APU` with a *fleet* in ALB: `_check_orders` accepts it, re-formats it
-      as `F ION C F ALB - APU`, and `submit_orders` re-parses that outside any try block.
-      `engine/orders/validation.py` `_validate_convoy` must reject a convoy whose origin
-      holds no army, with a 400-class error, and no stored order may fail to re-parse.
-      Also `server/legal_orders.py` `_movement_orders`: the `ProvinceType.WATER` loop offers
-      `C A X - Y` for every coastal pair next to the fleet whatever is on the board (≈40
-      bogus entries for F NTH in F1901, shown by the bot's convoy menu). Offer only convoys
-      of armies that exist (the chain-based block already does).
-- [x] BA2 — **Every player's Telegram ID is public.** `GET /games/{id}/players` (no auth)
-      returns `telegram_id` per seat (`routes/games.py` `get_players`). Drop it from the
-      public response (check the bot and frontend for readers first).
-- [x] BA3 — **Adjustment orders accepted, then VOID.** Validation never checks the counts
-      `legal_orders` already reports in `adjustment.slots`: a build at delta 0, two builds
-      with one slot, a disband when builds are owed, two waives for one slot are all
-      `success: true`. And the bot's merge path stores `BUILD F KIE` then `WAIVE` as both
-      (build happens, waive VOID): waive-after-build must replace like build-after-waive.
-- [x] BA4 — **The turn notification is generic and wrong for retreat/adjustment phases.**
-      `api/shared.py` `notify_turn_processed` tells every player "Your next orders are due"
-      without naming the phase; in a retreat phase only the dislodged powers have orders,
-      and they are not told which unit was dislodged or where it may go. Name the new phase,
-      tell powers with nothing to do that they wait, tell dislodged powers their units and
-      retreat options, and powers with builds/disbands their count.
-- [x] BA5 — **An army's convoyed move without `VIA` is rejected.** `A NWY - YOR` (F NTH in
-      place) → "YOR is not adjacent to NWY". `docs/specs/adjudication.md` §6 says
-      non-adjacent army moves are always convoyed and the rulebook writes `A Lon-Bel`.
-      Accept a non-adjacent army move to a coastal province as a convoyed move.
-- [ ] BA6 — **Turns can be processed before the game is full** (creator, 1 of 7 seated →
-      advances). Decide with the maintainer whether the creator's manual process should
-      require a full table (the demo game's AI seats must keep working).
-- [x] BA7 — Smaller issues:
-  - [x] The joining player also gets "A player has joined game N as X" (`join_game` passes
-        no `exclude_telegram_id`); the power is lower-case there and in `GET /orders/france`.
-  - [x] `orders_status.submitted` counts powers with nothing to do or an empty list
-        (`/status` shows "✅ Submitted").
-  - [x] Retreat-phase errors: `A BUR - RUH` should hint at `A BUR R RUH`; an illegal retreat
-        should say why (attacker's origin, contested, occupied).
-  - [x] `F ANK - BUL` says "must name a coast" though ANK touches no BUL coast.
-  - [x] A private message to your own power is accepted.
-  - [x] `/orderhistory` labels turns "Turn 0/1/3" instead of phase codes.
-  - [x] No history snapshot of the starting board: `/games/{id}/history/0` → 404.
-  - [x] A signed-in user who opens `/login` or `/register` from inside the app sees the
-        form: the pages called `navigate()` during render, which React Router drops on a
-        component's first render.
-  - [x] `POST /channel/battle_results` is unused and wrong (current phase label, no moves,
-        tie numbering) — delete it.
-- [x] BA8 — **A private command typed in a group stays there under its author's name.** A
-      `/rumour` sent to the group by mistake was refused but left readable, naming its
-      author. The bot now deletes it when it has the right to (and says so).
 - [ ] **Done when:** every box above is checked.
 
 ---

@@ -310,6 +310,16 @@ players would find out by refreshing. A concession is announced for the same rea
 A non-final draw vote is announced too, deliberately: a draw is the one outcome every power holds
 a veto over, so discovering that one is being negotiated should not require running `/status`.
 
+**A turn is processed only at a full table**: every power has a seat row (held, or vacated
+by a player who quit) or is a dummy (`api/shared.py`'s `seats_filled` / `unseated_powers`).
+All three triggers check it. The creator's `POST /games/{id}/process_turn` answers **409**
+naming the empty seats (`3 powers are unseated (Austria, Italy, Turkey): seat players or
+mark them as dummies.`), whoever calls it, bot secret and admin token included; the bot and
+the web show that message as is. `maybe_auto_process` processes nothing, and the deadline
+scheduler skips the game with one info line and spends the deadline, so it does not
+retry every tick (a weekly schedule moves to its next slot; filling the last seat arms a
+fresh one). The bot's demo game is full from the start: Germany plus six dummies.
+
 **Deadlines are never imposed by the server.** A game has a deadline only when a player
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's

@@ -596,6 +596,10 @@ async def process_turn(
     behaviour) -- the deadline scheduler never passes it, since a missed deadline
     must still process whatever was submitted.
 
+    A game with a power that is neither seated nor a dummy is refused (409,
+    naming them) whoever calls -- the full-table rule the auto-process and
+    deadline paths share (``api_shared.seats_filled``).
+
     Only the game's creator (Bearer, or a Telegram player via the bot), the
     bot secret, or an admin-token holder may call this -- see
     ``_authorize_process_turn``. The deadline
@@ -613,6 +617,11 @@ async def process_turn(
     caller_telegram_id = _authorize_process_turn(
         game_id, credentials, x_bot_secret, x_admin_token, (body or {}).get("telegram_id")
     )
+    row = db_service.get_game_by_game_id(game_id)
+    unseated = api_shared.unseated_powers(game_id, int(row.id)) if row is not None else []
+    if unseated:
+        # BA6: no power may be left without a player or dummy status.
+        raise HTTPException(status_code=409, detail=api_shared.unseated_message(unseated))
     if require_all:
         status = game_service.orders_status(game_id)
         if status and status["missing"]:

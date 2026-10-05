@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from server.api import app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _register_and_login, _telegram_user
 
@@ -119,6 +120,7 @@ def test_a_vacated_seat_made_a_dummy_is_not_counted_twice(client: TestClient) ->
 
 def test_dummies_play_by_civil_disorder_through_a_real_turn(client: TestClient) -> None:
     game_id = _create(client, _register_and_login(client, "dmy"), ["TURKEY"])
+    fill_with_dummies(game_id)
     before = sorted(u["location"] for u in client.get(f"/games/{game_id}/state").json()["units_by_power"]["TURKEY"])
     assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     after = client.get(f"/games/{game_id}/state").json()
