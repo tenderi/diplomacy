@@ -443,7 +443,9 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         orders_status = None
 
     missing = orders_status.get("missing", []) if orders_status else []
-    if missing:
+    # With an empty seat the API refuses the turn whatever is missing (BA6):
+    # go straight to it, so the player reads that refusal, not a confirm.
+    if missing and not (orders_status or {}).get("unseated"):
         keyboard = [
             [InlineKeyboardButton("✅ Process anyway", callback_data=f"ptforce|{game_id}")],
             [InlineKeyboardButton("❌ Cancel", callback_data=f"ptcancel|{game_id}")],

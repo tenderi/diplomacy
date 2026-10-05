@@ -620,7 +620,12 @@ def seats_filled(game_id: str, numeric_game_id: int) -> bool:
 
 def unseated_powers(game_id: str, numeric_game_id: int) -> list[str]:
     """The powers with neither a seat row nor dummy status, sorted; empty once
-    the table is full (see ``seats_filled``)."""
+    the table is full (see ``seats_filled``).
+
+    Always empty for the DAIDE listener's game: its seats are live DAIDE
+    connections held in memory, never seat rows, so it is exempt."""
+    if (game_service.meta(game_id) or {}).get("daide"):
+        return []
     seated = {str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id)}
     taken = seated | set(game_service.dummy_powers(game_id))
     return sorted(set(game_service.map.initial_ownership.values()) - taken)
@@ -1021,6 +1026,30 @@ def maybe_auto_process(game_id: str) -> int:
     return processed
 
 
+def skip_deadline_for_empty_seats(game_id: str, numeric_game_id: int, unseated: list[str]) -> None:
+    """A deadline passed in a game with empty seats (BA6): the turn is not
+    processed, the deadline is spent -- a weekly schedule moves to its next
+    slot, a one-off deadline is cleared -- so the scheduler does not find it
+    again every tick, and the players and the game's group are told why
+    nothing happened. Filling the last seat arms a scheduled deadline again
+    (``arm_scheduled_deadline``)."""
+    scheduler_logger.info("Deadline for game %s passed with seats unfilled; not processing.", game_id)
+    next_slot = scheduled_deadline(game_id)
+    db_service.update_game_deadline(numeric_game_id, next_slot)
+    reminder_sent[numeric_game_id] = False
+    invalidate_cache(f"games/{game_id}")
+    if next_slot is not None:
+        after = f"The next deadline is {format_scheduled_deadline(next_slot, game_schedule(game_id))}."
+    else:
+        after = "Set a new deadline once the table is full."
+    text = (
+        f"⏰ Game {game_id}: the deadline passed, but the turn waits for a full table. "
+        f"{unseated_message(unseated)} {after}"
+    )
+    notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
+    post_to_game_group(game_id, text)
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -1041,16 +1070,9 @@ def process_due_deadlines(now: datetime) -> None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
-                    if not seats_filled(game_id_str, int(game_id_val)):
-                        # BA6: a game with an empty seat is not processed. The
-                        # deadline is spent (logged once, not every tick); a
-                        # weekly schedule moves to its next slot, and filling
-                        # the last seat arms a fresh one.
-                        scheduler_logger.info(
-                            "Deadline for game %s passed with seats unfilled; not processing.",
-                            game_id_str,
-                        )
-                        db_service.update_game_deadline(game_id_val, scheduled_deadline(game_id_str))
+                    unseated = unseated_powers(game_id_str, int(game_id_val))
+                    if unseated:
+                        skip_deadline_for_empty_seats(game_id_str, int(game_id_val), unseated)
                         continue
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
                     # Process the turn. Double-processing within this worker is

@@ -100,7 +100,7 @@ your units have orders.
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
 | `/clearorders [game_id]`, `/clear [game_id]` | Clear your submitted orders so you can resubmit. |
 | `/orderhistory [game_id]` | Orders from previous turns, grouped by turn and power. |
-| `/processturn [game_id]` | **The game's creator only** (the ⚙️ Process turn now button): adjudicate the current phase now. Refused while any power is neither taken nor a `/dummy`. If some powers haven't submitted, asks for confirmation first (their units would hold). Everyone else's turns end at the deadline, or when all orders are in with auto-process on. |
+| `/processturn [game_id]` | **The game's creator only** (the ⚙️ Process turn now button): adjudicate the current phase now. Refused while any power is neither taken nor a `/dummy` (the reply names them). Otherwise, if some powers haven't submitted, asks for confirmation first (their units would hold). Everyone else's turns end at the deadline, or when all orders are in with auto-process on. |
 
 Separate multiple orders with semicolons. The buttons are the easiest route — they only ever
 offer orders that are legal in the current phase, including retreats and builds.

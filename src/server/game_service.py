@@ -100,6 +100,7 @@ class GameService:
         deadline_schedule: Optional[dict[str, Any]] = None,
         anonymous: bool = False,
         random_powers: bool = False,
+        daide: bool = False,
     ) -> str:
         """Create a fresh standard game at its opening movement phase.
 
@@ -116,6 +117,10 @@ class GameService:
 
         ``random_powers``: players do not choose a power -- each join is seated
         in a random open one. Also fixed for the game's life.
+
+        ``daide``: the DAIDE listener's game. Its seats are live DAIDE
+        connections, not seat rows, so it is exempt from the full-table rule
+        (``api.shared.unseated_powers``).
 
         The opening board is recorded as the game's turn-0 snapshot.
 
@@ -135,6 +140,7 @@ class GameService:
             deadline_schedule=deadline_schedule,
             anonymous=anonymous,
             random_powers=random_powers,
+            daide=daide,
             opening_board={"units": opening["units"], "supply_centers": opening["supply_centers"]},
         )
 

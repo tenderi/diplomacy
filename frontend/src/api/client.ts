@@ -87,13 +87,19 @@ export async function apiFetch(
  * callers can branch on specific codes (e.g. 409 `StaleGameError`) without
  * parsing the message string -- the message itself may be a raw backend
  * string not meant for display (see `errorDetailToMessage`).
+ *
+ * `code` is the response's `X-Error-Code` header, when the server sent one: a
+ * stable name for a refusal (e.g. `seats_unfilled`) to switch on, where the
+ * message is prose that may change.
  */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  code: string | null
+  constructor(message: string, status: number, code: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }
 
@@ -123,7 +129,8 @@ export async function apiJson<T>(path: string, options: RequestInit = {}): Promi
   if (!res.ok) {
     const text = await res.text()
     const message = errorDetailToMessage(text, res.status)
-    throw new ApiError(message, res.status)
+    // Test doubles of `Response` often carry no headers at all.
+    throw new ApiError(message, res.status, res.headers?.get('X-Error-Code') ?? null)
   }
   return res.json()
 }

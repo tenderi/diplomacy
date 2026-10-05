@@ -314,11 +314,17 @@ a veto over, so discovering that one is being negotiated should not require runn
 by a player who quit) or is a dummy (`api/shared.py`'s `seats_filled` / `unseated_powers`).
 All three triggers check it. The creator's `POST /games/{id}/process_turn` answers **409**
 naming the empty seats (`3 powers are unseated (Austria, Italy, Turkey): seat players or
-mark them as dummies.`), whoever calls it, bot secret and admin token included; the bot and
-the web show that message as is. `maybe_auto_process` processes nothing, and the deadline
-scheduler skips the game with one info line and spends the deadline, so it does not
-retry every tick (a weekly schedule moves to its next slot; filling the last seat arms a
-fresh one). The bot's demo game is full from the start: Germany plus six dummies.
+mark them as dummies.`) with the header `X-Error-Code: seats_unfilled`, whoever calls it,
+bot secret and admin token included. The web switches on the header and shows the
+message as is; the bot reads `unseated` from `GET /games/{id}/orders_status`, skips its
+"process anyway?" confirm when it is not empty, and shows the 409's message.
+`maybe_auto_process` processes nothing. When a deadline passes, the scheduler does not
+process the game; it spends the deadline, so it does not find it again every tick (a
+weekly schedule moves to its next slot, a one-off deadline is cleared; filling the last
+seat arms a scheduled one again), and tells the players and the game's group, naming the
+empty seats and the next deadline if there is one. The bot's demo game is full from the
+start: Germany plus six dummies. The DAIDE listener's game (`games.daide`) is exempt: its
+seats are live DAIDE connections held in memory, not seat rows.
 
 **Deadlines are never imposed by the server.** A game has a deadline only when a player
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
