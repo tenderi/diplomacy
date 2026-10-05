@@ -23,7 +23,8 @@ from .outbox import get_outbox
 logger = logging.getLogger("diplomacy.telegram_bot.game_context")
 
 __all__ = [
-    "GameContextError", "current_game", "fetch_user_games", "resolve_game_and_power", "set_current_game",
+    "GROUP_CHAT_TYPES", "NO_GROUP_GAME", "GameContextError", "current_game", "fetch_user_games", "group_game",
+    "resolve_game_and_power", "set_current_game",
 ]
 
 
@@ -105,6 +106,23 @@ def current_game(user_id: str) -> Optional[str]:
     except Exception as e:  # reading a convenience must never break a command
         logger.warning("Could not read current game for user %s: %s", user_id, e)
         return None
+
+
+GROUP_CHAT_TYPES = ("group", "supergroup")
+
+NO_GROUP_GAME = (
+    "No game belongs to this group yet. A player can link one of their games with "
+    "/linkgroup <game id>, or start a new one with /newgame."
+)
+
+
+def group_game(chat_id: Any) -> Optional[str]:
+    """The game Telegram group ``chat_id`` belongs to (a group has at most one),
+    or None. A command typed in a group is about this game, never about the
+    caller's current game. Raises ``requests.RequestException`` when the API
+    can't answer."""
+    info = api_get(f"/channels/{chat_id}/game") or {}
+    return str(info["game_id"]) if info.get("linked") else None
 
 
 def resolve_game_and_power(user_id: str, game_id: Optional[str] = None) -> tuple[str, str]:

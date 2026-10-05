@@ -105,7 +105,11 @@ class GameModel(Base):
     # Shape: {"timezone": iana, "slots": [{"day": "MON", "time": "16:00"}]}.
     # NULL = no schedule: deadlines exist only when set explicitly.
     deadline_schedule = Column(JSON, nullable=True)
-    channel_id = Column(String(255), nullable=True)  # Telegram channel ID for channel-linked games
+    # The Telegram group this game belongs to (its announcements go there, only
+    # its members see and join the game). A group has at most one game: the
+    # partial unique index below, and ``DatabaseService.link_game_to_channel``
+    # moves the link rather than adding a second.
+    channel_id = Column(String(255), nullable=True)
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
     # When the current ``phase_code`` began (naive UTC). Set on creation and every
@@ -126,6 +130,10 @@ class GameModel(Base):
     map_snapshots = relationship("MapSnapshotModel", back_populates="game", cascade="all, delete-orphan")
     messages = relationship("MessageModel", back_populates="game", cascade="all, delete-orphan")
     spectators = relationship("SpectatorModel", back_populates="game", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("uq_games_channel_id", channel_id, unique=True, postgresql_where=text("channel_id IS NOT NULL")),
+    )
 
 
 class UserModel(Base):

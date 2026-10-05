@@ -16,13 +16,13 @@
 
 ## Status
 
-- **Last updated:** 2026-10-05, at `v3.0.56` (BB3 and BB4 done: the bot's `/messages`
-  shows private messages again, `GET /games/{id}/messages` 401s on credentials that don't
-  check out, and blank or over-3500-unit messages are a 400, capped in the web composer
-  too). `v3.0.49` (BA7) made `orders_status` separate submitted, missing and
-  nothing-to-do. `v3.0.47` moved the frontend to react-router 7,
-  which clears the react-router audit findings (AZ2); `v3.0.46` made retreat-phase and
-  split-coast order errors say what is wrong.
+- **Last updated:** 2026-10-05, at `v3.0.59` (BB1 done: a Telegram group has at most one
+  game, only a player of the game it replaces may move the link, and `/status` in a group
+  answers for the group's game without naming the caller's power). `v3.0.58` did BB8 (a
+  long message log is trimmed to fit one Telegram message); `v3.0.56` did BB3 and BB4 (the
+  bot's `/messages` shows private messages again; blank or oversized messages are a 400);
+  `v3.0.55` did BB5 (the group guard leaves other bots' commands alone). `v3.0.49`
+  finished BA7; `v3.0.47` moved the frontend to react-router 7 (AZ2).
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
@@ -40,7 +40,7 @@ link anyway and use the caller's current game. Wanted: exactly one game per grou
 controllable from the web and from Telegram. The rest come from an agent's messaging
 play-through in a group game.
 
-- [ ] BB1 — **A group resolves to its linked game, and a group has at most one.**
+- [x] BB1 — **A group resolves to its linked game, and a group has at most one.**
       `/status` (and the menu header it shares) typed in a group uses the game linked to
       that group, and says how to link one (`/linkgroup <id>`) when none is. In a group it
       never prints the caller's own power ("You are: GERMANY" breaks anonymity). Linking a
@@ -69,6 +69,9 @@ play-through in a group game.
       shows raw ISO timestamps; the group's orders map is titled "Results — …". A rumour's
       sender is the only player who gets no DM, which hints at the author (needs a design
       call; ask the maintainer).
+- [ ] BB7 — **`/viewmap` and `/players` typed in a group still use the caller's current
+      game**, like `/status` did before BB1: resolve them through `GET /channels/{id}/game`
+      too (`game_context.group_game`), ignoring a typed id for another group's game.
 - [x] BB8 — **A long message log is too big for one Telegram message.** Since BB3 the
       bot's `/messages` shows private messages too, and the log (up to 3500 units per
       message) went out in one reply with no limit, so Telegram refused it. Keep the newest

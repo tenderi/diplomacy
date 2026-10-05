@@ -157,7 +157,7 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 | `messages.py` | Private messages, broadcasts and rumours (anonymous broadcasts), message history. |
 | `maps.py` | Board / orders / resolution PNGs, per-turn boards and each turn's orders map (what the Telegram group gets after every turn), map preview, and `GET /maps/{map}/provinces` — province metadata (full name, type, supply-centre flag, coasts), the one server-side source of display names for both clients. |
 | `waiting_list.py` | Automatic game matching: join/leave the queue, queue status. Owns the `waiting_list` table and creates the game itself when the queue fills, claiming exactly seven entries in one transaction first so a failure cannot orphan a game. |
-| `channels.py` | Link/unlink a game's Telegram group, its settings, and posts queued for it: the current map, results, broadcasts, timelines, the player dashboard, threads. |
+| `channels.py` | Link/unlink a game's Telegram group (one game per group: linking moves it), the game a group belongs to (`GET /channels/{id}/game`, bot only), its settings, and posts queued for it: the current map, results, broadcasts, timelines, the player dashboard, threads. |
 | `admin.py` | Delete a game or all games, mark a seat inactive, cache and connection-pool management, counts. Requires the admin token. |
 | `archive.py` | Saved-game export and import (admin only: an export holds every private message). |
 | `feedback.py` | `POST /feedback` (a signed-in player's report, with the named game's phase; DMed to `DIPLOMACY_ADMIN_TELEGRAM_ID`; 10 per hour) and `GET /admin/feedback`. |

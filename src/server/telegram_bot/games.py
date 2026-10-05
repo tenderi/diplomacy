@@ -11,7 +11,9 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
-from .game_context import GameContextError, resolve_game_and_power, set_current_game
+from .game_context import (
+    GROUP_CHAT_TYPES, NO_GROUP_GAME, GameContextError, group_game, resolve_game_and_power, set_current_game,
+)
 from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
@@ -67,7 +69,8 @@ GROUP_WELCOME = (
     "🏛️ *Diplomacy in this group*\n\n"
     "• /newgame anonymous|public -- start a game for this group (players known only by power, or by nickname); "
     "everyone joins with the button I post\n"
-    "• /linkgroup [game id] -- attach an existing game to this group\n\n"
+    "• /linkgroup [game id] -- make an existing game this group's game (a group has one)\n"
+    "• /status -- this group's game: phase and who has ordered\n\n"
     "After every turn I post two maps here -- the orders, then the result -- plus deadline reminders and players' "
     "broadcasts. *Orders and private messages go to me in a private chat* -- never "
     "in the group, where everyone would see them. Only members of this group can "
@@ -199,6 +202,23 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args if context.args is not None else []
     game_id_arg = args[0] if args else None
 
+    chat = update.effective_chat
+    if chat is not None and chat.type in GROUP_CHAT_TYPES:
+        # In a group: the group's own game whoever asks (any game id typed is
+        # ignored), and never the caller's power -- the whole group reads the
+        # reply, and "You are: GERMANY" would unmask an anonymous game.
+        try:
+            group_game_id = group_game(chat.id)
+            if group_game_id is None:
+                await update.message.reply_text(NO_GROUP_GAME)
+                return
+            text = status_text(group_game_id, None, user_id)
+        except requests.RequestException as e:
+            await update.message.reply_text(f"Could not retrieve this group's game status: {e}")
+            return
+        await update.message.reply_text(text, parse_mode='Markdown')
+        return
+
     try:
         game_id, power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
@@ -216,17 +236,18 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, parse_mode='Markdown')
 
 
-def status_text(game_id: str, power: str, user_id: str, *, title: Optional[str] = None) -> str:
+def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Optional[str] = None) -> str:
     """The /status report for ``game_id``: phase, deadline, who has ordered,
     wait flags and the draw vote. Shared with the game menu (``hub.py``), whose
-    header it is. Raises ``requests.RequestException`` only when the game state
-    itself can't be read; the other parts are left out if they fail."""
+    header it is. ``power`` None (a group's /status) leaves out the "You are"
+    line. Raises ``requests.RequestException`` only when the game state itself
+    can't be read; the other parts are left out if they fail."""
     view = api_get(f"/games/{game_id}/state")
 
     text = (
         f"{title or f'📊 *Game {game_id} Status*'}\n\n"
-        f"🎯 *You are:* {power}\n"
-        f"📅 *Turn:* {view.get('year')} {view.get('season')}\n"
+        + (f"🎯 *You are:* {power}\n" if power else "")
+        + f"📅 *Turn:* {view.get('year')} {view.get('season')}\n"
         f"🔄 *Phase:* {view.get('phase_type')}\n"
         f"📝 *Phase Code:* {view.get('phase')}\n"
     )

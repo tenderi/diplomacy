@@ -12,7 +12,7 @@ import requests
 from fastapi.testclient import TestClient
 
 from rendering.view_adapter import units_for_render
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.shared import game_service, phase_label
 from server.telegram_bot import notifications
 from server.telegram_bot.api_client import ApiUnreachableError
@@ -22,6 +22,8 @@ from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
 BOT = {"X-Bot-Secret": BOT_SECRET}
 GROUP = "-1004242"
+# Tests reuse one group id: an admin may move its link from the last test's game.
+ADMIN_LINK = {**BOT, "X-Admin-Token": ADMIN_TOKEN}
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -54,7 +56,7 @@ class TestTheGroupSeesEachTurn:
         creator = _telegram_user(client, "mapper")
         game_id = str(client.post("/games/create", json=_as(creator, map_name="standard"), headers=BOT).json()["game_id"])
         link = {"channel_id": GROUP, **({"settings": settings} if settings else {})}
-        assert client.post(f"/games/{game_id}/channel/link", json=link, headers=BOT).status_code == 200
+        assert client.post(f"/games/{game_id}/channel/link", json=link, headers=ADMIN_LINK).status_code == 200
         return game_id
 
     def _process(self, client: TestClient, game_id: str, orders: dict[str, list[str]]) -> list[dict[str, Any]]:
