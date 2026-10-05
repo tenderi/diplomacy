@@ -189,7 +189,8 @@ is Game 2 ...") -- ask about that one in a private chat with the bot.
 The game's web page has **Link a Telegram group**: it opens Telegram, which asks which group
 to add the bot to and then sends `/start link_<game_id>` there for you. The bot links the game
 to that group if you play in it, exactly as `/linkgroup <game_id>` would. Sent in a private
-chat, that `/start` links nothing.
+chat, that `/start` links nothing. Once a group is linked, the page shows its name instead,
+with an **Unlink** button (like `/unlinkgroup`). Only players of the game see either.
 
 ### Advanced: channel settings
 

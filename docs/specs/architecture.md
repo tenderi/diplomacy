@@ -206,6 +206,12 @@ There are three delivery surfaces, and they are not interchangeable:
   game: `/linkgroup` (`/link_channel` is its old name, refused in a private chat), and
   `/start link_<id>`, which Telegram sends to the group the player picks after the web
   page's `t.me/<bot>?startgroup=link_<id>` (in a private chat it links nothing).
+  That web control (`TelegramGroupCard`, shown to a player of the game) reads
+  `GET /games/{id}/channel` (players, the bot or an admin): `linked`, the group's
+  `channel_name` (its title, sent by the bot when it links), and `bot_username`
+  (`DIPLOMACY_BOT_USERNAME`, default `IronChancellorBot`) to build that link. A linked
+  game shows the group and an Unlink button (`DELETE /games/{id}/channel/unlink`, also
+  open to a web player of the game).
   `/newgame` makes **one** call, `POST /games/create` with `channel_id` (bot only): the game
   is created linked to the group or, on a 409, deleted again, never left unlinked in the
   public list; the bot also checks the rule before it asks. A command typed in a group is about that group's game, never the caller's current game: the bot asks

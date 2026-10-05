@@ -245,6 +245,11 @@ zoom/pan viewer (wheel/pinch/buttons, 10%–600%, double-click toggles fit ↔ 1
 Note for tests: jsdom implements neither `PointerEvent` nor `setPointerCapture`, so pointer
 tests need the polyfill in `MapViewer.test.tsx` or they silently assert nothing.
 
+`components/TelegramGroupCard.tsx` is the game page's Telegram group control, rendered only
+for a player of the game: the linked group with an Unlink button, or a "Link a Telegram
+group" link to `t.me/<bot>?startgroup=link_<id>` (the bot does the linking, from inside the
+group). It reads `GET /games/{id}/channel`, which also names the bot.
+
 ---
 
 ## 9. Tests
