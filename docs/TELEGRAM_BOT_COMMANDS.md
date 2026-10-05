@@ -176,7 +176,7 @@ Send these **in the group**:
 | Command | Description |
 |---|---|
 | `/newgame anonymous` / `/newgame public` | Create a game for this group, choosing how players are named (fixed for the game's life): **anonymous** -- everyone is known only by their power, and messages and announcements name the power alone; **public** -- nicknames (`/nickname`) are shown next to powers. A bare `/newgame` explains the two and creates nothing. Add **`random`** (`/newgame anonymous random`) to deal the powers at random: nobody picks, each joiner is given an open power. Fixed for the game's life too. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
-| `/linkgroup [game_id]` | Make one of your existing games this group's game. A group has **one** game: if it already had another, that one is detached, and the reply says which -- but only if you play in that other game too. (`/newgame` does the same.) |
+| `/linkgroup [game_id]` | Make one of your existing games this group's game. A group has **one** game: if it already had another, that one is detached, and the reply says which -- but only if you play in that other game too. (`/newgame` does the same; if it can't have the group, no game is created.) A game is linked to a group only from inside that group: there is no way to link one by typing a chat id. `/link_channel` is the old name. |
 | `/unlinkgroup [game_id]` | Detach the group's game (or the game you name, if it is this group's). |
 | `/status` | This group's game: phase, deadline and who has ordered (not the game you last used in private). It never says which power you play. With no game linked, it says how to link one. |
 | `/viewmap` (or `/map`), `/players` | This group's game, like `/status`: its current map, and its powers and seats. |
@@ -186,13 +186,19 @@ In a group, `/status`, `/viewmap`, `/map` and `/players` only ever show the grou
 game. Naming that game's id is fine; naming any other game is refused ("This group's game
 is Game 2 ...") -- ask about that one in a private chat with the bot.
 
+The game's web page has **Link a Telegram group**: it opens Telegram, which asks which group
+to add the bot to and then sends `/start link_<game_id>` there for you. The bot links the game
+to that group if you play in it, exactly as `/linkgroup <game_id>` would. Sent in a private
+chat, that `/start` links nothing.
+
 ### Advanced: channel settings
 
 | Command | Description |
 |---|---|
 | `/channel_info <game_id>` | The linked group or channel and its settings. |
 | `/channel_settings <game_id> <setting> <value>` | Change a setting: `auto_post_maps`, `auto_post_broadcasts`, `auto_post_notifications` (`true`/`false`, default `true`) or `notification_level` (`all`/`important`/`none`). |
-| `/link_channel <game_id> <chat_id>`, `/unlink_channel <game_id>` | Link a Telegram *channel* (where the bot can't read commands) by its id, e.g. from @userinfobot. It never takes a chat from a game that already has it. For groups, `/linkgroup` is simpler. |
+| `/link_channel [game_id]` | The old name of `/linkgroup`; works only in the group being linked (in a private chat it says so). It takes no chat id, so nobody can link their game to a group they are not in. |
+| `/unlink_channel <game_id>` | Detach a game's group or channel from a private chat (you must play in the game). |
 
 ## Admin
 
@@ -207,7 +213,7 @@ is Game 2 ...") -- ask about that one in a private chat with the bot.
 | "You are not in game X" | Join it first: 🎲 Find a game, or `/join`. |
 | "You're in N games" | Pick one with `/game <id>`, or open it from 🎮 My games; it stays picked. |
 | "Order failed" | Check the syntax and that the order type suits the current phase — the order buttons avoid both problems. |
-| "Channel not linked" | Run `/link_channel`. |
+| "Channel not linked" | Send `/linkgroup <game_id>` in the group. |
 | Bot doesn't respond | Confirm the bot and API are running, then send `/start`. |
 
 More: [FAQ and setup](LOCAL_DEVELOPMENT.md#troubleshooting).

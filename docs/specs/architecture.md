@@ -196,11 +196,19 @@ There are three delivery surfaces, and they are not interchangeable:
   the link: the old game is unlinked in the same transaction and the response's
   `replaced_game_id` names it, which the bot's reply repeats. A move takes the group from a
   game — which then turns up in the public list and becomes joinable from the web — so
-  only a **player of the game that loses it** may make one: the web user, or the Telegram
-  user the bot names in `telegram_id`; or an admin. Anyone else gets 409, decided on the
-  rows `link_game_to_channel` holds locked. `/newgame` checks this before it creates a game;
-  `/link_channel` (any chat id, from a private chat) sends `replace: false` and never moves
-  a link. A command typed in a group is about that group's game, never the caller's current game: the bot asks
+  only a **player of the game that loses it** may make one: the Telegram user the bot names
+  in `telegram_id`, or an admin. Anyone else gets 409, decided on the rows
+  `link_game_to_channel` holds locked.
+
+  **A game is linked to a group only from inside it.** `POST /games/{id}/channel/link` is
+  bot secret or admin token only (403 for a web login, a player's included), and the bot
+  sends the id of the chat the command was typed in, after checking the sender plays the
+  game: `/linkgroup` (`/link_channel` is its old name, refused in a private chat), and
+  `/start link_<id>`, which Telegram sends to the group the player picks after the web
+  page's `t.me/<bot>?startgroup=link_<id>` (in a private chat it links nothing).
+  `/newgame` makes **one** call, `POST /games/create` with `channel_id` (bot only): the game
+  is created linked to the group or, on a 409, deleted again, never left unlinked in the
+  public list; the bot also checks the rule before it asks. A command typed in a group is about that group's game, never the caller's current game: the bot asks
   `GET /channels/{chat_id}/game` (bot secret only) — `/status`, `/viewmap`, `/map` and
   `/players` answer for it (or say how to link one), through `game_context.group_read_game`;
   a typed id for any other game is refused, not swapped for the group's game. `/status`
