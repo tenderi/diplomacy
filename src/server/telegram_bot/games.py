@@ -70,7 +70,8 @@ GROUP_WELCOME = (
     "• /newgame anonymous|public -- start a game for this group (players known only by power, or by nickname); "
     "everyone joins with the button I post\n"
     "• /linkgroup [game id] -- make an existing game this group's game (a group has one)\n"
-    "• /status -- this group's game: phase and who has ordered\n\n"
+    "• /status -- this group's game: phase and who has ordered\n"
+    "• /viewmap, /players -- this group's game: its board and its players\n\n"
     "After every turn I post two maps here -- the orders, then the result -- plus deadline reminders and players' "
     "broadcasts. *Orders and private messages go to me in a private chat* -- never "
     "in the group, where everyone would see them. Only members of this group can "
@@ -106,7 +107,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     kind, _, game_id = payload.partition("_")
     linking = kind == "link" and game_id.isdigit()
     chat = update.effective_chat
-    if chat is not None and chat.type in GROUP_CHAT_TYPES:
+    if chat is not None and chat.type in ("group", "supergroup"):
         if linking:
             # The web page's "Link a Telegram group" (t.me/<bot>?startgroup=link_<id>):
             # Telegram adds the bot to the group the player picks and sends this there.
