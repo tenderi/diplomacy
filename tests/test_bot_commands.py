@@ -173,6 +173,19 @@ class TestMessages:
         with patch.object(bot_messages, "api_post_reliable", return_value=rejected("Sender not in game")):
             assert _run(bot_messages.rumour, *_command(["hi"])) == "Rumour error: Sender not in game"
 
+    def test_a_long_log_keeps_the_newest_whole_messages_that_fit(self) -> None:
+        # Six 3000-character messages (two code units per emoji: 6000 for Telegram)
+        # can't share one Telegram message: only the newest is kept, whole.
+        log = [{"timestamp": f"t{i}", "sender_power": "FRANCE", "sender_name": None,
+                "recipient_power": None, "text": f"{i}" + "😀" * 1500} for i in range(6)]
+        with patch.object(bot_messages, "api_get", return_value={"messages": log}):
+            reply = _run(bot_messages.messages, *_command([]))
+        assert reply.splitlines() == [
+            "Messages for game 7:",
+            "(5 older not shown)",
+            "[t5] FRANCE -> ALL: 5" + "😀" * 1500,
+        ]
+
     def test_no_messages_yet(self) -> None:
         with patch.object(bot_messages, "api_get", return_value={"messages": []}):
             assert _run(bot_messages.messages, *_command([])) == "No messages in game 7 yet."
