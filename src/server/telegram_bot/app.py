@@ -6,6 +6,7 @@ All command handlers are organized in the telegram_bot package.
 """
 import asyncio
 import logging
+import re
 import sys
 from typing import Optional
 
@@ -120,14 +121,54 @@ GROUP_COMMANDS = {
 }
 
 
+def _registered_commands(application: Application) -> set[str]:
+    """Every command name this bot has a ``CommandHandler`` for."""
+    return {
+        name
+        for handlers in application.handlers.values()
+        for handler in handlers
+        if isinstance(handler, CommandHandler)
+        for name in handler.commands
+    }
+
+
+_COMMAND_RE = re.compile(r"/(\w+)(?:@(\w+))?", re.ASCII)
+
+
+def _own_command(text: str, application: Application, bot_username: Optional[str]) -> Optional[str]:
+    """The lower-cased command name if ``text`` is one of this bot's commands,
+    else None: a command addressed to another bot (``/weather@OtherBot``) or
+    one this bot doesn't have is somebody else's business."""
+    # Read the command the way Telegram's command entity (and so
+    # python-telegram-bot) does: it ends at the first character that is not a
+    # letter, digit or underscore, so "/myorders, please" is /myorders.
+    match = _COMMAND_RE.match(text)
+    if match is None:
+        return None
+    name, addressee = match.group(1), match.group(2) or ""
+    if addressee and addressee.lower() != (bot_username or "").lower():
+        return None
+    name = name.lower()
+    return name if name in _registered_commands(application) else None
+
+
+# Never names the command: "/rumour is private" would tell the group that
+# someone is about to spread a rumour.
+GUARD_DELETED_TEXT = "🤫 I deleted that so the group can't read it. That command works in a private chat with me."
+GUARD_KEPT_TEXT = "🤫 That command works in a private chat with me -- in a group, everyone would see it."
+
+
 async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Runs before every command handler (handler group -1). In a group chat a
-    private command gets a pointer to a private chat instead of an answer."""
+    """Runs before every command handler (handler group -1). In a group chat
+    one of this bot's private commands gets a pointer to a private chat
+    instead of an answer. Other bots' commands and unknown ones are left alone."""
     message = update.effective_message
     chat = update.effective_chat
     if message is None or chat is None or chat.type not in GROUP_CHAT_TYPES or not message.text:
         return
-    command = message.text.split()[0][1:].split("@", 1)[0].lower()
+    command = _own_command(message.text, context.application, context.bot.username)
+    if command is None:
+        return
     if command in GROUP_COMMANDS:
         if command == "help":
             await start(update, context)  # the group explanation
@@ -142,11 +183,7 @@ async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE
         deleted = True
     except TelegramError:
         deleted = False
-    text = (
-        f"🤫 /{command} is private -- I deleted it so the group can't read it. Send it to me in a private chat."
-        if deleted
-        else f"🤫 /{command} is private -- in a group, everyone would see it. Send it to me in a private chat."
-    )
+    text = GUARD_DELETED_TEXT if deleted else GUARD_KEPT_TEXT
     markup = InlineKeyboardMarkup([[InlineKeyboardButton(
         "💬 Open a private chat", url=f"https://t.me/{context.bot.username}?start=group"
     )]])
@@ -161,6 +198,74 @@ async def group_command_guard(update: Update, context: ContextTypes.DEFAULT_TYPE
     except TelegramError as e:
         logger.warning(f"Could not point /{command} in chat {chat.id} to a private chat: {e}")
     raise ApplicationHandlerStop
+
+
+def register_handlers(app: Application) -> None:
+    """Wire every handler into ``app``. The group guard reads the registered
+    ``CommandHandler``s back from ``app.handlers`` to tell this bot's commands
+    from everyone else's."""
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("register", register))
+    app.add_handler(CommandHandler("join", join))
+    app.add_handler(MessageHandler(filters.COMMAND & ~filters.ChatType.PRIVATE, group_command_guard), group=-1)
+    app.add_handler(CommandHandler("newgame", newgame))
+    app.add_handler(CommandHandler("linkgroup", linkgroup))
+    app.add_handler(CommandHandler("unlinkgroup", unlinkgroup))
+    app.add_handler(CommandHandler("games", games))
+    app.add_handler(CommandHandler("game", game_command))
+    app.add_handler(CommandHandler("findgame", find_game))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("players", players))
+    app.add_handler(CommandHandler("draw", draw))
+    app.add_handler(CommandHandler("nodraw", nodraw))
+    app.add_handler(CommandHandler("quit", quit))
+    app.add_handler(CommandHandler("orders", orders))
+    app.add_handler(CommandHandler("order", order))
+    app.add_handler(CommandHandler("processturn", processturn))
+    app.add_handler(CommandHandler("deadline", deadline))
+    app.add_handler(CommandHandler("dummy", dummy))
+    app.add_handler(CommandHandler("orderall", orderall))
+    app.add_handler(CommandHandler("autoprocess", autoprocess))
+    app.add_handler(CommandHandler("notready", notready))
+    app.add_handler(CommandHandler("ready", ready))
+    app.add_handler(CommandHandler("viewmap", viewmap))
+    app.add_handler(CommandHandler("selectunit", selectunit))
+    app.add_handler(CommandHandler("myorders", myorders))
+    app.add_handler(CommandHandler("clearorders", clearorders))
+    app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("orderhistory", orderhistory))
+    app.add_handler(CommandHandler("message", message))
+    app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler(["rumour", "rumor"], rumour))
+    app.add_handler(CommandHandler("messages", messages))
+    app.add_handler(CommandHandler("map", map_command))
+    app.add_handler(CommandHandler("replay", replay))
+    app.add_handler(CommandHandler("replace", replace))
+    app.add_handler(CommandHandler("wait", wait))
+    app.add_handler(CommandHandler("unwait", leave_waiting_list))
+    app.add_handler(CommandHandler("leavequeue", leave_waiting_list))
+    app.add_handler(CommandHandler("debug", debug_command))
+    app.add_handler(CommandHandler("refresh", refresh_keyboard))
+    app.add_handler(CommandHandler("help", show_help))
+    app.add_handler(CommandHandler("rules", rules))
+    app.add_handler(CommandHandler("examples", examples))
+    app.add_handler(CommandHandler("link", link_account))
+    app.add_handler(CommandHandler("nickname", nickname))
+    app.add_handler(CommandHandler("queue", queue_status))
+    app.add_handler(CommandHandler("feedback", feedback))
+    app.add_handler(CommandHandler("link_channel", link_channel))
+    app.add_handler(CommandHandler("unlink_channel", unlink_channel))
+    app.add_handler(CommandHandler("channel_info", channel_info))
+    app.add_handler(CommandHandler("channel_settings", channel_settings))
+
+    app.add_error_handler(_on_handler_error)
+
+    # Add handlers for interactive features
+    app.add_handler(CallbackQueryHandler(button_callback))
+    # Private chats only: the bot also sits in linked game channels (groups),
+    # where other people's chatter is not addressed to it.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_menu_buttons))
 
 
 async def _post_init(app: Application) -> None:
@@ -424,69 +529,7 @@ def main():
         .build()
     )
 
-    # Register command handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("register", register))
-    app.add_handler(CommandHandler("join", join))
-    app.add_handler(MessageHandler(filters.COMMAND & ~filters.ChatType.PRIVATE, group_command_guard), group=-1)
-    app.add_handler(CommandHandler("newgame", newgame))
-    app.add_handler(CommandHandler("linkgroup", linkgroup))
-    app.add_handler(CommandHandler("unlinkgroup", unlinkgroup))
-    app.add_handler(CommandHandler("games", games))
-    app.add_handler(CommandHandler("game", game_command))
-    app.add_handler(CommandHandler("findgame", find_game))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("players", players))
-    app.add_handler(CommandHandler("draw", draw))
-    app.add_handler(CommandHandler("nodraw", nodraw))
-    app.add_handler(CommandHandler("quit", quit))
-    app.add_handler(CommandHandler("orders", orders))
-    app.add_handler(CommandHandler("order", order))
-    app.add_handler(CommandHandler("processturn", processturn))
-    app.add_handler(CommandHandler("deadline", deadline))
-    app.add_handler(CommandHandler("dummy", dummy))
-    app.add_handler(CommandHandler("orderall", orderall))
-    app.add_handler(CommandHandler("autoprocess", autoprocess))
-    app.add_handler(CommandHandler("notready", notready))
-    app.add_handler(CommandHandler("ready", ready))
-    app.add_handler(CommandHandler("viewmap", viewmap))
-    app.add_handler(CommandHandler("selectunit", selectunit))
-    app.add_handler(CommandHandler("myorders", myorders))
-    app.add_handler(CommandHandler("clearorders", clearorders))
-    app.add_handler(CommandHandler("clear", clear))
-    app.add_handler(CommandHandler("orderhistory", orderhistory))
-    app.add_handler(CommandHandler("message", message))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler(["rumour", "rumor"], rumour))
-    app.add_handler(CommandHandler("messages", messages))
-    app.add_handler(CommandHandler("map", map_command))
-    app.add_handler(CommandHandler("replay", replay))
-    app.add_handler(CommandHandler("replace", replace))
-    app.add_handler(CommandHandler("wait", wait))
-    app.add_handler(CommandHandler("unwait", leave_waiting_list))
-    app.add_handler(CommandHandler("leavequeue", leave_waiting_list))
-    app.add_handler(CommandHandler("debug", debug_command))
-    app.add_handler(CommandHandler("refresh", refresh_keyboard))
-    app.add_handler(CommandHandler("help", show_help))
-    app.add_handler(CommandHandler("rules", rules))
-    app.add_handler(CommandHandler("examples", examples))
-    app.add_handler(CommandHandler("link", link_account))
-    app.add_handler(CommandHandler("nickname", nickname))
-    app.add_handler(CommandHandler("queue", queue_status))
-    app.add_handler(CommandHandler("feedback", feedback))
-    app.add_handler(CommandHandler("link_channel", link_channel))
-    app.add_handler(CommandHandler("unlink_channel", unlink_channel))
-    app.add_handler(CommandHandler("channel_info", channel_info))
-    app.add_handler(CommandHandler("channel_settings", channel_settings))
-
-    app.add_error_handler(_on_handler_error)
-
-    # Add handlers for interactive features
-    app.add_handler(CallbackQueryHandler(button_callback))
-    # Private chats only: the bot also sits in linked game channels (groups),
-    # where other people's chatter is not addressed to it.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_menu_buttons))
+    register_handlers(app)
 
     logging.basicConfig(level=logging.INFO, force=True)
     # httpx logs the full request URL at INFO, and python-telegram-bot's

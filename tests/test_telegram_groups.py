@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from telegram.error import BadRequest
-from telegram.ext import ApplicationHandlerStop
+from telegram.ext import Application, ApplicationBuilder, ApplicationHandlerStop
 
 from server.telegram_bot import app as bot_app
 from server.telegram_bot import games as bot_games
@@ -23,6 +23,16 @@ from server.telegram_bot.notifications import _send_outbox_item
 pytestmark = pytest.mark.unit
 
 GROUP_CHAT = -1001234
+
+
+def _bot_application() -> Application:
+    """An Application wired exactly like production (``main()``), never started."""
+    application = ApplicationBuilder().token("123456:TEST").build()
+    bot_app.register_handlers(application)
+    return application
+
+
+BOT_APPLICATION = _bot_application()
 
 
 def _bot(member_of: set[int] = frozenset(), username: str = "DiplomacyTestBot") -> Mock:
@@ -50,6 +60,7 @@ def _message_update(text: str, chat_type: str = "group", user_id: int = 555) -> 
     update.message.is_topic_message = False
     context = Mock()
     context.bot = _bot()
+    context.application = BOT_APPLICATION
     context.args = text.split()[1:]
     context.user_data = {}
     return update, context
@@ -73,7 +84,7 @@ class TestGroupGuard:
         update.message.delete.assert_awaited_once()
         update.message.reply_text.assert_not_called()
         assert update.effective_chat.send_message.call_args[0][0] == (
-            "🤫 /rumour is private -- I deleted it so the group can't read it. Send it to me in a private chat."
+            "🤫 I deleted that so the group can't read it. That command works in a private chat with me."
         )
 
     def test_a_private_command_is_stopped_even_when_the_pointer_cannot_be_sent(self) -> None:
@@ -98,7 +109,7 @@ class TestGroupGuard:
             asyncio.run(bot_app.group_command_guard(update, context))
         update.effective_chat.send_message.assert_not_called()
         assert update.message.reply_text.call_args[0][0] == (
-            "🤫 /rumour is private -- in a group, everyone would see it. Send it to me in a private chat."
+            "🤫 That command works in a private chat with me -- in a group, everyone would see it."
         )
 
     @pytest.mark.parametrize("command", ["/newgame", "/linkgroup 3", "/viewmap@DiplomacyTestBot", "/status"])
@@ -106,6 +117,52 @@ class TestGroupGuard:
         update, context = _message_update(command)
         asyncio.run(bot_app.group_command_guard(update, context))  # no ApplicationHandlerStop
         update.message.reply_text.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "/rumour@OtherBot Italy will stab",  # one of ours by name, but addressed to another bot
+            "/weather@OtherBot",
+            "/weather",  # a command this bot doesn't have: not ours to take down
+            "/weather@DiplomacyTestBot",  # addressed to us, but we don't have it
+        ],
+    )
+    def test_other_bots_and_unknown_commands_are_left_alone(self, command: str) -> None:
+        update, context = _message_update(command)
+        update.message.delete = AsyncMock()
+        asyncio.run(bot_app.group_command_guard(update, context))  # no ApplicationHandlerStop
+        update.message.delete.assert_not_called()
+        update.message.reply_text.assert_not_called()
+        update.effective_chat.send_message.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "/rumour Italy will stab",
+            "/rumor x",
+            "/RUMOUR x",
+            "/rumour@DiplomacyTestBot x",
+            "/Rumour@diplomacytestbot x",
+            # Telegram's command entity ends at the first non-word character, and
+            # python-telegram-bot dispatches on it: these run /rumour and /myorders.
+            "/rumour,Italy will stab",
+            "/myorders, please",
+            "/rumour@DiplomacyTestBot,x",
+        ],
+    )
+    def test_our_private_commands_are_taken_down_however_addressed(self, command: str) -> None:
+        update, context = _message_update(command)
+        update.message.delete = AsyncMock()
+        with pytest.raises(ApplicationHandlerStop):
+            asyncio.run(bot_app.group_command_guard(update, context))
+        update.message.delete.assert_awaited_once()
+        notice = update.effective_chat.send_message.call_args[0][0]
+        assert "rumo" not in notice.lower()  # the group must not learn what was attempted
+
+    def test_every_registered_command_is_recognised(self) -> None:
+        commands = bot_app._registered_commands(BOT_APPLICATION)
+        assert {"rumour", "rumor", "orderall", "message", "help", "newgame"} <= commands
+        assert bot_app.GROUP_COMMANDS <= commands
 
     def test_private_chats_are_not_touched(self) -> None:
         update, context = _message_update("/orderall", chat_type="private")
