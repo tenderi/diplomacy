@@ -308,8 +308,6 @@ async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -
     rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
     rows.append([_btn("📣 Everyone", game_id, "msg", "ALL"), _btn("🕵️ Rumour (anonymous)", game_id, "msg", RUMOUR)])
     rows.append(_back(game_id))
-    if len(text) > 3500:
-        text = "…" + text[-3500:]
     await send(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode=None)
 
 
