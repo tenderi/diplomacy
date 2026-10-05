@@ -180,11 +180,11 @@ Send these **in the group**:
 | `/unlinkgroup [game_id]` | Detach the group's game (or the game you name, if it is this group's). |
 | `/status` | This group's game: phase, deadline and who has ordered (not the game you last used in private). It never says which power you play. With no game linked, it says how to link one. |
 | `/viewmap` (or `/map`), `/players` | This group's game, like `/status`: its current map, and its powers and seats. |
+| `/help` or `/start` | How playing in a group works. |
 
 In a group, `/status`, `/viewmap`, `/map` and `/players` only ever show the group's own
 game. Naming that game's id is fine; naming any other game is refused ("This group's game
 is Game 2 ...") -- ask about that one in a private chat with the bot.
-| `/help` or `/start` | How playing in a group works. |
 
 ### Advanced: channel settings
 
