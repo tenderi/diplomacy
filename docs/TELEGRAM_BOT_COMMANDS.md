@@ -176,9 +176,10 @@ Send these **in the group**:
 | Command | Description |
 |---|---|
 | `/newgame anonymous` / `/newgame public` | Create a game for this group, choosing how players are named (fixed for the game's life): **anonymous** -- everyone is known only by their power, and messages and announcements name the power alone; **public** -- nicknames (`/nickname`) are shown next to powers. A bare `/newgame` explains the two and creates nothing. Add **`random`** (`/newgame anonymous random`) to deal the powers at random: nobody picks, each joiner is given an open power. Fixed for the game's life too. You become its creator. The bot posts a **Join** button that opens a private chat to pick a power. Turns are processed as soon as every order is in (anyone can ask the table to wait). |
-| `/linkgroup [game_id]` | Attach one of your existing games to this group. |
-| `/unlinkgroup [game_id]` | Detach it again. |
-| `/status [game_id]`, `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |
+| `/linkgroup [game_id]` | Make one of your existing games this group's game. A group has **one** game: if it already had another, that one is detached, and the reply says which -- but only if you play in that other game too. (`/newgame` does the same.) |
+| `/unlinkgroup [game_id]` | Detach the group's game (or the game you name, if it is this group's). |
+| `/status` | This group's game: phase, deadline and who has ordered (not the game you last used in private). It never says which power you play. With no game linked, it says how to link one. |
+| `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |
 | `/help` or `/start` | How playing in a group works. |
 
 ### Advanced: channel settings
@@ -187,7 +188,7 @@ Send these **in the group**:
 |---|---|
 | `/channel_info <game_id>` | The linked group or channel and its settings. |
 | `/channel_settings <game_id> <setting> <value>` | Change a setting: `auto_post_maps`, `auto_post_broadcasts`, `auto_post_notifications` (`true`/`false`, default `true`) or `notification_level` (`all`/`important`/`none`). |
-| `/link_channel <game_id> <chat_id>`, `/unlink_channel <game_id>` | Link a Telegram *channel* (where the bot can't read commands) by its id, e.g. from @userinfobot. For groups, `/linkgroup` is simpler. |
+| `/link_channel <game_id> <chat_id>`, `/unlink_channel <game_id>` | Link a Telegram *channel* (where the bot can't read commands) by its id, e.g. from @userinfobot. It never takes a chat from a game that already has it. For groups, `/linkgroup` is simpler. |
 
 ## Admin
 

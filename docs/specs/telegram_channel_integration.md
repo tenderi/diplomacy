@@ -9,7 +9,8 @@ automatically while orders and private diplomacy stay in DMs with the bot.
 1. Create a channel and add every player plus the bot, giving it permission to send messages
    and photos.
 2. Get the channel ID (forward a channel message to [@userinfobot](https://t.me/userinfobot)).
-3. `/link_channel <game_id> <channel_id>` — you must be a player in the game or an admin.
+3. `/link_channel <game_id> <channel_id>` — you must be a player in the game or an admin. A channel has at most one game, and
+   `/link_channel` never takes one from the game that has it.
 4. `/channel_settings <game_id> <setting> <value>` to tune what gets posted.
 
 Commands: `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` — see

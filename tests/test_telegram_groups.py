@@ -182,6 +182,35 @@ class TestGroupGuard:
 
 
 class TestNewGame:
+    @pytest.fixture(autouse=True)
+    def _group_has_no_game(self):  # type: ignore[no-untyped-def]
+        with patch.object(channel_commands, "group_game", return_value=None):
+            yield
+
+    def test_a_group_with_another_players_game_gets_no_new_game(self) -> None:
+        update, context = _message_update("/newgame public")
+        with patch.object(channel_commands, "group_game", return_value="3"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "7", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "api_post") as post:
+            asyncio.run(newgame(update, context))
+        post.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == (
+            "This group already plays Game 3, and a group has one game. Only a player of Game 3 can replace it."
+        )
+
+    def test_a_player_of_the_groups_game_may_replace_it(self) -> None:
+        update, context = _message_update("/newgame public")
+        with patch.object(channel_commands, "group_game", return_value="3"), \
+             patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "3", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "ensure_registered"), \
+             patch.object(channel_commands, "api_post") as post:
+            post.side_effect = lambda path, body: {"game_id": 42} if path == "/games/create" else {"replaced_game_id": "3"}
+            asyncio.run(newgame(update, context))
+        assert post.call_args_list[1][0] == ("/games/42/channel/link", {
+            "channel_id": str(GROUP_CHAT), "channel_name": "Friday Diplomacy", "telegram_id": "555",
+        })
+        assert update.message.reply_text.call_args[0][0].endswith("It replaces Game 3, which no longer belongs to this group.")
+
     def test_creates_a_group_game_and_posts_a_private_join_link(self) -> None:
         update, context = _message_update("/newgame public")
         with patch("server.telegram_bot.channel_commands.api_post") as post, \
@@ -328,7 +357,11 @@ class TestLinkingAnExistingGame:
         with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
              patch.object(channel_commands, "api_post", return_value={"status": "ok"}) as post:
             asyncio.run(channel_commands.linkgroup(update, context))
-        post.assert_called_once_with("/games/7/channel/link", {"channel_id": str(GROUP_CHAT), "channel_name": "Friday Diplomacy"})
+        # The caller rides along: the API lets only a player of the group's
+        # current game move the group to another.
+        post.assert_called_once_with("/games/7/channel/link", {
+            "channel_id": str(GROUP_CHAT), "channel_name": "Friday Diplomacy", "telegram_id": "555",
+        })
         assert update.message.reply_text.call_args[0][0].startswith("✅ Game 7 now belongs to this group")
 
     def test_linkgroup_of_a_game_you_are_not_in_links_nothing(self) -> None:
@@ -363,6 +396,74 @@ class TestLinkingAnExistingGame:
             asyncio.run(channel_commands.unlinkgroup(update, context))
         delete.assert_called_once_with("/games/7/channel/unlink")
 
+    def test_linkgroup_names_the_game_it_replaced(self) -> None:
+        update, context = _message_update("/linkgroup 7")
+        with patch("server.telegram_bot.game_context.api_get", return_value=self.MINE), \
+             patch.object(channel_commands, "api_post", return_value={"status": "ok", "replaced_game_id": "1"}):
+            asyncio.run(channel_commands.linkgroup(update, context))
+        assert update.message.reply_text.call_args[0][0].endswith(
+            "\n\nIt replaces Game 1, which no longer belongs to this group."
+        )
+
+    def test_bare_unlinkgroup_detaches_the_groups_own_game(self) -> None:
+        update, context = _message_update("/unlinkgroup")
+
+        def lookup(endpoint: str, telegram_id: str | None = None) -> dict:
+            return {"linked": True, "game_id": "7"} if endpoint == f"/channels/{GROUP_CHAT}/game" else self.MINE
+
+        with patch("server.telegram_bot.game_context.api_get", side_effect=lookup), \
+             patch("server.telegram_bot.game_context.current_game", return_value="3"), \
+             patch.object(channel_commands, "api_get", return_value={"linked": True, "channel_id": GROUP_CHAT}), \
+             patch.object(channel_commands, "api_delete", return_value={"status": "ok"}) as delete:
+            asyncio.run(channel_commands.unlinkgroup(update, context))
+        delete.assert_called_once_with("/games/7/channel/unlink")
+
+
+class TestStatusInAGroup:
+    """#158: /status typed in a group is about the group's game, not the
+    caller's current game, and never says which power the caller plays."""
+
+    STATE = {"year": 1901, "season": "Spring", "phase_type": "Movement", "phase": "S1901M"}
+
+    def _run(self, chat_type: str, linked: dict, current: str = "1") -> tuple[Mock, list[str]]:
+        update, context = _message_update("/status", chat_type=chat_type)
+        mine = {"games": [{"game_id": "1", "power": "GERMANY"}, {"game_id": "2", "power": "FRANCE"}]}
+        asked: list[str] = []
+
+        def context_get(endpoint: str, telegram_id: str | None = None) -> dict:
+            return linked if endpoint == f"/channels/{GROUP_CHAT}/game" else mine
+
+        def games_get(endpoint: str, telegram_id: str | None = None) -> dict | None:
+            asked.append(endpoint)
+            return self.STATE if endpoint.endswith("/state") else None
+
+        with patch("server.telegram_bot.game_context.api_get", side_effect=context_get), \
+             patch("server.telegram_bot.game_context.current_game", return_value=current), \
+             patch.object(bot_games, "api_get", side_effect=games_get):
+            asyncio.run(bot_games.status(update, context))
+        return update, asked
+
+    def test_the_groups_game_not_the_callers_current_game(self) -> None:
+        update, asked = self._run("supergroup", {"linked": True, "game_id": "2"}, current="1")
+        text = update.message.reply_text.call_args[0][0]
+        assert text.startswith("📊 *Game 2 Status*")
+        assert asked[0] == "/games/2/state"
+        assert "You are" not in text and "FRANCE" not in text
+
+    def test_a_group_without_a_game_is_told_how_to_link_one(self) -> None:
+        update, asked = self._run("group", {"linked": False})
+        assert update.message.reply_text.call_args[0][0] == (
+            "No game belongs to this group yet. A player can link one of their games with "
+            "/linkgroup <game id>, or start a new one with /newgame."
+        )
+        assert asked == []
+
+    def test_a_private_chat_still_uses_the_current_game_and_names_the_power(self) -> None:
+        update, asked = self._run("private", {"linked": True, "game_id": "2"}, current="1")
+        text = update.message.reply_text.call_args[0][0]
+        assert asked[0] == "/games/1/state"
+        assert "🎯 *You are:* GERMANY\n" in text
+
 
 class TestOlderChannelCommands:
     """/link_channel and friends, from before /linkgroup; still registered."""
@@ -378,6 +479,17 @@ class TestOlderChannelCommands:
             post.assert_not_called()
             delete.assert_not_called()
             assert "You must be a player in game 42" in update.message.reply_text.call_args[0][0]
+
+    def test_link_channel_never_moves_a_groups_link(self) -> None:
+        """Typed in a private chat with any chat id: it may link a free group,
+        never take one from the game that has it (the API answers 409)."""
+        update, context = _message_update("/link_channel 42 -1001", chat_type="private")
+        with patch.object(channel_commands, "fetch_user_games", return_value=[{"game_id": "42", "power": "FRANCE"}]), \
+             patch.object(channel_commands, "api_post", return_value={"status": "ok"}) as post:
+            asyncio.run(channel_commands.link_channel(update, context))
+        post.assert_called_once_with(
+            "/games/42/channel/link", {"channel_id": "-1001", "telegram_id": "555", "replace": False}
+        )
 
     @pytest.mark.parametrize(("args", "sent"), [
         ("auto_post_maps off", {"auto_post_maps": False}),

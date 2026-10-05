@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
@@ -29,7 +29,7 @@ def client() -> TestClient:
 def _linked(client: TestClient, *, auto_post: bool = True) -> tuple[str, str, str, str]:
     """``_game`` (Anna FRANCE, Bert GERMANY; public) linked to ``GROUP``."""
     game_id, anna, bert, bert_nick = _game(client, anonymous=False)
-    r = client.post(f"/games/{game_id}/channel/link", json={"channel_id": GROUP}, headers=_BOT)
+    r = client.post(f"/games/{game_id}/channel/link", json={"channel_id": GROUP}, headers={**_BOT, "X-Admin-Token": ADMIN_TOKEN})
     assert r.status_code == 200, r.text
     if not auto_post:
         db_service.update_game_channel_settings(game_id, {"auto_post_broadcasts": False})
