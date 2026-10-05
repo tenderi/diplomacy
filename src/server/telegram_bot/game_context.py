@@ -24,7 +24,7 @@ logger = logging.getLogger("diplomacy.telegram_bot.game_context")
 
 __all__ = [
     "GROUP_CHAT_TYPES", "NO_GROUP_GAME", "GameContextError", "current_game", "fetch_user_games", "group_game",
-    "resolve_game_and_power", "set_current_game",
+    "group_read_game", "in_group", "resolve_game_and_power", "set_current_game",
 ]
 
 
@@ -123,6 +123,34 @@ def group_game(chat_id: Any) -> Optional[str]:
     can't answer."""
     info = api_get(f"/channels/{chat_id}/game") or {}
     return str(info["game_id"]) if info.get("linked") else None
+
+
+def in_group(chat: Any) -> bool:
+    """Whether ``chat`` (``update.effective_chat``) is a Telegram group."""
+    return chat is not None and getattr(chat, "type", None) in GROUP_CHAT_TYPES
+
+
+def group_read_game(chat_id: Any, typed_game_id: Optional[str] = None) -> str:
+    """The game a read command typed in group ``chat_id`` is about (/status,
+    /viewmap, /map, /players): the group's linked game, never the caller's
+    current game.
+
+    A typed id is accepted only when it *is* the group's game; any other id is
+    refused rather than silently swapped for the group's game, so nobody reads
+    a map of one game believing it is another. Raises ``GameContextError``
+    (``NO_GROUP_GAME``, or the refusal) with a ready-to-send reply, and
+    ``requests.RequestException`` when the API can't answer.
+    """
+    game_id = group_game(chat_id)
+    if game_id is None:
+        raise GameContextError(NO_GROUP_GAME)
+    typed = (typed_game_id or "").strip()
+    if typed and typed != game_id:
+        raise GameContextError(
+            f"This group's game is Game {game_id}, and in the group I only show that one. "
+            f"Ask me about Game {typed} in a private chat."
+        )
+    return game_id
 
 
 def resolve_game_and_power(user_id: str, game_id: Optional[str] = None) -> tuple[str, str]:
