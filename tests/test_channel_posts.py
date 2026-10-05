@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.telegram_bot.channels import format_historical_timeline, format_player_dashboard
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
@@ -21,6 +21,8 @@ from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
 BOT = {"X-Bot-Secret": BOT_SECRET}
 GROUP = "-1009876543"
+# Tests reuse one group id: an admin may move its link from the last test's game.
+ADMIN_LINK = {**BOT, "X-Admin-Token": ADMIN_TOKEN}
 SRC = Path(__file__).parent.parent / "src"
 
 
@@ -141,7 +143,7 @@ class TestRoutesQueueForTheGroup:
         assert client.post("/users/nickname", json=_as(creator, nickname=self.nickname)).status_code == 200
         game_id = str(client.post("/games/create", json=_as(creator, map_name="standard"), headers=BOT).json()["game_id"])
         assert client.post(f"/games/{game_id}/join", json=_as(creator, power="FRANCE")).status_code == 200
-        assert client.post(f"/games/{game_id}/channel/link", json={"channel_id": GROUP}, headers=BOT).status_code == 200
+        assert client.post(f"/games/{game_id}/channel/link", json={"channel_id": GROUP}, headers=ADMIN_LINK).status_code == 200
         return game_id, creator
 
     def _post(self, client: TestClient, path: str, **kw: object) -> dict:

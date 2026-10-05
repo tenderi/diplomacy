@@ -40,6 +40,15 @@ class DeadlineProposalChange:
     deadline: Optional[datetime] = None
 
 
+class ChannelTakenError(Exception):
+    """The Telegram group already belongs to another game (``game_id``), and
+    the caller may not take it away (``link_game_to_channel``)."""
+
+    def __init__(self, game_id: str) -> None:
+        super().__init__(f"The group already belongs to game {game_id}")
+        self.game_id = game_id
+
+
 def _naive_utc(value: Optional[datetime]) -> Optional[datetime]:
     """Naive UTC for a ``TIMESTAMP`` column (see ``update_game_deadline``)."""
     if value is not None and value.tzinfo is not None:
@@ -279,30 +288,81 @@ class DatabaseService:
         game_id: str, 
         channel_id: str, 
         channel_name: Optional[str] = None,
-        settings: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """Link a Telegram channel to a game."""
+        settings: Optional[Dict[str, Any]] = None,
+        *,
+        displacer_user_id: Optional[int] = None,
+        any_displacer: bool = False,
+    ) -> Optional[str]:
+        """Link a Telegram group to a game, moving the group's link if it had one.
+
+        A group belongs to at most one game (the partial unique index
+        ``uq_games_channel_id``): any other game linked to ``channel_id`` is
+        unlinked in the same transaction. Returns that game's ``game_id``, or
+        None when the group had no other game.
+
+        Moving a link takes the group away from the game that had it -- which
+        then turns up in the public list and loses its group-only join rule --
+        so only a player of that game may (``displacer_user_id`` seated in it),
+        or anyone when ``any_displacer`` (an admin). Otherwise raises
+        ``ChannelTakenError``. Decided on the rows locked here, not on an
+        earlier read. Two links racing for an unlinked group: the second
+        commit fails on the index (``IntegrityError``).
+        """
         with self.session_factory() as session:
             game_model = self._get_game_model_by_game_id_string(session, game_id)
             if not game_model:
                 raise ValueError(f"Game {game_id} not found")
-            
-            game_model.channel_id = channel_id
-            if channel_name:
-                # Store channel name in settings if needed
-                current_settings = game_model.channel_settings or {}
-                if settings:
-                    current_settings.update(settings)
-                current_settings["channel_name"] = channel_name
-                game_model.channel_settings = current_settings
-            elif settings:
-                current_settings = game_model.channel_settings or {}
+
+            replaced: Optional[str] = None
+            others = (
+                session.query(GameModel)
+                .filter(GameModel.channel_id == channel_id, GameModel.id != game_model.id)
+                .with_for_update()
+                .populate_existing()
+                .all()
+            )
+            for other in others:
+                if not any_displacer and (
+                    displacer_user_id is None
+                    or session.query(PlayerModel)
+                    .filter_by(game_id=other.id, user_id=int(displacer_user_id))
+                    .first() is None
+                ):
+                    raise ChannelTakenError(str(other.game_id))
+            for other in others:
+                replaced = str(other.game_id)
+                other.channel_id = None
+                other.channel_settings = None
+                other.updated_at = utcnow_naive()
+            # The old link must be gone before this game takes the group, or
+            # the unique index refuses the UPDATE below.
+            session.flush()
+
+            # A copy: an in-place change to the JSON value is not detected.
+            current_settings = dict(game_model.channel_settings or {})
+            if settings:
                 current_settings.update(settings)
+            if channel_name:
+                current_settings["channel_name"] = channel_name
+            game_model.channel_id = channel_id
+            if current_settings:
                 game_model.channel_settings = current_settings
-            
-            game_model.updated_at = datetime.now(timezone.utc)
+            game_model.updated_at = utcnow_naive()
             session.commit()
-    
+            return replaced
+
+    def get_game_by_channel(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """The game linked to Telegram group ``channel_id`` as ``{"game_id",
+        "channel_name"}``, or None when the group has no game."""
+        with self.session_factory() as session:
+            game_model = session.query(GameModel).filter(GameModel.channel_id == str(channel_id)).first()
+            if game_model is None:
+                return None
+            return {
+                "game_id": str(game_model.game_id),
+                "channel_name": (game_model.channel_settings or {}).get("channel_name"),
+            }
+
     def unlink_game_from_channel(self, game_id: str) -> None:
         """Unlink a Telegram channel from a game."""
         with self.session_factory() as session:
@@ -312,7 +372,7 @@ class DatabaseService:
             
             game_model.channel_id = None
             game_model.channel_settings = None
-            game_model.updated_at = datetime.now(timezone.utc)
+            game_model.updated_at = utcnow_naive()
             session.commit()
     
     def get_game_channel_info(self, game_id: str) -> Optional[Dict[str, Any]]:
@@ -340,10 +400,10 @@ class DatabaseService:
             if not game_model.channel_id:
                 raise ValueError(f"Game {game_id} is not linked to a channel")
             
-            current_settings = game_model.channel_settings or {}
+            current_settings = dict(game_model.channel_settings or {})
             current_settings.update(settings)
             game_model.channel_settings = current_settings
-            game_model.updated_at = datetime.now(timezone.utc)
+            game_model.updated_at = utcnow_naive()
             session.commit()
 
     # --- Players ---

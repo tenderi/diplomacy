@@ -5,6 +5,7 @@ This module provides commands for linking games to Telegram channels,
 managing channel settings, and controlling channel integration.
 """
 import logging
+from typing import Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -13,7 +14,7 @@ import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .api_client import api_delete, api_get, api_post
-from .game_context import GameContextError, fetch_user_games, resolve_game_and_power, set_current_game
+from .game_context import GameContextError, fetch_user_games, group_game, resolve_game_and_power, set_current_game
 from .games import ensure_registered
 from .utils import escape_markdown
 
@@ -52,10 +53,11 @@ async def link_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             return
         
-        # Link channel
+        # Typed in a private chat with any chat id: it never takes a group from
+        # the game that has it (the API answers 409); /linkgroup in the group does.
         result = api_post(
             f"/games/{game_id}/channel/link",
-            {"channel_id": channel_id}
+            {"channel_id": channel_id, "telegram_id": user_id, "replace": False}
         )
         
         if result.get("status") == "ok":
@@ -248,6 +250,20 @@ async def _in_group(update: Update, command: str) -> bool:
     return False
 
 
+def _replaced_note(link_result: Optional[dict]) -> str:
+    """A group has one game: linking another moves the link. This names the
+    game that lost it (from ``POST /games/{id}/channel/link``), or is empty."""
+    replaced = (link_result or {}).get("replaced_game_id")
+    return f"\n\nIt replaces Game {replaced}, which no longer belongs to this group." if replaced else ""
+
+
+def _taken_text(game_id: str) -> str:
+    return (
+        f"This group already plays Game {game_id}, and a group has one game. "
+        f"Only a player of Game {game_id} can replace it."
+    )
+
+
 NEWGAME_MODES = {"anonymous": True, "public": False}
 
 NEWGAME_CHOICE = (
@@ -284,12 +300,20 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     anonymous = NEWGAME_MODES[modes[0]]
     try:
+        # The new game would take the group from its game: only that game's
+        # players may (the API refuses anyone else) -- check before creating one.
+        current = group_game(chat.id)
+        if current is not None and not any(str(g["game_id"]) == current for g in fetch_user_games(str(user.id))):
+            await update.message.reply_text(_taken_text(current))
+            return
         ensure_registered(user)
         game_id = str(api_post("/games/create", {
             "map_name": "standard", "telegram_id": str(user.id), "auto_process": True,
             "anonymous": anonymous, "random_powers": random_powers,
         })["game_id"])
-        api_post(f"/games/{game_id}/channel/link", {"channel_id": str(chat.id), "channel_name": chat.title})
+        linked = api_post(f"/games/{game_id}/channel/link", {
+            "channel_id": str(chat.id), "channel_name": chat.title, "telegram_id": str(user.id),
+        })
     except requests.RequestException as e:
         await update.message.reply_text(f"❌ Could not create a game: {e}")
         return
@@ -311,7 +335,8 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"you'll also send your orders. The game begins when all seven powers are taken; "
         f"with fewer players, the creator can leave seats to civil disorder "
         f"(/dummy {game_id} <power> in the private chat).\n\n"
-        f"After every turn I'll post the orders and the result as maps here, and deadline reminders.",
+        f"After every turn I'll post the orders and the result as maps here, and deadline reminders."
+        f"{_replaced_note(linked)}",
         reply_markup=_join_button(context.bot.username, game_id),
         parse_mode='Markdown',
     )
@@ -325,7 +350,11 @@ async def linkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
     try:
         game_id, _power = resolve_game_and_power(str(user.id), args[0] if args else None)
-        api_post(f"/games/{game_id}/channel/link", {"channel_id": str(chat.id), "channel_name": chat.title})
+        # ``telegram_id``: the API lets only a player of the group's current
+        # game (if it has one) move the group to another game.
+        result = api_post(f"/games/{game_id}/channel/link", {
+            "channel_id": str(chat.id), "channel_name": chat.title, "telegram_id": str(user.id),
+        })
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -335,19 +364,24 @@ async def linkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f"✅ Game {game_id} now belongs to this group: after every turn a map of the orders "
         f"and one of the result, deadline reminders and players' broadcasts will be posted here, and only this group's "
-        f"members can see or join it. Orders go to me in a private chat.",
+        f"members can see or join it. Orders go to me in a private chat.{_replaced_note(result)}",
         reply_markup=_join_button(context.bot.username, game_id),
     )
 
 
 async def unlinkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/unlinkgroup [game_id] (in a group) -- detach a game from this group."""
+    """/unlinkgroup [game_id] (in a group) -- detach a game from this group;
+    without an id, the group's own game."""
     user, chat = update.effective_user, update.effective_chat
     if not user or not update.message or not await _in_group(update, "unlinkgroup"):
         return
     args = context.args or []
     try:
-        game_id, _power = resolve_game_and_power(str(user.id), args[0] if args else None)
+        wanted = args[0] if args else group_game(chat.id)
+        if wanted is None:
+            await update.message.reply_text("No game belongs to this group.")
+            return
+        game_id, _power = resolve_game_and_power(str(user.id), wanted)
         info = api_get(f"/games/{game_id}/channel") or {}
         if str(info.get("channel_id")) != str(chat.id):
             await update.message.reply_text(f"Game {game_id} isn't linked to this group.")

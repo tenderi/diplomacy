@@ -190,6 +190,20 @@ There are three delivery surfaces, and they are not interchangeable:
   it produced, dislodged units included). By turn number, never "the current map": a post
   delivered late still shows the turn it announces. An image the API refuses is acked as
   failed rather than retried, so it cannot block the rows behind it.
+
+  **A group has at most one game** (`games.channel_id`, unique when set). Linking a game to
+  a group that has one (`POST /games/{id}/channel/link`: `/linkgroup`, `/newgame`) *moves*
+  the link: the old game is unlinked in the same transaction and the response's
+  `replaced_game_id` names it, which the bot's reply repeats. A move takes the group from a
+  game — which then turns up in the public list and becomes joinable from the web — so
+  only a **player of the game that loses it** may make one: the web user, or the Telegram
+  user the bot names in `telegram_id`; or an admin. Anyone else gets 409, decided on the
+  rows `link_game_to_channel` holds locked. `/newgame` checks this before it creates a game;
+  `/link_channel` (any chat id, from a private chat) sends `replace: false` and never moves
+  a link. A command typed in a group is about that group's game, never the caller's current game: the bot asks
+  `GET /channels/{chat_id}/game` (bot secret only) — `/status` answers for it (or says how
+  to link one) and leaves out the caller's power, which would unmask an anonymous game;
+  a bare `/unlinkgroup` detaches it.
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
   below is therefore "visible on next poll" for the browser, and that is not a gap to close
   with websockets unless someone decides it is.
