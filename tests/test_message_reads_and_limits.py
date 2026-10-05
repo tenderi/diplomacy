@@ -81,8 +81,10 @@ class TestReadingMessages:
 
 
 def _only_timestamp(client: TestClient, game_id: str, reader: str) -> str:
+    """The one message's time as the bot shows it: ``5 Oct 14:03`` (UTC)."""
     (m,) = client.get(f"/games/{game_id}/messages", params=_as(reader)).json()["messages"]
-    return str(m["timestamp"])
+    sent = datetime.fromisoformat(m["timestamp"])
+    return f"{sent.day} {sent:%b %H:%M}"
 
 
 SENDS = [

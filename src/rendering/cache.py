@@ -20,7 +20,7 @@ logger = logging.getLogger("diplomacy.rendering.map")
 #: Part of every cache key. Bump it whenever the *picture* for the same inputs
 #: changes (new symbols, colours, layout): the disk cache outlives a process, and
 #: without this a restart after a deploy would serve the old drawing.
-RENDERER_VERSION = "ay-1"
+RENDERER_VERSION = "bb6-1"
 
 
 class MapCache:
