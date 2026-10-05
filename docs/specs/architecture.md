@@ -201,9 +201,11 @@ There are three delivery surfaces, and they are not interchangeable:
   rows `link_game_to_channel` holds locked. `/newgame` checks this before it creates a game;
   `/link_channel` (any chat id, from a private chat) sends `replace: false` and never moves
   a link. A command typed in a group is about that group's game, never the caller's current game: the bot asks
-  `GET /channels/{chat_id}/game` (bot secret only) — `/status` answers for it (or says how
-  to link one) and leaves out the caller's power, which would unmask an anonymous game;
-  a bare `/unlinkgroup` detaches it.
+  `GET /channels/{chat_id}/game` (bot secret only) — `/status`, `/viewmap`, `/map` and
+  `/players` answer for it (or say how to link one), through `game_context.group_read_game`;
+  a typed id for any other game is refused, not swapped for the group's game. `/status`
+  leaves out the caller's power, which would unmask an anonymous game; a bare
+  `/unlinkgroup` detaches it. Every other game command is private (the group guard).
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
   below is therefore "visible on next poll" for the browser, and that is not a gap to close
   with websockets unless someone decides it is.
