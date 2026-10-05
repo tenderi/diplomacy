@@ -179,8 +179,12 @@ Send these **in the group**:
 | `/linkgroup [game_id]` | Make one of your existing games this group's game. A group has **one** game: if it already had another, that one is detached, and the reply says which -- but only if you play in that other game too. (`/newgame` does the same.) |
 | `/unlinkgroup [game_id]` | Detach the group's game (or the game you name, if it is this group's). |
 | `/status` | This group's game: phase, deadline and who has ordered (not the game you last used in private). It never says which power you play. With no game linked, it says how to link one. |
-| `/viewmap [game_id]`, `/players [game_id]` | Public information about a game, answered in the group. |
+| `/viewmap` (or `/map`), `/players` | This group's game, like `/status`: its current map, and its powers and seats. |
 | `/help` or `/start` | How playing in a group works. |
+
+In a group, `/status`, `/viewmap`, `/map` and `/players` only ever show the group's own
+game. Naming that game's id is fine; naming any other game is refused ("This group's game
+is Game 2 ...") -- ask about that one in a private chat with the bot.
 
 ### Advanced: channel settings
 

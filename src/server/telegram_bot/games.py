@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import api_post, api_get
 from .game_context import (
-    GROUP_CHAT_TYPES, NO_GROUP_GAME, GameContextError, group_game, resolve_game_and_power, set_current_game,
+    GameContextError, group_read_game, in_group, resolve_game_and_power, set_current_game,
 )
 from .utils import escape_markdown
 
@@ -203,16 +203,16 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     game_id_arg = args[0] if args else None
 
     chat = update.effective_chat
-    if chat is not None and chat.type in GROUP_CHAT_TYPES:
-        # In a group: the group's own game whoever asks (any game id typed is
-        # ignored), and never the caller's power -- the whole group reads the
+    if in_group(chat):
+        # In a group: the group's own game whoever asks (an id for another game
+        # is refused), and never the caller's power -- the whole group reads the
         # reply, and "You are: GERMANY" would unmask an anonymous game.
         try:
-            group_game_id = group_game(chat.id)
-            if group_game_id is None:
-                await update.message.reply_text(NO_GROUP_GAME)
-                return
+            group_game_id = group_read_game(chat.id, game_id_arg)
             text = status_text(group_game_id, None, user_id)
+        except GameContextError as e:
+            await update.message.reply_text(e.message)
+            return
         except requests.RequestException as e:
             await update.message.reply_text(f"Could not retrieve this group's game status: {e}")
             return
@@ -765,7 +765,12 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     game_id_arg = args[0] if args else None
 
     try:
-        game_id, _power = resolve_game_and_power(user_id, game_id_arg)
+        # In a group: the group's game (the list names no one's power for the
+        # caller), not the game the caller last used in private.
+        if in_group(update.effective_chat):
+            game_id = group_read_game(update.effective_chat.id, game_id_arg)
+        else:
+            game_id, _power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return

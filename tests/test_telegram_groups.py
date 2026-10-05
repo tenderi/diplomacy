@@ -464,6 +464,99 @@ class TestStatusInAGroup:
         assert asked[0] == "/games/1/state"
         assert "🎯 *You are:* GERMANY\n" in text
 
+    def test_an_id_for_another_game_is_refused_in_the_group(self) -> None:
+        update, context = _message_update("/status 1", chat_type="group")
+        mine = {"games": [{"game_id": "1", "power": "GERMANY"}]}
+        with patch("server.telegram_bot.game_context.api_get",
+                   side_effect=lambda endpoint, telegram_id=None: (
+                       {"linked": True, "game_id": "2"} if endpoint == f"/channels/{GROUP_CHAT}/game" else mine)), \
+             patch.object(bot_games, "api_get") as games_get:
+            asyncio.run(bot_games.status(update, context))
+        games_get.assert_not_called()
+        assert update.message.reply_text.call_args[0][0] == (
+            "This group's game is Game 2, and in the group I only show that one. "
+            "Ask me about Game 1 in a private chat."
+        )
+
+
+class TestReadCommandsInAGroup:
+    """BB7: /viewmap, /map and /players typed in a group are about the group's
+    game, not the caller's current game; a private chat is unchanged."""
+
+    MINE = {"games": [{"game_id": "1", "power": "GERMANY"}, {"game_id": "2", "power": "FRANCE"}]}
+
+    def _run(self, text: str, chat_type: str, linked: dict) -> tuple[Mock, list[str]]:
+        from server.telegram_bot import maps as bot_maps
+        from server.telegram_bot import orders as bot_orders
+
+        command = text.split()[0]
+        handler = {"/viewmap": bot_orders.viewmap, "/map": bot_maps.map_command, "/players": bot_games.players}[command]
+        update, context = _message_update(text, chat_type=chat_type)
+        update.message.reply_photo = AsyncMock()
+        update.callback_query = None
+        asked: list[str] = []
+
+        def context_get(endpoint: str, telegram_id: str | None = None) -> dict:
+            return linked if endpoint == f"/channels/{GROUP_CHAT}/game" else self.MINE
+
+        def games_get(endpoint: str, telegram_id: str | None = None) -> object:
+            asked.append(endpoint)
+            return [{"power": "FRANCE", "seated": True}] if endpoint.endswith("/players") else {}
+
+        def map_bytes(endpoint: str) -> bytes:
+            asked.append(endpoint)
+            return b"\x89PNG"
+
+        with patch("server.telegram_bot.game_context.api_get", side_effect=context_get), \
+             patch("server.telegram_bot.game_context.current_game", return_value="1"), \
+             patch.object(bot_games, "api_get", side_effect=games_get), \
+             patch.object(bot_maps, "api_get_bytes", side_effect=map_bytes):
+            asyncio.run(handler(update, context))
+        return update, asked
+
+    @pytest.mark.parametrize(("text", "first_call"), [
+        ("/viewmap", "/games/2/map"), ("/map", "/games/2/map"), ("/players", "/games/2/players"),
+        ("/viewmap 2", "/games/2/map"), ("/map 2", "/games/2/map"), ("/players 2", "/games/2/players"),
+    ])
+    def test_the_groups_game_not_the_callers_current_game(self, text: str, first_call: str) -> None:
+        update, asked = self._run(text, "supergroup", {"linked": True, "game_id": "2"})
+        assert asked[0] == first_call
+        if text.startswith("/players"):
+            assert update.message.reply_text.call_args[0][0] == "👥 *Players in Game 2*\n\n✅ *FRANCE*"
+        else:
+            assert update.message.reply_photo.call_args[1]["caption"] == "🗺️ *Game 2 Map*"
+
+    @pytest.mark.parametrize("text", ["/viewmap", "/map", "/players"])
+    def test_a_group_without_a_game_is_told_how_to_link_one(self, text: str) -> None:
+        update, asked = self._run(text, "group", {"linked": False})
+        assert asked == []
+        assert update.message.reply_text.call_args[0][0] == (
+            "No game belongs to this group yet. A player can link one of their games with "
+            "/linkgroup <game id>, or start a new one with /newgame."
+        )
+
+    @pytest.mark.parametrize("text", ["/viewmap 1", "/map 1", "/players 1"])
+    def test_an_id_for_another_game_is_refused(self, text: str) -> None:
+        update, asked = self._run(text, "group", {"linked": True, "game_id": "2"})
+        assert asked == []
+        assert update.message.reply_text.call_args[0][0] == (
+            "This group's game is Game 2, and in the group I only show that one. "
+            "Ask me about Game 1 in a private chat."
+        )
+
+    @pytest.mark.parametrize(("text", "first_call"), [
+        ("/viewmap", "/games/1/map"), ("/players", "/games/1/players"),
+        ("/viewmap 2", "/games/2/map"), ("/map 2", "/games/2/map"), ("/players 2", "/games/2/players"),
+    ])
+    def test_a_private_chat_is_unchanged(self, text: str, first_call: str) -> None:
+        update, asked = self._run(text, "private", {"linked": True, "game_id": "2"})
+        assert asked[0] == first_call
+
+    def test_a_bare_map_in_a_private_chat_still_asks_for_the_id(self) -> None:
+        update, asked = self._run("/map", "private", {"linked": True, "game_id": "2"})
+        assert asked == []
+        assert update.message.reply_text.call_args[0][0] == "Usage: /map <game_id>"
+
 
 class TestOlderChannelCommands:
     """/link_channel and friends, from before /linkgroup; still registered."""

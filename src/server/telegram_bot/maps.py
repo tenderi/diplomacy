@@ -10,10 +10,13 @@ board drawing itself.
 import logging
 from io import BytesIO
 
+import requests
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from .api_client import api_get_bytes
+from .game_context import GameContextError, group_read_game, in_group
 
 logger = logging.getLogger("diplomacy.telegram_bot.maps")
 
@@ -76,13 +79,25 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
 
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /map command to display a game map."""
+    """Handle /map <game_id> to display a game map. In a group, a bare /map is
+    the group's game, and an id for any other game is refused."""
     user = update.effective_user
     if not user or not update.message:
         if update.message:
             await update.message.reply_text("Map command failed: No user context.")
         return
     args = context.args if context.args is not None else []
+    if in_group(update.effective_chat):
+        try:
+            game_id = group_read_game(update.effective_chat.id, args[0] if args else None)
+        except GameContextError as e:
+            await update.message.reply_text(e.message)
+            return
+        except requests.RequestException as e:
+            await update.message.reply_text(f"Could not find this group's game: {e}")
+            return
+        await send_game_map(update, context, game_id)
+        return
     if len(args) < 1:
         await update.message.reply_text("Usage: /map <game_id>")
         return
