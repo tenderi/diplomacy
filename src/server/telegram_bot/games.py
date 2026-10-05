@@ -107,7 +107,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     kind, _, game_id = payload.partition("_")
     linking = kind == "link" and game_id.isdigit()
     chat = update.effective_chat
-    if chat is not None and chat.type in ("group", "supergroup"):
+    if in_group(chat):
         if linking:
             # The web page's "Link a Telegram group" (t.me/<bot>?startgroup=link_<id>):
             # Telegram adds the bot to the group the player picks and sends this there.
