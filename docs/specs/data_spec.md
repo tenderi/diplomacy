@@ -236,7 +236,11 @@ names a real Telegram account. `GET /games` lists each game's `anonymous` and `r
 gives each message's `sender_power` (the seat its sender holds now; null if they left) and,
 in a public game only, `sender_name`; an anonymous game nulls `sender_user_id`. Each message
 also carries `anonymous`: for a rumour, `sender_user_id`, `sender_power` and `sender_name`
-are null for every reader except the sender themself, who sees their own. A client
+are null for every reader except the sender themself, who sees their own. Without
+credentials the list holds broadcasts only; with them, also the caller's own private
+messages; credentials that don't check out are a 401. `POST /games/{id}/message` and
+`/broadcast` refuse blank text and text over 3500 UTF-16 units with a 400
+(`docs/specs/architecture.md` §Notifications, "Message text"). A client
 finds its own seat in an anonymous game from `GET /users/me/games` (or
 `/users/{telegram_id}/games`).
 

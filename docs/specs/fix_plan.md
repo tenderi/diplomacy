@@ -16,9 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-03, at `v3.0.49` (BA7 done: `orders_status` separates
-  submitted, missing and nothing-to-do; `/orderhistory` shows phase codes; a new game's
-  opening board is its turn-0 snapshot). `v3.0.47` moved the frontend to react-router 7,
+- **Last updated:** 2026-10-05, at `v3.0.56` (BB3 and BB4 done: the bot's `/messages`
+  shows private messages again, `GET /games/{id}/messages` 401s on credentials that don't
+  check out, and blank or over-3500-unit messages are a 400, capped in the web composer
+  too). `v3.0.49` (BA7) made `orders_status` separate submitted, missing and
+  nothing-to-do. `v3.0.47` moved the frontend to react-router 7,
   which clears the react-router audit findings (AZ2); `v3.0.46` made retreat-phase and
   split-coast order errors say what is wrong.
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
@@ -48,13 +50,13 @@ play-through in a group game.
       an Unlink button; "Link a Telegram group" opens
       `https://t.me/<bot>?startgroup=link_<game_id>`, and the bot links the game when it
       receives `/start link_<game_id>` in a group from a player of that game.
-- [ ] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
+- [x] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
       messages**, and a rumour's sender doesn't see it marked as theirs:
       `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no
       bot secret and the API treats the bot as anonymous. `tests/test_bot_commands.py`
       asserts the bug. Also: an invalid JWT on `GET /games/{id}/messages` returns 200 with
       broadcasts only instead of 401.
-- [ ] BB4 — **Blank and oversized messages.** Blank or whitespace-only messages and
+- [x] BB4 — **Blank and oversized messages.** Blank or whitespace-only messages and
       broadcasts are accepted and sent (`routes/messages.py`): 400. Anything that would
       exceed Telegram's 4096 characters with its heading is dropped by the bot as a
       permanent error: cap the text with a clear 400.

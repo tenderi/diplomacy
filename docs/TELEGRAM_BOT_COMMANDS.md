@@ -132,6 +132,9 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 | `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing which power sent it. |
 | `/queue` | Whether the game server is reachable, and your orders/messages still waiting to be delivered to it, with the time you sent each. |
 
+A message (private, broadcast or rumour) can be at most 3500 characters, and an empty one
+isn't sent: the bot says why instead.
+
 ### When the game server is unreachable
 
 The bot runs on a different machine from the game server. If the link between them is down
