@@ -5,12 +5,14 @@ auto-processing once every order is in, and the deadline scheduler. A game whose
 missing powers are dummies (the bot's demo game included) is full and runs.
 """
 import datetime
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app, process_due_deadlines
-from server.api.shared import db_service, game_service
+from server.api.shared import db_service, game_buttons, game_service
+from server.daide.server import DaideServer
 from tests.conftest import _get_db_url
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
@@ -52,7 +54,19 @@ def test_the_creator_cannot_process_a_game_with_empty_seats(client: TestClient) 
     assert resp.json()["detail"] == (
         "4 powers are unseated (Austria, England, France, Russia): seat players or mark them as dummies."
     )
+    # A stable name for the refusal, so a client need not match the sentence.
+    assert resp.headers["X-Error-Code"] == "seats_unfilled"
     assert _phase(game_id) == "S1901M"
+
+
+def test_orders_status_names_the_unseated_powers(client: TestClient) -> None:
+    """The bot reads it to skip its "process anyway?" confirm: the turn is refused."""
+    game_id, _ = _game(client, ["ITALY", "TURKEY"], ["GERMANY"])
+    assert client.get(f"/games/{game_id}/orders_status").json()["unseated"] == [
+        "AUSTRIA", "ENGLAND", "FRANCE", "RUSSIA",
+    ]
+    full, _ = _game(client, OTHERS, ["GERMANY"])
+    assert client.get(f"/games/{full}/orders_status").json()["unseated"] == []
 
 
 def test_one_empty_seat_is_named_in_the_singular(client: TestClient) -> None:
@@ -97,15 +111,38 @@ def test_auto_process_waits_for_a_full_table(client: TestClient) -> None:
     assert _phase(game_id) == "S1902M"
 
 
-def test_the_scheduler_skips_a_game_with_empty_seats_and_spends_the_deadline(client: TestClient) -> None:
+def test_the_scheduler_skips_a_game_with_empty_seats_spends_the_deadline_and_says_so(client: TestClient) -> None:
     game_id, _ = _game(client, ["ITALY", "TURKEY"], ["GERMANY"])
     numeric = int(db_service.get_game_by_game_id(game_id).id)
     now = datetime.datetime.now(datetime.timezone.utc)
     db_service.update_game_deadline(numeric, now - datetime.timedelta(minutes=1))
-    process_due_deadlines(now)
+    with patch("server.api.shared.notify_players") as players, patch("server.api.shared.post_to_game_group") as group:
+        process_due_deadlines(now)
     assert _phase(game_id) == "S1901M"
-    # Spent, so the next tick does not find (and log) the same deadline again.
+    # Spent, so the next tick does not find (and announce) the same deadline again.
     assert db_service.get_game_by_game_id(game_id).deadline is None
+    text = (
+        f"⏰ Game {game_id}: the deadline passed, but the turn waits for a full table. "
+        "4 powers are unseated (Austria, England, France, Russia): seat players or mark them as dummies. "
+        "Set a new deadline once the table is full."
+    )
+    players.assert_called_once_with(numeric, text, buttons=game_buttons(game_id))
+    group.assert_called_once_with(game_id, text)
+
+
+def test_a_skipped_scheduled_deadline_moves_to_the_next_slot_and_names_it(client: TestClient) -> None:
+    game_id, _ = _game(
+        client, ["ITALY", "TURKEY"], ["GERMANY"], deadline_schedule="mon 18:00", deadline_timezone="UTC"
+    )
+    numeric = int(db_service.get_game_by_game_id(game_id).id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db_service.update_game_deadline(numeric, now - datetime.timedelta(minutes=1))
+    with patch("server.api.shared.notify_players") as players, patch("server.api.shared.post_to_game_group"):
+        process_due_deadlines(now)
+    deadline = db_service.get_game_by_game_id(game_id).deadline
+    assert (deadline.weekday(), deadline.hour, deadline.minute) == (0, 18, 0)
+    assert deadline > now.replace(tzinfo=None)
+    assert players.call_args[0][1].endswith(f"The next deadline is {deadline:%Y-%m-%d %H:%M} UTC.")
 
 
 def test_the_scheduler_processes_a_full_table(client: TestClient) -> None:
@@ -125,4 +162,23 @@ def test_the_demo_game_is_a_full_table_its_player_can_process(client: TestClient
     assert client.post(f"/games/{game_id}/join", json=_as(tg, power="GERMANY")).status_code == 200
     resp = client.post(f"/games/{game_id}/process_turn", json={"telegram_id": tg}, headers=BOT)
     assert resp.status_code == 200, resp.text
+    assert _phase(game_id) == "F1901M"
+
+
+def test_a_daide_game_is_exempt_and_processes_by_hand(client: TestClient) -> None:
+    """The DAIDE listener's seats are its live connections, never seat rows:
+    without the exemption its game has seven empty seats and never runs."""
+    game_id = DaideServer(game_service).ensure_game_id()
+    assert client.get(f"/games/{game_id}/orders_status").json()["unseated"] == []
+    resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Admin-Token": "changeme"})
+    assert resp.status_code == 200, resp.text
+    assert _phase(game_id) == "F1901M"
+
+
+def test_a_daide_game_processes_at_its_deadline(client: TestClient) -> None:
+    game_id = DaideServer(game_service).ensure_game_id()
+    numeric = int(db_service.get_game_by_game_id(game_id).id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db_service.update_game_deadline(numeric, now - datetime.timedelta(minutes=1))
+    process_due_deadlines(now)
     assert _phase(game_id) == "F1901M"

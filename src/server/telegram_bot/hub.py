@@ -346,7 +346,9 @@ async def _process_turn(send: Sender, user_id: str, game_id: str) -> None:
     except requests.RequestException:
         status = {}
     missing = status.get("missing") or []
-    if missing:
+    # With an empty seat the API refuses the turn whatever is missing (BA6):
+    # go straight to it, so the player reads that refusal, not a confirm.
+    if missing and not status.get("unseated"):
         await send(
             f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.",
             reply_markup=InlineKeyboardMarkup([

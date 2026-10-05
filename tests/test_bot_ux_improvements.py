@@ -395,6 +395,25 @@ class TestProcessTurnConfirmation:
     @patch("server.telegram_bot.orders.api_post")
     @patch("server.telegram_bot.orders.api_get")
     @patch("server.telegram_bot.game_context.api_get")
+    def test_processturn_with_an_empty_seat_shows_the_refusal_without_a_confirm(
+        self, mock_ctx_get, mock_orders_get, mock_post
+    ):
+        """BA6: a confirm would only lead to the API's 409; show that at once."""
+        mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
+        mock_orders_get.return_value = {"submitted": [], "missing": ["FRANCE"], "unseated": ["TURKEY"]}
+        mock_post.side_effect = ApiError("1 power is unseated (Turkey): seat players or mark them as dummies.")
+        update, context, message = _make_update_and_context(args=["1"])
+
+        asyncio.run(processturn(update, context))
+
+        mock_post.assert_called_once_with("/games/1/process_turn", {"telegram_id": "12345"})
+        message.reply_text.assert_called_once_with(
+            "❌ Process turn error: 1 power is unseated (Turkey): seat players or mark them as dummies."
+        )
+
+    @patch("server.telegram_bot.orders.api_post")
+    @patch("server.telegram_bot.orders.api_get")
+    @patch("server.telegram_bot.game_context.api_get")
     def test_processturn_proceeds_directly_when_nothing_missing(
         self, mock_ctx_get, mock_orders_get, mock_post
     ):

@@ -72,6 +72,9 @@ class GameModel(Base):
     # Chosen at creation and fixed for the game's life. True: a joining player
     # does not pick a power -- the server seats them in a random open one.
     random_powers = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Created by the DAIDE listener: its seats are live DAIDE connections held
+    # in memory, not players rows, so the full-table rule exempts it.
+    daide = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     # The most recent adjudication result (engine.serialization.resolution_to_dict),
     # kept only for rendering the resolution map after a turn is processed.
     last_resolution = Column(JSON, nullable=True)

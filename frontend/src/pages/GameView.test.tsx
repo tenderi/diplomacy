@@ -975,7 +975,10 @@ describe('GameView — processing a game with empty seats (BA6)', () => {
     vi.stubGlobal(
       'fetch',
       stubFetchActive({ ...activeMovementState, created_by_user_id: 1 }, francePlayers, {
-        processTurnResponse: () => jsonResponse({ detail }, 409),
+        processTurnResponse: () =>
+          jsonResponse({ detail }, 409).then(
+            (r) => ({ ...r, headers: new Headers({ 'X-Error-Code': 'seats_unfilled' }) }) as Response
+          ),
       })
     )
 
