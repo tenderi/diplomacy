@@ -119,9 +119,12 @@ class TestMessages:
         post.assert_not_called()
 
     def test_messages_names_each_sender(self) -> None:
-        def fake_get(path: str, **_kw: Any) -> Any:
+        def fake_get(path: str, **kw: Any) -> Any:
             if path.startswith("/games/7/messages"):
-                assert path == f"/games/7/messages?telegram_id={ME}"
+                # The reader is passed as ``telegram_id=``, which is what makes
+                # api_get add the bot secret. Built into the URL instead, the
+                # API saw an anonymous reader and hid every private message.
+                assert (path, kw) == ("/games/7/messages", {"telegram_id": str(ME)})
                 return {"messages": [
                     # A public game names the sender; an anonymous one sends the power alone.
                     {"timestamp": "t1", "sender_power": "GERMANY", "sender_name": "Anna",

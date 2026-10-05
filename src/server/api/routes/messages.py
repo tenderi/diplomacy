@@ -9,10 +9,10 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from .auth import resolve_user_or_telegram, get_current_user_optional, http_bearer
+from .auth import resolve_user_or_telegram, get_current_user, http_bearer
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
 from ..shared import (
-    db_service, game_service, scheduler_logger, logger, notify_players, notify_user, is_bot_secret,
+    db_service, game_service, scheduler_logger, logger, notify_players, notify_user,
     is_anonymous, power_label,
 )
 from persistence.database import MessageModel
@@ -38,6 +38,35 @@ def _phase_code_for(game_id: str, numeric_game_id: int, sent_at: datetime) -> Op
     except Exception as e:
         logger.debug(f"Could not resolve the phase for a message in game {game_id}: {e}")
         return None
+
+# The longest text a message, broadcast or rumour may carry, in UTF-16 code
+# units -- the unit Telegram counts its 4096-character limit in, and the one a
+# browser's ``maxLength`` counts, so an emoji costs the same everywhere. Every
+# message reaches someone as a Telegram DM or group post with a heading in
+# front ("⏱ Delayed notification (from ...):" + "New private message in game
+# N from FRANCE (<24-character nickname>) (sent ... UTC): "), at most about
+# 160 units; 3500 leaves room for that with a wide margin.
+# ``tests/test_message_reads_and_limits.py`` sends a message of exactly this length
+# with the longest heading the code can produce and checks it fits.
+MAX_MESSAGE_LENGTH = 3500
+
+
+def text_length(text: str) -> int:
+    """``text``'s length as Telegram (and a browser) counts it: UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def check_message_text(text: str) -> None:
+    """400 for a message nobody should receive: blank, or too long to deliver."""
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="A message cannot be empty.")
+    length = text_length(text)
+    if length > MAX_MESSAGE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A message can be at most {MAX_MESSAGE_LENGTH} characters long (this one is {length}).",
+        )
+
 
 # --- Request Models ---
 class SendMessageRequest(BaseModel):
@@ -69,6 +98,7 @@ def send_private_message(
 ) -> Dict[str, Any]:
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        check_message_text(req.text)
         # Get game model to get numeric ID for database operations
         game_model = db_service.get_game_by_game_id(str(game_id))
         if not game_model:
@@ -139,6 +169,7 @@ def send_broadcast_message(
     """
     try:
         user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        check_message_text(req.text)
         game_model = db_service.get_game_by_game_id(str(game_id))
         if not game_model:
             raise HTTPException(status_code=404, detail="Game not found")
@@ -206,10 +237,21 @@ def get_game_messages(
     bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
+    """The messages the caller may see: every broadcast, plus a player's own
+    private messages (sent or received).
+
+    No credentials at all is an anonymous reader, who sees broadcasts only.
+    Credentials that are present but don't check out -- an invalid or expired
+    Bearer token, or a ``telegram_id`` without the bot secret -- are a 401, not
+    a silent fallback to the anonymous view: that fallback is how the bot once
+    showed every player a log with their private messages missing.
+    """
     try:
-        user = get_current_user_optional(credentials)
-        if user is None and telegram_id and is_bot_secret(bot_secret):
-            user = db_service.get_user_by_telegram_id(telegram_id)
+        user = None
+        if credentials:
+            user = get_current_user(credentials)  # 401 unless valid
+        elif telegram_id:
+            user = resolve_user_or_telegram(None, telegram_id, bot_secret=bot_secret)
         # Get game model to get numeric ID
         game_model = db_service.get_game_by_game_id(str(game_id))
         if not game_model:
