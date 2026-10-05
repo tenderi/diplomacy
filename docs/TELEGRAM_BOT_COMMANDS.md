@@ -163,8 +163,10 @@ what they did, then the result), deadline reminders, "the game is full" and play
 of that group can see or join the game** (🎲 Find a game lists it only for them; the
 website does not list it). Orders, private messages and the game menu always stay in
 your **private chat** with the bot: in a group, the bot refuses those commands and
-offers a link to a private chat instead. Buttons in group posts are links that open
-that private chat.
+offers a link to a private chat instead (deleting the command first if it is a group
+admin; the notice never names the command, so the group can't tell a rumour was coming).
+Commands addressed to another bot (`/weather@OtherBot`) and commands this bot doesn't
+have are left alone. Buttons in group posts are links that open that private chat.
 
 Send these **in the group**:
 

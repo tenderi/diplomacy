@@ -58,7 +58,7 @@ play-through in a group game.
       broadcasts are accepted and sent (`routes/messages.py`): 400. Anything that would
       exceed Telegram's 4096 characters with its heading is dropped by the bot as a
       permanent error: cap the text with a clear 400.
-- [ ] BB5 — **The group guard (v3.0.53) deletes other bots' and unknown commands** when the
+- [x] BB5 — **The group guard (v3.0.53) deletes other bots' and unknown commands** when the
       bot is an admin (`/weather@OtherBot`): `app.py` drops the `@bot` suffix unchecked.
       Ignore commands addressed to another bot and commands this bot doesn't have. Its
       "🤫 /rumour is private" notice tells the group who is about to spread a rumour: word
