@@ -1351,6 +1351,54 @@ describe('GameView — player actions', () => {
     expect(posts[0]).toEqual({ url: '/api/games/10/message', body: { recipient_power: 'GERMANY', text: 'Ally?' } })
   })
 
+  it('will not send a blank or whitespace-only message', async () => {
+    const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, francePlayers))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('checkbox', { name: 'Broadcast to all' }))
+    const box = within(container).getByPlaceholderText('Type a message...')
+    const send = within(container).getByRole('button', { name: 'Send' })
+    expect(send).toBeDisabled()
+    fireEvent.change(box, { target: { value: ' \n\t ' } })
+    expect(send).toBeDisabled()
+    fireEvent.click(send)
+    fireEvent.change(box, { target: { value: ' x ' } })
+    expect(send).toBeEnabled()
+    expect(posts).toEqual([])
+  })
+
+  it('caps a message at the API limit and counts down near it', async () => {
+    const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, francePlayers))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    fireEvent.click(await within(container).findByRole('checkbox', { name: 'Broadcast to all' }))
+    const box = within(container).getByPlaceholderText('Type a message...')
+    // The API's MAX_MESSAGE_LENGTH, in UTF-16 units: the unit maxLength counts.
+    expect(box).toHaveAttribute('maxLength', '3500')
+
+    // Well under the limit, no counter.
+    fireEvent.change(box, { target: { value: 'x'.repeat(2999) } })
+    expect(within(container).queryByText(/characters left/)).toBeNull()
+    expect(box).not.toHaveAttribute('aria-describedby')
+
+    // Near it, the counter appears and describes the box. An emoji outside the BMP is two units.
+    fireEvent.change(box, { target: { value: 'x'.repeat(3000) + '😀' } })
+    expect(box).toHaveAccessibleDescription('498 characters left')
+
+    fireEvent.change(box, { target: { value: 'x'.repeat(3500) } })
+    expect(box).toHaveAccessibleDescription('0 characters left')
+    const send = within(container).getByRole('button', { name: 'Send' })
+    expect(send).toBeEnabled()
+
+    // Text set past the limit some other way than typing is not sent either.
+    fireEvent.change(box, { target: { value: 'x'.repeat(3501) } })
+    expect(send).toBeDisabled()
+    fireEvent.click(send)
+    expect(posts).toEqual([])
+  })
+
   it('a refused action shows the server\'s reason', async () => {
     const base = stubFetchActive(activeMovementState, francePlayers)
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>

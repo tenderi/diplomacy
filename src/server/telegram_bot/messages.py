@@ -195,7 +195,7 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
     a public game (``_sender_label``).
     """
     try:
-        result = api_get(f"/games/{game_id}/messages?telegram_id={user_id}")
+        result = api_get(f"/games/{game_id}/messages", telegram_id=user_id)
     except requests.RequestException as e:
         return f"Error retrieving messages: {e}"
     messages_list = result.get("messages", [])

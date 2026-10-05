@@ -262,6 +262,20 @@ the power, not the nickname, in the DMs, the group post or `GET /games/{id}/mess
 (only the sender sees it as theirs). The sender is stored and appears only in the
 admin-only export.
 
+**Message text** (`routes/messages.py`, the same rule for a private message, a broadcast and
+a rumour): blank or whitespace-only text is a 400 ("A message cannot be empty."), and so is
+text longer than `MAX_MESSAGE_LENGTH` = 3500 UTF-16 code units ("A message can be at most
+3500 characters long (this one is N)."). Telegram counts its 4096-character limit in UTF-16
+units, so 3500 leaves room for the longest heading a DM or group post puts in front of the
+text; a message that didn't fit would be dropped by the bot as a permanent send error. The
+bot shows the 400's reason to the sender; the web composer has `maxLength` 3500 (a JS
+string length counts the same units), shows the characters left from 3000 on, and won't
+send blank text. **Reading** (`GET /games/{id}/messages`): no credentials reads the
+broadcasts only; a valid Bearer token, or `telegram_id` with the bot secret, adds the
+caller's own private messages; credentials that are present but don't check out (an
+invalid or expired token, a `telegram_id` without the secret) are a 401, never a silent
+fall-back to the broadcasts-only view.
+
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
 directly) and returns the outcome to the *voter* only. The game is then `COMPLETED`, so the

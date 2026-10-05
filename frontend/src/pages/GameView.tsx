@@ -224,6 +224,13 @@ function ResultsSection({
   )
 }
 
+/** The longest message, broadcast or rumour the API accepts, in UTF-16 code units
+ *  (`MAX_MESSAGE_LENGTH` in `routes/messages.py`). A JS string's `length` and a
+ *  textarea's `maxLength` count the same units, so the two limits agree exactly. */
+const MAX_MESSAGE_LENGTH = 3500
+/** The composer shows how many characters are left once a message is this long. */
+const MESSAGE_COUNTER_FROM = MAX_MESSAGE_LENGTH - 500
+
 /** Who sent a message: the power, and the player's name in a public game. */
 function senderLabel(m: Message): string {
   if (m.anonymous) return m.sender_power ? `🕵️ Rumour (you, ${m.sender_power})` : '🕵️ Rumour'
@@ -1203,10 +1210,17 @@ export default function GameView() {
             rows={2}
             className="max-w-md"
             placeholder="Type a message..."
+            maxLength={MAX_MESSAGE_LENGTH}
+            aria-describedby={messageText.length >= MESSAGE_COUNTER_FROM ? 'message-counter' : undefined}
           />
+          {messageText.length >= MESSAGE_COUNTER_FROM && (
+            <p id="message-counter" className="text-xs text-muted-foreground" aria-live="polite">
+              {MAX_MESSAGE_LENGTH - messageText.length} characters left
+            </p>
+          )}
           <Button
             onClick={handleSendMessage}
-            disabled={!messageText.trim() || sendingMsg || (!broadcast && !messageRecipient)}
+            disabled={!messageText.trim() || messageText.length > MAX_MESSAGE_LENGTH || sendingMsg || (!broadcast && !messageRecipient)}
           >
             {sendingMsg ? 'Sending...' : 'Send'}
           </Button>
