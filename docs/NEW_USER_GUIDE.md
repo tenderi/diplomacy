@@ -49,7 +49,8 @@ This is how most beta games work. It needs one person, the **organiser**, to set
 5. The game begins when all seven powers are taken.
    - With fewer than seven players, the organiser can leave empty powers to
      *civil disorder*: in their private chat, `/dummy N TURKEY` (for example). Those
-     powers' units just hold.
+     powers' units just hold. No turn is played until every power has a player or is
+     left to civil disorder.
 
 **What happens where:**
 

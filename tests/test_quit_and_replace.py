@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
-from server.api.shared import db_service
+from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
 
 BOT_SECRET = "test_bot_secret_for_tests"
@@ -207,14 +207,17 @@ class TestJoinAndQuitRefusals:
 
 class TestProcessTurnRequireAll:
     def test_refuses_naming_who_has_not_ordered(self, client):
+        # A full table (BA6): FRANCE and GERMANY seated, the rest dummies, which
+        # are never waited on.
         game_id, a = _game_with_france(client)
+        b = _telegram_user(client, "germany")
+        assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
+        for power in ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"):
+            game_service.set_dummy(str(game_id), power, True)
         client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H", "A MAR H", "F BRE H"]))
         r = client.post(f"/games/{game_id}/process_turn?require_all=true", headers=_BOT)
         assert r.status_code == 400
-        # Empty seats still have units to order; only civil-disorder dummies are never waited on.
-        for power in ("AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
-            assert power in r.json()["detail"]
-        assert "FRANCE" not in r.json()["detail"]
+        assert r.json()["detail"] == "Not all powers have submitted orders: missing ['GERMANY']"
 
     def test_runs_once_every_non_dummy_power_has_ordered(self, client):
         others = ["AUSTRIA", "ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"]

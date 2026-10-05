@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from server.api import app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
@@ -36,6 +37,7 @@ def test_a_processed_turn_notification_has_buttons(client: TestClient) -> None:
     game_id = _created_by(client, creator)
     client.post(f"/games/{game_id}/join", json=_as(creator, power="FRANCE"))
     client.post(f"/games/{game_id}/join", json=_as(other, power="GERMANY"))
+    fill_with_dummies(game_id)
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     rows = [r for r in probe.rows() if str(r["telegram_id"]) == other and "processed" in r["message"]]
@@ -57,11 +59,13 @@ class TestEndingATurnEarlyFromTelegram:
         creator = _telegram_user(client, "creator")
         game_id = _created_by(client, creator)
         client.post(f"/games/{game_id}/join", json=_as(creator, power="FRANCE"))
+        fill_with_dummies(game_id)
         resp = client.post(f"/games/{game_id}/process_turn", json={"telegram_id": creator}, headers=BOT)
         assert resp.status_code == 200, resp.text
 
     def test_the_bare_bot_secret_is_still_trusted(self, client: TestClient) -> None:
         game_id = _created_by(client, _telegram_user(client, "creator"))
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
 
 
@@ -86,12 +90,14 @@ class TestEndingATurnEarlyOnTheWeb:
     def test_the_creator_may_even_without_a_seat(self, client: TestClient) -> None:
         creator, _ = self._web_user(client, "organiser")
         game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=creator).json()["game_id"])
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=creator).status_code == 200
 
     def test_a_game_nobody_created_is_the_admins(self, client: TestClient) -> None:
         game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=BOT).json()["game_id"])
         player, _ = self._web_user(client, "queued")
         client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=player)
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=player).status_code == 403
         assert client.post(f"/games/{game_id}/process_turn", headers={"X-Admin-Token": "changeme"}).status_code == 200
 

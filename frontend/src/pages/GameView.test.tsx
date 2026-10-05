@@ -969,6 +969,37 @@ describe('GameView — 409 conflict handling', () => {
   })
 })
 
+describe('GameView — processing a game with empty seats (BA6)', () => {
+  it("shows the server's message naming the unseated powers", async () => {
+    const detail = '2 powers are unseated (Austria, Turkey): seat players or mark them as dummies.'
+    vi.stubGlobal(
+      'fetch',
+      stubFetchActive({ ...activeMovementState, created_by_user_id: 1 }, francePlayers, {
+        processTurnResponse: () => jsonResponse({ detail }, 409),
+      })
+    )
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /resolve orders and advance/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /^process turn$/i }))
+
+    await waitFor(() => {
+      expect(within(container).getByText(detail)).toBeInTheDocument()
+    })
+    expect(within(container).queryByText(/someone else updated this game/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('GameView — results panel (E4)', () => {
   it('renders nothing for a fresh game with {"results": []} -- no empty scary panel', async () => {
     vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))

@@ -19,6 +19,7 @@ from server.api import app
 from server.api import shared as api_shared
 from server.api.client_timestamp import FUTURE_TOLERANCE, MAX_AGE, normalize_client_timestamp, sent_at_suffix
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 
 SECRET = "test_bot_secret_for_tests"
 _seq = itertools.count(1)
@@ -129,6 +130,7 @@ class TestStaleOrders:
         assert row.phase_started_at is not None
         created_stamp = row.phase_started_at
         time.sleep(0.01)
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=headers).status_code == 200
         row = api_shared.db_service.get_game_by_game_id(game_id)
         assert row.phase_started_at > created_stamp
@@ -136,6 +138,7 @@ class TestStaleOrders:
     def test_orders_composed_before_the_phase_began_are_refused(self):
         client = TestClient(app)
         game_id, fr, _de, headers = _seed(client)
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=headers).status_code == 200
         started = api_shared.db_service.get_game_by_game_id(game_id).phase_started_at
 
@@ -163,6 +166,7 @@ class TestStaleOrders:
     def test_orders_without_a_timestamp_are_unaffected(self):
         client = TestClient(app)
         game_id, fr, _de, headers = _seed(client)
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=headers).status_code == 200
         r = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"],
                                                    "telegram_id": fr, "bot_secret": SECRET})
