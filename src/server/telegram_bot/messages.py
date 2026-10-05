@@ -203,9 +203,32 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
         return f"No messages in game {game_id} yet."
     if limit is not None:
         messages_list = messages_list[-limit:]
+    entries = [
+        f"[{m['timestamp']}] {_sender_label(m)} -> {m['recipient_power'] or 'ALL'}: {m['text']}"
+        for m in messages_list
+    ]
+    # One Telegram message holds 4096 UTF-16 units. Keep the newest messages
+    # that fit, whole, and say how many older ones were left out. A single
+    # message is capped at 3500 by the API, so the newest always fits.
+    kept: list[str] = []
+    used = _utf16_len(f"Messages for game {game_id}:") + _utf16_len(_OLDER_NOTE.format(n=len(entries)))
+    for entry in reversed(entries):
+        used += _utf16_len(entry) + 1
+        if kept and used > _LOG_BUDGET:
+            break
+        kept.append(entry)
+    kept.reverse()
     lines = [f"Messages for game {game_id}:"]
-    for m in messages_list:
-        recipient = m["recipient_power"] or "ALL"
-        sender = _sender_label(m)
-        lines.append(f"[{m['timestamp']}] {sender} -> {recipient}: {m['text']}")
-    return "\n".join(lines)
+    if len(kept) < len(entries):
+        lines.append(_OLDER_NOTE.format(n=len(entries) - len(kept)))
+    return "\n".join(lines + kept)
+
+
+# Under Telegram's 4096 so a caller may add a line or two.
+_LOG_BUDGET = 3900
+_OLDER_NOTE = "({n} older not shown)"
+
+
+def _utf16_len(text: str) -> int:
+    """Length as Telegram counts it (UTF-16 code units)."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
