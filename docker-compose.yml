@@ -75,6 +75,8 @@ services:
       - DIPLOMACY_SMTP_FROM=${DIPLOMACY_SMTP_FROM:-}
       # The maintainer's Telegram id: error alerts and player feedback are DMed there. Blank: none.
       - DIPLOMACY_ADMIN_TELEGRAM_ID=${DIPLOMACY_ADMIN_TELEGRAM_ID:-}
+      # The bot's username, for the web page's t.me/<bot>?startgroup= link. Blank: IronChancellorBot.
+      - DIPLOMACY_BOT_USERNAME=${DIPLOMACY_BOT_USERNAME:-}
       # Trust X-Forwarded-For from any peer. Safe only because nothing but
       # nginx, the bot and the host's loopback can reach this port; it makes
       # the per-IP login/register rate limits key on the real client rather

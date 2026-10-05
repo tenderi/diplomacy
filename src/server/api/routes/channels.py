@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from persistence.database_service import ChannelTakenError
 
 from .auth import get_current_user_optional, http_bearer, require_bot_secret
-from ..shared import db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows
+from ..shared import BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows
 from ...response_cache import invalidate_cache
 
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -248,20 +248,26 @@ def unlink_channel_from_game(game_id: str) -> Dict[str, Any]:
 
 @router.get("/games/{game_id}/channel", dependencies=[Depends(require_game_player_or_bot)])
 def get_channel_info(game_id: str) -> Dict[str, Any]:
-    """Get channel information for a game."""
+    """The game's Telegram group, for its players (and the bot or an admin):
+    ``linked`` and, when linked, ``channel_id``, ``channel_name`` (the group's
+    title when the bot linked it) and ``settings``. ``bot_username`` is always
+    there: the web page links an unlinked game through
+    ``https://t.me/<bot_username>?startgroup=link_<game_id>``."""
     try:
         channel_info = db_service.get_game_channel_info(game_id)
-        
+
         if not channel_info:
             return {
                 "status": "ok",
                 "linked": False,
+                "bot_username": BOT_USERNAME,
                 "message": f"Game {game_id} is not linked to a channel"
             }
-        
+
         return {
             "status": "ok",
             "linked": True,
+            "bot_username": BOT_USERNAME,
             "channel_id": channel_info.get("channel_id"),
             "channel_name": channel_info.get("channel_name"),
             "settings": channel_info.get("settings", {})

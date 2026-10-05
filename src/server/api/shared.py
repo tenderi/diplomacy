@@ -94,6 +94,10 @@ if ADMIN_TOKEN == _ADMIN_TOKEN_DEFAULT:
 # Bot secret: used to authenticate Telegram bot calls that use telegram_id instead of Bearer token
 BOT_SECRET = os.environ.get("DIPLOMACY_BOT_SECRET", "")
 
+# The Telegram bot's username, without the "@": the web game page builds its
+# "Link a Telegram group" link (t.me/<bot>?startgroup=link_<id>) from it.
+BOT_USERNAME = os.environ.get("DIPLOMACY_BOT_USERNAME", "").strip().lstrip("@") or "IronChancellorBot"
+
 # The maintainer's Telegram chat: error alerts and player feedback are DMed here
 # (through the outbox, like any notification). Unset: neither is sent.
 ADMIN_TELEGRAM_ID = admin_telegram_id(os.environ.get("DIPLOMACY_ADMIN_TELEGRAM_ID"))
@@ -332,8 +336,7 @@ def post_to_game_group(game_id: Any, text: str, *, dm_start: Optional[str] = Non
     notification.
 
     ``dm_start`` adds a button that opens a *private* chat with the bot
-    (``https://t.me/<bot>?start=<dm_start>``; the bot knows its own name, the
-    API does not). A group must never get order buttons: whatever is pressed
+    (``https://t.me/<bot>?start=<dm_start>``; the bot fills in its own name). A group must never get order buttons: whatever is pressed
     there, everyone in the group sees.
     """
     try:
