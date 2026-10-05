@@ -71,9 +71,10 @@ def require_game_player_or_bot(
     x_bot_secret: Optional[str] = Header(None),
     x_admin_token: Optional[str] = Header(None),
 ) -> None:
-    """Who may change a game's linked Telegram group or post into it: the bot
-    (which checks that the Telegram user is a player before calling), an admin,
-    or a web user seated in the game.
+    """Who may unlink a game's Telegram group, change its settings or post into
+    it: the bot (which checks that the Telegram user is a player before
+    calling), an admin, or a web user seated in the game. Linking is stricter
+    (``require_bot_or_admin``).
 
     Until this, linking needed only *some* login and every other write route --
     unlink, settings, and the map/broadcast/thread/timeline/dashboard/results
@@ -98,8 +99,6 @@ class LinkChannelRequest(BaseModel):
     # The Telegram user the bot acts for: a player of the game the group
     # belongs to may move the group's link to this game.
     telegram_id: Optional[str] = None
-    # False: refuse (409) rather than move a link the group already has.
-    replace: bool = True
 
 
 class ChannelSettingsRequest(BaseModel):
@@ -121,62 +120,92 @@ class CreateThreadRequest(BaseModel):
     phase: Optional[str] = None
 
 
-@router.post("/games/{game_id}/channel/link")
+def require_bot_or_admin(
+    x_bot_secret: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None),
+) -> None:
+    """Who may link a game to a Telegram group: the bot, with the id of the
+    group it saw the command in (``/linkgroup``, ``/newgame``, ``/start
+    link_<id>``), or an admin. Not a web login, not even a player's: any chat
+    id would do, so a player who knows a group's id could squat it with their
+    game, and the group's own members could then neither start nor link a game
+    there. The web page links a group through the bot (``startgroup``)."""
+    if is_bot_secret(x_bot_secret) or is_admin_token(x_admin_token):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="A game is linked to a Telegram group from inside the group: add the bot and send /linkgroup there.",
+    )
+
+
+def link_or_409(
+    game_id: str,
+    channel_id: str,
+    channel_name: Optional[str] = None,
+    settings: Optional[Dict[str, Any]] = None,
+    *,
+    displacer_user_id: Optional[int] = None,
+    any_displacer: bool = False,
+) -> Optional[str]:
+    """Link ``game_id`` to the group (``DatabaseService.link_game_to_channel``)
+    and return the game that lost it, or raise 409 when the group belongs to a
+    game ``displacer_user_id`` doesn't play. Invalidates both games' caches."""
+    try:
+        replaced = db_service.link_game_to_channel(
+            game_id=game_id,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            settings=settings or {},
+            displacer_user_id=displacer_user_id,
+            any_displacer=any_displacer,
+        )
+    except ChannelTakenError as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"That Telegram group already belongs to game {e.game_id}. "
+            f"Only a player of game {e.game_id} can move the group to another game.",
+        ) from e
+    except IntegrityError as e:  # another game took the group between the lock and the write
+        raise HTTPException(status_code=409, detail="The group was linked to another game just now; try again.") from e
+    invalidate_cache(f"games/{game_id}")
+    if replaced is not None:
+        invalidate_cache(f"games/{replaced}")
+    return replaced
+
+
+@router.post("/games/{game_id}/channel/link", dependencies=[Depends(require_bot_or_admin)])
 def link_channel_to_game(
     game_id: str,
     req: LinkChannelRequest,
-    _: None = Depends(require_game_player_or_bot),
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
-    x_bot_secret: Optional[str] = Header(None),
     x_admin_token: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """
-    Link a Telegram group to a game.
+    Link a Telegram group to a game. **Bot or admin only** (``require_bot_or_admin``):
+    the bot sends the id of the group the command was typed in, after checking
+    that the Telegram user plays this game.
 
     This enables automated posting of maps, broadcasts, and notifications to the group.
     A group has at most one game: linking another game to it **moves** the link,
     and ``replaced_game_id`` names the game that lost it (null if none did).
 
     Moving a link is allowed only to a **player of the game that loses it** --
-    the web user, or for the bot the Telegram user in ``telegram_id`` -- or an
-    admin; anyone else gets 409 (the game would otherwise drop out of its group,
-    turn up in the public list and become joinable from the web).
-    ``replace: false`` never moves a link (``/link_channel``, run outside the group).
+    the Telegram user the bot names in ``telegram_id`` -- or an admin; anyone
+    else gets 409 (the game would otherwise drop out of its group, turn up in
+    the public list and become joinable from the web).
     """
     try:
-        # Verify game exists
         if not game_service.exists(game_id):
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        displacer: Optional[int] = None
-        if req.replace:
-            actor = get_current_user_optional(credentials)
-            if actor is None and req.telegram_id and is_bot_secret(x_bot_secret):
-                actor = db_service.get_user_by_telegram_id(req.telegram_id)
-            displacer = int(actor.id) if actor is not None else None
-
-        try:
-            replaced = db_service.link_game_to_channel(
-                game_id=game_id,
-                channel_id=req.channel_id,
-                channel_name=req.channel_name,
-                settings=req.settings or {},
-                displacer_user_id=displacer,
-                any_displacer=req.replace and is_admin_token(x_admin_token),
-            )
-        except ChannelTakenError as e:
-            raise HTTPException(
-                status_code=409,
-                detail=f"That Telegram group already belongs to game {e.game_id}. "
-                f"Only a player of game {e.game_id} can move the group to another game.",
-            ) from e
-        except IntegrityError as e:  # another game took the group between the lock and the write
-            raise HTTPException(status_code=409, detail="The group was linked to another game just now; try again.") from e
-
-        invalidate_cache(f"games/{game_id}")
-        if replaced is not None:
-            invalidate_cache(f"games/{replaced}")
-
+        actor = db_service.get_user_by_telegram_id(req.telegram_id) if req.telegram_id else None
+        replaced = link_or_409(
+            game_id,
+            req.channel_id,
+            req.channel_name,
+            req.settings,
+            displacer_user_id=int(actor.id) if actor is not None else None,
+            any_displacer=is_admin_token(x_admin_token),
+        )
         return {
             "status": "ok",
             "message": f"Game {game_id} linked to channel {req.channel_id}",

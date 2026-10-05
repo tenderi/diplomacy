@@ -78,18 +78,41 @@ GROUP_WELCOME = (
 )
 
 
+def link_in_private_text(game_id: str) -> str:
+    """The reply to ``/start link_<id>`` in a private chat, which links nothing:
+    a game is linked to a group only from inside the group."""
+    return (
+        f"To link Game {game_id} to a Telegram group, add me to the group and send "
+        f"/linkgroup {game_id} there, or use \"Link a Telegram group\" on the game's web page "
+        f"and pick the group."
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start -- register the player (silently) and show the main menu.
 
-    In a group it explains the group commands instead. In a private chat it also
+    In a group it explains the group commands instead, or with the payload
+    ``link_<id>`` (sent there after ``t.me/<bot>?startgroup=link_<id>``) links
+    that game to the group if the sender plays it, like ``/linkgroup <id>``;
+    in a private chat that payload links nothing. In a private chat it also
     takes a deep-link payload from a group post's button
     (``t.me/<bot>?start=<payload>``): ``join_<id>`` shows that game's seats,
     ``orders_<id>`` starts entering orders, ``game_<id>`` opens the game menu.
     """
     if not update.message or not update.effective_user:
         return
+    args = context.args if isinstance(context.args, list) else []
+    payload = args[0] if args else ""
+    kind, _, game_id = payload.partition("_")
+    linking = kind == "link" and game_id.isdigit()
     chat = update.effective_chat
-    if chat is not None and chat.type in ("group", "supergroup"):
+    if chat is not None and chat.type in GROUP_CHAT_TYPES:
+        if linking:
+            # The web page's "Link a Telegram group" (t.me/<bot>?startgroup=link_<id>):
+            # Telegram adds the bot to the group the player picks and sends this there.
+            from .channel_commands import link_game_here  # a late import: it imports this module
+            await link_game_here(update, context, game_id)
+            return
         await update.message.reply_text(GROUP_WELCOME, parse_mode='Markdown')
         return
     text = WELCOME_TEXT
@@ -99,10 +122,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Registration on /start failed for %s: %s", update.effective_user.id, e)
         text += "\n\n⚠️ The game server isn't answering right now; try again in a minute."
     await update.message.reply_text(text, reply_markup=main_keyboard(), parse_mode='Markdown')
-    args = context.args if isinstance(context.args, list) else []
-    payload = args[0] if args else ""
-    kind, _, game_id = payload.partition("_")
-    if game_id.isdigit() and kind in ("join", "orders", "game"):
+    if linking:
+        await update.message.reply_text(link_in_private_text(game_id))
+    elif game_id.isdigit() and kind in ("join", "orders", "game"):
         await _start_deep_link(update, context, kind, game_id)
 
 
