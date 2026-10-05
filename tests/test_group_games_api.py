@@ -69,9 +69,8 @@ class TestGroupSettingsAreGuarded:
         creator = _web_user(client, "webplayer")
         game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=creator).json()["game_id"])
         client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=creator)
-        # A group no game has yet: a web player may not take one from another game.
         group = f"-100{time.time_ns() % 10**10}"
-        assert client.post(f"/games/{game_id}/channel/link", json={"channel_id": group}, headers=creator).status_code == 200
+        assert client.post(f"/games/{game_id}/channel/link", json={"channel_id": group}, headers=BOT).status_code == 200
         assert client.get(f"/games/{game_id}/channel", headers=creator).json()["channel_id"] == group
         assert client.post(f"/games/{game_id}/channel/settings", json={"auto_post_maps": False}, headers=BOT).status_code == 200
         assert client.delete(f"/games/{game_id}/channel/unlink", headers=BOT).status_code == 200
@@ -151,17 +150,6 @@ class TestAGroupHasOneGame:
         public = [str(g["id"]) for g in client.get("/games").json()["games"]]
         assert theirs not in public
 
-    def test_replace_false_never_moves_a_link_even_for_a_player_of_both(self, client: TestClient) -> None:
-        """The /link_channel path: run in a private chat with any chat id."""
-        anna = _telegram_user(client, "anna")
-        theirs, mine = self._game(client, anna), self._game(client, anna)
-        group = self._linked_group(client, theirs)
-        resp = self._link(client, mine, group, telegram_id=anna, replace=False)
-        assert resp.status_code == 409
-        assert client.get(f"/channels/{group}/game", headers=BOT).json()["game_id"] == theirs
-        # A group no game has is linked as before.
-        assert self._link(client, mine, self._fresh_group(), telegram_id=anna, replace=False).status_code == 200
-
     def test_relinking_the_same_game_replaces_nothing(self, client: TestClient) -> None:
         game_id = self._game(client)
         group = self._linked_group(client, game_id)
@@ -183,22 +171,76 @@ class TestAGroupHasOneGame:
         assert client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=web).status_code == 200
         return game_id
 
-    def test_a_web_player_cannot_take_a_group_from_another_game(self, client: TestClient) -> None:
-        theirs = self._game(client)
+    @pytest.mark.parametrize("taken", [False, True])
+    def test_a_web_login_cannot_link_any_group_even_a_players(self, client: TestClient, taken: bool) -> None:
+        """BB9: any chat id would do, so a player who knows a group's id could
+        squat it with their game. Only the bot, from inside the group, links."""
+        web = _web_user(client, "groupsquatter")
+        mine = self._web_game(client, web)
+        group = self._linked_group(client, self._game(client)) if taken else self._fresh_group()
+        resp = client.post(f"/games/{mine}/channel/link", json={"channel_id": group}, headers=web)
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == (
+            "A game is linked to a Telegram group from inside the group: add the bot and send /linkgroup there."
+        )
+        assert client.get(f"/games/{mine}/channel", headers=web).json()["linked"] is False
+
+    # -- /newgame: POST /games/create with the group's channel_id (BB9) --------
+
+    def _create_in_group(self, client: TestClient, tg: str, group: str) -> object:
+        return client.post(
+            "/games/create",
+            json=_as(tg, map_name="standard", channel_id=group, channel_name="Friday"),
+            headers=BOT,
+        )
+
+    @staticmethod
+    def _games_created_by(tg: str) -> list[str]:
+        from persistence.database import GameModel
+        from server.api.shared import db_service
+
+        user_id = db_service.get_user_by_telegram_id(tg).id
+        with db_service.session_factory() as session:
+            return [str(g.game_id) for g in session.query(GameModel).filter_by(created_by_user_id=user_id)]
+
+    def test_a_game_created_for_a_group_is_linked_to_it(self, client: TestClient) -> None:
+        anna, group = _telegram_user(client, "anna"), self._fresh_group()
+        resp = self._create_in_group(client, anna, group)
+        assert resp.status_code == 200, resp.text
+        game_id = str(resp.json()["game_id"])
+        assert resp.json()["replaced_game_id"] is None
+        assert client.get(f"/channels/{group}/game", headers=BOT).json() == {
+            "linked": True, "game_id": game_id, "channel_name": "Friday",
+        }
+
+    def test_a_game_the_group_cannot_have_is_not_created_at_all(self, client: TestClient) -> None:
+        """A refused link used to leave the new game behind, unlinked and in the public list."""
+        anna, bert = _telegram_user(client, "anna"), _telegram_user(client, "bert")
+        theirs = self._game(client, anna)
         group = self._linked_group(client, theirs)
-        web = _web_user(client, "grouptaker")
-        resp = client.post(f"/games/{self._web_game(client, web)}/channel/link", json={"channel_id": group}, headers=web)
+        before = [str(g["id"]) for g in client.get("/games").json()["games"]]
+        resp = self._create_in_group(client, bert, group)
         assert resp.status_code == 409
         assert resp.json()["detail"].startswith(f"That Telegram group already belongs to game {theirs}.")
+        assert self._games_created_by(bert) == []
+        assert [str(g["id"]) for g in client.get("/games").json()["games"]] == before
         assert client.get(f"/channels/{group}/game", headers=BOT).json()["game_id"] == theirs
 
-    def test_a_web_player_of_both_games_may_move_the_link(self, client: TestClient) -> None:
-        web = _web_user(client, "groupmover")
-        first, second = self._web_game(client, web), self._web_game(client, web)
-        group = self._linked_group(client, first)
-        resp = client.post(f"/games/{second}/channel/link", json={"channel_id": group}, headers=web)
+    def test_a_player_of_the_groups_game_creates_its_replacement(self, client: TestClient) -> None:
+        anna = _telegram_user(client, "anna")
+        theirs = self._game(client, anna)
+        group = self._linked_group(client, theirs)
+        resp = self._create_in_group(client, anna, group)
         assert resp.status_code == 200, resp.text
-        assert resp.json()["replaced_game_id"] == first
+        assert resp.json()["replaced_game_id"] == theirs
+        assert client.get(f"/channels/{group}/game", headers=BOT).json()["game_id"] == str(resp.json()["game_id"])
+
+    def test_only_the_bot_creates_a_game_for_a_group(self, client: TestClient) -> None:
+        web, group = _web_user(client, "groupcreator"), self._fresh_group()
+        resp = client.post("/games/create", json={"map_name": "standard", "channel_id": group}, headers=web)
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Only the bot creates a game for a Telegram group."
+        assert client.get(f"/channels/{group}/game", headers=BOT).json() == {"linked": False}
 
     def test_the_database_refuses_two_games_in_one_group(self) -> None:
         from sqlalchemy.exc import IntegrityError

@@ -14,66 +14,34 @@ import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .api_client import api_delete, api_get, api_post
-from .game_context import GameContextError, fetch_user_games, group_game, resolve_game_and_power, set_current_game
+from .game_context import GROUP_CHAT_TYPES, GameContextError, fetch_user_games, group_game, resolve_game_and_power, set_current_game
 from .games import ensure_registered
 from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.channel_commands")
 
 
+LINK_FROM_THE_GROUP = (
+    "I link a game to a Telegram group only from inside that group: add me to the group "
+    "and send /linkgroup <game id> there."
+)
+
+
 async def link_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Link a Telegram channel to a game."""
-    user = update.effective_user
-    if not user or not update.message:
-        if update.message:
-            await update.message.reply_text("Link channel failed: No user context.")
+    """/link_channel [game_id] -- the old name of /linkgroup, and like it only in
+    the group being linked.
+
+    It used to take any chat id in a private chat, so a player who knew a
+    group's id could link their game to a group they aren't in, and that
+    group's members could then neither start nor link a game of their own.
+    """
+    if not update.message:
         return
-    
-    args = context.args if context.args is not None else []
-    if len(args) < 2:
-        await update.message.reply_text(
-            "Usage: /link_channel <game_id> <channel_id>\n\n"
-            "Example: /link_channel 42 -1001234567890\n\n"
-            "To get the channel ID:\n"
-            "1. Forward a message from the channel to @userinfobot\n"
-            "2. Or use @getidsbot in the channel"
-        )
+    chat = update.effective_chat
+    if chat is None or chat.type not in GROUP_CHAT_TYPES:
+        await update.message.reply_text(LINK_FROM_THE_GROUP)
         return
-    
-    game_id = args[0]
-    channel_id = args[1]
-    
-    try:
-        # Only a player may: the bot calls the API with its own secret, which the API
-        # trusts. (An admin uses the API's admin token, not a Telegram id here.)
-        user_id = str(user.id)
-        if not any(str(g["game_id"]) == game_id for g in fetch_user_games(user_id)):
-            await update.message.reply_text(
-                f"You must be a player in game {game_id} to link a channel."
-            )
-            return
-        
-        # Typed in a private chat with any chat id: it never takes a group from
-        # the game that has it (the API answers 409); /linkgroup in the group does.
-        result = api_post(
-            f"/games/{game_id}/channel/link",
-            {"channel_id": channel_id, "telegram_id": user_id, "replace": False}
-        )
-        
-        if result.get("status") == "ok":
-            await update.message.reply_text(
-                f"✅ Channel {channel_id} linked to game {game_id}!\n\n"
-                f"Automated features:\n"
-                f"• The orders and the result are posted as maps after each turn\n"
-                f"• Broadcasts will be forwarded\n"
-                f"• Turn notifications will be sent"
-            )
-        else:
-            await update.message.reply_text(f"❌ Failed to link channel: {result}")
-            
-    except Exception as e:
-        logger.exception(f"Error linking channel: {e}")
-        await update.message.reply_text(f"Link channel error: {e}")
+    await linkgroup(update, context)
 
 
 async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -307,13 +275,14 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(_taken_text(current))
             return
         ensure_registered(user)
-        game_id = str(api_post("/games/create", {
+        # One call creates the game linked to this group, or nothing (409): a
+        # link refused after the game existed used to leave it behind unlinked.
+        linked = api_post("/games/create", {
             "map_name": "standard", "telegram_id": str(user.id), "auto_process": True,
             "anonymous": anonymous, "random_powers": random_powers,
-        })["game_id"])
-        linked = api_post(f"/games/{game_id}/channel/link", {
-            "channel_id": str(chat.id), "channel_name": chat.title, "telegram_id": str(user.id),
+            "channel_id": str(chat.id), "channel_name": chat.title,
         })
+        game_id = str(linked["game_id"])
     except requests.RequestException as e:
         await update.message.reply_text(f"❌ Could not create a game: {e}")
         return
@@ -344,12 +313,20 @@ async def newgame(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def linkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/linkgroup [game_id] (in a group) -- attach one of your games to this group."""
-    user, chat = update.effective_user, update.effective_chat
-    if not user or not update.message or not await _in_group(update, "linkgroup"):
+    if not update.effective_user or not update.message or not await _in_group(update, "linkgroup"):
         return
     args = context.args or []
+    await link_game_here(update, context, args[0] if args else None)
+
+
+async def link_game_here(update: Update, context: ContextTypes.DEFAULT_TYPE, wanted: Optional[str]) -> None:
+    """Link game ``wanted`` (or the sender's current game) to the group the
+    command was typed in, if the sender plays it. The group is the chat's own:
+    the only way a game is linked to a group (``/linkgroup``, ``/link_channel``,
+    and ``/start link_<id>`` from the web page's "Link a Telegram group")."""
+    user, chat = update.effective_user, update.effective_chat
     try:
-        game_id, _power = resolve_game_and_power(str(user.id), args[0] if args else None)
+        game_id, _power = resolve_game_and_power(str(user.id), wanted)
         # ``telegram_id``: the API lets only a player of the group's current
         # game (if it has one) move the group to another game.
         result = api_post(f"/games/{game_id}/channel/link", {

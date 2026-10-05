@@ -6,14 +6,23 @@ automatically while orders and private diplomacy stay in DMs with the bot.
 
 ## Setup
 
-1. Create a channel and add every player plus the bot, giving it permission to send messages
+1. Create a group and add every player plus the bot, giving it permission to send messages
    and photos.
-2. Get the channel ID (forward a channel message to [@userinfobot](https://t.me/userinfobot)).
-3. `/link_channel <game_id> <channel_id>` — you must be a player in the game or an admin. A channel has at most one game, and
-   `/link_channel` never takes one from the game that has it.
-4. `/channel_settings <game_id> <setting> <value>` to tune what gets posted.
+2. In the group, `/linkgroup <game_id>` (or `/newgame` for a new game) — you must be a player
+   in the game. Or use the game web page's "Link a Telegram group", which opens
+   `t.me/<bot>?startgroup=link_<game_id>`: Telegram adds the bot to the group you pick and
+   sends `/start link_<game_id>` there, which links the same way. A group has at most one
+   game; see [`TELEGRAM_BOT_COMMANDS.md`](../TELEGRAM_BOT_COMMANDS.md) for moving it.
+3. `/channel_settings <game_id> <setting> <value>` to tune what gets posted.
 
-Commands: `/link_channel`, `/unlink_channel`, `/channel_info`, `/channel_settings` — see
+**A game is linked only from inside the group**, with the chat id the bot saw the command
+in. `POST /games/{id}/channel/link` takes the bot secret (or the admin token), never a web
+login, and `/link_channel` takes no chat id: if any chat id were accepted, a player
+who knew a group's id could link their game to a group they are not in, and its members could
+then neither start nor link a game there. A broadcast *channel*, where the bot can't read
+commands, can be linked only by an admin through the API.
+
+Commands: `/linkgroup`, `/unlinkgroup`, `/unlink_channel`, `/channel_info`, `/channel_settings` — see
 [`TELEGRAM_BOT_COMMANDS.md`](../TELEGRAM_BOT_COMMANDS.md).
 
 ## What gets posted
