@@ -20,7 +20,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.routes.messages import MAX_MESSAGE_LENGTH, text_length
 from server.telegram_bot import api_client
 from server.telegram_bot.messages import recent_messages_text
@@ -133,7 +133,7 @@ class TestMessageText:
         r = client.post("/users/nickname", json=_as(anna, nickname=longest))
         assert r.status_code == 200, r.text
         r = client.post(f"/games/{game_id}/channel/link", json={"channel_id": "-1004441570002"},
-                        headers={"X-Bot-Secret": BOT_SECRET})
+                        headers={"X-Bot-Secret": BOT_SECRET, "X-Admin-Token": ADMIN_TOKEN})  # an admin may take the reused group
         assert r.status_code == 200, r.text
         written = (datetime.now(timezone.utc) - timedelta(days=2)).replace(tzinfo=None).isoformat()
         text = "😀" * (MAX_MESSAGE_LENGTH // 2)
