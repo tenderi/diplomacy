@@ -16,11 +16,15 @@
 
 ## Status
 
-- **Last updated:** 2026-10-05, at `v3.0.61` (BB7 done: `/viewmap`, `/map` and `/players`
-  typed in a group answer for the group's game, like `/status`, and an id for another game
-  is refused there). `v3.0.59` did BB1 (a Telegram group has at most one game, only a
-  player of the game it replaces may move the link, and `/status` in a group answers for
-  the group's game without naming the caller's power). `v3.0.58` did BB8 (a
+- **Last updated:** 2026-10-05, at `v3.0.62` (BB9 and BB2a done: a game is linked to a
+  group only from inside it -- the link endpoint is bot or admin only, `/link_channel` no
+  longer takes a chat id, `/newgame` creates and links in one call or creates nothing, and
+  `/start link_<id>` in a group links the game for a player of it; BB2b, the web page's
+  side, is open). `v3.0.61` did BB7 (`/viewmap`, `/map` and `/players`
+  typed in a group answer for the group's game, and an id for another game is refused
+  there). `v3.0.59` did BB1 (a Telegram group has at most one
+  game, only a player of the game it replaces may move the link, and `/status` in a group
+  answers for the group's game without naming the caller's power). `v3.0.58` did BB8 (a
   long message log is trimmed to fit one Telegram message); `v3.0.56` did BB3 and BB4 (the
   bot's `/messages` shows private messages again; blank or oversized messages are a 400);
   `v3.0.55` did BB5 (the group guard leaves other bots' commands alone). `v3.0.49`
@@ -48,10 +52,13 @@ play-through in a group game.
       never prints the caller's own power ("You are: GERMANY" breaks anonymity). Linking a
       game to a group that already has one moves the link (the reply names the game it
       replaced); a partial unique index on `games.channel_id` makes two impossible.
-- [ ] BB2 — **Link and unlink from the web game page.** Show the linked group (name) with
+- [x] BB2a — **The bot links a game from `/start link_<game_id>` in a group** (the
+      payload Telegram sends after `t.me/<bot>?startgroup=link_<game_id>`), when the sender
+      is a player of that game; same rules and reply as `/linkgroup`. In a private chat the
+      payload links nothing.
+- [ ] BB2b — **Link and unlink from the web game page.** Show the linked group (name) with
       an Unlink button; "Link a Telegram group" opens
-      `https://t.me/<bot>?startgroup=link_<game_id>`, and the bot links the game when it
-      receives `/start link_<game_id>` in a group from a player of that game.
+      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking).
 - [x] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
       messages**, and a rumour's sender doesn't see it marked as theirs:
       `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no
@@ -78,6 +85,13 @@ play-through in a group game.
       bot's `/messages` shows private messages too, and the log (up to 3500 units per
       message) went out in one reply with no limit, so Telegram refused it. Keep the newest
       whole messages that fit, counted in UTF-16 units, and say how many older were left out.
+- [x] BB9 — **A game is linked to a group only from inside that group.** `/link_channel
+      <game> <chat_id>` in a private chat and `POST /games/{id}/channel/link` with a web
+      login accept any chat id: a player who knows a group's id can squat it with their
+      game, and then the group's members can't `/newgame`, `/linkgroup` or `/unlinkgroup`.
+      Only the bot (with a chat id it saw the command in) or an admin may link. And
+      `/newgame` creates the game, then links: a refused link (409) leaves an unlinked
+      orphan game in the public list.
 - [ ] **Done when:** every box above is checked.
 
 ---

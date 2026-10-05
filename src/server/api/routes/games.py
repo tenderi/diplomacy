@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
 from .admin import require_admin
 from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
+from .channels import link_or_409
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
 from .. import shared as api_shared
@@ -64,6 +65,10 @@ class CreateGameRequest(BaseModel):
     # Bearer user); recorded as the game's creator.
     telegram_id: Optional[str] = None
     bot_secret: Optional[str] = None
+    # Bot only: the Telegram group /newgame was typed in. The game is created
+    # linked to it, or not at all (409) -- never left behind unlinked.
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
 
 
 class AutoProcessRequest(BaseModel):
@@ -269,6 +274,7 @@ def create_game(
     req: CreateGameRequest,
     _: None = Depends(require_bot_or_user),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Create a new game. The new engine starts it immediately at S1901M with every
     power's opening units; players then claim powers via join.
@@ -283,7 +289,16 @@ def create_game(
     What actually made this feel like a wart was the *error*: an opaque 401
     "Not authenticated" with no hint that a header was missing. That is fixed in
     `require_bot_or_user`, which now names both accepted credentials.
+
+    ``channel_id`` (bot only: ``/newgame`` in a group) creates the game linked
+    to that group, under the same rule as ``POST /games/{id}/channel/link``:
+    a group that already has a game moves to this one only when the creator
+    plays that game. Otherwise 409, and the new game is deleted again rather
+    than left unlinked in the public list. ``replaced_game_id`` names the game
+    that lost the group.
     """
+    if req.channel_id is not None and not (is_bot_secret(x_bot_secret) or is_bot_secret(req.bot_secret)):
+        raise HTTPException(status_code=403, detail="Only the bot creates a game for a Telegram group.")
     if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
         raise HTTPException(
             status_code=400,
@@ -315,7 +330,14 @@ def create_game(
         )
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"game_id": game_id}
+    if req.channel_id is None:
+        return {"game_id": game_id}
+    try:
+        replaced = link_or_409(game_id, req.channel_id, req.channel_name, displacer_user_id=creator_id)
+    except HTTPException:
+        db_service.delete_game(int(game_id))
+        raise
+    return {"game_id": game_id, "replaced_game_id": replaced}
 
 
 @router.post("/games/{game_id}/join_password")
