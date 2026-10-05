@@ -69,6 +69,10 @@ play-through in a group game.
       shows raw ISO timestamps; the group's orders map is titled "Results — …". A rumour's
       sender is the only player who gets no DM, which hints at the author (needs a design
       call; ask the maintainer).
+- [x] BB8 — **A long message log is too big for one Telegram message.** Since BB3 the
+      bot's `/messages` shows private messages too, and the log (up to 3500 units per
+      message) went out in one reply with no limit, so Telegram refused it. Keep the newest
+      whole messages that fit, counted in UTF-16 units, and say how many older were left out.
 - [ ] **Done when:** every box above is checked.
 
 ---
