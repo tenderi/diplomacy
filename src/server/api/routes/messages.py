@@ -110,8 +110,15 @@ def send_private_message(
         # Validate recipient power exists in game and has a player assigned
         if req.recipient_power is None or req.recipient_power == "":  # type: ignore
             raise HTTPException(status_code=400, detail="Recipient power required for private message")
-        recipient_power = req.recipient_power.upper()
-        if recipient_power == str(player.power_name).upper():
+        recipient_power = req.recipient_power.strip().upper()
+        # A typo ("FRANC") is not an empty seat: say what the powers are.
+        powers = sorted(game_service.map.home_centers)
+        if recipient_power not in powers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{recipient_power} is not a power. The powers are {', '.join(powers)}.",
+            )
+        if recipient_power ==str(player.power_name).upper():
             raise HTTPException(
                 status_code=400,
                 detail=f"You play {recipient_power}: a private message goes to another power.",

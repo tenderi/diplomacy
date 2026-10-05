@@ -144,7 +144,7 @@ class TestMessages:
         with patch.object(bot_messages, "api_get", side_effect=fake_get):
             reply = _run(bot_messages.messages, *_command([]))
         assert reply.splitlines() == [
-            "Messages for game 7:",
+            "Messages for game 7 (times in UTC):",
             "[t1] GERMANY (Anna) -> FRANCE: Hi",
             "[t2] FRANCE -> ALL: All: peace",
             "[t3] Unknown -> GERMANY: ?",
@@ -181,9 +181,23 @@ class TestMessages:
         with patch.object(bot_messages, "api_get", return_value={"messages": log}):
             reply = _run(bot_messages.messages, *_command([]))
         assert reply.splitlines() == [
-            "Messages for game 7:",
+            "Messages for game 7 (times in UTC):",
             "(5 older not shown)",
             "[t5] FRANCE -> ALL: 5" + "😀" * 1500,
+        ]
+
+    def test_message_times_are_short_and_in_utc(self) -> None:
+        # The API sends naive UTC isoformat; an aware value is converted to UTC.
+        log = [{"timestamp": ts, "sender_power": "FRANCE", "sender_name": None,
+                "recipient_power": None, "text": "hi"}
+               for ts in ("2026-10-05T14:03:27.512345", "2026-12-31T23:59:00+02:00", "2027-01-01T00:00:00")]
+        with patch.object(bot_messages, "api_get", return_value={"messages": log}):
+            reply = _run(bot_messages.messages, *_command([]))
+        assert reply.splitlines() == [
+            "Messages for game 7 (times in UTC):",
+            "[5 Oct 14:03] FRANCE -> ALL: hi",
+            "[31 Dec 21:59] FRANCE -> ALL: hi",
+            "[1 Jan 00:00] FRANCE -> ALL: hi",
         ]
 
     def test_no_messages_yet(self) -> None:

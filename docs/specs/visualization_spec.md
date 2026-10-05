@@ -15,7 +15,7 @@ resolution data (never from engine internals):
 |---|---|---|
 | **Board** | `render_board_png` | Units, centre ownership, dislodged units with where they may retreat. |
 | **Orders** | `render_board_png_orders` | The board plus every submitted order, before adjudication. |
-| **Results** | `render_board_png_resolution` | A processed turn's orders, each drawn with its outcome, **on the board they were given on**. |
+| **Orders and results** | `render_board_png_resolution` | A processed turn's orders, each drawn with its outcome, **on the board they were given on**. |
 
 The results picture is always drawn on the board the turn was played on (snapshot `n` for
 turn `n`; the opening position for turn 0). Drawn over the board the turn *produced*, the
@@ -86,7 +86,7 @@ The orders picture shows no outcome at all: nothing red, nothing grey.
 ## Footer
 
 A strip **below** the map, never on it (a key drawn on the map covered Portugal and the
-Mid-Atlantic): the title (`Orders` / `Results`, then the phase, e.g. `Spring 1901 movement ·
+Mid-Atlantic): the title (`Orders` / `Orders and results`, then the phase, e.g. `Spring 1901 movement ·
 S1901M`), the key for exactly the symbols the picture uses, and a swatch per power on the
 board, wrapping onto more rows when needed.
 

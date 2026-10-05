@@ -35,6 +35,21 @@ def test_phase_label(code: str, label: str) -> None:
     assert phase_label(code) == label
 
 
+def test_the_resolution_map_is_titled_orders_and_results() -> None:
+    """It shows the turn's orders with their outcomes; titled "Results", it read as
+    the board the turn produced (fix_plan BB6)."""
+    from PIL import Image
+
+    from rendering import overlays
+
+    # A stand-in cache, so the 1x1 stub is never stored as a real map.
+    with patch.object(overlays, "_map_cache", Mock()), \
+         patch.object(overlays, "_cached", return_value=None), \
+         patch.object(overlays, "_render", return_value=Image.new("RGB", (1, 1))) as render:
+        overlays.render_board_png_resolution("maps/standard.svg", {}, {}, {"conflicts": []})
+    assert render.call_args.args[-1] == "Orders and results"
+
+
 def test_dislodged_units_are_drawn_where_they_were_knocked_out() -> None:
     view = {
         "units_by_power": {"GERMANY": [{"kind": "A", "power": "GERMANY", "location": "BUR"}]},
@@ -73,7 +88,7 @@ class TestTheGroupSeesEachTurn:
         rows = self._process(client, game_id, {"FRANCE": ["A PAR - BUR"], "GERMANY": ["A MUN - BUR"]})
         maps = [(r["message"], r["payload"]["path"]) for r in rows if r["kind"] == "channel_map"]
         assert maps == [
-            (f"📝 Game {game_id} · Spring 1901 movement: the orders", f"/games/{game_id}/map/turn/0/orders"),
+            (f"📝 Game {game_id} · Spring 1901 movement: orders and results", f"/games/{game_id}/map/turn/0/orders"),
             (f"🗺️ Game {game_id} · Spring 1901 movement: the result", f"/games/{game_id}/map/history/1"),
         ]
         assert [r["kind"] for r in rows] == ["channel_text", "channel_map", "channel_map"]

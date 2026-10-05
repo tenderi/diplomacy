@@ -529,7 +529,7 @@ def render_board_png_resolution(
     if cached is not None:
         return cached
     image = _render(svg_path, units, orders, standoffs, phase_info, supply_center_control,
-                    color_only_supply_centers, "Results")
+                    color_only_supply_centers, "Orders and results")
     img_bytes = png_bytes(image, output_path)
     _map_cache.put(cache_key, img_bytes)
     return img_bytes
