@@ -390,6 +390,7 @@ class TestDeepLinks:
             asyncio.run(bot_games.start(update, context))
         post.assert_not_called()  # nobody is registered by a group /start
         assert "/newgame" in update.message.reply_text.call_args[0][0]
+        assert "• /viewmap, /players -- this group's game" in update.message.reply_text.call_args[0][0]
 
 
 def test_a_group_post_gets_a_link_to_a_private_chat_not_a_callback() -> None:
