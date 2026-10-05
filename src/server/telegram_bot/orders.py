@@ -18,7 +18,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from .api_client import api_get, api_post, api_post_reliable, queued_reply
-from .game_context import GameContextError, resolve_game_and_power
+from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
@@ -542,7 +542,11 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args if context.args is not None else []
 
     try:
-        game_id, _power = resolve_game_and_power(user_id, args[0] if args else None)
+        # In a group: the group's game, not the one the caller last used in private.
+        if in_group(update.effective_chat):
+            game_id = group_read_game(update.effective_chat.id, args[0] if args else None)
+        else:
+            game_id, _power = resolve_game_and_power(user_id, args[0] if args else None)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return

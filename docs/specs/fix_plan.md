@@ -16,9 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-05, at `v3.0.59` (BB1 done: a Telegram group has at most one
-  game, only a player of the game it replaces may move the link, and `/status` in a group
-  answers for the group's game without naming the caller's power). `v3.0.58` did BB8 (a
+- **Last updated:** 2026-10-05, at `v3.0.61` (BB7 done: `/viewmap`, `/map` and `/players`
+  typed in a group answer for the group's game, like `/status`, and an id for another game
+  is refused there). `v3.0.59` did BB1 (a Telegram group has at most one game, only a
+  player of the game it replaces may move the link, and `/status` in a group answers for
+  the group's game without naming the caller's power). `v3.0.58` did BB8 (a
   long message log is trimmed to fit one Telegram message); `v3.0.56` did BB3 and BB4 (the
   bot's `/messages` shows private messages again; blank or oversized messages are a 400);
   `v3.0.55` did BB5 (the group guard leaves other bots' commands alone). `v3.0.49`
@@ -69,9 +71,9 @@ play-through in a group game.
       shows raw ISO timestamps; the group's orders map is titled "Results — …". A rumour's
       sender is the only player who gets no DM, which hints at the author (needs a design
       call; ask the maintainer).
-- [ ] BB7 — **`/viewmap` and `/players` typed in a group still use the caller's current
-      game**, like `/status` did before BB1: resolve them through `GET /channels/{id}/game`
-      too (`game_context.group_game`), ignoring a typed id for another group's game.
+- [x] BB7 — **`/viewmap` and `/players` typed in a group still used the caller's current
+      game.** Now they (and `/map`) resolve through `GET /channels/{id}/game` like
+      `/status`, and a typed id for another game is refused in the group.
 - [x] BB8 — **A long message log is too big for one Telegram message.** Since BB3 the
       bot's `/messages` shows private messages too, and the log (up to 3500 units per
       message) went out in one reply with no limit, so Telegram refused it. Keep the newest
