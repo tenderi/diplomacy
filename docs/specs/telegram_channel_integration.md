@@ -11,7 +11,8 @@ automatically while orders and private diplomacy stay in DMs with the bot.
 2. In the group, `/linkgroup <game_id>` (or `/newgame` for a new game) — you must be a player
    in the game. Or use the game web page's "Link a Telegram group", which opens
    `t.me/<bot>?startgroup=link_<game_id>`: Telegram adds the bot to the group you pick and
-   sends `/start link_<game_id>` there, which links the same way. A group has at most one
+   sends `/start link_<game_id>` there, which links the same way. Once linked, the web page
+   names the group and has an Unlink button (players of the game only). A group has at most one
    game; see [`TELEGRAM_BOT_COMMANDS.md`](../TELEGRAM_BOT_COMMANDS.md) for moving it.
 3. `/channel_settings <game_id> <setting> <value>` to tune what gets posted.
 

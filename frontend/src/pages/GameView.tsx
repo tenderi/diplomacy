@@ -10,6 +10,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import MapViewer from '@/components/MapViewer'
+import { TelegramGroupCard } from '@/components/TelegramGroupCard'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
@@ -908,6 +909,8 @@ export default function GameView() {
           })}
         </ul>
       </section>
+
+      {myPower && gameId && <TelegramGroupCard gameId={gameId} />}
 
       {mapUrl && (
         <div className="mb-6">
