@@ -256,7 +256,7 @@ place the full picture exists.
 | Game full / started | all players | — | next poll | `routes/games.py` join |
 | Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
 | Broadcast message | all players except the sender | the broadcast text (when `auto_post_broadcasts`, default on) | next poll | `routes/messages.py` |
-| Rumour (anonymous broadcast) | all players except the sender: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
+| Rumour (anonymous broadcast) | all players, **the sender included**: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
 | Draw vote cast (not final) | all players except the voter | — | next poll | `routes/games.py` `submit_draw_vote` |
 | Draw quorum reached → game ends | all players except the voter | notification | next poll | `notify_turn_processed(game_ended=True)` |
@@ -296,7 +296,11 @@ A **rumour** (`POST /games/{id}/broadcast` with `anonymous: true`; the bot's `/r
 "🕵️ Rumour (anonymous)" on the game menu's Messages screen) names nobody in any game: not
 the power, not the nickname, in the DMs, the group post or `GET /games/{id}/messages`
 (only the sender sees it as theirs). The sender is stored and appears only in the
-admin-only export.
+admin-only export. Unlike a signed broadcast, a rumour's DM goes to every seated player,
+**the sender included**: the same text, queued in the same `notify_players` loop, with no
+"you sent this" marker. Left out, the sender would be the one player without the DM, and
+players comparing notes could name them. The sender still gets the bot's "Rumour spread"
+reply (or the queue's delivery report) as well.
 
 **Message text** (`routes/messages.py`, the same rule for a private message, a broadcast and
 a rumour): blank or whitespace-only text is a 400 ("A message cannot be empty."), and so is
