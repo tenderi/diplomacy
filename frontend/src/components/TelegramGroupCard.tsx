@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { apiJson } from '@/api/client'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -13,7 +24,7 @@ export type ChannelInfo = {
 }
 
 /** The game's Telegram group, for a player of the game: the linked group with an Unlink
- *  button, or a link that opens Telegram to pick a group (the bot links it there, from
+ *  button (confirmed first; the API then tells the group), or a link that opens Telegram to pick a group (the bot links it there, from
  *  `/start link_<id>`). Renders nothing until the API answers, or if it refuses. */
 export function TelegramGroupCard({ gameId }: { gameId: string }) {
   const [info, setInfo] = useState<ChannelInfo | null>(null)
@@ -62,9 +73,26 @@ export function TelegramGroupCard({ gameId }: { gameId: string }) {
       </CardHeader>
       <CardContent>
         {info.linked ? (
-          <Button variant="outline" onClick={unlink} disabled={busy}>
-            Unlink
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" disabled={busy}>
+                Unlink
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Unlink the Telegram group?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The group will stop getting this game&apos;s maps and deadline reminders, and the
+                  game becomes open for anyone to join. The group is told it was unlinked here.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={unlink}>Unlink</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         ) : (
           <Button variant="outline" asChild>
             <a href={linkUrl} target="_blank" rel="noopener noreferrer">
