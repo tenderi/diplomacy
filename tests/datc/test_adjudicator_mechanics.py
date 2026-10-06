@@ -199,3 +199,26 @@ def test_a_support_against_ones_own_unit_for_a_failed_convoy_is_void():
     h.assert_bounce("A BEL")
     h.assert_bounce("A HOL")
     h.assert_result("F NTH", ResultCode.VOID)
+
+
+def test_a_standoff_in_a_province_its_unit_left_blocks_retreats():
+    """A province vacated by its own unit and then stood off in is closed to retreats.
+
+    Germany's A BUR moves out to MUN; France's two armies bounce in BUR. The rulebook
+    forbids a retreat "to a space which was left vacant due to a standoff on the move",
+    whether or not that space had a unit in it when the turn began. England dislodges
+    A BEL, which may not retreat to BUR.
+    """
+    h = Harness()
+    h.units("GERMANY", "A BUR", "A BEL")
+    h.units("FRANCE", "A PAR", "A MAR")
+    h.units("ENGLAND", "A HOL", "F NTH")
+    h.orders("GERMANY", "A BUR - MUN", "A BEL H")
+    h.orders("FRANCE", "A PAR - BUR", "A MAR - BUR")
+    h.orders("ENGLAND", "A HOL - BEL", "F NTH S A HOL - BEL")
+    h.adjudicate()
+    h.assert_success("A BUR")
+    h.assert_dislodged("A BEL")
+    assert h.new_state is not None
+    assert h.new_state.contested == frozenset({"BUR"})
+    assert h.retreat_options_at("BEL") == {"PIC", "RUH"}

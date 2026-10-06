@@ -806,16 +806,6 @@ class _Resolver:
                 if item.value:
                     incoming.setdefault(target, []).append(prov)
 
-        # Standoff provinces: two or more moves aimed at an empty province all failed.
-        move_targets: dict[str, list[str]] = {}
-        for prov, item in self.items.items():
-            if isinstance(item.order, Move):
-                move_targets.setdefault(item.order.dest.province, []).append(prov)
-        for target, srcs in move_targets.items():
-            if len(srcs) >= 2 and not any(self.items[s].value for s in srcs):
-                if self.unit_by_prov.get(target) is None:
-                    contested.add(target)
-
         # Place surviving units.
         for prov, unit in self.unit_by_prov.items():
             item = self.items.get(prov)
@@ -827,6 +817,17 @@ class _Resolver:
                     dislodged_units.append(unit)
                 else:
                     surviving[prov] = unit
+
+        # Standoff provinces: two or more moves into a province all failed, and it is
+        # empty after resolution -- including one whose own unit moved out this turn.
+        move_targets: dict[str, list[str]] = {}
+        for prov, item in self.items.items():
+            if isinstance(item.order, Move):
+                move_targets.setdefault(item.order.dest.province, []).append(prov)
+        for target, srcs in move_targets.items():
+            if len(srcs) >= 2 and not any(self.items[s].value for s in srcs):
+                if target not in surviving:
+                    contested.add(target)
 
         # Precompute each dislodged unit's attacker-origin and legal retreat set
         # against POST-resolution occupancy (retreats.py is authoritative).

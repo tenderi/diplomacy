@@ -16,9 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-06. `v3.0.70` did BC2 (a convoy order whose fleet is on no
-  possible route of sea fleets is `VOID` and shows no intent: 6.G.7 passes, 147/154 DATC
-  green). `v3.0.69` did BB6b (a rumour's DM reaches its sender
+- **Last updated:** 2026-10-07. `v3.0.71` fixed a rules bug found in a play-through: a
+  unit could retreat into a province that was left empty by a standoff, as long as that
+  province had a unit in it when the turn began. `v3.0.70` did BC2 (a convoy order whose
+  fleet is on no possible route of sea fleets is `VOID` and shows no intent: 6.G.7 passes,
+  147/154 DATC green). `v3.0.69` did BB6b (a rumour's DM reaches its sender
   too, byte-identical to everyone else's, as the maintainer chose in #173). `v3.0.68` did
   BC1 (a support for an attack on one's own unit is `VOID` unless it was decisive against
   another attacker: 6.E.8 and 6.E.10 pass, 146/154 DATC green). `v3.0.67` planned Track BC
