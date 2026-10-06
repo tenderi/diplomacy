@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-06. `v3.0.69` did BB6b (a rumour's DM reaches its sender
+- **Last updated:** 2026-10-06. `v3.0.70` did BC2 (a convoy order whose fleet is on no
+  possible route of sea fleets is `VOID` and shows no intent: 6.G.7 passes, 147/154 DATC
+  green). `v3.0.69` did BB6b (a rumour's DM reaches its sender
   too, byte-identical to everyone else's, as the maintainer chose in #173). `v3.0.68` did
   BC1 (a support for an attack on one's own unit is `VOID` unless it was decisive against
   another attacker: 6.E.8 and 6.E.10 pass, 146/154 DATC green). `v3.0.67` planned Track BC
@@ -45,7 +47,7 @@
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC2 next; it may run in
+  **Track BC** (the DATC hard tail) is open agent work, BC3 next; it may run in
   parallel with BB, since it touches only the engine.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
@@ -116,8 +118,8 @@ play-through in a group game.
 
 # Track BC — DATC hard tail
 
-Eight DATC cases are `xfail`: 6.D.8, 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
-6.G.7, 6.G.11 (`tests/datc/`). This track makes them pass, one small PR per milestone,
+Seven DATC cases are `xfail`: 6.D.8, 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
+6.G.11 (`tests/datc/`). This track makes them pass, one small PR per milestone,
 with the targeted fixes first and the paradox resolver after. The expected outcomes are
 the DATC's preferred ones (1982/2000 rulebook, Szykman paradox rule) and already sit in
 the tests. `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` holds the
@@ -195,7 +197,7 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       have won. Keep the rule reporting-only: `_support_given` must not call it (see
       adjudication.md §5 on why). Drop `_destination_contested_by_other` if it is left
       unused. Cases: 6.E.8, 6.E.10. 6.E.9 and 6.E.12 must stay green.
-- [ ] BC2 — **6.G.7: a convoy order no route can use is illegal.** In `_Resolver.__init__`,
+- [x] BC2 — **6.G.7: a convoy order no route can use is illegal.** In `_Resolver.__init__`,
       a `Convoy` whose fleet is not on a possible route is void: it is reported `VOID`,
       kept out of `items`, and shows no intent. "Possible route" means a chain of fleets
       currently in sea provinces (any power, any order) that starts at a fleet touching
@@ -205,7 +207,7 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       (`_convoy_shores`), so the two agree. Case: 6.G.7. Add a mechanics test for a
       coastal-province fleet's convoy order (6.F.1's `F CON`) being `VOID`.
 - [ ] BC3 — **6.D.8: an army move is legal when the board allows a convoy, ordered or not.**
-      Replace `_legal_move`'s `(src, dst) in self._convoy_pairs` check with BC2's
+      Replace `_legal_move`'s `(src, dst) in self._convoy_pairs` check with BC2's `_possible_route`
       possible-route helper, and delete `_convoy_pairs`. Add to `_support_is_void`: a
       support of a convoyed move is void when no possible route remains without the
       supporting fleet (6.D.31). Change 6.F.1's `A GRE` assertion to `VOID` and 6.D.31's
