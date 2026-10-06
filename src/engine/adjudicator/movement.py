@@ -431,8 +431,9 @@ class _Resolver:
         """A support is void (never given, reported VOID) if it is geometrically
         illegal, refers to no real order, would help dislodge a *holding* unit of
         the supporter's own power (6.D.10/12/13 — but a support of an attack on an
-        own unit that is itself ordered to move is fine and can serve other means,
-        6.E.12), or is a hold-support of a unit that is ordered to move (6.D.7/8/25).
+        own unit that is itself ordered to move is reported OK when it served other
+        means: it was decisive against another attacker on that province, 6.E.12),
+        or is a hold-support of a unit that is ordered to move (6.D.7/8/25).
 
         The own-unit rule decides the reported code only; ``_support_given`` passes
         ``count_own_unit_rule=False``. Whether the own unit stays depends on this very
@@ -451,15 +452,14 @@ class _Resolver:
                 and not self._vacates(s.dest.province)
             ):
                 # The own unit at the destination stays, so this support would
-                # help dislodge it: void — UNLESS that unit is itself ordered to
-                # move out AND the destination is contested by another attacker,
-                # the only case where the support serves a legitimate other
-                # purpose (6.E.12) rather than self-dislodgement (6.D.10/11/12/13,
-                # 6.E.2/3/6/7). A unit that actually vacates (circular movement,
-                # 6.C.2) is not being dislodged at all.
+                # help dislodge it: void (6.D.10/11/12/13, 6.E.2/3/6/7/8/10) --
+                # UNLESS that unit is itself ordered to move out and the support
+                # served other means (6.E.12): it was given and was what stopped
+                # another attacker on the same destination. A unit that actually
+                # vacates (circular movement, 6.C.2) is not being dislodged at all.
                 dst_item = self.items.get(s.dest.province)
                 occ_moving = dst_item is not None and isinstance(dst_item.order, Move)
-                if not (occ_moving and self._destination_contested_by_other(s)):
+                if not (occ_moving and self._support_decisive_elsewhere(s)):
                     return True
         if isinstance(s, SupportHold):
             # A unit ordered a *legal* move cannot receive hold support (6.D.7/8/25);
@@ -470,14 +470,30 @@ class _Resolver:
                 return True
         return False
 
-    def _destination_contested_by_other(self, s: SupportMove) -> bool:
-        """True if another unit (not the supported mover) also attacks s's dest."""
+    def _support_decisive_elsewhere(self, s: SupportMove) -> bool:
+        """True if ``s`` was given and, without it, another move into its
+        destination would have beaten the supported move's prevent strength.
+
+        Reporting only (it reads resolved results): the supported move's prevent
+        strength equals another attacker's attack strength, so one support less
+        and that attacker would no longer be bounced by it (6.E.12).
+        """
+        supp_item = self.items.get(s.unit.province)
+        if supp_item is None or not self._resolve(s.unit.province):
+            return False
+        supported = self.items.get(s.origin.province)
+        if supported is None or not isinstance(supported.order, Move):
+            return False
+        prevent = self._prevent_strength(supported.order)
+        if prevent == 0:  # a failed convoy prevents nothing, so the support stops no one
+            return False
         for prov, item in self.items.items():
             o = item.order
             if (
                 isinstance(o, Move)
                 and o.dest.province == s.dest.province
                 and prov != s.origin.province
+                and self._attack_strength(o) == prevent
             ):
                 return True
         return False

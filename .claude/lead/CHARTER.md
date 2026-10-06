@@ -161,9 +161,9 @@ you used, so the next run picks different ones.
   and dead ends.
 - **`fix_plan.md`** open items, and the specs in `docs/specs/` against the code: anything
   the spec promises that the code doesn't do.
-- **Rules correctness.** The 10 DATC `xfail`s need an iterative Szykman resolver. That's a
-  large, worthwhile project, best run over several nights in milestones recorded in
-  `fix_plan.md`.
+- **Rules correctness.** The remaining DATC `xfail`s are Track BC in `fix_plan.md`: its
+  root-cause notes and one milestone per PR, the targeted fixes first and the paradox
+  resolver (BC5, BC6) last.
 - **Code health.** Coverage holes in risky code, dead code, slow tests, duplication across
   the bot and frontend.
 - **Dependencies.** Outdated or vulnerable packages (`pip-audit`, `npm outdated`). Upgrade

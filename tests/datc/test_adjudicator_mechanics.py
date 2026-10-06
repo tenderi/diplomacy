@@ -155,3 +155,47 @@ def test_a_support_against_ones_own_moving_unit_still_defends_head_to_head(rever
     h.assert_not_dislodged("A SYR")
     h.assert_not_dislodged("A ARM")
     h.assert_result("A SMY", ResultCode.VOID)  # reported: it would help dislodge its own unit
+
+
+def test_a_support_against_ones_own_unit_that_stops_no_one_is_void():
+    """6.E.12 with Russia's support for Galicia taken away.
+
+    Austria's A SER supports Italy's attack on Austria's own A BUD, which moves out but
+    bounces and stays. Galicia now attacks Budapest with strength 1 only, so Vienna's
+    prevent strength of 1 alone already stops it: Serbia's support served no other means
+    and is reported VOID (in 6.E.12 it is what stops a strength-2 Galicia, and stays OK).
+    """
+    h = Harness()
+    h.units("AUSTRIA", "A BUD", "A SER")
+    h.units("ITALY", "A VIE")
+    h.units("RUSSIA", "A GAL", "A RUM")
+    h.orders("AUSTRIA", "A BUD - RUM", "A SER S A VIE - BUD")
+    h.orders("ITALY", "A VIE - BUD")
+    h.orders("RUSSIA", "A GAL - BUD", "A RUM H")
+    h.adjudicate()
+    h.assert_bounce("A BUD")
+    h.assert_result("A SER", ResultCode.VOID)
+    h.assert_bounce("A VIE")
+    h.assert_bounce("A GAL")
+    h.assert_not_dislodged("A BUD")
+
+
+def test_a_support_against_ones_own_unit_for_a_failed_convoy_is_void():
+    """A supported move with prevent strength 0 stops no one, not even a 0-strength attacker.
+
+    England's A BEL fails to move. F NTH supports France's convoyed A LON - BEL, but
+    Germany dislodges the convoying fleet, so that move has prevent strength 0. England's
+    own A HOL - BEL attacks its own unit with strength 0, and 0 == 0 would let the support
+    count as decisive. It decided nothing and is reported VOID.
+    """
+    h = Harness()
+    h.units("ENGLAND", "A BEL", "F NTH", "A HOL")
+    h.units("FRANCE", "A LON", "F ENG")
+    h.units("GERMANY", "A RUH", "F IRI", "F MAO")
+    h.orders("ENGLAND", "A BEL - RUH", "F NTH S A LON - BEL", "A HOL - BEL")
+    h.orders("FRANCE", "A LON - BEL VIA", "F ENG C A LON - BEL")
+    h.orders("GERMANY", "A RUH H", "F IRI - ENG", "F MAO S F IRI - ENG")
+    h.adjudicate()
+    h.assert_bounce("A BEL")
+    h.assert_bounce("A HOL")
+    h.assert_result("F NTH", ResultCode.VOID)

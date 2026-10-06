@@ -16,8 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-06. `v3.0.67` planned Track BC (the 10 DATC `xfail`s, six
-  milestones; none started). `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
+- **Last updated:** 2026-10-06. `v3.0.68` did BC1 (a support for an attack on one's own
+  unit is `VOID` unless it was decisive against another attacker: 6.E.8 and 6.E.10 pass,
+  146/154 DATC green). `v3.0.67` planned Track BC (the DATC `xfail`s, six milestones). `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
   (the web game page shows a player the game's Telegram group with an Unlink button, or a
   "Link a Telegram group" link to `t.me/<bot>?startgroup=link_<id>`; `GET /games/{id}/channel`
   names the bot; Unlink asks first, and a web unlink tells the group). `v3.0.66` moved `source-map-js` past a high advisory. `v3.0.65` did BB6a
@@ -43,7 +44,7 @@
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC1 first; it may run in
+  **Track BC** (the DATC hard tail) is open agent work, BC2 next; it may run in
   parallel with BB, since it touches only the engine.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
@@ -114,7 +115,7 @@ play-through in a group game.
 
 # Track BC — DATC hard tail
 
-Ten DATC cases are `xfail`: 6.D.8, 6.E.8, 6.E.10, 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
+Eight DATC cases are `xfail`: 6.D.8, 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
 6.G.7, 6.G.11 (`tests/datc/`). This track makes them pass, one small PR per milestone,
 with the targeted fixes first and the paradox resolver after. The expected outcomes are
 the DATC's preferred ones (1982/2000 rulebook, Szykman paradox rule) and already sit in
@@ -127,12 +128,6 @@ To see what the engine does on one case, run it with `--runxfail`:
 **Root causes** (found 2026-10-06 by running each case; prototypes of BC1 to BC4 each
 turned their cases green, with the rest of `tests/datc` and `tests/engine` green too):
 
-- **6.E.8, 6.E.10: a reporting difference only.** Every unit ends up where DATC says.
-  Only `F YOR`'s result code differs: `OK` where DATC (and v2.7.68) say `VOID`.
-  `_support_is_void`'s 6.E.12 exception ("the support serves other means") applies
-  whenever another unit also attacks the destination. In 6.E.8/10 that other attacker
-  bounces with or without `F YOR`'s support, so the support served nothing and is `VOID`.
-  In 6.E.12 Serbia's support is what stops Galicia, so it stays `OK`.
 - **6.G.7: an impossible convoy order shows intent.** `F BOT C A SWE - NWY` cannot be part
   of any route (no chain of seas links the Gulf of Bothnia to Norway), but
   `_has_convoy_order` counts it as Russia's convoy intent. England's `F SKA` then carries
@@ -190,7 +185,7 @@ and its entry in `docs/specs/adjudication.md` §3/§5/§6/§11,
 CLAUDE.md's DATC sentence, and removes its cases from those lists. A milestone that
 changes another case's result code says so in its commit, citing v2.7.68's expectation.
 
-- [ ] BC1 — **6.E.8, 6.E.10: report a support for an attack on one's own unit as `VOID`
+- [x] BC1 — **6.E.8, 6.E.10: report a support for an attack on one's own unit as `VOID`
       unless it served other means.** In `src/engine/adjudicator/movement.py`
       `_support_is_void` (the reporting path, `count_own_unit_rule=True`), replace the
       `_destination_contested_by_other` test with "the support was decisive elsewhere":

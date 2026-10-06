@@ -6,7 +6,7 @@
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
 > doc explains *why* they're shaped the way they are and ties the pieces together.
 >
-> Conformance: 144/154 DATC cases green (`tests/datc/`), 10 documented hard-tail `xfail`s
+> Conformance: 146/154 DATC cases green (`tests/datc/`), 8 documented hard-tail `xfail`s
 > (listed at the end). Everything below is implemented, not aspirational.
 
 ## 1. Why fixed-point, not a single pass
@@ -121,10 +121,15 @@ geometrically, before the cut question is even asked — when (`_support_is_void
 - it names no real order to support (`_support_has_target`) — e.g. a hold-support for an
   empty province, or a move-support whose named mover isn't actually moving there, or
 - (`SupportMove`, **reported only**) it would help dislodge a **holding unit of the
-  supporter's own power** at the destination — *unless* that unit is itself moving away
-  and the destination is independently contested by another attacker (DATC 6.E.12: the
-  support "serves other means" rather than self-dislodgement; a unit that vacates via
-  circular movement, 6.C.2, was never being dislodged at all). This rule decides the
+  supporter's own power** at the destination — *unless* that unit is itself ordered to
+  move away and the support was decisive elsewhere (`_support_decisive_elsewhere`): it
+  was given, and the supported move's prevent strength equals the attack strength of
+  another move into the same destination, so without it that move would have won (DATC
+  6.E.12: the support "serves other means" rather than self-dislodgement). Another
+  attacker that bounces with or without the support does not count (6.E.8, 6.E.10), and
+  a unit that vacates via circular movement (6.C.2) was never being dislodged at all.
+  The test reads resolved results, which is one more reason it can only be a reporting
+  rule. This rule decides the
   `VOID` result code and nothing else: for strength such a support is given like any
   other (`_support_given` calls `_support_is_void(..., count_own_unit_rule=False)`) and
   is kept out of the one place DATC excludes it, the attack strength against that
@@ -290,7 +295,7 @@ call to `adjudicate()` returns a *new* `Game`, never mutates the old one.
 
 ## 11. Documented deviations / known gaps
 
-Ten DATC cases are `xfail` with the reason recorded in the test file docstrings — not
+Eight DATC cases are `xfail` with the reason recorded in the test file docstrings — not
 silently skipped. Track BC in [`fix_plan.md`](fix_plan.md) holds the root cause of each
 and the milestones that fix them; a case is un-xfailed only by its milestone:
 
@@ -303,9 +308,6 @@ and the milestones that fix them; a case is un-xfailed only by its milestone:
 - **6.G.7/11** — convoy intent: an impossible convoy order (6.G.7) still shows intent, and
   intent without `VIA` is inferred only for a swap (6.G.11), the "own-power swap only"
   rule in §6.
-- **6.E.8/6.E.10** — the result code only: a support for an attack on the supporter's own
-  unit is reported `OK` whenever the destination is contested by another attacker, even
-  when (unlike 6.E.12) it decides nothing there; DATC reports it `VOID`.
 - **6.D.8** — a non-adjacent army move is voided unless a fleet is *ordered* to convoy it;
   DATC decides legality from the fleets on the board, so a move a fleet could have
   carried is a real (failing) move and cannot receive hold support.

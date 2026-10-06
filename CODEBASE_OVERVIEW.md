@@ -67,7 +67,7 @@ The package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework 
 - **Multi-coast provinces.** Bulgaria (EC/SC), Spain (NC/SC), and St. Petersburg (NC/SC)
   are first-class `Location(province, coast)` pairs read straight from `standard.map`.
 - **Victory.** ≥18 supply centers, checked once per year right after Fall ownership updates.
-- **Conformance.** 144/154 DATC cases green (`tests/datc/`), 10 documented `xfail`
+- **Conformance.** 146/154 DATC cases green (`tests/datc/`), 8 documented `xfail`
   hard-tail cases — see `adjudication.md` §11 for exactly which and why.
 
 ---
