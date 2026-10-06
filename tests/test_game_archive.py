@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from server.api import ADMIN_TOKEN, app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
@@ -31,7 +32,12 @@ def played_game(client: TestClient) -> tuple[str, str, str]:
         assert client.post(f"/games/{game_id}/join", json=_as(tg, power=power)).status_code == 200
     client.post("/games/set_orders", json=_as(fr, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"]))
     client.post("/games/set_orders", json=_as(de, game_id=game_id, power="GERMANY", orders=["A MUN - RUH"]))
+    # Only a full table is processed (BA6); the tests below want the two seats
+    # alone, so the other five are dummies just for the turn.
+    dummies = fill_with_dummies(game_id)
     assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+    for power in dummies:
+        game_service.set_dummy(game_id, power, False)
     sent = client.post(f"/games/{game_id}/message", json=_as(fr, recipient_power="GERMANY", text="Belgium is yours"))
     assert sent.status_code == 200, sent.text
     return game_id, fr, de

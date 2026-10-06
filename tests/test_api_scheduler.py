@@ -9,6 +9,8 @@ import time
 import pytest
 from unittest.mock import patch
 
+from tests.table_helpers import fill_with_dummies
+
 
 def _auth_headers(client: TestClient) -> dict:
     """Register a fresh user and return Bearer auth headers for it.
@@ -28,13 +30,15 @@ def _create_game_as_player(client: TestClient, headers: dict) -> str:
     """Create a game and seat its creator as FRANCE.
 
     ``POST /games/{id}/deadline`` is for the game's *players* (Track T): a
-    Bearer user who merely created the game is not one until they join.
+    Bearer user who merely created the game is not one until they join. The
+    other six powers are dummies: only a full table is processed (BA6).
     """
     resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}, headers=headers)
     assert resp.status_code == 200, resp.text
     game_id = resp.json()["game_id"]
     join = client.post(f"/games/{game_id}/join", json={"power": "FRANCE"}, headers=headers)
     assert join.status_code == 200, join.text
+    fill_with_dummies(game_id)
     return game_id
 
 

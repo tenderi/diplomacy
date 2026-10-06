@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 
 from server.api import app
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 
 BOT_SECRET = "test_bot_secret_for_tests"
 _BOT = {"X-Bot-Secret": BOT_SECRET}  # generate_map* and snapshot need an authenticated caller
@@ -116,6 +117,7 @@ class TestGenerateResolutionMap:
         game_id = _create_game(client, headers)
         # No turn processed yet: falls back to a plain board, still a real PNG.
         _assert_rendered(client.post(f"/games/{game_id}/generate_map/resolution", headers=_BOT), "_resolution_")
+        fill_with_dummies(game_id)
         processed = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert processed.status_code == 200, processed.text
         resp = client.post(f"/games/{game_id}/generate_map/resolution", headers=_BOT)
@@ -245,6 +247,7 @@ class TestGetGameResolutionMapPng:
         game_id = _create_game(client, _register_and_login(client, "standoff"))
         game_service.submit_orders(game_id, "FRANCE", ["A PAR - BUR"])
         game_service.submit_orders(game_id, "GERMANY", ["A MUN - BUR"])
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=_BOT).status_code == 200
         with patch("server.api.routes.maps.Map.render_board_png_resolution", side_effect=render_board_png_resolution) as render:
             resp = client.get(f"/games/{game_id}/map/resolution")
@@ -260,6 +263,7 @@ class TestGetGameResolutionMapPng:
 
         game_id = _create_game(client, _register_and_login(client, "resboard"))
         game_service.submit_orders(game_id, "FRANCE", ["A PAR - BUR"])
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers=_BOT).status_code == 200
         with patch("server.api.routes.maps.Map.render_board_png_resolution", side_effect=render_board_png_resolution) as render:
             assert client.get(f"/games/{game_id}/map/resolution").status_code == 200
@@ -275,6 +279,7 @@ class TestGetGameResolutionMapPng:
         game_id = _create_game(client, headers)
         # process_turn now requires bot-secret/admin-token/membership (E1d) --
         # the game creator hasn't joined as a power, so use the bot-secret path.
+        fill_with_dummies(game_id)
         process_resp = client.post(
             f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}
         )

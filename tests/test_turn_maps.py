@@ -17,6 +17,7 @@ from server.api.shared import game_service, phase_label
 from server.telegram_bot import notifications
 from server.telegram_bot.api_client import ApiUnreachableError
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
@@ -62,6 +63,7 @@ class TestTheGroupSeesEachTurn:
     def _process(self, client: TestClient, game_id: str, orders: dict[str, list[str]]) -> list[dict[str, Any]]:
         for power, power_orders in orders.items():
             game_service.submit_orders(game_id, power, power_orders)
+        fill_with_dummies(game_id)
         with OutboxProbe() as probe:
             assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
         return [r for r in probe.rows() if str(r["telegram_id"]) == GROUP]

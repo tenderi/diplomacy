@@ -101,7 +101,9 @@ class DaideServer:
         `start()` or `_handle_client()` -- see `start()`'s docstring for why
         eager creation there is actively harmful for this repo."""
         if self._game_id is None:
-            self._game_id = self.game_service.create_game()
+            # Marked as DAIDE's: its seats live in this object, not in seat
+            # rows, so the full-table rule must not wait on them.
+            self._game_id = self.game_service.create_game(daide=True)
         return self._game_id
 
     # -- lifecycle ------------------------------------------------------------

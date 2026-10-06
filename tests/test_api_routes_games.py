@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service, game_service, server
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 
 BOT_SECRET = "test_bot_secret_for_tests"
 
@@ -118,6 +119,7 @@ class TestListGames:
         """The list read ``year``/``season``, columns the model does not have, so
         every game showed as Spring 1901 however far it had got."""
         game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        fill_with_dummies(game_id)
         for _ in range(2):  # S1901M -> F1901M -> S1902M (nobody ordered: no winter)
             assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
         listed = next(g for g in client.get("/games").json()["games"] if str(g["game_id"]) == str(game_id))
@@ -204,6 +206,7 @@ class TestProcessTurn:
         """
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
+        fill_with_dummies(game_id)
         resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 200
         data = resp.json()
@@ -266,6 +269,7 @@ class TestProcessTurn:
             headers=headers,
         )
         assert join_resp.status_code == 200, join_resp.text
+        fill_with_dummies(game_id)
 
         resp = client.post(f"/games/{game_id}/process_turn", headers=headers)
         assert resp.status_code == 200
@@ -297,6 +301,7 @@ class TestLastResolution:
         process_turn returned inline (E1a), decorated with power/order_str."""
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
+        fill_with_dummies(game_id)
         process_resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert process_resp.status_code == 200
         inline_resolution = process_resp.json()["resolution"]
@@ -335,6 +340,7 @@ class TestLastResolution:
         """
         game_resp = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"})
         game_id = game_resp.json()["game_id"]
+        fill_with_dummies(game_id)
         process_resp = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
         assert process_resp.status_code == 200
 
@@ -409,6 +415,7 @@ class TestGameHistory:
         ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
                                                          "telegram_id": tg, "bot_secret": BOT_SECRET})
         assert ordered.status_code == 200, ordered.text
+        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
 
         resp = client.get(f"/games/{game_id}/history/1")

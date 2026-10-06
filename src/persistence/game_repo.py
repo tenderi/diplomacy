@@ -198,6 +198,7 @@ class GameRepo:
                 "private": row.join_password_hash is not None,
                 "anonymous": bool(row.anonymous),
                 "random_powers": bool(row.random_powers),
+                "daide": bool(row.daide),
             }
 
     def players(self, game_id: str) -> dict[str, dict[str, Any]]:
@@ -230,6 +231,7 @@ class GameRepo:
         deadline_schedule: Optional[dict[str, Any]] = None,
         anonymous: bool = False,
         random_powers: bool = False,
+        daide: bool = False,
         opening_board: Optional[dict[str, Any]] = None,
     ) -> str:
         """Insert a new game row and return its ``game_id`` string.
@@ -265,6 +267,7 @@ class GameRepo:
                 deadline_schedule=deadline_schedule,
                 anonymous=anonymous,
                 random_powers=random_powers,
+                daide=daide,
             )
             session.add(row)
             session.flush()  # assign the integer PK

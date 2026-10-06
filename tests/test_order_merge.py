@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from server.api import app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.test_auto_process import _table
 from tests.test_quit_and_replace import _as, _register_and_login, _telegram_user
 
@@ -46,6 +47,7 @@ def test_one_at_a_time_adds_up(client: TestClient) -> None:
     for order in ("A BER - KIE", "F KIE - DEN", "A MUN - RUH"):
         _send(client, game_id, tg, [order], merge=True)
     assert _pending(game_id) == ["A BER - KIE", "A MUN - RUH", "F KIE - DEN"]
+    fill_with_dummies(game_id)
     client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
     moved = {u["location"] for u in game_service.view(game_id)["units_by_power"]["GERMANY"]}
     assert moved == {"KIE", "DEN", "RUH"}  # all three moved, not just the last
