@@ -78,7 +78,7 @@ misuse among them). Fix or narrowly silence the individual warning instead.
 no database, and no mocks. This is where correctness actually lives:
 
 - `tests/datc/` — one test per official DATC case (6.A–6.J, plus two extra cases in 6.K).
-  144 of 154 pass; 10 are documented `xfail`s with the reason inline. Each is un-xfailed by
+  146 of 154 pass; 8 are documented `xfail`s with the reason inline. Each is un-xfailed by
   its milestone of Track BC in [`fix_plan.md`](fix_plan.md), not otherwise (see
   [`adjudication.md`](adjudication.md) §11).
 - `tests/datc/harness.py` — `Harness().units(...)`, `.orders(...)`, `.adjudicate()`, the

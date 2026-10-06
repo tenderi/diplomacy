@@ -190,7 +190,6 @@ def test_6e7_no_self_dislodgement_with_beleaguered_garrison():
     h.assert_not_dislodged("F NTH")
 
 
-@pytest.mark.xfail(reason="self-dislodgement + beleaguered garrison with a moving own unit: not distinguished from the used-for-other-means case (6.E.12) by the current support-void rule", strict=False)
 def test_6e8_no_self_dislodgement_with_beleaguered_garrison_and_head_to_head():
     """6.E.8 NO SELF DISLODGEMENT WITH BELEAGUERED GARRISON AND HEAD TO HEAD BATTLE.
 
@@ -240,7 +239,6 @@ def test_6e9_almost_self_dislodgement_with_beleaguered_garrison():
     assert h.unit_powers_at("NWY") is None
 
 
-@pytest.mark.xfail(reason="almost-circular movement + beleaguered self-dislodgement: same unresolved distinction from 6.E.12 as 6.E.8", strict=False)
 def test_6e10_almost_circular_movement_with_no_self_dislodgement_beleaguered_garrison():
     """6.E.10 ALMOST CIRCULAR MOVEMENT WITH NO SELF DISLODGEMENT WITH BELEAGUERED GARRISON.
 
