@@ -1,6 +1,7 @@
 """Rumours (#157): a broadcast sent anonymously.
 
-It reaches the same people as a broadcast -- every other player by DM, and the
+It reaches every seated player by DM -- the sender too, with the same text, so
+the one player without a DM can't be picked out as the author -- and the
 game's linked Telegram group when ``auto_post_broadcasts`` is on -- but no DM,
 group post or API read names the sender to anyone but the sender themself.
 Signed broadcasts reach the linked group too, and keep naming their sender.
@@ -68,12 +69,22 @@ class TestTheLinkedGroup:
 
 class TestRumours:
     @pytest.mark.parametrize("game_anonymous", [True, False])
-    def test_the_dm_names_nobody_and_skips_the_sender(self, client: TestClient, game_anonymous: bool) -> None:
+    def test_the_dm_names_nobody_and_reaches_the_sender_too(self, client: TestClient, game_anonymous: bool) -> None:
+        # The sender gets exactly one DM, byte-identical to everyone else's:
+        # left out, they were the one player with no DM (#173).
         game_id, anna, bert, _ = _game(client, anonymous=game_anonymous)
         with OutboxProbe() as probe:
             r = client.post(f"/games/{game_id}/broadcast", json=_as(bert, text="Italy will stab", anonymous=True))
         assert r.status_code == 200, r.text
-        assert probe.by_recipient() == {anna: [f"🕵️ Rumour in game {game_id}: Italy will stab"]}
+        dm = f"🕵️ Rumour in game {game_id}: Italy will stab"
+        assert probe.by_recipient() == {anna: [dm], bert: [dm]}
+
+    def test_a_signed_broadcast_still_skips_its_sender(self, client: TestClient) -> None:
+        game_id, anna, bert, bert_nick = _game(client, anonymous=False)
+        with OutboxProbe() as probe:
+            r = client.post(f"/games/{game_id}/broadcast", json=_as(bert, text="Peace"))
+        assert r.status_code == 200, r.text
+        assert probe.by_recipient() == {anna: [f"Broadcast in game {game_id} from GERMANY ({bert_nick}): Peace"]}
 
     def test_the_rumour_is_stored_anonymous_with_its_sender(self, client: TestClient) -> None:
         game_id, _, bert, _ = _game(client, anonymous=False)
