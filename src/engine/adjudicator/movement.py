@@ -485,6 +485,8 @@ class _Resolver:
         if supported is None or not isinstance(supported.order, Move):
             return False
         prevent = self._prevent_strength(supported.order)
+        if prevent == 0:  # a failed convoy prevents nothing, so the support stops no one
+            return False
         for prov, item in self.items.items():
             o = item.order
             if (
