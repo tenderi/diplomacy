@@ -83,7 +83,7 @@ order and re-evaluates the whole cycle each time:
 This is a **single-pass** backup rule: once a cycle is broken, its members are marked
 `RESOLVED` and not revisited. The engine does not implement iterative re-resolution for
 *second-order* paradoxes (a paradox whose break exposes a second, dependent paradox) —
-see §8, the documented `xfail`s (6.F.16/17/18/23/24).
+see §11, the documented `xfail`s (6.F.23/24).
 
 ## 4. Strength model
 
@@ -291,20 +291,24 @@ call to `adjudicate()` returns a *new* `Game`, never mutates the old one.
 ## 11. Documented deviations / known gaps
 
 Ten DATC cases are `xfail` with the reason recorded in the test file docstrings — not
-silently skipped, and not to be un-xfailed without the corresponding engine work:
+silently skipped. Track BC in [`fix_plan.md`](fix_plan.md) holds the root cause of each
+and the milestones that fix them; a case is un-xfailed only by its milestone:
 
-- **6.F.16/17/18/23/24** — second-order convoy paradoxes. The single-pass backup rule
-  (§3) resolves first-order paradoxes correctly but does not iterate: breaking one
-  paradox can, in principle, expose a second, dependent paradox that this resolver
-  doesn't re-detect. Needs an iterative Szykman re-resolution loop.
-- **6.G.7/11** — convoy-to-adjacent-province intent-inference edge cases at the boundary
-  of the "own-power swap only" rule in §6.
-- **6.E.8/6.E.10** — beleaguered-garrison self-dislodgement variants that the current
-  support-void rule (§5) does not distinguish from the legitimate "serves other means"
-  case, 6.E.12.
-- **6.D.8** — a DATC case with a stated rule-variant answer; this engine treats a
-  no-fleet convoy move as illegal/ignored, which is the reading consistent with how it
-  already handles 6.D.28/29/31/32.
+- **6.F.16/17/18** — first-order convoy paradoxes the resolver gets wrong. A result
+  computed on a guess can be marked resolved (a re-read of a guess already in `_deps`
+  does not grow it), convoy survival is checked outside `_resolve` so convoys never join
+  a cycle, and the backup rule (§3) keeps guess-pass values for the cycle's other moves.
+- **6.F.23/24** — second-order convoy paradoxes: the same defects, plus Szykman must be
+  applied again to each paradox that re-resolution exposes.
+- **6.G.7/11** — convoy intent: an impossible convoy order (6.G.7) still shows intent, and
+  intent without `VIA` is inferred only for a swap (6.G.11), the "own-power swap only"
+  rule in §6.
+- **6.E.8/6.E.10** — the result code only: a support for an attack on the supporter's own
+  unit is reported `OK` whenever the destination is contested by another attacker, even
+  when (unlike 6.E.12) it decides nothing there; DATC reports it `VOID`.
+- **6.D.8** — a non-adjacent army move is voided unless a fleet is *ordered* to convoy it;
+  DATC decides legality from the fleets on the board, so a move a fleet could have
+  carried is a real (failing) move and cannot receive hold support.
 
 ## 12. Where to look
 
