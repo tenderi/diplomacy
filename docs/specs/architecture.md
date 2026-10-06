@@ -190,6 +190,11 @@ There are three delivery surfaces, and they are not interchangeable:
   it produced, dislodged units included). By turn number, never "the current map": a post
   delivered late still shows the turn it announces. An image the API refuses is acked as
   failed rather than retried, so it cannot block the rows behind it.
+  One group post ignores the settings: `DELETE /games/{id}/channel/unlink` called by anyone
+  but the bot (a web player, an admin) tells the group the game was unlinked from its web
+  page, that it no longer gets maps or reminders, that the game is open to anyone, and how
+  to link it again (`/linkgroup <id>`). It names nobody, and is queued before the link is
+  cleared. The bot's own unlinks (`/unlinkgroup`) post nothing: the bot answers in the group.
 
   **A group has at most one game** (`games.channel_id`, unique when set). Linking a game to
   a group that has one (`POST /games/{id}/channel/link`: `/linkgroup`, `/newgame`) *moves*
@@ -206,6 +211,13 @@ There are three delivery surfaces, and they are not interchangeable:
   game: `/linkgroup` (`/link_channel` is its old name, refused in a private chat), and
   `/start link_<id>`, which Telegram sends to the group the player picks after the web
   page's `t.me/<bot>?startgroup=link_<id>` (in a private chat it links nothing).
+  That web control (`TelegramGroupCard`, shown to a player of the game) reads
+  `GET /games/{id}/channel` (players, the bot or an admin): `linked`, the group's
+  `channel_name` (its title, sent by the bot when it links), and `bot_username`
+  (`DIPLOMACY_BOT_USERNAME`, default `IronChancellorBot`) to build that link. A linked
+  game shows the group and an Unlink button (`DELETE /games/{id}/channel/unlink`, also
+  open to a web player of the game), which asks for confirmation first; the group is then
+  told (see *Linked group post* above).
   `/newgame` makes **one** call, `POST /games/create` with `channel_id` (bot only): the game
   is created linked to the group or, on a 409, deleted again, never left unlinked in the
   public list; the bot also checks the rule before it asks. A command typed in a group is about that group's game, never the caller's current game: the bot asks

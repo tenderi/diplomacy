@@ -52,6 +52,10 @@ This is how most beta games work. It needs one person, the **organiser**, to set
      powers' units just hold. No turn is played until every power has a player or is
      left to civil disorder.
 
+**Already playing a game without a group?** A player can link it to one from the game's
+web page: **Link a Telegram group** opens Telegram, you pick the group, and the bot joins it
+and links the game. The same page shows the linked group and can **Unlink** it.
+
 **What happens where:**
 
 | In the group (everyone sees) | In your private chat with the bot (only you) |
