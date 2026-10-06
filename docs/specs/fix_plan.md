@@ -16,16 +16,20 @@
 
 ## Status
 
-- **Last updated:** 2026-10-06, at `v3.0.65` (BB6a: an unknown power in a private message
-  is named as such, `/messages` shows short UTC times, the group's orders map reads
-  "orders and results"; BB6b, the rumour sender's missing DM, awaits the maintainer).
+- **Last updated:** 2026-10-06. `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
+  (the web game page shows a player the game's Telegram group with an Unlink button, or a
+  "Link a Telegram group" link to `t.me/<bot>?startgroup=link_<id>`; `GET /games/{id}/channel`
+  names the bot; Unlink asks first, and a web unlink tells the group). `v3.0.66` moved `source-map-js` past a high advisory. `v3.0.65` did BB6a
+  (an unknown power in a private message is named as such, `/messages` shows short UTC
+  times, the group's orders map reads "orders and results"; BB6b, the rumour sender's
+  missing DM, awaits the maintainer).
   `v3.0.63` did BA6 (the maintainer chose a full table
   in #145, so no turn is processed, by hand, by auto-process or at a deadline, while a
   power is neither seated nor a dummy; Track BA is complete). `v3.0.62` did BB9 and BB2a (a
   game is linked to a group only from inside it -- the link endpoint is bot or admin only,
   `/link_channel` no longer takes a chat id, `/newgame` creates and links in one call or
-  creates nothing, and `/start link_<id>` in a group links the game for a player of it;
-  BB2b, the web page's side, is open). `v3.0.61` did BB7 (`/viewmap`, `/map` and `/players`
+  creates nothing, and `/start link_<id>` in a group links the game for a player of it).
+  `v3.0.61` did BB7 (`/viewmap`, `/map` and `/players`
   typed in a group answer for the group's game, and an id for another game is refused
   there). `v3.0.59` did BB1 (a Telegram group has at most one
   game, only a player of the game it replaces may move the link, and `/status` in a group
@@ -60,9 +64,11 @@ play-through in a group game.
       payload Telegram sends after `t.me/<bot>?startgroup=link_<game_id>`), when the sender
       is a player of that game; same rules and reply as `/linkgroup`. In a private chat the
       payload links nothing.
-- [ ] BB2b — **Link and unlink from the web game page.** Show the linked group (name) with
+- [x] BB2b — **Link and unlink from the web game page.** Show the linked group (name) with
       an Unlink button; "Link a Telegram group" opens
-      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking).
+      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking). Unlink asks
+      for confirmation, and a web unlink posts to the group (the bot's `/unlinkgroup`
+      already answers there).
 - [x] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
       messages**, and a rumour's sender doesn't see it marked as theirs:
       `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no

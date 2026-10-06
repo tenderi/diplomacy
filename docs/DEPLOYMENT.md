@@ -45,6 +45,10 @@ of a kind counts the ones held back), and so is every player's `/feedback`. Set 
 `.env`, then `docker compose up -d`. You must have sent the bot `/start` once, or
 Telegram will not let it message you.
 
+`DIPLOMACY_BOT_USERNAME` (optional, not a secret) is the bot's Telegram username, without
+the `@`; blank means `IronChancellorBot`. The web game page's "Link a Telegram group"
+opens `https://t.me/<it>?startgroup=link_<game_id>`, so set it if you run your own bot.
+
 ## What "no message is ever lost" means
 
 The API restarts on every deploy, and it can crash. That costs players

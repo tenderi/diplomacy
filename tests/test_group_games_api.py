@@ -76,6 +76,60 @@ class TestGroupSettingsAreGuarded:
         assert client.post(f"/games/{game_id}/channel/settings", json={"auto_post_maps": False}, headers=BOT).status_code == 200
         assert client.delete(f"/games/{game_id}/channel/unlink", headers=BOT).status_code == 200
 
+    def test_the_web_page_shows_a_player_the_group_and_lets_them_unlink_it(self, client: TestClient) -> None:
+        """BB2b: the game page reads the group's title and the bot's username, and unlinks."""
+        player = _web_user(client, "webunlinker")
+        game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=player).json()["game_id"])
+        client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=player)
+        group = f"-100{time.time_ns() % 10**10}"
+        link = {"channel_id": group, "channel_name": "Friday Diplomacy"}
+        assert client.post(f"/games/{game_id}/channel/link", json=link, headers=BOT).status_code == 200
+        info = client.get(f"/games/{game_id}/channel", headers=player).json()
+        assert (info["linked"], info["channel_name"], info["bot_username"]) == (True, "Friday Diplomacy", "IronChancellorBot")
+
+        stranger = _web_user(client, "notinthegame")
+        assert client.delete(f"/games/{game_id}/channel/unlink", headers=stranger).status_code == 403
+        assert client.get(f"/games/{game_id}/channel", headers=player).json()["linked"] is True
+
+        assert client.delete(f"/games/{game_id}/channel/unlink", headers=player).status_code == 200
+        after = client.get(f"/games/{game_id}/channel", headers=player).json()
+        assert (after["linked"], after["bot_username"]) == (False, "IronChancellorBot")
+        assert client.get("/channels/" + group + "/game", headers=BOT).json() == {"linked": False}
+
+
+class TestUnlinkingTellsTheGroup:
+    """A player unlinking from the web page would otherwise cut the group off
+    without a word; ``/unlinkgroup`` already answers in the group."""
+
+    def _linked(self, client: TestClient, name: str) -> tuple[str, dict, str]:
+        player = _web_user(client, name)
+        game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=player).json()["game_id"])
+        client.post(f"/games/{game_id}/join", json={"power": "ITALY"}, headers=player)
+        group = f"-100{time.time_ns() % 10**10}"
+        link = {"channel_id": group, "settings": {"auto_post_notifications": False}}
+        assert client.post(f"/games/{game_id}/channel/link", json=link, headers=BOT).status_code == 200
+        return game_id, player, group
+
+    def test_a_web_unlink_posts_once_to_the_group(self, client: TestClient) -> None:
+        game_id, player, group = self._linked(client, "webunlinkpost")
+        with OutboxProbe() as probe:
+            assert client.delete(f"/games/{game_id}/channel/unlink", headers=player).status_code == 200
+        assert [(str(r["telegram_id"]), r["kind"], r["message"]) for r in probe.rows()] == [
+            (
+                group,
+                "channel_text",
+                f"Game {game_id} was unlinked from this group on its web game page. This group no longer gets "
+                f"its maps or deadline reminders, and the game is open for anyone to join. A player of the "
+                f"game can link it again here with /linkgroup {game_id}.",
+            )
+        ]
+
+    def test_a_bot_unlink_posts_nothing(self, client: TestClient) -> None:
+        game_id, _, _ = self._linked(client, "botunlinkpost")
+        with OutboxProbe() as probe:
+            assert client.delete(f"/games/{game_id}/channel/unlink", headers=BOT).status_code == 200
+        assert probe.rows() == []
+
 
 def test_the_group_hears_about_a_deadline_change(client: TestClient) -> None:
     game_id, creator = _group_game(client)

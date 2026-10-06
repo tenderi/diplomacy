@@ -1521,3 +1521,33 @@ describe('GameView — anonymous and public games', () => {
     expect(within(container).queryByText('Anonymous')).toBeNull()
   })
 })
+
+describe('GameView — the Telegram group (BB2b)', () => {
+  /** stubFetchActive plus GET /games/10/channel, which the API answers only for a player. */
+  function withChannel(base: ReturnType<typeof stubFetchActive>) {
+    return vi.fn((url: string, init?: RequestInit) =>
+      url.endsWith('/games/10/channel')
+        ? jsonResponse({ status: 'ok', linked: true, bot_username: 'TestBot', channel_id: '-1001', channel_name: 'Friday Diplomacy' })
+        : base(url, init)
+    )
+  }
+
+  it('shows a player of the game its group and an Unlink button', async () => {
+    vi.stubGlobal('fetch', withChannel(stubFetchActive(activeMovementState, francePlayers)))
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText('Friday Diplomacy')).toBeInTheDocument()
+    expect(within(container).getByRole('button', { name: 'Unlink' })).toBeInTheDocument()
+  })
+
+  it('shows a non-player no group control and does not ask for it', async () => {
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Other' }]
+    const fetchMock = withChannel(stubFetchActive(activeMovementState, otherPlayers))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText(/Join game/i)).toBeInTheDocument()
+    expect(within(container).queryByText('Telegram group')).toBeNull()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).endsWith('/channel'))).toBe(false)
+  })
+})
