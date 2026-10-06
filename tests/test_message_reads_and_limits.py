@@ -145,8 +145,10 @@ class TestMessageText:
                                 json=_as(anna, text=text, client_timestamp=written, **extra))
                 assert r.status_code == 200, r.text
         rows = probe.rows()
-        # Bert's DM for each of the three, and the group's post for the two broadcasts.
-        assert len(rows) == 5
+        # Bert's DM for each of the three, Anna's own DM of her rumour (a
+        # rumour reaches its sender too), and the group's post for the two
+        # broadcasts.
+        assert len(rows) == 6
         later = datetime.now(timezone.utc) + timedelta(days=3)
         rendered = [render_notification(row, now=later) for row in rows]
         assert all(t.startswith("⏱ Delayed notification") for t in rendered)
