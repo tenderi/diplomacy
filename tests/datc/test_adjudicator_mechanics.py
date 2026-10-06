@@ -178,3 +178,24 @@ def test_a_support_against_ones_own_unit_that_stops_no_one_is_void():
     h.assert_bounce("A VIE")
     h.assert_bounce("A GAL")
     h.assert_not_dislodged("A BUD")
+
+
+def test_a_support_against_ones_own_unit_for_a_failed_convoy_is_void():
+    """A supported move with prevent strength 0 stops no one, not even a 0-strength attacker.
+
+    England's A BEL fails to move. F NTH supports France's convoyed A LON - BEL, but
+    Germany dislodges the convoying fleet, so that move has prevent strength 0. England's
+    own A HOL - BEL attacks its own unit with strength 0, and 0 == 0 would let the support
+    count as decisive. It decided nothing and is reported VOID.
+    """
+    h = Harness()
+    h.units("ENGLAND", "A BEL", "F NTH", "A HOL")
+    h.units("FRANCE", "A LON", "F ENG")
+    h.units("GERMANY", "A RUH", "F IRI", "F MAO")
+    h.orders("ENGLAND", "A BEL - RUH", "F NTH S A LON - BEL", "A HOL - BEL")
+    h.orders("FRANCE", "A LON - BEL VIA", "F ENG C A LON - BEL")
+    h.orders("GERMANY", "A RUH H", "F IRI - ENG", "F MAO S F IRI - ENG")
+    h.adjudicate()
+    h.assert_bounce("A BEL")
+    h.assert_bounce("A HOL")
+    h.assert_result("F NTH", ResultCode.VOID)
