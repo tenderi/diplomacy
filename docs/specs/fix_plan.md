@@ -16,15 +16,16 @@
 
 ## Status
 
-- **Last updated:** 2026-10-06. `v3.0.68` did BC1 (a support for an attack on one's own
-  unit is `VOID` unless it was decisive against another attacker: 6.E.8 and 6.E.10 pass,
-  146/154 DATC green). `v3.0.67` planned Track BC (the DATC `xfail`s, six milestones). `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
+- **Last updated:** 2026-10-06. `v3.0.69` did BB6b (a rumour's DM reaches its sender
+  too, byte-identical to everyone else's, as the maintainer chose in #173). `v3.0.68` did
+  BC1 (a support for an attack on one's own unit is `VOID` unless it was decisive against
+  another attacker: 6.E.8 and 6.E.10 pass, 146/154 DATC green). `v3.0.67` planned Track BC
+  (the DATC `xfail`s, six milestones). `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
   (the web game page shows a player the game's Telegram group with an Unlink button, or a
   "Link a Telegram group" link to `t.me/<bot>?startgroup=link_<id>`; `GET /games/{id}/channel`
   names the bot; Unlink asks first, and a web unlink tells the group). `v3.0.66` moved `source-map-js` past a high advisory. `v3.0.65` did BB6a
   (an unknown power in a private message is named as such, `/messages` shows short UTC
-  times, the group's orders map reads "orders and results"; BB6b, the rumour sender's
-  missing DM, awaits the maintainer).
+  times, the group's orders map reads "orders and results").
   `v3.0.63` did BA6 (the maintainer chose a full table
   in #145, so no turn is processed, by hand, by auto-process or at a deadline, while a
   power is neither seated nor a dummy; Track BA is complete). `v3.0.62` did BB9 and BB2a (a
@@ -93,8 +94,8 @@ play-through in a group game.
       assigned"); `/messages` shows `5 Oct 14:03` with "(times in UTC)" in its heading
       instead of raw ISO timestamps; the group's first map is captioned and titled "orders
       and results" rather than "the orders" / "Results".
-- [ ] BB6b — **A rumour's sender is the only player who gets no DM**, which hints at the
-      author. Needs a design call: awaiting the maintainer.
+- [x] BB6b — **A rumour's sender was the only player who got no DM**, which hinted at the
+      author. Per #173 the sender now gets the same DM as everyone else.
 - [x] BB7 — **`/viewmap` and `/players` typed in a group still used the caller's current
       game.** Now they (and `/map`) resolve through `GET /channels/{id}/game` like
       `/status`, and a typed id for another game is refused in the group.

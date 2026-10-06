@@ -202,15 +202,17 @@ def send_broadcast_message(
             sender = power_label(game_id, str(player.power_name), user)
             dm_heading = f"Broadcast in game {game_id} from {sender}"
             group_heading = f"📢 Broadcast in game {game_id} from {sender}"
-        # Broadcast message notification. The sender is excluded: they have
-        # the bot's own "Broadcast sent" confirmation (or, for a queued
-        # broadcast, its "delivered" report), and hearing their own words back
-        # as a DM was noise.
+        # Broadcast message notification. A signed broadcast skips its sender:
+        # they have the bot's own "Broadcast sent" confirmation (or, for a
+        # queued broadcast, its "delivered" report), and hearing their own
+        # words back as a DM was noise. A rumour goes to every seated player,
+        # the sender included, with the same text through the same loop: left
+        # out, the sender was the one player with no DM, which named them (#173).
         try:
             notify_players(
                 numeric_id,
                 f"{dm_heading}{sent_at_suffix(sent_at)}: {req.text}",
-                exclude_telegram_id=getattr(user, "telegram_id", None),
+                exclude_telegram_id=None if req.anonymous else getattr(user, "telegram_id", None),
             )
         except Exception as e:
             scheduler_logger.error(f"Failed to notify broadcast message: {e}")
