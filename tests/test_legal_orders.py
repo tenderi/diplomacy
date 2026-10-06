@@ -22,6 +22,8 @@ from engine.types import (
     GameState,
     Location,
     PhaseType,
+    ProvinceType,
+    ResultCode,
     Season,
     Unit,
     UnitKind,
@@ -463,6 +465,48 @@ class TestConvoyChains:
         ]
         _, after = Game(map=_MAP, state=state).adjudicate(orders)
         assert Unit(UnitKind.ARMY, "ENGLAND", Location("SPA")) in after.state.units
+
+    def test_offered_convoys_are_exactly_those_the_adjudicator_does_not_void(self) -> None:
+        """The menus (``_convoy_shores``) and the adjudicator's possible-route rule
+        agree: for every sea fleet, army and coastal destination, the convoy is
+        offered exactly when adjudicating it (with the army's ``VIA`` move) does
+        not report it ``VOID``."""
+        units = {
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("ENG")),
+            Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),
+            Unit(UnitKind.ARMY, "RUSSIA", Location("SWE")),
+            Unit(UnitKind.FLEET, "RUSSIA", Location("BOT")),
+            Unit(UnitKind.ARMY, "TURKEY", Location("GRE")),
+            Unit(UnitKind.FLEET, "TURKEY", Location("AEG")),
+            Unit(UnitKind.FLEET, "TURKEY", Location("CON")),
+            Unit(UnitKind.FLEET, "TURKEY", Location("BLA")),
+        }
+        state = GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset(units), ownership={},
+        )
+        coasts = sorted(p for p in _MAP.provinces if _MAP.province_type(p) is ProvinceType.COAST)
+        armies = sorted((u for u in units if u.kind is UnitKind.ARMY), key=lambda u: u.province)
+        fleets = sorted((u for u in units if u.kind is UnitKind.FLEET), key=lambda u: u.province)
+        offered_count = 0
+        for fleet in fleets:
+            bucket = set(legal_orders_for_power(_MAP, state, fleet.power)["orders_by_unit"][f"F {fleet.province}"])
+            for army in armies:
+                for dest in coasts:
+                    if dest == army.province:
+                        continue
+                    convoy = f"F {fleet.province} C A {army.province} - {dest}"
+                    orders = [
+                        parse_order(f"A {army.province} - {dest} VIA", power=army.power, map=_MAP),
+                        parse_order(convoy, power=fleet.power, map=_MAP),
+                    ]
+                    resolution, _ = Game(map=_MAP, state=state).adjudicate(orders)
+                    code = next(r.result for r in resolution.results if r.order == orders[1])
+                    offered = convoy in bucket
+                    offered_count += offered
+                    assert offered == (code is not ResultCode.VOID), (convoy, code)
+        assert offered_count > 0
 
     def test_a_convoyed_attack_can_be_supported(self) -> None:
         """Supports were offered only into the supported unit's land moves, so

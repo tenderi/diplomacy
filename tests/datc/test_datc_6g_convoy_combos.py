@@ -199,7 +199,6 @@ def test_6g6_swapping_with_unintended_intent():
     assert h.unit_powers_at("EDI") == "ENGLAND"
 
 
-@pytest.mark.xfail(reason="convoy-to-adjacent intent (issue 4.A.7): distinguishing an illegal same-power convoy order from a valid one requires path-validity in intent, which currently conflicts with 6.G.10/14", strict=False)
 def test_6g7_swapping_with_illegal_intent():
     """6.G.7 SWAPPING WITH ILLEGAL INTENT.
 
@@ -216,6 +215,7 @@ def test_6g7_swapping_with_illegal_intent():
     h.orders("ENGLAND", "F SKA C A SWE - NWY", "F NWY - SWE")
     h.orders("RUSSIA", "A SWE - NWY", "F BOT C A SWE - NWY")
     h.adjudicate()
+    h.assert_result("F BOT", ResultCode.VOID)  # on no possible route: illegal
     h.assert_not_dislodged("F SKA")
     h.assert_bounce("F NWY")
     h.assert_bounce("A SWE")
