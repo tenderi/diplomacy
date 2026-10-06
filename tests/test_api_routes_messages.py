@@ -114,6 +114,27 @@ class TestSendPrivateMessage:
         listed = client.get(f"/games/{game_id}/messages", params={"telegram_id": "selfmsg1", "bot_secret": BOT_SECRET})
         assert listed.json()["messages"] == []
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    @pytest.mark.parametrize(("recipient", "expected"), [
+        ("franc", "FRANC is not a power. The powers are "
+                  "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY."),
+        ("ITALIA", "ITALIA is not a power. The powers are "
+                   "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY."),
+        # A real power with nobody in the seat keeps its own message.
+        ("italy", "Cannot send a private message to ITALY: no player is assigned to that power."),
+    ])
+    def test_an_unknown_power_is_named_as_such(self, client, recipient, expected):
+        """``FRANC`` used to be told "no player is assigned to that power"."""
+        client.post("/users/persistent_register", json={"telegram_id": "typo1", "bot_secret": BOT_SECRET})
+        headers = _register_and_login(client, "msg_typo")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{game_id}/join", json={"telegram_id": "typo1", "bot_secret": BOT_SECRET, "power": "FRANCE"})
+
+        resp = client.post(f"/games/{game_id}/message", json={
+            "telegram_id": "typo1", "bot_secret": BOT_SECRET, "recipient_power": recipient, "text": "hello",
+        })
+        assert (resp.status_code, resp.json()["detail"]) == (400, expected)
+
 
 @pytest.mark.unit
 class TestSendBroadcast:

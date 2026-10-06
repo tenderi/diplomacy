@@ -293,7 +293,7 @@ class TestMessagesSenderAttribution:
         asyncio.run(messages(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "[2024-01-01T00:00:00] GERMANY -> FRANCE: Let's ally" in text
+        assert "[1 Jan 00:00] GERMANY -> FRANCE: Let's ally" in text
 
     @patch("server.telegram_bot.messages.api_get")
     def test_messages_says_unknown_for_a_sender_with_no_seat(self, mock_get):
@@ -314,7 +314,7 @@ class TestMessagesSenderAttribution:
         asyncio.run(messages(update, context))
 
         text = message.reply_text.call_args[0][0]
-        assert "[2024-01-01T00:00:00] Unknown -> ALL: hello all" in text
+        assert "[1 Jan 00:00] Unknown -> ALL: hello all" in text
 
 
 # ---------------------------------------------------------------------------

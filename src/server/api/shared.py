@@ -411,7 +411,7 @@ def _post_turn_to_channel(
             if game_service.resolution_history(game_id).get(str(processed_turn), {}).get("results"):
                 db_service.enqueue_bot_notification(
                     channel_id,
-                    f"📝 Game {game_id} · {label}: the orders",
+                    f"📝 Game {game_id} · {label}: orders and results",
                     kind="channel_map",
                     payload={"game_id": game_id, "path": f"/games/{game_id}/map/turn/{processed_turn}/orders"},
                 )

@@ -2,6 +2,7 @@
 Messaging commands for the Telegram bot.
 """
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import requests
@@ -191,8 +192,9 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
 
     Diplomacy is all about negotiation, so knowing *who* sent a message
     matters -- ``[ts] To FRANCE: ...`` alone doesn't say who sent it. Each
-    line reads ``[ts] GERMANY -> FRANCE: ...``, or ``GERMANY (Anna) -> ...`` in
-    a public game (``_sender_label``).
+    line reads ``[5 Oct 14:03] GERMANY -> FRANCE: ...``, or ``GERMANY (Anna) ->
+    ...`` in a public game (``_sender_label``). The heading says once that the
+    times are UTC (``_short_time``).
     """
     try:
         result = api_get(f"/games/{game_id}/messages", telegram_id=user_id)
@@ -204,21 +206,22 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
     if limit is not None:
         messages_list = messages_list[-limit:]
     entries = [
-        f"[{m['timestamp']}] {_sender_label(m)} -> {m['recipient_power'] or 'ALL'}: {m['text']}"
+        f"[{_short_time(m['timestamp'])}] {_sender_label(m)} -> {m['recipient_power'] or 'ALL'}: {m['text']}"
         for m in messages_list
     ]
     # One Telegram message holds 4096 UTF-16 units. Keep the newest messages
     # that fit, whole, and say how many older ones were left out. A single
     # message is capped at 3500 by the API, so the newest always fits.
     kept: list[str] = []
-    used = _utf16_len(f"Messages for game {game_id}:") + _utf16_len(_OLDER_NOTE.format(n=len(entries)))
+    heading = f"Messages for game {game_id} (times in UTC):"
+    used = _utf16_len(heading) + _utf16_len(_OLDER_NOTE.format(n=len(entries)))
     for entry in reversed(entries):
         used += _utf16_len(entry) + 1
         if kept and used > _LOG_BUDGET:
             break
         kept.append(entry)
     kept.reverse()
-    lines = [f"Messages for game {game_id}:"]
+    lines = [heading]
     if len(kept) < len(entries):
         lines.append(_OLDER_NOTE.format(n=len(entries) - len(kept)))
     return "\n".join(lines + kept)
@@ -227,6 +230,20 @@ def recent_messages_text(game_id: str, user_id: str, limit: Optional[int] = None
 # Under Telegram's 4096 so a caller may add a line or two.
 _LOG_BUDGET = 3900
 _OLDER_NOTE = "({n} older not shown)"
+
+
+def _short_time(timestamp: Any) -> str:
+    """``"2026-10-05T14:03:27.512"`` -> ``"5 Oct 14:03"``, in UTC.
+
+    The API sends naive UTC (``utcnow_naive``); an aware value is converted to
+    UTC. Anything that does not parse is shown as it came."""
+    try:
+        when = datetime.fromisoformat(str(timestamp))
+    except ValueError:
+        return str(timestamp)
+    if when.tzinfo is not None:
+        when = when.astimezone(timezone.utc)
+    return f"{when.day} {when:%b %H:%M}"
 
 
 def _utf16_len(text: str) -> int:
