@@ -166,7 +166,10 @@ findings (5 moderate, 1 high, 2 critical), each fixable only by a major upgrade:
       `shadcn` CLI (via `fast-glob`, `ts-morph`): all 8 findings left after AZ2. Both
       are build/dev tooling and parse only our own globs. `npm audit` proposes tailwindcss 4
       (a config rewrite) and a shadcn downgrade to 1.0.0; neither removes `braces` until
-      `braces` itself ships a fix. Recheck then, before taking on tailwind 4.
+      `braces` itself ships a fix. Recheck then, before taking on tailwind 4. Since
+      2026-10-06 tailwindcss 3 also pulls a vulnerable `postcss-selector-parser` (<7.1.6,
+      moderate, quadratic selector parsing) through `postcss-nested`: again build tooling
+      over our own CSS, fixed only by tailwind 4. That makes 11 findings, all from these two.
 - [ ] **Done when:** `npm audit` in `frontend/` reports 0 vulnerabilities.
 
 ---
