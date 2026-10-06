@@ -220,15 +220,34 @@ def link_channel_to_game(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def unlinked_from_web_text(game_id: str) -> str:
+    """What the group is told when a player unlinks its game from the web page."""
+    return (
+        f"Game {game_id} was unlinked from this group on its web game page. This group no longer gets "
+        f"its maps or deadline reminders, and the game is open for anyone to join. A player of the "
+        f"game can link it again here with /linkgroup {game_id}."
+    )
+
+
 @router.delete("/games/{game_id}/channel/unlink", dependencies=[Depends(require_game_player_or_bot)])
-def unlink_channel_from_game(game_id: str) -> Dict[str, Any]:
-    """Unlink a Telegram channel from a game."""
+def unlink_channel_from_game(game_id: str, x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Unlink a Telegram group from a game.
+
+    Unless the bot is the caller (``/unlinkgroup`` answers in the group
+    itself), the group is told through ``bot_outbox`` -- regardless of its
+    ``auto_post_notifications`` setting, since the group is otherwise cut off
+    without a word and the game becomes public. The player is not named.
+    """
     try:
         # Verify game exists
         if not game_service.exists(game_id):
             raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        # Unlink channel
+        info = db_service.get_game_channel_info(game_id)
+        if info and not is_bot_secret(x_bot_secret):
+            # Queued before the unlink: afterwards the game no longer knows its group.
+            db_service.enqueue_bot_notification(info["channel_id"], unlinked_from_web_text(game_id), kind="channel_text")
+
         db_service.unlink_game_from_channel(game_id)
         
         # Invalidate cache

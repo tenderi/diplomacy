@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TelegramGroupCard } from './TelegramGroupCard'
 
 afterEach(() => {
@@ -30,7 +30,7 @@ describe('TelegramGroupCard', () => {
     expect(within(container).queryByRole('button', { name: 'Unlink' })).toBeNull()
   })
 
-  it('names the linked group and unlinks it', async () => {
+  function unlinkableGroup() {
     let linked = true
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/games/7/channel/unlink') && init?.method === 'DELETE') {
@@ -41,15 +41,37 @@ describe('TelegramGroupCard', () => {
       return jsonResponse({ detail: 'unexpected' }, 404)
     })
     vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('names the linked group and unlinks it once confirmed', async () => {
+    const fetchMock = unlinkableGroup()
     const { container } = render(<TelegramGroupCard gameId="7" />)
 
     expect(await within(container).findByText('Friday Diplomacy')).toBeInTheDocument()
     expect(within(container).queryByRole('link', { name: 'Link a Telegram group' })).toBeNull()
     fireEvent.click(within(container).getByRole('button', { name: 'Unlink' }))
+    // The dialog is portalled out of `container`.
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText(/stop getting this game's maps and deadline reminders/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/open for anyone to join/)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink' }))
 
     expect(await within(container).findByRole('link', { name: 'Link a Telegram group' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1)
     expect(within(container).queryByText('Friday Diplomacy')).toBeNull()
+  })
+
+  it('does not unlink when the confirmation is cancelled', async () => {
+    const fetchMock = unlinkableGroup()
+    const { container } = render(<TelegramGroupCard gameId="7" />)
+
+    fireEvent.click(await within(container).findByRole('button', { name: 'Unlink' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0)
+    expect(within(container).getByText('Friday Diplomacy')).toBeInTheDocument()
   })
 
   it('names the group by its id when the API has no title', async () => {

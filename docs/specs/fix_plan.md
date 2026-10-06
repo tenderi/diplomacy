@@ -19,7 +19,7 @@
 - **Last updated:** 2026-10-06. `v3.0.64` (merged after `v3.0.65` and `v3.0.66`) did BB2b
   (the web game page shows a player the game's Telegram group with an Unlink button, or a
   "Link a Telegram group" link to `t.me/<bot>?startgroup=link_<id>`; `GET /games/{id}/channel`
-  names the bot). `v3.0.66` moved `source-map-js` past a high advisory. `v3.0.65` did BB6a
+  names the bot; Unlink asks first, and a web unlink tells the group). `v3.0.66` moved `source-map-js` past a high advisory. `v3.0.65` did BB6a
   (an unknown power in a private message is named as such, `/messages` shows short UTC
   times, the group's orders map reads "orders and results"; BB6b, the rumour sender's
   missing DM, awaits the maintainer).
@@ -66,7 +66,9 @@ play-through in a group game.
       payload links nothing.
 - [x] BB2b — **Link and unlink from the web game page.** Show the linked group (name) with
       an Unlink button; "Link a Telegram group" opens
-      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking).
+      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking). Unlink asks
+      for confirmation, and a web unlink posts to the group (the bot's `/unlinkgroup`
+      already answers there).
 - [x] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
       messages**, and a rumour's sender doesn't see it marked as theirs:
       `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no
