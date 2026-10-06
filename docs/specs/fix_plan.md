@@ -16,7 +16,10 @@
 
 ## Status
 
-- **Last updated:** 2026-10-05, at `v3.0.63` (BA6 done: the maintainer chose a full table
+- **Last updated:** 2026-10-06, at `v3.0.65` (BB6a: an unknown power in a private message
+  is named as such, `/messages` shows short UTC times, the group's orders map reads
+  "orders and results"; BB6b, the rumour sender's missing DM, awaits the maintainer).
+  `v3.0.63` did BA6 (the maintainer chose a full table
   in #145, so no turn is processed, by hand, by auto-process or at a deadline, while a
   power is neither seated nor a dummy; Track BA is complete). `v3.0.62` did BB9 and BB2a (a
   game is linked to a group only from inside it -- the link endpoint is bot or admin only,
@@ -75,10 +78,13 @@ play-through in a group game.
       Ignore commands addressed to another bot and commands this bot doesn't have. Its
       "🤫 /rumour is private" notice tells the group who is about to spread a rumour: word
       it generically.
-- [ ] BB6 — Smaller: an unknown power in a message gets "no player is assigned"; `/messages`
-      shows raw ISO timestamps; the group's orders map is titled "Results — …". A rumour's
-      sender is the only player who gets no DM, which hints at the author (needs a design
-      call; ask the maintainer).
+- [x] BB6a — **Messaging polish.** A private message to a name that is not a power
+      (`FRANC`) is a 400 that lists the powers (an empty seat keeps "no player is
+      assigned"); `/messages` shows `5 Oct 14:03` with "(times in UTC)" in its heading
+      instead of raw ISO timestamps; the group's first map is captioned and titled "orders
+      and results" rather than "the orders" / "Results".
+- [ ] BB6b — **A rumour's sender is the only player who gets no DM**, which hints at the
+      author. Needs a design call: awaiting the maintainer.
 - [x] BB7 — **`/viewmap` and `/players` typed in a group still used the caller's current
       game.** Now they (and `/map`) resolve through `GET /channels/{id}/game` like
       `/status`, and a typed id for another game is refused in the group.

@@ -129,7 +129,7 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 |---|---|
 | `/message [game_id] <power> <text>` | Private message to one power. Or 💬 Messages in the game menu, tap the power, and type. |
 | `/broadcast [game_id] <text>` | Message all players. Also posted to the linked channel, if any. |
-| `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing which power sent it. |
+| `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing when (in UTC, e.g. `5 Oct 14:03`) and which power sent it. |
 | `/queue` | Whether the game server is reachable, and your orders/messages still waiting to be delivered to it, with the time you sent each. |
 
 A message (private, broadcast or rumour) can be at most 3500 characters, and an empty one
