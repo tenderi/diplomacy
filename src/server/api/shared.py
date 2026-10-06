@@ -615,8 +615,28 @@ def seats_filled(game_id: str, numeric_game_id: int) -> bool:
     the two counts saw one power twice and declared a game with an empty seat
     "full". A vacated row still counts -- the game started when it was taken.
     """
+    return not unseated_powers(game_id, numeric_game_id)
+
+
+def unseated_powers(game_id: str, numeric_game_id: int) -> list[str]:
+    """The powers with neither a seat row nor dummy status, sorted; empty once
+    the table is full (see ``seats_filled``).
+
+    Always empty for the DAIDE listener's game: its seats are live DAIDE
+    connections held in memory, never seat rows, so it is exempt."""
+    if (game_service.meta(game_id) or {}).get("daide"):
+        return []
     seated = {str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id)}
-    return len(seated | set(game_service.dummy_powers(game_id))) >= 7
+    taken = seated | set(game_service.dummy_powers(game_id))
+    return sorted(set(game_service.map.initial_ownership.values()) - taken)
+
+
+def unseated_message(unseated: list[str]) -> str:
+    """Why a turn of a game that is not full cannot be processed (BA6)."""
+    count = len(unseated)
+    noun = "power is" if count == 1 else "powers are"
+    names = ", ".join(p.title() for p in unseated)
+    return f"{count} {noun} unseated ({names}): seat players or mark them as dummies."
 
 
 def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:
@@ -974,7 +994,8 @@ MAX_AUTO_PHASES = 6
 
 def maybe_auto_process(game_id: str) -> int:
     """W10: process the turn now if the game has ``auto_process`` on, every power
-    that has something to order has submitted, and nobody has asked to wait.
+    that has something to order has submitted, nobody has asked to wait, and
+    every power is seated or a dummy (``seats_filled``).
     Repeats while the next phase is complete from the start. Returns how many
     phases were processed (0 almost always).
 
@@ -986,6 +1007,11 @@ def maybe_auto_process(game_id: str) -> int:
     means "someone else did it".
     """
     processed = 0
+    row = db_service.get_game_by_game_id(game_id)
+    # A game is not processed until every power is seated or a dummy (BA6).
+    # Checked once: no step below unseats a power.
+    if row is None or not seats_filled(game_id, int(row.id)):
+        return 0
     while processed < MAX_AUTO_PHASES and game_service.ready_to_auto_process(game_id):
         prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
         try:
@@ -998,6 +1024,30 @@ def maybe_auto_process(game_id: str) -> int:
             break
         finish_processed_turn(game_id, int(row.id), prev_phase_code=prev_phase_code, trigger="auto")
     return processed
+
+
+def skip_deadline_for_empty_seats(game_id: str, numeric_game_id: int, unseated: list[str]) -> None:
+    """A deadline passed in a game with empty seats (BA6): the turn is not
+    processed, the deadline is spent -- a weekly schedule moves to its next
+    slot, a one-off deadline is cleared -- so the scheduler does not find it
+    again every tick, and the players and the game's group are told why
+    nothing happened. Filling the last seat arms a scheduled deadline again
+    (``arm_scheduled_deadline``)."""
+    scheduler_logger.info("Deadline for game %s passed with seats unfilled; not processing.", game_id)
+    next_slot = scheduled_deadline(game_id)
+    db_service.update_game_deadline(numeric_game_id, next_slot)
+    reminder_sent[numeric_game_id] = False
+    invalidate_cache(f"games/{game_id}")
+    if next_slot is not None:
+        after = f"The next deadline is {format_scheduled_deadline(next_slot, game_schedule(game_id))}."
+    else:
+        after = "Set a new deadline once the table is full."
+    text = (
+        f"⏰ Game {game_id}: the deadline passed, but the turn waits for a full table. "
+        f"{unseated_message(unseated)} {after}"
+    )
+    notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
+    post_to_game_group(game_id, text)
 
 
 def process_due_deadlines(now: datetime) -> None:
@@ -1019,6 +1069,11 @@ def process_due_deadlines(now: datetime) -> None:
                 if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
+                    game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
+                    unseated = unseated_powers(game_id_str, int(game_id_val))
+                    if unseated:
+                        skip_deadline_for_empty_seats(game_id_str, int(game_id_val), unseated)
+                        continue
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
                     # Process the turn. Double-processing within this worker is
                     # prevented by GameRepo.save_state's expected_phase_code check
@@ -1026,7 +1081,6 @@ def process_due_deadlines(now: datetime) -> None:
                     # would only guard this one process anyway, not a second uvicorn
                     # worker racing to process the same missed deadline, so it isn't
                     # a real guard and has been removed rather than kept for show.
-                    game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
                     prev_view = game_service.view(game_id_str)
                     prev_phase_code = prev_view["phase"] if prev_view else None
                     try:

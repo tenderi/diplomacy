@@ -22,6 +22,7 @@ from server.api import app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
@@ -39,6 +40,7 @@ def _game_with_an_order(client: TestClient) -> tuple[str, str]:
     tg = _telegram_user(client, "racer")
     game_id = str(client.post("/games/create", json=_as(tg, map_name="standard"), headers=BOT).json()["game_id"])
     assert client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE")).status_code == 200
+    fill_with_dummies(game_id)
     assert client.post("/games/set_orders", json=_as(tg, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"])).status_code == 200
     return game_id, tg
 

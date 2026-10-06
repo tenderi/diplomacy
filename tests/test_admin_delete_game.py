@@ -14,6 +14,7 @@ from server.api.shared import db_service
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _game_with_france, _telegram_user
+from tests.table_helpers import fill_with_dummies
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
 
@@ -34,6 +35,7 @@ def _lived_in_game(client: TestClient) -> tuple[str, str, str]:
     assert client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY")).status_code == 200
     sent = client.post(f"/games/{game_id}/message", json=_as(a, recipient_power="GERMANY", text="hello"))
     assert sent.status_code == 200, sent.text
+    fill_with_dummies(game_id)
     assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     return game_id, a, b
 

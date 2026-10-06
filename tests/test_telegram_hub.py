@@ -355,6 +355,14 @@ class TestMenuActions:
         assert query.edit_message_text.call_args[0][0] == "⚠️ Still waiting on: ITALY, TURKEY. Their units will hold if you process now."
         assert ("✅ Process anyway", "ptforce|5") in _buttons(query.edit_message_text.call_args[1]["reply_markup"])
 
+    def test_process_now_with_an_empty_seat_skips_the_confirm(self, two_games) -> None:
+        """BA6: the API refuses the turn anyway; the player reads that, not a confirm."""
+        status = {"missing": ["ITALY"], "unseated": ["TURKEY"]}
+        with patch("server.telegram_bot.hub.api_get", return_value=status), \
+             patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:
+            _press("g|5|pt")
+        assert run.call_args[0][1:] == ("5", "555")
+
     def test_process_now_with_everything_in_runs_it(self, two_games) -> None:
         with patch("server.telegram_bot.hub.api_get", return_value={"missing": []}), \
              patch("server.telegram_bot.hub.run_process_turn", new=AsyncMock()) as run:

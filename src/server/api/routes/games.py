@@ -596,6 +596,10 @@ async def process_turn(
     behaviour) -- the deadline scheduler never passes it, since a missed deadline
     must still process whatever was submitted.
 
+    A game with a power that is neither seated nor a dummy is refused (409,
+    naming them) whoever calls -- the full-table rule the auto-process and
+    deadline paths share (``api_shared.seats_filled``).
+
     Only the game's creator (Bearer, or a Telegram player via the bot), the
     bot secret, or an admin-token holder may call this -- see
     ``_authorize_process_turn``. The deadline
@@ -613,6 +617,17 @@ async def process_turn(
     caller_telegram_id = _authorize_process_turn(
         game_id, credentials, x_bot_secret, x_admin_token, (body or {}).get("telegram_id")
     )
+    row = db_service.get_game_by_game_id(game_id)
+    unseated = api_shared.unseated_powers(game_id, int(row.id)) if row is not None else []
+    if unseated:
+        # BA6: no power may be left without a player or dummy status.
+        # The detail stays a sentence (the bot shows it as is); the header is the
+        # stable name a client switches on.
+        raise HTTPException(
+            status_code=409,
+            detail=api_shared.unseated_message(unseated),
+            headers={"X-Error-Code": "seats_unfilled"},
+        )
     if require_all:
         status = game_service.orders_status(game_id)
         if status and status["missing"]:
@@ -691,11 +706,16 @@ def get_orders_status(game_id: str) -> Dict[str, Any]:
     """Which powers have submitted orders for the current phase, and which are
     still outstanding. Powers of eliminated/no-unit players are never "missing"
     (there is nothing for them to order). Used by ``require_all=true`` on
-    ``process_turn`` and by the Telegram ``/status`` command."""
+    ``process_turn`` and by the Telegram ``/status`` command.
+
+    ``unseated`` lists the powers with neither a seat nor dummy status (BA6):
+    while it is not empty no turn is processed, so the bot's "Process turn"
+    does not ask whether to go ahead without the missing orders."""
     status = game_service.orders_status(game_id)
-    if status is None:
+    row = db_service.get_game_by_game_id(game_id)
+    if status is None or row is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return status
+    return {**status, "unseated": api_shared.unseated_powers(game_id, int(row.id))}
 
 @router.post("/games/{game_id}/draw_vote")
 def submit_draw_vote(

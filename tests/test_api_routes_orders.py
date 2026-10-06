@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from server.api import app
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 
 BOT_SECRET = "test_bot_secret_for_tests"
 
@@ -145,6 +146,7 @@ class TestGetOrderHistory:
         headers = _register_and_login(client, "ord_hist_phases")
         game_id = str(_create_game(client, headers))
         client.post(f"/games/{game_id}/join", json={"telegram_id": "test_user_phases", "bot_secret": BOT_SECRET, "power": "FRANCE"})
+        fill_with_dummies(game_id)
         for order in ("A PAR - BUR", "A BUR - MUN"):
             ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": [order],
                                                              "telegram_id": "test_user_phases", "bot_secret": BOT_SECRET})

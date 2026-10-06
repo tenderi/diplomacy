@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.reliability_helpers import OutboxProbe
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
@@ -88,6 +89,7 @@ def test_the_group_hears_about_a_deadline_change(client: TestClient) -> None:
 
 def test_a_processed_turn_tells_the_group_with_a_private_orders_link(client: TestClient) -> None:
     game_id, _ = _group_game(client)
+    fill_with_dummies(game_id)
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     text_posts = [r for r in probe.rows() if str(r["telegram_id"]) == GROUP and r["kind"] == "channel_text"]

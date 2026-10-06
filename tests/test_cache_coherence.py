@@ -14,6 +14,7 @@ from server.api import app
 from server.api.shared import db_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
@@ -75,6 +76,7 @@ def test_pending_orders_stay_out_of_the_public_state(client: TestClient) -> None
 
 def test_a_processed_turn_shows_the_new_phase(client: TestClient) -> None:
     game_id, _tg = _game(client)
+    fill_with_dummies(game_id)
     assert _state(client, game_id)["phase"] == "S1901M"  # warm
     assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     assert _state(client, game_id)["phase"] == "F1901M"
