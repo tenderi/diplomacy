@@ -27,7 +27,7 @@ TWO_GAMES = {"games": [
 STATE = {"phase": "S1901M", "phase_type": "MOVEMENT", "year": 1901, "season": "Spring", "status": "ACTIVE"}
 
 
-def _press(data: str, context: Mock | None = None, message_text: str = "menu") -> tuple[Mock, Mock]:
+def _press(data: str, context: Mock | None = None, message_text: str | None = "menu") -> tuple[Mock, Mock]:
     query = Mock()
     query.data = data
     query.answer = AsyncMock()
@@ -105,6 +105,14 @@ class TestGameMenu:
              patch("server.telegram_bot.games.api_get", side_effect=_hub_api_get):
             query, _ = _press("g|3|hub|n")
         query.edit_message_text.assert_not_called()  # the notification stays as it was
+        assert "Game 3 · GERMANY" in query.message.reply_text.call_args[0][0]
+
+    def test_a_button_under_the_map_photo_answers_in_a_new_message(self, two_games) -> None:
+        # A photo has no text, and editing it raised "There is no text in the message to edit".
+        with patch("server.telegram_bot.hub.api_get", side_effect=_hub_api_get), \
+             patch("server.telegram_bot.games.api_get", side_effect=_hub_api_get):
+            query, _ = _press("g|3|hub", message_text=None)
+        query.edit_message_text.assert_not_called()
         assert "Game 3 · GERMANY" in query.message.reply_text.call_args[0][0]
 
     def test_enter_orders_starts_the_walk_for_that_game(self, two_games) -> None:
