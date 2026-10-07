@@ -126,6 +126,15 @@ class _Resolver:
             if isinstance(o, Convoy)
         }
 
+        # Fleets in sea provinces, any power, any order: the only possible links
+        # of a convoy route (a fleet on a coast never convoys).
+        self._sea_fleets: dict[str, Location] = {
+            u.province: u.location
+            for u in state.units
+            if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER
+        }
+        self._route_reach_cache: dict[str, frozenset[str]] = {}
+
         # Build resolvable items keyed by province. A Move/Support/Convoy that is
         # not legal is treated as a hold (kept out of `items`) and marked void.
         self.items: dict[str, _Item] = {}
@@ -136,7 +145,14 @@ class _Resolver:
                     self.items[prov] = _Item(o, unit)
                 else:
                     self.void.add(prov)
-            elif isinstance(o, (SupportHold, SupportMove, Convoy)):
+            elif isinstance(o, Convoy):
+                # A convoy order whose fleet cannot be on any possible route is
+                # illegal (DATC 4.E.1): ignored, so it shows no intent (6.G.7).
+                if self._possible_route(o.origin.province, o.dest.province, through=prov):
+                    self.items[prov] = _Item(o, unit)
+                else:
+                    self.void.add(prov)
+            elif isinstance(o, (SupportHold, SupportMove)):
                 self.items[prov] = _Item(o, unit)
 
         self._deps: list[str] = []
@@ -646,11 +662,8 @@ class _Resolver:
                 continue
             if same_power_only and o.power != m.power:
                 continue
-            if (
-                o.origin.province == m.unit.province
-                and o.dest.province == m.dest.province
-                and self.map.province_type(o.unit.province) is ProvinceType.WATER
-            ):
+            # A Convoy in `items` is on a possible route, so its fleet is at sea.
+            if o.origin.province == m.unit.province and o.dest.province == m.dest.province:
                 return True
         return False
 
@@ -669,12 +682,7 @@ class _Resolver:
         fleets: dict[str, Location] = {}
         for item in self.items.values():
             o = item.order
-            if (
-                isinstance(o, Convoy)
-                and o.origin.province == src
-                and o.dest.province == dst
-                and self.map.province_type(o.unit.province) is ProvinceType.WATER
-            ):
+            if isinstance(o, Convoy) and o.origin.province == src and o.dest.province == dst:
                 if not self._is_dislodged(o.unit.province):
                     fleets[o.unit.province] = o.unit
         if not fleets:
@@ -699,6 +707,43 @@ class _Resolver:
                     seen.add(nxt_p)
                     queue.append(nxt_p)
         return False
+
+    def _route_reach(self, end: str) -> frozenset[str]:
+        """Sea fleets a chain of sea fleets can reach from a fleet touching ``end``.
+
+        BFS over ``_sea_fleets`` (any power, any order), started at every sea
+        fleet adjacent to province ``end``. Depends only on the board, not on
+        the orders, so it is memoized per province.
+        """
+        cached = self._route_reach_cache.get(end)
+        if cached is not None:
+            return cached
+        seen = {p for p, loc in self._sea_fleets.items() if self._fleet_touches(loc, end)}
+        queue: deque[str] = deque(sorted(seen))
+        while queue:
+            here = self._sea_fleets[queue.popleft()]
+            for nxt_p, nxt_loc in self._sea_fleets.items():
+                if nxt_p not in seen and self.map.is_adjacent(here, nxt_loc, UnitKind.FLEET):
+                    seen.add(nxt_p)
+                    queue.append(nxt_p)
+        reach = frozenset(seen)
+        self._route_reach_cache[end] = reach
+        return reach
+
+    def _possible_route(self, src: str, dst: str, *, through: Optional[str] = None) -> bool:
+        """Could the board convoy an army from ``src`` to ``dst``, whatever the orders?
+
+        A possible route is a chain of fleets in sea provinces (any power, any
+        order) that starts at a fleet touching ``src`` and ends at one touching
+        ``dst``. With ``through``, the chain must pass the fleet in that province.
+        A chain from each end meets exactly where such a route exists: a fleet
+        reachable from both ends lies on a walk from ``src`` to ``dst``.
+        """
+        from_src = self._route_reach(src)
+        from_dst = self._route_reach(dst)
+        if through is None:
+            return not from_src.isdisjoint(from_dst)
+        return through in from_src and through in from_dst
 
     def _fleet_touches(self, floc: Location, province: str) -> bool:
         """True if a fleet at ``floc`` is adjacent to ``province`` (any coast)."""

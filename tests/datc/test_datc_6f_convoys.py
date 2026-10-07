@@ -54,8 +54,12 @@ def test_6f1_no_convoy_in_coastal_areas():
         "F BLA C A GRE - SEV",
     )
     h.adjudicate()
-    # Best available translation: the convoy must not work (DATC says SEV
-    # stays empty). NO_CONVOY is the closest ResultCode to "convoy invalid".
+    # No chain of sea fleets links Greece to Sevastopol, so every convoy order
+    # is illegal: VOID, as v2.7.68 reports. The army's own code is BC3's
+    # (NO_CONVOY today; v2.7.68 says VOID).
+    h.assert_result("F AEG", ResultCode.VOID)
+    h.assert_result("F CON", ResultCode.VOID)
+    h.assert_result("F BLA", ResultCode.VOID)
     h.assert_result("A GRE", ResultCode.NO_CONVOY)
     h.assert_empty("SEV")
 
