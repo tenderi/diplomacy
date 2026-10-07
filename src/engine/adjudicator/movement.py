@@ -664,16 +664,16 @@ class _Resolver:
             return True  # non-adjacent army move must be convoyed
         # Adjacent move. An explicit VIA is honoured only when a convoy is
         # actually on offer; with no convoy ordered the army goes by land
-        # (DATC 6.G.8). Without VIA, convoy intent is inferred only for a swap
-        # backed by the army's own working convoy chain (DATC 6.G.1/5/6 vs the
-        # illegal-intent 6.G.7); a valid such convoy enters the paradox at 6.G.11.
+        # (DATC 6.G.8). Without VIA, the army's own power's convoy order is
+        # intent enough (DATC 4.A.3 choice d); 6.G.7's impossible convoy is
+        # already VOID, so it lends none.
         if m.via_convoy:
             # Explicit VIA: the mover consented, so any power's convoy chain
             # carries it (DATC 6.G.10/6.G.14).
             return self._has_convoy_order(m, same_power_only=False)
-        # No VIA: intent is inferred only for a swap over the army's OWN convoy —
-        # a foreign fleet cannot "kidnap" the army (DATC 6.G.2/6.G.4/6.G.7).
-        return self._has_convoy_order(m, same_power_only=True) and self._is_swap(m)
+        # No VIA: only the army's OWN convoy counts — a foreign fleet cannot
+        # "kidnap" the army (DATC 6.G.2/6.G.4/6.G.7).
+        return self._has_convoy_order(m, same_power_only=True)
 
     def _has_convoy_order(self, m: Move, *, same_power_only: bool) -> bool:
         for item in self.items.values():
@@ -686,15 +686,6 @@ class _Resolver:
             if o.origin.province == m.unit.province and o.dest.province == m.dest.province:
                 return True
         return False
-
-    def _is_swap(self, m: Move) -> bool:
-        """True if the unit at m's destination is ordered to move to m's source."""
-        dst_item = self.items.get(m.dest.province)
-        return (
-            dst_item is not None
-            and isinstance(dst_item.order, Move)
-            and dst_item.order.dest.province == m.unit.province
-        )
 
     def _convoy_path_works(self, m: Move) -> bool:
         """BFS from src to dst over surviving convoying fleets for this move."""
