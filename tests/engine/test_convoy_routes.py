@@ -4,6 +4,9 @@ A possible route is a chain of fleets in sea provinces -- any power, any order -
 from a fleet touching the army's province to one touching its destination. A
 Convoy order whose fleet is on no such route can never be valid, so it is VOID,
 stays out of the resolver and shows no convoy intent (DATC 4.E.1, 6.G.7).
+An army move is legal when such a route exists, ordered or not (6.D.8), and a
+fleet's support of a convoyed move is VOID when every route needs that fleet
+(6.D.31).
 """
 
 from __future__ import annotations
@@ -89,3 +92,41 @@ def test_possible_route_between_two_ends_and_through_a_fleet() -> None:
     assert not r._possible_route("SWE", "NWY")  # BOT reaches nothing near Norway
     assert not r._possible_route("SWE", "NWY", through="BOT")
     assert not r._possible_route("MOS", "SPA")  # an inland end: no fleet touches it
+    assert r._possible_route("LON", "SPA", without="NTH")  # ENG - MAO
+    assert not r._possible_route("LON", "SPA", without="ENG")  # NTH alone reaches no MAO
+    assert not r._possible_route("LON", "SPA", without="MAO")
+
+
+def test_a_move_with_a_possible_route_is_legal_though_no_fleet_convoys_it() -> None:
+    """A YOR - NWY with F NTH holding: the board allows the convoy, so the move
+    is real and fails as NO_CONVOY. With no fleet at sea it is illegal (VOID)."""
+    possible = Harness()
+    possible.units("ENGLAND", "A YOR", "F NTH")
+    possible.orders("ENGLAND", "A YOR - NWY", "F NTH H")
+    possible.adjudicate()
+    possible.assert_result("A YOR", ResultCode.NO_CONVOY)
+
+    impossible = Harness()
+    impossible.units("ENGLAND", "A YOR")
+    impossible.orders("ENGLAND", "A YOR - NWY")
+    impossible.adjudicate()
+    impossible.assert_result("A YOR", ResultCode.VOID)
+
+
+def test_a_fleet_supporting_a_convoyed_move_is_void_only_when_every_route_needs_it() -> None:
+    """F NTH S A EDI - NWY: with F NWG also at sea the move has a route without
+    NTH, so the support stands (OK); with NTH the only possible carrier, it is
+    VOID (6.D.31's rule)."""
+    other_route = Harness()
+    other_route.units("ENGLAND", "A EDI", "F NTH", "F NWG")
+    other_route.orders("ENGLAND", "A EDI - NWY", "F NTH S A EDI - NWY", "F NWG H")
+    other_route.adjudicate()
+    other_route.assert_result("F NTH", ResultCode.OK)
+    other_route.assert_result("A EDI", ResultCode.NO_CONVOY)
+
+    only_route = Harness()
+    only_route.units("ENGLAND", "A EDI", "F NTH")
+    only_route.orders("ENGLAND", "A EDI - NWY", "F NTH S A EDI - NWY")
+    only_route.adjudicate()
+    only_route.assert_result("F NTH", ResultCode.VOID)
+    only_route.assert_result("A EDI", ResultCode.NO_CONVOY)

@@ -16,10 +16,12 @@
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.73` planned Track BD (play-through wording fixes) and
-  did BD1 (a draw-ended game says it was a draw and names who shares it; withdrawing a draw
-  vote is announced; the vote notice says votes last for the phase). `v3.0.71` fixed a rules
-  bug found in a play-through: a
+- **Last updated:** 2026-10-07. `v3.0.74` did BC3 (a non-adjacent army move is legal
+  when the board allows a convoy, ordered or not, and a fleet's support of a convoyed
+  move every route needs is `VOID`: 6.D.8 passes, 148/154 DATC green). `v3.0.73` planned
+  Track BD (play-through wording fixes) and did BD1 (a draw-ended game says it was a draw
+  and names who shares it; withdrawing a draw vote is announced; the vote notice says
+  votes last for the phase). `v3.0.71` fixed a rules bug found in a play-through: a
   unit could retreat into a province that was left empty by a standoff, as long as that
   province had a unit in it when the turn began. `v3.0.70` did BC2 (a convoy order whose
   fleet is on no possible route of sea fleets is `VOID` and shows no intent: 6.G.7 passes,
@@ -52,7 +54,7 @@
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC3 next; it may run in
+  **Track BC** (the DATC hard tail) is open agent work, BC3b next; it may run in
   parallel with BB, since it touches only the engine.
   **Track BD** (play-through wording fixes) is open agent work, BD2 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
@@ -124,7 +126,7 @@ play-through in a group game.
 
 # Track BC — DATC hard tail
 
-Seven DATC cases are `xfail`: 6.D.8, 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
+Six DATC cases are `xfail`: 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
 6.G.11 (`tests/datc/`). This track makes them pass, one small PR per milestone,
 with the targeted fixes first and the paradox resolver after. The expected outcomes are
 the DATC's preferred ones (1982/2000 rulebook, Szykman paradox rule) and already sit in
@@ -137,15 +139,6 @@ To see what the engine does on one case, run it with `--runxfail`:
 **Root causes** (found 2026-10-06 by running each case; prototypes of BC1 to BC4 each
 turned their cases green, with the rest of `tests/datc` and `tests/engine` green too):
 
-- **6.D.8: a move with no convoy ordered is voided.** `_legal_move` voids a non-adjacent
-  army move unless some fleet is *ordered* to convoy it (`_convoy_pairs`), so `A GRE - NAP`
-  becomes a hold and takes Bulgaria's hold support. DATC decides legality from the board
-  before orders are revealed: `F ION` could have convoyed, so the move is a real, failing
-  move, and the hold support is `VOID`. The same rule turns two current assertions into
-  what v2.7.68 reports: 6.F.1's `A GRE` becomes `VOID` (no chain of sea fleets at all),
-  and 6.D.31's `A RUM` becomes `NO_CONVOY`. 6.D.31's `F BLA S A RUM - ARM` must stay
-  `VOID`, which needs one more rule: a support of a convoyed move is void when every
-  possible route runs through the supporting fleet.
 - **6.G.11: convoy intent is inferred only for a swap.** Without `VIA`, `_uses_convoy` treats
   an adjacent army move as convoyed only if its own power ordered the convoy *and* the
   move is a swap (`_is_swap`). The 1982/2000 rule (choice d of DATC 4.A.3) needs only the
@@ -207,7 +200,7 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       `server/legal_orders.py` already offers convoys only along fleet-held chains
       (`_convoy_shores`), so the two agree. Case: 6.G.7. Add a mechanics test for a
       coastal-province fleet's convoy order (6.F.1's `F CON`) being `VOID`.
-- [ ] BC3 — **6.D.8: an army move is legal when the board allows a convoy, ordered or not.**
+- [x] BC3 — **6.D.8: an army move is legal when the board allows a convoy, ordered or not.**
       Replace `_legal_move`'s `(src, dst) in self._convoy_pairs` check with BC2's `_possible_route`
       possible-route helper, and delete `_convoy_pairs`. Add to `_support_is_void`: a
       support of a convoyed move is void when no possible route remains without the
