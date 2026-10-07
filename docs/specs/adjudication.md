@@ -204,13 +204,15 @@ convoying fleets** — it's still `1 + supports`, same as any other move.
 
 After every order resolves (`run()`), the resolver derives, in order:
 
-1. **Standoff provinces** (`contested`): an *empty* province targeted by ≥2 moves, none
-   of which succeeded. Only empty-province standoffs are recorded here — a contested
-   *occupied* province is instead reflected in the occupant's hold/dislodge outcome.
-2. **Surviving units**: for each pre-phase unit, if its move succeeded it lands at the
+1. **Surviving units**: for each pre-phase unit, if its move succeeded it lands at the
    destination (coast-resolved via `_move_dest_location` — an explicit coast is kept,
    otherwise inferred when the reachable set is unambiguous); otherwise it's dislodged
    (`_is_dislodged`) or stays put.
+2. **Standoff provinces** (`contested`): a province targeted by ≥2 moves, none of which
+   succeeded, that no surviving unit occupies. That includes a province whose own unit
+   moved out this turn: the rulebook closes any space "left vacant due to a standoff" to
+   retreats. A standoff in a province whose unit stayed is instead reflected in the
+   occupant's hold/dislodge outcome.
 3. **Dislodged unit records**: for each dislodged unit, its `attacker_origin` (the
    province the successful attacker moved from — `None` if that attack was convoyed,
    since a convoyed attacker crosses no shared border and so imposes no "can't retreat
