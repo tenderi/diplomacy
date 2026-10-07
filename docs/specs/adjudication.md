@@ -6,7 +6,7 @@
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
 > doc explains *why* they're shaped the way they are and ties the pieces together.
 >
-> Conformance: 148/154 DATC cases green (`tests/datc/`), 6 documented hard-tail `xfail`s
+> Conformance: 149/154 DATC cases green (`tests/datc/`), 5 documented hard-tail `xfail`s
 > (listed at the end). Everything below is implemented, not aspirational.
 
 ## 1. Why fixed-point, not a single pass
@@ -169,10 +169,10 @@ move — under specific conditions (`_uses_convoy`):
 - For an **adjacent** move: an explicit `VIA` forces convoy semantics whenever *some*
   fleet (any power) has actually been ordered to carry it (DATC 6.G.10/6.G.14) — with no
   matching Convoy order, `VIA` is ignored and the army walks (6.G.8). Without `VIA`,
-  convoy intent is inferred **only** for a two-unit swap riding the army's **own power's**
-  convoy chain — a foreign fleet cannot "kidnap" a friendly army onto a convoy it never
-  asked for (DATC 6.G.2/6.G.4; the corresponding legitimate case is 6.G.1/5/6, and
-  a *valid* such convoy that also creates a cycle is the 6.G.11 paradox).
+  convoy intent is inferred from the army's **own power's** convoy order, swap or not
+  (DATC 4.A.3 choice d) — a foreign fleet cannot "kidnap" a friendly army onto a convoy it
+  never asked for (DATC 6.G.2/6.G.4). A convoy order on no possible route is `VOID` and
+  lends no intent (6.G.7); one that also creates a cycle is the 6.G.11 paradox.
 
 A **non-adjacent army move is legal** only when the board allows a convoy: both ends
 are coastal and a possible route (below) links them, whatever the fleets were ordered
@@ -328,7 +328,7 @@ call to `adjudicate()` returns a *new* `Game`, never mutates the old one.
 
 ## 11. Documented deviations / known gaps
 
-Six DATC cases are `xfail` with the reason recorded in the test file docstrings — not
+Five DATC cases are `xfail` with the reason recorded in the test file docstrings — not
 silently skipped. Track BC in [`fix_plan.md`](fix_plan.md) holds the root cause of each
 and the milestones that fix them; a case is un-xfailed only by its milestone:
 
@@ -338,8 +338,6 @@ and the milestones that fix them; a case is un-xfailed only by its milestone:
   a cycle, and the backup rule (§3) keeps guess-pass values for the cycle's other moves.
 - **6.F.23/24** — second-order convoy paradoxes: the same defects, plus Szykman must be
   applied again to each paradox that re-resolution exposes.
-- **6.G.11** — convoy intent: without `VIA`, intent is inferred only for a swap, the
-  "own-power swap only" rule in §6.
 
 ## 12. Where to look
 

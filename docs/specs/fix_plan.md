@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.74` did BC3 (a non-adjacent army move is legal
+- **Last updated:** 2026-10-07. `v3.0.77` did BC4 (an own-power convoy order shows
+  intent, swap or not: 6.G.11 passes, 149/154 DATC green). `v3.0.76` did BD2, BD3 and BD7;
+  `v3.0.75` did BC3b. `v3.0.74` did BC3 (a non-adjacent army move is legal
   when the board allows a convoy, ordered or not, and a fleet's support of a convoyed
   move every route needs is `VOID`: 6.D.8 passes, 148/154 DATC green). `v3.0.73` planned
   Track BD (play-through wording fixes) and did BD1 (a draw-ended game says it was a draw
@@ -54,9 +56,9 @@
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC4 next; it may run in
+  **Track BC** (the DATC hard tail) is open agent work, BC5 next; it may run in
   parallel with BB, since it touches only the engine.
-  **Track BD** (play-through wording fixes) is open agent work, BD2 next.
+  **Track BD** (play-through wording fixes) is open agent work, BD4 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -126,8 +128,8 @@ play-through in a group game.
 
 # Track BC — DATC hard tail
 
-Six DATC cases are `xfail`: 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24,
-6.G.11 (`tests/datc/`). This track makes them pass, one small PR per milestone,
+Five DATC cases are `xfail`: 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24
+(`tests/datc/`). This track makes them pass, one small PR per milestone,
 with the targeted fixes first and the paradox resolver after. The expected outcomes are
 the DATC's preferred ones (1982/2000 rulebook, Szykman paradox rule) and already sit in
 the tests. `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` holds the
@@ -214,7 +216,7 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       and shows intent. No current case depends on it, but BC4 makes any own-power convoy
       order show intent, so this has to land before BC4. Require the route through the
       fleet to visit no province twice; add the board above as a mechanics test.
-- [ ] BC4 — **6.G.11: an own-power convoy order shows intent, swap or not.** In
+- [x] BC4 — **6.G.11: an own-power convoy order shows intent, swap or not.** In
       `_uses_convoy`, drop `and self._is_swap(m)` from the no-`VIA` branch (and `_is_swap`
       if it is then unused). Do this after BC2, which is what keeps 6.G.7 correct. Update
       adjudication.md §6. Case: 6.G.11. The rest of 6.G must stay green.
