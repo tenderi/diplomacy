@@ -840,10 +840,13 @@ class _Resolver:
 
         # Standoff provinces: two or more moves into a province all failed, and it is
         # empty after resolution -- including one whose own unit moved out this turn.
+        # Only a move with prevent strength contested the province: a convoyed army
+        # whose convoy failed never reached it, so it stood nothing off.
         move_targets: dict[str, list[str]] = {}
         for prov, item in self.items.items():
-            if isinstance(item.order, Move):
-                move_targets.setdefault(item.order.dest.province, []).append(prov)
+            o = item.order
+            if isinstance(o, Move) and self._prevent_strength(o) > 0:
+                move_targets.setdefault(o.dest.province, []).append(prov)
         for target, srcs in move_targets.items():
             if len(srcs) >= 2 and not any(self.items[s].value for s in srcs):
                 if target not in surviving:
