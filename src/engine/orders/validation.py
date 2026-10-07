@@ -111,11 +111,15 @@ def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
     if isinstance(order, Move) and state.phase_type is PhaseType.RETREAT:
         du = state.dislodged_at(order.unit.province)
         if du is not None and du.unit.power == order.power:
-            return ValidationResult(
-                False,
-                f"{refusal}; to retreat, write "
-                f"{du.unit.kind.value} {order.unit.province} R {order.dest}",
-            )
+            prefix = f"{du.unit.kind.value} {order.unit.province}"
+            if any(legal.province == order.dest.province for legal in du.retreats):
+                hint = f"to retreat, write {prefix} R {order.dest}"
+            elif du.retreats:
+                options = ", ".join(str(legal) for legal in sorted(du.retreats, key=str))
+                hint = f"{order.dest} is not a legal retreat; to retreat, write {prefix} R <one of {options}>"
+            else:
+                hint = f"it has no legal retreat; write D {prefix} to disband"
+            return ValidationResult(False, f"{refusal}; {hint}")
     return ValidationResult(
         False, f"{refusal}; only {_ACCEPTED_LABEL[state.phase_type]} orders are"
     )
@@ -225,6 +229,12 @@ def _check_ownership(order: Order, unit: Unit) -> ValidationResult | None:
     if unit.power != order.power:
         return ValidationResult(
             False, f"unit at {unit.province} belongs to {unit.power}, not {order.power}"
+        )
+    written = getattr(order, "written_kind", None)
+    if written is not None and written is not unit.kind:
+        names = {UnitKind.ARMY: "an army", UnitKind.FLEET: "a fleet"}
+        return ValidationResult(
+            False, f"the unit in {unit.province} is {names[unit.kind]}, not {names[written]}"
         )
     return None
 

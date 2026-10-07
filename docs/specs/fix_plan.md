@@ -262,11 +262,11 @@ wrong. One small PR per task; each pins its exact texts in tests.
       on the finished game and announced as "(1/7 agreed)". A draw keeps the phase code, so
       the phase check let both through. `modify_draw_votes` and `save_state` now refuse a
       completed row (`refuse_completed`).
-- [ ] BD2 — **A move written for the wrong unit type names the unit.** `F ROM - TYS` when
+- [x] BD2 — **A move written for the wrong unit type names the unit.** `F ROM - TYS` when
       ROM holds an army answers "TYS is not adjacent to ROM", and `F ROM - VEN` is saved
       as `A ROM - VEN`: `engine/orders/validation.py` `_validate_move` checks the real
       unit, not the written type. Say the unit in ROM is an army instead.
-- [ ] BD3 — **The retreat hint suggests only a legal retreat.** In a retreat phase,
+- [x] BD3 — **The retreat hint suggests only a legal retreat.** In a retreat phase,
       `A BUR - RUH` answers "to retreat, write A BUR R RUH" even when RUH is not a legal
       retreat (the attacker's origin). Suggest a legal retreat, or list the legal ones.
 - [ ] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
@@ -275,7 +275,7 @@ wrong. One small PR per task; each pins its exact texts in tests.
       disband in an adjustment phase, the engine disbands for it and nobody tells it.
 - [ ] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
       silently drops the oldest build when a new one exceeds the allowance.
-- [ ] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
+- [x] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
       missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
 - [ ] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`
       `_cmd_drw` calls `GameService.submit_draw_vote` directly, so a DAIDE vote, its
