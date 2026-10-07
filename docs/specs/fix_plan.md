@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.77` did BC4 (an own-power convoy order shows
+- **Last updated:** 2026-10-07. `v3.0.78` removed the finished Track BB. `v3.0.77` did BC4 (an own-power convoy order shows
   intent, swap or not: 6.G.11 passes, 149/154 DATC green). `v3.0.76` did BD2, BD3 and BD7;
   `v3.0.75` did BC3b. `v3.0.74` did BC3 (a non-adjacent army move is legal
   when the board allows a convoy, ordered or not, and a fleet's support of a convoyed
@@ -54,75 +54,10 @@
   finished BA7; `v3.0.47` moved the frontend to react-router 7 (AZ2).
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
-- **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
-  **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC5 next; it may run in
-  parallel with BB, since it touches only the engine.
+- **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
+  **Track BC** (the DATC hard tail) is open agent work, BC5 next.
   **Track BD** (play-through wording fixes) is open agent work, BD4 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
-
----
-
-# Track BB — Telegram groups and messaging (#158, play-through 2026-10-03)
-
-#158 (maintainer): `/status` in a group answered for Game 1 though Game 2 belongs to that
-group. Neither production game is linked to a group; a group's commands ignore the group
-link anyway and use the caller's current game. Wanted: exactly one game per group, the link
-controllable from the web and from Telegram. The rest come from an agent's messaging
-play-through in a group game.
-
-- [x] BB1 — **A group resolves to its linked game, and a group has at most one.**
-      `/status` (and the menu header it shares) typed in a group uses the game linked to
-      that group, and says how to link one (`/linkgroup <id>`) when none is. In a group it
-      never prints the caller's own power ("You are: GERMANY" breaks anonymity). Linking a
-      game to a group that already has one moves the link (the reply names the game it
-      replaced); a partial unique index on `games.channel_id` makes two impossible.
-- [x] BB2a — **The bot links a game from `/start link_<game_id>` in a group** (the
-      payload Telegram sends after `t.me/<bot>?startgroup=link_<game_id>`), when the sender
-      is a player of that game; same rules and reply as `/linkgroup`. In a private chat the
-      payload links nothing.
-- [x] BB2b — **Link and unlink from the web game page.** Show the linked group (name) with
-      an Unlink button; "Link a Telegram group" opens
-      `https://t.me/<bot>?startgroup=link_<game_id>` (BB2a does the linking). Unlink asks
-      for confirmation, and a web unlink posts to the group (the bot's `/unlinkgroup`
-      already answers there).
-- [x] BB3 — **The bot's `/messages` (and the menu's 💬 Messages) never shows private
-      messages**, and a rumour's sender doesn't see it marked as theirs:
-      `telegram_bot/messages.py` builds `?telegram_id=` into the URL, so `api_get` sends no
-      bot secret and the API treats the bot as anonymous. `tests/test_bot_commands.py`
-      asserts the bug. Also: an invalid JWT on `GET /games/{id}/messages` returns 200 with
-      broadcasts only instead of 401.
-- [x] BB4 — **Blank and oversized messages.** Blank or whitespace-only messages and
-      broadcasts are accepted and sent (`routes/messages.py`): 400. Anything that would
-      exceed Telegram's 4096 characters with its heading is dropped by the bot as a
-      permanent error: cap the text with a clear 400.
-- [x] BB5 — **The group guard (v3.0.53) deletes other bots' and unknown commands** when the
-      bot is an admin (`/weather@OtherBot`): `app.py` drops the `@bot` suffix unchecked.
-      Ignore commands addressed to another bot and commands this bot doesn't have. Its
-      "🤫 /rumour is private" notice tells the group who is about to spread a rumour: word
-      it generically.
-- [x] BB6a — **Messaging polish.** A private message to a name that is not a power
-      (`FRANC`) is a 400 that lists the powers (an empty seat keeps "no player is
-      assigned"); `/messages` shows `5 Oct 14:03` with "(times in UTC)" in its heading
-      instead of raw ISO timestamps; the group's first map is captioned and titled "orders
-      and results" rather than "the orders" / "Results".
-- [x] BB6b — **A rumour's sender was the only player who got no DM**, which hinted at the
-      author. Per #173 the sender now gets the same DM as everyone else.
-- [x] BB7 — **`/viewmap` and `/players` typed in a group still used the caller's current
-      game.** Now they (and `/map`) resolve through `GET /channels/{id}/game` like
-      `/status`, and a typed id for another game is refused in the group.
-- [x] BB8 — **A long message log is too big for one Telegram message.** Since BB3 the
-      bot's `/messages` shows private messages too, and the log (up to 3500 units per
-      message) went out in one reply with no limit, so Telegram refused it. Keep the newest
-      whole messages that fit, counted in UTF-16 units, and say how many older were left out.
-- [x] BB9 — **A game is linked to a group only from inside that group.** `/link_channel
-      <game> <chat_id>` in a private chat and `POST /games/{id}/channel/link` with a web
-      login accept any chat id: a player who knows a group's id can squat it with their
-      game, and then the group's members can't `/newgame`, `/linkgroup` or `/unlinkgroup`.
-      Only the bot (with a chat id it saw the command in) or an admin may link. And
-      `/newgame` creates the game, then links: a refused link (409) leaves an unlinked
-      orphan game in the public list.
-- [ ] **Done when:** every box above is checked.
 
 ---
 
