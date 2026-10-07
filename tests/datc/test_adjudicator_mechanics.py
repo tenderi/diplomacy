@@ -222,3 +222,57 @@ def test_a_standoff_in_a_province_its_unit_left_blocks_retreats():
     assert h.new_state is not None
     assert h.new_state.contested == frozenset({"BUR"})
     assert h.retreat_options_at("BEL") == {"PIC", "RUH"}
+
+
+def test_moves_with_no_convoy_make_no_standoff():
+    """Two armies whose moves fail as NO_CONVOY never reached the province.
+
+    A YOR - NWY and A EDI - NWY are legal (F NTH could convoy) but nothing convoys
+    them. Neither had prevent strength in NWY, so there was no standoff there, and
+    the Russian army Germany dislodges from SWE may retreat to NWY.
+    """
+    h = Harness()
+    h.units("ENGLAND", "A YOR", "A EDI", "F NTH")
+    h.units("RUSSIA", "A SWE")
+    h.units("GERMANY", "A DEN", "F BAL")
+    h.orders("ENGLAND", "A YOR - NWY", "A EDI - NWY", "F NTH H")
+    h.orders("RUSSIA", "A SWE H")
+    h.orders("GERMANY", "A DEN - SWE", "F BAL S A DEN - SWE")
+    h.adjudicate()
+    h.assert_result("A YOR", ResultCode.NO_CONVOY)
+    h.assert_result("A EDI", ResultCode.NO_CONVOY)
+    h.assert_dislodged("A SWE")
+    assert h.new_state is not None
+    assert h.new_state.contested == frozenset()
+    assert h.retreat_options_at("SWE") == {"NWY", "FIN"}
+
+
+def test_moves_whose_ordered_convoys_were_disrupted_make_no_standoff():
+    """The same with both convoys ordered and both fleets dislodged: the armies
+    fail as NO_CONVOY, never reach NWY, and SWE's army may still retreat there."""
+    h = Harness()
+    h.units("ENGLAND", "A YOR", "A EDI", "F NTH", "F NWG")
+    h.units("FRANCE", "F HEL", "F SKA", "F BAR", "F NAO")
+    h.units("RUSSIA", "A SWE")
+    h.units("GERMANY", "A DEN", "F BAL")
+    h.orders(
+        "ENGLAND",
+        "A YOR - NWY",
+        "F NTH C A YOR - NWY",
+        "A EDI - NWY",
+        "F NWG C A EDI - NWY",
+    )
+    h.orders(
+        "FRANCE", "F HEL - NTH", "F SKA S F HEL - NTH", "F BAR - NWG", "F NAO S F BAR - NWG"
+    )
+    h.orders("RUSSIA", "A SWE H")
+    h.orders("GERMANY", "A DEN - SWE", "F BAL S A DEN - SWE")
+    h.adjudicate()
+    h.assert_dislodged("F NTH")
+    h.assert_dislodged("F NWG")
+    h.assert_result("A YOR", ResultCode.NO_CONVOY)
+    h.assert_result("A EDI", ResultCode.NO_CONVOY)
+    h.assert_dislodged("A SWE")
+    assert h.new_state is not None
+    assert h.new_state.contested == frozenset()
+    assert h.retreat_options_at("SWE") == {"NWY", "FIN"}

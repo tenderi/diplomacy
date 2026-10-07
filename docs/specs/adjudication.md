@@ -221,7 +221,9 @@ After every order resolves (`run()`), the resolver derives, in order:
    otherwise inferred when the reachable set is unambiguous); otherwise it's dislodged
    (`_is_dislodged`) or stays put.
 2. **Standoff provinces** (`contested`): a province targeted by ≥2 moves, none of which
-   succeeded, that no surviving unit occupies. That includes a province whose own unit
+   succeeded, that no surviving unit occupies. Only a move with a nonzero prevent strength
+   counts as targeting it: a convoyed army whose convoy failed (`NO_CONVOY`) never
+   reached the province, so it stands nothing off there. That includes a province whose own unit
    moved out this turn: the rulebook closes any space "left vacant due to a standoff" to
    retreats. A standoff in a province whose unit stayed is instead reflected in the
    occupant's hold/dislodge outcome.
