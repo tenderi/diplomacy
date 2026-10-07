@@ -116,24 +116,15 @@ class _Resolver:
         # void: the unit holds, and the result is reported as VOID.
         self.void: set[str] = set()
 
-        # (origin, dest) pairs some fleet is ordered to convoy. A non-adjacent
-        # army move with no such pair has no possible carrier and is illegal —
-        # ignored (VOID), so the unit holds and can receive hold support
-        # (DATC 6.D.31/6.D.32).
-        self._convoy_pairs: set[tuple[str, str]] = {
-            (o.origin.province, o.dest.province)
-            for o in self.order_by_prov.values()
-            if isinstance(o, Convoy)
-        }
-
         # Fleets in sea provinces, any power, any order: the only possible links
-        # of a convoy route (a fleet on a coast never convoys).
+        # of a convoy route (a fleet on a coast never convoys). Whether a convoy
+        # route is possible is decided from these, not from the orders.
         self._sea_fleets: dict[str, Location] = {
             u.province: u.location
             for u in state.units
             if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER
         }
-        self._route_reach_cache: dict[str, frozenset[str]] = {}
+        self._route_reach_cache: dict[tuple[str, Optional[str]], frozenset[str]] = {}
 
         # Build resolvable items keyed by province. A Move/Support/Convoy that is
         # not legal is treated as a hold (kept out of `items`) and marked void.
@@ -449,7 +440,9 @@ class _Resolver:
         the supporter's own power (6.D.10/12/13 — but a support of an attack on an
         own unit that is itself ordered to move is reported OK when it served other
         means: it was decisive against another attacker on that province, 6.E.12),
-        or is a hold-support of a unit that is ordered to move (6.D.7/8/25).
+        supports a convoyed move that no possible route could carry without the
+        supporting fleet (6.D.31), or is a hold-support of a unit that is ordered
+        to move (6.D.7/8/25).
 
         The own-unit rule decides the reported code only; ``_support_given`` passes
         ``count_own_unit_rule=False``. Whether the own unit stays depends on this very
@@ -477,6 +470,20 @@ class _Resolver:
                 occ_moving = dst_item is not None and isinstance(dst_item.order, Move)
                 if not (occ_moving and self._support_decisive_elsewhere(s)):
                     return True
+        if isinstance(s, SupportMove):
+            # A fleet cannot convoy and support at once: a support of a convoyed
+            # move is impossible when every possible route runs through the
+            # supporting fleet itself (DATC 6.D.31).
+            tgt_item = self.items.get(s.origin.province)
+            if (
+                tgt_item is not None
+                and isinstance(tgt_item.order, Move)
+                and self._uses_convoy(tgt_item.order)
+                and not self._possible_route(
+                    s.origin.province, s.dest.province, without=s.unit.province
+                )
+            ):
+                return True
         if isinstance(s, SupportHold):
             # A unit ordered a *legal* move cannot receive hold support (6.D.7/8/25);
             # an illegal/ignored move leaves the unit holding, so support is fine
@@ -625,15 +632,18 @@ class _Resolver:
             return False
         if self._uses_convoy(m):
             # Convoyed army move: endpoints must both be coastal land, and — when
-            # the destination is not adjacent — some fleet must actually be
-            # ordered to convoy it, else the order is illegal/ignored (6.D.31/32).
+            # the destination is not adjacent — the board must allow a convoy: a
+            # possible route of sea fleets, whatever they are ordered (DATC 4.E.1).
+            # Without one the order is illegal/ignored (6.D.32, 6.F.1); with one it
+            # is a real move even if no fleet convoys it, so the unit can receive
+            # no hold support (6.D.8).
             if not (
                 self.map.province_type(dst) is ProvinceType.COAST
                 and self.map.province_type(m.unit.province) is ProvinceType.COAST
             ):
                 return False
             adjacent = dst in self.map.army_moves(m.unit.province)
-            return adjacent or (m.unit.province, dst) in self._convoy_pairs
+            return adjacent or self._possible_route(m.unit.province, dst)
         return dst in self.map.army_moves(m.unit.province)
 
     def _uses_convoy(self, m: Move) -> bool:
@@ -708,39 +718,49 @@ class _Resolver:
                     queue.append(nxt_p)
         return False
 
-    def _route_reach(self, end: str) -> frozenset[str]:
+    def _route_reach(self, end: str, without: Optional[str] = None) -> frozenset[str]:
         """Sea fleets a chain of sea fleets can reach from a fleet touching ``end``.
 
         BFS over ``_sea_fleets`` (any power, any order), started at every sea
-        fleet adjacent to province ``end``. Depends only on the board, not on
-        the orders, so it is memoized per province.
+        fleet adjacent to province ``end``, skipping the fleet in ``without``.
+        Depends only on the board, not on the orders, so it is memoized.
         """
-        cached = self._route_reach_cache.get(end)
+        key = (end, without)
+        cached = self._route_reach_cache.get(key)
         if cached is not None:
             return cached
-        seen = {p for p, loc in self._sea_fleets.items() if self._fleet_touches(loc, end)}
+        fleets = {p: loc for p, loc in self._sea_fleets.items() if p != without}
+        seen = {p for p, loc in fleets.items() if self._fleet_touches(loc, end)}
         queue: deque[str] = deque(sorted(seen))
         while queue:
-            here = self._sea_fleets[queue.popleft()]
-            for nxt_p, nxt_loc in self._sea_fleets.items():
+            here = fleets[queue.popleft()]
+            for nxt_p, nxt_loc in fleets.items():
                 if nxt_p not in seen and self.map.is_adjacent(here, nxt_loc, UnitKind.FLEET):
                     seen.add(nxt_p)
                     queue.append(nxt_p)
         reach = frozenset(seen)
-        self._route_reach_cache[end] = reach
+        self._route_reach_cache[key] = reach
         return reach
 
-    def _possible_route(self, src: str, dst: str, *, through: Optional[str] = None) -> bool:
+    def _possible_route(
+        self,
+        src: str,
+        dst: str,
+        *,
+        through: Optional[str] = None,
+        without: Optional[str] = None,
+    ) -> bool:
         """Could the board convoy an army from ``src`` to ``dst``, whatever the orders?
 
         A possible route is a chain of fleets in sea provinces (any power, any
         order) that starts at a fleet touching ``src`` and ends at one touching
-        ``dst``. With ``through``, the chain must pass the fleet in that province.
+        ``dst``. With ``through``, the chain must pass the fleet in that province;
+        with ``without``, it must avoid the fleet in that province.
         A chain from each end meets exactly where such a route exists: a fleet
         reachable from both ends lies on a walk from ``src`` to ``dst``.
         """
-        from_src = self._route_reach(src)
-        from_dst = self._route_reach(dst)
+        from_src = self._route_reach(src, without)
+        from_dst = self._route_reach(dst, without)
         if through is None:
             return not from_src.isdisjoint(from_dst)
         return through in from_src and through in from_dst
@@ -820,10 +840,13 @@ class _Resolver:
 
         # Standoff provinces: two or more moves into a province all failed, and it is
         # empty after resolution -- including one whose own unit moved out this turn.
+        # Only a move with prevent strength contested the province: a convoyed army
+        # whose convoy failed never reached it, so it stood nothing off.
         move_targets: dict[str, list[str]] = {}
         for prov, item in self.items.items():
-            if isinstance(item.order, Move):
-                move_targets.setdefault(item.order.dest.province, []).append(prov)
+            o = item.order
+            if isinstance(o, Move) and self._prevent_strength(o) > 0:
+                move_targets.setdefault(o.dest.province, []).append(prov)
         for target, srcs in move_targets.items():
             if len(srcs) >= 2 and not any(self.items[s].value for s in srcs):
                 if target not in surviving:

@@ -153,13 +153,13 @@ def test_6d7_support_to_hold_on_moving_unit_not_allowed():
     h.assert_bounce("A FIN")
 
 
-@pytest.mark.xfail(reason="no-fleet convoy move interpretation: this engine treats an army move with no convoy ordered as illegal/ignored (unit holds, can receive hold support) for consistency with 6.D.28/29/31/32; DATC 6.D.8 encodes the competing attempted-move reading", strict=False)
 def test_6d8_failed_convoy_cannot_receive_hold_support():
     """6.D.8 FAILED CONVOY CAN NOT RECEIVE HOLD SUPPORT.
 
-    Greece's would-be convoy to Naples was never ordered as a convoy move;
-    it still counts as an attempted move (not eligible for hold support), so
-    Bulgaria's support fails and Greece is dislodged by Albania.
+    No fleet is ordered to convoy Greece to Naples, but F ION could have, so
+    the move is legal: a real, failing move. A unit ordered to move cannot
+    receive hold support, so Bulgaria's support is VOID and Greece is
+    dislodged by Albania.
     """
     h = Harness()
     h.units("AUSTRIA", "F ION", "A SER", "A ALB")
@@ -633,11 +633,11 @@ def test_6d30_move_without_coast_and_support():
 def test_6d31_a_tricky_impossible_support():
     """6.D.31 A TRICKY IMPOSSIBLE SUPPORT.
 
-    A Rumania - Armenia requires convoying through the Black Sea, but a
-    fleet cannot convoy and support at the same time, so Turkey's declared
-    support order for that move is impossible and should be ignored (DATC's
-    preferred "illegal" interpretation). Rumania's move has no convoy and
-    fails as NO_CONVOY.
+    A Rumania - Armenia could be convoyed through the Black Sea, so it is a
+    legal move; with no convoy ordered it fails as NO_CONVOY. A fleet cannot
+    convoy and support at the same time, and the only possible route runs
+    through F BLA, so Turkey's support of that move is impossible and is
+    ignored: VOID (DATC's preferred reading; both codes are v2.7.68's).
     """
     h = Harness()
     h.units("AUSTRIA", "A RUM")
@@ -645,7 +645,7 @@ def test_6d31_a_tricky_impossible_support():
     h.orders("AUSTRIA", "A RUM - ARM")
     h.orders("TURKEY", "F BLA S A RUM - ARM")
     h.adjudicate()
-    h.assert_result("A RUM", ResultCode.VOID)
+    h.assert_result("A RUM", ResultCode.NO_CONVOY)
     h.assert_result("F BLA", ResultCode.VOID)
 
 

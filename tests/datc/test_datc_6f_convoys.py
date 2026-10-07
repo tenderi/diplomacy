@@ -41,8 +41,8 @@ def test_6f1_no_convoy_in_coastal_areas():
     A fleet in a coastal area (not open water) may not convoy. Turkey orders
     A GRE - SEV convoyed by F AEG, F CON, F BLA; F CON sits in a coastal
     province (Constantinople), not water, so that leg of the convoy is
-    illegal. DATC-correct outcome: the whole convoy is invalid and the army
-    in Greece does not move.
+    illegal. DATC-correct outcome: no possible route of sea fleets links
+    Greece to Sevastopol, so the army's move is illegal (VOID) and it holds.
     """
     h = Harness()
     h.units("TURKEY", "A GRE", "F AEG", "F CON", "F BLA")
@@ -55,12 +55,11 @@ def test_6f1_no_convoy_in_coastal_areas():
     )
     h.adjudicate()
     # No chain of sea fleets links Greece to Sevastopol, so every convoy order
-    # is illegal: VOID, as v2.7.68 reports. The army's own code is BC3's
-    # (NO_CONVOY today; v2.7.68 says VOID).
+    # and the army's move are illegal: VOID, as v2.7.68 reports.
     h.assert_result("F AEG", ResultCode.VOID)
     h.assert_result("F CON", ResultCode.VOID)
     h.assert_result("F BLA", ResultCode.VOID)
-    h.assert_result("A GRE", ResultCode.NO_CONVOY)
+    h.assert_result("A GRE", ResultCode.VOID)
     h.assert_empty("SEV")
 
 
