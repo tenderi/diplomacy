@@ -92,6 +92,15 @@ def adjudicate_movement(
     return _Resolver(map, state, orders).run()
 
 
+def convoy_route_possible(
+    map: MapData, state: GameState, src: str, dst: str, *, through: Optional[str] = None
+) -> bool:
+    """Could the fleets on ``state`` convoy an army ``src`` -> ``dst`` (through the
+    fleet in ``through``, if given), whatever the orders? The adjudicator's own
+    possible-route rule, for the order menus to offer exactly what it will not void."""
+    return _Resolver(map, state, [])._possible_route(src, dst, through=through)
+
+
 class _Resolver:
     def __init__(self, map: MapData, state: GameState, orders: list[Order]):
         self.map = map
