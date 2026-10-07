@@ -248,7 +248,7 @@ place the full picture exists.
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
 | **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
-| **Game ended by a turn** (a solo: 18 centres) | all players except the caller: "Game N has ended: FRANCE has won with a solo victory." | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
+| **Game ended by a turn** (a solo: 18 centres) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory." | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
 | Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
@@ -318,6 +318,13 @@ broadcasts only; a valid Bearer token, or `telegram_id` with the bot secret, add
 caller's own private messages; credentials that are present but don't check out (an
 invalid or expired token, a `telegram_id` without the secret) are a 401, never a silent
 fall-back to the broadcasts-only view.
+
+A draw is announced once. A draw keeps the phase code, so the phase check alone cannot
+stop a second request that loaded the board before the draw committed (a double tap, or
+the web and the bot at once). `GameService.submit_draw_vote` passes `refuse_completed` to
+both `GameRepo.modify_draw_votes` and `save_state`. The row is locked, a finished game is
+refused and the late request gets a 409 that says how the game ended. It is never
+recorded as a vote ("(1/7 agreed)") and never announced as a second draw.
 
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`

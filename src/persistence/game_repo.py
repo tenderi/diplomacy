@@ -37,6 +37,11 @@ def _pending(row: GameModel) -> dict[str, list[str]]:
     return {k: list(v) for k, v in dict(row.pending_orders or {}).items()}
 
 
+def _check_not_completed(row: Any, game_id: str, refuse_completed: bool) -> None:
+    if refuse_completed and str(row.status or "").lower() == "completed":
+        raise StaleGameError(f"game {game_id} has already ended")
+
+
 class StaleGameError(RuntimeError):
     """Raised by ``GameRepo.save_state`` when ``expected_phase_code`` no longer
     matches the persisted row: another process advanced the phase after this
@@ -118,11 +123,18 @@ class GameRepo:
         change: Callable[[dict[str, str]], dict[str, str]],
         *,
         expected_phase_code: Optional[str] = None,
+        refuse_completed: bool = False,
     ) -> dict[str, str]:
         """``draw_votes`` = ``change(current)`` in one locked transaction (see
-        ``modify_pending_orders``: two votes cast together lost one)."""
+        ``modify_pending_orders``: two votes cast together lost one).
+
+        ``refuse_completed`` refuses (``StaleGameError``) a row whose game has
+        already ended. A draw keeps the phase code, so ``expected_phase_code``
+        alone let a vote that loaded the board before a concurrent draw committed
+        be recorded on the finished game."""
         with self._session_factory() as session:
             row = self._locked_row(session, game_id, expected_phase_code)
+            _check_not_completed(row, game_id, refuse_completed)
             current = {k: str(v) for k, v in dict(row.draw_votes or {}).items()}
             updated = change(current)
             row.draw_votes = updated
@@ -298,6 +310,7 @@ class GameRepo:
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
+        refuse_completed: bool = False,
     ) -> None:
         """Persist the next ``GameState`` and bump the phase counter. When given, the
         adjudication ``last_resolution`` is stored for later resolution-map rendering,
@@ -320,9 +333,15 @@ class GameRepo:
         A phase transition ends everything scoped to the old phase, so
         ``pending_orders``, ``draw_votes`` and ``wait_flags`` are cleared in this same
         transaction -- clearing them in a later one wiped orders already
-        submitted for the *new* phase in between."""
+        submitted for the *new* phase in between.
+
+        ``refuse_completed`` refuses (``StaleGameError``) to write over a game that has
+        already ended: two deciding draw votes cast together both reach quorum,
+        and the phase code (which a draw keeps) cannot tell the second one that the
+        first already ended the game."""
         guarded = (
-            expected_phase_code is not None
+            refuse_completed
+            or expected_phase_code is not None
             or expected_pending_orders is not None
             or expected_state_json is not None
         )
@@ -330,6 +349,7 @@ class GameRepo:
             row = self._row(session, game_id, lock=guarded)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
+            _check_not_completed(row, game_id, refuse_completed)
             if expected_phase_code is not None and row.phase_code != expected_phase_code:
                 raise StaleGameError(
                     f"game {game_id}: expected phase {expected_phase_code!r} but the "

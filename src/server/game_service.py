@@ -589,7 +589,13 @@ class GameService:
             others = {p: v for p, v in votes.items() if p != power}
             return {**others, power: "yes"} if vote else others
 
-        votes = self._repo.modify_draw_votes(game_id, cast, expected_phase_code=game.state.phase_name)
+        try:
+            votes = self._repo.modify_draw_votes(
+                game_id, cast, expected_phase_code=game.state.phase_name, refuse_completed=True
+            )
+        except StaleGameError:
+            self._raise_if_ended(game_id)
+            raise
         changed = bool(had_voted) and had_voted[-1] != vote
 
         required = self._draw_quorum(game, game_id)
@@ -598,13 +604,21 @@ class GameService:
 
         if quorum_reached:
             drawn = game.draw()
-            self._repo.save_state(
-                game_id,
-                state_to_dict(drawn.state),
-                phase_code=drawn.state.phase_name,
-                status=drawn.state.status.value.lower(),
-                expected_phase_code=game.state.phase_name,
-            )  # clears pending orders and draw votes with it
+            try:
+                # ``refuse_completed``: a second deciding vote cast at the same time
+                # also reached quorum; only the first may end the game and be
+                # announced.
+                self._repo.save_state(
+                    game_id,
+                    state_to_dict(drawn.state),
+                    phase_code=drawn.state.phase_name,
+                    status=drawn.state.status.value.lower(),
+                    expected_phase_code=game.state.phase_name,
+                    refuse_completed=True,
+                )  # clears pending orders and draw votes with it
+            except StaleGameError:
+                self._raise_if_ended(game_id)
+                raise
             return {
                 "status": "completed",
                 "game_status": drawn.state.status.value,
@@ -623,6 +637,13 @@ class GameService:
             "quorum_reached": False,
             "changed": changed,
         }
+
+    def _raise_if_ended(self, game_id: str) -> None:
+        """After a ``StaleGameError``: raise ``GameOverError`` (saying how the game
+        ended) if a concurrent write finished the game, else return."""
+        game = self.load(game_id)
+        if game is not None:
+            _require_active(game, game_id)
 
     def get_draw_votes(self, game_id: str) -> Optional[dict[str, Any]]:
         """Who's voted yes to draw this phase, how many are needed, and whether

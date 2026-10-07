@@ -263,7 +263,12 @@ wrong. One small PR per task; each pins its exact texts in tests.
       `notify_turn_processed`'s `game_ended` branch, called from the draw path). (b)
       Withdrawing a draw vote (`vote: false`) notified nobody, so the others kept
       believing "FRANCE has voted … (2/7 agreed)", and the vote notice did not say votes
-      lapse when the phase is processed (`routes/games.py` `submit_draw_vote`).
+      lapse when the phase is processed (`routes/games.py` `submit_draw_vote`). (c) Two
+      deciding yes votes sent at the same moment could both end the game, so the draw was
+      announced twice. Or a vote that loaded the board before the draw committed was recorded
+      on the finished game and announced as "(1/7 agreed)". A draw keeps the phase code, so
+      the phase check let both through. `modify_draw_votes` and `save_state` now refuse a
+      completed row (`refuse_completed`).
 - [ ] BD2 — **A move written for the wrong unit type names the unit.** `F ROM - TYS` when
       ROM holds an army answers "TYS is not adjacent to ROM", and `F ROM - VEN` is saved
       as `A ROM - VEN`: `engine/orders/validation.py` `_validate_move` checks the real
