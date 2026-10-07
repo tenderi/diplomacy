@@ -184,15 +184,18 @@ the move is illegal -- `VOID`, and the army holds and may receive hold support (
 A **Convoy order is illegal** -- reported `VOID`, kept out of the resolver's `items`, and
 showing no convoy intent -- when its fleet cannot be on any *possible route*
 (`_possible_route`): a chain of fleets in sea provinces (any power, whatever they were
-ordered) that starts at a fleet touching the army's province, passes through this fleet,
-and ends at a fleet touching the destination (DATC 4.E.1: an order that can never be
+ordered), visiting no fleet twice, that starts at a fleet touching the army's province,
+passes through this fleet, and ends at a fleet touching the destination (DATC 4.E.1: an order that can never be
 valid is ignored). So a fleet on a coast never convoys (6.F.1's `F CON`), nor does a fleet
 whose sea chain does not reach the far shore (6.G.7's `F BOT C A SWE - NWY`, which
 therefore lends Russia's army no intent, and the swap bounces). The test is a
 breadth-first search from each end over the sea fleets (`_route_reach`, memoized per
-province and excluded fleet); a fleet reached from both ends lies on a route. It reads only the board, the
-same rule `server/legal_orders.py` uses to offer convoys along fleet-held chains
-(`_convoy_shores`), and `tests/test_legal_orders.py` checks the two agree.
+province and excluded fleet). With no fleet required, a chain from each end meeting is
+enough; for a given fleet, reaching it from both ends is not (the halves may share a fleet,
+a dead-end sea walked there and back), so `_simple_route_through` searches for halves that
+share none. It reads only the board. `server/legal_orders.py` offers a convoy through a fleet
+by asking the same rule (`convoy_route_possible`), and `tests/test_legal_orders.py` checks
+the menu and the adjudicator agree.
 
 The convoy **path** itself (`_convoy_path_works`) is a breadth-first search over
 currently-surviving convoying fleets (`Convoy` orders whose origin/dest match the move,

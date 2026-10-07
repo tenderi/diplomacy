@@ -54,7 +54,7 @@
   the web composer.
 - **Track BB** (Telegram groups and messaging, #158) is the open agent work, top-down;
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC3b next; it may run in
+  **Track BC** (the DATC hard tail) is open agent work, BC4 next; it may run in
   parallel with BB, since it touches only the engine.
   **Track BD** (play-through wording fixes) is open agent work, BD2 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
@@ -208,7 +208,7 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       `A RUM` to `NO_CONVOY` (both v2.7.68's codes; fix the docstrings to match).
       6.D.32 must stay green. Leave submission validation (`orders/validation.py`) as it
       is: it already accepts a non-adjacent move between two coasts. Case: 6.D.8.
-- [ ] BC3b — **`_possible_route` must search simple paths.** Its `through` check accepts a
+- [x] BC3b — **`_possible_route` must search simple paths.** Its `through` check accepts a
       dead-end fleet: on the board `A HOL - BEL`, `F NTH C A HOL - BEL`, `F SKA C A HOL - BEL`,
       `F BEL - HOL`, the route NTH → SKA → NTH counts, so SKA's convoy order is not `VOID`
       and shows intent. No current case depends on it, but BC4 makes any own-power convoy

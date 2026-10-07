@@ -130,3 +130,46 @@ def test_a_fleet_supporting_a_convoyed_move_is_void_only_when_every_route_needs_
     only_route.adjudicate()
     only_route.assert_result("F NTH", ResultCode.VOID)
     only_route.assert_result("A EDI", ResultCode.NO_CONVOY)
+
+
+def test_a_fleet_a_route_can_reach_only_by_doubling_back_is_void() -> None:
+    """SKA touches neither Holland nor Belgium, and links only to NTH: the walk
+    NTH - SKA - NTH visits NTH twice, which is no route. SKA's convoy is VOID;
+    NTH's own convoy carries the army round the swap, so both units move."""
+    h = Harness()
+    h.units("ENGLAND", "A HOL", "F NTH", "F SKA")
+    h.units("FRANCE", "F BEL")
+    h.orders("ENGLAND", "A HOL - BEL", "F NTH C A HOL - BEL", "F SKA C A HOL - BEL")
+    h.orders("FRANCE", "F BEL - HOL")
+    h.adjudicate()
+    h.assert_result("F SKA", ResultCode.VOID)
+    h.assert_result("F NTH", ResultCode.OK)
+    h.assert_result("A HOL", ResultCode.OK)
+    h.assert_result("F BEL", ResultCode.OK)
+    assert h.unit_powers_at("BEL") == "ENGLAND"
+    assert h.unit_powers_at("HOL") == "FRANCE"
+    assert h.unit_powers_at("SKA") == "ENGLAND"
+
+
+def test_possible_route_through_a_fleet_needs_a_simple_path() -> None:
+    """``through`` holds only on a route that visits no fleet twice. Every fleet
+    of the chain IRI - ENG - NTH is on one, the middle one included; a spur off
+    the chain is not, though both ends reach it; a fleet on a loop of the chain
+    is."""
+    h = Harness()
+    h.units("ENGLAND", "F IRI", "F ENG", "F NTH", "F NWG")
+    h.units("FRANCE", "F MAO")
+    r = _resolver(h)
+    # LVP - IRI - ENG - NTH - HOL: IRI first, ENG in the middle, NTH last.
+    assert r._possible_route("LVP", "HOL", through="IRI")
+    assert r._possible_route("LVP", "HOL", through="ENG")
+    assert r._possible_route("LVP", "HOL", through="NTH")
+    # NWG links only to NTH and touches neither end: NTH - NWG - NTH is no route.
+    assert not r._possible_route("LVP", "HOL", through="NWG")
+    # MAO links to IRI and ENG, so IRI - MAO - ENG - NTH is a route...
+    assert r._possible_route("LVP", "HOL", through="MAO")
+    # ... but not without ENG: MAO's only way on is back through IRI.
+    assert r._possible_route("LVP", "HOL", without="NWG")
+    assert not r._possible_route("LVP", "HOL", through="MAO", without="ENG")
+    # NWG touches EDI, so there it ends a route: LVP - IRI - ENG - NTH - NWG - EDI.
+    assert r._possible_route("LVP", "EDI", through="NWG")
