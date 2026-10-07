@@ -139,8 +139,16 @@ def test_reaching_draw_quorum_tells_everyone_the_game_ended() -> None:
         "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY."
     )
     rows = mock_post.rows()
+    # BD4: every power shares this draw, so each reads itself as "you"
+    # (TURKEY cast the deciding vote and is not told).
     assert {str(r["telegram_id"]): [r["message"]] for r in rows if r["kind"] != "channel_text"} == {
-        tg: [drawn] for tg in everyone - {last_tg}
+        tg: [
+            f"Game {game_id} has ended in a draw shared by you, "
+            + ", ".join(p for p in ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA"] if p != power)
+            + " and TURKEY."
+        ]
+        for power, (_h, tg) in zip(POWERS, users)
+        if tg != last_tg
     }
     # BD1: a draw is not a processed turn, so the group gets no "Turn Processed"
     # heading and no maps -- one post, headed as a draw.
