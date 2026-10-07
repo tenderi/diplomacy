@@ -248,7 +248,7 @@ place the full picture exists.
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
 | **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
-| **Game ended by a turn** (a solo: 18 centres) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory." | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
+| **Game ended by a turn** (a solo: 18 centres) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
 | Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
@@ -261,7 +261,7 @@ place the full picture exists.
 | Draw vote cast (not final) | all players except the voter: "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw." | — | next poll | `routes/games.py` `submit_draw_vote` |
 | Draw vote withdrawn | all players except the voter: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed)." | — | next poll | `routes/games.py` `submit_draw_vote` |
 | Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `routes/games.py` `submit_draw_vote` |
-| Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE." | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.notify_game_drawn` |
+| Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND.") | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.notify_game_drawn` |
 | Draw voted over DAIDE | nobody on Telegram (open: fix_plan BD8); DAIDE sessions get `DRW` | — | next poll | `daide/session.py` `_cmd_drw` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
@@ -272,13 +272,18 @@ place the full picture exists.
 
 - movement — "Orders are due for Spring 1902 movement.";
 - retreat — to each dislodged power, every dislodged unit with its retreat options as the
-  adjudicator computed them ("GERMANY's A BUR was dislodged: it may retreat to GAS, PIC,
-  RUH, or disband.", or "…has nowhere to retreat: it must disband.");
+  adjudicator computed them ("…Fall 1901 retreats: your orders are due.\nYour A BUR was
+  dislodged: it may retreat to GAS, PIC, RUH, or disband.", or "…has nowhere to retreat: it
+  must disband.");
 - adjustment — the build count (`adjustments_owed`, plus how many more are waived for want
-  of a free home centre) or the disband count;
+  of a free home centre) or the disband count ("You may build 2 units (1 more waived: no
+  free home supply centre).", "You must disband 1 unit.");
 - a player with nothing to order in a retreat or adjustment phase is told so and to wait.
 
-The DM is plain text (no `parse_mode`). The channel post names the phase too, and in a
+The DM addresses its reader as "you"; only a player owing orders for more than one power
+is told which is which ("your orders are due for AUSTRIA and ITALY", "Your F ION (ITALY)
+was dislodged…", "As FRANCE, you may build 1 unit."). The DM is plain text (no
+`parse_mode`). The channel post names the phase too, and in a
 retreat or adjustment phase the powers that owe orders. The caller of a manual process is
 skipped unless they owe orders in a new retreat or adjustment phase: their HTTP response
 carries the resolution, not their retreat options or build count.
@@ -294,6 +299,15 @@ post) — names it through `api.shared.power_label`: `FRANCE` in an anonymous ga
 joined … as ITALY". The bot relays every message between players, so in an anonymous game
 nobody learns who holds a power except by being told. The same rule holds for API reads
 (`api.shared.player_rows`; `docs/specs/data_spec.md` §4).
+
+**A DM about its reader's own power says "you"** instead of naming it: the turn-processed
+DM above, the solo winner and the draw's sharers, and the proposer of a deadline proposal
+that is voted down ("Your deadline proposal in game N was voted down; nothing changed.")
+or expires ("Your deadline proposal in game N expired without a majority; nothing
+changed."). Everyone else's DM and the group post keep the power's label.
+`api.shared.notify_players(own=…)` picks the reader's text from the powers they hold.
+Events whose actor is the reader skip them altogether (the voter, the proposer, the
+conceder: the matrix's "except").
 
 A **rumour** (`POST /games/{id}/broadcast` with `anonymous: true`; the bot's `/rumour`, or
 "🕵️ Rumour (anonymous)" on the game menu's Messages screen) names nobody in any game: not

@@ -1365,11 +1365,18 @@ def vote_deadline_proposal(
                 exclude_telegram_id=exclude,
             )
         elif result["status"] == "rejected":
+            proposer = str(result["proposed_by"]).upper()
             notify_players(
                 int(game.id),
-                f"Game {game_id}'s deadline proposal (from {power_label(game_id, result['proposed_by'])}) "
+                f"Game {game_id}'s deadline proposal (from {power_label(game_id, proposer)}) "
                 f"was voted down; nothing changed.",
                 exclude_telegram_id=exclude,
+                # The proposer reads "Your deadline proposal" (BD4).
+                own=lambda powers: (
+                    f"Your deadline proposal in game {game_id} was voted down; nothing changed."
+                    if proposer in powers
+                    else None
+                ),
             )
         elif req.vote:
             needed = result["needed_for_majority"]
