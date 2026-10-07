@@ -428,6 +428,44 @@ def _post_turn_to_channel(
         scheduler_logger.debug(f"Channel integration check failed for game {game_id}: {e}")
 
 
+def _join_names(names: list[str]) -> str:
+    """``A``, ``A and B``, ``A, B and C``."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def notify_game_drawn(
+    game_id: str,
+    numeric_game_id: int,
+    winners: list[str],
+    *,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Announce a game that just ended in an agreed draw, naming who shares it.
+
+    A draw is not a processed turn: ``GameService.submit_draw_vote`` ends the game
+    inline when the last vote reaches quorum. So this is not
+    ``notify_turn_processed``, whose group post is headed "Turn Processed" and
+    carries the turn's maps -- both wrong here. Every player but the deciding voter
+    (who has the result in their response) gets the DM; the group gets the same
+    sentence. Best-effort, like every notification: the draw is already committed.
+    """
+    names = [power_label(game_id, power) for power in winners]
+    text = f"Game {game_id} has ended in a draw"
+    if names:
+        text += f" shared by {_join_names(names)}"
+    text += "."
+    try:
+        notify_players(
+            numeric_game_id,
+            text,
+            exclude_telegram_id=exclude_telegram_id,
+            buttons=game_buttons(game_id, ended=True),
+        )
+    except (SQLAlchemyError, OSError) as e:
+        scheduler_logger.error(f"Failed to notify players of the draw in game {game_id}: {e}")
+    post_to_game_group(game_id, f"🤝 Draw - Game {game_id}\n{text}")
+
+
 def notify_turn_processed(
     game_id: str,
     numeric_game_id: int,
@@ -445,8 +483,9 @@ def notify_turn_processed(
     schedule armed one, and is appended to the DM and the channel post.
 
     ``processed_turn``/``processed_phase`` name the turn just adjudicated; with them
-    the game's Telegram group also gets that turn's orders map and result map. (A
-    draw ends a game without adjudicating anything, so it passes neither.)
+    the game's Telegram group also gets that turn's orders map and result map.
+    ``game_ended`` means the turn ended the game, which only a solo victory does;
+    a draw ends one without a turn and goes through ``notify_game_drawn``.
 
     Before this existed the two paths told players wildly different amounts (G3):
     the deadline path DM'd every player, reset the reminder flag and posted a
@@ -479,16 +518,23 @@ def notify_turn_processed(
     reminder_sent[numeric_game_id] = False
 
     if game_ended:
+        # A processed turn ends a game only by a solo victory (``Game.process``);
+        # a draw ends it without a turn and is announced by ``notify_game_drawn``.
+        view = game_service.view(game_id) or {}
+        ended = f"Game {game_id} has ended"
+        winners = view.get("winners") or []
+        if len(winners) == 1:
+            ended += f": {power_label(game_id, winners[0])} has won with a solo victory"
         try:
             notify_players(
                 numeric_game_id,
-                f"Game {game_id} has ended!",
+                f"{ended}.",
                 exclude_telegram_id=exclude_telegram_id,
                 buttons=game_buttons(game_id, ended=True),
             )
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
-        _post_turn_to_channel(game_id, f"Game {game_id} has ended.", processed_turn, processed_phase)
+        _post_turn_to_channel(game_id, f"The turn has been processed. {ended}.", processed_turn, processed_phase)
         return
 
     duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
