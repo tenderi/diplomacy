@@ -131,11 +131,6 @@ To see what the engine does on one case, run it with `--runxfail`:
 **Root causes** (found 2026-10-06 by running each case; prototypes of BC1 to BC4 each
 turned their cases green, with the rest of `tests/datc` and `tests/engine` green too):
 
-- **6.G.7: an impossible convoy order shows intent.** `F BOT C A SWE - NWY` cannot be part
-  of any route (no chain of seas links the Gulf of Bothnia to Norway), but
-  `_has_convoy_order` counts it as Russia's convoy intent. England's `F SKA` then carries
-  the army, and the two units swap. DATC 4.E.1: an order that can never be valid is
-  illegal and ignored, so there is no intent and the army bounces over land.
 - **6.D.8: a move with no convoy ordered is voided.** `_legal_move` voids a non-adjacent
   army move unless some fleet is *ordered* to convoy it (`_convoy_pairs`), so `A GRE - NAP`
   becomes a hold and takes Bulgaria's hold support. DATC decides legality from the board
@@ -214,6 +209,12 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       `A RUM` to `NO_CONVOY` (both v2.7.68's codes; fix the docstrings to match).
       6.D.32 must stay green. Leave submission validation (`orders/validation.py`) as it
       is: it already accepts a non-adjacent move between two coasts. Case: 6.D.8.
+- [ ] BC3b — **`_possible_route` must search simple paths.** Its `through` check accepts a
+      dead-end fleet: on the board `A HOL - BEL`, `F NTH C A HOL - BEL`, `F SKA C A HOL - BEL`,
+      `F BEL - HOL`, the route NTH → SKA → NTH counts, so SKA's convoy order is not `VOID`
+      and shows intent. No current case depends on it, but BC4 makes any own-power convoy
+      order show intent, so this has to land before BC4. Require the route through the
+      fleet to visit no province twice; add the board above as a mechanics test.
 - [ ] BC4 — **6.G.11: an own-power convoy order shows intent, swap or not.** In
       `_uses_convoy`, drop `and self._is_swap(m)` from the no-`VIA` branch (and `_is_swap`
       if it is then unused). Do this after BC2, which is what keeps 6.G.7 correct. Update
