@@ -21,7 +21,7 @@ from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
-    notify_players, notify_user, notify_turn_processed, get_process_turn_lock, game_buttons,
+    notify_players, notify_user, notify_game_drawn, get_process_turn_lock, game_buttons,
     post_to_game_group, is_anonymous, player_rows, power_label,
 )
 from ...deadline_schedule import ScheduleError, parse_schedule
@@ -758,27 +758,33 @@ def submit_draw_vote(
                 # there will never be another one, so clear a stale deadline
                 # rather than leave it displayed by /status.
                 db_service.update_game_deadline(int(row.id), None)
-                notify_turn_processed(
+                notify_game_drawn(
                     game_id,
                     int(row.id),
-                    trigger="manual",
-                    game_ended=True,
+                    list(result.get("winners") or []),
                     exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
                 )
-            elif req.vote:
+            elif result.get("changed"):
                 # A vote that does *not* end the game is still worth announcing:
                 # otherwise a player only discovers a draw is being negotiated by
                 # running /status, and a draw is the one outcome every power has a
-                # veto over.
+                # veto over. A withdrawal goes to the same people, or they keep
+                # believing the count they were last told. A repeated yes, or a
+                # withdrawal with no vote to withdraw, changed nothing: no notice.
                 # Both fields are always lists from `GameService.submit_draw_vote`:
                 # `votes` is the yes-voters, `required` every power that must agree.
-                votes = result.get("votes") or []
-                required = result.get("required") or []
+                tally = f"({len(result.get('votes') or [])}/{len(result.get('required') or [])} agreed)"
+                label = power_label(game_id, req.power)
+                text = (
+                    f"{label} has voted to end game {game_id} in a draw {tally}. "
+                    "Draw votes last until this phase is processed. "
+                    "Use /draw to agree or /nodraw to withdraw."
+                    if req.vote
+                    else f"{label} has withdrawn its vote to end game {game_id} in a draw {tally}."
+                )
                 notify_players(
                     int(row.id),
-                    f"{power_label(game_id, req.power)} has voted to end game {game_id} in a draw "
-                    f"({len(votes)}/{len(required)} agreed). "
-                    f"Use /draw to agree or /nodraw to withdraw.",
+                    text,
                     exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
                 )
     except Exception as e:
