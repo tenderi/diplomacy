@@ -183,7 +183,11 @@ class GameService:
         adjusting = state.phase_type is PhaseType.ADJUSTMENT
         slots = adjustments_owed(self._map, state, power) if adjusting else 0
 
+        # The stored orders ``_make_room`` pushed out, filled in by ``store``.
+        dropped: list[str] = []
+
         def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
+            dropped.clear()
             new_orders = accepted
             if merge:
                 kept = []
@@ -198,13 +202,15 @@ class GameService:
                     if key is None or key not in accepted_keys:
                         kept.append(existing)
                 if adjusting:
-                    kept = self._make_room(kept, len(accepted), slots, power)
+                    kept, pushed_out = self._make_room(kept, len(accepted), slots, power)
+                    dropped.extend(pushed_out)
                 new_orders = kept + accepted
             return {**pending, power: new_orders}
 
         # One locked read-modify-write, and only if the phase these orders were
         # validated against is still the live one (StaleGameError otherwise).
         self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
+        _report_replaced(results, dropped, state, power, slots)
         return results
 
     def _check_orders(
@@ -304,9 +310,11 @@ class GameService:
             del accepted[slots:]
         return results, accepted, accepted_keys
 
-    def _make_room(self, kept: list[str], n_new: int, slots: int, power: str) -> list[str]:
+    def _make_room(self, kept: list[str], n_new: int, slots: int, power: str) -> tuple[list[str], list[str]]:
         """Trim a power's stored adjustment orders so that, with ``n_new`` new
-        ones added, they do not exceed its ``slots``.
+        ones added, they do not exceed its ``slots``. Returns ``(kept,
+        dropped)``: the stored orders that stay, and those pushed out, both in
+        stored order (``submit_orders`` tells the player about the latter).
 
         The bot sends adjustment orders one at a time, each adding to the
         last, and the adjudicator honours them in order up to the count: a
@@ -317,11 +325,14 @@ class GameService:
         """
         excess = len(kept) + n_new - slots
         if excess <= 0:
-            return kept
+            return kept, []
         waives = [i for i, s in enumerate(kept) if isinstance(self._parse_stored(s, power), Waive)]
         others = [i for i in range(len(kept)) if i not in waives]
         drop = set((waives + others)[:excess])
-        return [s for i, s in enumerate(kept) if i not in drop]
+        return (
+            [s for i, s in enumerate(kept) if i not in drop],
+            [s for i, s in enumerate(kept) if i in drop],
+        )
 
     def _parse_stored(self, stored: str, power: str) -> Optional[Order]:
         """A stored pending-order string parsed, or ``None`` if it no longer parses.
@@ -1153,6 +1164,31 @@ def _initial_state(map: MapData) -> GameState:
 
 def _plural(n: int, noun: str, nouns: Optional[str] = None) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {nouns or noun + 's'}"
+
+
+def _report_replaced(
+    results: list[dict[str, Any]], dropped: list[str], state: GameState, power: str, slots: int
+) -> None:
+    """Tell the player which stored adjustment orders the new ones pushed out.
+
+    A merged build (or disband) past the power's count makes ``_make_room``
+    drop the oldest stored one, and nobody said so: a second
+    ``/order BUILD A PAR`` silently undid ``BUILD F BRE``. Each accepted result
+    that displaced something gains ``replaced`` (the stored orders, in stored
+    form) and ``note`` (``"replaced BUILD F BRE (you may build 1)"``); the
+    dropped orders go to the accepted new orders in order, any surplus to the
+    last. Results that displaced nothing are left as they were.
+    """
+    accepted = [r for r in results if r["ok"]]
+    if not dropped or not accepted:
+        return
+    for i, old in enumerate(dropped):
+        accepted[min(i, len(accepted) - 1)].setdefault("replaced", []).append(old)
+    disbanding = len(state.units_of(power)) > len(state.centers_of(power))
+    allowance = f"you must disband {slots}" if disbanding else f"you may build {slots}"
+    for r in accepted:
+        if r.get("replaced"):
+            r["note"] = f"replaced {' and '.join(r['replaced'])} ({allowance})"
 
 
 def _order_key(order: Order) -> Optional[str]:

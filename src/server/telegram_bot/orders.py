@@ -19,6 +19,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import api_get, api_post, api_post_reliable, queued_reply
 from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
+from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
@@ -184,12 +185,15 @@ def format_order_results(results: list[dict[str, Any]]) -> str:
     """``✅ A PAR - BUR`` / ``❌ A PAR - MOS  Error: ...`` lines for a
     ``POST /games/set_orders`` response. Shared by the three submission paths
     and by the outbox replayer's delivery report, so a queued submission is
-    reported exactly as an immediate one would have been.
+    reported exactly as an immediate one would have been. A build or disband
+    that pushed an older one out of the count says so:
+    ``✅ BUILD A PAR replaced BUILD F BRE (you may build 1)``.
     """
     lines = []
     for r in results:
         if r.get("success"):
-            lines.append(f"✅ {r['order']}")
+            note = f" {r['note']}" if r.get("note") else ""
+            lines.append(f"✅ {r['order']}{note}")
         else:
             lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
     return "\n".join(lines)
@@ -1252,8 +1256,11 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
     ])
     if results and results[0]["success"]:
         extra = ""
+        if results[0].get("note"):
+            # A build or disband past the count pushed an older one out.
+            extra += f"\n↩️ This {escape_markdown(results[0]['note'])}"
         if (outcome.response or {}).get("auto_processed"):
-            extra = "\n\n⚡ That completed the turn -- it has been processed."
+            extra += "\n\n⚡ That completed the turn -- it has been processed."
         await query.edit_message_text(
             f"✅ *Order submitted:* `{order_text}`\n🎮 Game {game_id} · {power}{extra}",
             reply_markup=next_steps,

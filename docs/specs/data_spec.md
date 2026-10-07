@@ -423,7 +423,17 @@ centres — the `adjustment.slots` of `legal_orders`) or disbands; the later one
 are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are merged
 (`merge=true`, every bot path) the stored ones are trimmed to make room for the new ones —
 stored waives first, then the oldest — so the stored list never exceeds the count: a
-`WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does.
+`WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does. The
+player is told: each `POST /games/set_orders` result is
+`{order, success, error, replaced, note}`, where `replaced` lists the stored orders that
+accepted order pushed out (stored form, oldest first; `[]` when none) and `note` says so
+(`replaced BUILD F BRE (you may build 1)`, or `you must disband N` for disbands; `null`
+when nothing was replaced). The pushed-out orders go to the submission's accepted orders
+in turn. The bot appends the note to the order's line
+(`✅ BUILD A PAR replaced BUILD F BRE (you may build 1)`), in the immediate reply and in
+the delivery DM of a queued submission; the interactive pick adds
+`↩️ This replaced BUILD F BRE (you may build 1)`. The web client sends `merge=false`, so
+it never sees a replacement.
 
 `GameService.orders_status` (and so `GET /games/{id}/orders_status` and
 `process_turn?require_all=true`) counts only the powers that have a decision to make this
