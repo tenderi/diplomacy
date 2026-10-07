@@ -161,30 +161,21 @@ def test_conceding_tells_the_remaining_players() -> None:
     assert all(POWERS[2] in m and "conceded" in m for m in messages), messages
 
 
-def test_withdrawing_a_draw_vote_is_not_announced() -> None:
-    """`/nodraw` is a retraction; spamming six people about it is noise.
-
-    Only `vote: true` and quorum are announced — asserted so a future change that
-    notifies on every vote change has to be deliberate.
-    """
+def test_withdrawing_a_draw_vote_is_announced_with_the_new_count() -> None:
+    """BD1: a withdrawal reaches the people the vote did, or they keep believing
+    the count they were last told."""
     client = TestClient(app)
     game_id, users = _seeded_game(client)
-    headers, _tg = users[0]
+    headers, tg = users[0]
 
     with OutboxProbe():
-        client.post(
-            f"/games/{game_id}/draw_vote",
-            json={"power": POWERS[0], "vote": True},
-            headers=headers,
-        )
+        client.post(f"/games/{game_id}/draw_vote", json={"power": POWERS[0], "vote": True}, headers=headers)
     with OutboxProbe() as mock_post:
-        resp = client.post(
-            f"/games/{game_id}/draw_vote",
-            json={"power": POWERS[0], "vote": False},
-            headers=headers,
-        )
+        resp = client.post(f"/games/{game_id}/draw_vote", json={"power": POWERS[0], "vote": False}, headers=headers)
     assert resp.status_code == 200, resp.text
-    assert _recipients(mock_post) == {}
+    everyone = {t for _h, t in users}
+    expected = f"ENGLAND has withdrawn its vote to end game {game_id} in a draw (0/7 agreed)."
+    assert _recipients(mock_post) == {t: [expected] for t in everyone - {tg}}
 
 
 def test_a_notification_failure_does_not_fail_the_draw() -> None:

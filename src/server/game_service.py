@@ -571,6 +571,10 @@ class GameService:
         a unit has now voted yes -- the game is immediately finalized as a draw
         (``Game.draw()``) and persisted via the same ``save_state`` path
         ``process_turn`` uses, no separate explicit "finalize" call required.
+
+        ``changed`` says whether this call moved the power's vote: a repeated yes,
+        or a withdrawal by a power that had not voted, changes nothing, and the
+        route announces only a change.
         """
         game = self.load(game_id)
         if game is None:
@@ -578,11 +582,15 @@ class GameService:
         _require_active(game, game_id)
         power = power.upper()
 
+        had_voted: list[bool] = []
+
         def cast(votes: dict[str, str]) -> dict[str, str]:
+            had_voted.append(power in votes)
             others = {p: v for p, v in votes.items() if p != power}
             return {**others, power: "yes"} if vote else others
 
         votes = self._repo.modify_draw_votes(game_id, cast, expected_phase_code=game.state.phase_name)
+        changed = bool(had_voted) and had_voted[-1] != vote
 
         required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
@@ -604,6 +612,7 @@ class GameService:
                 "votes": sorted(yes),
                 "required": sorted(required),
                 "quorum_reached": True,
+                "changed": changed,
             }
 
         return {
@@ -612,6 +621,7 @@ class GameService:
             "votes": sorted(yes),
             "required": sorted(required),
             "quorum_reached": False,
+            "changed": changed,
         }
 
     def get_draw_votes(self, game_id: str) -> Optional[dict[str, Any]]:
