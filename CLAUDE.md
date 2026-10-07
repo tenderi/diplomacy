@@ -147,7 +147,7 @@ Full writeups: [`docs/specs/architecture.md`](docs/specs/architecture.md) (packa
 - `orders/parser.py` + `orders/validation.py` — one grammar, one validation path (coasts, VIA convoy, aliases).
 - `serialization.py` — canonical JSON for `GameState`/`Order`/`Resolution`, the one place that conversion happens. `simple_ai.py` — dumb heuristic order generator (the demo game's opponents).
 
-DATC conformance lives in `tests/datc/`: 148/154 green plus **6 documented `xfail`s** — convoy paradoxes 6.F.16/17/18/23/24, convoy-to-adjacent 6.G.11. Track BC in `docs/specs/fix_plan.md` turns them into passes, one milestone per PR; un-xfail a case only through its milestone there.
+DATC conformance lives in `tests/datc/`: 149/154 green plus **5 documented `xfail`s** — convoy paradoxes 6.F.16/17/18/23/24. Track BC in `docs/specs/fix_plan.md` turns them into passes, one milestone per PR; un-xfail a case only through its milestone there.
 
 ### Persistence (`src/persistence/`) and rendering (`src/rendering/`)
 
