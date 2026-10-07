@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from engine.adjudicator.movement import convoy_route_possible
 from engine.map_loader import MapData
 from engine.orders.parser import format_order
 from engine.orders.validation import legal_builds
@@ -330,6 +331,9 @@ def _movement_orders(
             if u.kind is UnitKind.FLEET and u.province in seas:
                 for origin in sorted(p for p in shore if p in armies_by_province):
                     for dest in sorted(shore - {origin}):
+                        # A fleet is offered only where a simple route runs through it.
+                        if not convoy_route_possible(map, state, origin, dest, through=u.province):
+                            continue
                         bucket.append(
                             format_order(
                                 Convoy(power, unit=u.location, origin=Location(origin), dest=Location(dest)),
