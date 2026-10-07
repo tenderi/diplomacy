@@ -228,6 +228,12 @@ class DislodgedUnit:
 # Retreat / Disband. Adjustment-phase orders are Build / Disband / Waive.
 #
 # Orders are frozen dataclasses sharing a common ``power`` and ``order_type``.
+#
+# ``written_kind`` (every order but Build and Waive) is the A/F letter the
+# player wrote for the ordered unit, as parsed; ``None`` when the order was
+# built in code. Validation refuses an order whose letter is not the real
+# unit's (``F ROM - VEN`` for an army). It is an input annotation only: it is
+# left out of equality and hashing, and serialization does not store it.
 
 
 @dataclass(frozen=True)
@@ -246,6 +252,7 @@ class Hold(Order):
     """``A PAR H`` — the unit stays put and defends."""
 
     unit: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -259,6 +266,7 @@ class Move(Order):
     unit: Location
     dest: Location
     via_convoy: bool = False
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -271,6 +279,7 @@ class SupportHold(Order):
 
     unit: Location
     target: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -284,6 +293,7 @@ class SupportMove(Order):
     unit: Location
     origin: Location
     dest: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -297,6 +307,7 @@ class Convoy(Order):
     unit: Location
     origin: Location
     dest: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -309,6 +320,7 @@ class Retreat(Order):
 
     unit: Location
     dest: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
@@ -320,6 +332,7 @@ class Disband(Order):
     """``D A PAR`` — remove the unit (retreat-phase failure or adjustment)."""
 
     unit: Location
+    written_kind: Optional[UnitKind] = field(default=None, compare=False)
 
     @property
     def order_type(self) -> OrderType:
