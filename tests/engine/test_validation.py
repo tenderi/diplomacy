@@ -554,6 +554,29 @@ class TestPhaseGate:
             "to retreat, write A BUR R RUH",
         )
 
+    def test_the_retreat_hint_never_suggests_an_illegal_retreat(self, m):
+        # RUH is the attacker's origin, not a retreat; the hint lists the legal ones.
+        du = DislodgedUnit(
+            Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "RUH", (Location("MUN"), Location("PAR"))
+        )
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("A BUR - RUH", power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False,
+            "a move order is not accepted during the retreat phase (S1901R); "
+            "RUH is not a legal retreat; to retreat, write A BUR R <one of MUN, PAR>",
+        )
+
+    def test_the_retreat_hint_offers_disbanding_when_nothing_is_legal(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "RUH", ())
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("A BUR - RUH", power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False,
+            "a move order is not accepted during the retreat phase (S1901R); "
+            "it has no legal retreat; write D A BUR to disband",
+        )
+
     def test_no_retreat_hint_for_another_powers_dislodged_unit(self, m):
         # Germany's army now stands where French A BUR was dislodged; telling
         # Germany to write "A BUR R RUH" would only earn an ownership error.
@@ -577,3 +600,30 @@ class TestPhaseGate:
         result = validate(Hold("FRANCE", Location("PAR")), empty, m)
         assert "adjustment phase" in result.reason
         assert "no unit" not in result.reason
+
+
+class TestWrittenUnitKind:
+    """An order whose A/F letter is not the real unit's is refused, naming the unit."""
+
+    ROM_ARMY = Unit(UnitKind.ARMY, "ITALY", Location("ROM"))
+
+    @pytest.mark.parametrize("text", ["F ROM - TYS", "F ROM - VEN", "F ROM H", "F ROM S A VEN"])
+    def test_a_fleet_order_for_an_army_names_the_army(self, m, text):
+        result = validate(parse_order(text, power="ITALY", map=m), _state([self.ROM_ARMY]), m)
+        assert (result.ok, result.reason) == (False, "the unit in ROM is an army, not a fleet")
+
+    def test_an_army_order_for_a_fleet_names_the_fleet(self, m):
+        state = _state([Unit(UnitKind.FLEET, "ITALY", Location("NAP"))])
+        result = validate(parse_order("A NAP - ROM", power="ITALY", map=m), state, m)
+        assert (result.ok, result.reason) == (False, "the unit in NAP is a fleet, not an army")
+
+    def test_a_retreat_for_the_wrong_kind_is_refused(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "RUH", (Location("PAR"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("F BUR R PAR", power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (False, "the unit in BUR is an army, not a fleet")
+
+    def test_the_right_kind_and_orders_built_in_code_pass(self, m):
+        state = _state([self.ROM_ARMY])
+        assert validate(parse_order("A ROM - VEN", power="ITALY", map=m), state, m).ok is True
+        assert validate(Move("ITALY", Location("ROM"), Location("VEN")), state, m).ok is True
