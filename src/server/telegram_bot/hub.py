@@ -193,8 +193,9 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
 
     # A button under a server notification (``|n``, see api.shared.game_buttons)
     # answers in a new message, so the notification ("turn processed in game 3")
-    # stays readable; menu buttons edit their menu in place.
-    send = edit
+    # stays readable; menu buttons edit their menu in place. A photo (the map from
+    # ``_send_map``) has no text to edit, so its buttons answer in a new message too.
+    send = edit if query.message.text is not None else reply
     if arg == "n":
         send, arg = reply, None
 
