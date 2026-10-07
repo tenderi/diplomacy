@@ -304,7 +304,6 @@ def test_6g10_swapped_or_a_head_to_head_battle():
     assert h.unit_powers_at("NWY") is None
 
 
-@pytest.mark.xfail(reason="convoy-to-adjacent paradox (issue 4.A.7 + Szykman): inferred non-swap convoy intent needed to enter the paradox, which conflicts with the kidnapping cases", strict=False)
 def test_6g11_a_convoy_to_an_adjacent_place_with_a_paradox():
     """6.G.11 A CONVOY TO AN ADJACENT PLACE WITH A PARADOX.
 
