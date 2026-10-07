@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -701,6 +702,48 @@ class TestGameOverGuard:
         service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
         with pytest.raises(GameOverError, match="won by FRANCE"):
             service.submit_orders(gid, "FRANCE", ["WAIVE"])
+
+    def _two_power_board(self, service: GameService) -> str:
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("MUN")),
+            }),
+            ownership={"PAR": "FRANCE", "MUN": "GERMANY"},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code="S1901M")
+        service.submit_draw_vote(gid, "FRANCE", True)
+        return gid
+
+    def test_a_vote_that_loaded_before_a_concurrent_draw_is_refused(self, service):
+        """GERMANY's deciding yes, sent twice at once: the second request loaded
+        the board before the first one's draw committed. A draw keeps the phase
+        code, so the phase check passed and the vote was recorded on the finished
+        game, then announced as "GERMANY has voted ... (1/2 agreed)"."""
+        gid = self._two_power_board(service)
+        stale = service.load(gid)
+        assert service.submit_draw_vote(gid, "GERMANY", True)["quorum_reached"] is True
+        with patch.object(service, "load", side_effect=[stale, service.load(gid)]):
+            with pytest.raises(GameOverError, match="drawn between FRANCE, GERMANY"):
+                service.submit_draw_vote(gid, "GERMANY", True)
+        assert service._repo.get_draw_votes(gid) == {}
+
+    def test_two_deciding_votes_end_the_game_once(self, service):
+        """Both requests recorded their vote before either saved the draw, so both
+        reached quorum; the second save must not end the game again (and be
+        announced again)."""
+        gid = self._two_power_board(service)
+        stale = service.load(gid)
+        assert service.submit_draw_vote(gid, "GERMANY", True)["quorum_reached"] is True
+        both = {"FRANCE": "yes", "GERMANY": "yes"}
+        with (
+            patch.object(service, "load", side_effect=[stale, service.load(gid)]),
+            patch.object(service._repo, "modify_draw_votes", return_value=both),
+        ):
+            with pytest.raises(GameOverError, match="drawn between FRANCE, GERMANY"):
+                service.submit_draw_vote(gid, "GERMANY", True)
 
     def test_orders_status_lists_nobody(self, service):
         gid = self._drawn(service)
