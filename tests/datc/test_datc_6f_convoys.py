@@ -302,7 +302,9 @@ def test_6f12_dislodged_convoying_fleet_not_on_route():
     A dislodged convoying fleet that isn't actually part of the surviving
     route doesn't disrupt the convoy. Expected: London still reaches Belgium
     via the Channel, even though the Irish Sea fleet (reachable from London
-    but not part of any successful route) is dislodged.
+    but not part of any successful route) is dislodged. No route runs through
+    the Irish Sea (it touches neither London nor Belgium and is a dead end off
+    the Channel), so its convoy order is VOID; it is still dislodged.
     """
     h = Harness()
     h.units("ENGLAND", "F ENG", "A LON", "F IRI")
@@ -314,7 +316,7 @@ def test_6f12_dislodged_convoying_fleet_not_on_route():
     h.adjudicate()
     h.assert_result("F ENG", ResultCode.OK)
     h.assert_success("A LON")
-    h.assert_result("F IRI", ResultCode.DISLODGED)
+    h.assert_result("F IRI", ResultCode.VOID)
     h.assert_dislodged("F IRI")
     h.assert_result("F NAO", ResultCode.OK)
     h.assert_result("F MAO", ResultCode.OK)
