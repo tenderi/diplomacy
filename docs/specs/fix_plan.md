@@ -279,6 +279,12 @@ wrong. One small PR per task; each pins its exact texts in tests.
       silently drops the oldest build when a new one exceeds the allowance.
 - [ ] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
       missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
+- [ ] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`
+      `_cmd_drw` calls `GameService.submit_draw_vote` directly, so a DAIDE vote, its
+      withdrawal (`NOT (DRW)`) and a draw it completes reach only the DAIDE sessions
+      (`broadcast_draw_completion`), never `notify_players`, `notify_game_drawn` or the
+      group. Needs a notification hook the DAIDE layer can call without importing
+      `server.api`.
 
 ---
 
