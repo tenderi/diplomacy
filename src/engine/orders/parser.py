@@ -19,8 +19,9 @@ Design notes:
   province is dropped. A fleet order naming a split-coast province with no
   coast parses; ``orders/validation.py`` infers the coast when only one is
   reachable and refuses the order as ambiguous when two are.
-- ``Order`` dataclasses (other than ``Build``) do not record which unit kind
-  issued them — that is looked up from ``GameState`` at adjudication time.
+- ``Order`` dataclasses (other than ``Build``) record the unit kind the text
+  names only as ``written_kind``, which validation checks against the board
+  and equality ignores; the real kind is looked up from ``GameState``.
   Consequently ``format_order`` cannot always recover the original "A"/"F"
   token for a non-split-coast province that can host either kind (e.g. a
   fleet holding at Brest prints as ``A BRE H``, not ``F BRE H``). This is
@@ -183,7 +184,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
             raise OrderParseError("expected 'D A/F PROVINCE'")
         kind = UnitKind.ARMY if tokens[1] == "A" else UnitKind.FLEET
         loc = _parse_location(tokens[2], map, fleet=kind is UnitKind.FLEET)
-        return Disband(power, unit=loc)
+        return Disband(power, unit=loc, written_kind=kind)
 
     # -- "BUILD A PAR" (build, verb-first) ----------------------------------
     if tokens[0] in _BUILD_WORDS:
@@ -214,12 +215,12 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
     if verb in _HOLD_WORDS:
         if len(rest) != 1:
             raise OrderParseError(f"malformed hold order: {text!r}")
-        return Hold(power, unit=unit_loc)
+        return Hold(power, unit=unit_loc, written_kind=kind)
 
     if verb in _DISBAND_WORDS:
         if len(rest) != 1:
             raise OrderParseError(f"malformed disband order: {text!r}")
-        return Disband(power, unit=unit_loc)
+        return Disband(power, unit=unit_loc, written_kind=kind)
 
     if verb in _BUILD_WORDS:
         if len(rest) != 1:
@@ -232,7 +233,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
         if len(dest_rest) != 1:
             raise OrderParseError(f"malformed retreat order: {text!r}")
         dest = _parse_location(dest_rest[0], map, fleet=kind is UnitKind.FLEET)
-        return Retreat(power, unit=unit_loc, dest=dest)
+        return Retreat(power, unit=unit_loc, dest=dest, written_kind=kind)
 
     if verb == "-":
         dest_rest = rest[1:]
@@ -248,7 +249,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
             tail2 = tail[1:]
             if tail2 and tail2 != ["CONVOY"]:
                 raise OrderParseError(f"unexpected trailing tokens: {tail2!r}")
-        return Move(power, unit=unit_loc, dest=dest, via_convoy=via)
+        return Move(power, unit=unit_loc, dest=dest, via_convoy=via, written_kind=kind)
 
     if verb in _SUPPORT_WORDS:
         sub = rest[1:]
@@ -258,10 +259,10 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
         origin = _parse_location(sub[1], map, fleet=sub_kind is UnitKind.FLEET)
         sub_rest = sub[2:]
         if not sub_rest:
-            return SupportHold(power, unit=unit_loc, target=origin)
+            return SupportHold(power, unit=unit_loc, target=origin, written_kind=kind)
         if sub_rest[0] == "-" and len(sub_rest) == 2:
             dest = _parse_location(sub_rest[1], map, fleet=sub_kind is UnitKind.FLEET)
-            return SupportMove(power, unit=unit_loc, origin=origin, dest=dest)
+            return SupportMove(power, unit=unit_loc, origin=origin, dest=dest, written_kind=kind)
         raise OrderParseError(f"malformed support order: {text!r}")
 
     if verb in _CONVOY_WORDS:
@@ -273,7 +274,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
         if len(sub_rest) != 2 or sub_rest[0] != "-":
             raise OrderParseError(f"malformed convoy order: {text!r}")
         dest = _parse_location(sub_rest[1], map, fleet=False)
-        return Convoy(power, unit=unit_loc, origin=origin, dest=dest)
+        return Convoy(power, unit=unit_loc, origin=origin, dest=dest, written_kind=kind)
 
     raise OrderParseError(f"unrecognized order verb: {verb!r}")
 
