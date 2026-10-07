@@ -6,7 +6,7 @@
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
 > doc explains *why* they're shaped the way they are and ties the pieces together.
 >
-> Conformance: 147/154 DATC cases green (`tests/datc/`), 7 documented hard-tail `xfail`s
+> Conformance: 148/154 DATC cases green (`tests/datc/`), 6 documented hard-tail `xfail`s
 > (listed at the end). Everything below is implemented, not aspirational.
 
 ## 1. Why fixed-point, not a single pass
@@ -138,6 +138,11 @@ geometrically, before the cut question is even asked — when (`_support_is_void
   settle differently depending on submission order. The determinism property in
   `tests/datc/test_properties.py` and a pinned case in
   `tests/datc/test_adjudicator_mechanics.py` guard this.) Or
+- (`SupportMove`) it supports a **convoyed** move that no possible route (§6) could carry
+  without the supporting fleet: a fleet cannot convoy and support at once, so when every
+  route runs through it the support is impossible (DATC 6.D.31's `F BLA S A RUM - ARM`).
+  The check reads only the board (`_possible_route(..., without=...)`), so it holds for
+  strength as well as for the reported code. Or
 - (`SupportHold`) it targets a unit that is itself **legally ordered to move** (DATC
   6.D.7/8/25 again — an illegal/ignored move leaves the unit holding, so support for it
   is fine, 6.D.28/29).
@@ -169,6 +174,13 @@ move — under specific conditions (`_uses_convoy`):
   asked for (DATC 6.G.2/6.G.4; the corresponding legitimate case is 6.G.1/5/6, and
   a *valid* such convoy that also creates a cycle is the 6.G.11 paradox).
 
+A **non-adjacent army move is legal** only when the board allows a convoy: both ends
+are coastal and a possible route (below) links them, whatever the fleets were ordered
+(DATC 4.E.1 decides legality before the orders are revealed). With no possible route
+the move is illegal -- `VOID`, and the army holds and may receive hold support (6.D.32,
+6.F.1's `A GRE`). With one, it is a real move even if no fleet convoys it: it fails as
+`NO_CONVOY`, and the army cannot receive hold support (6.D.8, 6.D.31's `A RUM`).
+
 A **Convoy order is illegal** -- reported `VOID`, kept out of the resolver's `items`, and
 showing no convoy intent -- when its fleet cannot be on any *possible route*
 (`_possible_route`): a chain of fleets in sea provinces (any power, whatever they were
@@ -178,7 +190,7 @@ valid is ignored). So a fleet on a coast never convoys (6.F.1's `F CON`), nor do
 whose sea chain does not reach the far shore (6.G.7's `F BOT C A SWE - NWY`, which
 therefore lends Russia's army no intent, and the swap bounces). The test is a
 breadth-first search from each end over the sea fleets (`_route_reach`, memoized per
-province); a fleet reached from both ends lies on a route. It reads only the board, the
+province and excluded fleet); a fleet reached from both ends lies on a route. It reads only the board, the
 same rule `server/legal_orders.py` uses to offer convoys along fleet-held chains
 (`_convoy_shores`), and `tests/test_legal_orders.py` checks the two agree.
 
@@ -209,7 +221,9 @@ After every order resolves (`run()`), the resolver derives, in order:
    otherwise inferred when the reachable set is unambiguous); otherwise it's dislodged
    (`_is_dislodged`) or stays put.
 2. **Standoff provinces** (`contested`): a province targeted by ≥2 moves, none of which
-   succeeded, that no surviving unit occupies. That includes a province whose own unit
+   succeeded, that no surviving unit occupies. Only a move with a nonzero prevent strength
+   counts as targeting it: a convoyed army whose convoy failed (`NO_CONVOY`) never
+   reached the province, so it stands nothing off there. That includes a province whose own unit
    moved out this turn: the rulebook closes any space "left vacant due to a standoff" to
    retreats. A standoff in a province whose unit stayed is instead reflected in the
    occupant's hold/dislodge outcome.
@@ -311,7 +325,7 @@ call to `adjudicate()` returns a *new* `Game`, never mutates the old one.
 
 ## 11. Documented deviations / known gaps
 
-Seven DATC cases are `xfail` with the reason recorded in the test file docstrings — not
+Six DATC cases are `xfail` with the reason recorded in the test file docstrings — not
 silently skipped. Track BC in [`fix_plan.md`](fix_plan.md) holds the root cause of each
 and the milestones that fix them; a case is un-xfailed only by its milestone:
 
@@ -323,9 +337,6 @@ and the milestones that fix them; a case is un-xfailed only by its milestone:
   applied again to each paradox that re-resolution exposes.
 - **6.G.11** — convoy intent: without `VIA`, intent is inferred only for a swap, the
   "own-power swap only" rule in §6.
-- **6.D.8** — a non-adjacent army move is voided unless a fleet is *ordered* to convoy it;
-  DATC decides legality from the fleets on the board, so a move a fleet could have
-  carried is a real (failing) move and cannot receive hold support.
 
 ## 12. Where to look
 
