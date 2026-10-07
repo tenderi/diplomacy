@@ -125,6 +125,7 @@ class _Resolver:
             if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER
         }
         self._route_reach_cache: dict[tuple[str, Optional[str]], frozenset[str]] = {}
+        self._route_through_cache: dict[tuple[str, str, str, Optional[str]], bool] = {}
 
         # Build resolvable items keyed by province. A Move/Support/Convoy that is
         # not legal is treated as a hold (kept out of `items`) and marked void.
@@ -753,17 +754,81 @@ class _Resolver:
         """Could the board convoy an army from ``src`` to ``dst``, whatever the orders?
 
         A possible route is a chain of fleets in sea provinces (any power, any
-        order) that starts at a fleet touching ``src`` and ends at one touching
-        ``dst``. With ``through``, the chain must pass the fleet in that province;
-        with ``without``, it must avoid the fleet in that province.
-        A chain from each end meets exactly where such a route exists: a fleet
-        reachable from both ends lies on a walk from ``src`` to ``dst``.
+        order), no fleet visited twice, that starts at a fleet touching ``src``
+        and ends at one touching ``dst``. With ``through``, the chain must pass
+        the fleet in that province; with ``without``, it must avoid the fleet in
+        that province.
+
+        Without ``through``, a chain from each end meets exactly where a route
+        exists (a walk between two fleets shortens to a simple path). With it,
+        reaching the fleet from both ends is not enough -- the two halves may
+        share a fleet (NTH - SKA - NTH) -- so ``_simple_route_through`` searches
+        for halves that share none.
         """
         from_src = self._route_reach(src, without)
         from_dst = self._route_reach(dst, without)
         if through is None:
             return not from_src.isdisjoint(from_dst)
-        return through in from_src and through in from_dst
+        if through not in from_src or through not in from_dst:
+            return False
+        return self._simple_route_through(src, dst, through, without)
+
+    def _simple_route_through(
+        self, src: str, dst: str, through: str, without: Optional[str]
+    ) -> bool:
+        """Is there a fleet chain ``src`` -> ``through`` -> ``dst`` visiting no fleet twice?
+
+        Depth-first over the simple paths from ``through`` back to a fleet
+        touching ``src`` (stopping at the first such fleet: a longer path only
+        blocks more), and for each, a breadth-first search from ``through`` to a
+        fleet touching ``dst`` that avoids that path. Fleets lie in sea
+        provinces, so no chain can pass through ``src`` or ``dst`` themselves.
+        Neighbours are visited in sorted order, so the search is deterministic;
+        the sea has at most 19 fleets, so it is small.
+        """
+        key = (src, dst, through, without)
+        cached = self._route_through_cache.get(key)
+        if cached is not None:
+            return cached
+        fleets = {p: loc for p, loc in self._sea_fleets.items() if p != without}
+        links = {
+            p: sorted(
+                q for q, qloc in fleets.items()
+                if q != p and self.map.is_adjacent(loc, qloc, UnitKind.FLEET)
+            )
+            for p, loc in fleets.items()
+        }
+        touches_src = {p for p, loc in fleets.items() if self._fleet_touches(loc, src)}
+        touches_dst = {p for p, loc in fleets.items() if self._fleet_touches(loc, dst)}
+
+        def onward(blocked: set[str]) -> bool:
+            seen = {through}
+            queue: deque[str] = deque([through])
+            while queue:
+                here = queue.popleft()
+                if here in touches_dst:
+                    return True
+                for nxt in links[here]:
+                    if nxt not in seen and nxt not in blocked:
+                        seen.add(nxt)
+                        queue.append(nxt)
+            return False
+
+        def back(here: str, path: set[str]) -> bool:
+            if here in touches_src:
+                return onward(path - {through})
+            for nxt in links[here]:
+                if nxt not in path:
+                    path.add(nxt)
+                    found = back(nxt, path)
+                    path.discard(nxt)
+                    if found:
+                        return True
+            return False
+
+        result = back(through, {through})
+        self._route_through_cache[key] = result
+        return result
 
     def _fleet_touches(self, floc: Location, province: str) -> bool:
         """True if a fleet at ``floc`` is adjacent to ``province`` (any coast)."""
