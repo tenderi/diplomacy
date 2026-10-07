@@ -10,13 +10,16 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BD**.
+>   history. Track letters run in sequence; the next free one is **BE**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.71` fixed a rules bug found in a play-through: a
+- **Last updated:** 2026-10-07. `v3.0.73` planned Track BD (play-through wording fixes) and
+  did BD1 (a draw-ended game says it was a draw and names who shares it; withdrawing a draw
+  vote is announced; the vote notice says votes last for the phase). `v3.0.71` fixed a rules
+  bug found in a play-through: a
   unit could retreat into a province that was left empty by a standoff, as long as that
   province had a unit in it when the turn began. `v3.0.70` did BC2 (a convoy order whose
   fleet is on no possible route of sea fleets is `VOID` and shows no intent: 6.G.7 passes,
@@ -51,6 +54,7 @@
   **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BC** (the DATC hard tail) is open agent work, BC3 next; it may run in
   parallel with BB, since it touches only the engine.
+  **Track BD** (play-through wording fixes) is open agent work, BD2 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -244,6 +248,37 @@ changes another case's result code says so in its commit, citing v2.7.68's expec
       "single-pass" paragraph. Cases: 6.F.23, 6.F.24. 6.F.22 must stay green.
 - [ ] **Done when:** every box above is checked, `tests/datc` has no `xfail`, and the docs
       and CLAUDE.md say 154/154.
+
+---
+
+# Track BD — play-through wording fixes
+
+A play-through on 2026-10-06 found player-facing wording that is missing, misleading or
+wrong. One small PR per task; each pins its exact texts in tests.
+
+- [x] BD1 — **A draw says it is a draw; a withdrawn draw vote is announced.** (a) A game
+      ended by an agreed draw told players only "Game N has ended!" and posted
+      "🔔 Turn Processed - Game N / Game N has ended." to the group, though no turn was
+      processed; neither said it was a draw or among whom (`api/shared.py`
+      `notify_turn_processed`'s `game_ended` branch, called from the draw path). (b)
+      Withdrawing a draw vote (`vote: false`) notified nobody, so the others kept
+      believing "FRANCE has voted … (2/7 agreed)", and the vote notice did not say votes
+      lapse when the phase is processed (`routes/games.py` `submit_draw_vote`).
+- [ ] BD2 — **A move written for the wrong unit type names the unit.** `F ROM - TYS` when
+      ROM holds an army answers "TYS is not adjacent to ROM", and `F ROM - VEN` is saved
+      as `A ROM - VEN`: `engine/orders/validation.py` `_validate_move` checks the real
+      unit, not the written type. Say the unit in ROM is an army instead.
+- [ ] BD3 — **The retreat hint suggests only a legal retreat.** In a retreat phase,
+      `A BUR - RUH` answers "to retreat, write A BUR R RUH" even when RUH is not a legal
+      retreat (the attacker's origin). Suggest a legal retreat, or list the legal ones.
+- [ ] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
+      the third person ("FRANCE's A BUR was dislodged", "orders are due from FRANCE").
+- [ ] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
+      disband in an adjustment phase, the engine disbands for it and nobody tells it.
+- [ ] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
+      silently drops the oldest build when a new one exceeds the allowance.
+- [ ] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
+      missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
 
 ---
 
