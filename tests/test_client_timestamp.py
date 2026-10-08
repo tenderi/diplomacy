@@ -33,8 +33,10 @@ class TestNormalize:
         assert before <= value <= utcnow_naive() and value.tzinfo is None
 
     def test_aware_values_become_naive_utc(self):
-        aware = datetime(2026, 9, 8, 14, 2, tzinfo=timezone(timedelta(hours=3)))
-        assert normalize_client_timestamp(aware) == datetime(2026, 9, 8, 11, 2)
+        # Relative to now: a fixed date ages past MAX_AGE and gets refused.
+        utc = (utcnow_naive() - timedelta(hours=2)).replace(second=0, microsecond=0)
+        aware = (utc + timedelta(hours=3)).replace(tzinfo=timezone(timedelta(hours=3)))
+        assert normalize_client_timestamp(aware) == utc
 
     def test_slightly_fast_clock_is_kept_but_far_future_is_clamped(self):
         soon = utcnow_naive() + timedelta(minutes=1)
