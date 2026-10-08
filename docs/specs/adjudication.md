@@ -299,7 +299,9 @@ its **supply-center count** independently, power by power:
   *and* sea steps, since a convoy could in principle carry them home, so
   `_distance_to_home`'s BFS for armies is not restricted to land adjacency; fleets are
   restricted to fleet adjacency), fleets removed before armies on a distance tie, and
-  alphabetical by province as the final tiebreak. A `Build` or `Waive` submitted while a
+  alphabetical by province as the final tiebreak. Each such removal is a synthetic
+  `Disband` reported as `DISBAND` with `civil_disorder=True`, so it can be told apart
+  from an ordered one (the server announces it to the power). A `Build` or `Waive` submitted while a
   power owes disbands is `VOID` (you can't grow while shrinking).
 - **`centers == units`**: no adjustment is owed; any `Build`/`Disband`/`Waive` submitted
   is `VOID`.

@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-08. `v3.0.81` did BD6 (a merged build or disband past the
+- **Last updated:** 2026-10-08. `v3.0.82` did BD5 (a civil-disorder disband is announced
+  to its power and the group: the engine marks those results `civil_disorder`).
+  `v3.0.81` did BD6 (a merged build or disband past the
   count names the stored one it replaced, in the bot's reply and in a queued order's
   delivery DM). `v3.0.80` did BD4 (a player's own DMs say "you": the
   turn-processed DM, the solo winner, a draw's sharers, a deadline proposal's proposer).
@@ -60,7 +62,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BC** (the DATC hard tail) is open agent work, BC5 next.
-  **Track BD** (play-through wording fixes) is open agent work, BD5 next.
+  **Track BD** (play-through wording fixes) is open agent work, BD8 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -212,7 +214,7 @@ wrong. One small PR per task; each pins its exact texts in tests.
       retreat (the attacker's origin). Suggest a legal retreat, or list the legal ones.
 - [x] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
       the third person ("FRANCE's A BUR was dislodged", "orders are due from FRANCE").
-- [ ] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
+- [x] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
       disband in an adjustment phase, the engine disbands for it and nobody tells it.
 - [x] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
       silently dropped the oldest build when a new one exceeded the allowance; the
@@ -226,6 +228,11 @@ wrong. One small PR per task; each pins its exact texts in tests.
       (`broadcast_draw_completion`), never `notify_players`, `notify_game_drawn` or the
       group. Needs a notification hook the DAIDE layer can call without importing
       `server.api`.
+- [ ] BD9 — **The web results list says a civil-disorder disband was not ordered.**
+      `OrderEntry.tsx` `ResultList` shows it as "D A MUN — Unit was disbanded.", like an
+      ordered one. `last_resolution` now carries `civil_disorder: true` on it
+      (`lib/resultText.ts` `describeResult` can say "Disbanded by civil disorder: you
+      ordered too few disbands.").
 
 ---
 
