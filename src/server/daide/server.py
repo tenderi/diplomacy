@@ -19,6 +19,7 @@ import contextlib
 import logging
 import random
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any, Optional
 
 from engine.serialization import resolution_from_dict
@@ -44,6 +45,13 @@ class DaideServer:
     ``db_service`` is optional and used *only* by `deadline_seconds` to mirror
     the existing ``GET /games/{id}/deadline`` route's read path -- no new
     persistence accessor is added for this.
+
+    ``on_draw_vote`` is called as ``on_draw_vote(game_id, power, vote, result)``
+    after every recorded `DRW` / `NOT (DRW)`, with ``result`` the dict
+    `GameService.submit_draw_vote` returned. `_api_module` passes
+    `api.shared.after_draw_vote`, so a DAIDE vote notifies the Telegram players
+    exactly as an HTTP one does; the hook keeps this package from importing
+    `server.api`.
     """
 
     def __init__(
@@ -55,8 +63,10 @@ class DaideServer:
         host: str = "0.0.0.0",  # nosec B104
         port: int = DEFAULT_PORT,
         game_id: Optional[str] = None,
+        on_draw_vote: Optional[Callable[[str, str, bool, dict[str, Any]], None]] = None,
     ) -> None:
         self.game_service = game_service
+        self.on_draw_vote = on_draw_vote
         self.map = game_service.map
         self.db_service = db_service
         self.host = host
@@ -209,6 +219,15 @@ class DaideServer:
         return max(0, int(remaining))
 
     # -- broadcasts -----------------------------------------------------------
+
+    async def draw_voted(self, game_id: str, power: str, vote: bool, result: dict[str, Any]) -> None:
+        """A session recorded a draw vote: run the ``on_draw_vote`` hook (the
+        Telegram side), then, if the vote completed the draw, tell every DAIDE
+        session (`DRW`)."""
+        if self.on_draw_vote is not None:
+            self.on_draw_vote(game_id, power, vote, result)
+        if result.get("quorum_reached"):
+            await self.broadcast_draw_completion(game_id)
 
     async def broadcast_draw_completion(self, game_id: str) -> None:
         """A `DRW` vote reached quorum: every session on this game gets the

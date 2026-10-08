@@ -513,7 +513,7 @@ class DaideSession:
     ``register(game_id, power, session) -> int``, ``try_reclaim(game_id,
     power, passcode, session) -> bool``, ``unregister(game_id, power,
     session) -> None``, ``deadline_seconds(game_id) -> Optional[int]``,
-    ``broadcast_draw_completion(game_id)``, ``broadcast_admin(game_id,
+    ``draw_voted(game_id, power, vote, result)``, ``broadcast_admin(game_id,
     from_name, message_tokens, exclude)``, ``relay_press(game_id, from_power,
     to_powers, message_tokens)``.
 
@@ -743,8 +743,9 @@ class DaideSession:
         elif sub_cmd == t.GOF:
             await self._send(t.YES, *_echo(raw))  # no ready-gate to cancel; ack only
         elif sub_cmd == t.DRW:
-            self.server.game_service.submit_draw_vote(self.game_id, self.power, False)
+            result = self.server.game_service.submit_draw_vote(self.game_id, self.power, False)
             await self._send(t.YES, *_echo(raw))
+            await self.server.draw_voted(self.game_id, self.power, False, result)
         else:
             # Includes NOT(TME): this codebase has no scheduled TME push to
             # cancel (see the module docstring) -- REJ, matching
@@ -794,8 +795,7 @@ class DaideSession:
     async def _cmd_drw(self, args: list[Token], raw: list[Token]) -> None:
         result = self.server.game_service.submit_draw_vote(self.game_id, self.power, True)
         await self._send(t.YES, *_echo(raw))
-        if result.get("quorum_reached"):
-            await self.server.broadcast_draw_completion(self.game_id)
+        await self.server.draw_voted(self.game_id, self.power, True, result)
 
     async def _cmd_adm(self, args: list[Token], raw: list[Token]) -> None:
         groups = _top_level_groups(args)
