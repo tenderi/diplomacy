@@ -16,7 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-08. `v3.0.82` did BD5 (a civil-disorder disband is announced
+- **Last updated:** 2026-10-08. `v3.0.85` (merged before `v3.0.83`/`v3.0.84`) fixed a
+  test that hardcoded a date and broke `main` once it aged past 30 days. `v3.0.82` did BD5 (a civil-disorder disband is announced
   to its power and the group: the engine marks those results `civil_disorder`).
   `v3.0.81` did BD6 (a merged build or disband past the
   count names the stored one it replaced, in the bot's reply and in a queued order's
