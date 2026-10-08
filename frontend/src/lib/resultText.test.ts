@@ -46,6 +46,30 @@ describe('describeResult', () => {
     expect(adjustmentDisband).not.toMatch(/no legal retreat/i)
   })
 
+  it('says a civil-disorder disband was not ordered', () => {
+    expect(
+      describeResult(
+        entry({
+          order: { type: 'DISBAND', power: 'GERMANY', unit: 'MUN' },
+          result: 'DISBAND',
+          civil_disorder: true,
+          power: 'GERMANY',
+          order_str: 'D A MUN',
+        })
+      )
+    ).toBe('Disbanded by civil disorder: too few disbands were ordered.')
+  })
+
+  it('keeps an ordered disband as a plain disband', () => {
+    for (const civil_disorder of [false, undefined]) {
+      expect(
+        describeResult(
+          entry({ order: { type: 'DISBAND', power: 'GERMANY' }, result: 'DISBAND', civil_disorder })
+        )
+      ).toBe('Unit was disbanded.')
+    }
+  })
+
   it('gives a successful build its own message', () => {
     expect(
       describeResult(entry({ order: { type: 'BUILD', power: 'FRANCE' }, result: 'BUILD' }))
