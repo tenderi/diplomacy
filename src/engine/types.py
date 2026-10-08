@@ -378,12 +378,16 @@ class OrderResult:
     meaningful in movement/retreat phases). ``retreat_options`` lists the legal
     destinations a dislodged unit may retreat to (empty when not dislodged, or
     when the unit is trapped and must disband).
+    ``civil_disorder`` marks a ``DISBAND`` the adjustment adjudicator made for a
+    power that ordered too few disbands (its ``order`` is synthetic: the power
+    never sent it).
     """
 
     order: Order
     result: ResultCode
     dislodged: bool = False
     retreat_options: tuple[Location, ...] = ()
+    civil_disorder: bool = False
 
 
 @dataclass(frozen=True)

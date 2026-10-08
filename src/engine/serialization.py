@@ -230,6 +230,7 @@ def _order_result_to_dict(r: OrderResult) -> dict[str, Any]:
         "result": r.result.value,
         "dislodged": r.dislodged,
         "retreat_options": [location_to_str(loc) for loc in r.retreat_options],
+        "civil_disorder": r.civil_disorder,
     }
 
 
@@ -239,6 +240,7 @@ def _order_result_from_dict(d: dict[str, Any]) -> OrderResult:
         result=ResultCode(d["result"]),
         dislodged=d.get("dislodged", False),
         retreat_options=tuple(location_from_str(s) for s in d.get("retreat_options", [])),
+        civil_disorder=d.get("civil_disorder", False),
     )
 
 
