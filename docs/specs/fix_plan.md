@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.78` removed the finished Track BB. `v3.0.77` did BC4 (an own-power convoy order shows
+- **Last updated:** 2026-10-07. `v3.0.80` did BD4 (a player's own DMs say "you": the
+  turn-processed DM, the solo winner, a draw's sharers, a deadline proposal's proposer).
+  `v3.0.78` removed the finished Track BB. `v3.0.77` did BC4 (an own-power convoy order shows
   intent, swap or not: 6.G.11 passes, 149/154 DATC green). `v3.0.76` did BD2, BD3 and BD7;
   `v3.0.75` did BC3b. `v3.0.74` did BC3 (a non-adjacent army move is legal
   when the board allows a convoy, ordered or not, and a fleet's support of a convoyed
@@ -56,7 +58,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BC** (the DATC hard tail) is open agent work, BC5 next.
-  **Track BD** (play-through wording fixes) is open agent work, BD4 next.
+  **Track BD** (play-through wording fixes) is open agent work, BD5 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -206,7 +208,7 @@ wrong. One small PR per task; each pins its exact texts in tests.
 - [x] BD3 — **The retreat hint suggests only a legal retreat.** In a retreat phase,
       `A BUR - RUH` answers "to retreat, write A BUR R RUH" even when RUH is not a legal
       retreat (the attacker's origin). Suggest a legal retreat, or list the legal ones.
-- [ ] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
+- [x] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
       the third person ("FRANCE's A BUR was dislodged", "orders are due from FRANCE").
 - [ ] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
       disband in an adjustment phase, the engine disbands for it and nobody tells it.
