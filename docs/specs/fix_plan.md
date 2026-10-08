@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-07. `v3.0.80` did BD4 (a player's own DMs say "you": the
+- **Last updated:** 2026-10-08. `v3.0.81` did BD6 (a merged build or disband past the
+  count names the stored one it replaced, in the bot's reply and in a queued order's
+  delivery DM). `v3.0.80` did BD4 (a player's own DMs say "you": the
   turn-processed DM, the solo winner, a draw's sharers, a deadline proposal's proposer).
   `v3.0.78` removed the finished Track BB. `v3.0.77` did BC4 (an own-power convoy order shows
   intent, swap or not: 6.G.11 passes, 149/154 DATC green). `v3.0.76` did BD2, BD3 and BD7;
@@ -212,8 +214,10 @@ wrong. One small PR per task; each pins its exact texts in tests.
       the third person ("FRANCE's A BUR was dislodged", "orders are due from FRANCE").
 - [ ] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
       disband in an adjustment phase, the engine disbands for it and nobody tells it.
-- [ ] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
-      silently drops the oldest build when a new one exceeds the allowance.
+- [x] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
+      silently dropped the oldest build when a new one exceeded the allowance; the
+      `set_orders` results now carry `replaced`/`note` and the bot shows
+      `✅ BUILD A PAR replaced BUILD F BRE (you may build 1)`.
 - [x] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
       missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
 - [ ] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`

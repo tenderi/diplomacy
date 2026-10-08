@@ -90,7 +90,11 @@ def set_orders(
 ) -> Dict[str, Any]:
     """Submit orders for a power. Only the assigned user may submit.
 
-    Returns per-order validation results ``{order, success, error}``.
+    Returns per-order validation results ``{order, success, error, replaced,
+    note}``: ``replaced`` lists the stored adjustment orders a merged order
+    pushed out of the power's build/disband count (``[]`` otherwise), and
+    ``note`` says so in a sentence (``"replaced BUILD F BRE (you may build
+    1)"``) or is ``null``.
     """
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
     if not game_service.exists(str(req.game_id)):
@@ -111,7 +115,16 @@ def set_orders(
     except Exception as e:
         logger.exception(f"set_orders failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    results = [{"order": r["order"], "success": r["ok"], "error": r["reason"]} for r in raw]
+    results = [
+        {
+            "order": r["order"],
+            "success": r["ok"],
+            "error": r["reason"],
+            "replaced": r.get("replaced", []),
+            "note": r.get("note"),
+        }
+        for r in raw
+    ]
     invalidate_cache(f"games/{req.game_id}")  # GET /state shows pending orders
     # W10: these may have been the last orders the turn was waiting for.
     processed = api_shared.maybe_auto_process(str(req.game_id))
