@@ -285,9 +285,24 @@ is told which is which ("your orders are due for AUSTRIA and ITALY", "Your F ION
 was dislodged…", "As FRANCE, you may build 1 unit."). The DM is plain text (no
 `parse_mode`). The channel post names the phase too, and in a
 retreat or adjustment phase the powers that owe orders. The caller of a manual process is
-skipped unless they owe orders in a new retreat or adjustment phase: their HTTP response
-carries the resolution, not their retreat options or build count.
+skipped unless they owe orders in a new retreat or adjustment phase, or civil disorder
+removed one of their units (below): their HTTP response carries the resolution, not
+their retreat options or build count, and does not single out a civil-disorder removal.
 
+**A civil-disorder removal is announced.** When the processed turn was an adjustment in
+which a power ordered fewer disbands than it owed, the units the engine removed for it
+(the results marked `civil_disorder`, read by `GameService.civil_disorder_disbands`) get
+one more line, in that power's DM and in the channel post
+(`api.shared.civil_disorder_line`):
+
+- DM — "You were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." or
+  "You were 1 disband short, so A SIL was disbanded (civil disorder)." (true whether it sent none, too few, or void ones)
+  ("As GERMANY, you were …" for a player holding more than one such power);
+- channel post — the same sentence about the power: "FRANCE was 2 disbands short, so …",
+  "GERMANY was 1 disband short, so …", one line per power, civil-disorder dummies
+  included.
+
+These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 

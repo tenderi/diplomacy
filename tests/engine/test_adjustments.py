@@ -9,6 +9,7 @@ from __future__ import annotations
 from engine.adjudicator.adjustments import adjudicate_adjustments
 from engine.map_loader import load_standard_map
 from engine.orders.parser import parse_order
+from engine.serialization import resolution_from_dict, resolution_to_dict
 from engine.types import GameState, Location, PhaseType, ResultCode, Season, Unit, UnitKind
 
 _MAP = load_standard_map()
@@ -89,3 +90,22 @@ def test_movement_orders_given_in_the_adjustment_phase_are_ignored() -> None:
     results, new_state = _adjust([("FRANCE", "A", "PIC")], {"FRANCE": ["PAR", "MAR"]}, {"FRANCE": ["A PIC - PAR"]})
     assert results == [("WAIVE", ResultCode.WAIVE)]  # the move is dropped; the owed build is waived
     assert {u.province for u in new_state.units} == {"PIC"}
+
+
+def test_only_the_civil_disorder_removals_are_marked_and_the_mark_survives_serialization() -> None:
+    # BD5: an ordered disband and a civil-disorder one are both DISBAND; only the
+    # one the power never sent carries ``civil_disorder``, so it can be announced.
+    state = GameState(
+        year=1901,
+        season=Season.WINTER,
+        phase_type=PhaseType.ADJUSTMENT,
+        units=frozenset({Unit(UnitKind.ARMY, "ITALY", Location("VEN")), Unit(UnitKind.FLEET, "ITALY", Location("ION"))}),
+    )
+    resolution, _ = adjudicate_adjustments(_MAP, state, [parse_order("D A VEN", power="ITALY", map=_MAP)])
+    assert [(r.order.unit, r.result, r.civil_disorder) for r in resolution.results] == [
+        (Location("VEN"), ResultCode.DISBAND, False),
+        (Location("ION"), ResultCode.DISBAND, True),
+    ]
+    as_dict = resolution_to_dict(resolution)
+    assert [r["civil_disorder"] for r in as_dict["results"]] == [False, True]
+    assert resolution_from_dict(as_dict) == resolution

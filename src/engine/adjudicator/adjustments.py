@@ -171,7 +171,11 @@ def _resolve_disbands(
         for unit in _civil_disorder_order(map, power, remaining)[:shortfall]:
             del units_by_prov[unit.province]
             results.append(
-                OrderResult(order=Disband(power, unit.location), result=ResultCode.DISBAND)
+                OrderResult(
+                    order=Disband(power, unit.location),
+                    result=ResultCode.DISBAND,
+                    civil_disorder=True,
+                )
             )
     return results
 
