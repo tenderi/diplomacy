@@ -295,13 +295,14 @@ which a power ordered fewer disbands than it owed, the units the engine removed 
 one more line, in that power's DM and in the channel post
 (`api.shared.civil_disorder_line`):
 
-- DM — "You ordered no disbands, so F KIE and A MUN were disbanded (civil disorder)." or
-  "You ordered 1 of your 2 disbands, so A SIL was disbanded too (civil disorder)."
-  ("As GERMANY, you ordered …" for a player holding more than one such power);
-- channel post — the same sentence about the power: "FRANCE ordered no disbands, so …",
-  "GERMANY ordered 1 of its 2 disbands, so …", one line per power, civil-disorder dummies
+- DM — "You were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." or
+  "You were 1 disband short, so A SIL was disbanded (civil disorder)." (true whether it sent none, too few, or void ones)
+  ("As GERMANY, you were …" for a player holding more than one such power);
+- channel post — the same sentence about the power: "FRANCE was 2 disbands short, so …",
+  "GERMANY was 1 disband short, so …", one line per power, civil-disorder dummies
   included.
 
+These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 

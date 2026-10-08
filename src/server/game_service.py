@@ -1007,22 +1007,16 @@ class GameService:
         """
         return self._repo.get_resolution_history(game_id)
 
-    def civil_disorder_disbands(self, game_id: str, turn: int) -> dict[str, dict[str, Any]]:
+    def civil_disorder_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
         """The units ``turn``'s adjustment removed by civil disorder (BD5), per power:
-        ``{power: {"units": ["A MUN", ...], "ordered": n}}``, where ``ordered`` counts the
-        disbands the power itself ordered and had carried out. Empty when the turn had
-        none (or is not in ``resolution_history``)."""
+        ``{power: ["F KIE", "A MUN"]}``, in removal order. Empty when the turn had none
+        (or is not in ``resolution_history``)."""
         results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
-        out: dict[str, dict[str, Any]] = {}
+        out: dict[str, list[str]] = {}
         for r in results:
             if r.get("civil_disorder"):
-                entry = out.setdefault(r["order"]["power"], {"units": [], "ordered": 0})
                 order_str = r.get("order_str") or format_order(order_from_dict(r["order"]))
-                entry["units"].append(order_str.removeprefix("D "))
-        for r in results:
-            power = r["order"]["power"]
-            if power in out and r["result"] == "DISBAND" and not r.get("civil_disorder"):
-                out[power]["ordered"] += 1
+                out.setdefault(r["order"]["power"], []).append(order_str.removeprefix("D "))
         return out
 
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
