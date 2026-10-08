@@ -321,7 +321,10 @@ Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
 passed through unchanged; `power`/`order_str` are the only fields added on top
 (`GameService.last_resolution_view`). This is what a client uses to answer "what
-happened to my orders?" without re-deriving adjudication itself.
+happened to my orders?" without re-deriving adjudication itself. The web results
+list (`OrderEntry.tsx` `ResultList`, text from `lib/resultText.ts` `describeResult`) shows
+a `civil_disorder` result as "Disbanded by civil disorder: too few disbands were
+ordered." and an ordered disband as "Unit was disbanded.".
 
 ### Order/resolution overlay maps: `GET .../map/orders`, `GET .../map/resolution`
 
