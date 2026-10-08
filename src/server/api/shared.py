@@ -569,7 +569,7 @@ def notify_turn_processed(
     )
     # Units the adjustment just processed removed for a power that ordered too
     # few disbands (BD5): told to that power's player and to the group.
-    disorder: dict[str, dict[str, Any]] = {}
+    disorder: dict[str, list[str]] = {}
     try:
         if processed_turn is not None:
             disorder = game_service.civil_disorder_disbands(game_id, processed_turn)
@@ -594,12 +594,13 @@ def notify_turn_processed(
             notify_user(
                 telegram_id,
                 "\n".join(
-                    [turn_message(header, label, phase_type, {p: duties[p] for p in mine}) + due]
+                    [turn_message(header, label, phase_type, {p: duties[p] for p in mine})]
                     + [
-                        civil_disorder_line(f"As {p}, you" if len(removed) > 1 else "You", "your", entry)
-                        for p, entry in removed.items()
+                        civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
+                        for p, units in removed.items()
                     ]
-                ),
+                )
+                + due,
                 game_buttons(game_id),
             )
     except Exception as e:
@@ -614,26 +615,19 @@ def notify_turn_processed(
         )
     else:
         channel_text = f"The turn has been processed. {label}: nobody has anything to order."
-    group_lines = [
-        civil_disorder_line(power_label(game_id, p), "its", entry) for p, entry in sorted(disorder.items())
-    ]
-    _post_turn_to_channel(game_id, "\n".join([channel_text + due, *group_lines]), processed_turn, processed_phase)
+    group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
+    _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
 
 
-def civil_disorder_line(who: str, whose: str, entry: dict[str, Any]) -> str:
+def civil_disorder_line(subject: str, units: list[str]) -> str:
     """One power's civil-disorder removals (``GameService.civil_disorder_disbands``):
-    "You ordered no disbands, so A MUN and F KIE were disbanded (civil disorder)." in
-    its player's DM (``who="You"``, ``whose="your"``), the power named in the group
-    (``whose="its"``)."""
-    units = entry["units"]
+    "You were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." in
+    its player's DM (``subject="You were"``), "GERMANY was 1 disband short, ..." in the
+    group. "Short" counts the removals, so it stays true whether the power sent no
+    disband, too few, or ones that were void."""
+    short = "1 disband" if len(units) == 1 else f"{len(units)} disbands"
     were = "was" if len(units) == 1 else "were"
-    if entry["ordered"]:
-        owed = entry["ordered"] + len(units)
-        return (
-            f"{who} ordered {entry['ordered']} of {whose} {owed} disbands, so "
-            f"{_join_names(units)} {were} disbanded too (civil disorder)."
-        )
-    return f"{who} ordered no disbands, so {_join_names(units)} {were} disbanded (civil disorder)."
+    return f"{subject} {short} short, so {_join_names(units)} {were} disbanded (civil disorder)."
 
 
 def _units(n: int) -> str:

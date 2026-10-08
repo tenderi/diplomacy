@@ -40,17 +40,48 @@ def _winter_with_removals_owed(game_id: str) -> None:
     api_shared.game_service.restore_snapshot(game_id, state_to_dict(state), phase_code="W1901A")
 
 
-def _process(game_id: str, exclude: str | None = None) -> OutboxProbe:
+def _process(game_id: str, exclude: str | None = None, deadline: str | None = None) -> OutboxProbe:
     row_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
     api_shared.db_service.link_game_to_channel(game_id, GROUP, any_displacer=True)
     # GERMANY sends one of its two disbands; FRANCE sends none.
     api_shared.game_service.submit_orders(game_id, "GERMANY", ["D A PRU"])
     with OutboxProbe() as probe:
         api_shared.game_service.process_turn(game_id)
-        api_shared.finish_processed_turn(
-            game_id, row_id, prev_phase_code="W1901A", trigger="deadline", exclude_telegram_id=exclude
-        )
+        if deadline is None:
+            api_shared.finish_processed_turn(
+                game_id, row_id, prev_phase_code="W1901A", trigger="deadline", exclude_telegram_id=exclude
+            )
+        else:
+            # The fan-out alone, with the deadline a weekly schedule would have armed.
+            turn = int(api_shared.game_service.meta(game_id)["current_turn"]) - 1
+            api_shared.notify_turn_processed(
+                game_id, row_id, trigger="deadline", processed_turn=turn,
+                processed_phase="W1901A", next_deadline_text=deadline,
+            )
     return probe
+
+
+def _expected(game_id: str, users: list[tuple[dict, str]], due: str = "") -> tuple[dict[str, list[str]], str]:
+    head = (
+        f"The turn has been processed for game {game_id} because its deadline passed."
+        " Orders are due for Spring 1902 movement."
+    )
+    by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
+    expected = {tg: [head + due] for tg in by_power.values()}
+    # F KIE is farther from a French home centre than A MUN; A PAR is home.
+    expected[by_power["FRANCE"]] = [
+        head + "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + due
+    ]
+    expected[by_power["GERMANY"]] = [
+        head + "\nYou were 1 disband short, so A SIL was disbanded (civil disorder)." + due
+    ]
+    group = (
+        f"🔔 Turn Processed - Game {game_id}\n"
+        "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
+        "FRANCE was 2 disbands short, so F KIE and A MUN were disbanded (civil disorder).\n"
+        "GERMANY was 1 disband short, so A SIL was disbanded (civil disorder)." + due
+    )
+    return expected, group
 
 
 def test_the_disordered_powers_are_told_which_units_went() -> None:
@@ -60,28 +91,24 @@ def test_the_disordered_powers_are_told_which_units_went() -> None:
 
     probe = _process(game_id)
 
-    head = (
-        f"The turn has been processed for game {game_id} because its deadline passed."
-        " Orders are due for Spring 1902 movement."
-    )
-    by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
-    expected = {tg: [head] for tg in by_power.values()}
-    # F KIE is farther from a French home centre than A MUN; A PAR is home.
-    expected[by_power["FRANCE"]] = [
-        head + "\nYou ordered no disbands, so F KIE and A MUN were disbanded (civil disorder)."
-    ]
-    expected[by_power["GERMANY"]] = [
-        head + "\nYou ordered 1 of your 2 disbands, so A SIL was disbanded too (civil disorder)."
-    ]
+    expected, group = _expected(game_id, users)
     assert _dms(probe) == expected
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
-        (
-            GROUP,
-            f"🔔 Turn Processed - Game {game_id}\n"
-            "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
-            "FRANCE ordered no disbands, so F KIE and A MUN were disbanded (civil disorder).\n"
-            "GERMANY ordered 1 of its 2 disbands, so A SIL was disbanded too (civil disorder).",
-        )
+        (GROUP, group)
+    ]
+
+
+def test_the_next_deadline_still_ends_the_dm_and_the_group_post() -> None:
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    _winter_with_removals_owed(game_id)
+
+    probe = _process(game_id, deadline="Monday 18:00 UTC")
+
+    expected, group = _expected(game_id, users, due=" Next deadline: Monday 18:00 UTC.")
+    assert _dms(probe) == expected
+    assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
+        (GROUP, group)
     ]
 
 
@@ -99,6 +126,6 @@ def test_the_caller_who_processed_the_turn_still_hears_of_their_removals() -> No
     assert dms[by_power["FRANCE"]] == [
         f"The turn has been processed for game {game_id} because its deadline passed."
         " Orders are due for Spring 1902 movement."
-        "\nYou ordered no disbands, so F KIE and A MUN were disbanded (civil disorder)."
+        "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)."
     ]
     assert by_power["ITALY"] in dms
