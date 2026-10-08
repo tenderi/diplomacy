@@ -89,11 +89,11 @@ def test_a_retreat_phase_tells_the_dislodged_their_options_and_the_rest_to_wait(
     head = f"The turn has been processed for game {game_id}. Fall 1901 retreats:"
     messages = _by_power(probe, users)
     assert messages["ENGLAND"] == [
-        f"{head} orders are due from ENGLAND.\nENGLAND's A BEL was dislodged: it may retreat to PIC, or disband."
+        f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband."
     ]
     assert messages["GERMANY"] == [
-        f"{head} orders are due from GERMANY.\n"
-        "GERMANY's A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband."
+        f"{head} your orders are due.\n"
+        "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband."
     ]
     for power in ("FRANCE", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers."]
@@ -128,9 +128,9 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
     due = " Next deadline: 2026-10-05 16:00 UTC."
     messages = _by_power(probe, users)
     assert messages["FRANCE"] == [
-        f"{head} orders are due from FRANCE.\nFRANCE may build 2 units (1 more waived: no free home supply centre).{due}"
+        f"{head} your orders are due.\nYou may build 2 units (1 more waived: no free home supply centre).{due}"
     ]
-    assert messages["AUSTRIA"] == [f"{head} orders are due from AUSTRIA.\nAUSTRIA must disband 1 unit.{due}"]
+    assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit.{due}"]
     for power in ("ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers.{due}"]
     assert posted == [
@@ -144,8 +144,35 @@ def test_a_retreat_unit_with_nowhere_to_go_must_disband() -> None:
         "Head.", "Fall 1901 retreats", "RETREAT", {"ITALY": {"retreats": [{"unit": "F ION", "options": []}]}}
     )
     assert text == (
-        "Head. Fall 1901 retreats: orders are due from ITALY.\n"
-        "ITALY's F ION was dislodged and has nowhere to retreat: it must disband."
+        "Head. Fall 1901 retreats: your orders are due.\n"
+        "Your F ION was dislodged and has nowhere to retreat: it must disband."
+    )
+
+
+def test_a_player_holding_two_powers_is_told_which_line_is_whose() -> None:
+    """BD4: the DM says "you"; only a player owing orders for two powers is told
+    which power each line is about."""
+    retreats = api_shared.turn_message(
+        "Head.",
+        "Fall 1901 retreats",
+        "RETREAT",
+        {
+            "ITALY": {"retreats": [{"unit": "F ION", "options": ["TUN"]}]},
+            "AUSTRIA": {"retreats": [{"unit": "A VIE", "options": []}]},
+        },
+    )
+    assert retreats == (
+        "Head. Fall 1901 retreats: your orders are due for AUSTRIA and ITALY.\n"
+        "Your A VIE (AUSTRIA) was dislodged and has nowhere to retreat: it must disband.\n"
+        "Your F ION (ITALY) was dislodged: it may retreat to TUN, or disband."
+    )
+    builds = api_shared.turn_message(
+        "Head.", "Winter 1901 builds", "ADJUSTMENT", {"FRANCE": {"build": 1}, "AUSTRIA": {"disband": 2}}
+    )
+    assert builds == (
+        "Head. Winter 1901 builds: your orders are due for AUSTRIA and FRANCE.\n"
+        "As AUSTRIA, you must disband 2 units.\n"
+        "As FRANCE, you may build 1 unit."
     )
 
 

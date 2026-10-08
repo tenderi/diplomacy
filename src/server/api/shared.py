@@ -210,8 +210,14 @@ def notify_players(
     message: str,
     exclude_telegram_id: Optional[str] = None,
     buttons: Optional[list[list[dict[str, str]]]] = None,
+    *,
+    own: Optional[Callable[[list[str]], Optional[str]]] = None,
 ) -> None:
     """Notify all players in a game, via ``notify_user`` (the durable outbox).
+
+    ``own``, when given, is called with each recipient's powers and returns the
+    text for a reader the message is about -- addressed to them as "you"
+    (BD4) -- or ``None`` for the common ``message``.
 
     ``buttons`` (see ``game_buttons``) ride along as inline buttons on each DM.
 
@@ -231,11 +237,15 @@ def notify_players(
     notified anybody. The join now lives in
     ``DatabaseService.get_player_telegram_ids`` so no caller can reintroduce it.
     """
-    telegram_ids = db_service.get_player_telegram_ids(game_id)
-    for telegram_id_val in telegram_ids:
+    if own is not None:
+        recipients = list(db_service.get_player_powers_by_telegram_id(game_id).items())
+    else:
+        recipients = [(t, []) for t in db_service.get_player_telegram_ids(game_id)]
+    for telegram_id_val, powers in recipients:
         if exclude_telegram_id is not None and str(telegram_id_val) == str(exclude_telegram_id):
             continue
-        notify_user(telegram_id_val, message, buttons)
+        text = (own(powers) if own is not None else None) or message
+        notify_user(telegram_id_val, text, buttons)
 
 
 # --- Player identity: anonymous and public games ------------------------------
@@ -449,17 +459,24 @@ def notify_game_drawn(
     (who has the result in their response) gets the DM; the group gets the same
     sentence. Best-effort, like every notification: the draw is already committed.
     """
-    names = [power_label(game_id, power) for power in winners]
-    text = f"Game {game_id} has ended in a draw"
-    if names:
-        text += f" shared by {_join_names(names)}"
-    text += "."
+    def drawn(sharers: list[str], you: bool = False) -> str:
+        names = (["you"] if you else []) + [power_label(game_id, power) for power in sharers]
+        return f"Game {game_id} has ended in a draw" + (f" shared by {_join_names(names)}" if names else "") + "."
+
+    def own(powers: list[str]) -> Optional[str]:
+        # A sharer reads "shared by you, ENGLAND and ITALY" (BD4).
+        if not set(powers) & set(winners):
+            return None
+        return drawn([p for p in winners if p not in powers], you=True)
+
+    text = drawn(list(winners))
     try:
         notify_players(
             numeric_game_id,
             text,
             exclude_telegram_id=exclude_telegram_id,
             buttons=game_buttons(game_id, ended=True),
+            own=own,
         )
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify players of the draw in game {game_id}: {e}")
@@ -531,6 +548,12 @@ def notify_turn_processed(
                 f"{ended}.",
                 exclude_telegram_id=exclude_telegram_id,
                 buttons=game_buttons(game_id, ended=True),
+                # The winner is told "you have won" (BD4).
+                own=lambda powers: (
+                    f"Game {game_id} has ended: you have won with a solo victory."
+                    if len(winners) == 1 and winners[0] in powers
+                    else None
+                ),
             )
         except Exception as e:
             scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
@@ -589,27 +612,35 @@ def turn_message(header: str, label: str, phase_type: str, duties: dict[str, dic
     says orders are due; a retreat phase names each dislodged unit and where
     it may go; an adjustment phase gives the build or disband count. A player
     with nothing to order in a retreat or adjustment phase is told to wait.
+
+    The DM addresses its reader as "you" (BD4): every power in ``duties`` is
+    theirs. Only a player holding more than one power owing orders is told
+    which power each line is about.
     """
     if phase_type == "MOVEMENT":
         return f"{header} Orders are due for {label}."
     if not duties:
         return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
-    lines = [f"{header} {label}: orders are due from {', '.join(sorted(duties))}."]
+    several = len(duties) > 1
+    whose = f" for {_join_names(sorted(duties))}" if several else ""
+    lines = [f"{header} {label}: your orders are due{whose}."]
     for power in sorted(duties):
         duty = duties[power]
+        of = f" ({power})" if several else ""
+        as_power = f"As {power}, you" if several else "You"
         for retreat in duty.get("retreats", []):
             if retreat["options"]:
                 lines.append(
-                    f"{power}'s {retreat['unit']} was dislodged: it may retreat to "
+                    f"Your {retreat['unit']}{of} was dislodged: it may retreat to "
                     f"{', '.join(retreat['options'])}, or disband."
                 )
             else:
-                lines.append(f"{power}'s {retreat['unit']} was dislodged and has nowhere to retreat: it must disband.")
+                lines.append(f"Your {retreat['unit']}{of} was dislodged and has nowhere to retreat: it must disband.")
         if duty.get("build"):
             waived = f" ({duty['waived']} more waived: no free home supply centre)" if duty.get("waived") else ""
-            lines.append(f"{power} may build {_units(duty['build'])}{waived}.")
+            lines.append(f"{as_power} may build {_units(duty['build'])}{waived}.")
         if duty.get("disband"):
-            lines.append(f"{power} must disband {_units(duty['disband'])}.")
+            lines.append(f"{as_power} must disband {_units(duty['disband'])}.")
     return "\n".join(lines)
 
 
@@ -959,10 +990,17 @@ def expire_deadline_proposals(now: datetime) -> None:
             if not db_service.modify_deadline_proposal(game_id_str, expire).result["expired"]:
                 continue
             try:
+                proposer = str(proposal.get("proposed_by")).upper()
                 notify_players(
                     int(game.id),
                     f"The deadline proposal in game {game_id_str} (from "
-                    f"{power_label(game_id_str, str(proposal.get('proposed_by')))}) expired without a majority; nothing changed.",
+                    f"{power_label(game_id_str, proposer)}) expired without a majority; nothing changed.",
+                    # The proposer reads "Your deadline proposal" (BD4).
+                    own=lambda powers, mine=proposer, gid=game_id_str: (
+                        f"Your deadline proposal in game {gid} expired without a majority; nothing changed."
+                        if mine in powers
+                        else None
+                    ),
                 )
             except Exception as e:
                 scheduler_logger.error(
