@@ -1007,6 +1007,18 @@ class GameService:
         """
         return self._repo.get_resolution_history(game_id)
 
+    def civil_disorder_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
+        """The units ``turn``'s adjustment removed by civil disorder (BD5), per power:
+        ``{power: ["F KIE", "A MUN"]}``, in removal order. Empty when the turn had none
+        (or is not in ``resolution_history``)."""
+        results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
+        out: dict[str, list[str]] = {}
+        for r in results:
+            if r.get("civil_disorder"):
+                order_str = r.get("order_str") or format_order(order_from_dict(r["order"]))
+                out.setdefault(r["order"]["power"], []).append(order_str.removeprefix("D "))
+        return out
+
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
         """Where each power stands on its orders for the current phase. ``None``
         if the game doesn't exist.

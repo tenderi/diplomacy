@@ -77,9 +77,12 @@ type in `adjudication.md`.
 
 ```python
 OrderResult(order: Order, result: ResultCode, dislodged: bool = False,
-            retreat_options: tuple[Location, ...] = ())
+            retreat_options: tuple[Location, ...] = (), civil_disorder: bool = False)
 Resolution(results: tuple[OrderResult, ...] = ())
 ```
+
+`civil_disorder` is true only on a `DISBAND` the adjustment adjudicator made for a power
+that ordered too few disbands; its `order` is a synthetic `Disband` the power never sent.
 
 `ResultCode`: `OK`, `BOUNCE`, `CUT`, `VOID`, `NO_CONVOY`, `DISLODGED`, `DISBAND`,
 `BUILD`, `WAIVE` — see `types.py`'s enum docstring for the precise meaning of each; the
@@ -124,7 +127,8 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
 - `order_to_dict(order)` -> `{type, power, ...order-specific Location strings...}` (see
   the field table above — each order type serializes exactly its own fields).
 - `resolution_to_dict(resolution)` -> `{results: [{order, result, dislodged,
-  retreat_options}, ...]}`.
+  retreat_options, civil_disorder}, ...]}` (a stored result without `civil_disorder`,
+  written before the field existed, reads back as `false`).
 
 `to_json()`/`state_from_json()`/`order_from_json()`/`resolution_from_json()` are thin
 `json.dumps`/`json.loads` wrappers around the dict functions.
@@ -301,6 +305,7 @@ returns the same `resolution` shape directly, 404 when the game doesn't exist,
       "result": "BOUNCE",       // engine.types.ResultCode -- OK/BOUNCE/CUT/VOID/NO_CONVOY/DISLODGED/DISBAND/BUILD/WAIVE
       "dislodged": false,
       "retreat_options": [],
+      "civil_disorder": false,  // true: a DISBAND made for the power, which never ordered it
       "power": "FRANCE",        // convenience: same as order.power, flattened
       "order_str": "A PAR - BUR"  // convenience: format_order(order), best-effort --
                                    // without the pre-adjudication board's kind_by_province
@@ -312,7 +317,7 @@ returns the same `resolution` shape directly, 404 when the game doesn't exist,
 }
 ```
 
-Both `order` and the bare `result`/`dislodged`/`retreat_options` fields are exactly
+Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
 passed through unchanged; `power`/`order_str` are the only fields added on top
 (`GameService.last_resolution_view`). This is what a client uses to answer "what
