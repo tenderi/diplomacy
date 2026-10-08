@@ -152,7 +152,12 @@ async def lifespan(app: FastAPI):
     # Recorded so sync routes on worker threads can hand coroutines to this loop.
     _api_shared.main_loop = asyncio.get_running_loop()
     daide_port = int(os.environ.get("DIPLOMACY_DAIDE_PORT", str(DAIDE_DEFAULT_PORT)))
-    _api_shared.daide_server = DaideServer(_api_shared.game_service, db_service=_api_shared.db_service, port=daide_port)
+    _api_shared.daide_server = DaideServer(
+        _api_shared.game_service,
+        db_service=_api_shared.db_service,
+        port=daide_port,
+        on_draw_vote=_api_shared.after_draw_vote,
+    )
     try:
         await _api_shared.daide_server.start()
     except Exception as e:

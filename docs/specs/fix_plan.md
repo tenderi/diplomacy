@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-08. `v3.0.83` did BD9 (the web results list says a
+- **Last updated:** 2026-10-08. `v3.0.84` did BD8 (a draw vote cast over DAIDE, its
+  withdrawal and a draw it completes notify the Telegram players and the group exactly as
+  an HTTP vote does: both run `api.shared.after_draw_vote`). `v3.0.83` did BD9 (the web results list says a
   civil-disorder disband was not ordered). `v3.0.85` (merged before `v3.0.83`) fixed a
   test that hardcoded a date and broke `main` once it aged past 30 days. `v3.0.82` did BD5 (a civil-disorder disband is announced
   to its power and the group: the engine marks those results `civil_disorder`).
@@ -64,7 +66,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BC** (the DATC hard tail) is open agent work, BC5 next.
-  **Track BD** (play-through wording fixes) is open agent work, BD8 next.
+  **Track BD** (play-through wording fixes) is open agent work, BD10 next.
   **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE1 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
@@ -225,16 +227,26 @@ wrong. One small PR per task; each pins its exact texts in tests.
       `✅ BUILD A PAR replaced BUILD F BRE (you may build 1)`.
 - [x] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
       missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
-- [ ] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`
-      `_cmd_drw` calls `GameService.submit_draw_vote` directly, so a DAIDE vote, its
-      withdrawal (`NOT (DRW)`) and a draw it completes reach only the DAIDE sessions
-      (`broadcast_draw_completion`), never `notify_players`, `notify_game_drawn` or the
-      group. Needs a notification hook the DAIDE layer can call without importing
-      `server.api`.
+- [x] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`
+      `_cmd_drw` called `GameService.submit_draw_vote` directly, so a DAIDE vote, its
+      withdrawal and a draw it completed reached only the DAIDE sessions. `DaideServer`
+      now takes an `on_draw_vote` hook; `_api_module` passes `api.shared.after_draw_vote`,
+      which the HTTP route calls too.
 - [x] BD9 — **The web results list says a civil-disorder disband was not ordered.**
       `lib/resultText.ts` `describeResult` reads `civil_disorder` and says "Disbanded by
       civil disorder: too few disbands were ordered."; an ordered disband still reads
       "Unit was disbanded.".
+- [ ] BD10 — **A draw completed over HTTP reaches the DAIDE clients.** The reverse of
+      BD8: when the deciding vote comes from Telegram or the web, `after_draw_vote` notifies
+      the Telegram players but nobody calls `DaideServer.broadcast_draw_completion`, so a
+      connected DAIDE bot never gets `DRW` (its next `NOW`/`ORD` push never comes either:
+      no turn is processed). Bridge it like `_notify_daide_processed`, without sending
+      `DRW` twice when the deciding vote was itself a DAIDE one.
+- [ ] BD11 — **DAIDE order writes invalidate the state cache.** `SUB` and `NOT (SUB)`
+      (`daide/session.py`) change `pending_orders` without `invalidate_cache("games/{id}")`,
+      so `GET /games/{id}/state` keeps showing the old pending orders for up to its 30 s
+      TTL (`tests/test_cache_coherence.py` covers only HTTP writes). Same hook shape as
+      BD8's `on_draw_vote`.
 
 ---
 
