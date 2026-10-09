@@ -20,6 +20,7 @@ from hypothesis import strategies as st
 from engine.adjudicator.movement import adjudicate_movement
 from engine.adjudicator.retreats import adjudicate_retreats
 from engine.map_loader import load_standard_map
+from tests.datc.convoy_boards import convoy_board
 from engine.types import (
     GameState,
     Hold,
@@ -186,3 +187,29 @@ def test_retreat_phase_leaves_a_consistent_board(seed, n):
     provinces = [u.province for u in rstate.units]
     assert len(provinces) == len(set(provinces))
     assert rstate.dislodged == ()
+
+
+# -- order independence on convoy boards ---------------------------------------
+#
+# The army-only positions above never build a convoy paradox. These boards are
+# convoy-rich (tests/datc/convoy_boards.py): supported attacks on convoying fleets,
+# armies cutting supports, multi-fleet chains. Each is adjudicated in its own
+# order, reversed and in three seeded shuffles, and every run must agree.
+
+_CONVOY_SEEDS = range(600)
+
+
+@pytest.mark.parametrize("first", range(0, len(_CONVOY_SEEDS), 100))
+def test_convoy_boards_are_order_independent(first: int) -> None:
+    differing = []
+    for seed in _CONVOY_SEEDS[first : first + 100]:
+        state, orders = convoy_board(seed)
+        orderings = [orders, orders[::-1]]
+        for k in range(3):
+            shuffled = list(orders)
+            random.Random(seed * 10 + k).shuffle(shuffled)
+            orderings.append(shuffled)
+        keys = {_result_key(adjudicate_movement(_MAP, state, o)[0]) for o in orderings}
+        if len(keys) != 1:
+            differing.append(seed)
+    assert differing == []

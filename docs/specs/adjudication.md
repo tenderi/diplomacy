@@ -6,8 +6,8 @@
 > `movement.py`, `retreats.py`, `adjustments.py` — those files are the ground truth; this
 > doc explains *why* they're shaped the way they are and ties the pieces together.
 >
-> Conformance: 149/154 DATC cases green (`tests/datc/`), 5 documented hard-tail `xfail`s
-> (listed at the end). Everything below is implemented, not aspirational.
+> Conformance: all 154 DATC cases green (`tests/datc/`), under every submission order
+> tried (§11). Everything below is implemented, not aspirational.
 
 ## 1. Why fixed-point, not a single pass
 
@@ -41,38 +41,55 @@ Each order's resolvable item (`_Item`) carries a three-valued state:
 
 1. If already `RESOLVED`, return the memoized value.
 2. If already `GUESSING`, we've re-entered an order that's still being computed — that's
-   a **dependency cycle**. Record `prov` in `self._deps` (the current recursion's
-   dependency trail) and return the current guess.
-3. Otherwise: mark `GUESSING` with a provisional guess of `False`, then compute via
+   a **dependency cycle**. Append `prov` to `self._deps` (the current recursion's
+   dependency trail) and return the current guess. Every such read is appended, even
+   when `prov` is already on the trail: the caller's result now rests on that guess,
+   and step 4 judges "guess-free" by whether the trail grew, so a read that left it
+   unchanged would let a result computed on a guess be frozen as `RESOLVED`.
+3. Otherwise: mark `GUESSING` with a provisional guess of `False`, stamp the item with a
+   sequence number (`seq`, when its resolution began), then compute via
    `_adjudicate(prov)` (dispatches to `_move_succeeds` / `_support_given` /
-   `_convoy_survives`).
+   `_convoy_survives`). Every predicate reads another order's result only through
+   `_resolve` — a convoying fleet's survival included (§6) — so every dependency is
+   seen.
 4. If no cycle was hit (`self._deps` didn't grow), the computed value is definitive:
    mark `RESOLVED` and return it. This is the common case — most orders have no cyclic
    dependency and resolve in one pass.
-5. If a cycle was hit but `prov` isn't its head (some earlier order re-entered before we
-   did), propagate the guess upward and let the head handle it.
-6. If `prov` **is** the cycle's head: this is where the interesting cases live (§3).
+5. If a guess was read that began before `prov`'s own (a lower `seq`: an order further
+   up the call stack), the cycle reaches past `prov`. `prov` is not its head: it lists
+   itself, keeps its value as a guess, and lets the head handle it. A guess read is
+   always `prov`'s own, an order further up, or one begun inside `prov`'s computation and
+   still waiting on one of those two; so the lowest `seq` read decides.
+6. Otherwise `prov` **is** the cycle's head: this is where the interesting cases live (§3).
 
 ## 3. Breaking cycles: circular movement vs. the Szykman rule
 
 When the head of a cycle is reached, the resolver **tries both truth values** for that
-order and re-evaluates the whole cycle each time:
+order and re-evaluates the whole cycle each time (Kruijswijk's `Resolve`):
 
-- Reset every other member of the cycle to `UNRESOLVED`, guess the head is `True`, and
-  re-run `_adjudicate`. Compare against the first pass (head guessed `False`).
+- Reset every member of the cycle to `UNRESOLVED`, guess the head is `True`, and
+  re-run `_adjudicate`. Compare against the first pass (head guessed `False`). If this
+  pass read a guess from further up the stack, the head hands its value up as in step 5.
 - **If both guesses produce the same outcome** (guess-independent), that shared value is
-  correct — take it and move on. This resolves most cycles: the truth value simply
-  doesn't depend on the guess.
-- **If the two guesses disagree**, the cycle is a genuine paradox and the **backup rule**
-  (`_backup_rule`) breaks it:
-  - A cycle containing **only moves** (no convoy, no support) is *circular movement* —
-    DATC 6.C's army-swap-via-convoy and multi-unit rotation cases. **Every move in the
-    cycle succeeds.** This is the classic "three armies chase each other around a
-    triangle" case; simultaneity means they all get where they're going.
-  - A cycle that touches **both a convoy and a support** is a *convoy paradox* (DATC
-    6.F.14–6.F.24, the Szykman-rule cases). The **Szykman rule** applies: every convoyed
-    move in the cycle **fails**, as if its convoy had never been ordered. Everything else
-    in the cycle (holds, other supports) is then re-resolved against that fixed outcome.
+  correct: the head is `RESOLVED` with it, and the other members go back to `UNRESOLVED`
+  to be resolved again on demand, now against a fixed head. This resolves most cycles.
+- **If the two guesses disagree**, the cycle has two outcomes or none, and the **backup
+  rule** (`_backup_rule`) fixes part of it. Then the whole cycle, head included, is reset
+  and the head is resolved again from scratch (`return self._resolve(prov)`): no member
+  keeps a value computed on a guess.
+  - A cycle holding **a convoying fleet and a support** is a *convoy paradox* (DATC
+    6.F.14–6.F.24, 6.G.11). The **Szykman rule** applies: the convoys of the cycle's
+    fleets are **disrupted** (`_disrupted`). `_convoy_path_works` skips a disrupted fleet
+    without reading it, so an army that needs it fails (`NO_CONVOY`) and cuts nothing,
+    as if that convoy had never been ordered; the fleet itself still holds, can be
+    dislodged, and is reported `OK` if it is not (6.F.16–6.F.18). A route through other,
+    undisrupted fleets still carries the army (6.F.19/20). The cycle need not hold the
+    army's move: a support reads the route directly, so in 6.F.14, starting at
+    `F LON S F WAL - ENG` finds {ENG's convoy, WAL's move, LON's support}. Disrupting by
+    fleet makes every starting point give the same result.
+  - Any other cycle is *circular movement* — DATC 6.C's multi-unit rotations and
+    army swaps via convoy. **Every move in the cycle succeeds** (`RESOLVED`), and the
+    rest is resolved again around them.
 
   The distinction is deliberate: a cycle of pure moves (even one routed through a
   convoy, as in a same-power army swap) is not a paradox — nothing about it is
@@ -80,10 +97,10 @@ order and re-evaluates the whole cycle each time:
   cut-or-not status and a convoy's survival-or-not status depend on each other in a loop
   that has no consistent resolution without a tiebreaker.
 
-This is a **single-pass** backup rule: once a cycle is broken, its members are marked
-`RESOLVED` and not revisited. The engine does not implement iterative re-resolution for
-*second-order* paradoxes (a paradox whose break exposes a second, dependent paradox) —
-see §11, the documented `xfail`s (6.F.23/24).
+**Second-order paradoxes** (6.F.22–6.F.24) need nothing more. Resolving again after a
+Szykman step may meet another paradox, whose backup disrupts its own fleets in turn; that
+repeats until no paradox is left. It ends because each step disrupts at least one more
+fleet, and a disrupted fleet is never read again, so it can join no further cycle.
 
 ## 4. Strength model
 
@@ -199,8 +216,11 @@ the menu and the adjudicator agree.
 
 The convoy **path** itself (`_convoy_path_works`) is a breadth-first search over
 currently-surviving convoying fleets (`Convoy` orders whose origin/dest match the move,
-filtered to fleets not dislodged this phase), starting from fleets adjacent to the
-army's source coast and searching for one adjacent to the destination. This directly
+filtered to fleets not dislodged this phase and not disrupted by a paradox, §3), starting from fleets adjacent to the
+army's source coast and searching for one adjacent to the destination. Whether a fleet
+survives is read as `_resolve` of its `Convoy` order (`_convoy_survives`), not by asking
+`_is_dislodged` directly, so the convoying fleet is a dependency of the army it carries
+and a convoy can be part of a dependency cycle (§3). This directly
 supports **multi-route convoys**: if any surviving subset of the ordered fleets forms an
 unbroken chain, the move works — losing one fleet in a multi-fleet, multi-route convoy
 order does not fail the whole move.
@@ -210,7 +230,8 @@ Three convoy-order result codes reflect fine distinctions DATC cares about:
 route, above), `DISLODGED` (the fleet itself
 was dislodged this phase), and `NO_CONVOY` (the fleet survived but the chain is broken
 elsewhere, e.g. a sibling fleet died) vs. plain `OK` (chain intact, even if the convoyed
-army merely bounced at the far end — the convoy did its job).
+army merely bounced at the far end — the convoy did its job; or the fleet's convoy was
+disrupted by a paradox, §3, and the fleet was not dislodged).
 
 Critically, **a convoyed army's attack strength is never boosted by the number of
 convoying fleets** — it's still `1 + supports`, same as any other move.
@@ -330,16 +351,13 @@ call to `adjudicate()` returns a *new* `Game`, never mutates the old one.
 
 ## 11. Documented deviations / known gaps
 
-Five DATC cases are `xfail` with the reason recorded in the test file docstrings — not
-silently skipped. Track BC in [`fix_plan.md`](fix_plan.md) holds the root cause of each
-and the milestones that fix them; a case is un-xfailed only by its milestone:
-
-- **6.F.16/17/18** — first-order convoy paradoxes the resolver gets wrong. A result
-  computed on a guess can be marked resolved (a re-read of a guess already in `_deps`
-  does not grow it), convoy survival is checked outside `_resolve` so convoys never join
-  a cycle, and the backup rule (§3) keeps guess-pass values for the cycle's other moves.
-- **6.F.23/24** — second-order convoy paradoxes: the same defects, plus Szykman must be
-  applied again to each paradox that re-resolution exposes.
+No DATC case is `xfail`. Order independence is tested, not assumed:
+`tests/datc/test_order_independence.py` runs every DATC movement case under its own
+order, reversed and in seeded shuffles (every permutation up to five orders);
+`tests/datc/test_properties.py` shuffles random convoy-rich boards
+(`tests/datc/convoy_boards.py`) as well as army-only ones; and
+`tests/datc/test_szykman_boards.py` pins twenty fuzz-found convoy paradoxes with their
+Szykman results.
 
 ## 12. Where to look
 

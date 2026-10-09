@@ -52,7 +52,7 @@ The package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework 
 | `map_loader.py` | Parses `maps/standard.map` into `MapData` — provinces, types, coast-first-class adjacency, supply centers, home centers, 1901 starting units, province aliases, and `display_names` (code → full name, from the `=` lines' left-hand side). Query API: `is_adjacent`, `army_moves`, `fleet_moves`, `fleet_locations`, `coasts_of`, `province_type`. **The sole topology, alias and display-name source** — no hardcoded tables anywhere in the engine. Note `display_names` is for client *display* only; `aliases` is what the order parser consults, and full names deliberately do not parse. |
 | `orders/parser.py` | One grammar for every order type: coast syntax (`F SPA/SC`), `VIA` convoy, aliases, optional power prefix. `parse_order` / `format_order` round-trip (Hypothesis-checked). |
 | `orders/validation.py` | The single legality path, `validate(order, state, map)` — used by `GameService.submit_orders` and by build legality in `adjudicator/adjustments.py`. |
-| `adjudicator/movement.py` | The heart of the engine: a **Kruijswijk fixed-point resolver**. Per-order UNRESOLVED/GUESSING/RESOLVED state, recursive resolve with dependency-cycle detection, attack/defend/prevent/hold strengths with the correct support-cut exemptions, BFS convoy paths over surviving fleets (multi-route), and cycle-breaking: circular movement succeeds, convoy-entangled cycles apply the **Szykman rule**. |
+| `adjudicator/movement.py` | The heart of the engine: a **Kruijswijk fixed-point resolver**. Per-order UNRESOLVED/GUESSING/RESOLVED state, recursive resolve with dependency-cycle detection, attack/defend/prevent/hold strengths with the correct support-cut exemptions, BFS convoy paths over surviving fleets (multi-route), and cycle-breaking: circular movement succeeds, convoy paradoxes apply the **Szykman rule** (the cycle's convoys are disrupted and the cycle is resolved again, which also settles second-order paradoxes). |
 | `adjudicator/retreats.py` | `compute_retreat_options` — the single authoritative retreat-legality function (post-resolution occupancy, excludes attacker origin and standoffs); `adjudicate_retreats` — the retreat phase, where simultaneous collisions into one province all disband. |
 | `adjudicator/adjustments.py` | Builds/disbands/waives/civil disorder for the winter adjustment phase; civil-disorder auto-removal follows the rulebook distance rule (farthest from home first, fleet before army, alphabetical tiebreak). |
 | `game.py` | `Game` — a frozen snapshot (`map`, `state`, `history`) driving the phase state machine `S{y}M → [S{y}R] → F{y}M → [F{y}R] → [W{y}A] → S{y+1}M …`; retreat/adjustment phases inserted only when needed; SC ownership updates after Fall settles; victory at 18 centers. |
@@ -67,8 +67,8 @@ The package is **pure**: stdlib only, no I/O, no DB, no rendering, no framework 
 - **Multi-coast provinces.** Bulgaria (EC/SC), Spain (NC/SC), and St. Petersburg (NC/SC)
   are first-class `Location(province, coast)` pairs read straight from `standard.map`.
 - **Victory.** ≥18 supply centers, checked once per year right after Fall ownership updates.
-- **Conformance.** 148/154 DATC cases green (`tests/datc/`), 6 documented `xfail`
-  hard-tail cases — see `adjudication.md` §11 for exactly which and why.
+- **Conformance.** All 154 DATC cases green (`tests/datc/`), each under shuffled
+  submission orders too — see `adjudication.md` §11 for how order independence is tested.
 
 ---
 
