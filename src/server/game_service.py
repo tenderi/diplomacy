@@ -176,7 +176,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "no further orders are accepted")
         power = power.upper()
         state = game.state
         results, accepted, accepted_keys = self._check_orders(state, power, order_strings)
@@ -397,7 +397,7 @@ class GameService:
         if sj is None:
             raise OrderError(f"game {game_id} not found")
         game = Game(map=self._map, state=state_from_dict(sj))
-        _require_active(game, game_id)
+        _require_active(game, game_id, "the turn cannot be processed")
 
         submitted = self._repo.get_pending_orders(game_id)
         pending = {**submitted, **self._demo_ai_orders(game_id, game, submitted)}
@@ -485,7 +485,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "auto-processing can no longer be changed")
         self._repo.set_auto_process(game_id, enabled)
 
     def join_password_hash(self, game_id: str) -> Optional[str]:
@@ -507,7 +507,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "wait flags can no longer be changed")
         power = power.upper()
         return self._repo.modify_wait_flags(
             game_id,
@@ -558,7 +558,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "civil-disorder powers can no longer be changed")
         power = power.upper()
         if power not in self._map.home_centers:
             raise OrderError(f"Unknown power {power}")
@@ -590,7 +590,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "draw votes are no longer accepted")
         power = power.upper()
 
         had_voted: list[bool] = []
@@ -654,7 +654,7 @@ class GameService:
         ended) if a concurrent write finished the game, else return."""
         game = self.load(game_id)
         if game is not None:
-            _require_active(game, game_id)
+            _require_active(game, game_id, "draw votes are no longer accepted")
 
     def get_draw_votes(self, game_id: str) -> Optional[dict[str, Any]]:
         """Who's voted yes to draw this phase, how many are needed, and whether
@@ -662,6 +662,18 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             return None
+        if game.state.status is GameStatus.COMPLETED and len(game.state.winners or ()) > 1:
+            # The tally was cleared with the phase; the draw that ended the game
+            # is its record: every sharer voted for it.
+            sharers = sorted(game.state.winners or ())
+            return {
+                "phase": game.state.phase_name,
+                "game_status": game.state.status.value,
+                "required": sharers,
+                "votes": sharers,
+                "missing": [],
+                "quorum_reached": True,
+            }
         votes = self._repo.get_draw_votes(game_id)
         required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
@@ -698,7 +710,7 @@ class GameService:
         game = self.load(game_id)
         if game is None:
             raise OrderError(f"game {game_id} not found")
-        _require_active(game, game_id)
+        _require_active(game, game_id, "a power can no longer concede")
         power = power.upper()
 
         remaining_units = frozenset(u for u in game.state.units if u.power != power)
@@ -1226,7 +1238,9 @@ def _check_dummy_set(powers: list[str], map_data: Optional[MapData] = None) -> l
     return normalized
 
 
-def _require_active(game: Game, game_id: str) -> None:
+def _require_active(
+    game: Game, game_id: str, action: str = "nothing more can be changed"
+) -> None:
     """Refuse a write once the game is over.
 
     Every write path (orders, turn processing, draw votes, concession) used to
@@ -1243,7 +1257,7 @@ def _require_active(game: Game, game_id: str) -> None:
             else f"drawn between {', '.join(winners)}" if winners
             else "over"
         )
-        raise GameOverError(f"game {game_id} is {outcome}; no further orders or votes are accepted")
+        raise GameOverError(f"Game {game_id} is {outcome}; {action}")
 
 
 def _resolution_dict(resolution: Any, board: GameState) -> dict[str, Any]:

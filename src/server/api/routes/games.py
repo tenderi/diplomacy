@@ -25,6 +25,7 @@ from ..shared import (
     post_to_game_group, is_anonymous, player_rows, power_label,
 )
 from ...deadline_schedule import ScheduleError, parse_schedule
+from engine.types import GameStatus
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.game_repo import StaleGameError
@@ -618,7 +619,13 @@ async def process_turn(
         game_id, credentials, x_bot_secret, x_admin_token, (body or {}).get("telegram_id")
     )
     row = db_service.get_game_by_game_id(game_id)
-    unseated = api_shared.unseated_powers(game_id, int(row.id)) if row is not None else []
+    loaded = game_service.load(game_id)
+    finished = loaded is not None and loaded.state.status is GameStatus.COMPLETED
+    # A finished game is refused by the service with its own reason; seats no
+    # longer matter.
+    unseated = (
+        api_shared.unseated_powers(game_id, int(row.id)) if row is not None and not finished else []
+    )
     if unseated:
         # BA6: no power may be left without a player or dummy status.
         # The detail stays a sentence (the bot shows it as is); the header is the
