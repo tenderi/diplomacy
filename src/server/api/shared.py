@@ -1403,7 +1403,7 @@ def _scheduler_tick(now: datetime, *, startup: bool = False, housekeeping: bool 
 
 
 
-_PHASE_CODE_RE = re.compile(r"^[SFW]\d{4}[MRA]$")
+_PHASE_CODE_RE = re.compile(r"^[SFW]\d{4}[MRA]$", re.ASCII)
 
 
 def resolve_turn(row: Any, turn: str) -> int:
@@ -1411,7 +1411,7 @@ def resolve_turn(row: Any, turn: str) -> int:
     code (``S1901M``, as every message shows): the turn whose board began that
     phase. 400 for anything else, 404 for a phase the game has not reached."""
     text = turn.strip()
-    if text.isdigit():
+    if text.isascii() and text.isdigit():  # not "²", which int() refuses
         return int(text)
     code = text.upper()
     if not _PHASE_CODE_RE.match(code):

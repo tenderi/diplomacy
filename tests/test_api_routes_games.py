@@ -457,6 +457,10 @@ class TestBE4Edges:
         assert (bad.status_code, bad.json()["detail"]) == (
             400, "'soon' is not a turn: give a turn number (3) or a phase code (S1901M).",
         )
+        superscript = client.get(f"/games/{game_id}/history/\u00b2")
+        assert (superscript.status_code, superscript.json()["detail"]) == (
+            400, "'\u00b2' is not a turn: give a turn number (3) or a phase code (S1901M).",
+        )
 
 
 @pytest.mark.unit
