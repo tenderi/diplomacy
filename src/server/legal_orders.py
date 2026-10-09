@@ -94,7 +94,11 @@ def legal_orders_for_power(map: MapData, state: GameState, power: str) -> dict[s
     }
 
     flat: list[str]
-    if state.phase_type is PhaseType.MOVEMENT:
+    if state.status is GameStatus.COMPLETED:
+        # A finished game takes no orders (every write is refused with 409).
+        out["units"] = []
+        orders_by_unit, flat = {}, []
+    elif state.phase_type is PhaseType.MOVEMENT:
         units = sorted(state.units_of(power), key=_unit_key)
         orders_by_unit, flat = _movement_orders(map, state, power, units)
         out["units"] = [_unit_info(u.kind, u.location) for u in units]
