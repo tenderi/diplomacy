@@ -447,11 +447,11 @@ class TestAdjustmentDirection:
         state = _state([self.BUR], ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
         build = validate(Build("FRANCE", Location("PAR"), UnitKind.ARMY), state, m)
         assert (build.ok, build.reason) == (
-            False, "FRANCE has no build to make (1 supply centre, 1 unit); it has no adjustment to make"
+            False, "FRANCE has no build to make: 1 supply centre, 1 unit"
         )
         waive = validate(Waive("FRANCE"), state, m)
         assert (waive.ok, waive.reason) == (
-            False, "FRANCE has no build to waive (1 supply centre, 1 unit); it has no adjustment to make"
+            False, "FRANCE has no build to waive: 1 supply centre, 1 unit"
         )
 
     def test_build_while_owing_disbands_rejected(self, m):
@@ -466,7 +466,7 @@ class TestAdjustmentDirection:
         level = _state([self.BUR], ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
         result = validate(Disband("FRANCE", Location("BUR")), level, m)
         assert (result.ok, result.reason) == (
-            False, "FRANCE has no unit to disband (1 supply centre, 1 unit); it has no adjustment to make"
+            False, "FRANCE has no unit to disband: 1 supply centre, 1 unit"
         )
         up = _state([self.BUR], ownership={"PAR": "FRANCE", "MAR": "FRANCE", "BRE": "FRANCE"},
                     phase_type=PhaseType.ADJUSTMENT)
@@ -564,7 +564,19 @@ class TestPhaseGate:
         assert (result.ok, result.reason) == (
             False,
             "a move order is not accepted during the retreat phase (S1901R); "
-            "RUH is not a legal retreat; to retreat, write A BUR R <one of MUN, PAR>",
+            "RUH is not a legal retreat for A BUR: the unit that dislodged it attacked from there; "
+            "to retreat, write A BUR R <one of MUN, PAR>",
+        )
+
+    def test_the_retreat_hint_with_one_option_names_it_and_says_why(self, m):
+        du = DislodgedUnit(Unit(UnitKind.ARMY, "FRANCE", Location("BUR")), "RUH", (Location("PAR"),))
+        state = _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+        result = validate(parse_order("A BUR - RUH", power="FRANCE", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False,
+            "a move order is not accepted during the retreat phase (S1901R); "
+            "RUH is not a legal retreat for A BUR: the unit that dislodged it attacked from there; "
+            "to retreat, write A BUR R PAR",
         )
 
     def test_the_retreat_hint_offers_disbanding_when_nothing_is_legal(self, m):

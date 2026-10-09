@@ -889,7 +889,7 @@ class TestAdjustmentCounts:
         )
         assert service.submit_orders(gid, "AUSTRIA", ["BUILD A BUD"]) == [{
             "order": "BUILD A BUD", "ok": False,
-            "reason": "AUSTRIA has no build to make (2 supply centres, 2 units); it has no adjustment to make",
+            "reason": "AUSTRIA has no build to make: 2 supply centres, 2 units",
         }]
         assert service.pending_orders_view(gid).get("AUSTRIA", []) == []
 
