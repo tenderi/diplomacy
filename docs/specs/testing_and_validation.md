@@ -78,16 +78,19 @@ misuse among them). Fix or narrowly silence the individual warning instead.
 no database, and no mocks. This is where correctness actually lives:
 
 - `tests/datc/` — one test per official DATC case (6.A–6.J, plus two extra cases in 6.K).
-  149 of 154 pass; 5 are documented `xfail`s with the reason inline. Each is un-xfailed by
-  its milestone of Track BC in [`fix_plan.md`](fix_plan.md), not otherwise (see
-  [`adjudication.md`](adjudication.md) §11).
+  All 154 pass. `test_order_independence.py` runs every movement case again under its
+  own order, reversed and in seeded shuffles (every permutation up to five orders), and
+  requires one result (see [`adjudication.md`](adjudication.md) §11).
 - `tests/datc/harness.py` — `Harness().units(...)`, `.orders(...)`, `.adjudicate()`, the
   retreat and adjustment variants, and `assert_success` / `assert_bounce` /
   `assert_dislodged` / `assert_result`. Use it rather than hand-rolling state.
 - `tests/datc/test_properties.py` — Hypothesis properties over random positions *with
   supports*, so dislodgements happen: shuffling the order list never changes the outcome
   (determinism), ≤1 unit per province after resolution, unit conservation, and every retreat
-  offered is one the rules allow.
+  offered is one the rules allow. Determinism is also checked on 600 seeded convoy-rich
+  boards (`convoy_boards.py`: convoy chains, supported attacks on convoying fleets).
+- `tests/datc/test_szykman_boards.py` — convoy paradoxes found by a differential fuzz,
+  each pinned with its Szykman result under 22 submission orders.
 - `tests/engine/test_purity.py` — every engine import is the standard library or `engine`.
 
 **Service and API** — `GameService` scenarios driven through the real public API

@@ -17,12 +17,13 @@ Each is memoized with a three-valued state (UNRESOLVED / GUESSING / RESOLVED).
 When resolving a predicate re-enters an order already in GUESSING state, a
 dependency cycle exists. The resolver then tries both truth values for the head
 of the cycle; if the outcome is guess-independent it is taken directly, otherwise
-the **backup rule** breaks the cycle:
+the **backup rule** breaks the cycle and the head is resolved again from scratch:
 
-- a cycle of only moves (no convoy involved) is *circular movement* → every move
-  in it succeeds;
-- a cycle that touches a convoy is a *convoy paradox* → **Szykman rule**: the
-  convoyed move(s) in the cycle fail (treated as having no convoy).
+- a cycle holding a convoying fleet and a support is a *convoy paradox* →
+  **Szykman rule**: the convoys of the cycle's fleets are disrupted, so the
+  armies they carry fail (``NO_CONVOY``) and cut nothing; a paradox met while
+  resolving again disrupts its own fleets in turn (second-order paradoxes);
+- any other cycle is *circular movement* → every move in it succeeds.
 
 ## Strength model
 
@@ -78,6 +79,7 @@ class _Item:
     unit: Unit
     state: _S = _S.UNRESOLVED
     value: bool = False  # current guess / resolved truth
+    seq: int = 0  # when its current resolution began (0: never by _resolve)
 
 
 def adjudicate_movement(
@@ -157,111 +159,125 @@ class _Resolver:
                 self.items[prov] = _Item(o, unit)
 
         self._deps: list[str] = []
+        self._seq = 0
+        # Convoying fleets whose convoy the Szykman rule disrupted: they carry no
+        # army, though each still holds (and may be dislodged) like any fleet.
+        self._disrupted: set[str] = set()
 
     # ------------------------------------------------------------------
     # Kruijswijk resolve wrapper
     # ------------------------------------------------------------------
 
     def _resolve(self, prov: str) -> bool:
+        """Kruijswijk's ``Resolve``: the memoized, cycle-aware value of ``prov``.
+
+        Every order read while it is ``GUESSING`` is appended to ``_deps``, so a
+        result computed on a guess is never frozen as ``RESOLVED``. An order whose
+        computation read guesses is the *head* of a cycle when none of those
+        guesses started before it did (``seq``); otherwise the cycle reaches an
+        order further up the call stack, and this order hands its first value up
+        as a guess of its own. The head tries both guesses: one outcome is taken
+        as it is, two go to the backup rule, after which the head is resolved
+        again from scratch (Kruijswijk: ``return Resolve(nr)``).
+        """
         item = self.items[prov]
         if item.state is _S.RESOLVED:
             return item.value
         if item.state is _S.GUESSING:
-            if prov not in self._deps:
-                self._deps.append(prov)
+            # Every read of a guess is a dependency, even of an order already
+            # listed: the caller's result rests on this guess, so it must not be
+            # marked RESOLVED when its own computation returns.
+            self._deps.append(prov)
             return item.value
 
         old_len = len(self._deps)
+        self._seq += 1
+        item.seq = self._seq
         item.value = False
         item.state = _S.GUESSING
         first = self._adjudicate(prov)
 
         if len(self._deps) == old_len:
-            # No cycle touched this order: result is definitive.
-            if item.state is not _S.RESOLVED:
-                item.value = first
-                item.state = _S.RESOLVED
-            return item.value
+            # No guess was read: the result is definitive. (Nothing else can
+            # have resolved this order meanwhile: an order that read its guess
+            # is listed, so no cycle below it had it as a member.)
+            item.value = first
+            item.state = _S.RESOLVED
+            return first
 
-        if self._deps[old_len] != prov:
-            # In a cycle but not its head: propagate the guess upward.
+        if self._reads_outer_guess(old_len, item.seq):
+            # Part of a cycle whose head is further up: hand the value up.
             self._deps.append(prov)
             item.value = first
             return first
 
-        # This order is the head of a dependency cycle. Reset the tail to
-        # UNRESOLVED so that flipping the head's guess propagates all the way
-        # around the loop on the second pass.
-        cycle: list[str] = []
-        while len(self._deps) > old_len:
-            p = self._deps.pop()
-            cycle.append(p)
-            if p != prov:
-                self.items[p].state = _S.UNRESOLVED
-
+        # Head of a cycle: forget the members' guess-pass values and try the
+        # other guess, so it propagates all the way round the loop.
+        self._reset_deps(old_len)
         item.state = _S.GUESSING
         item.value = True
         second = self._adjudicate(prov)
-        del self._deps[old_len:]  # drop deps discovered on the second pass
+
+        if self._reads_outer_guess(old_len, item.seq):
+            # With this guess the cycle reaches an order further up: that
+            # order's head decides, as for a non-head member above.
+            self._deps.append(prov)
+            item.value = second
+            return second
 
         if first == second:
-            # Guess-independent: reset the tail and take the (stable) value.
-            for p in cycle:
-                if p != prov:
-                    self.items[p].state = _S.UNRESOLVED
+            # Guess-independent: the members are resolved again on demand.
+            self._reset_deps(old_len)
             item.value = first
             item.state = _S.RESOLVED
-            return item.value
+            return first
 
-        # Genuine paradox / circular cycle: apply the backup rule.
+        # Two outcomes: a paradox or circular movement. The backup rule fixes
+        # part of the cycle, and everything else in it is resolved afresh.
+        cycle = list(dict.fromkeys(self._deps[old_len:]))
+        self._reset_deps(old_len)
         self._backup_rule(cycle)
-        return item.value
+        return self._resolve(prov)
+
+    def _reads_outer_guess(self, old_len: int, seq: int) -> bool:
+        """Did the computation that started at ``_deps[old_len]`` read a guess
+        begun before the order numbered ``seq`` (one further up the stack)?"""
+        return any(self.items[p].seq < seq for p in self._deps[old_len:])
+
+    def _reset_deps(self, old_len: int) -> None:
+        """Set every order listed from ``old_len`` on back to UNRESOLVED and drop
+        them from the dependency list."""
+        for p in self._deps[old_len:]:
+            self.items[p].state = _S.UNRESOLVED
+        del self._deps[old_len:]
 
     def _backup_rule(self, cycle: list[str]) -> None:
-        """Break a dependency cycle.
+        """Break a cycle that has two outcomes; every member is UNRESOLVED.
 
-        A cycle is a *convoy paradox* only when a convoy's outcome is entangled
-        with a support cut — i.e. the cycle contains both a convoyed move (or a
-        Convoy order) AND a support. Then Szykman applies: the convoyed move(s)
-        fail. A cycle of moves alone — including armies swapping/rotating via
-        convoy with no contested support — is ordinary circular movement: every
-        move succeeds.
+        A cycle that holds a convoying fleet and a support is a *convoy paradox*.
+        The Szykman rule applies: the convoys of the cycle's fleets are disrupted
+        (``_disrupted``), so an army that needs them fails, cuts no support and is
+        reported ``NO_CONVOY``; nothing else is decided, and the caller resolves
+        the cycle again on that basis. Each step disrupts at least one more fleet,
+        and a disrupted fleet is never read again, so this ends.
+
+        Any other cycle is *circular movement*: every move in it succeeds. A cycle
+        always holds a move, since supports and convoys read only moves.
         """
-        has_convoy = any(
-            isinstance(self.items[p].order, Convoy)
-            or (isinstance(self.items[p].order, Move) and self._uses_convoy(self.items[p].order))
-            for p in cycle
-        )
+        fleets = [
+            p for p in cycle
+            if isinstance(self.items[p].order, Convoy) and p not in self._disrupted
+        ]
         has_support = any(
             isinstance(self.items[p].order, (SupportHold, SupportMove)) for p in cycle
         )
-        is_paradox = has_convoy and has_support
-
-        for prov in cycle:
-            item = self.items[prov]
-            o = item.order
-            if is_paradox:
-                # Szykman: convoyed moves in the cycle fail; other orders in the
-                # cycle resolve as though those convoys never happened.
-                if isinstance(o, Move) and self._uses_convoy(o):
-                    item.value = False
-                item.state = _S.RESOLVED
-            else:
-                # Circular movement: every move in the cycle succeeds.
-                item.value = isinstance(o, Move)
-                item.state = _S.RESOLVED
-
-        # Re-resolve any non-move members (supports/convoys) now that the moves
-        # in the cycle are fixed, so their values reflect the resolved cycle.
-        for prov in cycle:
-            item = self.items[prov]
-            if not isinstance(item.order, Move):
-                item.state = _S.UNRESOLVED
-        for prov in cycle:
-            item = self.items[prov]
-            if item.state is _S.UNRESOLVED:
-                self._deps.clear()
-                item.value = self._adjudicate(prov)
+        if fleets and has_support:
+            self._disrupted.update(fleets)
+            return
+        for p in cycle:
+            item = self.items[p]
+            if isinstance(item.order, Move):
+                item.value = True
                 item.state = _S.RESOLVED
 
     # ------------------------------------------------------------------
@@ -590,6 +606,9 @@ class _Resolver:
     # ------------------------------------------------------------------
 
     def _convoy_survives(self, c: Convoy) -> bool:
+        """The Convoy item's predicate: its fleet is not dislodged. Other code
+        reads it only through ``_resolve`` (``_convoy_path_works`` does), so the
+        convoying fleet takes part in dependency cycles like any other order."""
         return not self._is_dislodged(c.unit.province)
 
     def _convoy_has_move(self, c: Convoy) -> bool:
@@ -694,7 +713,9 @@ class _Resolver:
         for item in self.items.values():
             o = item.order
             if isinstance(o, Convoy) and o.origin.province == src and o.dest.province == dst:
-                if not self._is_dislodged(o.unit.province):
+                if o.unit.province in self._disrupted:
+                    continue  # Szykman: a paradox disrupted this convoy
+                if self._resolve(o.unit.province):
                     fleets[o.unit.province] = o.unit
         if not fleets:
             return False
@@ -956,7 +977,9 @@ class _Resolver:
                     code = ResultCode.VOID  # no matching army move to convoy (6.D.27)
                 elif not item.value:
                     code = ResultCode.DISLODGED
-                elif self._convoy_path_intact(o):
+                elif prov in self._disrupted or self._convoy_path_intact(o):
+                    # A fleet whose convoy a paradox disrupted did all it was
+                    # ordered to (DATC 6.F.16 to 6.F.18): OK, though no army crossed.
                     code = ResultCode.OK
                 else:
                     # Fleet survived but its convoy chain is broken elsewhere
