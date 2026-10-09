@@ -72,7 +72,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
-  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE5 next.
+  **Track BE** (findings of the 2026-10-08 play-through) has no open items left.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
