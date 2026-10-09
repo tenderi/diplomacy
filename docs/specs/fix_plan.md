@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-09. `v3.0.88` did BC5 and, with it, BC6, completing Track
+- **Last updated:** 2026-10-09. `v3.0.90` did BE2 (a finished game offers no legal
+  orders, `draw_vote_status` reports the draw that ended it, and the 409 text is
+  capitalized and fitted to the action). `v3.0.88` did BC5 and, with it, BC6, completing Track
   BC: the resolver records every read of a guess, convoys join dependency cycles, and
   the Szykman backup disrupts the cycle's convoys and resolves the cycle again, so
   6.F.16/17/18/23/24 pass (154/154 DATC green) and every case gives one result under
@@ -70,7 +72,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
-  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE2 next.
+  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE3 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -147,15 +149,6 @@ PR per task; each pins its exact texts or responses in tests.
       phase just processed and none is set for the next one, the message must say so
       (e.g. "No deadline is set for <phase>."). The deadline announcement should also say
       it covers the current phase only.
-- [ ] BE2 — **A finished game offers no orders and keeps its draw tally.** (a)
-      `GET /games/{id}/legal_orders/{power}` on a completed game returns the full
-      movement list, every entry of which is then refused with 409; it must return empty
-      lists (the bot and web menus are built from it). (b) After a unanimous draw,
-      `GET /games/{id}/draw_vote_status` returns `votes: []`, every power `missing` and
-      `quorum_reached: false`; it must report the draw that ended the game (its sharers).
-      (c) The 409 text "game N is drawn between …; no further orders or votes are
-      accepted" is also what `process_turn` returns, and starts lowercase: start with a
-      capital and fit the action.
 - [ ] BE3 — **Two order-error texts.** (a) A retreat written as a move, `F RUM - BLA`,
       answers "…BLA is not a legal retreat; to retreat, write F RUM R <one of SEV>":
       with one option write `F RUM R SEV`, and say why BLA is illegal as the `R` form
