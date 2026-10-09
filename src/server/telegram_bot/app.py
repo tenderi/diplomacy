@@ -104,7 +104,7 @@ GROUP_BOT_COMMANDS: list[BotCommand] = [
     BotCommand("newgame", "Start a game for this group"),
     BotCommand("linkgroup", "Make one of your games this group's game"),
     BotCommand("unlinkgroup", "Detach this group's game"),
-    BotCommand("status", "This group's game: phase and who has ordered"),
+    BotCommand("status", "This group's game: phase, who has ordered, and who plays whom"),
     BotCommand("viewmap", "This group's game: the current map"),
     BotCommand("players", "This group's game: its powers and seats"),
     BotCommand("help", "How playing in a group works"),

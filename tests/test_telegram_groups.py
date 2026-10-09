@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import requests
 from telegram.error import BadRequest
 from telegram.ext import Application, ApplicationBuilder, ApplicationHandlerStop
 
@@ -532,6 +533,55 @@ class TestStatusInAGroup:
             "This group's game is Game 2, and in the group I only show that one. "
             "Ask me about Game 1 in a private chat."
         )
+
+
+    SEATS = [
+        {"power": "FRANCE", "nickname": "snake_eyes", "seated": True},
+        {"power": "GERMANY", "seated": True},
+        {"power": "ITALY", "seated": False},
+    ]
+
+    def _seat_run(self, chat_type: str) -> str:
+        update, context = _message_update("/status", chat_type=chat_type)
+        state = {**self.STATE, "dummy_powers": ["RUSSIA"]}
+
+        def games_get(endpoint: str, telegram_id: str | None = None) -> object:
+            if endpoint.endswith("/state"):
+                return state
+            return self.SEATS if endpoint.endswith("/players") else None
+
+        with patch("server.telegram_bot.game_context.api_get",
+                   return_value={"linked": True, "game_id": "2"}), \
+             patch("server.telegram_bot.game_context.current_game", return_value="2"), \
+             patch.object(bot_games, "api_get", side_effect=games_get):
+            asyncio.run(bot_games.status(update, context))
+        return update.message.reply_text.call_args[0][0]
+
+    def test_a_group_status_lists_the_seats_like_players(self) -> None:
+        text = self._seat_run("group")
+        assert text.endswith(
+            "\n👥 *Players*\n"
+            "✅ *FRANCE* - snake\\_eyes\n"
+            "✅ *GERMANY*\n"
+            "✅ *ITALY* - open\n"
+            "🤖 *RUSSIA* - civil disorder\n"
+        )
+
+    def test_a_private_status_has_no_seat_list(self) -> None:
+        assert "Players" not in self._seat_run("private")
+
+    def test_a_group_status_without_a_readable_seat_list_leaves_it_out(self) -> None:
+        update, context = _message_update("/status", chat_type="group")
+
+        def games_get(endpoint: str, telegram_id: str | None = None) -> object:
+            if endpoint.endswith("/players"):
+                raise requests.RequestException("down")
+            return self.STATE if endpoint.endswith("/state") else None
+
+        with patch("server.telegram_bot.game_context.api_get", return_value={"linked": True, "game_id": "2"}), \
+             patch.object(bot_games, "api_get", side_effect=games_get):
+            asyncio.run(bot_games.status(update, context))
+        assert "Players" not in update.message.reply_text.call_args[0][0]
 
 
 class TestReadCommandsInAGroup:
