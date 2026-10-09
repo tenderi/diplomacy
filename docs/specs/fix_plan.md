@@ -155,7 +155,7 @@ PR per task; each pins its exact texts or responses in tests.
       already does. (b) `BUILD A ROM` with nothing to build answers "ITALY has no build to
       make (3 supply centres, 3 units); it has no adjustment to make", which says it
       twice.
-- [ ] BE4 — **API edge cases.** `GET /games/{id}/legal_orders/MORDOR` returns 200 with
+- [x] BE4 — **API edge cases.** `GET /games/{id}/legal_orders/MORDOR` returns 200 with
       empty lists; it must be a 400 naming the powers, as messages do. An empty order
       string is accepted with `results: []`; it must be a 400. `GET /games/{id}/history/…`
       and `/map/history/…` take only a turn number and give a raw 422 for `S1901M`,

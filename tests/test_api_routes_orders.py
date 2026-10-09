@@ -60,6 +60,19 @@ class TestSetOrders:
         assert len(data["results"]) > 0
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    @pytest.mark.parametrize("orders", [[], [""], ["  "]])
+    def test_set_orders_with_nothing_in_it_is_400(self, client, orders):
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user"})
+        headers = _register_and_login(client, "ord_empty")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        resp = client.post("/games/set_orders", json={
+            "game_id": game_id, "power": "FRANCE", "orders": orders,
+            "telegram_id": "test_user", "bot_secret": BOT_SECRET,
+        })
+        assert (resp.status_code, resp.json()["detail"]) == (400, "No orders given: send at least one order.")
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
     def test_set_orders_unauthorized(self, client):
         """Test order submission with unauthorized user."""
         client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "user1"})
