@@ -157,9 +157,24 @@ def test_without_a_schedule_a_processed_turn_still_leaves_no_deadline():
     game_id, users = _game(client, POWERS)
     past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=users["FRANCE"])
-    api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    telegram_id = str(900_000_000 + int(game_id))
+    france_id = int(client.get("/auth/me", headers=users["FRANCE"]).json()["id"])
+    api_shared.db_service.set_user_telegram_id(france_id, telegram_id)
+    posted: list[str] = []
+    with patch.object(api_shared, "_post_turn_to_channel", lambda _g, text, *_a: posted.append(text)):
+        with OutboxProbe() as probe:
+            api_shared.process_due_deadlines(datetime.now(timezone.utc))
     assert client.get(f"/games/{game_id}/state").json()["phase"] == "F1901M"
     assert _deadline(client, game_id) is None
+    # BE1: the spent deadline is said to be gone, in the DM and the group post.
+    assert probe.by_recipient()[telegram_id] == [
+        f"The turn has been processed for game {game_id} because its deadline passed. "
+        "Orders are due for Fall 1901 movement. No deadline is set for Fall 1901 movement."
+    ]
+    assert posted == [
+        "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private."
+        " No deadline is set for Fall 1901 movement."
+    ]
 
 
 def test_removing_the_schedule_keeps_the_current_deadline():
