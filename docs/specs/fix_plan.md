@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-09. `v3.0.90` did BE2 (a finished game offers no legal
+- **Last updated:** 2026-10-09. `v3.0.93` did BE3 (a retreat written as a move names the single legal option and says why; "has no build to make: 3 supply centres, 3 units" no longer says it twice). `v3.0.90` did BE2 (a finished game offers no legal
   orders, `draw_vote_status` reports the draw that ended it, and the 409 text is
   capitalized and fitted to the action). `v3.0.88` did BC5 and, with it, BC6, completing Track
   BC: the resolver records every read of a guess, convoys join dependency cycles, and
@@ -72,7 +72,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
-  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE3 next.
+  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE5 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -149,12 +149,7 @@ PR per task; each pins its exact texts or responses in tests.
       phase just processed and none is set for the next one, the message must say so
       (e.g. "No deadline is set for <phase>."). The deadline announcement should also say
       it covers the current phase only.
-- [ ] BE3 — **Two order-error texts.** (a) A retreat written as a move, `F RUM - BLA`,
-      answers "…BLA is not a legal retreat; to retreat, write F RUM R <one of SEV>":
-      with one option write `F RUM R SEV`, and say why BLA is illegal as the `R` form
-      already does. (b) `BUILD A ROM` with nothing to build answers "ITALY has no build to
-      make (3 supply centres, 3 units); it has no adjustment to make", which says it
-      twice.
+- [x] BE3 — **Two order-error texts.** Done in `v3.0.93`.
 - [x] BE4 — **API edge cases.** `GET /games/{id}/legal_orders/MORDOR` returns 200 with
       empty lists; it must be a 400 naming the powers, as messages do. An empty order
       string is accepted with `results: []`; it must be a 400. `GET /games/{id}/history/…`
