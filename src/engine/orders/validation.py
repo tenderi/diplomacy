@@ -99,7 +99,7 @@ _ACCEPTED_LABEL: dict[PhaseType, str] = {
 }
 
 
-def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
+def _check_phase(order: Order, state: GameState, map: MapData) -> ValidationResult | None:
     """Refuse an order whose kind does not belong to ``state.phase_type``."""
     if isinstance(order, _ORDERS_BY_PHASE[state.phase_type]):
         return None
@@ -115,8 +115,18 @@ def _check_phase(order: Order, state: GameState) -> ValidationResult | None:
             if any(legal.province == order.dest.province for legal in du.retreats):
                 hint = f"to retreat, write {prefix} R {order.dest}"
             elif du.retreats:
-                options = ", ".join(str(legal) for legal in sorted(du.retreats, key=str))
-                hint = f"{order.dest} is not a legal retreat; to retreat, write {prefix} R <one of {options}>"
+                legal = sorted(du.retreats, key=str)
+                why = retreat_refusal(
+                    map, du.unit, order.dest, du.attacker_origin, {u.province for u in state.units}, state.contested
+                )
+                reason = f"{order.dest} is not a legal retreat for {du.unit}"
+                if why:
+                    reason = f"{reason}: {why}"
+                if len(legal) == 1:
+                    hint = f"{reason}; to retreat, write {prefix} R {legal[0]}"
+                else:
+                    options = ", ".join(str(loc) for loc in legal)
+                    hint = f"{reason}; to retreat, write {prefix} R <one of {options}>"
             else:
                 hint = f"it has no legal retreat; write D {prefix} to disband"
             return ValidationResult(False, f"{refusal}; {hint}")
@@ -140,11 +150,19 @@ def _check_adjustment_direction(order: Order, state: GameState) -> ValidationRes
     counts = f"{_plural(centers, 'supply centre')}, {_plural(units, 'unit')}"
     if isinstance(order, (Build, Waive)) and centers <= units:
         verb = "make" if isinstance(order, Build) else "waive"
-        owes = f"must disband {_plural(units - centers, 'unit')}" if centers < units else "has no adjustment to make"
-        return ValidationResult(False, f"{order.power} has no build to {verb} ({counts}); it {owes}")
+        if centers == units:
+            return ValidationResult(False, f"{order.power} has no build to {verb}: {counts}")
+        return ValidationResult(
+            False,
+            f"{order.power} has no build to {verb} ({counts}); it must disband {_plural(units - centers, 'unit')}",
+        )
     if isinstance(order, Disband) and centers >= units:
-        owes = f"may build {_plural(centers - units, 'unit')}" if centers > units else "has no adjustment to make"
-        return ValidationResult(False, f"{order.power} has no unit to disband ({counts}); it {owes}")
+        if centers == units:
+            return ValidationResult(False, f"{order.power} has no unit to disband: {counts}")
+        return ValidationResult(
+            False,
+            f"{order.power} has no unit to disband ({counts}); it may build {_plural(centers - units, 'unit')}",
+        )
     return None
 
 
@@ -160,7 +178,7 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
     player is told *why* rather than having it silently ignored at
     adjudication (see ``_ORDERS_BY_PHASE``).
     """
-    phase_error = _check_phase(order, state)
+    phase_error = _check_phase(order, state, map)
     if phase_error is not None:
         return phase_error
 
