@@ -144,7 +144,9 @@ src/server/daide/
                #   resolves against (created lazily on first successful NME, not at
                #   listener startup — see its docstring), the power/passcode registry,
                #   and the notify_game_processed broadcast (NOW/ORD/OUT/SLO) that fires
-               #   whenever GameService.process_turn runs for a game with live sessions
+               #   whenever GameService.process_turn runs for a game with live sessions,
+               #   and the on_draw_vote hook (_api_module passes api.shared.after_draw_vote,
+               #   so a DRW notifies Telegram without daide/ importing server.api)
 ```
 
 **Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
@@ -258,11 +260,11 @@ place the full picture exists.
 | Broadcast message | all players except the sender | the broadcast text (when `auto_post_broadcasts`, default on) | next poll | `routes/messages.py` |
 | Rumour (anonymous broadcast) | all players, **the sender included**: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
-| Draw vote cast (not final) | all players except the voter: "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw." | — | next poll | `routes/games.py` `submit_draw_vote` |
-| Draw vote withdrawn | all players except the voter: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed)." | — | next poll | `routes/games.py` `submit_draw_vote` |
-| Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `routes/games.py` `submit_draw_vote` |
+| Draw vote cast (not final) | all players except the voter: "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw." | — | next poll | `api.shared.after_draw_vote` |
+| Draw vote withdrawn | all players except the voter: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed)." | — | next poll | `api.shared.after_draw_vote` |
+| Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `api.shared.after_draw_vote` |
 | Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND.") | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.notify_game_drawn` |
-| Draw voted over DAIDE | nobody on Telegram (open: fix_plan BD8); DAIDE sessions get `DRW` | — | next poll | `daide/session.py` `_cmd_drw` |
+| Draw voted over DAIDE (`DRW`, `NOT (DRW)`) | the three draw rows above, to every Telegram player (a DAIDE voter has no Telegram id to leave out); a completed draw also sends `DRW` to every DAIDE session (a draw completed over HTTP does not yet: fix_plan BD10) | as above | next poll | `DaideServer(on_draw_vote=api.shared.after_draw_vote)`, wired in `_api_module` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
 
