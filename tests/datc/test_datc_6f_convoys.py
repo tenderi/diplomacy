@@ -406,7 +406,6 @@ def test_6f15_simple_convoy_paradox_with_additional_convoy():
     assert h.unit_powers_at("BRE") == "FRANCE"
 
 
-@pytest.mark.xfail(reason="second-order convoy paradox: beleaguered-garrison shielding the convoying fleet not yet handled by the single-pass backup rule (Szykman re-resolution needed)", strict=False)
 def test_6f16_pandins_paradox():
     """6.F.16 PANDIN'S PARADOX.
 
@@ -435,7 +434,6 @@ def test_6f16_pandins_paradox():
     assert h.unit_powers_at("BRE") == "FRANCE"
 
 
-@pytest.mark.xfail(reason="second-order convoy paradox (Pandin extended): needs iterative Szykman re-resolution", strict=False)
 def test_6f17_pandins_extended_paradox():
     """6.F.17 PANDIN'S EXTENDED PARADOX.
 
@@ -466,7 +464,6 @@ def test_6f17_pandins_extended_paradox():
     assert h.unit_powers_at("ENG") == "FRANCE"
 
 
-@pytest.mark.xfail(reason="second-order convoy paradox (betrayal): needs iterative Szykman re-resolution", strict=False)
 def test_6f18_betrayal_paradox():
     """6.F.18 BETRAYAL PARADOX.
 
@@ -611,7 +608,6 @@ def test_6f22_second_order_paradox_with_two_resolutions():
     assert h.unit_powers_at("NTH") == "ENGLAND"
 
 
-@pytest.mark.xfail(reason="second-order paradox with two exclusive convoys: needs iterative Szykman re-resolution", strict=False)
 def test_6f23_second_order_paradox_with_two_exclusive_convoys():
     """6.F.23 SECOND ORDER PARADOX WITH TWO EXCLUSIVE CONVOYS.
 
@@ -648,7 +644,6 @@ def test_6f23_second_order_paradox_with_two_exclusive_convoys():
     assert h.unit_powers_at("NTH") == "RUSSIA"
 
 
-@pytest.mark.xfail(reason="second-order paradox with no resolution: needs the all-convoys-fail fallback", strict=False)
 def test_6f24_second_order_paradox_with_no_resolution():
     """6.F.24 SECOND ORDER PARADOX WITH NO RESOLUTION.
 

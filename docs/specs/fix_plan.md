@@ -16,7 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-08. `v3.0.84` did BD8 (a draw vote cast over DAIDE, its
+- **Last updated:** 2026-10-09. `v3.0.88` did BC5 and, with it, BC6, completing Track
+  BC: the resolver records every read of a guess, convoys join dependency cycles, and
+  the Szykman backup disrupts the cycle's convoys and resolves the cycle again, so
+  6.F.16/17/18/23/24 pass (154/154 DATC green) and every case gives one result under
+  any submission order. `v3.0.84` did BD8 (a draw vote cast over DAIDE, its
   withdrawal and a draw it completes notify the Telegram players and the group exactly as
   an HTTP vote does: both run `api.shared.after_draw_vote`). `v3.0.83` did BD9 (the web results list says a
   civil-disorder disband was not ordered). `v3.0.85` (merged before `v3.0.83`) fixed a
@@ -65,130 +69,9 @@
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BC** (the DATC hard tail) is open agent work, BC5 next.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
   **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE1 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
-
----
-
-# Track BC — DATC hard tail
-
-Five DATC cases are `xfail`: 6.F.16, 6.F.17, 6.F.18, 6.F.23, 6.F.24
-(`tests/datc/`). This track makes them pass, one small PR per milestone,
-with the targeted fixes first and the paradox resolver after. The expected outcomes are
-the DATC's preferred ones (1982/2000 rulebook, Szykman paradox rule) and already sit in
-the tests. `git show v2.7.68:old_implementation/diplomacy/tests/test_datc.py` holds the
-old engine's version of each case, result codes included.
-
-To see what the engine does on one case, run it with `--runxfail`:
-`PYTHONPATH=src python -m pytest tests/datc -q --runxfail -k 6f16`.
-
-**Root causes** (found 2026-10-06 by running each case; prototypes of BC1 to BC4 each
-turned their cases green, with the rest of `tests/datc` and `tests/engine` green too):
-
-- **6.G.11: convoy intent is inferred only for a swap.** Without `VIA`, `_uses_convoy` treats
-  an adjacent army move as convoyed only if its own power ordered the convoy *and* the
-  move is a swap (`_is_swap`). The 1982/2000 rule (choice d of DATC 4.A.3) needs only the
-  own-power convoy order. The swap condition was a stand-in for 6.G.7 and is not needed
-  once BC2 voids impossible convoy orders. With the condition dropped, the existing
-  backup rule already gets 6.G.11 right.
-- **6.F.16, 6.F.17, 6.F.18: first-order paradoxes the resolver detects wrongly.** The
-  xfail reasons call them second-order; they are not. Three defects in `_resolve` and
-  `_backup_rule`, which all matter:
-  1. *A dependency is lost.* On re-entering a `GUESSING` order, `_resolve` appends it to
-     `_deps` only if it is not already there, and a computation counts as guess-free when
-     `_deps` did not grow. So an order whose result reads an already-listed guess is
-     marked `RESOLVED` on that guess. In 6.F.16, `F BEL - ENG` is frozen as succeeding on
-     the guess that London's support is cut.
-  2. *Convoys sit outside the dependency graph.* `_convoy_path_works` asks
-     `_is_dislodged` directly instead of resolving the Convoy order through `_resolve`.
-     The convoying fleet and the convoyed army therefore never appear in a cycle, and
-     `_backup_rule` can classify a convoy paradox as circular movement.
-  3. *Szykman fixes too little.* `_backup_rule` sets the convoyed move to `False`, but
-     (a) it keeps the guess-pass value for every other move in the cycle, and (b) it does
-     not record the convoy as disrupted, so `_convoy_path_works` recomputes it live and
-     the re-resolution of the cycle's supports re-enters the same paradox.
-
-  A quick prototype that fixed (1) and (2) and re-resolved the whole cycle after Szykman
-  recursed without end on 6.F.14/15/22, or fell into the circular-movement branch. The
-  fix is a restructure of `_resolve`/`_backup_rule`, not a patch: BC5.
-- **6.F.23, 6.F.24: genuine second-order paradoxes.** Two convoys each decide whether the
-  other's support is cut. 6.F.23 has two consistent outcomes and 6.F.24 has none. DATC's
-  Szykman rule fails *every* convoyed move in the paradox core, and then nothing that
-  depended on them changes. Today both armies already fail, but the fleets attacking the
-  convoys keep their guessed success (same root as above). These cases need BC5's
-  machinery plus iteration: BC6.
-
-**Every milestone's "done" check:** the cases it names lose their `xfail` and pass; the
-rest of `tests/datc` and `tests/engine` stay green, including the order-shuffling
-determinism property in `tests/datc/test_properties.py`; `tests/engine/test_purity.py`
-passes (stdlib only); `coverage report --include='src/engine/*' --fail-under=95` holds;
-and the full local gates in CLAUDE.md pass. Each milestone also updates the DATC counts
-and its entry in `docs/specs/adjudication.md` §3/§5/§6/§11,
-`docs/specs/testing_and_validation.md`, `CODEBASE_OVERVIEW.md` ("Conformance") and
-CLAUDE.md's DATC sentence, and removes its cases from those lists. A milestone that
-changes another case's result code says so in its commit, citing v2.7.68's expectation.
-
-- [x] BC1 — **6.E.8, 6.E.10: report a support for an attack on one's own unit as `VOID`
-      unless it served other means.** In `src/engine/adjudicator/movement.py`
-      `_support_is_void` (the reporting path, `count_own_unit_rule=True`), replace the
-      `_destination_contested_by_other` test with "the support was decisive elsewhere":
-      the support is given, and the supported move's prevent strength equals the attack
-      strength of another move into the same destination, so without it that move would
-      have won. Keep the rule reporting-only: `_support_given` must not call it (see
-      adjudication.md §5 on why). Drop `_destination_contested_by_other` if it is left
-      unused. Cases: 6.E.8, 6.E.10. 6.E.9 and 6.E.12 must stay green.
-- [x] BC2 — **6.G.7: a convoy order no route can use is illegal.** In `_Resolver.__init__`,
-      a `Convoy` whose fleet is not on a possible route is void: it is reported `VOID`,
-      kept out of `items`, and shows no intent. "Possible route" means a chain of fleets
-      currently in sea provinces (any power, any order) that starts at a fleet touching
-      the army's province, passes through this fleet, and ends at a fleet touching the
-      destination. Add one helper (BFS from each end over sea fleets) that BC3 reuses.
-      `server/legal_orders.py` already offers convoys only along fleet-held chains
-      (`_convoy_shores`), so the two agree. Case: 6.G.7. Add a mechanics test for a
-      coastal-province fleet's convoy order (6.F.1's `F CON`) being `VOID`.
-- [x] BC3 — **6.D.8: an army move is legal when the board allows a convoy, ordered or not.**
-      Replace `_legal_move`'s `(src, dst) in self._convoy_pairs` check with BC2's `_possible_route`
-      possible-route helper, and delete `_convoy_pairs`. Add to `_support_is_void`: a
-      support of a convoyed move is void when no possible route remains without the
-      supporting fleet (6.D.31). Change 6.F.1's `A GRE` assertion to `VOID` and 6.D.31's
-      `A RUM` to `NO_CONVOY` (both v2.7.68's codes; fix the docstrings to match).
-      6.D.32 must stay green. Leave submission validation (`orders/validation.py`) as it
-      is: it already accepts a non-adjacent move between two coasts. Case: 6.D.8.
-- [x] BC3b — **`_possible_route` must search simple paths.** Its `through` check accepts a
-      dead-end fleet: on the board `A HOL - BEL`, `F NTH C A HOL - BEL`, `F SKA C A HOL - BEL`,
-      `F BEL - HOL`, the route NTH → SKA → NTH counts, so SKA's convoy order is not `VOID`
-      and shows intent. No current case depends on it, but BC4 makes any own-power convoy
-      order show intent, so this has to land before BC4. Require the route through the
-      fleet to visit no province twice; add the board above as a mechanics test.
-- [x] BC4 — **6.G.11: an own-power convoy order shows intent, swap or not.** In
-      `_uses_convoy`, drop `and self._is_swap(m)` from the no-`VIA` branch (and `_is_swap`
-      if it is then unused). Do this after BC2, which is what keeps 6.G.7 correct. Update
-      adjudication.md §6. Case: 6.G.11. The rest of 6.G must stay green.
-- [ ] BC5 — **6.F.16, 6.F.17, 6.F.18: rebuild cycle detection and the Szykman backup.**
-      In `movement.py`:
-      (1) record every read of a `GUESSING` order as a dependency, so that any result
-      computed on a guess is never marked `RESOLVED`;
-      (2) decide a convoying fleet's survival through `_resolve` on its Convoy item, so
-      convoys join cycles;
-      (3) in `_backup_rule`, apply Szykman by adding the cycle's convoyed armies to a
-      "convoy disrupted" set that `_convoy_path_works` honours (they fail, cut nothing and
-      get `NO_CONVOY`), then reset *every* other cycle member to `UNRESOLVED` and resolve
-      it again; a move's guess-pass value is never kept.
-      Follow Kruijswijk's published algorithm ("The Math of Adjudication") for the
-      `_resolve` skeleton, and add mechanics tests that pin (1) and (2) on their own.
-      6.C (circular movement) and 6.F.14, 6.F.15, 6.F.19 to 6.F.22 must stay green. If
-      this runs past an hour, land (1) and (2) first as one PR with their mechanics tests
-      and the suite green, and (3) as a second.
-- [ ] BC6 — **6.F.23, 6.F.24: iterate Szykman over second-order paradoxes.** When
-      re-resolution after a Szykman step meets another paradox, fail the convoyed moves
-      of that one too, and repeat until no paradox remains. This ends because every round
-      fails at least one more convoyed move. A cycle with no convoyed move left falls back
-      to the circular-movement rule. Document the loop in adjudication.md §3 and drop the
-      "single-pass" paragraph. Cases: 6.F.23, 6.F.24. 6.F.22 must stay green.
-- [ ] **Done when:** every box above is checked, `tests/datc` has no `xfail`, and the docs
-      and CLAUDE.md say 154/154.
 
 ---
 
