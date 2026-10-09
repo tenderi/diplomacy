@@ -16,7 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-09. `v3.0.93` did BE3 (a retreat written as a move names the single legal option and says why; "has no build to make: 3 supply centres, 3 units" no longer says it twice). `v3.0.90` did BE2 (a finished game offers no legal
+- **Last updated:** 2026-10-09. `v3.0.93` did BE3 (a retreat written as a move names the
+  single legal option and says why; "has no build to make: 3 supply centres, 3 units" no
+  longer says it twice). `v3.0.92` did BE4 (API edge cases), completing Track BE.
+  `v3.0.91` did #199 (`/status` in a group also lists each power's seat, as `/players`
+  does). `v3.0.90` did BE2 (a finished game offers no legal
   orders, `draw_vote_status` reports the draw that ended it, and the 409 text is
   capitalized and fitted to the action). `v3.0.88` did BC5 and, with it, BC6, completing Track
   BC: the resolver records every read of a guess, convoys join dependency cycles, and

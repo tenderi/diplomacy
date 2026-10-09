@@ -232,7 +232,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # reply, and "You are: GERMANY" would unmask an anonymous game.
         try:
             group_game_id = group_read_game(chat.id, game_id_arg)
-            text = status_text(group_game_id, None, user_id)
+            text = status_text(group_game_id, None, user_id, with_players=True)
         except GameContextError as e:
             await update.message.reply_text(e.message)
             return
@@ -259,11 +259,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, parse_mode='Markdown')
 
 
-def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Optional[str] = None) -> str:
+def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Optional[str] = None,
+                with_players: bool = False) -> str:
     """The /status report for ``game_id``: phase, deadline, who has ordered,
     wait flags and the draw vote. Shared with the game menu (``hub.py``), whose
     header it is. ``power`` None (a group's /status) leaves out the "You are"
-    line. Raises ``requests.RequestException`` only when the game state itself
+    line. ``with_players`` (a group's /status) appends the seat list, as /players
+    shows it. Raises ``requests.RequestException`` only when the game state itself
     can't be read; the other parts are left out if they fail."""
     view = api_get(f"/games/{game_id}/state")
 
@@ -324,6 +326,15 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
             if draw_votes:
                 text += " (" + ", ".join(draw_votes) + ")"
             text += "\n"
+
+    if with_players:
+        try:
+            seats = api_get(f"/games/{game_id}/players")
+        except requests.RequestException:
+            seats = None
+        dummies = (view.get("dummy_powers") or []) if isinstance(view, dict) else []
+        if seats or dummies:
+            text += "\n👥 *Players*\n" + "\n".join(seat_lines(seats or [], dummies)) + "\n"
     return text
 
 
@@ -775,6 +786,29 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+def seat_lines(players_list: list, dummies: list) -> list[str]:
+    """One Markdown line per seat, shared by /players and a group's /status.
+
+    ``nickname`` is user-controlled and these messages are sent with
+    parse_mode='Markdown', so it is escaped -- an unescaped `_`/`*`/`` ` ``/`[`
+    once made Telegram reject the whole message. A held seat with no nickname
+    (or any seat of an anonymous game, which sends none) is the power alone."""
+    lines = []
+    for player in players_list:
+        power = player.get('power', 'Unknown')
+        status_emoji = "✅" if player.get('is_active', True) else "❌"
+        if player.get('nickname'):
+            who = f" - {escape_markdown(player['nickname'])}"
+        elif player.get('seated', player.get('user_id') is not None):
+            who = ""
+        else:
+            who = " - open"
+        lines.append(f"{status_emoji} *{power}*{who}")
+    for power in dummies:
+        lines.append(f"🤖 *{power}* - civil disorder")
+    return lines
+
+
 async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /players command - list all players in current game with their powers."""
     user = update.effective_user
@@ -818,26 +852,7 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"No players found in game {game_id}.")
         return
 
-    # Format player list. `nickname` is user-controlled and this message is sent
-    # with parse_mode='Markdown', so it must be escaped -- an unescaped
-    # `_`/`*`/`` ` ``/`[` once made Telegram reject the whole message, so
-    # /players silently did nothing for that player.
-    lines = [f"👥 *Players in Game {game_id}*\n"]
-    for player in players_list:
-        power = player.get('power', 'Unknown')
-        is_active = player.get('is_active', True)
-        status_emoji = "✅" if is_active else "❌"
-        # A held seat with no nickname -- or any seat of an anonymous game,
-        # which sends none -- is the power alone.
-        if player.get('nickname'):
-            who = f" - {escape_markdown(player['nickname'])}"
-        elif player.get('seated', player.get('user_id') is not None):
-            who = ""
-        else:
-            who = " - open"
-        lines.append(f"{status_emoji} *{power}*{who}")
-    for power in dummies:
-        lines.append(f"🤖 *{power}* - civil disorder")
+    lines = [f"👥 *Players in Game {game_id}*\n", *seat_lines(players_list, dummies)]
 
     try:
         await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
