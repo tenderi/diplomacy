@@ -97,6 +97,8 @@ def set_orders(
     1)"``) or is ``null``.
     """
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
+    if not any(o.strip() for o in req.orders):
+        raise HTTPException(status_code=400, detail="No orders given: send at least one order.")
     if not game_service.exists(str(req.game_id)):
         raise HTTPException(status_code=404, detail="Game not found")
     _refuse_if_stale(str(req.game_id), req.client_timestamp)

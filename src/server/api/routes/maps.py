@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials
 
-from ..shared import db_service, game_service, is_bot_secret
+from ..shared import db_service, game_service, is_bot_secret, resolve_turn
 from .auth import get_current_user_optional, http_bearer, require_bot_or_user, require_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
@@ -290,7 +290,7 @@ def get_game_resolution_map_png(game_id: str) -> Response:
 
 
 @router.get("/games/{game_id}/map/history/{turn}", response_class=Response)
-def get_game_map_history_png(game_id: str, turn: int) -> Response:
+def get_game_map_history_png(game_id: str, turn: str) -> Response:
     """Return the rendered PNG for a historical turn (``_turn_board``).
 
     Historical state comes from ``map_snapshots`` (``MapSnapshotModel``), written
@@ -302,13 +302,14 @@ def get_game_map_history_png(game_id: str, turn: int) -> Response:
     row = db_service.get_game_by_game_id(game_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    hist_view = _turn_board(game_id, row, turn)
+    turn_no = resolve_turn(row, turn)
+    hist_view = _turn_board(game_id, row, turn_no)
     svg_path = svg_path_for_map_name(hist_view["map_name"])
     try:
         img_bytes = Map.render_board_png(
             svg_path,
             units_for_render(hist_view),
-            phase_info=phase_info(hist_view, turn),
+            phase_info=phase_info(hist_view, turn_no),
             supply_center_control=dict(hist_view["ownership"]),
             retreat_options=retreat_options_for_render(hist_view),
         )
@@ -318,7 +319,7 @@ def get_game_map_history_png(game_id: str, turn: int) -> Response:
 
 
 @router.get("/games/{game_id}/map/turn/{turn}/orders", response_class=Response)
-def get_turn_orders_map_png(game_id: str, turn: int) -> Response:
+def get_turn_orders_map_png(game_id: str, turn: str) -> Response:
     """The orders of processed turn ``turn`` on the board they were given on, each
     arrow coloured by what it did, with standoffs marked.
 
@@ -331,12 +332,13 @@ def get_turn_orders_map_png(game_id: str, turn: int) -> Response:
     row = db_service.get_game_by_game_id(game_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    resolution = game_service.resolution_history(game_id).get(str(turn))
+    turn_no = resolve_turn(row, turn)
+    resolution = game_service.resolution_history(game_id).get(str(turn_no))
     if not resolution:
         raise HTTPException(status_code=404, detail="No orders recorded for this turn.")
-    board = _turn_board(game_id, row, turn)
+    board = _turn_board(game_id, row, turn_no)
     try:
-        img_bytes = _render_turn(board, resolution, turn)
+        img_bytes = _render_turn(board, resolution, turn_no)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
     return Response(content=img_bytes, media_type="image/png")

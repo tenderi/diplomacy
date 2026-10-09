@@ -170,7 +170,7 @@ Plus denormalized convenience columns kept in sync for code that doesn't want to
 There are no relational unit, order or supply-centre tables: `state_json` holds the
 board, and `map_snapshots` one row per turn: the board the turn began on (turn 0, the
 opening board, is written by `GameRepo.create`; every later one after the turn before it is
-processed). `/history/{turn}` and `/map/history/{turn}` read it; for a game created
+processed). `/history/{turn}`, `/map/history/{turn}` and `/map/turn/{turn}/orders` read it, `{turn}` being a number or a phase code (`S1901M`, the board that began that phase; 400 for neither, 404 for a phase not reached); for a game created
 before the turn-0 row existed they fall back to the opening board, which every game starts
 from.
 
@@ -432,7 +432,7 @@ are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are 
 (`merge=true`, every bot path) the stored ones are trimmed to make room for the new ones —
 stored waives first, then the oldest — so the stored list never exceeds the count: a
 `WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does. The
-player is told: each `POST /games/set_orders` result is
+player is told (`POST /games/set_orders` with no order in it is a 400; `GET /games/{id}/legal_orders/{power}` for a name that is not a power is a 400 naming the powers): each `POST /games/set_orders` result is
 `{order, success, error, replaced, note}`, where `replaced` lists the stored orders that
 accepted order pushed out (stored form, oldest first; `[]` when none) and `note` says so
 (`replaced BUILD F BRE (you may build 1)`, or `you must disband N` for disbands; `null`
