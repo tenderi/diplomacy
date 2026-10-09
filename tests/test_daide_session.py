@@ -549,7 +549,7 @@ class TestReasonToNoteToken:
             ("fleet retreat into split-coast STP must name a coast", t.CST),
             ("cannot build a fleet on landlocked SWI", t.NAS),
             ("cannot build an army at sea: NTH", t.NAS),
-            ("AUSTRIA has no build to make (2 supply centres, 2 units); it has no adjustment to make", t.NMB),
+            ("AUSTRIA has no build to make: 2 supply centres, 2 units", t.NMB),
             ("TURKEY has no build to waive (3 supply centres, 4 units); it must disband 1 unit", t.NMB),
             ("ENGLAND has 1 build; 2 builds/waives submitted", t.NMB),
             ("GERMANY has no unit to disband (4 supply centres, 2 units); it may build 2 units", t.NMR),
