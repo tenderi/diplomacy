@@ -72,7 +72,6 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
-  **Track BE** (findings of the 2026-10-08 play-through) has no open items left.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -132,29 +131,6 @@ wrong. One small PR per task; each pins its exact texts in tests.
       so `GET /games/{id}/state` keeps showing the old pending orders for up to its 30 s
       TTL (`tests/test_cache_coherence.py` covers only HTTP writes). Same hook shape as
       BD8's `on_draw_vote`.
-
----
-
-# Track BE — play-through findings, 2026-10-08
-
-A play-through from Spring 1901 to a draw in Fall 1905 found no wrong adjudication and no
-500s, and every order `legal_orders` offered was accepted. It did find these. One small
-PR per task; each pins its exact texts or responses in tests.
-
-- [x] BE1 — **A turn processed before its deadline says the deadline is gone.** Setting a
-      deadline tells everyone "Deadline for game N set to … Orders in by then; the turn is
-      processed automatically when it passes." Processing the turn early clears it
-      (`GET /games/{id}/deadline` → `null`), but the turn-processed DM and group post say
-      nothing, so players keep expecting the old date. When a deadline was set for the
-      phase just processed and none is set for the next one, the message must say so
-      (e.g. "No deadline is set for <phase>."). The deadline announcement should also say
-      it covers the current phase only.
-- [x] BE3 — **Two order-error texts.** Done in `v3.0.93`.
-- [x] BE4 — **API edge cases.** `GET /games/{id}/legal_orders/MORDOR` returns 200 with
-      empty lists; it must be a 400 naming the powers, as messages do. An empty order
-      string is accepted with `results: []`; it must be a 400. `GET /games/{id}/history/…`
-      and `/map/history/…` take only a turn number and give a raw 422 for `S1901M`,
-      the phase code every message shows; accept the phase code too.
 
 ---
 
