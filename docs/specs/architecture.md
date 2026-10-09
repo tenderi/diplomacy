@@ -307,6 +307,9 @@ one more line, in that power's DM and in the channel post
 These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
+When the phase just processed had a deadline and the new one has none, they end with
+"No deadline is set for <phase>." instead. A deadline announcement ("Deadline for game N set to …")
+adds "This deadline covers the current phase only."
 
 **How a player is named** depends on the game (`games.anonymous`, fixed at creation).
 Every notification that names a power — join, quit, takeover, wait flag, draw vote,

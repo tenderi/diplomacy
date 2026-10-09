@@ -70,7 +70,7 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BD** (play-through wording fixes) is open agent work, BD10 next.
-  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE1 next.
+  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE2 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -139,7 +139,7 @@ A play-through from Spring 1901 to a draw in Fall 1905 found no wrong adjudicati
 500s, and every order `legal_orders` offered was accepted. It did find these. One small
 PR per task; each pins its exact texts or responses in tests.
 
-- [ ] BE1 — **A turn processed before its deadline says the deadline is gone.** Setting a
+- [x] BE1 — **A turn processed before its deadline says the deadline is gone.** Setting a
       deadline tells everyone "Deadline for game N set to … Orders in by then; the turn is
       processed automatically when it passes." Processing the turn early clears it
       (`GET /games/{id}/deadline` → `null`), but the turn-processed DM and group post say
