@@ -62,10 +62,12 @@ apply the `agent` label yourself.
 whenever you are deciding whether to start something new.
 
 1. **Orient.** Read the journal issue (label `lead-journal`; create it if it doesn't exist,
-   titled "Lead agent journal", and pin it). Read the latest few entries, open PRs (`gh pr
-   list`), `docs/specs/fix_plan.md`, and production health (see below). Then read
-   `CLAUDE.md` and `CODEBASE_OVERVIEW.md`. They are the project's rules, and your workers
-   follow them too.
+   titled "Lead agent journal", and pin it), but only its last two entries:
+   `gh issue view <n> -R tenderi/diplomacy --json comments --jq '.comments[-2:][].body'`.
+   Then open PRs (`gh pr list`), the Status block of `docs/specs/fix_plan.md` (read a
+   track's section only when you pick work from it), and production health (see below).
+   `CLAUDE.md` is already in your context, and your workers' too: don't read it again.
+   Open `CODEBASE_OVERVIEW.md` only for the module a task touches.
    **If the last entry says "stopped:"** (usage limit, crash, timeout), the previous run died
    mid-cycle. That entry was written by the workflow, not by an agent. Before anything new:
    recover its subagent reports with the command in that entry, finish, fix or close the
@@ -131,6 +133,24 @@ only in your context is gone. So write things down as soon as they exist, not at
   do yourself: commit and push as you go, never hold an hour of edits only in a worktree.
 - **Every PR stands on its own.** A worker's PR must make sense to a later run that never
   saw your brief: the PR body carries the goal and the state of the work.
+- **Keep your own context small.** Every turn you take re-sends your whole context, so
+  the lead's context is the most expensive thing in a run, and most of a run's usage. A
+  file you `cat` stays in it for the rest of the run, and is paid for again on every turn.
+  - Don't read a PR's full diff or the code behind it: that is the reviewer's job, and its
+    report is what you decide on. Read `gh pr diff <n> --name-only` and the PR body. Read a
+    diff yourself only when it is short (under ~150 lines), and then skip the reviewer.
+  - Make waits silent, so a watch costs one turn and a few lines:
+    `gh pr checks <n> -R tenderi/diplomacy --watch >/dev/null; gh pr checks <n> -R tenderi/diplomacy`
+    and `gh run watch <id> -R tenderi/diplomacy --exit-status >/dev/null && echo ok`.
+    Never poll in a loop of separate tool calls.
+  - Cut long output down before it reaches you: `| tail -20`, `grep`, `--jq`, `-q`.
+  - Batch commands: one tool call that does five things is cheaper than five calls.
+- **Pick the model per subagent.** Pass `model` on every `Agent` call: `opus` for
+  adjudication, the engine, concurrency, auth, migrations, or anything a wrong answer
+  would quietly corrupt; `sonnet` for UI, bot text, docs, tests, dependency bumps and most
+  reviews. The `reviewer` defaults to `sonnet`; give it `opus` for engine or security PRs.
+  Run at most two workers at a time, and give each a brief tight enough that it doesn't
+  have to rediscover what you already know.
 - **Spend in order of value.** Start the work that matters most first. Don't start four
   large parallel agents when one would answer the question, and run discovery sweeps
   (play-throughs, audits) one at a time. If a subagent fails with `rate_limit` / HTTP 429,
