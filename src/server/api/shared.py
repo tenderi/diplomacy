@@ -11,6 +11,8 @@ import math
 import os
 import pytz
 from datetime import datetime, timezone, timedelta
+import re
+from fastapi import HTTPException
 from typing import Callable, Dict, Any, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
@@ -1399,3 +1401,27 @@ def _scheduler_tick(now: datetime, *, startup: bool = False, housekeeping: bool 
     if housekeeping:
         run_housekeeping()
 
+
+
+_PHASE_CODE_RE = re.compile(r"^[SFW]\d{4}[MRA]$", re.ASCII)
+
+
+def resolve_turn(row: Any, turn: str) -> int:
+    """A turn number from a path segment that is a number (``3``) or a phase
+    code (``S1901M``, as every message shows): the turn whose board began that
+    phase. 400 for anything else, 404 for a phase the game has not reached."""
+    text = turn.strip()
+    if text.isascii() and text.isdigit():  # not "²", which int() refuses
+        return int(text)
+    code = text.upper()
+    if not _PHASE_CODE_RE.match(code):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{turn!r} is not a turn: give a turn number (3) or a phase code (S1901M).",
+        )
+    snapshot = db_service.get_latest_game_snapshot_by_game_id_and_phase_code(int(row.id), code)
+    if snapshot is not None:
+        return int(snapshot.turn_number)
+    if code == game_service.opening_snapshot()["phase_code"]:
+        return 0
+    raise HTTPException(status_code=404, detail=f"No board recorded for phase {code}.")

@@ -427,6 +427,43 @@ class TestGameHistory:
 
 
 @pytest.mark.unit
+class TestBE4Edges:
+    """BE4: an unknown power is a 400 naming the powers; a phase code names a turn."""
+
+    POWERS = "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY"
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_legal_orders_for_an_unknown_power_is_400(self, client):
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        for url in (f"/games/{game_id}/legal_orders/MORDOR", f"/games/{game_id}/legal_orders/MORDOR/A%20PAR"):
+            resp = client.get(url)
+            assert (resp.status_code, resp.json()["detail"]) == (
+                400, f"MORDOR is not a power. The powers are {self.POWERS}.",
+            )
+        assert client.get(f"/games/{game_id}/legal_orders/france").status_code == 200
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_history_takes_a_phase_code_as_well_as_a_number(self, client):
+        game_id = client.post("/games/create", json={"map_name": "standard"}).json()["game_id"]
+        by_number = client.get(f"/games/{game_id}/history/0").json()
+        for code in ("S1901M", "s1901m"):
+            resp = client.get(f"/games/{game_id}/history/{code}")
+            assert (resp.status_code, resp.json()) == (200, by_number)
+        png = client.get(f"/games/{game_id}/map/history/S1901M")
+        assert (png.status_code, png.content[:8]) == (200, b"\x89PNG\r\n\x1a\n")
+        unreached = client.get(f"/games/{game_id}/history/F1950M")
+        assert (unreached.status_code, unreached.json()["detail"]) == (404, "No board recorded for phase F1950M.")
+        bad = client.get(f"/games/{game_id}/history/soon")
+        assert (bad.status_code, bad.json()["detail"]) == (
+            400, "'soon' is not a turn: give a turn number (3) or a phase code (S1901M).",
+        )
+        superscript = client.get(f"/games/{game_id}/history/\u00b2")
+        assert (superscript.status_code, superscript.json()["detail"]) == (
+            400, "'\u00b2' is not a turn: give a turn number (3) or a phase code (S1901M).",
+        )
+
+
+@pytest.mark.unit
 class TestOpeningBoardHistory:
     """BA7: ``/history/0`` is the board a game starts on, not a 404."""
 

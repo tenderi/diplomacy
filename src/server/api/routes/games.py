@@ -22,7 +22,7 @@ from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, get_process_turn_lock, game_buttons,
-    post_to_game_group, is_anonymous, player_rows, power_label,
+    post_to_game_group, is_anonymous, player_rows, power_label, resolve_turn,
 )
 from ...deadline_schedule import ScheduleError, parse_schedule
 from engine.types import GameStatus
@@ -1502,7 +1502,7 @@ def set_deadline(
     }
 
 @router.get("/games/{game_id}/history/{turn}")
-def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
+def get_game_history(game_id: str, turn: str) -> Dict[str, Any]:
     """Everything known about one turn: the board it was played on, the orders
     submitted to get there, and what those orders did.
 
@@ -1521,6 +1521,11 @@ def get_game_history(game_id: str, turn: int) -> Dict[str, Any]:
     row = db_service.get_game_by_game_id(str(game_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    turn_no = resolve_turn(row, turn)
+    return _game_history(game_id, row, turn_no)
+
+
+def _game_history(game_id: str, row: Any, turn: int) -> Dict[str, Any]:
     snapshot = db_service.get_game_snapshot_by_game_id_and_turn(game_id=int(row.id), turn=turn)
     board: Optional[Dict[str, Any]] = None
     if snapshot is not None:
@@ -1677,6 +1682,15 @@ def debug_unit_locations(game_id: str) -> Dict[str, Any]:
     }
 
 
+def _require_power(power: str) -> str:
+    """``power`` upper-cased, or a 400 naming the powers (as the messages routes do)."""
+    name = power.strip().upper()
+    powers = sorted(game_service.map.home_centers)
+    if name not in powers:
+        raise HTTPException(status_code=400, detail=f"{name} is not a power. The powers are {', '.join(powers)}.")
+    return name
+
+
 @router.get("/games/{game_id}/legal_orders/{power}")
 def get_legal_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     """Phase-aware legal order strings for every unit ``power`` controls.
@@ -1690,7 +1704,7 @@ def get_legal_orders_for_power(game_id: str, power: str) -> Dict[str, Any]:
     game = game_service.load(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return legal_orders_for_power(game_service.map, game.state, power.upper())
+    return legal_orders_for_power(game_service.map, game.state, _require_power(power))
 
 
 @router.get("/games/{game_id}/legal_orders/{power}/{unit}")
@@ -1716,7 +1730,7 @@ def get_legal_orders(game_id: str, power: str, unit: str) -> Dict[str, Any]:
     kind, loc_token = parts[0], parts[1]
     province = loc_token.split("/")[0]
 
-    data = legal_orders_for_power(game_service.map, game.state, power.upper())
+    data = legal_orders_for_power(game_service.map, game.state, _require_power(power))
     orders_by_unit: Dict[str, List[str]] = data["orders_by_unit"]
 
     exact_key = f"{kind} {loc_token}"
