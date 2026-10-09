@@ -146,7 +146,8 @@ src/server/daide/
                #   and the notify_game_processed broadcast (NOW/ORD/OUT/SLO) that fires
                #   whenever GameService.process_turn runs for a game with live sessions,
                #   and the on_draw_vote hook (_api_module passes api.shared.after_draw_vote,
-               #   so a DRW notifies Telegram without daide/ importing server.api)
+               #   so a DRW notifies Telegram without daide/ importing server.api;
+               #   after_draw_vote in turn sends DRW to the sessions for an HTTP draw)
 ```
 
 **Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
@@ -265,7 +266,7 @@ place the full picture exists.
 | Draw vote withdrawn | all players except the voter: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed)." | — | next poll | `api.shared.after_draw_vote` |
 | Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `api.shared.after_draw_vote` |
 | Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND.") | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.notify_game_drawn` |
-| Draw voted over DAIDE (`DRW`, `NOT (DRW)`) | the three draw rows above, to every Telegram player (a DAIDE voter has no Telegram id to leave out); a completed draw also sends `DRW` to every DAIDE session (a draw completed over HTTP does not yet: fix_plan BD10) | as above | next poll | `DaideServer(on_draw_vote=api.shared.after_draw_vote)`, wired in `_api_module` |
+| Draw voted over DAIDE (`DRW`, `NOT (DRW)`) | the three draw rows above, to every Telegram player (a DAIDE voter has no Telegram id to leave out); a completed draw, whichever surface cast the deciding vote, sends one `DRW` to every DAIDE session (`after_draw_vote` → `broadcast_draw_completion`, idempotent per game) | as above | next poll | `DaideServer(on_draw_vote=api.shared.after_draw_vote)`, wired in `_api_module` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
 
