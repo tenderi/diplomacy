@@ -422,9 +422,10 @@ takes it over the same way `/replace` does (the web client lists such seats as "
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once
 `state.status is COMPLETED`; the routes answer **409** with a message naming the outcome
-(`game 12 is drawn between FRANCE, GERMANY; no further orders or votes are accepted`), the bot
+(`Game 12 is drawn between FRANCE, GERMANY; no further orders are accepted`, the clause fitted to the action), the bot
 shows that `detail` verbatim, and the DAIDE session answers `REJ`. `orders_status` reports no
-active or missing powers.
+active or missing powers, `legal_orders` offers nothing (empty `units`, `orders_by_unit`, `orders`),
+and `draw_vote_status` of a draw-ended game reports the sharers as the votes (quorum reached).
 
 **Rules for adding a notification.**
 

@@ -77,7 +77,7 @@ class TestWritesRefusedOnCompletedGame:
         game_id, tg = _drawn_game(client)
         resp = client.post("/games/set_orders", json=_as_france(tg, game_id=game_id, orders=["A PAR H"]))
         assert resp.status_code == 409, resp.text
-        assert "drawn between FRANCE, GERMANY" in resp.json()["detail"]
+        assert "drawn between FRANCE, GERMANY; no further orders are accepted" in resp.json()["detail"]
         stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": tg, "bot_secret": BOT_SECRET})
         assert stored.json()["orders"] == []
 
@@ -112,3 +112,29 @@ class TestWritesRefusedOnCompletedGame:
         assert client.get(f"/games/{game_id}/state").status_code == 200
         assert client.get(f"/games/{game_id}/draw_vote_status").status_code == 200
         assert client.get(f"/games/{game_id}/legal_orders/FRANCE").status_code == 200
+
+    def test_legal_orders_are_empty(self, client):
+        game_id, _tg = _drawn_game(client)
+        data = client.get(f"/games/{game_id}/legal_orders/FRANCE").json()
+        assert (data["units"], data["orders_by_unit"], data["orders"]) == ([], {}, [])
+
+    def test_draw_vote_status_reports_the_ended_draw(self, client):
+        game_id, _tg = _drawn_game(client)
+        data = client.get(f"/games/{game_id}/draw_vote_status").json()
+        assert data["game_status"] == "COMPLETED"
+        assert data["votes"] == ["FRANCE", "GERMANY"]
+        assert data["required"] == ["FRANCE", "GERMANY"]
+        assert data["missing"] == []
+        assert data["quorum_reached"] is True
+
+    def test_refusals_are_capitalized_and_fit_the_action(self, client):
+        game_id, tg = _drawn_game(client)
+        head = f"Game {game_id} is drawn between FRANCE, GERMANY; "
+        orders = client.post("/games/set_orders", json=_as_france(tg, game_id=game_id, orders=["A PAR H"]))
+        assert orders.json()["detail"] == head + "no further orders are accepted"
+        process = client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET})
+        assert process.json()["detail"] == head + "the turn cannot be processed"
+        vote = client.post(f"/games/{game_id}/draw_vote", json=_as_france(tg, vote=True))
+        assert vote.json()["detail"] == head + "draw votes are no longer accepted"
+        concede = client.post(f"/games/{game_id}/concede", json=_as_france(tg))
+        assert concede.json()["detail"] == head + "a power can no longer concede"
