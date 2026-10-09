@@ -16,7 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-08. `v3.0.85` (merged before `v3.0.83`/`v3.0.84`) fixed a
+- **Last updated:** 2026-10-08. `v3.0.83` did BD9 (the web results list says a
+  civil-disorder disband was not ordered). `v3.0.85` (merged before `v3.0.83`) fixed a
   test that hardcoded a date and broke `main` once it aged past 30 days. `v3.0.82` did BD5 (a civil-disorder disband is announced
   to its power and the group: the engine marks those results `civil_disorder`).
   `v3.0.81` did BD6 (a merged build or disband past the
@@ -229,11 +230,10 @@ wrong. One small PR per task; each pins its exact texts in tests.
       (`broadcast_draw_completion`), never `notify_players`, `notify_game_drawn` or the
       group. Needs a notification hook the DAIDE layer can call without importing
       `server.api`.
-- [ ] BD9 — **The web results list says a civil-disorder disband was not ordered.**
-      `OrderEntry.tsx` `ResultList` shows it as "D A MUN — Unit was disbanded.", like an
-      ordered one. `last_resolution` now carries `civil_disorder: true` on it
-      (`lib/resultText.ts` `describeResult` can say "Disbanded by civil disorder: you
-      ordered too few disbands.").
+- [x] BD9 — **The web results list says a civil-disorder disband was not ordered.**
+      `lib/resultText.ts` `describeResult` reads `civil_disorder` and says "Disbanded by
+      civil disorder: too few disbands were ordered."; an ordered disband still reads
+      "Unit was disbanded.".
 
 ---
 
