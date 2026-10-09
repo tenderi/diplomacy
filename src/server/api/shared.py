@@ -483,6 +483,69 @@ def notify_game_drawn(
     post_to_game_group(game_id, f"🤝 Draw - Game {game_id}\n{text}")
 
 
+def after_draw_vote(
+    game_id: str,
+    power: str,
+    vote: bool,
+    result: dict[str, Any],
+    *,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Everything that follows a recorded draw vote, whichever surface cast it.
+
+    ``result`` is what ``GameService.submit_draw_vote`` returned. The HTTP route
+    (``POST /games/{id}/draw_vote``) and the DAIDE listener (``DRW`` /
+    ``NOT (DRW)``, through the ``on_draw_vote`` hook ``_api_module`` gives
+    ``DaideServer``) both call this, so a vote notifies the same people
+    whichever way it arrives (BD8). ``exclude_telegram_id`` is the voter, who
+    has the outcome in their own response; a DAIDE voter has no Telegram id.
+
+    `submit_draw_vote` finalizes the game inline the moment quorum is reached and
+    returns the outcome only to the power that cast the deciding vote -- and
+    because the game is then COMPLETED, the deadline scheduler skips it
+    (`get_games_with_deadlines_and_active_status`), so no later turn-processed
+    fan-out covers for it (G3a). Best-effort, like every other notification: a
+    Telegram outage must not fail a draw already committed to Postgres.
+    """
+    invalidate_cache(f"games/{game_id}")
+    try:
+        row = db_service.get_game_by_game_id(game_id)
+        if row is None:
+            return
+        if result.get("quorum_reached"):
+            # A draw ends the game inline, without a turn being processed --
+            # there will never be another one, so clear a stale deadline
+            # rather than leave it displayed by /status.
+            db_service.update_game_deadline(int(row.id), None)
+            notify_game_drawn(
+                game_id,
+                int(row.id),
+                list(result.get("winners") or []),
+                exclude_telegram_id=exclude_telegram_id,
+            )
+        elif result.get("changed"):
+            # A vote that does *not* end the game is still worth announcing:
+            # otherwise a player only discovers a draw is being negotiated by
+            # running /status, and a draw is the one outcome every power has a
+            # veto over. A withdrawal goes to the same people, or they keep
+            # believing the count they were last told. A repeated yes, or a
+            # withdrawal with no vote to withdraw, changed nothing: no notice.
+            # Both fields are always lists from `GameService.submit_draw_vote`:
+            # `votes` is the yes-voters, `required` every power that must agree.
+            tally = f"({len(result.get('votes') or [])}/{len(result.get('required') or [])} agreed)"
+            label = power_label(game_id, power)
+            text = (
+                f"{label} has voted to end game {game_id} in a draw {tally}. "
+                "Draw votes last until this phase is processed. "
+                "Use /draw to agree or /nodraw to withdraw."
+                if vote
+                else f"{label} has withdrawn its vote to end game {game_id} in a draw {tally}."
+            )
+            notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id)
+    except (SQLAlchemyError, OSError) as e:
+        scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
+
+
 def notify_turn_processed(
     game_id: str,
     numeric_game_id: int,

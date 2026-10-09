@@ -195,7 +195,7 @@ bot ecosystem (DumbBot, Albert, …). Started as an `asyncio.start_server` liste
 | `wire.py` | DCSP framing: IM/RM/DM/FM/EM message types over asyncio streams. |
 | `clauses.py` | Encode/decode bridge between DAIDE token clauses and `engine.types`; decode reuses `engine.orders.parser`, not a second grammar. |
 | `session.py` | `DaideSession` — per-connection protocol state machine: the IM/RM handshake, then NME/IAM/HLO/MAP/MDF/SCO/NOW/SUB/THX/MIS/TME/HST/DRW/ADM/SND dispatch, all through `GameService`. |
-| `server.py` | `DaideServer` — the listening socket, lazy game creation on first successful NME, the power/passcode registry, and the `notify_game_processed` broadcast (NOW/ORD/OUT/SLO). |
+| `server.py` | `DaideServer` — the listening socket, lazy game creation on first successful NME, the power/passcode registry, the `notify_game_processed` broadcast (NOW/ORD/OUT/SLO), and the `on_draw_vote` hook through which a `DRW` reaches the Telegram notifications (`api.shared.after_draw_vote`). |
 
 **Known, permanent limitation:** press content (`PRP`/`ALY`/`XDO` inside `SND`/`FRM`) is
 syntax-checked and relayed opaquely, not parsed. Negotiation content is the bots' concern.
