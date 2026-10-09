@@ -1476,7 +1476,7 @@ def set_deadline(
             when = api_shared.format_deadline_utc(deadline)
             text = (
                 f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
-                f"is processed automatically when it passes."
+                f"is processed automatically when it passes. This deadline covers the current phase only."
             )
         else:
             text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."

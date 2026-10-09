@@ -556,11 +556,14 @@ def notify_turn_processed(
     processed_turn: Optional[int] = None,
     processed_phase: Optional[str] = None,
     next_deadline_text: Optional[str] = None,
+    deadline_cleared: bool = False,
 ) -> None:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
 
     ``next_deadline_text`` names the new phase's deadline when the game's weekly
     schedule armed one, and is appended to the DM and the channel post.
+    ``deadline_cleared`` means the phase just processed had a deadline and the new
+    one has none (BE1): both messages then say "No deadline is set for <phase>."
 
     ``processed_turn``/``processed_phase`` name the turn just adjudicated; with them
     the game's Telegram group also gets that turn's orders map and result map.
@@ -625,6 +628,8 @@ def notify_turn_processed(
 
     duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
     label = phase_label(duties_view["phase"])
+    if deadline_cleared and not next_deadline_text:
+        due = f" No deadline is set for {label}."
     phase_type = duties_view["phase_type"]
     duties: dict[str, dict[str, Any]] = duties_view["duties"]
     header = f"The turn has been processed for game {game_id}" + (
@@ -1143,6 +1148,8 @@ def finish_processed_turn(
     # Only a weekly schedule the players set arms the next one.
     game_ended = view is not None and view["status"] == "COMPLETED"
     next_deadline_at = None if game_ended else scheduled_deadline(game_id)
+    previous = db_service.get_game_by_id(numeric_game_id)
+    had_deadline = previous is not None and previous.deadline is not None
     db_service.update_game_deadline(numeric_game_id, next_deadline_at)
     # Wait flags ("don't process *this* phase yet", W10) were cleared with the
     # phase by ``save_state``; clearing them again here wiped flags already
@@ -1154,6 +1161,7 @@ def finish_processed_turn(
         trigger=trigger,
         game_ended=game_ended,
         exclude_telegram_id=exclude_telegram_id,
+        deadline_cleared=had_deadline and next_deadline_at is None,
         next_deadline_text=(
             format_scheduled_deadline(next_deadline_at, game_schedule(game_id))
             if next_deadline_at is not None
