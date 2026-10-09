@@ -10,7 +10,7 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BE**.
+>   history. Track letters run in sequence; the next free one is **BF**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
@@ -65,6 +65,7 @@
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track BC** (the DATC hard tail) is open agent work, BC5 next.
   **Track BD** (play-through wording fixes) is open agent work, BD8 next.
+  **Track BE** (findings of the 2026-10-08 play-through) is open agent work, BE1 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -234,6 +235,43 @@ wrong. One small PR per task; each pins its exact texts in tests.
       `lib/resultText.ts` `describeResult` reads `civil_disorder` and says "Disbanded by
       civil disorder: too few disbands were ordered."; an ordered disband still reads
       "Unit was disbanded.".
+
+---
+
+# Track BE — play-through findings, 2026-10-08
+
+A play-through from Spring 1901 to a draw in Fall 1905 found no wrong adjudication and no
+500s, and every order `legal_orders` offered was accepted. It did find these. One small
+PR per task; each pins its exact texts or responses in tests.
+
+- [ ] BE1 — **A turn processed before its deadline says the deadline is gone.** Setting a
+      deadline tells everyone "Deadline for game N set to … Orders in by then; the turn is
+      processed automatically when it passes." Processing the turn early clears it
+      (`GET /games/{id}/deadline` → `null`), but the turn-processed DM and group post say
+      nothing, so players keep expecting the old date. When a deadline was set for the
+      phase just processed and none is set for the next one, the message must say so
+      (e.g. "No deadline is set for <phase>."). The deadline announcement should also say
+      it covers the current phase only.
+- [ ] BE2 — **A finished game offers no orders and keeps its draw tally.** (a)
+      `GET /games/{id}/legal_orders/{power}` on a completed game returns the full
+      movement list, every entry of which is then refused with 409; it must return empty
+      lists (the bot and web menus are built from it). (b) After a unanimous draw,
+      `GET /games/{id}/draw_vote_status` returns `votes: []`, every power `missing` and
+      `quorum_reached: false`; it must report the draw that ended the game (its sharers).
+      (c) The 409 text "game N is drawn between …; no further orders or votes are
+      accepted" is also what `process_turn` returns, and starts lowercase: start with a
+      capital and fit the action.
+- [ ] BE3 — **Two order-error texts.** (a) A retreat written as a move, `F RUM - BLA`,
+      answers "…BLA is not a legal retreat; to retreat, write F RUM R <one of SEV>":
+      with one option write `F RUM R SEV`, and say why BLA is illegal as the `R` form
+      already does. (b) `BUILD A ROM` with nothing to build answers "ITALY has no build to
+      make (3 supply centres, 3 units); it has no adjustment to make", which says it
+      twice.
+- [ ] BE4 — **API edge cases.** `GET /games/{id}/legal_orders/MORDOR` returns 200 with
+      empty lists; it must be a 400 naming the powers, as messages do. An empty order
+      string is accepted with `results: []`; it must be a 400. `GET /games/{id}/history/…`
+      and `/map/history/…` take only a turn number and give a raw 422 for `S1901M`,
+      the phase code every message shows; accept the phase code too.
 
 ---
 
