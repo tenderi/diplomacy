@@ -13,7 +13,7 @@ import pytz
 from datetime import datetime, timezone, timedelta
 import re
 from fastapi import HTTPException
-from typing import Callable, Dict, Any, Optional, TYPE_CHECKING
+from typing import Callable, Coroutine, Dict, Any, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from persistence.database_service import DatabaseService, DeadlineProposalChange
@@ -306,18 +306,35 @@ def player_rows(game: Any) -> list[dict[str, Any]]:
 
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
-    """Bridge `DaideServer.notify_game_processed` (async) into whatever
-    context a *synchronous* call site (`process_due_deadlines`, run on a worker
-    thread by the scheduler, and directly from tests) happens to run in. No-op when no DAIDE listener is up (`daide_server` is
-    `None` in most test contexts and whenever the listener failed to bind).
+    """Tell the DAIDE sessions on ``game_id`` a turn was processed
+    (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`)."""
+    _run_on_daide_loop(
+        game_id, lambda daide: daide.notify_game_processed(game_id, resolved_phase=resolved_phase)
+    )
 
-    There's no existing sync-calls-async bridge elsewhere in this codebase to
-    mirror (`notify_players`, cited as a precedent when this task was scoped,
-    turned out to be a sync function called from a sync context -- not an
-    actual bridge) -- this is deliberately the smallest one that works both
-    with a running loop (schedule a task, don't block it) and without one
-    (run to completion via `asyncio.run`, e.g. a script or a sync test calling
-    `process_due_deadlines` directly).
+
+def _notify_daide_drawn(game_id: str) -> None:
+    """Tell the DAIDE sessions on ``game_id`` the game ended in a draw
+    (`DaideServer.broadcast_draw_completion`: `DRW`), whichever surface cast the
+    deciding vote (BD10). The broadcast is idempotent per game, so a draw that a
+    DAIDE vote completed -- which `DaideServer.draw_voted` broadcasts itself --
+    still sends `DRW` once."""
+    _run_on_daide_loop(game_id, lambda daide: daide.broadcast_draw_completion(game_id))
+
+
+def _run_on_daide_loop(
+    game_id: str, make_coro: "Callable[[DaideServer], Coroutine[Any, Any, None]]"
+) -> None:
+    """Bridge an async `DaideServer` broadcast into whatever context a
+    *synchronous* call site (`process_due_deadlines`, run on a worker thread by
+    the scheduler; a sync route; a test) happens to run in. No-op when no DAIDE
+    listener is up (`daide_server` is `None` in most test contexts and whenever
+    the listener failed to bind).
+
+    With a running loop it schedules a task (doesn't block the loop); on a worker
+    thread it hands the coroutine to ``main_loop``, which owns the DAIDE
+    connections; with no loop at all (a script, a sync test) it runs it to
+    completion via `asyncio.run`.
     """
     if daide_server is None:
         return
@@ -326,18 +343,16 @@ def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None
     except RuntimeError:
         loop = None
     if loop is not None:
-        loop.create_task(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
+        loop.create_task(make_coro(daide_server))
         return
     # A sync route (W10's auto-processing runs from POST /games/set_orders) is on
     # a worker thread: the DAIDE connections belong to the main loop, so the
     # coroutine must run there, not in a fresh loop of this thread's own.
     if main_loop is not None and main_loop.is_running():
-        asyncio.run_coroutine_threadsafe(
-            daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase), main_loop
-        )
+        asyncio.run_coroutine_threadsafe(make_coro(daide_server), main_loop)
         return
     try:
-        asyncio.run(daide_server.notify_game_processed(game_id, resolved_phase=resolved_phase))
+        asyncio.run(make_coro(daide_server))
     except RuntimeError:
         scheduler_logger.debug("DAIDE notify skipped for %s: no event loop available here", game_id)
 
@@ -499,7 +514,8 @@ def after_draw_vote(
     (``POST /games/{id}/draw_vote``) and the DAIDE listener (``DRW`` /
     ``NOT (DRW)``, through the ``on_draw_vote`` hook ``_api_module`` gives
     ``DaideServer``) both call this, so a vote notifies the same people
-    whichever way it arrives (BD8). ``exclude_telegram_id`` is the voter, who
+    whichever way it arrives (BD8); a completed draw also reaches the DAIDE
+    sessions as `DRW` (BD10). ``exclude_telegram_id`` is the voter, who
     has the outcome in their own response; a DAIDE voter has no Telegram id.
 
     `submit_draw_vote` finalizes the game inline the moment quorum is reached and
@@ -510,6 +526,8 @@ def after_draw_vote(
     Telegram outage must not fail a draw already committed to Postgres.
     """
     invalidate_cache(f"games/{game_id}")
+    if result.get("quorum_reached"):
+        _notify_daide_drawn(game_id)
     try:
         row = db_service.get_game_by_game_id(game_id)
         if row is None:

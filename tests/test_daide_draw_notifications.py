@@ -5,9 +5,13 @@ DAIDE vote, its withdrawal (`NOT (DRW)`) and a draw it completed reached only th
 DAIDE sessions. Both surfaces now run `api.shared.after_draw_vote`: the HTTP route
 directly, the DAIDE listener through the `on_draw_vote` hook `_api_module` gives it.
 These tests seat seven Telegram players over HTTP and let one power vote over DAIDE.
+
+The reverse direction (BD10): a draw whose deciding vote came over HTTP reaches the
+DAIDE sessions as one `DRW`, through the same `after_draw_vote`.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -130,6 +134,51 @@ async def test_a_draw_completed_over_daide_is_announced_and_seen_by_the_api() ->
         (GROUP, f"🤝 Draw - Game {game_id}\n{drawn}")
     ]
     assert client.get(f"/games/{game_id}/state").json()["status"] == "COMPLETED"
+
+
+async def test_a_draw_completed_over_daide_sends_drw_once_with_the_listener_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the listener installed as `api.shared.daide_server` (as in production),
+    both `draw_voted` and the `after_draw_vote` hook broadcast the completion: the
+    session still gets a single `DRW`."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    for power, (headers, _tg) in list(zip(POWERS, users))[:-1]:
+        with OutboxProbe():
+            client.post(f"/games/{game_id}/draw_vote", json={"power": power, "vote": True}, headers=headers)
+    session, writer = _daide_seat(game_id, "TURKEY")
+    monkeypatch.setattr(api_shared, "daide_server", session.server)
+    monkeypatch.setattr(api_shared, "main_loop", None)
+
+    with OutboxProbe():
+        await _send(session, t.DRW)
+    for _ in range(5):  # let the hook's scheduled broadcast run
+        await asyncio.sleep(0)
+
+    assert writer.frames() == [[t.YES, t.OPEN_PAREN, t.DRW, t.CLOSE_PAREN], [t.DRW]]
+
+
+def test_a_draw_completed_over_http_reaches_the_daide_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    session, writer = _daide_seat(game_id, "ENGLAND")
+    monkeypatch.setattr(api_shared, "daide_server", session.server)
+    monkeypatch.setattr(api_shared, "main_loop", None)
+
+    for power, (headers, _tg) in list(zip(POWERS, users))[:-1]:
+        with OutboxProbe():
+            r = client.post(f"/games/{game_id}/draw_vote", json={"power": power, "vote": True}, headers=headers)
+        assert r.json()["quorum_reached"] is False, r.text
+    # Votes that don't end the game send DAIDE nothing.
+    assert writer.frames() == []
+
+    headers, _tg = users[-1]
+    with OutboxProbe():
+        r = client.post(f"/games/{game_id}/draw_vote", json={"power": POWERS[-1], "vote": True}, headers=headers)
+    assert r.json()["quorum_reached"] is True, r.text
+
+    assert writer.frames() == [[t.DRW]]
 
 
 def test_the_api_wires_the_daide_listener_to_the_draw_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
