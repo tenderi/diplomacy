@@ -100,7 +100,9 @@ coherent* to use.
 `CLAUDE.md` forbids a blanket `except Exception`; `ruff check src/ --select BLE001` found
 155. Policy: a blanket catch may remain only at a true **boundary** (a background loop
 that must survive one bad iteration; a side effect after an already-committed write, such
-as a notification; a bot command's last-resort reply to the user), and then it logs with
+as a notification; the bot's last-resort reply to the user, which is `_on_handler_error` in
+`telegram_bot/app.py` alone: it logs the traceback and sends the player a generic
+apology in a private chat, so a command handler needs no blanket catch of its own), and then it logs with
 `logger.exception(...)` (a traceback, not a one-liner) and carries
 `# noqa: BLE001 -- <why this is a boundary>`. Everywhere else, narrow to what can actually
 occur (`SQLAlchemyError`, `requests.RequestException`, `telegram.error.TelegramError`,

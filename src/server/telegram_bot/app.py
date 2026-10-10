@@ -110,6 +110,10 @@ GROUP_BOT_COMMANDS: list[BotCommand] = [
     BotCommand("help", "How playing in a group works"),
 ]
 
+HANDLER_ERROR_REPLY = (
+    "Sorry, something went wrong on my side. Please try again; "
+    "if it keeps happening, tell the game's organiser."
+)
 GROUP_CHAT_TYPES = ("group", "supergroup", "channel")
 
 # Commands that make sense in a group chat. Orders, messages, joining and the
@@ -322,6 +326,18 @@ async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) 
         elif update.effective_message is not None and (update.effective_message.text or "").startswith("/"):
             trigger = (update.effective_message.text or "").split()[0]
     logger.error("Error handling %s", trigger, exc_info=context.error)
+    if not isinstance(update, Update):
+        return
+    # The bot's single last-resort boundary: a handler that hit a bug must not
+    # leave the player in silence. Never reply in a group, and never raise.
+    try:
+        if update.callback_query is not None:
+            await update.callback_query.answer(HANDLER_ERROR_REPLY, show_alert=True)
+        elif update.effective_message is not None and update.effective_chat is not None \
+                and update.effective_chat.type == "private":
+            await update.effective_message.reply_text(HANDLER_ERROR_REPLY)
+    except TelegramError:
+        logger.warning("Could not send the error reply for %s", trigger, exc_info=True)
 
 
 async def _post_shutdown(app: Application) -> None:
