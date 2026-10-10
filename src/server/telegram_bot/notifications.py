@@ -36,7 +36,7 @@ from typing import Any, Optional
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.ext import Application, ContextTypes
 
 from .api_client import (
@@ -217,14 +217,17 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
     delivered: list[int] = []
     failed: dict[int, str] = {}
     for item in items:
-        chat_id = int(item["telegram_id"])
         try:
+            chat_id = int(item["telegram_id"])
             await _send_outbox_item(bot, chat_id, item)
         except _PERMANENT_TELEGRAM_ERRORS as e:
             failed[int(item["id"])] = f"{type(e).__name__}: {e}"
             logger.warning("Notification #%s to %s permanently undeliverable: %s", item["id"], chat_id, e)
-        except _TRANSIENT_TELEGRAM_ERRORS as e:
-            logger.warning("Telegram not reachable while delivering #%s: %s; will retry", item["id"], e)
+        except TelegramError as e:
+            # Transient (NetworkError, TimedOut, RetryAfter) or anything else Telegram
+            # says that is not about this one chat (InvalidToken, Conflict, ...): do not
+            # ack, so a rotated token cannot silently discard the queue; retry next poll.
+            logger.warning("Telegram not ready while delivering #%s: %s; will retry", item["id"], e)
             break
         except ApiUnreachableError:
             # A map row fetches its image from the API mid-send; lost it: retry later.
