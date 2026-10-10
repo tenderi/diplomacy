@@ -16,7 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-09. `v3.0.93` did BE3 (a retreat written as a move names the
+- **Last updated:** 2026-10-09. `v3.0.94` did BD10 (a draw completed over HTTP sends
+  `DRW` to the connected DAIDE sessions, once). `v3.0.93` did BE3 (a retreat written as a move names the
   single legal option and says why; "has no build to make: 3 supply centres, 3 units" no
   longer says it twice). `v3.0.92` did BE4 (API edge cases), completing Track BE.
   `v3.0.91` did #199 (`/status` in a group also lists each power's seat, as `/players`
@@ -75,7 +76,7 @@
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BD** (play-through wording fixes) is open agent work, BD10 next.
+  **Track BD** (play-through wording fixes) is open agent work, BD11 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
@@ -124,12 +125,13 @@ wrong. One small PR per task; each pins its exact texts in tests.
       `lib/resultText.ts` `describeResult` reads `civil_disorder` and says "Disbanded by
       civil disorder: too few disbands were ordered."; an ordered disband still reads
       "Unit was disbanded.".
-- [ ] BD10 — **A draw completed over HTTP reaches the DAIDE clients.** The reverse of
+- [x] BD10 — **A draw completed over HTTP reaches the DAIDE clients.** The reverse of
       BD8: when the deciding vote comes from Telegram or the web, `after_draw_vote` notifies
       the Telegram players but nobody calls `DaideServer.broadcast_draw_completion`, so a
       connected DAIDE bot never gets `DRW` (its next `NOW`/`ORD` push never comes either:
-      no turn is processed). Bridge it like `_notify_daide_processed`, without sending
-      `DRW` twice when the deciding vote was itself a DAIDE one.
+      no turn is processed). `after_draw_vote` now bridges `broadcast_draw_completion`
+      like `_notify_daide_processed`, and the broadcast is sent once per game, so a
+      draw a DAIDE vote completed still sends one `DRW`.
 - [ ] BD11 — **DAIDE order writes invalidate the state cache.** `SUB` and `NOT (SUB)`
       (`daide/session.py`) change `pending_orders` without `invalidate_cache("games/{id}")`,
       so `GET /games/{id}/state` keeps showing the old pending orders for up to its 30 s

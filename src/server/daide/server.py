@@ -232,7 +232,13 @@ class DaideServer:
     async def broadcast_draw_completion(self, game_id: str) -> None:
         """A `DRW` vote reached quorum: every session on this game gets the
         bare `DRW` completion notification (never `SLO` -- a real solo is only
-        ever detected via `notify_game_processed`, see that method's docstring)."""
+        ever detected via `notify_game_processed`, see that method's docstring).
+
+        Sent once per game: both `draw_voted` (a DAIDE vote) and the
+        ``on_draw_vote`` hook (`api.shared.after_draw_vote`, which every vote
+        reaches, BD10) call this for the same draw."""
+        if self._completion_notified.get(game_id):
+            return
         self._completion_notified[game_id] = True
         for daide_session in self.sessions_for(game_id).values():
             with contextlib.suppress(ConnectionError, OSError):
