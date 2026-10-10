@@ -10,14 +10,17 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BF**.
+>   history. Track letters run in sequence; the next free one is **BG**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-09. `v3.0.94` did BD10 (a draw completed over HTTP sends
-  `DRW` to the connected DAIDE sessions, once). `v3.0.93` did BE3 (a retreat written as a move names the
+- **Last updated:** 2026-10-10. `v3.0.96` did BF1 (ruff's BLE001 is on, with a
+  per-file ignore list that Track BF empties; the scheduler, housekeeping, notification and
+  startup boundaries in `shared.py` and `_api_module.py` now log tracebacks). `v3.0.94` did
+  BD10 (a draw completed over HTTP sends `DRW` to the connected DAIDE sessions, once).
+  `v3.0.93` did BE3 (a retreat written as a move names the
   single legal option and says why; "has no build to make: 3 supply centres, 3 units" no
   longer says it twice). `v3.0.92` did BE4 (API edge cases), completing Track BE.
   `v3.0.91` did #199 (`/status` in a group also lists each power's seat, as `/players`
@@ -146,6 +149,28 @@ No automated test spans a real human playing a real game: it needs a live bot to
 human at a Telegram client, so this cannot be delegated to an agent. Every phase has
 automated coverage; what is unverified is whether the whole thing is *pleasant and
 coherent* to use.
+
+## Track BF — No blind excepts
+
+`CLAUDE.md` forbids a blanket `except Exception`; `ruff check src/ --select BLE001` found
+155. Policy: a blanket catch may remain only at a true **boundary** (a background loop
+that must survive one bad iteration; a side effect after an already-committed write, such
+as a notification; a bot command's last-resort reply to the user), and then it logs with
+`logger.exception(...)` (a traceback, not a one-liner) and carries
+`# noqa: BLE001 -- <why this is a boundary>`. Everywhere else, narrow to what can actually
+occur (`SQLAlchemyError`, `requests.RequestException`, `telegram.error.TelegramError`,
+`ValueError`, ...) or remove the `try`. In a route, a remaining generic `except` is
+preceded by `except HTTPException: raise`. `discord_bot` and `routes/tournaments.py` stay
+under a permanent per-file ignore (out of scope, kept for back-compat). Each step removes
+its files from `[tool.ruff.lint.per-file-ignores]` in `pyproject.toml`; the track is done
+when that list holds only the out-of-scope files.
+
+- [x] **BF1** Enable BLE001; fix `api/shared.py` and `_api_module.py`.
+- [ ] **BF2** `api/routes/games.py`.
+- [ ] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
+  `response_cache.py`.
+- [ ] **BF4** `telegram_bot/orders.py`.
+- [ ] **BF5** The rest of `telegram_bot/`.
 
 ## F1 — End-to-end play-through, both clients
 

@@ -128,11 +128,70 @@ def test_the_schedulers_work_runs_off_the_event_loop(monkeypatch: pytest.MonkeyP
     assert loop_thread not in threads.values()
 
 
-def test_housekeeping_failure_is_logged_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+def _traceback_records(caplog: pytest.LogCaptureFixture, message: str) -> list[Any]:
+    """Records whose message starts with ``message`` and that carry a traceback."""
+    return [r for r in caplog.records if r.getMessage().startswith(message) and r.exc_info]
+
+
+def test_housekeeping_failure_is_logged_with_a_traceback_not_raised(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     monkeypatch.setattr(shared.db_service, "purge_delivered_bot_notifications", Mock(side_effect=RuntimeError("db gone")))
-    with patch.object(shared.scheduler_logger, "error") as log:
+    with caplog.at_level("ERROR", logger="diplomacy.scheduler"):
         shared.run_housekeeping()
-    assert "db gone" in log.call_args[0][0]
+    (record,) = _traceback_records(caplog, "Housekeeping failed")
+    assert str(record.exc_info[1]) == "db gone"
+
+
+def test_one_failing_game_does_not_stop_the_deadline_sweep(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    past = datetime(2020, 1, 1)
+    games = [Mock(game_id=f"g{i}", id=i, deadline=past) for i in (1, 2)]
+    monkeypatch.setattr(shared.db_service, "get_games_with_deadlines_and_active_status", Mock(return_value=games))
+    monkeypatch.setattr(shared, "unseated_powers", Mock(return_value=[]))
+    monkeypatch.setattr(shared, "scheduled_deadline", Mock(return_value=None))
+    monkeypatch.setattr(shared.game_service, "view", Mock(return_value={"phase": "S1901M"}))
+    update = Mock()
+    monkeypatch.setattr(shared.db_service, "update_game_deadline", update)
+
+    def process(game_id: str) -> None:
+        raise RuntimeError(f"boom {game_id}")
+
+    monkeypatch.setattr(shared.game_service, "process_turn", Mock(side_effect=process))
+    with caplog.at_level("ERROR", logger="diplomacy.scheduler"):
+        shared.process_due_deadlines(datetime(2030, 1, 1, tzinfo=shared.pytz.UTC))
+    failures = _traceback_records(caplog, "Failed to process turn for game")
+    assert [r.exc_info[1].args[0] for r in failures] == ["boom g1", "boom g2"]
+    assert [c.args[0] for c in update.call_args_list] == [1, 2]  # each spent deadline cleared
+
+
+def test_a_reminder_failure_is_logged_with_a_traceback_not_raised(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(shared.db_service, "get_games_with_deadlines_and_active_status", Mock(side_effect=RuntimeError("db gone")))
+    with caplog.at_level("ERROR", logger="diplomacy.scheduler"):
+        shared.check_and_send_reminders(datetime(2030, 1, 1, tzinfo=shared.pytz.UTC))
+    assert len(_traceback_records(caplog, "Error sending deadline reminders")) == 1
+
+
+def test_notify_user_survives_a_database_error_with_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    monkeypatch.setattr(
+        shared.db_service, "enqueue_bot_notification", Mock(side_effect=OperationalError("INSERT", {}, Exception("down")))
+    )
+    with caplog.at_level("ERROR", logger="diplomacy.scheduler"):
+        assert shared.notify_user("123", "hi") is None
+    assert len(_traceback_records(caplog, "Failed to queue notification for telegram_id 123")) == 1
+
+
+def test_notify_user_does_not_swallow_a_programming_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shared.db_service, "enqueue_bot_notification", Mock(side_effect=TypeError("bug")))
+    with pytest.raises(TypeError, match="bug"):
+        shared.notify_user("123", "hi")
 
 
 def test_a_proposal_with_an_unreadable_expiry_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:

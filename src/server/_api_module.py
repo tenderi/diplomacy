@@ -20,6 +20,7 @@ import contextlib
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+from sqlalchemy.exc import SQLAlchemyError
 
 from .db_config import SQLALCHEMY_DATABASE_URL
 from .api import shared as _api_shared
@@ -108,23 +109,18 @@ def _initialize_database_schema():
                 logging.error(f"❌ Database connection error during schema check: {db_error}")
                 logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
                 logging.error("   Check that PostgreSQL is running and the database URL is correct")
-            except Exception as e:
-                logging.error(f"❌ Unexpected error checking database schema: {e}")
-                import traceback
-                logging.error(traceback.format_exc())
+            except Exception:  # noqa: BLE001 -- boundary: startup must not crash on a schema check
+                logging.exception("❌ Unexpected error checking database schema")
             finally:
                 engine.dispose()
-        except Exception as engine_error:
-            logging.error(f"❌ Failed to create database engine: {engine_error}")
+        except SQLAlchemyError:
+            logging.exception("❌ Failed to create database engine")
             logging.error(f"   Database URL: {db_url.split('@')[1] if '@' in db_url else 'hidden'}")
     except ImportError as import_error:
         logging.error(f"❌ Failed to import database modules: {import_error}")
         logging.error("   Ensure persistence.database module is available")
-    except Exception as e:
-        # If schema initialization fails, log but don't crash - let endpoints handle it gracefully
-        logging.error(f"❌ Database schema initialization failed: {e}")
-        import traceback
-        logging.error(traceback.format_exc())
+    except Exception:  # noqa: BLE001 -- boundary: log but don't crash; endpoints handle it gracefully
+        logging.exception("❌ Database schema initialization failed")
 
 
 @asynccontextmanager
@@ -160,8 +156,8 @@ async def lifespan(app: FastAPI):
     )
     try:
         await _api_shared.daide_server.start()
-    except Exception as e:
-        logger.error(f"DAIDE listener failed to start on port {daide_port}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: DAIDE is one integration among several; its failure must not stop the API
+        logger.exception("DAIDE listener failed to start on port %s", daide_port)
         _api_shared.daide_server = None
 
     try:
@@ -249,25 +245,21 @@ def healthz() -> Dict[str, str]:
     try:
         db_service.execute_query('SELECT 1')
         return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Health check failed: {e}") from e
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     try:
         db_service.execute_query('SELECT 1')
         return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Health check failed: {e}")
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=500, detail=f"Health check failed: {e}") from e
 
 @app.get("/version")
 def version() -> Dict[str, str]:
     """Simple version endpoint for diagnostics."""
-    try:
-        return {"version": app.version}
-    except Exception:
-        # Fallback if app.version is not set
-        return {"version": "unknown"}
+    return {"version": app.version}
 
 @app.get("/", response_class=HTMLResponse)
 def root() -> HTMLResponse:
