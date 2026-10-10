@@ -52,6 +52,11 @@ class DaideServer:
     `api.shared.after_draw_vote`, so a DAIDE vote notifies the Telegram players
     exactly as an HTTP one does; the hook keeps this package from importing
     `server.api`.
+
+    ``on_orders_changed`` is called as ``on_orders_changed(game_id)`` after every
+    `SUB` / `NOT (SUB)` changed a power's pending orders. `_api_module` passes a
+    callback that runs ``invalidate_cache("games/{id}")``, as the HTTP order
+    routes do, so the cached ``GET /games/{id}/state`` is not served stale.
     """
 
     def __init__(
@@ -64,9 +69,11 @@ class DaideServer:
         port: int = DEFAULT_PORT,
         game_id: Optional[str] = None,
         on_draw_vote: Optional[Callable[[str, str, bool, dict[str, Any]], None]] = None,
+        on_orders_changed: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.game_service = game_service
         self.on_draw_vote = on_draw_vote
+        self.on_orders_changed = on_orders_changed
         self.map = game_service.map
         self.db_service = db_service
         self.host = host
@@ -219,6 +226,11 @@ class DaideServer:
         return max(0, int(remaining))
 
     # -- broadcasts -----------------------------------------------------------
+
+    def orders_changed(self, game_id: str) -> None:
+        """A session submitted or cleared orders: run the ``on_orders_changed`` hook."""
+        if self.on_orders_changed is not None:
+            self.on_orders_changed(game_id)
 
     async def draw_voted(self, game_id: str, power: str, vote: bool, result: dict[str, Any]) -> None:
         """A session recorded a draw vote: run the ``on_draw_vote`` hook (the

@@ -26,6 +26,7 @@ from .db_config import SQLALCHEMY_DATABASE_URL
 from .api import shared as _api_shared
 from .api.shared import deadline_scheduler, db_service
 from .daide.server import DaideServer, DEFAULT_PORT as DAIDE_DEFAULT_PORT
+from .response_cache import invalidate_cache
 
 from .api.idempotency import IdempotencyMiddleware
 from .api.error_log import ServerErrorLogMiddleware
@@ -153,6 +154,7 @@ async def lifespan(app: FastAPI):
         db_service=_api_shared.db_service,
         port=daide_port,
         on_draw_vote=_api_shared.after_draw_vote,
+        on_orders_changed=lambda game_id: invalidate_cache(f"games/{game_id}"),
     )
     try:
         await _api_shared.daide_server.start()

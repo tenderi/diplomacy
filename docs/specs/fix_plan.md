@@ -18,9 +18,10 @@
 
 - **Last updated:** 2026-10-10. `v3.0.96` did BF1 (ruff's BLE001 is on, with a
   per-file ignore list that Track BF empties; the scheduler, housekeeping, notification and
-  startup boundaries in `shared.py` and `_api_module.py` now log tracebacks). `v3.0.94` did
-  BD10 (a draw completed over HTTP sends `DRW` to the connected DAIDE sessions, once).
-  `v3.0.93` did BE3 (a retreat written as a move names the
+  startup boundaries in `shared.py` and `_api_module.py` now log tracebacks). `v3.0.95` did
+  BD11 (DAIDE `SUB` / `NOT (SUB)` invalidate the cached game reads), completing Track BD.
+  `v3.0.94` did BD10 (a draw completed over HTTP sends `DRW` to the connected DAIDE
+  sessions, once). `v3.0.93` did BE3 (a retreat written as a move names the
   single legal option and says why; "has no build to make: 3 supply centres, 3 units" no
   longer says it twice). `v3.0.92` did BE4 (API edge cases), completing Track BE.
   `v3.0.91` did #199 (`/status` in a group also lists each power's seat, as `/players`
@@ -79,67 +80,7 @@
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
-  **Track BD** (play-through wording fixes) is open agent work, BD11 next.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
-
----
-
-# Track BD — play-through wording fixes
-
-A play-through on 2026-10-06 found player-facing wording that is missing, misleading or
-wrong. One small PR per task; each pins its exact texts in tests.
-
-- [x] BD1 — **A draw says it is a draw; a withdrawn draw vote is announced.** (a) A game
-      ended by an agreed draw told players only "Game N has ended!" and posted
-      "🔔 Turn Processed - Game N / Game N has ended." to the group, though no turn was
-      processed; neither said it was a draw or among whom (`api/shared.py`
-      `notify_turn_processed`'s `game_ended` branch, called from the draw path). (b)
-      Withdrawing a draw vote (`vote: false`) notified nobody, so the others kept
-      believing "FRANCE has voted … (2/7 agreed)", and the vote notice did not say votes
-      lapse when the phase is processed (`routes/games.py` `submit_draw_vote`). (c) Two
-      deciding yes votes sent at the same moment could both end the game, so the draw was
-      announced twice. Or a vote that loaded the board before the draw committed was recorded
-      on the finished game and announced as "(1/7 agreed)". A draw keeps the phase code, so
-      the phase check let both through. `modify_draw_votes` and `save_state` now refuse a
-      completed row (`refuse_completed`).
-- [x] BD2 — **A move written for the wrong unit type names the unit.** `F ROM - TYS` when
-      ROM holds an army answers "TYS is not adjacent to ROM", and `F ROM - VEN` is saved
-      as `A ROM - VEN`: `engine/orders/validation.py` `_validate_move` checks the real
-      unit, not the written type. Say the unit in ROM is an army instead.
-- [x] BD3 — **The retreat hint suggests only a legal retreat.** In a retreat phase,
-      `A BUR - RUH` answers "to retreat, write A BUR R RUH" even when RUH is not a legal
-      retreat (the attacker's origin). Suggest a legal retreat, or list the legal ones.
-- [x] BD4 — **A player's own DMs address them as "you".** They talk about the reader in
-      the third person ("FRANCE's A BUR was dislodged", "orders are due from FRANCE").
-- [x] BD5 — **A civil-disorder disband is announced to its power.** When a power sends no
-      disband in an adjustment phase, the engine disbands for it and nobody tells it.
-- [x] BD6 — **The bot says which build a new one replaced.** The bot-path `_make_room`
-      silently dropped the oldest build when a new one exceeded the allowance; the
-      `set_orders` results now carry `replaced`/`note` and the bot shows
-      `✅ BUILD A PAR replaced BUILD F BRE (you may build 1)`.
-- [x] BD7 — **data_spec.md's `auto_process` mentions incomplete orders.** "Nothing
-      missing" omits that it also waits for incomplete orders (`ready_to_auto_process`).
-- [x] BD8 — **A draw voted over DAIDE notifies the Telegram players.** `daide/session.py`
-      `_cmd_drw` called `GameService.submit_draw_vote` directly, so a DAIDE vote, its
-      withdrawal and a draw it completed reached only the DAIDE sessions. `DaideServer`
-      now takes an `on_draw_vote` hook; `_api_module` passes `api.shared.after_draw_vote`,
-      which the HTTP route calls too.
-- [x] BD9 — **The web results list says a civil-disorder disband was not ordered.**
-      `lib/resultText.ts` `describeResult` reads `civil_disorder` and says "Disbanded by
-      civil disorder: too few disbands were ordered."; an ordered disband still reads
-      "Unit was disbanded.".
-- [x] BD10 — **A draw completed over HTTP reaches the DAIDE clients.** The reverse of
-      BD8: when the deciding vote comes from Telegram or the web, `after_draw_vote` notifies
-      the Telegram players but nobody calls `DaideServer.broadcast_draw_completion`, so a
-      connected DAIDE bot never gets `DRW` (its next `NOW`/`ORD` push never comes either:
-      no turn is processed). `after_draw_vote` now bridges `broadcast_draw_completion`
-      like `_notify_daide_processed`, and the broadcast is sent once per game, so a
-      draw a DAIDE vote completed still sends one `DRW`.
-- [ ] BD11 — **DAIDE order writes invalidate the state cache.** `SUB` and `NOT (SUB)`
-      (`daide/session.py`) change `pending_orders` without `invalidate_cache("games/{id}")`,
-      so `GET /games/{id}/state` keeps showing the old pending orders for up to its 30 s
-      TTL (`tests/test_cache_coherence.py` covers only HTTP writes). Same hook shape as
-      BD8's `on_draw_vote`.
 
 ---
 

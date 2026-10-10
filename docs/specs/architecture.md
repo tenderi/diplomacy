@@ -147,7 +147,9 @@ src/server/daide/
                #   whenever GameService.process_turn runs for a game with live sessions,
                #   and the on_draw_vote hook (_api_module passes api.shared.after_draw_vote,
                #   so a DRW notifies Telegram without daide/ importing server.api;
-               #   after_draw_vote in turn sends DRW to the sessions for an HTTP draw)
+               #   after_draw_vote in turn sends DRW to the sessions for an HTTP draw),
+               #   and the on_orders_changed hook (SUB / NOT (SUB) invalidate the cached
+               #   games/{id} reads, as the HTTP order routes do)
 ```
 
 **Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
