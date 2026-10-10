@@ -11,7 +11,7 @@ import sys
 from typing import Optional
 
 from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import TelegramError
+from telegram.error import NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application, ApplicationBuilder, ApplicationHandlerStop, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
@@ -325,6 +325,10 @@ async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) 
             trigger = f"button {update.callback_query.data}"
         elif update.effective_message is not None and (update.effective_message.text or "").startswith("/"):
             trigger = (update.effective_message.text or "").split()[0]
+    if update is None and isinstance(context.error, (NetworkError, TimedOut)):
+        # The polling loop lost Telegram for a moment; python-telegram-bot retries.
+        logger.warning("Telegram polling error: %s", context.error)
+        return
     logger.error("Error handling %s", trigger, exc_info=context.error)
     if not isinstance(update, Update):
         return
