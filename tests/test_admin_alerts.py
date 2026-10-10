@@ -203,3 +203,54 @@ def test_the_api_process_still_prints_its_errors_once_with_alerts_on() -> None:
     assert result.returncode == 0, result.stderr
     assert result.stderr.count("HTTP 500 on GET /probe") == 1, result.stderr
     assert result.stderr.count("a warning from elsewhere") == 1, result.stderr
+
+
+SORRY = (
+    "Sorry, something went wrong on my side. Please try again; "
+    "if it keeps happening, tell the game's organiser."
+)
+
+
+def _failed_update(chat_type: str, *, button: bool = False) -> Mock:
+    update = Mock(spec=bot_app.Update)
+    update.effective_chat = Mock(type=chat_type)
+    update.effective_message = Mock(text="/orders", reply_text=AsyncMock())
+    update.callback_query = Mock(data="g|1|x", answer=AsyncMock()) if button else None
+    return update
+
+
+def test_a_failing_handler_apologises_in_a_private_chat() -> None:
+    update = _failed_update("private")
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
+    update.effective_message.reply_text.assert_awaited_once_with(SORRY)
+
+
+def test_a_failing_handler_stays_silent_in_a_group() -> None:
+    update = _failed_update("supergroup")
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
+    update.effective_message.reply_text.assert_not_awaited()
+
+
+def test_a_failing_button_apologises_with_a_message_not_a_second_answer() -> None:
+    from telegram.error import BadRequest
+
+    update = _failed_update("private", button=True)
+    update.callback_query.answer = AsyncMock(side_effect=BadRequest("Query is already answered"))
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
+    update.effective_message.reply_text.assert_awaited_once_with(SORRY)
+    update.callback_query.answer.assert_not_awaited()
+
+
+def test_a_failing_button_in_a_group_stays_silent() -> None:
+    update = _failed_update("supergroup", button=True)
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
+    update.effective_message.reply_text.assert_not_awaited()
+
+
+def test_a_failing_apology_never_raises() -> None:
+    from telegram.error import TelegramError
+
+    update = _failed_update("private")
+    update.effective_message.reply_text = AsyncMock(side_effect=TelegramError("blocked"))
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
+    update.effective_message.reply_text.assert_awaited_once_with(SORRY)
