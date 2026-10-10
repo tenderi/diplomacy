@@ -11,7 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from persistence.database_service import ChannelTakenError
 
@@ -193,31 +193,25 @@ def link_channel_to_game(
     else gets 409 (the game would otherwise drop out of its group, turn up in
     the public list and become joinable from the web).
     """
-    try:
-        if not game_service.exists(game_id):
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        actor = db_service.get_user_by_telegram_id(req.telegram_id) if req.telegram_id else None
-        replaced = link_or_409(
-            game_id,
-            req.channel_id,
-            req.channel_name,
-            req.settings,
-            displacer_user_id=int(actor.id) if actor is not None else None,
-            any_displacer=is_admin_token(x_admin_token),
-        )
-        return {
-            "status": "ok",
-            "message": f"Game {game_id} linked to channel {req.channel_id}",
-            "game_id": game_id,
-            "channel_id": req.channel_id,
-            "replaced_game_id": replaced,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error linking channel to game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    actor = db_service.get_user_by_telegram_id(req.telegram_id) if req.telegram_id else None
+    replaced = link_or_409(
+        game_id,
+        req.channel_id,
+        req.channel_name,
+        req.settings,
+        displacer_user_id=int(actor.id) if actor is not None else None,
+        any_displacer=is_admin_token(x_admin_token),
+    )
+    return {
+        "status": "ok",
+        "message": f"Game {game_id} linked to channel {req.channel_id}",
+        "game_id": game_id,
+        "channel_id": req.channel_id,
+        "replaced_game_id": replaced,
+    }
 
 
 def unlinked_from_web_text(game_id: str) -> str:
@@ -238,31 +232,25 @@ def unlink_channel_from_game(game_id: str, x_bot_secret: Optional[str] = Header(
     ``auto_post_notifications`` setting, since the group is otherwise cut off
     without a word and the game becomes public. The player is not named.
     """
-    try:
-        # Verify game exists
-        if not game_service.exists(game_id):
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    # Verify game exists
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        info = db_service.get_game_channel_info(game_id)
-        if info and not is_bot_secret(x_bot_secret):
-            # Queued before the unlink: afterwards the game no longer knows its group.
-            db_service.enqueue_bot_notification(info["channel_id"], unlinked_from_web_text(game_id), kind="channel_text")
+    info = db_service.get_game_channel_info(game_id)
+    if info and not is_bot_secret(x_bot_secret):
+        # Queued before the unlink: afterwards the game no longer knows its group.
+        db_service.enqueue_bot_notification(info["channel_id"], unlinked_from_web_text(game_id), kind="channel_text")
 
-        db_service.unlink_game_from_channel(game_id)
+    db_service.unlink_game_from_channel(game_id)
         
-        # Invalidate cache
-        invalidate_cache(f"games/{game_id}")
+    # Invalidate cache
+    invalidate_cache(f"games/{game_id}")
         
-        return {
-            "status": "ok",
-            "message": f"Game {game_id} unlinked from channel",
-            "game_id": game_id
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error unlinking channel from game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "ok",
+        "message": f"Game {game_id} unlinked from channel",
+        "game_id": game_id
+    }
 
 
 @router.get("/games/{game_id}/channel", dependencies=[Depends(require_game_player_or_bot)])
@@ -272,28 +260,24 @@ def get_channel_info(game_id: str) -> Dict[str, Any]:
     title when the bot linked it) and ``settings``. ``bot_username`` is always
     there: the web page links an unlinked game through
     ``https://t.me/<bot_username>?startgroup=link_<game_id>``."""
-    try:
-        channel_info = db_service.get_game_channel_info(game_id)
+    channel_info = db_service.get_game_channel_info(game_id)
 
-        if not channel_info:
-            return {
-                "status": "ok",
-                "linked": False,
-                "bot_username": BOT_USERNAME,
-                "message": f"Game {game_id} is not linked to a channel"
-            }
-
+    if not channel_info:
         return {
             "status": "ok",
-            "linked": True,
+            "linked": False,
             "bot_username": BOT_USERNAME,
-            "channel_id": channel_info.get("channel_id"),
-            "channel_name": channel_info.get("channel_name"),
-            "settings": channel_info.get("settings", {})
+            "message": f"Game {game_id} is not linked to a channel"
         }
-    except Exception as e:
-        logger.exception(f"Error getting channel info for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "status": "ok",
+        "linked": True,
+        "bot_username": BOT_USERNAME,
+        "channel_id": channel_info.get("channel_id"),
+        "channel_name": channel_info.get("channel_name"),
+        "settings": channel_info.get("settings", {})
+    }
 
 
 @router.get("/channels/{channel_id}/game", dependencies=[Depends(require_bot_secret)])
@@ -312,32 +296,28 @@ def get_channel_game(channel_id: str) -> Dict[str, Any]:
 @router.post("/games/{game_id}/channel/settings", dependencies=[Depends(require_game_player_or_bot)])
 def update_channel_settings(game_id: str, req: ChannelSettingsRequest) -> Dict[str, Any]:
     """Update channel settings for a game."""
-    try:
-        # Build settings dict from request
-        settings = {}
-        if req.auto_post_maps is not None:
-            settings["auto_post_maps"] = req.auto_post_maps
-        if req.auto_post_broadcasts is not None:
-            settings["auto_post_broadcasts"] = req.auto_post_broadcasts
-        if req.auto_post_notifications is not None:
-            settings["auto_post_notifications"] = req.auto_post_notifications
-        if req.notification_level is not None:
-            settings["notification_level"] = req.notification_level
+    # Build settings dict from request
+    settings = {}
+    if req.auto_post_maps is not None:
+        settings["auto_post_maps"] = req.auto_post_maps
+    if req.auto_post_broadcasts is not None:
+        settings["auto_post_broadcasts"] = req.auto_post_broadcasts
+    if req.auto_post_notifications is not None:
+        settings["auto_post_notifications"] = req.auto_post_notifications
+    if req.notification_level is not None:
+        settings["notification_level"] = req.notification_level
         
-        # Update settings
-        db_service.update_game_channel_settings(game_id, settings)
+    # Update settings
+    db_service.update_game_channel_settings(game_id, settings)
         
-        # Invalidate cache
-        invalidate_cache(f"games/{game_id}")
+    # Invalidate cache
+    invalidate_cache(f"games/{game_id}")
         
-        return {
-            "status": "ok",
-            "message": f"Channel settings updated for game {game_id}",
-            "settings": settings
-        }
-    except Exception as e:
-        logger.exception(f"Error updating channel settings for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "ok",
+        "message": f"Channel settings updated for game {game_id}",
+        "settings": settings
+    }
 
 
 @router.post("/games/{game_id}/channel/map", dependencies=[Depends(require_game_player_or_bot)])
@@ -377,39 +357,33 @@ def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dic
     container). No ``message_id`` comes back; the send happens on the bot's
     next poll.
     """
-    try:
-        from ...telegram_bot.utils import escape_markdown
+    from ...telegram_bot.utils import escape_markdown
 
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
+    channel_info = db_service.get_game_channel_info(game_id)
+    if not channel_info:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
+    channel_id = channel_info.get("channel_id")
 
-        # req.message is free text a caller supplied -- escape it before
-        # folding it into a Markdown-formatted post, or an unescaped
-        # `_`/`*`/`` ` ``/`[` in it 400s the whole send.
-        safe_message = escape_markdown(req.message)
-        if req.power:
-            formatted = f"📢 *{req.power}* → All Powers\n\n{safe_message}"
-        else:
-            formatted = f"📢 *PUBLIC BROADCAST*\n\n{safe_message}"
+    # req.message is free text a caller supplied -- escape it before
+    # folding it into a Markdown-formatted post, or an unescaped
+    # `_`/`*`/`` ` ``/`[` in it 400s the whole send.
+    safe_message = escape_markdown(req.message)
+    if req.power:
+        formatted = f"📢 *{req.power}* → All Powers\n\n{safe_message}"
+    else:
+        formatted = f"📢 *PUBLIC BROADCAST*\n\n{safe_message}"
 
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, formatted, kind="channel_text",
-            payload={"parse_mode": "Markdown", "reply_to_message_id": req.reply_to_message_id},
-        )
+    outbox_id = db_service.enqueue_bot_notification(
+        channel_id, formatted, kind="channel_text",
+        payload={"parse_mode": "Markdown", "reply_to_message_id": req.reply_to_message_id},
+    )
 
-        return {
-            "status": "queued",
-            "message": f"Broadcast queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting broadcast to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "queued",
+        "message": f"Broadcast queued for channel {channel_id}",
+        "channel_id": channel_id,
+        "outbox_id": outbox_id,
+    }
 
 
 @router.post("/games/{game_id}/channel/thread", dependencies=[Depends(require_game_player_or_bot)])
@@ -424,86 +398,68 @@ def create_discussion_thread_endpoint(game_id: str, req: CreateThreadRequest) ->
     reads a thread id back yet, so none is returned. If a future caller needs
     one, that's a bot-to-server report-back this route doesn't have.
     """
-    try:
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
+    channel_info = db_service.get_game_channel_info(game_id)
+    if not channel_info:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
+    channel_id = channel_info.get("channel_id")
 
-        title = f"{req.topic} - {req.phase}" if req.phase else req.topic
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, title, kind="channel_create_thread",
-        )
+    title = f"{req.topic} - {req.phase}" if req.phase else req.topic
+    outbox_id = db_service.enqueue_bot_notification(
+        channel_id, title, kind="channel_create_thread",
+    )
 
-        return {
-            "status": "queued",
-            "message": f"Discussion thread queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error creating discussion thread for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "queued",
+        "message": f"Discussion thread queued for channel {channel_id}",
+        "channel_id": channel_id,
+        "outbox_id": outbox_id,
+    }
 
 
 @router.get("/games/{game_id}/channel/timeline", dependencies=[Depends(require_game_player_or_bot)])
 def get_timeline(game_id: str) -> Dict[str, Any]:
     """Get historical timeline for the game."""
-    try:
-        from ...telegram_bot.channels import format_historical_timeline
+    from ...telegram_bot.channels import format_historical_timeline
 
-        game_state_dict = _legacy_state_dict(game_id)
-        if game_state_dict is None:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    game_state_dict = _legacy_state_dict(game_id)
+    if game_state_dict is None:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        # Format timeline
-        timeline_text = format_historical_timeline(game_state_dict)
+    # Format timeline
+    timeline_text = format_historical_timeline(game_state_dict)
         
-        return {
-            "status": "ok",
-            "timeline": timeline_text
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting timeline for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "ok",
+        "timeline": timeline_text
+    }
 
 
 @router.post("/games/{game_id}/channel/timeline", dependencies=[Depends(require_game_player_or_bot)])
 def post_timeline_update(game_id: str) -> Dict[str, Any]:
     """Queue a timeline update for the linked channel. See ``/channel/broadcast``'s
     docstring for why this queues onto ``bot_outbox`` rather than posting inline."""
-    try:
-        from ...telegram_bot.channels import format_historical_timeline
+    from ...telegram_bot.channels import format_historical_timeline
 
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
+    channel_info = db_service.get_game_channel_info(game_id)
+    if not channel_info:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
+    channel_id = channel_info.get("channel_id")
 
-        game_state_dict = _legacy_state_dict(game_id)
-        if game_state_dict is None:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+    game_state_dict = _legacy_state_dict(game_id)
+    if game_state_dict is None:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
 
-        formatted = format_historical_timeline(game_state_dict)
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
-        )
+    formatted = format_historical_timeline(game_state_dict)
+    outbox_id = db_service.enqueue_bot_notification(
+        channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
+    )
 
-        return {
-            "status": "queued",
-            "message": f"Timeline update queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting timeline update to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "queued",
+        "message": f"Timeline update queued for channel {channel_id}",
+        "channel_id": channel_id,
+        "outbox_id": outbox_id,
+    }
 
 
 @router.post("/games/{game_id}/channel/dashboard", dependencies=[Depends(require_game_player_or_bot)])
@@ -511,42 +467,36 @@ def post_player_dashboard(game_id: str) -> Dict[str, Any]:
     """Queue the player status dashboard for the linked channel. See
     ``/channel/broadcast``'s docstring for why this queues onto ``bot_outbox``
     rather than posting inline."""
+    from ...telegram_bot.channels import format_player_dashboard
+
+    channel_info = db_service.get_game_channel_info(game_id)
+    if not channel_info:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
+    channel_id = channel_info.get("channel_id")
+
+    game_state_dict = _legacy_state_dict(game_id)
+    if game_state_dict is None:
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
+
+    players_data = None
     try:
-        from ...telegram_bot.channels import format_player_dashboard
+        row = db_service.get_game_by_game_id(game_id)
+        # Names (public games only) ride along with each power.
+        players_data = player_rows(row) if row else []
+    except SQLAlchemyError as e:
+        logger.warning(f"Could not get players data for dashboard: {e}")
 
-        channel_info = db_service.get_game_channel_info(game_id)
-        if not channel_info:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
-        channel_id = channel_info.get("channel_id")
+    formatted = format_player_dashboard(game_state_dict, players_data)
+    outbox_id = db_service.enqueue_bot_notification(
+        channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
+    )
 
-        game_state_dict = _legacy_state_dict(game_id)
-        if game_state_dict is None:
-            raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
-
-        players_data = None
-        try:
-            row = db_service.get_game_by_game_id(game_id)
-            # Names (public games only) ride along with each power.
-            players_data = player_rows(row) if row else []
-        except Exception as e:
-            logger.warning(f"Could not get players data for dashboard: {e}")
-
-        formatted = format_player_dashboard(game_state_dict, players_data)
-        outbox_id = db_service.enqueue_bot_notification(
-            channel_id, formatted, kind="channel_text", payload={"parse_mode": "Markdown"},
-        )
-
-        return {
-            "status": "queued",
-            "message": f"Player dashboard queued for channel {channel_id}",
-            "channel_id": channel_id,
-            "outbox_id": outbox_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error posting player dashboard to channel for game {game_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "queued",
+        "message": f"Player dashboard queued for channel {channel_id}",
+        "channel_id": channel_id,
+        "outbox_id": outbox_id,
+    }
 
 
 # --- Analytics Endpoints ---

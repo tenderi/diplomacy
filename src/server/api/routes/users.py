@@ -37,28 +37,25 @@ def persistent_register_user(req: RegisterPersistentUserRequest) -> Dict[str, An
     if not is_bot_secret(req.bot_secret):
         from fastapi import status
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    try:
-        # Check if user already exists
-        existing_user = db_service.get_user_by_telegram_id(req.telegram_id)
-        if existing_user:
-            return {
-                "status": "already_registered",
-                "user_id": existing_user.id,
-                "telegram_id": existing_user.telegram_id,
-                "nickname": existing_user.nickname,
-            }
-        
-        # Create new user
-        user = db_service.create_user(telegram_id=req.telegram_id)
-        
+    # Check if user already exists
+    existing_user = db_service.get_user_by_telegram_id(req.telegram_id)
+    if existing_user:
         return {
-            "status": "ok",
-            "user_id": user.id,
-            "telegram_id": user.telegram_id,
-            "nickname": user.nickname,
+            "status": "already_registered",
+            "user_id": existing_user.id,
+            "telegram_id": existing_user.telegram_id,
+            "nickname": existing_user.nickname,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        
+    # Create new user
+    user = db_service.create_user(telegram_id=req.telegram_id)
+        
+    return {
+        "status": "ok",
+        "user_id": user.id,
+        "telegram_id": user.telegram_id,
+        "nickname": user.nickname,
+    }
 
 class BotNicknameRequest(BaseModel):
     telegram_id: str
@@ -145,13 +142,8 @@ def get_user_games(telegram_id: str, _: None = Depends(require_bot_or_self)) -> 
     -- until ``v2.7.79`` (Track T) which games a given Telegram user plays, and
     as which power, was readable by anyone who could guess the id.
     """
-    try:
-        user = db_service.get_user_by_telegram_id(telegram_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        return _user_games_response(user)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    user = db_service.get_user_by_telegram_id(telegram_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _user_games_response(user)
 

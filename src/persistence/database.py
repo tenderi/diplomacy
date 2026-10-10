@@ -10,6 +10,7 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy import JSON
 from sqlalchemy import false as sa_false
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 Base = declarative_base()
@@ -498,7 +499,7 @@ def create_database_schema(database_url: str):
                     conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT true"))
                     conn.execute(text("UPDATE users SET is_active = true WHERE is_active IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN is_active SET NOT NULL"))
-                except Exception:
+                except SQLAlchemyError:
                     # If column already exists or other error, continue
                     pass
             
@@ -508,7 +509,7 @@ def create_database_schema(database_url: str):
                     conn.execute(text("UPDATE users SET created_at = NOW() WHERE created_at IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET NOT NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW()"))
-                except Exception:
+                except SQLAlchemyError:
                     pass
             
             if 'updated_at' not in users_columns:
@@ -517,7 +518,7 @@ def create_database_schema(database_url: str):
                     conn.execute(text("UPDATE users SET updated_at = NOW() WHERE updated_at IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET NOT NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET DEFAULT NOW()"))
-                except Exception:
+                except SQLAlchemyError:
                     pass
         
         # Force a commit by executing a simple query

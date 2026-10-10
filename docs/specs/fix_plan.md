@@ -16,9 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-10. `v3.0.98` did BF4 (the bot's order commands catch
-  `requests.RequestException` / `TelegramError`, not `Exception`; `_on_handler_error` apologises).
-  `v3.0.97` did BF2 (`routes/games.py`: the 500-wrapping
+- **Last updated:** 2026-10-10. `v3.0.99` did BF3 (the other API routes, `persistence/database.py`, the
+  idempotency middleware and the response cache: the 500-wrapping catches are gone, storage
+  catches are `SQLAlchemyError`, notification catches are logged boundaries). `v3.0.98` did
+  BF4 (the bot's order commands catch `requests.RequestException` / `TelegramError`, not
+  `Exception`; `_on_handler_error` apologises). `v3.0.97` did BF2 (`routes/games.py`: the 500-wrapping
   catches are gone, so a bug is a plain 500 with a traceback; notification catches are
   logged boundaries). `v3.0.96` did BF1 (ruff's BLE001 is on, with a
   per-file ignore list that Track BF empties; the scheduler, housekeeping, notification and
@@ -114,7 +116,7 @@ when that list holds only the out-of-scope files.
 
 - [x] **BF1** Enable BLE001; fix `api/shared.py` and `_api_module.py`.
 - [x] **BF2** `api/routes/games.py`.
-- [ ] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
+- [x] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
   `response_cache.py`.
 - [x] **BF4** `telegram_bot/orders.py`.
 - [ ] **BF5** The rest of `telegram_bot/`.
