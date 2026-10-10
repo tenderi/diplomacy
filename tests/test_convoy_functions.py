@@ -10,6 +10,7 @@ power) fetches ``/users/{id}/games`` via a *separate* import
 (``server.telegram_bot.game_context.api_get``), so tests patch both names.
 """
 import pytest
+import requests
 from unittest.mock import Mock, AsyncMock, patch
 from telegram import CallbackQuery, User
 
@@ -189,10 +190,10 @@ class TestShowConvoyDestinations:
         self, mock_ctx_get, mock_orders_get, mock_query, mock_context, user_games
     ):
         mock_ctx_get.return_value = user_games
-        mock_orders_get.side_effect = Exception("Test error")
+        mock_orders_get.side_effect = requests.ConnectionError("Test error")
 
         await show_convoy_destinations(mock_query, mock_context, "test_game_1", "F NTH", "LON")
 
         mock_query.edit_message_text.assert_called_once()
         call_args = mock_query.edit_message_text.call_args[0][0]
-        assert "error" in call_args.lower()
+        assert call_args == "❌ Could not retrieve legal orders: Test error"

@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import requests
 
+from telegram.error import TelegramError
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -259,7 +260,7 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Order error: {e}")
         return
 
@@ -305,7 +306,7 @@ async def myorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error retrieving orders: {e}")
         return
 
@@ -340,7 +341,7 @@ async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error clearing orders: {e}")
         return
 
@@ -384,7 +385,7 @@ async def orderhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error retrieving order history: {e}")
         return
 
@@ -437,13 +438,13 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Process turn error: {e}")
         return
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
-    except Exception:
+    except requests.RequestException:
         orders_status = None
 
     missing = orders_status.get("missing", []) if orders_status else []
@@ -485,7 +486,7 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
     # turn early from Telegram, and answers anyone else with a 403 explaining so.
     try:
         result = api_post(f"/games/{game_id}/process_turn", {"telegram_id": telegram_id} if telegram_id else {})
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Process turn error: {e}")
         return
 
@@ -496,7 +497,7 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
 
     try:
         game_state = api_get(f"/games/{game_id}/state")
-    except Exception:
+    except requests.RequestException:
         game_state = None
 
     if not game_state:
@@ -556,13 +557,13 @@ async def viewmap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"View map error: {e}")
         return
 
     try:
         await send_game_map(update, context, game_id)
-    except Exception as e:
+    except (requests.RequestException, TelegramError) as e:
         await update.message.reply_text(f"View map error: {e}")
 
 
@@ -612,13 +613,13 @@ async def show_unit_picker(
     except GameContextError as e:
         await reply_or_edit(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await reply_or_edit(f"Select unit error: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await reply_or_edit(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
         return
 
@@ -703,13 +704,13 @@ async def show_possible_moves(
     except GameContextError as e:
         await send(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not retrieve legal orders: {e}")
         return
 
@@ -1036,13 +1037,13 @@ async def show_support_options(
     except GameContextError as e:
         await send(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not retrieve legal orders: {e}")
         return
 
@@ -1091,13 +1092,13 @@ async def show_support_choices(
     except GameContextError as e:
         await send(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not retrieve legal orders: {e}")
         return
 
@@ -1143,13 +1144,13 @@ async def show_convoy_options(
     except GameContextError as e:
         await send(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not retrieve legal orders: {e}")
         return
 
@@ -1189,13 +1190,13 @@ async def show_convoy_destinations(
     except GameContextError as e:
         await send(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
-    except Exception as e:
+    except requests.RequestException as e:
         await send(f"❌ Could not retrieve legal orders: {e}")
         return
 
@@ -1231,7 +1232,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
     except GameContextError as e:
         await query.edit_message_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await query.edit_message_text(f"❌ Could not resolve your power in game {game_id}: {e}")
         return
 

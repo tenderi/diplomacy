@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-10. `v3.0.97` did BF2 (`routes/games.py`: the 500-wrapping
+- **Last updated:** 2026-10-10. `v3.0.98` did BF4 (the bot's order commands catch
+  `requests.RequestException` / `TelegramError`, not `Exception`; `_on_handler_error` apologises).
+  `v3.0.97` did BF2 (`routes/games.py`: the 500-wrapping
   catches are gone, so a bug is a plain 500 with a traceback; notification catches are
   logged boundaries). `v3.0.96` did BF1 (ruff's BLE001 is on, with a
   per-file ignore list that Track BF empties; the scheduler, housekeeping, notification and
@@ -98,7 +100,9 @@ coherent* to use.
 `CLAUDE.md` forbids a blanket `except Exception`; `ruff check src/ --select BLE001` found
 155. Policy: a blanket catch may remain only at a true **boundary** (a background loop
 that must survive one bad iteration; a side effect after an already-committed write, such
-as a notification; a bot command's last-resort reply to the user), and then it logs with
+as a notification; the bot's last-resort reply to the user, which is `_on_handler_error` in
+`telegram_bot/app.py` alone: it logs the traceback and sends the player a generic
+apology in a private chat, so a command handler needs no blanket catch of its own), and then it logs with
 `logger.exception(...)` (a traceback, not a one-liner) and carries
 `# noqa: BLE001 -- <why this is a boundary>`. Everywhere else, narrow to what can actually
 occur (`SQLAlchemyError`, `requests.RequestException`, `telegram.error.TelegramError`,
@@ -112,7 +116,7 @@ when that list holds only the out-of-scope files.
 - [x] **BF2** `api/routes/games.py`.
 - [ ] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
   `response_cache.py`.
-- [ ] **BF4** `telegram_bot/orders.py`.
+- [x] **BF4** `telegram_bot/orders.py`.
 - [ ] **BF5** The rest of `telegram_bot/`.
 
 ## F1 — End-to-end play-through, both clients
