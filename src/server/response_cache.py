@@ -321,8 +321,8 @@ def _cleanup_thread():
             expired_count = cleanup_expired_cache()
             if expired_count > 0:
                 logger.debug(f"🧹 Auto-cleanup removed {expired_count} expired cache entries")
-        except Exception as e:
-            logger.error(f"❌ Cache cleanup thread error: {e}")
+        except Exception:  # noqa: BLE001 -- boundary: the daemon loop must survive one bad sweep
+            logger.exception("Cache cleanup thread error")
 
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=_cleanup_thread, daemon=True)

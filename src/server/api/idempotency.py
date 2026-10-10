@@ -40,6 +40,7 @@ import json
 import logging
 from typing import Any, Callable, Optional
 
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -83,7 +84,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         db = self._get_db()
         try:
             stored = await run_in_threadpool(db.get_idempotent_response, key)
-        except Exception as e:  # DB down: fall through and run the route; it will fail on its own
+        except SQLAlchemyError as e:  # DB down: fall through and run the route; it will fail on its own
             logger.error("Idempotency lookup failed for key %s: %s", key, e)
             stored = None
         if stored is not None:
@@ -111,7 +112,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                 await run_in_threadpool(
                     db.store_idempotent_response, key, request.url.path, response.status_code, parsed
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error("Failed to store idempotent response for key %s: %s", key, e)
 
         headers = dict(response.headers)

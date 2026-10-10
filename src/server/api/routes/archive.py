@@ -25,6 +25,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .admin import require_admin
+from sqlalchemy.exc import SQLAlchemyError
+
 from ..shared import arm_scheduled_deadline, db_service, game_service, logger
 from ...deadline_schedule import from_json as schedule_from_json
 
@@ -285,7 +287,7 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
                 state_json=s.get("state"),
             )
             snapshots_restored += 1
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, TypeError) as e:
             logger.warning(f"Skipped a snapshot while importing game {game_id}: {e}")
 
     return {

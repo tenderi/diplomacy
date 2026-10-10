@@ -6,6 +6,7 @@ This module contains all endpoints related to private and broadcast messaging be
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from typing import Dict, Any, Optional
 from datetime import datetime
 
@@ -35,7 +36,7 @@ def _phase_code_for(game_id: str, numeric_game_id: int, sent_at: datetime) -> Op
         current = view["phase"] if view else None
         historical = db_service.get_phase_code_at(numeric_game_id, sent_at)
         return historical or current
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.debug(f"Could not resolve the phase for a message in game {game_id}: {e}")
         return None
 
@@ -96,71 +97,66 @@ def send_private_message(
     req: SendMessageRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        check_message_text(req.text)
-        # Get game model to get numeric ID for database operations
-        game_model = db_service.get_game_by_game_id(str(game_id))
-        if not game_model:
-            raise HTTPException(status_code=404, detail="Game not found")
-        # Validate sender is in the game (use numeric game.id)
-        player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
-        if player is None:
-            raise HTTPException(status_code=403, detail="Sender not in game")
-        # Validate recipient power exists in game and has a player assigned
-        if req.recipient_power is None or req.recipient_power == "":  # type: ignore
-            raise HTTPException(status_code=400, detail="Recipient power required for private message")
-        recipient_power = req.recipient_power.strip().upper()
-        # A typo ("FRANC") is not an empty seat: say what the powers are.
-        powers = sorted(game_service.map.home_centers)
-        if recipient_power not in powers:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{recipient_power} is not a power. The powers are {', '.join(powers)}.",
-            )
-        if recipient_power ==str(player.power_name).upper():
-            raise HTTPException(
-                status_code=400,
-                detail=f"You play {recipient_power}: a private message goes to another power.",
-            )
-        recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=recipient_power)
-        # A seat whose player quit still has a row, with no user: nobody would
-        # ever read the message, so say so instead of storing it silently.
-        if recipient_player is None or recipient_player.user_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot send a private message to {recipient_power}: no player is assigned to that power.",
-            )
-        sent_at = normalize_client_timestamp(req.client_timestamp)
-        msg = db_service.create_message(
-            game_id=int(game_model.id),  # type: ignore
-            sender_user_id=int(user.id),  # type: ignore
-            recipient_power=recipient_power,
-            text=req.text,
-            timestamp=sent_at,
-            phase_code=_phase_code_for(str(game_id), int(game_model.id), sent_at),  # type: ignore
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    check_message_text(req.text)
+    # Get game model to get numeric ID for database operations
+    game_model = db_service.get_game_by_game_id(str(game_id))
+    if not game_model:
+        raise HTTPException(status_code=404, detail="Game not found")
+    # Validate sender is in the game (use numeric game.id)
+    player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
+    if player is None:
+        raise HTTPException(status_code=403, detail="Sender not in game")
+    # Validate recipient power exists in game and has a player assigned
+    if req.recipient_power is None or req.recipient_power == "":  # type: ignore
+        raise HTTPException(status_code=400, detail="Recipient power required for private message")
+    recipient_power = req.recipient_power.strip().upper()
+    # A typo ("FRANC") is not an empty seat: say what the powers are.
+    powers = sorted(game_service.map.home_centers)
+    if recipient_power not in powers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{recipient_power} is not a power. The powers are {', '.join(powers)}.",
         )
-        # Private message notification
-        try:
-            recipient_user_id = getattr(recipient_player, "user_id", None)
-            if recipient_player is not None and recipient_user_id is not None:
-                recipient_user = db_service.get_user_by_id(recipient_user_id)
-                recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
-                if recipient_telegram_id is not None:
-                    # The sender is named by power -- and, in a public game, by name.
-                    notify_user(
-                        recipient_telegram_id,
-                        f"New private message in game {game_id} from "
-                        f"{power_label(game_id, str(player.power_name), user)}"
-                        f"{sent_at_suffix(sent_at)}: {req.text}",
-                    )
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify private message: {e}")
-        return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if recipient_power ==str(player.power_name).upper():
+        raise HTTPException(
+            status_code=400,
+            detail=f"You play {recipient_power}: a private message goes to another power.",
+        )
+    recipient_player = db_service.get_player_by_game_id_and_power(game_id=str(game_id), power=recipient_power)
+    # A seat whose player quit still has a row, with no user: nobody would
+    # ever read the message, so say so instead of storing it silently.
+    if recipient_player is None or recipient_player.user_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot send a private message to {recipient_power}: no player is assigned to that power.",
+        )
+    sent_at = normalize_client_timestamp(req.client_timestamp)
+    msg = db_service.create_message(
+        game_id=int(game_model.id),  # type: ignore
+        sender_user_id=int(user.id),  # type: ignore
+        recipient_power=recipient_power,
+        text=req.text,
+        timestamp=sent_at,
+        phase_code=_phase_code_for(str(game_id), int(game_model.id), sent_at),  # type: ignore
+    )
+    # Private message notification
+    try:
+        recipient_user_id = getattr(recipient_player, "user_id", None)
+        if recipient_player is not None and recipient_user_id is not None:
+            recipient_user = db_service.get_user_by_id(recipient_user_id)
+            recipient_telegram_id = getattr(recipient_user, "telegram_id", None) if recipient_user is not None else None
+            if recipient_telegram_id is not None:
+                # The sender is named by power -- and, in a public game, by name.
+                notify_user(
+                    recipient_telegram_id,
+                    f"New private message in game {game_id} from "
+                    f"{power_label(game_id, str(player.power_name), user)}"
+                    f"{sent_at_suffix(sent_at)}: {req.text}",
+                )
+    except Exception:  # noqa: BLE001 -- boundary: the message is committed; a failed notification must not fail it
+        scheduler_logger.exception("Failed to notify private message")
+    return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
 
 @router.post("/games/{game_id}/broadcast")
 def send_broadcast_message(
@@ -174,70 +170,65 @@ def send_broadcast_message(
     the game's numeric primary key. With ``anonymous`` it is a rumour: the DMs
     and the group post name no power and no player.
     """
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    check_message_text(req.text)
+    game_model = db_service.get_game_by_game_id(str(game_id))
+    if not game_model:
+        raise HTTPException(status_code=404, detail="Game not found")
+    numeric_id = int(game_model.id)  # type: ignore
+    # Validate sender is in the game
+    player = db_service.get_player_by_game_id_and_user_id(game_id=numeric_id, user_id=int(user.id))  # type: ignore
+    if player is None:
+        raise HTTPException(status_code=403, detail="Sender not in game")
+    sent_at = normalize_client_timestamp(req.client_timestamp)
+    msg = db_service.create_message(
+        game_id=numeric_id,
+        sender_user_id=int(user.id),  # type: ignore
+        recipient_power=None,
+        text=req.text,
+        timestamp=sent_at,
+        phase_code=_phase_code_for(str(game_id), numeric_id, sent_at),
+        anonymous=req.anonymous,
+    )
+    if req.anonymous:
+        dm_heading = f"🕵️ Rumour in game {game_id}"
+        group_heading = f"🕵️ Rumour in game {game_id}"
+    else:
+        sender = power_label(game_id, str(player.power_name), user)
+        dm_heading = f"Broadcast in game {game_id} from {sender}"
+        group_heading = f"📢 Broadcast in game {game_id} from {sender}"
+    # Broadcast message notification. A signed broadcast skips its sender:
+    # they have the bot's own "Broadcast sent" confirmation (or, for a
+    # queued broadcast, its "delivered" report), and hearing their own
+    # words back as a DM was noise. A rumour goes to every seated player,
+    # the sender included, with the same text through the same loop: left
+    # out, the sender was the one player with no DM, which named them (#173).
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        check_message_text(req.text)
-        game_model = db_service.get_game_by_game_id(str(game_id))
-        if not game_model:
-            raise HTTPException(status_code=404, detail="Game not found")
-        numeric_id = int(game_model.id)  # type: ignore
-        # Validate sender is in the game
-        player = db_service.get_player_by_game_id_and_user_id(game_id=numeric_id, user_id=int(user.id))  # type: ignore
-        if player is None:
-            raise HTTPException(status_code=403, detail="Sender not in game")
-        sent_at = normalize_client_timestamp(req.client_timestamp)
-        msg = db_service.create_message(
-            game_id=numeric_id,
-            sender_user_id=int(user.id),  # type: ignore
-            recipient_power=None,
-            text=req.text,
-            timestamp=sent_at,
-            phase_code=_phase_code_for(str(game_id), numeric_id, sent_at),
-            anonymous=req.anonymous,
+        notify_players(
+            numeric_id,
+            f"{dm_heading}{sent_at_suffix(sent_at)}: {req.text}",
+            exclude_telegram_id=None if req.anonymous else getattr(user, "telegram_id", None),
         )
-        if req.anonymous:
-            dm_heading = f"🕵️ Rumour in game {game_id}"
-            group_heading = f"🕵️ Rumour in game {game_id}"
-        else:
-            sender = power_label(game_id, str(player.power_name), user)
-            dm_heading = f"Broadcast in game {game_id} from {sender}"
-            group_heading = f"📢 Broadcast in game {game_id} from {sender}"
-        # Broadcast message notification. A signed broadcast skips its sender:
-        # they have the bot's own "Broadcast sent" confirmation (or, for a
-        # queued broadcast, its "delivered" report), and hearing their own
-        # words back as a DM was noise. A rumour goes to every seated player,
-        # the sender included, with the same text through the same loop: left
-        # out, the sender was the one player with no DM, which named them (#173).
-        try:
-            notify_players(
-                numeric_id,
-                f"{dm_heading}{sent_at_suffix(sent_at)}: {req.text}",
-                exclude_telegram_id=None if req.anonymous else getattr(user, "telegram_id", None),
+    except Exception:  # noqa: BLE001 -- boundary: the broadcast is committed; a failed notification must not fail it
+        scheduler_logger.exception("Failed to notify broadcast message")
+        
+    # Channel integration: forward the broadcast to a linked channel, via
+    # bot_outbox like every other player-facing notification -- calling
+    # straight into telegram_bot.channels here silently did nothing (it
+    # only has a live Bot instance inside the bot's own container; see
+    # api.shared._post_turn_to_channel's docstring for the full story).
+    try:
+        channel_info = db_service.get_game_channel_info(str(game_id))
+        if channel_info and (channel_info.get("settings") or {}).get("auto_post_broadcasts", True):
+            db_service.enqueue_bot_notification(
+                channel_info.get("channel_id"),
+                f"{group_heading}: {req.text}",
+                kind="channel_text",
             )
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify broadcast message: {e}")
+    except SQLAlchemyError as e:
+        logger.debug(f"Channel integration check failed for broadcast: {e}")
         
-        # Channel integration: forward the broadcast to a linked channel, via
-        # bot_outbox like every other player-facing notification -- calling
-        # straight into telegram_bot.channels here silently did nothing (it
-        # only has a live Bot instance inside the bot's own container; see
-        # api.shared._post_turn_to_channel's docstring for the full story).
-        try:
-            channel_info = db_service.get_game_channel_info(str(game_id))
-            if channel_info and (channel_info.get("settings") or {}).get("auto_post_broadcasts", True):
-                db_service.enqueue_bot_notification(
-                    channel_info.get("channel_id"),
-                    f"{group_heading}: {req.text}",
-                    kind="channel_text",
-                )
-        except Exception as e:
-            logger.debug(f"Channel integration check failed for broadcast: {e}")
-        
-        return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok", "message_id": msg.id, "timestamp": msg.timestamp.isoformat()}
 
 @router.get("/games/{game_id}/messages")
 def get_game_messages(
@@ -255,75 +246,70 @@ def get_game_messages(
     a silent fallback to the anonymous view: that fallback is how the bot once
     showed every player a log with their private messages missing.
     """
-    try:
-        user = None
-        if credentials:
-            user = get_current_user(credentials)  # 401 unless valid
-        elif telegram_id:
-            user = resolve_user_or_telegram(None, telegram_id, bot_secret=bot_secret)
-        # Get game model to get numeric ID
-        game_model = db_service.get_game_by_game_id(str(game_id))
-        if not game_model:
-            raise HTTPException(status_code=404, detail="Game not found")
-        # Retrieve all messages for the game, filter private messages to only those sent to or from the user
-        query = db_service.get_messages_by_game_id(int(game_model.id))
-        if user:
-            # Show broadcasts and private messages sent to or from this user
-            player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
-            if player:
-                power = player.power_name
-                from sqlalchemy import or_
-                query = query.filter(
-                    or_(
-                        MessageModel.recipient_power.is_(None),
-                        MessageModel.recipient_power == power,
-                        MessageModel.sender_user_id == user.id,
-                    )
+    user = None
+    if credentials:
+        user = get_current_user(credentials)  # 401 unless valid
+    elif telegram_id:
+        user = resolve_user_or_telegram(None, telegram_id, bot_secret=bot_secret)
+    # Get game model to get numeric ID
+    game_model = db_service.get_game_by_game_id(str(game_id))
+    if not game_model:
+        raise HTTPException(status_code=404, detail="Game not found")
+    # Retrieve all messages for the game, filter private messages to only those sent to or from the user
+    query = db_service.get_messages_by_game_id(int(game_model.id))
+    if user:
+        # Show broadcasts and private messages sent to or from this user
+        player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
+        if player:
+            power = player.power_name
+            from sqlalchemy import or_
+            query = query.filter(
+                or_(
+                    MessageModel.recipient_power.is_(None),
+                    MessageModel.recipient_power == power,
+                    MessageModel.sender_user_id == user.id,
                 )
-            else:
-                query = query.filter(MessageModel.recipient_power.is_(None))  # Only broadcasts
+            )
         else:
-            # Unauthenticated: only return public broadcast messages (no private messages)
-            query = query.filter(MessageModel.recipient_power.is_(None))
-        messages = query.order_by(MessageModel.timestamp.asc()).all()
-        # Who sent each message, by the seat they hold now: ``sender_power``
-        # always, ``sender_name`` in a public game only. An anonymous game hides
-        # ``sender_user_id`` too -- a public game's player list maps it to a name.
-        anonymous = is_anonymous(game_id)
-        power_of: Dict[int, str] = {}
-        name_of: Dict[int, Optional[str]] = {}
-        for seat in db_service.get_players_by_game_id(int(game_model.id)):  # type: ignore
-            if seat.user_id is not None:
-                power_of[int(seat.user_id)] = str(seat.power_name)
-                if not anonymous:
-                    sender = db_service.get_user_by_id(int(seat.user_id))
-                    name_of[int(seat.user_id)] = getattr(sender, "nickname", None) if sender else None
-        reader_id = int(user.id) if user is not None else None  # type: ignore
+            query = query.filter(MessageModel.recipient_power.is_(None))  # Only broadcasts
+    else:
+        # Unauthenticated: only return public broadcast messages (no private messages)
+        query = query.filter(MessageModel.recipient_power.is_(None))
+    messages = query.order_by(MessageModel.timestamp.asc()).all()
+    # Who sent each message, by the seat they hold now: ``sender_power``
+    # always, ``sender_name`` in a public game only. An anonymous game hides
+    # ``sender_user_id`` too -- a public game's player list maps it to a name.
+    anonymous = is_anonymous(game_id)
+    power_of: Dict[int, str] = {}
+    name_of: Dict[int, Optional[str]] = {}
+    for seat in db_service.get_players_by_game_id(int(game_model.id)):  # type: ignore
+        if seat.user_id is not None:
+            power_of[int(seat.user_id)] = str(seat.power_name)
+            if not anonymous:
+                sender = db_service.get_user_by_id(int(seat.user_id))
+                name_of[int(seat.user_id)] = getattr(sender, "nickname", None) if sender else None
+    reader_id = int(user.id) if user is not None else None  # type: ignore
 
-        def hidden(m: MessageModel) -> bool:
-            # A rumour names its sender to nobody but the sender themself, so
-            # their own log still reads as theirs.
-            return bool(m.anonymous) and (reader_id is None or int(m.sender_user_id) != reader_id)
+    def hidden(m: MessageModel) -> bool:
+        # A rumour names its sender to nobody but the sender themself, so
+        # their own log still reads as theirs.
+        return bool(m.anonymous) and (reader_id is None or int(m.sender_user_id) != reader_id)
 
-        result = [
-            {
-                "id": m.id,
-                "sender_user_id": None if anonymous or hidden(m) else m.sender_user_id,
-                "sender_power": None if hidden(m) else power_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
-                "sender_name": None if hidden(m) else name_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
-                "anonymous": bool(m.anonymous),
-                "recipient_power": m.recipient_power,
-                "text": m.text,
-                "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp),
-                # The phase the message was written in; NULL for messages
-                # predating this column. Lets a client group a game log by phase.
-                "phase_code": m.phase_code,
-            }
-            for m in messages
-        ]
-        return {"messages": result}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = [
+        {
+            "id": m.id,
+            "sender_user_id": None if anonymous or hidden(m) else m.sender_user_id,
+            "sender_power": None if hidden(m) else power_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+            "sender_name": None if hidden(m) else name_of.get(int(m.sender_user_id)) if m.sender_user_id is not None else None,
+            "anonymous": bool(m.anonymous),
+            "recipient_power": m.recipient_power,
+            "text": m.text,
+            "timestamp": m.timestamp.isoformat() if hasattr(m.timestamp, 'isoformat') else str(m.timestamp),
+            # The phase the message was written in; NULL for messages
+            # predating this column. Lets a client group a game log by phase.
+            "phase_code": m.phase_code,
+        }
+        for m in messages
+    ]
+    return {"messages": result}
 

@@ -13,7 +13,7 @@ from .auth import get_current_user_optional, resolve_user_or_telegram, http_bear
 from ..client_timestamp import normalize_client_timestamp
 from .. import shared as api_shared
 from ...response_cache import invalidate_cache
-from ..shared import db_service, game_service, logger, is_bot_secret
+from ..shared import db_service, game_service, is_bot_secret
 from server.game_service import GameOverError, StaleGameError
 
 router = APIRouter()
@@ -114,9 +114,6 @@ def set_orders(
             detail=f"The turn was processed while your orders were being submitted; none were applied. "
             f"Check the new board and submit again. ({e})",
         ) from e
-    except Exception as e:
-        logger.exception(f"set_orders failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
     results = [
         {
             "order": r["order"],

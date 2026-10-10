@@ -119,13 +119,13 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
 
         for _telegram_id, user_id, power in assignments:
             db_service.create_player(int(row.id), power, user_id=user_id)
-    except Exception as e:
+    except Exception:  # noqa: BLE001 -- boundary: whatever broke game creation, give the players their places back
         db_service.requeue_waiting_list_entries(claimed)
         if orphan_id is not None:
             db_service.delete_game(orphan_id)
-        logger.error(
-            "Failed to create a game from the waiting list; re-queued %d players: %s",
-            len(claimed), e,
+        logger.exception(
+            "Failed to create a game from the waiting list; re-queued %d players",
+            len(claimed),
         )
         return None
 
@@ -142,8 +142,8 @@ def try_fill_waiting_list() -> Optional[Dict[str, Any]]:
         )
     try:
         notify_players(int(row.id), f"Game {game_id} is now full. Good luck to all players.", buttons=game_buttons(game_id))
-    except Exception as e:
-        logger.warning(f"Failed to post game-full notification for {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the game is committed; a failed notification must not undo it
+        logger.exception("Failed to post game-full notification for %s", game_id)
 
     logger.info(
         "Created game %s from the waiting list with %d players", game_id, len(assignments)

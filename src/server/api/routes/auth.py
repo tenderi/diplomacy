@@ -232,7 +232,7 @@ def _verify_password(plain: str, hashed: str) -> bool:
         return False
     try:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("ascii"))
-    except Exception:
+    except ValueError:  # bcrypt rejects a malformed stored hash
         return False
 
 
