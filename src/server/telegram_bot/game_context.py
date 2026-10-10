@@ -13,6 +13,7 @@ single place that logic lives now.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any, Optional
 
 import requests
@@ -82,7 +83,7 @@ def fetch_user_games(user_id: str) -> list[dict[str, Any]]:
     games = response.get("games", []) if response else []
     try:
         get_outbox().cache_user_games(user_id, games)
-    except Exception as e:  # a cache write must never break a command
+    except (sqlite3.Error, OSError) as e:  # a cache write must never break a command
         logger.warning("Could not cache games for user %s: %s", user_id, e)
     return games
 
@@ -95,7 +96,7 @@ def set_current_game(user_id: str, game_id: str) -> None:
     """
     try:
         get_outbox().set_current_game(user_id, str(game_id))
-    except Exception as e:  # a cache write must never break a command
+    except (sqlite3.Error, OSError) as e:  # a cache write must never break a command
         logger.warning("Could not remember current game for user %s: %s", user_id, e)
 
 
@@ -103,7 +104,7 @@ def current_game(user_id: str) -> Optional[str]:
     """The game ``user_id`` last opened, named, or was notified about, if any."""
     try:
         return get_outbox().current_game(user_id)
-    except Exception as e:  # reading a convenience must never break a command
+    except (sqlite3.Error, OSError) as e:  # reading a convenience must never break a command
         logger.warning("Could not read current game for user %s: %s", user_id, e)
         return None
 

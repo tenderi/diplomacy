@@ -73,7 +73,7 @@ class AdminAlertHandler(logging.Handler):
         self._sending.active = True
         try:
             self._send(self.format_alert(record, held_back))
-        except Exception:  # a logging handler must never raise into the code that logged
+        except Exception:  # noqa: BLE001 -- boundary: a logging handler must never raise into the code that logged
             self.handleError(record)
         finally:
             self._sending.active = False

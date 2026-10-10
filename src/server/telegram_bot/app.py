@@ -11,7 +11,7 @@ import sys
 from typing import Optional
 
 from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import TelegramError
+from telegram.error import NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application, ApplicationBuilder, ApplicationHandlerStop, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
@@ -325,6 +325,10 @@ async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) 
             trigger = f"button {update.callback_query.data}"
         elif update.effective_message is not None and (update.effective_message.text or "").startswith("/"):
             trigger = (update.effective_message.text or "").split()[0]
+    if update is None and isinstance(context.error, (NetworkError, TimedOut)):
+        # The polling loop lost Telegram for a moment; python-telegram-bot retries.
+        logger.warning("Telegram polling error: %s", context.error)
+        return
     logger.error("Error handling %s", trigger, exc_info=context.error)
     if not isinstance(update, Update):
         return
@@ -587,7 +591,7 @@ def main():
                     logger.info("Creating a fresh event loop and retrying")
                     asyncio.set_event_loop(asyncio.new_event_loop())
                     app.run_polling(close_loop=False)
-                except Exception as retry_e:
+                except RuntimeError as retry_e:
                     logger.error(f"Failed to recover after event loop closure: {retry_e}")
                     return
             else:
@@ -595,9 +599,6 @@ def main():
                 raise
         except KeyboardInterrupt:
             logger.info("Bot stopped by keyboard interrupt")
-        except Exception as e:
-            logger.error(f"Unexpected error during bot execution: {e}")
-            raise
 
     print("Starting Telegram bot polling...")
     run_bot()
