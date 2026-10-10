@@ -22,7 +22,6 @@ extend-select = ["BLE001"]  # blind `except Exception` (Track BF)
 "src/server/api/routes/archive.py" = ["BLE001"]
 "src/server/api/routes/auth.py" = ["BLE001"]
 "src/server/api/routes/channels.py" = ["BLE001"]
-"src/server/api/routes/games.py" = ["BLE001"]
 "src/server/api/routes/maps.py" = ["BLE001"]
 "src/server/api/routes/messages.py" = ["BLE001"]
 "src/server/api/routes/orders.py" = ["BLE001"]

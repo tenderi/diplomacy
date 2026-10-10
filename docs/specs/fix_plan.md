@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-10. `v3.0.96` did BF1 (ruff's BLE001 is on, with a
+- **Last updated:** 2026-10-10. `v3.0.97` did BF2 (`routes/games.py`: the 500-wrapping
+  catches are gone, so a bug is a plain 500 with a traceback; notification catches are
+  logged boundaries). `v3.0.96` did BF1 (ruff's BLE001 is on, with a
   per-file ignore list that Track BF empties; the scheduler, housekeeping, notification and
   startup boundaries in `shared.py` and `_api_module.py` now log tracebacks). `v3.0.95` did
   BD11 (DAIDE `SUB` / `NOT (SUB)` invalidate the cached game reads), completing Track BD.
@@ -107,7 +109,7 @@ its files from `[tool.ruff.lint.per-file-ignores]` in `pyproject.toml`; the trac
 when that list holds only the out-of-scope files.
 
 - [x] **BF1** Enable BLE001; fix `api/shared.py` and `_api_module.py`.
-- [ ] **BF2** `api/routes/games.py`.
+- [x] **BF2** `api/routes/games.py`.
 - [ ] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
   `response_cache.py`.
 - [ ] **BF4** `telegram_bot/orders.py`.
