@@ -119,7 +119,7 @@ when that list holds only the out-of-scope files.
 - [x] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
   `response_cache.py`.
 - [x] **BF4** `telegram_bot/orders.py`.
-- [ ] **BF5** The rest of `telegram_bot/`.
+- [x] **BF5** The rest of `telegram_bot/`.
 
 ## F1 — End-to-end play-through, both clients
 
