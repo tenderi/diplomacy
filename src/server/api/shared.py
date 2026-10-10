@@ -200,8 +200,8 @@ def notify_user(
         row_id = db_service.enqueue_bot_notification(
             telegram_id_int, message, payload={"buttons": buttons} if buttons else None
         )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to queue notification for telegram_id {telegram_id}: {e}")
+    except SQLAlchemyError:
+        scheduler_logger.exception("Failed to queue notification for telegram_id %s", telegram_id)
         return None
     scheduler_logger.info(f"Queued notification #{row_id} for telegram_id {telegram_id}: {message}")
     return row_id
@@ -451,8 +451,8 @@ def _post_turn_to_channel(
                 kind="channel_map",
                 payload={"game_id": game_id, "path": f"/games/{game_id}/map/history/{processed_turn + 1}"},
             )
-    except Exception as e:
-        scheduler_logger.debug(f"Channel integration check failed for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: a post-commit side effect must not fail the turn
+        scheduler_logger.exception("Channel integration check failed for game %s", game_id)
 
 
 def _join_names(names: list[str]) -> str:
@@ -641,8 +641,8 @@ def notify_turn_processed(
                     else None
                 ),
             )
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
+        except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
+            scheduler_logger.exception("Failed to notify players for game %s", game_id)
         _post_turn_to_channel(game_id, f"The turn has been processed. {ended}.", processed_turn, processed_phase)
         return
 
@@ -691,8 +691,8 @@ def notify_turn_processed(
                 + due,
                 game_buttons(game_id),
             )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify players for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
+        scheduler_logger.exception("Failed to notify players for game %s", game_id)
 
     if phase_type == "MOVEMENT":
         channel_text = f"The turn has been processed. {label}: new orders are due -- send them to me in private."
@@ -1120,12 +1120,12 @@ def expire_deadline_proposals(now: datetime) -> None:
                         else None
                     ),
                 )
-            except Exception as e:
-                scheduler_logger.error(
-                    f"Failed to notify expired deadline proposal for game {game_id_str}: {e}"
+            except Exception:  # noqa: BLE001 -- boundary: the proposal is already expired; the notice is a side effect
+                scheduler_logger.exception(
+                    "Failed to notify expired deadline proposal for game %s", game_id_str
                 )
-    except Exception as e:
-        scheduler_logger.error(f"Error expiring deadline proposals: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: scheduler loop must survive one bad iteration
+        scheduler_logger.exception("Error expiring deadline proposals")
 
 
 def finish_processed_turn(
@@ -1298,8 +1298,8 @@ def process_due_deadlines(now: datetime) -> None:
                             "PROCESS_TURN for game %s already processed concurrently, skipping.",
                             game_id_str,
                         )
-                    except Exception as e:
-                        scheduler_logger.error(f"Failed to process turn for game {game_id_str}: {e}")
+                    except Exception:  # noqa: BLE001 -- boundary: one failing game must not stop the others' deadlines
+                        scheduler_logger.exception("Failed to process turn for game %s", game_id_str)
                     else:
                         finish_processed_turn(
                             game_id_str,
@@ -1317,8 +1317,8 @@ def process_due_deadlines(now: datetime) -> None:
                     # so the scheduler does not retry it every tick; a weekly
                     # schedule tries again at its next slot.
                     db_service.update_game_deadline(game_id_val, scheduled_deadline(game_id_str))
-    except Exception as e:
-        scheduler_logger.error(f"Error processing deadlines: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: scheduler loop must survive one bad iteration
+        scheduler_logger.exception("Error processing deadlines")
 
 
 def check_and_send_reminders(now: datetime) -> None:
@@ -1353,8 +1353,8 @@ def check_and_send_reminders(now: datetime) -> None:
                         post_to_game_group(gid, f"⏰ Game {gid}: 10 minutes until the deadline. Orders go to me in private.", dm_start=f"orders_{gid}")
                         scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
                         reminder_sent[game_id_val] = True
-    except Exception as e:
-        scheduler_logger.error(f"Error in deadline scheduler: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: scheduler loop must survive one bad iteration
+        scheduler_logger.exception("Error sending deadline reminders")
 
 
 # The scheduler loop runs every 30 s; housekeeping every 120th tick (~1 h).
@@ -1376,8 +1376,8 @@ def run_housekeeping() -> None:
                 "Housekeeping: purged %d delivered notifications, %d idempotency keys",
                 purged_outbox, purged_keys,
             )
-    except Exception as e:
-        scheduler_logger.error(f"Housekeeping failed: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: a purge is never worth a scheduler crash
+        scheduler_logger.exception("Housekeeping failed")
 
 
 async def deadline_scheduler() -> None:

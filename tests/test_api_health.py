@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from server.api import app
 from server.api.shared import db_service
@@ -28,8 +29,10 @@ def test_probes_check_the_database(client: TestClient, path: str) -> None:
     with patch.object(db_service, "execute_query", return_value=None) as query:
         assert client.get(path).json() == {"status": "ok"}
     query.assert_called_once_with("SELECT 1")
-    with patch.object(db_service, "execute_query", side_effect=RuntimeError("db down")):
-        assert client.get(path).status_code == 500
+    with patch.object(db_service, "execute_query", side_effect=OperationalError("SELECT 1", {}, Exception("db down"))):
+        down = client.get(path)
+    assert down.status_code == 500
+    assert "Health check failed" in down.json()["detail"] and "db down" in down.json()["detail"]
 
 
 def test_no_anonymous_environment_dump(client: TestClient) -> None:
