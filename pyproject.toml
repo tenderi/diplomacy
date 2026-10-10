@@ -8,3 +8,34 @@ requires-python = ">=3.14,<3.15"
 [tool.ruff]
 target-version = "py314"
 line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["BLE001"]  # blind `except Exception` (Track BF)
+
+[tool.ruff.lint.per-file-ignores]
+# Out of scope, kept for back-compat (permanent):
+"src/server/api/routes/tournaments.py" = ["BLE001"]
+# Track BF (docs/specs/fix_plan.md): each step removes its files from this list.
+"src/persistence/database.py" = ["BLE001"]
+"src/server/api/idempotency.py" = ["BLE001"]
+"src/server/api/routes/admin.py" = ["BLE001"]
+"src/server/api/routes/archive.py" = ["BLE001"]
+"src/server/api/routes/auth.py" = ["BLE001"]
+"src/server/api/routes/channels.py" = ["BLE001"]
+"src/server/api/routes/games.py" = ["BLE001"]
+"src/server/api/routes/maps.py" = ["BLE001"]
+"src/server/api/routes/messages.py" = ["BLE001"]
+"src/server/api/routes/orders.py" = ["BLE001"]
+"src/server/api/routes/users.py" = ["BLE001"]
+"src/server/api/routes/waiting_list.py" = ["BLE001"]
+"src/server/response_cache.py" = ["BLE001"]
+"src/server/telegram_bot/alerting.py" = ["BLE001"]
+"src/server/telegram_bot/api_client.py" = ["BLE001"]
+"src/server/telegram_bot/app.py" = ["BLE001"]
+"src/server/telegram_bot/channels.py" = ["BLE001"]
+"src/server/telegram_bot/game_context.py" = ["BLE001"]
+"src/server/telegram_bot/games.py" = ["BLE001"]
+"src/server/telegram_bot/link_account.py" = ["BLE001"]
+"src/server/telegram_bot/maps.py" = ["BLE001"]
+"src/server/telegram_bot/notifications.py" = ["BLE001"]
+"src/server/telegram_bot/orders.py" = ["BLE001"]
