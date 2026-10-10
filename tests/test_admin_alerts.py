@@ -231,10 +231,19 @@ def test_a_failing_handler_stays_silent_in_a_group() -> None:
     update.effective_message.reply_text.assert_not_awaited()
 
 
-def test_a_failing_button_answers_the_query() -> None:
+def test_a_failing_button_apologises_with_a_message_not_a_second_answer() -> None:
+    from telegram.error import BadRequest
+
     update = _failed_update("private", button=True)
+    update.callback_query.answer = AsyncMock(side_effect=BadRequest("Query is already answered"))
     asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
-    update.callback_query.answer.assert_awaited_once_with(SORRY, show_alert=True)
+    update.effective_message.reply_text.assert_awaited_once_with(SORRY)
+    update.callback_query.answer.assert_not_awaited()
+
+
+def test_a_failing_button_in_a_group_stays_silent() -> None:
+    update = _failed_update("supergroup", button=True)
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
     update.effective_message.reply_text.assert_not_awaited()
 
 

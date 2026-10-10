@@ -330,12 +330,13 @@ async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) 
         return
     # The bot's single last-resort boundary: a handler that hit a bug must not
     # leave the player in silence. Never reply in a group, and never raise.
+    # A button handler has already answered its query (button_callback does so
+    # first) and Telegram accepts one answer per query, so the apology is a message.
     try:
-        if update.callback_query is not None:
-            await update.callback_query.answer(HANDLER_ERROR_REPLY, show_alert=True)
-        elif update.effective_message is not None and update.effective_chat is not None \
-                and update.effective_chat.type == "private":
-            await update.effective_message.reply_text(HANDLER_ERROR_REPLY)
+        chat = update.effective_chat
+        message = update.effective_message
+        if chat is not None and chat.type == "private" and message is not None:
+            await message.reply_text(HANDLER_ERROR_REPLY)
     except TelegramError:
         logger.warning("Could not send the error reply for %s", trigger, exc_info=True)
 
