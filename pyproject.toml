@@ -37,4 +37,3 @@ extend-select = ["BLE001"]  # blind `except Exception` (Track BF)
 "src/server/telegram_bot/link_account.py" = ["BLE001"]
 "src/server/telegram_bot/maps.py" = ["BLE001"]
 "src/server/telegram_bot/notifications.py" = ["BLE001"]
-"src/server/telegram_bot/orders.py" = ["BLE001"]
