@@ -29,6 +29,7 @@ import asyncio
 from unittest.mock import ANY, AsyncMock, Mock, patch
 
 import pytest
+from telegram.error import TelegramError
 import requests
 
 from server.telegram_bot import app as bot_app
@@ -236,7 +237,7 @@ class TestMarkdownEscaping:
             {"power": "FRANCE", "is_active": True},
         ]
         update, context, message = _make_update_and_context()
-        message.reply_text.side_effect = [Exception("boom"), None]
+        message.reply_text.side_effect = [TelegramError("boom"), None]
 
         asyncio.run(players(update, context))
 

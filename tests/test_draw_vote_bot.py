@@ -18,6 +18,7 @@ import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import requests
 
 from server.telegram_bot.games import draw, nodraw, status
 
@@ -127,7 +128,7 @@ class TestDrawCommand:
     @patch('server.telegram_bot.game_context.api_get')
     def test_draw_api_failure_reports_gracefully(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = _ONE_GAME
-        mock_post.side_effect = Exception("boom")
+        mock_post.side_effect = requests.RequestException("boom")
         update, context, message = _make_update_and_context()
 
         asyncio.run(draw(update, context))
@@ -211,7 +212,7 @@ class TestStatusDrawVoteLine:
             if endpoint.endswith("/orders_status"):
                 return {"submitted": [], "missing": ["FRANCE"]}
             if endpoint.endswith("/draw_vote_status"):
-                raise Exception("network error")
+                raise requests.RequestException("network error")
             raise AssertionError(f"unexpected endpoint {endpoint}")
 
         mock_games_get.side_effect = games_get_side_effect

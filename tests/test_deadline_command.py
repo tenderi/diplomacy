@@ -148,7 +148,7 @@ class TestDeadlineCommand:
     @patch('server.telegram_bot.game_context.api_get')
     def test_server_refusal_is_shown_verbatim(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = _ONE_GAME
-        mock_post.side_effect = Exception("You are not a player in this game.")
+        mock_post.side_effect = requests.RequestException("You are not a player in this game.")
         update, context, message = _make_update_and_context(args=["1", "12"])
 
         asyncio.run(deadline(update, context))

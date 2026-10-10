@@ -587,7 +587,7 @@ def main():
                     logger.info("Creating a fresh event loop and retrying")
                     asyncio.set_event_loop(asyncio.new_event_loop())
                     app.run_polling(close_loop=False)
-                except Exception as retry_e:
+                except RuntimeError as retry_e:
                     logger.error(f"Failed to recover after event loop closure: {retry_e}")
                     return
             else:
@@ -595,9 +595,6 @@ def main():
                 raise
         except KeyboardInterrupt:
             logger.info("Bot stopped by keyboard interrupt")
-        except Exception as e:
-            logger.error(f"Unexpected error during bot execution: {e}")
-            raise
 
     print("Starting Telegram bot polling...")
     run_bot()
