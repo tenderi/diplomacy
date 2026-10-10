@@ -717,6 +717,8 @@ class DaideSession:
         results = (
             self.server.game_service.submit_orders(self.game_id, self.power, to_submit) if to_submit else []
         )
+        if to_submit:
+            self.server.orders_changed(self.game_id)
         result_iter = iter(results)
         for clause_tokens, order_str, decode_err in decoded:
             if decode_err is not None:
@@ -739,6 +741,7 @@ class DaideSession:
             # every pending order this power has submitted this phase (see
             # the module docstring's scope-limitation note).
             self.server.game_service.clear_orders(self.game_id, self.power)
+            self.server.orders_changed(self.game_id)
             await self._send(t.YES, *_echo(raw))
         elif sub_cmd == t.GOF:
             await self._send(t.YES, *_echo(raw))  # no ready-gate to cancel; ack only
