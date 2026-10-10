@@ -10,15 +10,24 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..shared import db_service, game_service, is_bot_secret, resolve_turn
 from .auth import get_current_user_optional, http_bearer, require_bot_or_user, require_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
 from rendering.view_adapter import phase_info, retreat_options_for_render, svg_path_for_map_name, units_for_render
+
+logger = logging.getLogger(__name__)
+
+# What drawing the overlays can raise for odd data (a missing province, a bad coordinate,
+# an unreadable asset). Anything else is a bug and propagates.
+_RENDER_ERRORS = (OSError, ValueError, TypeError, KeyError, IndexError)
 
 router = APIRouter()
 
@@ -128,10 +137,7 @@ def get_map_preview_png(map_name: str) -> Response:
     if map_name not in _KNOWN_MAP_NAMES:
         raise HTTPException(status_code=404, detail=f"Unknown map: {map_name}")
     svg_path = svg_path_for_map_name(map_name)
-    try:
-        img_bytes = Map.render_board_png(svg_path, {}, supply_center_control=None)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    img_bytes = Map.render_board_png(svg_path, {}, supply_center_control=None)
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -142,16 +148,13 @@ def get_game_map_png(game_id: str) -> Response:
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     svg_path = svg_path_for_map_name(view["map_name"])
-    try:
-        img_bytes = Map.render_board_png(
-            svg_path,
-            units_for_render(view),
-            phase_info=phase_info(view, _turn_of(game_id)),
-            supply_center_control=dict(view["ownership"]),
-            retreat_options=retreat_options_for_render(view),
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    img_bytes = Map.render_board_png(
+        svg_path,
+        units_for_render(view),
+        phase_info=phase_info(view, _turn_of(game_id)),
+        supply_center_control=dict(view["ownership"]),
+        retreat_options=retreat_options_for_render(view),
+    )
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -212,16 +215,13 @@ def get_game_orders_map_png(
     order_viz = orders_by_power_to_viz(
         _own_pending_orders(game_id, credentials, telegram_id, bot_secret), _kind_by_province(view)
     )
-    try:
-        img_bytes = Map.render_board_png_orders(
-            svg_path,
-            units_for_render(view),
-            order_viz,
-            phase_info=phase_info(view, _turn_of(game_id)),
-            supply_center_control=dict(view["ownership"]),
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    img_bytes = Map.render_board_png_orders(
+        svg_path,
+        units_for_render(view),
+        order_viz,
+        phase_info=phase_info(view, _turn_of(game_id)),
+        supply_center_control=dict(view["ownership"]),
+    )
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -271,21 +271,16 @@ def get_game_resolution_map_png(game_id: str) -> Response:
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     turn = _last_processed_turn(game_id)
-    try:
-        if turn is None:
-            img_bytes = Map.render_board_png(
-                svg_path_for_map_name(view["map_name"]),
-                units_for_render(view),
-                phase_info=phase_info(view, _turn_of(game_id)),
-                supply_center_control=dict(view["ownership"]),
-                retreat_options=retreat_options_for_render(view),
-            )
-        else:
-            img_bytes = _render_turn(_turn_board(game_id, row, turn), game_service.resolution_history(game_id)[str(turn)], turn)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    if turn is None:
+        img_bytes = Map.render_board_png(
+            svg_path_for_map_name(view["map_name"]),
+            units_for_render(view),
+            phase_info=phase_info(view, _turn_of(game_id)),
+            supply_center_control=dict(view["ownership"]),
+            retreat_options=retreat_options_for_render(view),
+        )
+    else:
+        img_bytes = _render_turn(_turn_board(game_id, row, turn), game_service.resolution_history(game_id)[str(turn)], turn)
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -305,16 +300,13 @@ def get_game_map_history_png(game_id: str, turn: str) -> Response:
     turn_no = resolve_turn(row, turn)
     hist_view = _turn_board(game_id, row, turn_no)
     svg_path = svg_path_for_map_name(hist_view["map_name"])
-    try:
-        img_bytes = Map.render_board_png(
-            svg_path,
-            units_for_render(hist_view),
-            phase_info=phase_info(hist_view, turn_no),
-            supply_center_control=dict(hist_view["ownership"]),
-            retreat_options=retreat_options_for_render(hist_view),
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    img_bytes = Map.render_board_png(
+        svg_path,
+        units_for_render(hist_view),
+        phase_info=phase_info(hist_view, turn_no),
+        supply_center_control=dict(hist_view["ownership"]),
+        retreat_options=retreat_options_for_render(hist_view),
+    )
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -337,10 +329,7 @@ def get_turn_orders_map_png(game_id: str, turn: str) -> Response:
     if not resolution:
         raise HTTPException(status_code=404, detail="No orders recorded for this turn.")
     board = _turn_board(game_id, row, turn_no)
-    try:
-        img_bytes = _render_turn(board, resolution, turn_no)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Map render failed: {e}")
+    img_bytes = _render_turn(board, resolution, turn_no)
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -383,7 +372,8 @@ def _render_and_save(
                 svg_path, units, phase_info=phase_info_dict, supply_center_control=scc,
                 retreat_options=retreat_options_for_render(drawn),
             )
-    except Exception as e:
+    except _RENDER_ERRORS as e:  # degrade to a plain board; a programming bug (other types) still raises
+        logger.warning("Overlay render failed for game %s, drawing a plain board: %s", game_id, e)
         render_warnings.append(f"render_failed_primary: {e}")
         img_bytes = Map.render_board_png(
             svg_path, {}, phase_info={"year": None, "season": None, "phase": None, "phase_code": None},
@@ -425,8 +415,8 @@ def generate_map_for_snapshot(game_id: str, _: None = Depends(require_bot_or_use
         if latest:
             db_service.update_game_snapshot_map_image_path(int(latest.id), resp["map_path"])
             db_service.commit()
-    except Exception:
-        pass
+    except SQLAlchemyError as e:  # the snapshot link is a convenience; the render already succeeded
+        logger.warning("Could not attach the map to game %s's snapshot: %s", game_id, e)
     return resp
 
 

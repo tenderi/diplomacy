@@ -107,9 +107,10 @@ def test_a_4xx_is_stored_and_replayed_a_5xx_is_not(client):
     key2 = str(uuid.uuid4())
     from unittest.mock import patch
     with patch.object(api_shared.db_service, "create_message", side_effect=RuntimeError("db hiccup")):
-        r = client.post(f"/games/{game_id}/broadcast",
-                        json={"telegram_id": sender, "bot_secret": SECRET, "text": "y"},
-                        headers={**BOT, "Idempotency-Key": key2})
+        r = TestClient(app, raise_server_exceptions=False).post(
+            f"/games/{game_id}/broadcast",
+            json={"telegram_id": sender, "bot_secret": SECRET, "text": "y"},
+            headers={**BOT, "Idempotency-Key": key2})
     assert r.status_code == 500
     assert api_shared.db_service.get_idempotent_response(key2) is None
 
