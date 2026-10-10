@@ -20,7 +20,7 @@ from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_pa
 from .orders import _authorize_power
 from .. import shared as api_shared
 from ..shared import (
-    db_service, game_service, logger, scheduler_logger, is_admin_token, is_bot_secret,
+    db_service, game_service, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, get_process_turn_lock, game_buttons,
     post_to_game_group, is_anonymous, player_rows, power_label, resolve_turn,
 )
@@ -802,8 +802,8 @@ def concede_game(
                 f"the remaining powers play on.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
             )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify concession for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify concession for game %s", game_id)
     # The leaver may have been the last power the turn was waiting on (W10).
     result["auto_processed"] = api_shared.maybe_auto_process(game_id)
     return result
@@ -819,64 +819,56 @@ def list_games(x_bot_secret: Optional[str] = Header(None)) -> Dict[str, Any]:
     user still sees the group games they play in, via ``/users/me/games``.
     """
     bot = is_bot_secret(x_bot_secret)
-    try:
-        games = db_service.get_all_games()
-        result: list[dict[str, Any]] = []
-        for g in games:
-            if g.channel_id and not bot:
-                continue
-            players = db_service.get_players_by_game_id(int(g.id))  # type: ignore
-            result.append({
-                "id": g.id,
-                "map_name": g.map_name,
-                "game_id": getattr(g, 'game_id', None),
-                # The model's columns, read directly: ``getattr(g, 'year', 1901)``
-                # named columns that do not exist, so every game listed as
-                # Spring 1901 whatever its real phase.
-                "current_turn": g.current_turn,
-                "current_year": g.current_year,
-                "current_season": g.current_season,
-                "current_phase": g.current_phase,
-                "phase_code": g.phase_code,
-                "status": g.status,
-                # Seats a person holds now: a seat its player quit keeps its row
-                # (with no user) until someone takes it over.
-                "player_count": sum(1 for p in players if p.user_id is not None),
-                # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
-                "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
-                "dummy_powers": sorted(g.dummy_powers or []),
-                "private": g.join_password_hash is not None,  # W8; never the hash
-                "anonymous": bool(g.anonymous),
-                "random_powers": bool(g.random_powers),
-                # An anonymous game says which seats are held, never by whom.
-                "players": [
-                    {
-                        "power": p.power_name,
-                        "seated": p.user_id is not None,
-                        "user_id": None if g.anonymous else p.user_id,
-                    }
-                    for p in players
-                ],
-                **({"channel_id": g.channel_id} if bot else {}),
-            })
-        return {"games": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    games = db_service.get_all_games()
+    result: list[dict[str, Any]] = []
+    for g in games:
+        if g.channel_id and not bot:
+            continue
+        players = db_service.get_players_by_game_id(int(g.id))  # type: ignore
+        result.append({
+            "id": g.id,
+            "map_name": g.map_name,
+            "game_id": getattr(g, 'game_id', None),
+            # The model's columns, read directly: ``getattr(g, 'year', 1901)``
+            # named columns that do not exist, so every game listed as
+            # Spring 1901 whatever its real phase.
+            "current_turn": g.current_turn,
+            "current_year": g.current_year,
+            "current_season": g.current_season,
+            "current_phase": g.current_phase,
+            "phase_code": g.phase_code,
+            "status": g.status,
+            # Seats a person holds now: a seat its player quit keeps its row
+            # (with no user) until someone takes it over.
+            "player_count": sum(1 for p in players if p.user_id is not None),
+            # Seats a human can hold: 7 minus the civil-disorder dummies (W9).
+            "max_players": len(REQUIRED_POWERS) - len(g.dummy_powers or []),
+            "dummy_powers": sorted(g.dummy_powers or []),
+            "private": g.join_password_hash is not None,  # W8; never the hash
+            "anonymous": bool(g.anonymous),
+            "random_powers": bool(g.random_powers),
+            # An anonymous game says which seats are held, never by whom.
+            "players": [
+                {
+                    "power": p.power_name,
+                    "seated": p.user_id is not None,
+                    "user_id": None if g.anonymous else p.user_id,
+                }
+                for p in players
+            ],
+            **({"channel_id": g.channel_id} if bot else {}),
+        })
+    return {"games": result}
 
 @router.get("/games/{game_id}/players")
 @cached_response(ttl=60, key_params=["game_id"])
 def get_players(game_id: str) -> List[Dict[str, Any]]:
     """A game's seats. An anonymous game says which are held, never by whom
     (``api.shared.player_rows``)."""
-    try:
-        game = db_service.get_game_by_game_id(game_id)
-        if not game:
-            raise HTTPException(status_code=404, detail="Game not found")
-        return player_rows(game)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return player_rows(game)
 
 
 @router.post("/games/{game_id}/spectate")
@@ -892,11 +884,6 @@ def spectate_join(
         return {"status": "ok", "message": f"Now spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error joining as spectator: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/games/{game_id}/spectate")
@@ -912,22 +899,13 @@ def spectate_leave(
         return {"status": "ok", "message": f"Stopped spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error leaving spectate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/games/{game_id}/spectators")
 def get_spectators(game_id: str) -> Dict[str, Any]:
     """List spectators for a game."""
-    try:
-        spectators = db_service.get_spectators(game_id)
-        return {"status": "ok", "game_id": game_id, "spectators": spectators}
-    except Exception as e:
-        logger.exception(f"Error listing spectators: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    spectators = db_service.get_spectators(game_id)
+    return {"status": "ok", "game_id": game_id, "spectators": spectators}
 
 
 @router.get("/games/{game_id}/observer_state")
@@ -1012,85 +990,80 @@ def join_game(
                 f"The body field is optional -- omit it and the path is used."
             ),
         )
-    try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        _require_group_join_via_bot(str(game_id), user, req.bot_secret)
-        view = game_service.view(str(game_id))
-        random_powers = bool(view and view.get("random_powers"))
-        if random_powers:
-            if req.power is not None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Powers are assigned at random in game {game_id}: join without choosing one.",
-                )
-        elif req.power is None:
-            raise HTTPException(status_code=400, detail="Choose a power to join as.")
-        elif req.power.upper() not in REQUIRED_POWERS:
-            raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
-        if view is not None and view["status"] == "COMPLETED":
-            raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
-        if req.power is not None and view is not None and req.power.upper() in view.get("dummy_powers", []):
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+    view = game_service.view(str(game_id))
+    random_powers = bool(view and view.get("random_powers"))
+    if random_powers:
+        if req.power is not None:
             raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"{req.power.upper()} is played by civil disorder in game {game_id}; "
-                    f"the game's creator can open it."
-                ),
+                status_code=400,
+                detail=f"Powers are assigned at random in game {game_id}: join without choosing one.",
             )
-        # Check if already joined
-        existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
-        if existing:
-            return {"status": "already_joined", "player_id": existing.id, "power": existing.power_name}
-        _require_join_password(str(game_id), user, req.join_password)
-        if random_powers:
-            power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
-        else:
-            power = str(req.power).upper()
-            taken = _take_chosen_seat(game_id, int(user.id), power)
-        # Notification logic (only if user has telegram_id)
-        telegram_id_val = getattr(user, "telegram_id", None)
-        if telegram_id_val:
-            hidden = " It is anonymous: the other players know you only as your power." if is_anonymous(game_id) else ""
-            notify_user(telegram_id_val, f"You have joined game {game_id} as {power}.{hidden}", game_buttons(game_id))
-        # Get player model for return value
-        player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
-        player_id = player_model.id if player_model else user.id
-        try:
-            game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
-            if game:
-                who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-                # The joiner was told "You have joined ..." above; not twice.
-                notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.", exclude_telegram_id=telegram_id_val)  # type: ignore
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify players of join event: {e}")
-        # Game start notification
-        try:
-            game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
-            # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
-            # Only a *new* seat can complete the table: taking over a vacated one
-            # (its row already counted) is a replacement mid-game, and used to
-            # re-announce "the game has started" to everyone.
-            if game is not None and taken is None and api_shared.seats_filled(str(game_id), int(game.id)):
-                # A weekly schedule arms the first deadline now the game has started.
-                first = api_shared.arm_scheduled_deadline(str(game_id), int(game.id))
-                due = (
-                    f" First deadline: {api_shared.format_scheduled_deadline(first, api_shared.game_schedule(str(game_id)))}."
-                    if first is not None
-                    else ""
-                )
-                notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.{due}", buttons=game_buttons(game_id))  # type: ignore
-                post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify game start: {e}")
-        invalidate_cache(f"games/{str(game_id)}")
-        if telegram_id_val:
-            # The bot resolves "which game am I in" from this list right after a join.
-            invalidate_cache(f"users/{telegram_id_val}")
-        return {"status": "ok", "player_id": player_id, "power": power}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    elif req.power is None:
+        raise HTTPException(status_code=400, detail="Choose a power to join as.")
+    elif req.power.upper() not in REQUIRED_POWERS:
+        raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
+    if view is not None and view["status"] == "COMPLETED":
+        raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
+    if req.power is not None and view is not None and req.power.upper() in view.get("dummy_powers", []):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{req.power.upper()} is played by civil disorder in game {game_id}; "
+                f"the game's creator can open it."
+            ),
+        )
+    # Check if already joined
+    existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+    if existing:
+        return {"status": "already_joined", "player_id": existing.id, "power": existing.power_name}
+    _require_join_password(str(game_id), user, req.join_password)
+    if random_powers:
+        power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
+    else:
+        power = str(req.power).upper()
+        taken = _take_chosen_seat(game_id, int(user.id), power)
+    # Notification logic (only if user has telegram_id)
+    telegram_id_val = getattr(user, "telegram_id", None)
+    if telegram_id_val:
+        hidden = " It is anonymous: the other players know you only as your power." if is_anonymous(game_id) else ""
+        notify_user(telegram_id_val, f"You have joined game {game_id} as {power}.{hidden}", game_buttons(game_id))
+    # Get player model for return value
+    player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+    player_id = player_model.id if player_model else user.id
+    try:
+        game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
+        if game:
+            who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
+            # The joiner was told "You have joined ..." above; not twice.
+            notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.", exclude_telegram_id=telegram_id_val)  # type: ignore
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify players of join event")
+    # Game start notification
+    try:
+        game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
+        # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
+        # Only a *new* seat can complete the table: taking over a vacated one
+        # (its row already counted) is a replacement mid-game, and used to
+        # re-announce "the game has started" to everyone.
+        if game is not None and taken is None and api_shared.seats_filled(str(game_id), int(game.id)):
+            # A weekly schedule arms the first deadline now the game has started.
+            first = api_shared.arm_scheduled_deadline(str(game_id), int(game.id))
+            due = (
+                f" First deadline: {api_shared.format_scheduled_deadline(first, api_shared.game_schedule(str(game_id)))}."
+                if first is not None
+                else ""
+            )
+            notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.{due}", buttons=game_buttons(game_id))  # type: ignore
+            post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify game start")
+    invalidate_cache(f"games/{str(game_id)}")
+    if telegram_id_val:
+        # The bot resolves "which game am I in" from this list right after a join.
+        invalidate_cache(f"users/{telegram_id_val}")
+    return {"status": "ok", "player_id": player_id, "power": power}
 
 @router.post("/games/{game_id}/quit")
 def quit_game(
@@ -1098,40 +1071,35 @@ def quit_game(
     req: QuitGameRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    # If power is specified, check that user owns that power
+    if req.power:
+        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
+        if player is None:
+            raise HTTPException(status_code=404, detail="Power not found in game")
+        if player.user_id is None or int(player.user_id) != int(user.id):  # type: ignore
+            raise HTTPException(status_code=403, detail="You are not authorized to quit this power.")
+    else:
+        # If no power specified, find player by user_id
+        player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+        if player is None:
+            raise HTTPException(status_code=404, detail="Player not found in game")
+    # Vacate the seat: user_id -> NULL, is_active -> False, one commit.
+    db_service.assign_player_seat(int(player.id), None, False)
+    telegram_id_val = getattr(user, "telegram_id", None)
+    if telegram_id_val:
+        invalidate_cache(f"users/{telegram_id_val}")
+    invalidate_cache(f"games/{game_id}")  # the cached /players list must not show them
+    # Notification logic (only if user has telegram_id)
+    telegram_id_val = getattr(user, "telegram_id", None)
+    if telegram_id_val:
+        notify_user(telegram_id_val, f"You have quit game {game_id}.")
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        # If power is specified, check that user owns that power
-        if req.power:
-            player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
-            if player is None:
-                raise HTTPException(status_code=404, detail="Power not found in game")
-            if player.user_id is None or int(player.user_id) != int(user.id):  # type: ignore
-                raise HTTPException(status_code=403, detail="You are not authorized to quit this power.")
-        else:
-            # If no power specified, find player by user_id
-            player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
-            if player is None:
-                raise HTTPException(status_code=404, detail="Player not found in game")
-        # Vacate the seat: user_id -> NULL, is_active -> False, one commit.
-        db_service.assign_player_seat(int(player.id), None, False)
-        telegram_id_val = getattr(user, "telegram_id", None)
-        if telegram_id_val:
-            invalidate_cache(f"users/{telegram_id_val}")
-        invalidate_cache(f"games/{game_id}")  # the cached /players list must not show them
-        # Notification logic (only if user has telegram_id)
-        telegram_id_val = getattr(user, "telegram_id", None)
-        if telegram_id_val:
-            notify_user(telegram_id_val, f"You have quit game {game_id}.")
-        try:
-            power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-            notify_players(game_id, f"{power_label(game_id, str(power_name), user)} has left game {game_id}.")
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify players of quit event: {e}")
-        return {"status": "ok"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
+        notify_players(game_id, f"{power_label(game_id, str(power_name), user)} has left game {game_id}.")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify players of quit event")
+    return {"status": "ok"}
 
 @router.post("/games/{game_id}/replace")
 def replace_player(
@@ -1140,72 +1108,62 @@ def replace_player(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+    if (game_service.meta(str(game_id)) or {}).get("random_powers"):
+        # Picking the seat to take over would sidestep the draw: /join
+        # takes over a vacant seat too, at random.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Powers are assigned at random in game {game_id}: use join, which seats you in an open power.",
+        )
+    # Find the player slot for this power
+    player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
+    if player is None:
+        raise HTTPException(status_code=404, detail="Power not found in game")
+    # Only allow replacement if user_id is None and is_active is False
+    if player.user_id is not None:
+        raise HTTPException(status_code=400, detail="Power is already assigned to a user. Only unassigned, inactive powers can be replaced.")
+    if getattr(player, 'is_active', True) is True:
+        raise HTTPException(status_code=400, detail="Power is not inactive and cannot be replaced. Only inactive/vacated powers can be replaced.")
+    # Check if user is already in the game
+    already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
+    if already_in_game:
+        raise HTTPException(status_code=400, detail="User is already in the game")
+    _require_join_password(str(game_id), user, req.join_password)
+    # Fill the seat -- only if nobody took it since the checks above.
+    if not db_service.claim_vacant_seat(int(player.id), int(user.id)):  # type: ignore
+        raise HTTPException(status_code=409, detail="Someone else has just taken this power.")
+    telegram_id_val = getattr(user, "telegram_id", None)
+    if telegram_id_val:
+        invalidate_cache(f"users/{telegram_id_val}")
+    invalidate_cache(f"games/{game_id}")
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-        _require_group_join_via_bot(str(game_id), user, req.bot_secret)
-        if (game_service.meta(str(game_id)) or {}).get("random_powers"):
-            # Picking the seat to take over would sidestep the draw: /join
-            # takes over a vacant seat too, at random.
-            raise HTTPException(
-                status_code=400,
-                detail=f"Powers are assigned at random in game {game_id}: use join, which seats you in an open power.",
-            )
-        # Find the player slot for this power
-        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
-        if player is None:
-            raise HTTPException(status_code=404, detail="Power not found in game")
-        # Only allow replacement if user_id is None and is_active is False
-        if player.user_id is not None:
-            raise HTTPException(status_code=400, detail="Power is already assigned to a user. Only unassigned, inactive powers can be replaced.")
-        if getattr(player, 'is_active', True) is True:
-            raise HTTPException(status_code=400, detail="Power is not inactive and cannot be replaced. Only inactive/vacated powers can be replaced.")
-        # Check if user is already in the game
-        already_in_game = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
-        if already_in_game:
-            raise HTTPException(status_code=400, detail="User is already in the game")
-        _require_join_password(str(game_id), user, req.join_password)
-        # Fill the seat -- only if nobody took it since the checks above.
-        if not db_service.claim_vacant_seat(int(player.id), int(user.id)):  # type: ignore
-            raise HTTPException(status_code=409, detail="Someone else has just taken this power.")
-        telegram_id_val = getattr(user, "telegram_id", None)
-        if telegram_id_val:
-            invalidate_cache(f"users/{telegram_id_val}")
-        invalidate_cache(f"games/{game_id}")
-        try:
-            who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-            notify_players(
-                game_id,
-                f"{who} has taken over "
-                f"{req.power.upper()} in game {game_id}.",
-                exclude_telegram_id=telegram_id_val,
-            )
-        except Exception as e:
-            scheduler_logger.error(f"Failed to notify replacement for game {game_id}: {e}")
-        return {"status": "ok", "message": "Player replaced successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
+        notify_players(
+            game_id,
+            f"{who} has taken over "
+            f"{req.power.upper()} in game {game_id}.",
+            exclude_telegram_id=telegram_id_val,
+        )
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify replacement for game %s", game_id)
+    return {"status": "ok", "message": "Player replaced successfully"}
 
 @router.post("/games/{game_id}/players/{power}/mark_inactive")
 def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> Dict[str, Any]:
     """Admin endpoint to mark a player as inactive (for replacement)."""
     if not is_admin_token(req.admin_token):
         raise HTTPException(status_code=403, detail="Invalid admin token")
-    try:
-        player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
-        if not player:
-            raise HTTPException(status_code=404, detail="Player not found")
-        if getattr(player, 'is_active', True) is False and player.user_id is None:
-            return {"status": "already_inactive"}
-        db_service.assign_player_seat(int(player.id), None, False)
-        invalidate_cache(f"games/{game_id}")
-        notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
-        return {"status": "ok", "game_id": game_id, "power": power}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    if getattr(player, 'is_active', True) is False and player.user_id is None:
+        return {"status": "already_inactive"}
+    db_service.assign_player_seat(int(player.id), None, False)
+    invalidate_cache(f"games/{game_id}")
+    notify_players(game_id, f"Player {power} has been marked inactive by admin and is eligible for replacement.")
+    return {"status": "ok", "game_id": game_id, "power": power}
 
 def _refuse_deadline_change_if_over(game: Any) -> None:
     """A finished game takes no writes (Track L); a deadline or a vote on one
@@ -1222,30 +1180,25 @@ def _deadline_text(iso_value: Optional[str]) -> str:
 def get_deadline(game_id: str) -> Dict[str, Any]:
     """Get the current deadline for a game, and any pending majority-vote
     proposal to change it (see ``POST .../deadline/propose``)."""
-    try:
-        game = db_service.get_game_by_game_id(game_id)
-        if not game:
-            raise HTTPException(status_code=404, detail="Game not found")
-        deadline_value = getattr(game, 'deadline', None)
-        proposal = db_service.get_pending_deadline_proposal(game_id)
-        pending_proposal = None
-        if proposal is not None:
-            active = game_service.active_powers(game_id) or frozenset()
-            pending_proposal = api_shared.deadline_proposal_view(proposal, active)
-        return {
-            "status": "ok",
-            "deadline": deadline_value.isoformat() if deadline_value else None,
-            # The recurring length a caller can arm a deadline from via this
-            # route's POST; None means the default, 0 means none was set.
-            "phase_length_seconds": getattr(game, "phase_length_seconds", None),
-            # The weekly schedule that arms each phase's deadline, or None.
-            "schedule": api_shared.schedule_view(api_shared.game_schedule(game_id)),
-            "pending_proposal": pending_proposal,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    deadline_value = getattr(game, 'deadline', None)
+    proposal = db_service.get_pending_deadline_proposal(game_id)
+    pending_proposal = None
+    if proposal is not None:
+        active = game_service.active_powers(game_id) or frozenset()
+        pending_proposal = api_shared.deadline_proposal_view(proposal, active)
+    return {
+        "status": "ok",
+        "deadline": deadline_value.isoformat() if deadline_value else None,
+        # The recurring length a caller can arm a deadline from via this
+        # route's POST; None means the default, 0 means none was set.
+        "phase_length_seconds": getattr(game, "phase_length_seconds", None),
+        # The weekly schedule that arms each phase's deadline, or None.
+        "schedule": api_shared.schedule_view(api_shared.game_schedule(game_id)),
+        "pending_proposal": pending_proposal,
+    }
 
 
 @router.post("/games/{game_id}/deadline/propose")
@@ -1293,8 +1246,8 @@ def propose_deadline(
                 f"Use /deadline {game_id} vote yes|no.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
             )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify deadline proposal for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify deadline proposal for game %s", game_id)
     return result
 
 
@@ -1347,8 +1300,8 @@ def vote_deadline_proposal(
                 f"({len(result['yes_votes'])}/{needed} needed).",
                 exclude_telegram_id=exclude,
             )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify deadline vote for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify deadline vote for game %s", game_id)
     return result
 
 
@@ -1417,8 +1370,8 @@ def set_deadline_schedule(
                 text += " The first deadline is set when the game fills."
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
         post_to_game_group(game_id, f"⏰ {text}")
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify deadline schedule change for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify deadline schedule change for game %s", game_id)
     return {
         "status": "ok",
         "schedule": api_shared.schedule_view(schedule),
@@ -1459,18 +1412,15 @@ def set_deadline(
             status_code=400,
             detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
         )
-    try:
-        if req.phase_length_seconds is not None:
-            db_service.update_game_phase_length(int(game.id), req.phase_length_seconds)
-        # A bare phase-length change with no explicit deadline arms one from the
-        # new length immediately, so "make this game 10-minute phases" takes
-        # effect now rather than waiting for someone to also pass a deadline.
-        deadline = req.deadline
-        if deadline is None and req.phase_length_seconds is not None:
-            deadline = api_shared.next_deadline(req.phase_length_seconds)
-        db_service.update_game_deadline(int(game.id), deadline)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if req.phase_length_seconds is not None:
+        db_service.update_game_phase_length(int(game.id), req.phase_length_seconds)
+    # A bare phase-length change with no explicit deadline arms one from the
+    # new length immediately, so "make this game 10-minute phases" takes
+    # effect now rather than waiting for someone to also pass a deadline.
+    deadline = req.deadline
+    if deadline is None and req.phase_length_seconds is not None:
+        deadline = api_shared.next_deadline(req.phase_length_seconds)
+    db_service.update_game_deadline(int(game.id), deadline)
     # A new deadline gets its own 10-minute reminder, even if the previous one
     # for this phase already fired (extending a deadline after the reminder).
     api_shared.reminder_sent[int(game.id)] = False
@@ -1489,8 +1439,8 @@ def set_deadline(
             text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
         post_to_game_group(game_id, f"⏰ {text}")
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify deadline change for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify deadline change for game %s", game_id)
     return {
         "status": "ok",
         "deadline": deadline.isoformat() if deadline else None,
@@ -1573,49 +1523,41 @@ def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> 
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
     row = db_service.get_game_by_game_id(game_id)
-    try:
-        turn = int(getattr(row, "current_turn", 0) or 0)
-        snapshot = db_service.create_game_snapshot(
-            game_id=int(row.id),
-            turn=turn,
-            year=view["year"],
-            season=view["season"],
-            phase=view["phase_type"],
-            phase_code=view["phase"],
-            game_state=view,
-            state_json=game_service.state_json(game_id),
-        )
-        return {"status": "ok", "snapshot_id": snapshot.id, "turn": turn}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    turn = int(getattr(row, "current_turn", 0) or 0)
+    snapshot = db_service.create_game_snapshot(
+        game_id=int(row.id),
+        turn=turn,
+        year=view["year"],
+        season=view["season"],
+        phase=view["phase_type"],
+        phase_code=view["phase"],
+        game_state=view,
+        state_json=game_service.state_json(game_id),
+    )
+    return {"status": "ok", "snapshot_id": snapshot.id, "turn": turn}
 
 @router.get("/games/{game_id}/snapshots")
 def get_game_snapshots(game_id: str) -> Dict[str, Any]:
     """Get all snapshots for a game"""
-    try:
-        game = db_service.get_game_by_game_id(game_id)
-        if not game:
-            raise HTTPException(status_code=404, detail="Game not found")
-        snapshots = db_service.get_game_snapshots_by_game_id(int(game.id))  # type: ignore
-        # Only the columns `MapSnapshotModel` actually has. This used to read
-        # `snap.year`, `snap.season` and `snap.phase`, none of which exist on the
-        # model, so the route raised AttributeError into the handler below and
-        # returned 500 every time it was called. The year/season are recoverable
-        # from `phase_code` ("S1901M") by any client that wants them.
-        result = [
-            {
-                "id": snap.id,
-                "turn": snap.turn_number,
-                "phase_code": snap.phase_code,
-                "created_at": snap.created_at.isoformat() if snap.created_at else None,
-            }
-            for snap in snapshots
-        ]
-        return {"status": "ok", "snapshots": result}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    game = db_service.get_game_by_game_id(game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    snapshots = db_service.get_game_snapshots_by_game_id(int(game.id))  # type: ignore
+    # Only the columns `MapSnapshotModel` actually has. This used to read
+    # `snap.year`, `snap.season` and `snap.phase`, none of which exist on the
+    # model, so the route raised AttributeError into the handler below and
+    # returned 500 every time it was called. The year/season are recoverable
+    # from `phase_code` ("S1901M") by any client that wants them.
+    result = [
+        {
+            "id": snap.id,
+            "turn": snap.turn_number,
+            "phase_code": snap.phase_code,
+            "created_at": snap.created_at.isoformat() if snap.created_at else None,
+        }
+        for snap in snapshots
+    ]
+    return {"status": "ok", "snapshots": result}
 
 @router.post("/games/{game_id}/restore/{snapshot_id}")
 def restore_game_snapshot(
@@ -1661,8 +1603,8 @@ def restore_game_snapshot(
             f"Game {game_id} has been rolled back by an admin to phase {snapshot.phase_code}. "
             f"Pending orders and draw votes were cleared -- check the board and submit fresh orders.",
         )
-    except Exception as e:
-        scheduler_logger.error(f"Failed to notify restore for game {game_id}: {e}")
+    except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
+        scheduler_logger.exception("Failed to notify restore for game %s", game_id)
     return {"status": "ok", "snapshot_id": snapshot_id, "phase_code": snapshot.phase_code}
 
 @router.get("/games/{game_id}/debug/unit_locations")
