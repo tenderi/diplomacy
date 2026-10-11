@@ -10,13 +10,14 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BG**.
+>   history. Track letters run in sequence; the next free one is **BH**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-10. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
+- **Last updated:** 2026-10-11. Track BG (play-through findings in the orders API) is
+  open; Track BF is done and removed. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
   catch `requests.RequestException` / `TelegramError` / `sqlite3.Error`; the channel-post formatters
   no longer turn a bug into an error post; the notification and replay loops and `alerting` are the
   logged boundaries; in the outbox poll a Telegram error that is not about one chat retries, and a
@@ -92,6 +93,23 @@
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
+## Track BG — Play-through findings (orders API)
+
+Found playing a local game S1901M→S1902M on 2026-10-10. No adjudication bugs; these are
+edge cases in how an order write is checked and reported.
+
+- [ ] **BG1** A `client_timestamp` in the future (e.g. now + 2 days) passes
+  `_refuse_if_stale` (`api/routes/orders.py`) whatever phase it was composed for. Refuse a
+  timestamp more than a few minutes ahead of the server clock with a 422 that says why.
+- [ ] **BG2** `set_orders` on a nonexistent game answers "Player not found", because
+  `_authorize_power` runs before the game-existence check. It must be a 404 naming the game.
+- [ ] **BG3** Two orders for one unit in one request: the first is reported
+  `success: false` ("replaced by a later order…") though the request stored an order for
+  that unit. Report the replaced one so a client doesn't show the unit as unordered.
+- [ ] **BG4** A retreat written with the wrong unit kind (`F WAR - LVN` for an army) is
+  refused without saying the unit is an army. Name the unit's real kind, as movement
+  orders already do.
+
 ---
 
 # Track F — Manual acceptance and host chores (maintainer)
@@ -100,30 +118,6 @@ No automated test spans a real human playing a real game: it needs a live bot to
 human at a Telegram client, so this cannot be delegated to an agent. Every phase has
 automated coverage; what is unverified is whether the whole thing is *pleasant and
 coherent* to use.
-
-## Track BF — No blind excepts
-
-`CLAUDE.md` forbids a blanket `except Exception`; `ruff check src/ --select BLE001` found
-155. Policy: a blanket catch may remain only at a true **boundary** (a background loop
-that must survive one bad iteration; a side effect after an already-committed write, such
-as a notification; the bot's last-resort reply to the user, which is `_on_handler_error` in
-`telegram_bot/app.py` alone: it logs the traceback and sends the player a generic
-apology in a private chat, so a command handler needs no blanket catch of its own), and then it logs with
-`logger.exception(...)` (a traceback, not a one-liner) and carries
-`# noqa: BLE001 -- <why this is a boundary>`. Everywhere else, narrow to what can actually
-occur (`SQLAlchemyError`, `requests.RequestException`, `telegram.error.TelegramError`,
-`ValueError`, ...) or remove the `try`. In a route, a remaining generic `except` is
-preceded by `except HTTPException: raise`. `discord_bot` and `routes/tournaments.py` stay
-under a permanent per-file ignore (out of scope, kept for back-compat). Each step removes
-its files from `[tool.ruff.lint.per-file-ignores]` in `pyproject.toml`; the track is done
-when that list holds only the out-of-scope files.
-
-- [x] **BF1** Enable BLE001; fix `api/shared.py` and `_api_module.py`.
-- [x] **BF2** `api/routes/games.py`.
-- [x] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
-  `response_cache.py`.
-- [x] **BF4** `telegram_bot/orders.py`.
-- [x] **BF5** The rest of `telegram_bot/`.
 
 ## F1 — End-to-end play-through, both clients
 
