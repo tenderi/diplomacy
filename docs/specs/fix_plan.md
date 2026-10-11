@@ -16,7 +16,11 @@
 
 ## Status
 
-- **Last updated:** 2026-10-10. `v3.0.99` did BF3 (the other API routes, `persistence/database.py`, the
+- **Last updated:** 2026-10-10. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
+  catch `requests.RequestException` / `TelegramError` / `sqlite3.Error`; the channel-post formatters
+  no longer turn a bug into an error post; the notification and replay loops and `alerting` are the
+  logged boundaries; in the outbox poll a Telegram error that is not about one chat retries, and a
+  malformed row is acked failed instead of wedging the batch). `v3.0.99` did BF3 (the other API routes, `persistence/database.py`, the
   idempotency middleware and the response cache: the 500-wrapping catches are gone, storage
   catches are `SQLAlchemyError`, notification catches are logged boundaries). `v3.0.98` did
   BF4 (the bot's order commands catch `requests.RequestException` / `TelegramError`, not
@@ -119,7 +123,7 @@ when that list holds only the out-of-scope files.
 - [x] **BF3** The other API routes, `persistence/database.py`, `api/idempotency.py`,
   `response_cache.py`.
 - [x] **BF4** `telegram_bot/orders.py`.
-- [ ] **BF5** The rest of `telegram_bot/`.
+- [x] **BF5** The rest of `telegram_bot/`.
 
 ## F1 — End-to-end play-through, both clients
 

@@ -74,10 +74,10 @@ def _validate_api_url(url: str) -> None:
     """Validate that the API URL is properly formatted."""
     try:
         parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc:
-            raise ValueError(f"Invalid DIPLOMACY_API_URL: '{url}'")
-    except Exception as e:
-        raise ValueError(f"Invalid DIPLOMACY_API_URL: {e}")
+    except ValueError as e:
+        raise ValueError(f"Invalid DIPLOMACY_API_URL: {e}") from e
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid DIPLOMACY_API_URL: '{url}'")
 
 
 def wait_for_api_health(max_attempts: int = 10, base_delay: float = 0.5) -> None:
@@ -96,7 +96,7 @@ def wait_for_api_health(max_attempts: int = 10, base_delay: float = 0.5) -> None
                     logger.info(f"API health check succeeded on {ep} (attempt {attempt})")
                     return
                 last_error = Exception(f"HTTP {resp.status_code} on {ep}")
-            except Exception as e:
+            except requests.RequestException as e:
                 last_error = e
         delay = base_delay * (2 ** (attempt - 1))
         # Add jitter up to 200ms

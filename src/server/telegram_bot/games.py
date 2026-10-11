@@ -247,7 +247,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error retrieving status: {e}")
         return
 
@@ -281,7 +281,7 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
         deadline_data = api_get(f"/games/{game_id}/deadline")
         deadline = deadline_data.get("deadline") if deadline_data else None
         schedule = deadline_data.get("schedule") if deadline_data else None
-    except Exception:
+    except requests.RequestException:
         deadline = None
         schedule = None
     if deadline:
@@ -292,7 +292,7 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
 
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
-    except Exception:
+    except requests.RequestException:
         orders_status = None
     if orders_status:
         submitted = orders_status.get("submitted", [])
@@ -314,7 +314,7 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
 
     try:
         draw_status = api_get(f"/games/{game_id}/draw_vote_status")
-    except Exception:
+    except requests.RequestException:
         draw_status = None
     if draw_status:
         draw_votes = draw_status.get("votes", [])
@@ -361,7 +361,7 @@ async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vo
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error resolving game: {e}")
         return
 
@@ -370,7 +370,7 @@ async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vo
             f"/games/{game_id}/draw_vote",
             {"power": power, "vote": vote, "telegram_id": user_id},
         )
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Draw vote failed: {e}")
         return
 
@@ -671,14 +671,14 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error resolving game: {e}")
         return
 
     if len(args) == 1:
         try:
             data = api_get(f"/games/{game_id}/deadline")
-        except Exception as e:
+        except requests.RequestException as e:
             await update.message.reply_text(f"Could not read the deadline for game {game_id}: {e}")
             return
         current = data.get("deadline") if data else None
@@ -770,7 +770,7 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"/games/{game_id}/deadline",
             {"deadline": new_deadline.isoformat() if new_deadline else None, "telegram_id": user_id},
         )
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Could not set the deadline: {e}")
         return
 
@@ -831,14 +831,14 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Error retrieving players: {e}")
         return
 
     try:
         # GET /games/{id}/players returns a bare list, not {"players": [...]}.
         players_list = api_get(f"/games/{game_id}/players")
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Could not retrieve players for game {game_id}: {e}")
         return
 
@@ -856,7 +856,7 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
-    except Exception as e:
+    except TelegramError as e:
         logger.warning(f"Failed to send /players listing for game {game_id}: {e}")
         await update.message.reply_text(f"Could not display players for game {game_id}: {e}")
 
@@ -1044,7 +1044,7 @@ async def show_power_selection(update: Update, game_id: str) -> None:
             await query.edit_message_text(NOT_IN_GROUP)
             return
         text, reply_markup = _power_selection_prompt(game_id)
-    except Exception as e:
+    except requests.RequestException as e:
         await query.edit_message_text(f"Error: {str(e)}")
         return
     await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
@@ -1100,7 +1100,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(args) == 1:
         try:
             text, reply_markup = _power_selection_prompt(game_id)
-        except Exception as e:
+        except requests.RequestException as e:
             await update.message.reply_text(f"Error: {e}")
             return
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
@@ -1132,7 +1132,7 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"You are not in Game {game_id}.")
         else:
             await update.message.reply_text(f"Failed to quit: {result.get('message', 'Unknown error')}")
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:  # ValueError: a non-numeric game id
         await update.message.reply_text(f"Quit error: {e}")
 
 
@@ -1160,7 +1160,7 @@ async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(f"✅ Successfully replaced player for {power} in Game {game_id}!")
         else:
             await update.message.reply_text(f"Failed to replace: {result.get('message', 'Unknown error')}")
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"Replace error: {e}")
 
 

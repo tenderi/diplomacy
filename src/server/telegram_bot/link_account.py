@@ -35,7 +35,7 @@ async def link_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if e.response is not None:
             try:
                 detail = e.response.json().get("detail", str(e))
-            except Exception:
+            except ValueError:  # the body is not JSON (requests.JSONDecodeError is one)
                 detail = e.response.text or str(e)
         else:
             detail = str(e)
@@ -46,6 +46,6 @@ async def link_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 f"❌ Invalid or expired code. Get a new code from the web app (Link Telegram).\nDetails: {detail}"
             )
         logger.warning(f"Link failed for telegram_id={telegram_id}: {detail}")
-    except Exception as e:
+    except requests.RequestException as e:
         logger.exception(f"Link error for telegram_id={telegram_id}: {e}")
         await update.message.reply_text("❌ Something went wrong. Please try again or get a new code from the web app.")

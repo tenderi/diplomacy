@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -35,7 +36,7 @@ from typing import Any, Optional
 
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.ext import Application, ContextTypes
 
 from .api_client import (
@@ -216,14 +217,17 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
     delivered: list[int] = []
     failed: dict[int, str] = {}
     for item in items:
-        chat_id = int(item["telegram_id"])
         try:
+            chat_id = int(item["telegram_id"])
             await _send_outbox_item(bot, chat_id, item)
         except _PERMANENT_TELEGRAM_ERRORS as e:
             failed[int(item["id"])] = f"{type(e).__name__}: {e}"
             logger.warning("Notification #%s to %s permanently undeliverable: %s", item["id"], chat_id, e)
-        except _TRANSIENT_TELEGRAM_ERRORS as e:
-            logger.warning("Telegram not reachable while delivering #%s: %s; will retry", item["id"], e)
+        except TelegramError as e:
+            # Transient (NetworkError, TimedOut, RetryAfter) or anything else Telegram
+            # says that is not about this one chat (InvalidToken, Conflict, ...): do not
+            # ack, so a rotated token cannot silently discard the queue; retry next poll.
+            logger.warning("Telegram not ready while delivering #%s: %s; will retry", item["id"], e)
             break
         except ApiUnreachableError:
             # A map row fetches its image from the API mid-send; lost it: retry later.
@@ -234,6 +238,12 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
             # would fail the same way -- and an unacked row blocks every one after it.
             failed[int(item["id"])] = f"image unavailable: {e}"
             logger.warning("Notification #%s: could not fetch its image: %s", item["id"], e)
+        except Exception as e:  # noqa: BLE001 -- boundary: one malformed row must not wedge the queue
+            # A bug on one row (a payload the sender cannot handle) would otherwise
+            # raise out of the batch: nothing delivered so far gets acked (it is resent
+            # every poll) and this row is offered again forever. Report it failed.
+            failed[int(item["id"])] = f"bot error: {type(e).__name__}: {e}"
+            logger.exception("Notification #%s could not be sent", item["id"])
         else:
             delivered.append(int(item["id"]))
 
@@ -256,8 +266,8 @@ async def notification_loop(app: Application) -> None:
             await deliver_pending_notifications(app.bot)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # keep polling no matter what one tick does
-            logger.error("Notification poll failed: %s", e)
+        except Exception:  # noqa: BLE001 -- boundary: keep polling no matter what one tick does
+            logger.exception("Notification poll failed")
         await asyncio.sleep(NOTIFY_POLL_SECONDS)
 
 
@@ -302,13 +312,13 @@ async def outbox_replay_loop(app: Application) -> None:
             await replay_outbox(app.bot)
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            logger.error("Outbox replay failed: %s", e)
+        except Exception:  # noqa: BLE001 -- boundary: one bad replay must not stop the loop
+            logger.exception("Outbox replay failed")
         tick += 1
         if tick % 720 == 0:  # roughly hourly at the default 5 s
             try:
                 get_outbox().purge_finished()
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.warning("Outbox purge failed: %s", e)
         await asyncio.sleep(OUTBOX_POLL_SECONDS)
 
@@ -340,7 +350,7 @@ async def stop_background_loops(app: Application) -> None:
     for task in _tasks:
         try:
             await task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
     _tasks.clear()
 

@@ -41,15 +41,15 @@ def _ticks(n: int) -> AsyncMock:
     return AsyncMock(side_effect=sleep)
 
 
-def test_the_notification_loop_survives_a_failing_poll(heartbeat: Path) -> None:
+def test_the_notification_loop_survives_a_failing_poll(heartbeat: Path, caplog: pytest.LogCaptureFixture) -> None:
     deliver = AsyncMock(side_effect=[RuntimeError("API exploded"), None, None])
     with patch.object(notifications, "deliver_pending_notifications", new=deliver), \
-         patch.object(notifications.asyncio, "sleep", new=_ticks(3)), \
-         patch.object(notifications.logger, "error") as log:
+         patch.object(notifications.asyncio, "sleep", new=_ticks(3)):
         with pytest.raises(_Stop):
             asyncio.run(notifications.notification_loop(Mock()))
     assert deliver.await_count == 3
-    assert "API exploded" in log.call_args[0][1].args[0]
+    (record,) = [r for r in caplog.records if r.getMessage() == "Notification poll failed"]
+    assert record.exc_info is not None and "API exploded" in str(record.exc_info[1])  # a traceback
     assert heartbeat.exists()
 
 

@@ -77,7 +77,7 @@ async def unlink_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             await update.message.reply_text(f"❌ Failed to unlink channel: {result}")
             
-    except Exception as e:
+    except requests.RequestException as e:
         logger.exception(f"Error unlinking channel: {e}")
         await update.message.reply_text(f"Unlink channel error: {e}")
 
@@ -123,7 +123,7 @@ async def channel_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         await update.message.reply_text(info_text, parse_mode='Markdown')
         
-    except Exception as e:
+    except requests.RequestException as e:
         logger.exception(f"Error getting channel info: {e}")
         await update.message.reply_text(f"Channel info error: {e}")
 
@@ -187,7 +187,7 @@ async def channel_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             await update.message.reply_text(f"❌ Failed to update settings: {result}")
             
-    except Exception as e:
+    except requests.RequestException as e:
         logger.exception(f"Error updating channel settings: {e}")
         await update.message.reply_text(f"Channel settings error: {e}")
 
