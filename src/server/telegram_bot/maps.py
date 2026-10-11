@@ -29,7 +29,7 @@ async def send_default_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """
     try:
         img_bytes = api_get_bytes("/maps/standard/preview.png")
-    except Exception as e:
+    except requests.RequestException as e:
         error_msg = f"❌ Error fetching standard map: {e}"
         if update.callback_query:
             await update.callback_query.edit_message_text(error_msg)
@@ -59,7 +59,7 @@ async def send_game_map(update: Update, context: ContextTypes.DEFAULT_TYPE, game
     """Send the live game map with current state, fetched from ``GET /games/{id}/map``."""
     try:
         img_bytes = api_get_bytes(f"/games/{game_id}/map")
-    except Exception as e:
+    except requests.RequestException as e:
         error_msg = f"❌ Error generating game map: {e}"
         if update.callback_query:
             await update.callback_query.edit_message_text(error_msg)
@@ -122,7 +122,7 @@ async def replay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     game_id, turn = args[0], args[1]
     try:
         img_bytes = api_get_bytes(f"/games/{game_id}/map/history/{turn}")
-    except Exception as e:
+    except requests.RequestException as e:
         await update.message.reply_text(f"No board state found for game {game_id} turn {turn}: {e}")
         return
     await update.message.reply_photo(
