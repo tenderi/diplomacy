@@ -111,6 +111,9 @@ def _check_phase(order: Order, state: GameState, map: MapData) -> ValidationResu
     if isinstance(order, Move) and state.phase_type is PhaseType.RETREAT:
         du = state.dislodged_at(order.unit.province)
         if du is not None and du.unit.power == order.power:
+            kind_error = _check_ownership(order, du.unit)
+            if kind_error is not None:
+                return kind_error
             prefix = f"{du.unit.kind.value} {order.unit.province}"
             if any(legal.province == order.dest.province for legal in du.retreats):
                 hint = f"to retreat, write {prefix} R {order.dest}"

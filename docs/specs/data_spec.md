@@ -396,6 +396,8 @@ dislodged in this retreat phase is a retreat written as a move, so it is refused
 retreat spelling (`a move order is not accepted during the retreat phase (S1901R); to
 retreat, write A BUR R RUH`). It is refused rather than read as a retreat so that each
 order string has one meaning in every phase and what is stored is what the player wrote.
+If the move is written with the wrong unit letter (`F WAR - LVN` for an army), the kind check
+wins: `the unit in WAR is an army, not a fleet`, as for every other order.
 
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like

@@ -639,3 +639,23 @@ class TestWrittenUnitKind:
         state = _state([self.ROM_ARMY])
         assert validate(parse_order("A ROM - VEN", power="ITALY", map=m), state, m).ok is True
         assert validate(Move("ITALY", Location("ROM"), Location("VEN")), state, m).ok is True
+
+
+class TestRetreatKindMismatch:
+    """BG4: a retreat/disband written with the wrong A/F names the real kind."""
+
+    @pytest.fixture
+    def state(self):
+        du = DislodgedUnit(
+            Unit(UnitKind.ARMY, "RUSSIA", Location("WAR")),
+            retreats=(Location("LVN"), Location("UKR")),
+        )
+        return _state([], dislodged=[du], phase_type=PhaseType.RETREAT)
+
+    @pytest.mark.parametrize("text", ["F WAR R LVN", "F WAR - LVN", "D F WAR"])
+    def test_wrong_kind_names_army(self, m, state, text):
+        result = validate(parse_order(text, power="RUSSIA", map=m), state, m)
+        assert (result.ok, result.reason) == (
+            False,
+            "the unit in WAR is an army, not a fleet",
+        )
