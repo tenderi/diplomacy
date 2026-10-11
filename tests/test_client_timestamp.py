@@ -165,6 +165,33 @@ class TestStaleOrders:
         pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": SECRET}).json()
         assert pending["orders"] == ["A PAR H"]
 
+    def test_orders_with_a_future_timestamp_are_refused(self):
+        client = TestClient(app)
+        game_id, fr, _de, _headers = _seed(client)
+        future = (utcnow_naive() + timedelta(days=2)).isoformat()
+        r = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"],
+                                                   "telegram_id": fr, "bot_secret": SECRET, "client_timestamp": future})
+        assert r.status_code == 422, r.text
+        assert "is in the future" in r.json()["detail"]
+        assert "NOT applied" in r.json()["detail"]
+        r = client.post(f"/games/{game_id}/orders/FRANCE/clear",
+                        json={"telegram_id": fr, "bot_secret": SECRET, "client_timestamp": future})
+        assert r.status_code == 422, r.text
+        # A slightly fast clock is within tolerance.
+        near = (utcnow_naive() + timedelta(minutes=1)).isoformat()
+        r = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR H"],
+                                                   "telegram_id": fr, "bot_secret": SECRET, "client_timestamp": near})
+        assert r.status_code == 200, r.text
+
+    def test_set_orders_and_clear_on_a_missing_game_are_404_naming_the_game(self):
+        client = TestClient(app)
+        _game_id, fr, _de, _headers = _seed(client)
+        r = client.post("/games/set_orders", json={"game_id": "99999999", "power": "FRANCE", "orders": ["A PAR H"],
+                                                   "telegram_id": fr, "bot_secret": SECRET})
+        assert (r.status_code, r.json()["detail"]) == (404, "Game 99999999 not found")
+        r = client.post("/games/99999999/orders/FRANCE/clear", json={"telegram_id": fr, "bot_secret": SECRET})
+        assert (r.status_code, r.json()["detail"]) == (404, "Game 99999999 not found")
+
     def test_orders_without_a_timestamp_are_unaffected(self):
         client = TestClient(app)
         game_id, fr, _de, headers = _seed(client)
