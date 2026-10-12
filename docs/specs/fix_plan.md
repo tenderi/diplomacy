@@ -16,8 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-11. Track BG (play-through findings in the orders API) is
-  open (`v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
+- **Last updated:** 2026-10-12. Track BG (play-through findings in the orders API) is
+  open (`v3.0.103` did BG4: a retreat-phase move with the wrong unit letter names the real kind;
+  `v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
   missing game are 404 "Game N not found"); Track BF is done and removed. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
   catch `requests.RequestException` / `TelegramError` / `sqlite3.Error`; the channel-post formatters
   no longer turn a bug into an error post; the notification and replay loops and `alerting` are the
@@ -107,9 +108,10 @@ edge cases in how an order write is checked and reported.
 - [ ] **BG3** Two orders for one unit in one request: the first is reported
   `success: false` ("replaced by a later order…") though the request stored an order for
   that unit. Report the replaced one so a client doesn't show the unit as unordered.
-- [ ] **BG4** A retreat written with the wrong unit kind (`F WAR - LVN` for an army) is
+- [x] **BG4** A retreat written with the wrong unit kind (`F WAR - LVN` for an army) is
   refused without saying the unit is an army. Name the unit's real kind, as movement
-  orders already do.
+  orders already do. Done (v3.0.103): a retreat-phase move with the wrong letter now gets
+  the same kind message; `R` and disband forms already did.
 
 ---
 
