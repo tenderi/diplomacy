@@ -60,6 +60,24 @@ class TestSetOrders:
         assert len(data["results"]) > 0
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_two_orders_for_one_unit_report_the_first_as_replaced_not_failed(self, client):
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user"})
+        headers = _register_and_login(client, "ord_sup1")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+
+        resp = client.post("/games/set_orders", json={
+            "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR", "A PAR H"],
+            "telegram_id": "test_user", "bot_secret": BOT_SECRET,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["results"] == [
+            {"order": "A PAR - BUR", "success": True, "error": None, "replaced": [],
+             "note": "replaced by a later order in this submission: A PAR H", "superseded_by": "A PAR H"},
+            {"order": "A PAR H", "success": True, "error": None, "replaced": [],
+             "note": None, "superseded_by": None},
+        ]
+
     @pytest.mark.parametrize("orders", [[], [""], ["  "]])
     def test_set_orders_with_nothing_in_it_is_400(self, client, orders):
         client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user"})

@@ -959,7 +959,13 @@ class TestTwoOrdersForOneUnitInOneSubmission:
         gid = _new_game(service)
         results = service.submit_orders(gid, "FRANCE", ["A PAR - BUR", "A PAR H"])
         assert results == [
-            {"order": "A PAR - BUR", "ok": False, "reason": "replaced by a later order for PAR in the same submission"},
+            {
+                "order": "A PAR - BUR",
+                "ok": True,
+                "reason": None,
+                "superseded_by": "A PAR H",
+                "note": "replaced by a later order in this submission: A PAR H",
+            },
             {"order": "A PAR H", "ok": True, "reason": None},
         ]
         assert service.pending_orders_view(gid)["FRANCE"] == ["A PAR H"]
@@ -973,7 +979,7 @@ class TestTwoOrdersForOneUnitInOneSubmission:
         )
         service.restore_snapshot(gid, state_to_dict(state), phase_code="W1901A")
         results = service.submit_orders(gid, "FRANCE", ["BUILD A BRE", "BUILD F BRE"])
-        assert [r["ok"] for r in results] == [False, True]
+        assert [(r["ok"], r.get("superseded_by")) for r in results] == [(True, "BUILD F BRE"), (True, None)]
         resolution = service.process_turn(gid)["resolution"]["results"]
         assert [(r["order_str"], r["result"]) for r in resolution] == [("BUILD F BRE", "BUILD")]
 
