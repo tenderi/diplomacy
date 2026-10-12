@@ -16,8 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-12. Track BG (play-through findings in the orders API) is
-  open (`v3.0.103` did BG4: a retreat-phase move with the wrong unit letter names the real kind;
+- **Last updated:** 2026-10-12. Track BG (play-through findings in the orders API) is done and
+  removed (`v3.0.104` did BG3: a superseded order in one request is `success: true` with
+  `superseded_by`; `v3.0.103` did BG4: a retreat-phase move with the wrong unit letter names the real kind;
   `v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
   missing game are 404 "Game N not found"); Track BF is done and removed. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
   catch `requests.RequestException` / `TelegramError` / `sqlite3.Error`; the channel-post formatters
@@ -94,24 +95,6 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
-
-## Track BG — Play-through findings (orders API)
-
-Found playing a local game S1901M→S1902M on 2026-10-10. No adjudication bugs; these are
-edge cases in how an order write is checked and reported.
-
-- [x] **BG1** A `client_timestamp` in the future (e.g. now + 2 days) passes
-  `_refuse_if_stale` (`api/routes/orders.py`) whatever phase it was composed for. Refuse a
-  timestamp more than a few minutes ahead of the server clock with a 422 that says why.
-- [x] **BG2** `set_orders` on a nonexistent game answers "Player not found", because
-  `_authorize_power` runs before the game-existence check. It must be a 404 naming the game.
-- [ ] **BG3** Two orders for one unit in one request: the first is reported
-  `success: false` ("replaced by a later order…") though the request stored an order for
-  that unit. Report the replaced one so a client doesn't show the unit as unordered.
-- [x] **BG4** A retreat written with the wrong unit kind (`F WAR - LVN` for an army) is
-  refused without saying the unit is an army. Name the unit's real kind, as movement
-  orders already do. Done (v3.0.103): a retreat-phase move with the wrong letter now gets
-  the same kind message; `R` and disband forms already did.
 
 ---
 
