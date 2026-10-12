@@ -273,8 +273,10 @@ class GameService:
                     i = next(i for i, o in enumerate(accepted_orders) if _order_key(o) == key)
                     results[accepted_at[i]] = {
                         "order": results[accepted_at[i]]["order"],
-                        "ok": False,
-                        "reason": f"replaced by a later order for {key} in the same submission",
+                        "ok": True,
+                        "reason": None,
+                        "superseded_by": raw,
+                        "note": f"replaced by a later order in this submission: {raw}",
                     }
                     del accepted[i], accepted_orders[i], accepted_at[i]
                 accepted.append(stored)
@@ -1203,7 +1205,7 @@ def _report_replaced(
     dropped orders go to the accepted new orders in order, any surplus to the
     last. Results that displaced nothing are left as they were.
     """
-    accepted = [r for r in results if r["ok"]]
+    accepted = [r for r in results if r["ok"] and "superseded_by" not in r]
     if not dropped or not accepted:
         return
     for i, old in enumerate(dropped):

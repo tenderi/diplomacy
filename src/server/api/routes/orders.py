@@ -137,6 +137,7 @@ def set_orders(
             "error": r["reason"],
             "replaced": r.get("replaced", []),
             "note": r.get("note"),
+            "superseded_by": r.get("superseded_by"),
         }
         for r in raw
     ]

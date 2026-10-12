@@ -106,12 +106,13 @@ class TestTheApiNamesTheReplacedBuild:
         body = _as(tg, game_id=game_id, power="FRANCE", merge=True)
         first = client.post("/games/set_orders", json={**body, "orders": ["BUILD F BRE"]})
         assert first.json()["results"] == [
-            {"order": "BUILD F BRE", "success": True, "error": None, "replaced": [], "note": None}
+            {"order": "BUILD F BRE", "success": True, "error": None, "replaced": [], "note": None,
+             "superseded_by": None}
         ]
         second = client.post("/games/set_orders", json={**body, "orders": ["BUILD A PAR"]})
         assert second.json()["results"] == [{
             "order": "BUILD A PAR", "success": True, "error": None,
-            "replaced": ["BUILD F BRE"], "note": "replaced BUILD F BRE (you may build 1)",
+            "replaced": ["BUILD F BRE"], "superseded_by": None, "note": "replaced BUILD F BRE (you may build 1)",
         }]
         assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD A PAR"]
 
@@ -126,7 +127,7 @@ class TestTheApiNamesTheReplacedBuild:
         resp = client.post("/games/set_orders", json={**body, "orders": ["D A PAR"]})
         assert resp.json()["results"] == [{
             "order": "D A PAR", "success": True, "error": None,
-            "replaced": ["D A MAR"], "note": "replaced D A MAR (you must disband 1)",
+            "replaced": ["D A MAR"], "superseded_by": None, "note": "replaced D A MAR (you must disband 1)",
         }]
 
 
@@ -190,3 +191,14 @@ class TestTheBotSaysSo:
         report = format_delivery_report(result)
         assert report.splitlines()[1:] == ["✅ BUILD A PAR replaced BUILD F BRE (you may build 1)"]
         assert report.splitlines()[0].endswith(f"orders for game {game_id} (FRANCE): BUILD A PAR")
+
+
+def test_superseded_order_is_shown_as_replaced_not_as_an_error() -> None:
+    from server.telegram_bot.orders import format_order_results
+
+    text = format_order_results([
+        {"order": "A PAR - BUR", "success": True, "error": None,
+         "note": "replaced by a later order in this submission: A PAR H", "superseded_by": "A PAR H"},
+        {"order": "A PAR H", "success": True, "error": None, "note": None},
+    ])
+    assert text == "✅ A PAR - BUR replaced by a later order in this submission: A PAR H\n✅ A PAR H"
