@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from server.api import app
+from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
@@ -80,6 +80,18 @@ def test_a_processed_turn_shows_the_new_phase(client: TestClient) -> None:
     assert _state(client, game_id)["phase"] == "S1901M"  # warm
     assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
     assert _state(client, game_id)["phase"] == "F1901M"
+
+
+def test_an_admin_restore_shows_the_restored_phase(client: TestClient) -> None:
+    game_id, _tg = _game(client)
+    fill_with_dummies(game_id)
+    snaps = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
+    (opening,) = [s["id"] for s in snaps if s["turn"] == 0]
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+    assert _state(client, game_id)["phase"] == "F1901M"  # warm
+    restored = client.post(f"/games/{game_id}/restore/{opening}", headers={"X-Admin-Token": ADMIN_TOKEN})
+    assert restored.status_code == 200, restored.text
+    assert _state(client, game_id)["phase"] == "S1901M"
 
 
 def test_quitting_leaves_my_games_and_frees_the_seat(client: TestClient) -> None:

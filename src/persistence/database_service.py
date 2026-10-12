@@ -278,6 +278,16 @@ class DatabaseService:
             user.password_hash = password_hash
             session.commit()
 
+    def set_user_active(self, user_id: int, active: bool) -> None:
+        """Activate or deactivate an account. An inactive user cannot log in,
+        refresh, or use a bearer token issued before the change."""
+        with self.session_factory() as session:
+            user = session.query(UserModel).filter_by(id=user_id).first()
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            user.is_active = active
+            session.commit()
+
     def get_user_count(self) -> int:
         with self.session_factory() as session:
             return session.query(UserModel).count()

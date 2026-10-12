@@ -481,6 +481,8 @@ def token(request: Request, form: OAuth2PasswordRequestForm = Depends()) -> Dict
         _record_attempt(f"login_ip:{client_ip}")
         _record_attempt(f"login_email:{email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=401, detail="Account inactive")
     access = _create_access_token(user.id)
     refresh = _create_refresh_token(user.id)
     return {

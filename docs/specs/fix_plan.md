@@ -17,7 +17,9 @@
 ## Status
 
 - **Last updated:** 2026-10-12. Track BH (tests for untested guards in risky code) is
-  open. Track BG (play-through findings in the orders API) is done and
+  open. `v3.0.106` did BH1 (snapshot restore and inactive users are pinned; `/auth/token`
+  no longer issues tokens to an inactive account, and a snapshot whose `state_json` is not
+  an object is the deliberate "Corrupt snapshot" 500, not a traceback). Track BG (play-through findings in the orders API) is done and
   removed (`v3.0.104` did BG3: a superseded order in one request is `success: true` with
   `superseded_by`; `v3.0.103` did BG4: a retreat-phase move with the wrong unit letter names the real kind;
   `v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
@@ -103,7 +105,7 @@ Found by a coverage audit on 2026-10-12 (full suite against Postgres, nothing sk
 known bug; these are authorization, concurrency and state-rewriting branches no test
 exercises. Each step adds exact-value tests and fixes whatever they expose.
 
-- [ ] **BH1** Snapshot restore (`routes/games.py`, the restore-snapshot route, 0% covered):
+- [x] **BH1** Snapshot restore (`routes/games.py`, the restore-snapshot route, 0% covered):
   403 without the admin token, 404s, 409 for a snapshot without `state_json`, the corrupt
   snapshot error, and a success that rolls state and phase back and clears pending orders.
   Inactive users (`routes/auth.py`): `is_active=False` is refused on login, refresh and
