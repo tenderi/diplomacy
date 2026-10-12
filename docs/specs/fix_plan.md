@@ -10,13 +10,14 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BH**.
+>   history. Track letters run in sequence; the next free one is **BI**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-12. Track BG (play-through findings in the orders API) is done and
+- **Last updated:** 2026-10-12. Track BH (tests for untested guards in risky code) is
+  open. Track BG (play-through findings in the orders API) is done and
   removed (`v3.0.104` did BG3: a superseded order in one request is `success: true` with
   `superseded_by`; `v3.0.103` did BG4: a retreat-phase move with the wrong unit letter names the real kind;
   `v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
@@ -95,6 +96,28 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
+
+## Track BH — Untested guards in risky code
+
+Found by a coverage audit on 2026-10-12 (full suite against Postgres, nothing skipped). No
+known bug; these are authorization, concurrency and state-rewriting branches no test
+exercises. Each step adds exact-value tests and fixes whatever they expose.
+
+- [ ] **BH1** Snapshot restore (`routes/games.py`, the restore-snapshot route, 0% covered):
+  403 without the admin token, 404s, 409 for a snapshot without `state_json`, the corrupt
+  snapshot error, and a success that rolls state and phase back and clears pending orders.
+  Inactive users (`routes/auth.py`): `is_active=False` is refused on login, refresh and
+  bearer resolution.
+- [ ] **BH2** The deadline scheduler (`api/shared.py`): after a failed auto-process the
+  deadline still advances, so the next tick does not retry; proposal expiry with a naive
+  vote deadline; deadline-proposal errors (missing game, withdraw with none, withdraw by a
+  non-proposer). Replace-power (`routes/games.py`): seat already assigned, seat active, and
+  losing the `claim_vacant_seat` race is a 409.
+- [ ] **BH3** Concurrency and write guards: process-turn while the lock is held is 409;
+  `StaleGameError` on a finished game during a draw vote or concede becomes the game-over
+  error; `PhaseInputsChangedError` retries exhausted (`game_service.py`); idempotency does
+  not cache a 5xx or a non-JSON response, and an over-long key bypasses it; only the bot may
+  set `channel_id` on create (403); joining a completed game is 409.
 
 ---
 
