@@ -1006,6 +1006,19 @@ def _accepted(proposal: Dict[str, Any], active: frozenset[str]) -> DeadlinePropo
     )
 
 
+def _modify_proposal(
+    game_id: str, change: Callable[[Optional[Dict[str, Any]]], DeadlineProposalChange]
+) -> DeadlineProposalChange:
+    """``modify_deadline_proposal``, with its "game not found" ``ValueError``
+    turned into a ``DeadlineProposalError`` the routes answer."""
+    try:
+        return db_service.modify_deadline_proposal(game_id, change)
+    except ValueError as e:
+        if isinstance(e, DeadlineProposalError):
+            raise
+        raise DeadlineProposalError(str(e)) from e
+
+
 def _run_proposal_change(
     game_id: str,
     numeric_game_id: int,
@@ -1013,12 +1026,7 @@ def _run_proposal_change(
 ) -> Dict[str, Any]:
     """Run ``change`` under the row lock (``modify_deadline_proposal``). A new
     deadline gets its own 10-minute reminder, as ``POST .../deadline`` does."""
-    try:
-        outcome = db_service.modify_deadline_proposal(game_id, change)
-    except ValueError as e:
-        if isinstance(e, DeadlineProposalError):
-            raise
-        raise DeadlineProposalError(str(e)) from e
+    outcome = _modify_proposal(game_id, change)
     if outcome.set_deadline:
         reminder_sent[numeric_game_id] = False
     return outcome.result
@@ -1068,7 +1076,7 @@ def withdraw_deadline_proposal(game_id: str, power: str) -> Dict[str, Any]:
             )
         return DeadlineProposalChange(None, {"status": "withdrawn", **deadline_proposal_view(current, active)})
 
-    return db_service.modify_deadline_proposal(game_id, withdraw).result
+    return _modify_proposal(game_id, withdraw).result
 
 
 def expire_deadline_proposals(now: datetime) -> None:
