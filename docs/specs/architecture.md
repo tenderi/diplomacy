@@ -473,7 +473,9 @@ an older write — and DMs each result. Each request carries:
   gains "(sent HH:MM UTC)" when delivery was noticeably late. **Order submissions composed
   before `games.phase_started_at` are refused with 409** (`routes/orders.py::_refuse_if_stale`)
   — the turn was adjudicated without them, and applying last phase's orders to this phase's
-  board would be worse than telling the player. `phase_started_at` is stamped by `GameRepo`
+  board would be worse than telling the player. A `client_timestamp` more than
+  `FUTURE_TOLERANCE` (5 minutes) ahead of the server clock is refused with 422 on the same
+  routes (the clamp above would otherwise turn it into "now" and let it pass as fresh). `phase_started_at` is stamped by `GameRepo`
   on every write that changes `phase_code`.
 - **`Idempotency-Key`** — a UUID per entry. `api/idempotency.py` stores the first response
   (status + JSON) and replays it, with `Idempotent-Replayed: true`, to any later request with

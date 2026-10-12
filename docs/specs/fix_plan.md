@@ -17,7 +17,8 @@
 ## Status
 
 - **Last updated:** 2026-10-11. Track BG (play-through findings in the orders API) is
-  open; Track BF is done and removed. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
+  open (`v3.0.102` did BG1: a future `client_timestamp` is refused with 422; BG2: order writes on a
+  missing game are 404 "Game N not found"); Track BF is done and removed. `v3.0.100` did BF5 (the rest of `telegram_bot/`: command handlers
   catch `requests.RequestException` / `TelegramError` / `sqlite3.Error`; the channel-post formatters
   no longer turn a bug into an error post; the notification and replay loops and `alerting` are the
   logged boundaries; in the outbox poll a Telegram error that is not about one chat retries, and a
@@ -98,10 +99,10 @@
 Found playing a local game S1901M→S1902M on 2026-10-10. No adjudication bugs; these are
 edge cases in how an order write is checked and reported.
 
-- [ ] **BG1** A `client_timestamp` in the future (e.g. now + 2 days) passes
+- [x] **BG1** A `client_timestamp` in the future (e.g. now + 2 days) passes
   `_refuse_if_stale` (`api/routes/orders.py`) whatever phase it was composed for. Refuse a
   timestamp more than a few minutes ahead of the server clock with a 422 that says why.
-- [ ] **BG2** `set_orders` on a nonexistent game answers "Player not found", because
+- [x] **BG2** `set_orders` on a nonexistent game answers "Player not found", because
   `_authorize_power` runs before the game-existence check. It must be a 404 naming the game.
 - [ ] **BG3** Two orders for one unit in one request: the first is reported
   `success: false` ("replaced by a later order…") though the request stored an order for
