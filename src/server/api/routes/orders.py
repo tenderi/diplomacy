@@ -3,17 +3,18 @@
 Orders are validated by the engine and stored per power in ``games.pending_orders``
 via ``GameService``; they are consumed and cleared when the turn is processed.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Body, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
 from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
-from ..client_timestamp import normalize_client_timestamp
+from ..client_timestamp import FUTURE_TOLERANCE, normalize_client_timestamp
 from .. import shared as api_shared
 from ...response_cache import invalidate_cache
 from ..shared import db_service, game_service, is_bot_secret
+from persistence.database import utcnow_naive
 from server.game_service import GameOverError, StaleGameError
 
 router = APIRouter()
@@ -54,6 +55,21 @@ def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None
     """
     if client_timestamp is None:
         return
+    # ``normalize_client_timestamp`` pulls a far-future value back to *now*,
+    # which would pass the check below as "fresh": a client could replay last
+    # phase's orders stamped with a date in the future. Refuse it first.
+    raw = client_timestamp
+    if raw.tzinfo is not None:
+        raw = raw.astimezone(timezone.utc).replace(tzinfo=None)
+    if raw > utcnow_naive() + FUTURE_TOLERANCE:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"client_timestamp {raw:%Y-%m-%d %H:%M} UTC is in the future (the server clock "
+                f"allows at most {int(FUTURE_TOLERANCE.total_seconds() // 60)} minutes of skew). "
+                f"These orders were NOT applied -- check your device clock and submit again."
+            ),
+        )
     composed_at = normalize_client_timestamp(client_timestamp)
     row = db_service.get_game_by_game_id(game_id)
     started = getattr(row, "phase_started_at", None) if row is not None else None
@@ -73,6 +89,8 @@ def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None
 def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_secret):
     """Resolve the caller and confirm they hold ``power`` in ``game_id``."""
     user = resolve_user_or_telegram(credentials, telegram_id, bot_secret=bot_secret)
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -99,8 +117,6 @@ def set_orders(
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
     if not any(o.strip() for o in req.orders):
         raise HTTPException(status_code=400, detail="No orders given: send at least one order.")
-    if not game_service.exists(str(req.game_id)):
-        raise HTTPException(status_code=404, detail="Game not found")
     _refuse_if_stale(str(req.game_id), req.client_timestamp)
     try:
         raw = game_service.submit_orders(str(req.game_id), req.power, req.orders, merge=req.merge)
