@@ -1167,6 +1167,8 @@ class GameService:
         ``state_from_dict`` reports a missing field as ``KeyError`` and a wrongly
         typed one as ``TypeError``; callers only need to know the payload is bad.
         """
+        if not isinstance(state_json, dict):
+            raise ValueError(f"not a game state (a {type(state_json).__name__}, not an object)")
         try:
             state_from_dict(state_json)
         except (KeyError, TypeError, ValueError) as e:
