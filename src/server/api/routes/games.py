@@ -1312,9 +1312,8 @@ def withdraw_deadline_proposal(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
 ) -> Dict[str, Any]:
     """Cancel the pending deadline proposal. Only its original proposer may."""
+    # ``_authorize_power`` answers a missing game with 404.
     _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
-    if not db_service.get_game_by_game_id(game_id):
-        raise HTTPException(status_code=404, detail="Game not found")
     try:
         result = api_shared.withdraw_deadline_proposal(game_id, req.power)
     except api_shared.DeadlineProposalError as e:
