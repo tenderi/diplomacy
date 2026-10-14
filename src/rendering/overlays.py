@@ -351,7 +351,7 @@ def _plan_retreat(plan: Plan, order: dict, colour: tuple[int, int, int], scene: 
         return
     a = _cfg.get_arrow_specs()
     plan.legend.add("retreat")
-    if order.get("result") == "disband":
+    if order.get("result") in ("disband", "bounce"):
         stop = _stop_distance(line)
         shaft = trim(line, _clearance(), path_length(line) - stop)
         if not shaft:

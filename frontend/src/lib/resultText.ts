@@ -38,8 +38,10 @@ export interface OrderResultEntry {
   result: ResultCode | string
   dislodged: boolean
   retreat_options: string[]
-  /** True on a `DISBAND` the engine made for a power that ordered too few disbands
-   * (the civil-disorder rule). Absent on results stored before v3.0.82. */
+  /** True on a `DISBAND` the engine made that the power never ordered: in an
+   * adjustment, too few disbands were ordered; in a retreat phase, a dislodged unit
+   * had no order (that one keeps its `retreat_options`). Absent on results stored
+   * before v3.0.82. */
   civil_disorder?: boolean
   power: string
   order_str: string
@@ -66,6 +68,9 @@ export function describeResult(entry: OrderResultEntry): string {
           return 'Order succeeded.'
       }
     case 'BOUNCE':
+      if (orderType === 'RETREAT') {
+        return 'Retreat bounced: another unit retreated to the same province, and the unit was disbanded.'
+      }
       return 'Move was blocked (bounced) — the unit stayed in place.'
     case 'CUT':
       return 'Support was cut by an attack and had no effect.'
@@ -77,10 +82,12 @@ export function describeResult(entry: OrderResultEntry): string {
       return 'Unit was dislodged.'
     case 'DISBAND':
       if (entry.civil_disorder) {
-        return 'Disbanded by civil disorder: too few disbands were ordered.'
+        return entry.retreat_options.length > 0
+          ? 'Disbanded by civil disorder: no retreat was ordered.'
+          : 'Disbanded by civil disorder: too few disbands were ordered.'
       }
       return orderType === 'RETREAT'
-        ? 'No legal retreat was available — the unit was disbanded.'
+        ? 'The retreat was not legal — the unit was disbanded.'
         : 'Unit was disbanded.'
     case 'BUILD':
       return 'Build succeeded.'
