@@ -705,10 +705,13 @@ class GameService:
         them they could not undo leaving. With no units and no centers,
         ``Game.eliminated_powers()`` reports ``power`` eliminated at once.
 
-        Written via a dedicated ``GameRepo.update_state_json`` (not
-        ``save_state``): conceding mid-phase is not a phase transition, so it
-        must not bump the turn counter or clear the *other* powers'
-        already-submitted pending orders for this phase.
+        Written via ``GameRepo.modify_state_json`` (not ``save_state``):
+        conceding mid-phase is not a phase transition, so it must not bump the
+        turn counter or clear the *other* powers' already-submitted pending
+        orders for this phase. The removal is applied to the board read from the
+        locked row, not to the one loaded here: two powers conceding at once
+        both loaded the same board, and the second write brought the first
+        power's units and centres back.
         """
         game = self.load(game_id)
         if game is None:
@@ -716,26 +719,29 @@ class GameService:
         _require_active(game, game_id, "a power can no longer concede")
         power = power.upper()
 
-        remaining_units = frozenset(u for u in game.state.units if u.power != power)
-        remaining_ownership = {p: o for p, o in game.state.ownership.items() if o != power}
-        # Its dislodged units go too: left in place during a retreat phase they
-        # kept the power "missing" in ``orders_status`` -- the table (and
-        # auto-process) waited on retreat orders from a player who had left.
-        remaining_dislodged = tuple(du for du in game.state.dislodged if du.power != power)
-        new_state = replace(
-            game.state,
-            units=remaining_units,
-            ownership=remaining_ownership,
-            dislodged=remaining_dislodged,
-        )
+        def without_power(current: dict[str, Any]) -> dict[str, Any]:
+            state = state_from_dict(current)
+            return state_to_dict(
+                replace(
+                    state,
+                    units=frozenset(u for u in state.units if u.power != power),
+                    ownership={p: o for p, o in state.ownership.items() if o != power},
+                    # Its dislodged units go too: left in place during a retreat
+                    # phase they kept the power "missing" in ``orders_status`` --
+                    # the table (and auto-process) waited on retreat orders from
+                    # a player who had left.
+                    dislodged=tuple(du for du in state.dislodged if du.power != power),
+                )
+            )
+
         try:
-            self._repo.update_state_json(
-                game_id,
-                state_to_dict(new_state),
-                phase_code=new_state.phase_name,
-                status=new_state.status.value.lower(),
-                expected_phase_code=game.state.phase_name,
-                refuse_completed=True,
+            new_state = state_from_dict(
+                self._repo.modify_state_json(
+                    game_id,
+                    without_power,
+                    expected_phase_code=game.state.phase_name,
+                    refuse_completed=True,
+                )
             )
         except StaleGameError:
             self._raise_if_ended(game_id, "a power can no longer concede")

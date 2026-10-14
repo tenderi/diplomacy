@@ -9,6 +9,7 @@ from __future__ import annotations
 import itertools
 import time
 import uuid
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -89,10 +90,10 @@ def test_key_is_ignored_without_the_bot_secret_header(client):
     assert len(_messages(client, game_id, sender)) == before + 2
 
 
-def test_a_4xx_is_stored_and_replayed_a_5xx_is_not(client):
-    game_id, sender, _other = _game_with_two_bot_players(client)
+def test_a_4xx_is_stored_and_replayed(client):
+    game_id, _sender, _other = _game_with_two_bot_players(client)
     key = str(uuid.uuid4())
-    # Not in the game -> 403, a definitive answer the bot must relay.
+    # An unknown telegram_id -> 401, a definitive answer the bot must relay.
     r1 = client.post(f"/games/{game_id}/broadcast",
                      json={"telegram_id": "999999999", "bot_secret": SECRET, "text": "x"},
                      headers={**BOT, "Idempotency-Key": key})
@@ -103,16 +104,20 @@ def test_a_4xx_is_stored_and_replayed_a_5xx_is_not(client):
     assert r2.status_code == r1.status_code and r2.headers.get("Idempotent-Replayed") == "true"
     assert api_shared.db_service.get_idempotent_response(key)["status_code"] == r1.status_code
 
-    # A 500 is the server failing; nothing is stored so a retry runs the route again.
-    key2 = str(uuid.uuid4())
-    from unittest.mock import patch
+
+def test_a_route_that_raises_stores_nothing(client):
+    """An unhandled exception propagates through the middleware, so nothing is
+    stored and a retry runs the route again. This never reaches the middleware's
+    own 5xx check (a 5xx *response*); ``tests/test_idempotency_middleware.py``
+    covers that."""
+    game_id, sender, _other = _game_with_two_bot_players(client)
+    key = str(uuid.uuid4())
     with patch.object(api_shared.db_service, "create_message", side_effect=RuntimeError("db hiccup")):
-        r = TestClient(app, raise_server_exceptions=False).post(
-            f"/games/{game_id}/broadcast",
-            json={"telegram_id": sender, "bot_secret": SECRET, "text": "y"},
-            headers={**BOT, "Idempotency-Key": key2})
-    assert r.status_code == 500
-    assert api_shared.db_service.get_idempotent_response(key2) is None
+        with pytest.raises(RuntimeError, match="db hiccup"):
+            client.post(f"/games/{game_id}/broadcast",
+                        json={"telegram_id": sender, "bot_secret": SECRET, "text": "y"},
+                        headers={**BOT, "Idempotency-Key": key})
+    assert api_shared.db_service.get_idempotent_response(key) is None
 
 
 def test_get_requests_never_use_the_key(client):

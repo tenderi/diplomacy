@@ -10,13 +10,16 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BI**.
+>   history. Track letters run in sequence; the next free one is **BJ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-14. Track BH (tests for untested guards in risky code) is
+- **Last updated:** 2026-10-14. Track BI (concurrency follow-ups from BH3) is done and
+  removed: `v3.0.111` made a concession a locked read-modify-write of the board (two powers
+  conceding at once both leave it) and replaced `tests/test_idempotency.py`'s 5xx test, which
+  never reached the middleware's 5xx check, with an honest raised-exception test. Track BH (tests for untested guards in risky code) is
   done and removed. `v3.0.110` did BH3 (process-turn lock, draw vote and concession on a
   game that ended meanwhile, adjudication retries exhausted, idempotency's no-store rules,
   join of a finished game; a concession loaded before a draw committed no longer overwrites
