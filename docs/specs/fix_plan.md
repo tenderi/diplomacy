@@ -10,13 +10,14 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BJ**.
+>   history. Track letters run in sequence; the next free one is **BK**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-14. Track BI (concurrency follow-ups from BH3) is done and
+- **Last updated:** 2026-10-14. Track BJ (retreat/adjustment play-through findings) is
+  open. Track BI (concurrency follow-ups from BH3) is done and
   removed: `v3.0.111` made a concession a locked read-modify-write of the board (two powers
   conceding at once both leave it) and replaced `tests/test_idempotency.py`'s 5xx test, which
   never reached the middleware's 5xx check, with an honest raised-exception test. Track BH (tests for untested guards in risky code) is
@@ -108,6 +109,26 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
+
+## Track BJ — Retreat and adjustment play-through findings
+
+Found by a play-through of the retreat and adjustment phases against a local API on
+2026-10-14 (positions forced through `state_json`). Adjudication was right in every case;
+these are about what players are told and when a phase waits.
+
+- [ ] **BJ1** A retreat that bounces (two units retreating to one province) and a dislodged
+  unit left without an order are both recorded as a plain `DISBAND` / `D A WAR` with
+  `civil_disorder: false`, and nobody is told. Mark them in the resolution (a bounced
+  retreat distinct from a chosen disband; an unordered one as `civil_disorder`, as winter
+  does) and DM the owner, as the winter civil-disorder disband already does.
+- [ ] **BJ2** A power whose only dislodged units have no retreat counts as `missing` in
+  `orders_status`, so an `auto_process` game waits for an order that changes nothing
+  (`D F ANK`) and the group post lists that power as due. A forced disband needs no order.
+- [ ] **BJ3** A non-merge `set_orders` whose every order is rejected still replaces the
+  stored orders (the power goes back to `missing`) while answering `"replaced": []`. Report
+  what was dropped, as the merge path does.
+- [ ] **BJ4** `BUILD A STP/NC` is accepted and stored as `BUILD A STP`; an army build naming
+  a coast should be refused like any army order with a coast.
 
 ---
 
