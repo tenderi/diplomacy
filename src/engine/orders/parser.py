@@ -123,6 +123,12 @@ def _split_coast_token(token: str) -> tuple[str, str | None]:
     return name, coast
 
 
+def _refuse_army_build_coast(token: str, kind: UnitKind) -> None:
+    """An army build names no coast; ``BUILD A STP/NC`` was stored as ``BUILD A STP``."""
+    if kind is UnitKind.ARMY and _split_coast_token(token)[1] is not None:
+        raise OrderParseError("an army build may not specify a coast")
+
+
 def _require_build_coast(loc: Location, kind: UnitKind, map: MapData) -> None:
     """A fleet build on a split-coast province must name a coast (no source unit
     exists to infer it from, so an unspecified coast is irrecoverably ambiguous —
@@ -192,6 +198,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
         if len(rest) != 2 or rest[0] not in ("A", "F"):
             raise OrderParseError("expected 'BUILD A/F PROVINCE'")
         kind = UnitKind.ARMY if rest[0] == "A" else UnitKind.FLEET
+        _refuse_army_build_coast(rest[1], kind)
         loc = _parse_location(rest[1], map, fleet=kind is UnitKind.FLEET)
         _require_build_coast(loc, kind, map)
         return Build(power, location=loc, kind=kind)
@@ -225,6 +232,7 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
     if verb in _BUILD_WORDS:
         if len(rest) != 1:
             raise OrderParseError(f"malformed build order: {text!r}")
+        _refuse_army_build_coast(tokens[1], kind)
         _require_build_coast(unit_loc, kind, map)
         return Build(power, location=unit_loc, kind=kind)
 
