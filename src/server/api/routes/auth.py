@@ -362,13 +362,25 @@ def require_bot_or_user(
     seeding a game by hand looked like the endpoint was broken rather than like a
     missing header. The auth requirement itself is deliberate and stays; see that
     route's docstring.
+
+    A decoded token is not enough on its own: the user it names must still exist
+    and be active (BH4), as in ``get_current_user``. Otherwise a deactivated or
+    deleted account's unexpired access token would keep working on every route
+    guarded only by this dependency. The user lookup runs only for a token that
+    decodes; the bot-secret path does not touch the database.
     """
+    token_user_inactive = False
     if credentials:
         user_id = _decode_token(credentials.credentials, "access")
         if user_id is not None:
-            return
+            user = db_service.get_user_by_id(user_id)
+            if user and getattr(user, "is_active", True):
+                return
+            token_user_inactive = True
     if is_bot_secret(x_bot_secret):
         return
+    if token_user_inactive:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=(

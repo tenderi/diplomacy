@@ -17,7 +17,8 @@ Two authentication modes coexist and resolve to the same user:
   or the `X-Bot-Secret` header, used by the Telegram bot.
 
 `routes/auth.py` provides `resolve_user_or_telegram` (either mode → the user),
-`require_bot_or_user` (a dependency admitting either kind of caller) and
+`require_bot_or_user` (a dependency admitting either kind of caller; a Bearer token
+counts only while its user exists and is active, as everywhere else) and
 `require_bot_secret` (the bot only). Every endpoint that acts for a power checks that the
 caller holds it and answers **403** otherwise. Admin routes take `X-Admin-Token`. Every
 secret comparison is constant-time.
