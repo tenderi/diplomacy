@@ -505,6 +505,7 @@ class GameRepo:
         phase_code: str,
         status: str,
         expected_phase_code: Optional[str] = None,
+        refuse_completed: bool = False,
     ) -> None:
         """Overwrite ``state_json``/``phase_code``/``status`` in place, without the
         turn-counter bump or ``pending_orders`` clearing ``save_state`` does.
@@ -517,11 +518,15 @@ class GameRepo:
         ``expected_phase_code`` guards it like ``save_state``: a concession
         computed from phase X must not be written over a board a concurrent
         ``process_turn`` already moved to phase Y -- that rolled the game back.
+        ``refuse_completed`` refuses (``StaleGameError``) a game that has ended: a
+        draw does not move the phase, so the phase check alone would let a
+        concession computed before it write an active board over the result.
         """
         with self._session_factory() as session:
-            row = self._row(session, game_id, lock=expected_phase_code is not None)
+            row = self._row(session, game_id, lock=expected_phase_code is not None or refuse_completed)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
+            _check_not_completed(row, game_id, refuse_completed)
             if expected_phase_code is not None and row.phase_code != expected_phase_code:
                 raise StaleGameError(
                     f"game {game_id}: expected phase {expected_phase_code!r} but the "

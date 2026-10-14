@@ -16,9 +16,13 @@
 
 ## Status
 
-- **Last updated:** 2026-10-13. Track BH (tests for untested guards in risky code) is
-  open. `v3.0.109` did BH4 (`require_bot_or_user` loads the token's user and refuses an
-  inactive or deleted one with 401 "User not found or inactive"). `v3.0.107` did BH2 (scheduler, deadline-proposal and replace-power guards; a
+- **Last updated:** 2026-10-14. Track BH (tests for untested guards in risky code) is
+  done and removed. `v3.0.110` did BH3 (process-turn lock, draw vote and concession on a
+  game that ended meanwhile, adjudication retries exhausted, idempotency's no-store rules,
+  join of a finished game; a concession loaded before a draw committed no longer overwrites
+  the finished game with an active board, it is the game-over 409). `v3.0.109` did BH4
+  (`require_bot_or_user` loads the token's user and refuses an inactive or deleted one with
+  401 "User not found or inactive"). `v3.0.107` did BH2 (scheduler, deadline-proposal and replace-power guards; a
   withdraw on a game gone under the lock is now a proposal error, not a bare `ValueError`).
   `v3.0.106` did BH1 (snapshot restore and inactive users are pinned; `/auth/token`
   no longer issues tokens to an inactive account, and a snapshot whose `state_json` is not
@@ -101,33 +105,6 @@
   the web composer.
 - **Track AZ** (frontend major dependency upgrades) is in progress: AZ1 and AZ2 done, AZ3 open.
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
-
-## Track BH — Untested guards in risky code
-
-Found by a coverage audit on 2026-10-12 (full suite against Postgres, nothing skipped). No
-known bug; these are authorization, concurrency and state-rewriting branches no test
-exercises. Each step adds exact-value tests and fixes whatever they expose.
-
-- [x] **BH1** Snapshot restore (`routes/games.py`, the restore-snapshot route, 0% covered):
-  403 without the admin token, 404s, 409 for a snapshot without `state_json`, the corrupt
-  snapshot error, and a success that rolls state and phase back and clears pending orders.
-  Inactive users (`routes/auth.py`): `is_active=False` is refused on login, refresh and
-  bearer resolution.
-- [x] **BH2** The deadline scheduler (`api/shared.py`): after a failed auto-process the
-  deadline still advances, so the next tick does not retry; proposal expiry with a naive
-  vote deadline; deadline-proposal errors (missing game, withdraw with none, withdraw by a
-  non-proposer). Replace-power (`routes/games.py`): seat already assigned, seat active, and
-  losing the `claim_vacant_seat` race is a 409.
-- [ ] **BH3** Concurrency and write guards: process-turn while the lock is held is 409;
-  `StaleGameError` on a finished game during a draw vote or concede becomes the game-over
-  error; `PhaseInputsChangedError` retries exhausted (`game_service.py`); idempotency does
-  not cache a 5xx or a non-JSON response, and an over-long key bypasses it; only the bot may
-  set `channel_id` on create (403); joining a completed game is 409.
-- [x] **BH4** `require_bot_or_user` (`routes/auth.py`) only decodes the JWT, so a
-  deactivated user's unexpired access token still works on the routes that never resolve
-  the caller: `POST /games/{id}/snapshot`, the two map-generation routes in `maps.py` and
-  all of `sandbox.py`. Refuse an inactive (or deleted) user there, with a test per route
-  family.
 
 ---
 
