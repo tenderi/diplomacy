@@ -143,6 +143,8 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 | `errors.py` | The CLI `Server`'s error responses (`UNKNOWN_COMMAND`, `MISSING_ARGUMENTS`, `GAME_NOT_FOUND`, `INVALID_ORDER`, `INTERNAL_ERROR`). The HTTP API uses FastAPI's `{"detail": …}`. |
 | `db_config.py` | Reads `SQLALCHEMY_DATABASE_URL` from the environment (defaults to local PostgreSQL). |
 | `api/error_log.py` | `ServerErrorLogMiddleware`: every 5xx the API returns is logged at ERROR with its method and path (a route's own `HTTPException(500)` included), so it reaches the journal and the maintainer's alerts. |
+| `api/access_log.py` | Keeps healthy `/healthz`, `/health` and empty `GET /bot/outbox` lines out of uvicorn's access log (a filter on `uvicorn.access` plus a middleware that marks an empty poll); errors on those paths are still logged. |
+| `api/long_poll.py` | The wait behind `GET /bot/outbox?wait=N`: woken by an outbox insert in this process, or by a periodic re-query for rows another worker committed. Holds no DB connection while waiting. |
 | `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
 | `daide/` | The DAIDE protocol package — see §6. |
 
@@ -162,7 +164,7 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 | `archive.py` | Saved-game export and import (admin only: an export holds every private message). |
 | `feedback.py` | `POST /feedback` (a signed-in player's report, with the named game's phase; DMed to `DIPLOMACY_ADMIN_TELEGRAM_ID`; 10 per hour) and `GET /admin/feedback`. |
 | `sandbox.py` | The web sandbox: `POST /sandbox/start`, `/legal_orders`, `/adjudicate`, `/map`. Stateless — the client sends the serialized board every time; `GameService.sandbox_state` validates it. |
-| `bot_outbox.py` | The bot's pull endpoint for queued notifications, and its ack. |
+| `bot_outbox.py` | The bot's long-poll endpoint for queued notifications (`?wait=N`, via `api/long_poll.py`), and its ack. |
 | `tournaments.py` | Legacy tournament endpoints — out of scope, kept for backward compatibility. |
 
 `shared.py` holds the `db_service` / `game_service` singletons, loggers, `notify_user` /

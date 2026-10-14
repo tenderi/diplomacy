@@ -42,7 +42,7 @@ def _ticks(n: int) -> AsyncMock:
 
 
 def test_the_notification_loop_survives_a_failing_poll(heartbeat: Path, caplog: pytest.LogCaptureFixture) -> None:
-    deliver = AsyncMock(side_effect=[RuntimeError("API exploded"), None, None])
+    deliver = AsyncMock(side_effect=[RuntimeError("API exploded"), (0, 0), (0, 0)])
     with patch.object(notifications, "deliver_pending_notifications", new=deliver), \
          patch.object(notifications.asyncio, "sleep", new=_ticks(3)):
         with pytest.raises(_Stop):
@@ -51,6 +51,55 @@ def test_the_notification_loop_survives_a_failing_poll(heartbeat: Path, caplog: 
     (record,) = [r for r in caplog.records if r.getMessage() == "Notification poll failed"]
     assert record.exc_info is not None and "API exploded" in str(record.exc_info[1])  # a traceback
     assert heartbeat.exists()
+
+
+def _recording_sleep(n: int) -> tuple[AsyncMock, list[float]]:
+    """Like ``_ticks``, and records how long each tick asked to sleep."""
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) >= n:
+            raise _Stop
+
+    return AsyncMock(side_effect=sleep), slept
+
+
+def test_a_poll_that_comes_back_empty_at_once_does_not_spin() -> None:
+    # An API that ignores ``wait`` (an older one, mid-deploy) answers [] at once:
+    # the loop must sleep out the minimum cycle, not re-poll immediately.
+    deliver = AsyncMock(return_value=(0, 0))
+    sleep, slept = _recording_sleep(3)
+    with patch.object(notifications, "deliver_pending_notifications", new=deliver), \
+         patch.object(notifications.asyncio, "sleep", new=sleep):
+        with pytest.raises(_Stop):
+            asyncio.run(notifications.notification_loop(Mock()))
+    assert len(slept) == 3
+    assert all(notifications.NOTIFY_POLL_SECONDS - 0.5 < s <= notifications.NOTIFY_POLL_SECONDS for s in slept), slept
+
+
+def test_a_poll_that_delivered_goes_straight_back_to_waiting(heartbeat: Path) -> None:
+    deliver = AsyncMock(side_effect=[(2, 0), (0, 1), (0, 0)])
+    sleep, slept = _recording_sleep(3)
+    with patch.object(notifications, "deliver_pending_notifications", new=deliver), \
+         patch.object(notifications.asyncio, "sleep", new=sleep):
+        with pytest.raises(_Stop):
+            asyncio.run(notifications.notification_loop(Mock()))
+    assert slept[:2] == [0.0, 0.0]
+    assert slept[2] > notifications.NOTIFY_POLL_SECONDS - 0.5
+    assert heartbeat.exists()
+
+
+def test_the_poll_asks_for_a_long_poll_and_outwaits_it() -> None:
+    api_get = Mock(return_value={"items": []})
+    with patch.object(notifications, "api_get", new=api_get):
+        assert asyncio.run(notifications.deliver_pending_notifications(Mock())) == (0, 0)
+    (call,) = api_get.call_args_list
+    assert call.args == (f"/bot/outbox?limit=50&wait={notifications.NOTIFY_WAIT_SECONDS:g}",)
+    assert call.kwargs["timeout"] > notifications.NOTIFY_WAIT_SECONDS
+    # The healthcheck calls the bot wedged after 120 s without a heartbeat
+    # (docker/bot.Dockerfile); one cycle must be well inside that.
+    assert notifications.NOTIFY_HTTP_TIMEOUT < 60
 
 
 def test_the_replay_loop_survives_failures_and_purges_hourly(tmp_path: Path) -> None:

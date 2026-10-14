@@ -6,9 +6,15 @@ host; across the VPS/home split of v2.7.68-v2.7.84 it would have lost every
 DM sent while the tunnel was down, and it made the bot the one component that needed an inbound
 port. It is gone. Nothing listens here any more. Instead:
 
-**Notification loop** (server -> player). Every ``NOTIFY_POLL_SECONDS`` the
-bot asks the API for undelivered rows (``GET /bot/outbox``), sends each to its
-Telegram chat, and acks the ones Telegram accepted (``POST /bot/outbox/ack``).
+**Notification loop** (server -> player). The bot long-polls the API for
+undelivered rows (``GET /bot/outbox?wait=NOTIFY_WAIT_SECONDS``: the API answers
+as soon as a row is committed, or with ``[]`` when the wait runs out), sends
+each to its Telegram chat, and acks the ones Telegram accepted
+(``POST /bot/outbox/ack``). Then it polls again at once -- unless the poll
+handed over nothing in less than ``NOTIFY_POLL_SECONDS``, in which case it
+sleeps out the rest of that: an API that does not know ``wait`` (an older
+one, mid-deploy), is unreachable, or a Telegram that refuses, must not turn
+the loop into a busy spin.
 The server commits every notification to Postgres first, so an API or bot
 outage of any length only delays them; when both are up, one poll drains the
 backlog in order. A notification delivered noticeably late is prefixed with
@@ -46,7 +52,13 @@ from .outbox import get_outbox
 
 logger = logging.getLogger("diplomacy.telegram_bot.notifications")
 
+# The shortest notification-loop cycle when a poll delivered nothing.
 NOTIFY_POLL_SECONDS = float(os.environ.get("DIPLOMACY_NOTIFY_POLL_SECONDS", "3"))
+# How long the API may hold a poll open. Well under the healthcheck's 120 s
+# heartbeat staleness (docker/bot.Dockerfile), which each cycle refreshes.
+NOTIFY_WAIT_SECONDS = float(os.environ.get("DIPLOMACY_NOTIFY_WAIT_SECONDS", "25"))
+# The HTTP timeout of a long-poll: the wait plus room for the API to answer.
+NOTIFY_HTTP_TIMEOUT = NOTIFY_WAIT_SECONDS + 10
 OUTBOX_POLL_SECONDS = float(os.environ.get("DIPLOMACY_OUTBOX_POLL_SECONDS", "5"))
 HEARTBEAT_PATH = Path(os.environ.get("DIPLOMACY_BOT_HEARTBEAT", "/tmp/diplomacy-bot-heartbeat"))  # nosec B108
 # A notification older than this when delivered gets its creation time prefixed.
@@ -205,7 +217,9 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
     is reported in the ack as failed so the server stops offering the row.
     """
     try:
-        page = await asyncio.to_thread(api_get, f"/bot/outbox?limit={limit}")
+        page = await asyncio.to_thread(
+            api_get, f"/bot/outbox?limit={limit}&wait={NOTIFY_WAIT_SECONDS:g}", timeout=NOTIFY_HTTP_TIMEOUT
+        )
     except ApiUnreachableError:
         _note_reachability(False)
         return 0, 0
@@ -260,15 +274,23 @@ async def deliver_pending_notifications(bot: Any, limit: int = 50) -> tuple[int,
 
 
 async def notification_loop(app: Application) -> None:
+    loop = asyncio.get_running_loop()
     while True:
         touch_heartbeat()
+        started = loop.time()
+        handled = 0
         try:
-            await deliver_pending_notifications(app.bot)
+            delivered, failed = await deliver_pending_notifications(app.bot)
+            handled = delivered + failed
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 -- boundary: keep polling no matter what one tick does
             logger.exception("Notification poll failed")
-        await asyncio.sleep(NOTIFY_POLL_SECONDS)
+        # A long-poll that handed rows over goes straight back to waiting. One
+        # that came back with nothing early (an API without ``wait``, the API
+        # down, Telegram refusing) waits out the minimum cycle instead.
+        rest = 0.0 if handled else NOTIFY_POLL_SECONDS - (loop.time() - started)
+        await asyncio.sleep(max(0.0, rest))
 
 
 # ---------------------------------------------------------------------------
@@ -338,8 +360,9 @@ def start_background_loops(app: Application) -> list[asyncio.Task]:
         loop.create_task(outbox_replay_loop(app), name="diplomacy-outbox-replay"),
     ]
     logger.info(
-        "Background loops started (notifications every %.0fs, outbox replay every %.0fs); %d queued write(s)",
-        NOTIFY_POLL_SECONDS, OUTBOX_POLL_SECONDS, get_outbox().count_pending(),
+        "Background loops started (notifications long-polled, up to %.0fs per poll; outbox replay every %.0fs); "
+        "%d queued write(s)",
+        NOTIFY_WAIT_SECONDS, OUTBOX_POLL_SECONDS, get_outbox().count_pending(),
     )
     return list(_tasks)
 

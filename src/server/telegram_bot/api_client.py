@@ -185,7 +185,7 @@ def api_delete(endpoint: str) -> dict:
     return resp.json()
 
 
-def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
+def api_get(endpoint: str, telegram_id: Optional[str] = None, timeout: float = DEFAULT_API_TIMEOUT) -> dict:
     """Make a GET request to the API.
 
     Mirrors ``api_post``'s ``bot_secret`` injection, but via the query string:
@@ -194,7 +194,7 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
     query params instead. Passing ``telegram_id`` here adds both to the
     request under those exact names; omit it for endpoints that don't need
     per-user auth (public reads, or ones using the ``X-Bot-Secret`` header
-    alone).
+    alone). ``timeout`` is for a long-poll, which must outlast its ``wait``.
     """
     params: dict = {}
     if telegram_id is not None:
@@ -203,7 +203,7 @@ def api_get(endpoint: str, telegram_id: Optional[str] = None) -> dict:
             params["bot_secret"] = BOT_SECRET
     try:
         resp = requests.get(
-            f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=DEFAULT_API_TIMEOUT
+            f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=timeout
         )
     except (requests.ConnectionError, requests.Timeout) as e:
         raise ApiUnreachableError(e) from e
