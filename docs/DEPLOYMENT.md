@@ -196,8 +196,8 @@ What protects the host and the site, and where it lives:
 ## Deploy-on-merge (GitHub Actions)
 
 `.github/workflows/deploy.yml` deploys automatically after the Test Suite is
-green on `main` (or on demand: *Run workflow*, optionally with a SHA or tag).
-Nothing is built on the VPS. The workflow has two jobs:
+green on `main` (or on demand: *Run workflow*, optionally with a SHA, short
+or full, or a tag). Nothing is built on the VPS. The workflow has two jobs:
 
 1. **`images`** builds the four images of our own (`api`, `bot`, `web`, `docs`,
    from `docker/*.Dockerfile`) in GitHub Actions, with the Actions layer cache,

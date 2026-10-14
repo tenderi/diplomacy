@@ -104,11 +104,11 @@ fi
 
 echo "==> Cleaning up old images..."
 # Our images are tagged by commit, so the replaced ones are not dangling: remove
-# every image of ours that no container uses, by label -- GHCR images carry the
-# source label, host-built ones Compose's project label. Never a bare
-# `prune -a`: the host runs other projects' images too.
+# every image of ours that no container uses (`prune -a` keeps those in use),
+# by the source label that both the GHCR images and host builds carry
+# (docker-compose.yml's build labels). Never a bare `prune -a`: the host runs
+# other projects' images too.
 docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/tenderi/diplomacy"
-docker image prune -af --filter "label=com.docker.compose.project=diplomacy"
 docker image prune -f
 # After a build here (--build, or a failed pull): nothing above prunes the
 # BuildKit cache, and it grew to 6.5 GB of the 20 GB disk. Empty it: a capped

@@ -16,7 +16,8 @@
 # checked-out commit and records it in .env, so a bare `docker compose up -d`
 # keeps the deployed images. Each keeps its `build:` so `docker compose build` (and
 # `upgrade.sh --build`) still builds them locally; without DIPLOMACY_IMAGE_TAG
-# a local build is tagged `local`.
+# a local build is tagged `local`. A host build carries the same source label
+# as the GHCR images, which is what upgrade.sh prunes old images by.
 
 # The project name, fixed rather than taken from the directory name: this
 # file lived in new_implementation/ until v3.0.1, and moving it must not
@@ -61,6 +62,8 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       - SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy:${POSTGRES_PASSWORD}@postgres:5432/diplomacy_db
       - DIPLOMACY_ENVIRONMENT=production
@@ -113,6 +116,8 @@ services:
     build:
       context: .
       dockerfile: docker/bot.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
       - DIPLOMACY_BOT_SECRET=${DIPLOMACY_BOT_SECRET:?set DIPLOMACY_BOT_SECRET in .env}
@@ -150,6 +155,8 @@ services:
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       # Fixed for the same reason as the bot's DIPLOMACY_API_URL.
       - DIPLOMACY_API_UPSTREAM=diplomacy_api:8000
@@ -173,6 +180,8 @@ services:
     build:
       context: .
       dockerfile: docker/docs.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     profiles: ["tls"]
     logging: *logging
     restart: always
