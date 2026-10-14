@@ -204,8 +204,10 @@ It SSHes in as `root`, fetches and checks out the exact SHA that passed
 1. runs `ensure_env.sh` (fills any missing secret);
 2. `docker compose build` -- a failed build leaves the running stack alone;
 3. `docker compose up -d --remove-orphans`;
-4. installs the nightly backup cron job if missing;
-5. waits for `http://127.0.0.1:8000/healthz` and checks
+4. removes dangling images and empties the BuildKit build cache
+   (`docker builder prune -af`), printing its size;
+5. installs the nightly backup cron job if missing;
+6. waits for `http://127.0.0.1:8000/healthz` and checks
    `http://127.0.0.1/api/healthz` (nginx → API), and **fails the workflow** if
    either does not answer.
 
@@ -347,6 +349,10 @@ docker compose up -d
 - `docker compose logs diplomacy_bot` logs `API unreachable; player writes are
   being queued locally` once when the API drops and `API reachable again; N
   queued write(s) waiting` once when it returns, not on every poll.
+- Disk: `df -h /` and `docker system df`. Every deploy empties the build
+  cache, which once took 6.5 GB of the 20 GB disk unpruned. A capped prune
+  (`--max-used-space`) is not enough: it skips the records `docker system df`
+  calls shared, and those held 2.8 GB of real disk.
 - Pending notifications:
   `curl -H "X-Bot-Secret: $(grep ^DIPLOMACY_BOT_SECRET= .env | cut -d= -f2-)" http://127.0.0.1:8000/bot/outbox/stats`.
 
