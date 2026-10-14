@@ -357,7 +357,8 @@ request. Because it is client-supplied, `GameService.sandbox_state` validates it
 (`400 Invalid sandbox board: ...`): known powers and provinces only, each unit where its kind
 can stand (a fleet on a named coast of a split-coast province), one unit per province,
 ownership of supply centres only, dislodged units only in a retreat phase. All four routes
-need a signed-in caller (`require_bot_or_user`).
+need a signed-in caller (`require_bot_or_user`: the bot secret, or the access token of a
+user who exists and is active; otherwise 401).
 
 | Route | Body | Returns |
 |---|---|---|

@@ -17,7 +17,8 @@
 ## Status
 
 - **Last updated:** 2026-10-13. Track BH (tests for untested guards in risky code) is
-  open. `v3.0.107` did BH2 (scheduler, deadline-proposal and replace-power guards; a
+  open. `v3.0.109` did BH4 (`require_bot_or_user` loads the token's user and refuses an
+  inactive or deleted one with 401 "User not found or inactive"). `v3.0.107` did BH2 (scheduler, deadline-proposal and replace-power guards; a
   withdraw on a game gone under the lock is now a proposal error, not a bare `ValueError`).
   `v3.0.106` did BH1 (snapshot restore and inactive users are pinned; `/auth/token`
   no longer issues tokens to an inactive account, and a snapshot whose `state_json` is not
@@ -122,7 +123,7 @@ exercises. Each step adds exact-value tests and fixes whatever they expose.
   error; `PhaseInputsChangedError` retries exhausted (`game_service.py`); idempotency does
   not cache a 5xx or a non-JSON response, and an over-long key bypasses it; only the bot may
   set `channel_id` on create (403); joining a completed game is 409.
-- [ ] **BH4** `require_bot_or_user` (`routes/auth.py`) only decodes the JWT, so a
+- [x] **BH4** `require_bot_or_user` (`routes/auth.py`) only decodes the JWT, so a
   deactivated user's unexpired access token still works on the routes that never resolve
   the caller: `POST /games/{id}/snapshot`, the two map-generation routes in `maps.py` and
   all of `sandbox.py`. Refuse an inactive (or deleted) user there, with a test per route
