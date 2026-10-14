@@ -364,8 +364,13 @@ both `GameRepo.modify_draw_votes` and `save_state`. The row is locked, a finishe
 refused and the late request gets a 409 that says how the game ended. It is never
 recorded as a vote ("(1/7 agreed)") and never announced as a second draw. A concession
 is guarded the same way: `GameService.concede` passes `refuse_completed` to
-`GameRepo.update_state_json`, so a concession loaded before a draw committed is a 409 that
+`GameRepo.modify_state_json`, so a concession loaded before a draw committed is a 409 that
 says how the game ended, and never writes its still-active board over the finished game.
+The concession itself is a locked read-modify-write of `state_json`: the conceding power's
+units, dislodged units and centres are removed from the board read on the locked row, not
+from the one the request loaded, so two powers conceding at once both leave the board (a
+write of the loaded board put the first one's units and centres back). A concession from a
+phase that has since been processed is a 409.
 
 The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
 moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`

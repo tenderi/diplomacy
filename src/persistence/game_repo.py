@@ -497,44 +497,41 @@ class GameRepo:
             row.dummy_powers = sorted(powers)
             session.commit()
 
-    def update_state_json(
+    def modify_state_json(
         self,
         game_id: str,
-        state_json: dict[str, Any],
+        change: Callable[[dict[str, Any]], dict[str, Any]],
         *,
-        phase_code: str,
-        status: str,
         expected_phase_code: Optional[str] = None,
         refuse_completed: bool = False,
-    ) -> None:
-        """Overwrite ``state_json``/``phase_code``/``status`` in place, without the
-        turn-counter bump or ``pending_orders`` clearing ``save_state`` does.
+    ) -> dict[str, Any]:
+        """``state_json`` = ``change(current)`` in one locked transaction, without
+        the turn-counter bump or ``pending_orders`` clearing ``save_state`` does.
+        Returns the new value.
 
-        For out-of-band state mutations that are not a phase transition --
+        For out-of-band board changes that are not a phase transition --
         currently only ``GameService.concede`` (a power leaving mid-phase must
         not disturb the other powers' already-submitted orders for this phase,
         nor advance the turn counter the way a real ``process_turn`` does).
+        ``change`` must not move the phase or end the game: ``phase_code`` and
+        ``status`` are left as they are.
 
-        ``expected_phase_code`` guards it like ``save_state``: a concession
-        computed from phase X must not be written over a board a concurrent
-        ``process_turn`` already moved to phase Y -- that rolled the game back.
+        The change is applied to the board read from the locked row, not to one
+        the caller loaded earlier: two powers conceding together both loaded the
+        same board, and the second write put the first power's units and
+        centres back (see ``modify_pending_orders``).
+
+        ``expected_phase_code`` refuses (``StaleGameError``) a row whose phase has
+        moved on: the caller checked its request against phase X.
         ``refuse_completed`` refuses (``StaleGameError``) a game that has ended: a
         draw does not move the phase, so the phase check alone would let a
-        concession computed before it write an active board over the result.
+        concession made before it write over the result.
         """
         with self._session_factory() as session:
-            row = self._row(session, game_id, lock=expected_phase_code is not None or refuse_completed)
-            if row is None:
-                raise ValueError(f"game {game_id} not found")
+            row = self._locked_row(session, game_id, expected_phase_code)
             _check_not_completed(row, game_id, refuse_completed)
-            if expected_phase_code is not None and row.phase_code != expected_phase_code:
-                raise StaleGameError(
-                    f"game {game_id}: expected phase {expected_phase_code!r} but the "
-                    f"persisted phase is {row.phase_code!r} -- changed concurrently"
-                )
-            row.state_json = state_json
-            _stamp_phase_start(row, phase_code)
-            row.phase_code = phase_code
-            row.status = status
+            updated = change(dict(row.state_json or {}))
+            row.state_json = updated
             row.updated_at = datetime.now(timezone.utc)
             session.commit()
+            return updated
