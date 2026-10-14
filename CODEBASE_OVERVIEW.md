@@ -283,11 +283,12 @@ Production is one Docker Compose stack on the UpCloud VPS, `docker-compose.yml`:
 `caddy` (HTTPS) and `diplomacy_docs` (this documentation as a website). Only Caddy is
 public; nginx and the API are on loopback, Postgres unpublished. Dockerfiles
 and the nginx template are under `docker/`; host scripts are `install.sh` (first-time setup),
-`ensure_env.sh` (generates secrets on the host), `upgrade.sh` (build, restart, verify) and
+`ensure_env.sh` (generates secrets on the host), `upgrade.sh` (pull the images, restart, verify; `--build` builds on the host) and
 `backup.sh` (nightly `pg_dump`, copied off-host to Proton Drive with rclone). Full walkthrough:
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-`.github/workflows/deploy.yml` deploys after a green Test Suite on `main`, writing
+`.github/workflows/deploy.yml` deploys after a green Test Suite on `main`: it builds the
+images and pushes them to GHCR (`ghcr.io/tenderi/diplomacy-<service>:<sha>`), then SSHes in, writing
 `TELEGRAM_BOT_TOKEN` (the only host secret GitHub holds) into `.env` and running
 `upgrade.sh` (gated on `DEPLOY_CONTROL_ENABLED`).
 

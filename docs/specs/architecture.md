@@ -475,7 +475,11 @@ notification costs one short database write.
 Every service — `postgres`, `diplomacy_api`, `diplomacy_bot`, `diplomacy_web` (nginx),
 `caddy`, `diplomacy_docs` — runs from one `docker-compose.yml` on one VPS; only Caddy is
 public, and the bot and nginx reach the API by its compose service name
-(`docs/DEPLOYMENT.md`). The API is a separate process that is down during every deploy and
+(`docs/DEPLOYMENT.md`). The images of our four services (API, bot, web, docs) are built
+in GitHub Actions and pushed to GHCR tagged with the commit SHA
+(`ghcr.io/tenderi/diplomacy-<service>:<sha>`, `.github/workflows/deploy.yml`); the host
+only pulls them (`upgrade.sh`), and builds them itself only when the pull fails or with
+`upgrade.sh --build`. A rollback is a deploy of the previous SHA. The API is a separate process that is down during every deploy and
 after any crash, and a deadline may pass while it is. The contract is that **no player
 message is ever lost in either direction** — only delayed, and always with the original time
 preserved.

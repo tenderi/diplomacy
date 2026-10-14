@@ -8,7 +8,15 @@
 # upgrade script and debugging) -- never on a public interface. Postgres is
 # not published at all.
 #
-# Usage:  docker compose up -d        (upgrade.sh does build + up + checks)
+# Usage:  docker compose up -d        (upgrade.sh does pull + up + checks)
+#
+# The four images of our own (api, bot, web, docs) are built in GitHub Actions
+# and pulled from GHCR as ghcr.io/tenderi/diplomacy-<service>:<commit sha>
+# (.github/workflows/deploy.yml); upgrade.sh sets DIPLOMACY_IMAGE_TAG to the
+# checked-out commit and records it in .env, so a bare `docker compose up -d`
+# keeps the deployed images. Each keeps its `build:` so `docker compose build` (and
+# `upgrade.sh --build`) still builds them locally; without DIPLOMACY_IMAGE_TAG
+# a local build is tagged `local`.
 
 # The project name, fixed rather than taken from the directory name: this
 # file lived in new_implementation/ until v3.0.1, and moving it must not
@@ -49,6 +57,7 @@ services:
       - no-new-privileges:true
 
   diplomacy_api:
+    image: ghcr.io/tenderi/diplomacy-api:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -100,6 +109,7 @@ services:
       - ALL
 
   diplomacy_bot:
+    image: ghcr.io/tenderi/diplomacy-bot:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/bot.Dockerfile
@@ -136,6 +146,7 @@ services:
       - ALL
 
   diplomacy_web:
+    image: ghcr.io/tenderi/diplomacy-web:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/web.Dockerfile
@@ -158,6 +169,7 @@ services:
   diplomacy_docs:
     # The documentation site (docs/ via MkDocs), served by Caddy at DOCS_DOMAIN.
     # Started with Caddy (the "tls" profile); nothing publishes its port.
+    image: ghcr.io/tenderi/diplomacy-docs:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/docs.Dockerfile
