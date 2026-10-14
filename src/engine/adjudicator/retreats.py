@@ -15,7 +15,10 @@ excludes:
 The retreat phase itself then resolves the submitted Retreat/Disband orders:
 unordered or illegally-ordered dislodged units disband, and when two or more
 units retreat to the same province **all** of them bounce and disband (rulebook:
-simultaneous retreats to one province all fail).
+simultaneous retreats to one province all fail). A bounced retreat is reported as
+``BOUNCE`` (the unit is gone all the same), and a unit left without an order while
+it had somewhere to go as a ``DISBAND`` marked ``civil_disorder`` -- so neither
+reads like a disband its power chose.
 """
 
 from __future__ import annotations
@@ -149,8 +152,25 @@ def adjudicate_retreats(
             surviving[dest.province] = moved
             order = o if isinstance(o, Retreat) else Retreat(du.power, du.location, dest)
             results.append(OrderResult(order=order, result=ResultCode.OK))
+        elif dest is not None and isinstance(o, Retreat):
+            # A legal retreat another unit also retreated into: all of them bounce,
+            # and a unit with nowhere to go is disbanded.
+            results.append(OrderResult(order=o, result=ResultCode.BOUNCE))
+        elif o is None and du.retreats:
+            # No order for a unit that could have retreated: the engine disbands it
+            # for its power (civil disorder, as in an adjustment). ``retreat_options``
+            # keeps the retreats it had.
+            results.append(
+                OrderResult(
+                    order=Disband(du.power, du.location),
+                    result=ResultCode.DISBAND,
+                    retreat_options=du.retreats,
+                    civil_disorder=True,
+                )
+            )
         else:
-            # Unordered, illegal, or bounced retreat, or an explicit disband.
+            # An explicit disband, an illegal retreat, or a trapped unit (no
+            # retreat existed, so no order could change anything).
             order = o if isinstance(o, (Retreat, Disband)) else Disband(du.power, du.location)
             results.append(OrderResult(order=order, result=ResultCode.DISBAND))
 

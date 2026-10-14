@@ -75,7 +75,9 @@ class ResultCode(Enum):
     """Outcome of adjudicating a single order.
 
     - ``OK``          — order succeeded (move happened, support held, convoy ran).
-    - ``BOUNCE``      — a move failed for lack of strength / standoff.
+    - ``BOUNCE``      — a move failed for lack of strength / standoff; in a retreat
+                        phase, two or more units retreated to one province, and
+                        each was disbanded.
     - ``CUT``         — a support order was cut by an attack.
     - ``VOID``        — order was illegal/ill-formed and ignored (treated as hold).
     - ``NO_CONVOY``   — a convoyed move had no surviving fleet path.
@@ -378,9 +380,11 @@ class OrderResult:
     meaningful in movement/retreat phases). ``retreat_options`` lists the legal
     destinations a dislodged unit may retreat to (empty when not dislodged, or
     when the unit is trapped and must disband).
-    ``civil_disorder`` marks a ``DISBAND`` the adjustment adjudicator made for a
-    power that ordered too few disbands (its ``order`` is synthetic: the power
-    never sent it).
+    ``civil_disorder`` marks a ``DISBAND`` the engine made for a power that never
+    ordered it (its ``order`` is synthetic): in an adjustment, a power that ordered
+    too few disbands; in a retreat phase, a dislodged unit left without an order
+    though it had somewhere to go -- that one also carries the retreats it had in
+    ``retreat_options``, which is how the two are told apart.
     """
 
     order: Order
