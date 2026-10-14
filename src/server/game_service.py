@@ -651,12 +651,13 @@ class GameService:
             "changed": changed,
         }
 
-    def _raise_if_ended(self, game_id: str) -> None:
+    def _raise_if_ended(self, game_id: str, action: str = "draw votes are no longer accepted") -> None:
         """After a ``StaleGameError``: raise ``GameOverError`` (saying how the game
-        ended) if a concurrent write finished the game, else return."""
+        ended and that ``action`` is refused) if a concurrent write finished the
+        game, else return."""
         game = self.load(game_id)
         if game is not None:
-            _require_active(game, game_id, "draw votes are no longer accepted")
+            _require_active(game, game_id, action)
 
     def get_draw_votes(self, game_id: str) -> Optional[dict[str, Any]]:
         """Who's voted yes to draw this phase, how many are needed, and whether
@@ -727,13 +728,18 @@ class GameService:
             ownership=remaining_ownership,
             dislodged=remaining_dislodged,
         )
-        self._repo.update_state_json(
-            game_id,
-            state_to_dict(new_state),
-            phase_code=new_state.phase_name,
-            status=new_state.status.value.lower(),
-            expected_phase_code=game.state.phase_name,
-        )
+        try:
+            self._repo.update_state_json(
+                game_id,
+                state_to_dict(new_state),
+                phase_code=new_state.phase_name,
+                status=new_state.status.value.lower(),
+                expected_phase_code=game.state.phase_name,
+                refuse_completed=True,
+            )
+        except StaleGameError:
+            self._raise_if_ended(game_id, "a power can no longer concede")
+            raise
         # The conceding power has nothing left to order or vote on this phase.
         self.clear_orders(game_id, power)
         self._repo.modify_draw_votes(game_id, lambda votes: {p: v for p, v in votes.items() if p != power})
