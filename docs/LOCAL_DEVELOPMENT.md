@@ -101,7 +101,9 @@ Everything has a working default. To avoid exporting variables each session, put
 | `DIPLOMACY_API_URL` | API base URL used by the bot (default `http://localhost:8000`) |
 | `DIPLOMACY_BOT_SECRET` | Shared secret between bot and API; also arms `Idempotency-Key` replay and the `/bot/outbox` endpoints |
 | `DIPLOMACY_BOT_DATA_DIR` | Where the bot keeps its durable queue (`outbox.sqlite3`; default `bot_data/`, git-ignored) |
-| `DIPLOMACY_NOTIFY_POLL_SECONDS` / `DIPLOMACY_OUTBOX_POLL_SECONDS` | Bot poll intervals for pulling notifications / replaying its queue (defaults 3 / 5) |
+| `DIPLOMACY_NOTIFY_WAIT_SECONDS` | How long the bot's notification long-poll asks the API to wait (default 25) |
+| `DIPLOMACY_NOTIFY_POLL_SECONDS` / `DIPLOMACY_OUTBOX_POLL_SECONDS` | Shortest notification-poll cycle when a poll delivered nothing / bot queue replay interval (defaults 3 / 5) |
+| `DIPLOMACY_OUTBOX_RECHECK_SECONDS` | API: how often a waiting outbox long-poll re-queries, which finds rows another uvicorn worker committed (default 2) |
 | `DIPLOMACY_BOT_HEARTBEAT` | The file the bot's loops touch for its Docker healthcheck (default `/tmp/diplomacy-bot-heartbeat`) |
 | `DIPLOMACY_CORS_ORIGINS` | Allowed CORS origins (default `*`; restrict in production) |
 | `DIPLOMACY_MAP_PATH` | Path to the map SVG (default `maps/standard.svg`) |

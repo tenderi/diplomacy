@@ -74,7 +74,10 @@ request carries:
 **Server → player (turn processed, reminders, joins, messages).** The API
 never talks to Telegram. It commits each notification to the `bot_outbox`
 table and the bot *pulls* them (`GET /bot/outbox`, `POST /bot/outbox/ack`)
-every few seconds. A notification is only acked after Telegram accepted it.
+with a long-poll: the API holds each request up to 25 s and answers as soon
+as a notification is committed. A notification is only acked after Telegram
+accepted it. Healthy `/healthz` and `/health` checks and empty outbox polls
+are left out of the API's access log; errors on them are not.
 Delivered late, it is prefixed with the time it was created.
 
 `/queue` in Telegram shows what is waiting and whether the server is

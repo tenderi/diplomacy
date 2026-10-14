@@ -26,6 +26,16 @@ from .database import (
 IDEMPOTENCY_RETENTION_DAYS = 7
 OUTBOX_DELIVERED_RETENTION_DAYS = 7
 
+# Called (no arguments) after every committed ``bot_outbox`` insert in this
+# process. The ``/bot/outbox`` long-poll registers one to wake its waiters;
+# persistence knows nothing about who listens.
+_bot_outbox_listeners: List[Callable[[], None]] = []
+
+
+def add_bot_outbox_listener(listener: Callable[[], None]) -> None:
+    """Call ``listener`` after each ``enqueue_bot_notification`` commit."""
+    if listener not in _bot_outbox_listeners:
+        _bot_outbox_listeners.append(listener)
 
 
 @dataclass(frozen=True)
@@ -1351,7 +1361,11 @@ class DatabaseService:
             )
             session.add(row)
             session.commit()
-            return int(row.id)
+            row_id = int(row.id)
+        # After the commit, so a woken long-poll can see the row.
+        for listener in list(_bot_outbox_listeners):
+            listener()
+        return row_id
 
     def fetch_pending_bot_notifications(
         self, limit: int = 50, *, after_id: int = 0

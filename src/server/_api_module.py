@@ -30,6 +30,7 @@ from .response_cache import invalidate_cache
 
 from .api.idempotency import IdempotencyMiddleware
 from .api.error_log import ServerErrorLogMiddleware
+from .api.access_log import QuietAccessLogMiddleware, install_access_log_filter
 
 # Import route modules
 from .api.routes import games, orders, users, messages, maps, admin, channels, tournaments, auth, waiting_list, bot_outbox, archive, feedback, sandbox
@@ -216,6 +217,12 @@ app.add_middleware(
 # with DIPLOMACY_ADMIN_TELEGRAM_ID set, the maintainer (install_admin_alerts).
 app.add_middleware(ServerErrorLogMiddleware)
 _api_shared.install_admin_alerts()
+
+# Healthy health checks and empty bot polls stay out of uvicorn's access log;
+# errors on those paths do not. Added last, so it is the outermost middleware
+# and wraps the very ``send`` uvicorn logs from (``api/access_log.py``).
+app.add_middleware(QuietAccessLogMiddleware)
+install_access_log_filter()
 
 # Register all route modules
 app.include_router(games.router)
