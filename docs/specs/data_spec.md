@@ -443,8 +443,16 @@ when nothing was replaced). The pushed-out orders go to the submission's accepte
 in turn. The bot appends the note to the order's line
 (`✅ BUILD A PAR replaced BUILD F BRE (you may build 1)`), in the immediate reply and in
 the delivery DM of a queued submission; the interactive pick adds
-`↩️ This replaced BUILD F BRE (you may build 1)`. The web client sends `merge=false`, so
-it never sees a replacement.
+`↩️ This replaced BUILD F BRE (you may build 1)`. The web client sends `merge=false`, which
+replaces the power's stored orders. When none of the submitted orders is accepted that
+still empties them (the power is `missing` again), so the first result carries the stored
+orders dropped in `replaced` and a `note` (`none of these orders was accepted, so your
+earlier orders were dropped: BUILD F BRE`); the web client appends it to its "Not accepted"
+message. An accepted full set reports no replacement.
+
+An army build names no coast: `BUILD A STP/NC` is refused at parse time (`parse error: an
+army build may not specify a coast`), like the validator's refusal of an army build with a
+coast; it used to be stored as `BUILD A STP`.
 
 Two orders for one unit (or build site) in a single request: the later one stands. The
 earlier is **not** a failure -- the request did store an order for that unit -- so its result

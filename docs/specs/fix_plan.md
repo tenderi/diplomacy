@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-10-14. Track BJ (retreat/adjustment play-through findings) is
-  open. Track BI (concurrency follow-ups from BH3) is done and
+  open (BJ1, BJ2 remain; `v3.0.114` did BJ3 and BJ4). Track BI (concurrency follow-ups from BH3) is done and
   removed: `v3.0.111` made a concession a locked read-modify-write of the board (two powers
   conceding at once both leave it) and replaced `tests/test_idempotency.py`'s 5xx test, which
   never reached the middleware's 5xx check, with an honest raised-exception test. Track BH (tests for untested guards in risky code) is
@@ -124,11 +124,6 @@ these are about what players are told and when a phase waits.
 - [ ] **BJ2** A power whose only dislodged units have no retreat counts as `missing` in
   `orders_status`, so an `auto_process` game waits for an order that changes nothing
   (`D F ANK`) and the group post lists that power as due. A forced disband needs no order.
-- [ ] **BJ3** A non-merge `set_orders` whose every order is rejected still replaces the
-  stored orders (the power goes back to `missing`) while answering `"replaced": []`. Report
-  what was dropped, as the merge path does.
-- [ ] **BJ4** `BUILD A STP/NC` is accepted and stored as `BUILD A STP`; an army build naming
-  a coast should be refused like any army order with a coast.
 
 ---
 

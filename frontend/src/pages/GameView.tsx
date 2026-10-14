@@ -127,7 +127,7 @@ type OrdersStatus = {
   auto_process?: boolean
 }
 /** One entry of `POST /games/set_orders`' per-order `results`. */
-type SetOrderResult = { order: string; success: boolean; error: string | null }
+type SetOrderResult = { order: string; success: boolean; error: string | null; replaced?: string[] }
 
 /**
  * GET /games/{id}/last_resolution response (see GameService.last_resolution_view).
@@ -564,7 +564,10 @@ export default function GameView() {
       load()
       const refused = (r.results ?? []).filter((x) => !x.success)
       if (refused.length > 0) {
-        setError(`Not accepted: ${refused.map((x) => `${x.order} (${x.error ?? 'invalid'})`).join('; ')}`)
+        // Submitting replaces the stored orders; when none was accepted they are gone.
+        const dropped = (r.results ?? []).flatMap((x) => x.replaced ?? [])
+        const lost = dropped.length > 0 ? ` Your earlier orders were dropped: ${dropped.join(', ')}.` : ''
+        setError(`Not accepted: ${refused.map((x) => `${x.order} (${x.error ?? 'invalid'})`).join('; ')}${lost}`)
       } else {
         toast.success('Orders submitted')
       }
