@@ -205,12 +205,23 @@ class GameService:
                     kept, pushed_out = self._make_room(kept, len(accepted), slots, power)
                     dropped.extend(pushed_out)
                 new_orders = kept + accepted
+            else:
+                dropped.extend(o for o in pending.get(power, []) if o not in accepted)
             return {**pending, power: new_orders}
 
         # One locked read-modify-write, and only if the phase these orders were
         # validated against is still the live one (StaleGameError otherwise).
         self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
-        _report_replaced(results, dropped, state, power, slots)
+        if not merge and not accepted and dropped and results:
+            # Nothing in the replacement was accepted, so the stored orders are
+            # gone and no accepted result exists to carry the news: the first
+            # (refused) result does.
+            results[0]["replaced"] = list(dropped)
+            results[0]["note"] = (
+                f"none of these orders was accepted, so your earlier orders were dropped: {', '.join(dropped)}"
+            )
+        elif merge:
+            _report_replaced(results, dropped, state, power, slots)
         return results
 
     def _check_orders(
