@@ -201,6 +201,105 @@ class TestHostScripts:
         assert script.rstrip().endswith('[ "$api_ok" = 1 ] && [ "$web_ok" = 1 ]')
 
 
+class TestComposeImages:
+    @pytest.mark.parametrize("svc", ["api", "bot", "web", "docs"])
+    def test_own_images_come_from_ghcr_and_can_still_be_built(self, svc: str) -> None:
+        compose = _read(PROJECT_ROOT / "docker-compose.yml")
+        assert (
+            f"    image: ghcr.io/tenderi/diplomacy-{svc}:${{DIPLOMACY_IMAGE_TAG:-local}}\n"
+            f"    build:\n      context: .\n      dockerfile: docker/{svc}.Dockerfile\n"
+        ) in compose
+
+
+class TestUpgradeRuns:
+    """Run the real upgrade.sh against a fake `docker` that logs its calls."""
+
+    OWN = ["diplomacy_api", "diplomacy_bot", "diplomacy_web", "diplomacy_docs"]
+
+    def _run(
+        self, tmp_path: Path, *args: str, pull_rc: int = 0, env_text: str = "A=1\n"
+    ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "upgrade.sh").write_bytes((PROJECT_ROOT / "upgrade.sh").read_bytes())
+        for stub in ("ensure_env.sh", "backup.sh"):
+            (work / stub).write_text("#!/bin/sh\n")
+        for name in ("upgrade.sh", "ensure_env.sh", "backup.sh"):
+            (work / name).chmod(0o755)
+        (work / ".env").write_text(env_text)
+        (work / ".env").chmod(0o600)
+        _git(work, "init", "-q")
+        _git(work, "add", "upgrade.sh")
+        _git(work, "commit", "-qm", "x")
+        sha = _git(work, "rev-parse", "HEAD")
+        _git(work, "checkout", "-q", "--detach")  # as the deploy leaves it: no `git pull`
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        log = tmp_path / "docker.log"
+        (bin_dir / "docker").write_text(
+            "#!/bin/bash\n"
+            f'echo "TAG=$DIPLOMACY_IMAGE_TAG $*" >> {log}\n'
+            'case "$*" in\n'
+            f'  "compose config --services") printf "%s\\n" postgres {" ".join(self.OWN)} caddy ;;\n'
+            f'  "compose pull"*) exit {pull_rc} ;;\n'
+            '  "system df") printf "TYPE\\nBuild Cache 0B\\n" ;;\n'
+            "esac\n"
+        )
+        (bin_dir / "curl").write_text("#!/bin/sh\n")
+        for name in ("docker", "curl"):
+            (bin_dir / name).chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(work / "upgrade.sh"), *args],
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)},
+            capture_output=True, text=True,
+        )
+        calls = log.read_text().splitlines() if log.exists() else []
+        self.env_after = (work / ".env").read_text()
+        return calls, sha, result
+
+    def test_pulls_this_commits_images_and_never_builds(self, tmp_path: Path) -> None:
+        calls, sha, result = self._run(tmp_path)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"TAG={sha} compose pull --quiet {' '.join(self.OWN)}" in calls
+        assert not any(" build" in c for c in calls)
+        assert not any("builder prune" in c for c in calls)  # nothing was built here
+        assert f"TAG={sha} compose up -d --no-build --remove-orphans" in calls
+        assert self.env_after == f"A=1\nDIPLOMACY_IMAGE_TAG={sha}\n"
+
+    def test_a_failed_pull_builds_on_the_host_with_a_warning(self, tmp_path: Path) -> None:
+        calls, sha, result = self._run(tmp_path, pull_rc=1)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"::warning::Could not pull ghcr.io/tenderi/diplomacy-*:{sha}" in result.stdout
+        pull = calls.index(f"TAG={sha} compose pull --quiet {' '.join(self.OWN)}")
+        assert calls[pull + 1] == f"TAG={sha} compose build"
+        assert f"TAG={sha} builder prune -af" in calls  # v3.0.116: the cache a host build leaves
+
+    def test_build_flag_skips_the_pull(self, tmp_path: Path) -> None:
+        calls, sha, result = self._run(tmp_path, "--build", env_text="DIPLOMACY_IMAGE_TAG=old\nA=1\n")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"TAG={sha} compose build" in calls
+        assert not any("compose pull" in c for c in calls)
+        assert f"TAG={sha} builder prune -af" in calls
+        assert self.env_after == f"DIPLOMACY_IMAGE_TAG={sha}\nA=1\n"
+
+    def test_prunes_only_our_own_unused_images(self, tmp_path: Path) -> None:
+        """The host runs other projects; a bare `image prune -a` would delete their images."""
+        calls, _, _ = self._run(tmp_path)
+        prunes = [c.split(" ", 1)[1] for c in calls if "image prune" in c]
+        assert prunes == [
+            "image prune -af --filter label=org.opencontainers.image.source=https://github.com/tenderi/diplomacy",
+            "image prune -af --filter label=com.docker.compose.project=diplomacy",
+            "image prune -f",
+        ]
+
+    def test_rejects_an_unknown_argument(self, tmp_path: Path) -> None:
+        calls, _, result = self._run(tmp_path, "--bild")
+        assert result.returncode == 2
+        assert "unknown argument: --bild" in result.stderr
+        assert calls == []
+
+
 class TestEnsureEnv:
     """Run the real ensure_env.sh in a scratch directory."""
 
@@ -389,8 +488,11 @@ class TestDeployWorkflow:
         assert "vars.DEPLOY_CONTROL_ENABLED == 'true'" in workflow
 
     def test_github_holds_only_the_telegram_token(self, workflow: str) -> None:
+        # GITHUB_TOKEN is the run's own token (pushing to GHCR), not a stored secret.
         secrets = set(re.findall(r"secrets\.([A-Z_]+)", workflow))
-        assert secrets == {"TELEGRAM_BOT_TOKEN", "VPS_SSH_KEY", "VPS_HOST_KEY"}
+        assert secrets == {"TELEGRAM_BOT_TOKEN", "VPS_SSH_KEY", "VPS_HOST_KEY", "GITHUB_TOKEN"}
+        assert workflow.count("secrets.GITHUB_TOKEN") == 1
+        assert "password: ${{ secrets.GITHUB_TOKEN }}" in workflow  # the GHCR login only
 
     def test_secrets_travel_on_stdin_not_the_remote_command_line(self, workflow: str) -> None:
         # Prepended to the script stream as a %q assignment; the ssh argument list
@@ -413,7 +515,24 @@ class TestDeployWorkflow:
     def test_manual_run_resolves_a_commit_not_a_branch_name(self, workflow: str) -> None:
         # The VPS checkout has no local `main` branch; `git checkout --detach main` fails there.
         assert 'sha="main"' not in workflow
-        assert "${{ github.sha }}" in workflow
+        assert "ref: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}" in workflow
+        # A tag or short SHA becomes the full SHA that both tags the images and is checked out.
+        assert "sha=$(git rev-parse HEAD)" in workflow
+        assert 'sha="${{ needs.images.outputs.sha }}"' in workflow
+
+    def test_builds_the_images_in_actions_and_the_host_pulls_them(self, workflow: str) -> None:
+        """Issue #224: nothing is built on the 1-vCPU VPS. The images job pushes
+        ghcr.io/tenderi/diplomacy-<service>:<sha>; the deploy job needs it and hands
+        upgrade.sh that tag."""
+        assert "service: [api, bot, web, docs]" in workflow
+        assert "packages: write" in workflow
+        assert "image=ghcr.io/tenderi/diplomacy-${{ matrix.service }}:$sha" in workflow
+        assert "file: docker/${{ matrix.service }}.Dockerfile" in workflow
+        assert "org.opencontainers.image.source=https://github.com/${{ github.repository }}" in workflow
+        assert "cache-from: type=gha,scope=${{ matrix.service }}" in workflow
+        assert "if: steps.exists.outputs.found != 'true'" in workflow  # a rollback reuses its images
+        assert "needs: images" in workflow
+        assert 'DIPLOMACY_IMAGE_TAG="$SHA" ./upgrade.sh' in workflow
 
     def test_fetches_the_target_itself(self, workflow: str) -> None:
         # The VPS clone is single-branch (vps-split); a bare `git fetch origin` never brings
@@ -472,7 +591,7 @@ class TestDeployStepRuns:
         _git(origin, "branch", "vps-split")
         _git(origin, "rm", "-rq", "new_implementation")
         (origin / ".env.example").write_text("TELEGRAM_BOT_TOKEN=\nDIPLOMACY_BOT_SECRET=\nWEB_BIND=127.0.0.1\n")
-        (origin / "upgrade.sh").write_text("#!/bin/sh\ntouch upgraded\n")
+        (origin / "upgrade.sh").write_text('#!/bin/sh\nprintf %s "$DIPLOMACY_IMAGE_TAG" > upgraded\n')
         (origin / "upgrade.sh").chmod(0o755)
         _git(origin, "add", "-A")
         _git(origin, "commit", "-qm", "main (flat layout)")
@@ -507,7 +626,7 @@ class TestDeployStepRuns:
         )
         assert result.returncode == 0, result.stderr
         assert _git(clone, "rev-parse", "HEAD") == sha
-        assert (clone / "upgraded").exists()
+        assert (clone / "upgraded").read_text() == sha  # the image tag upgrade.sh pulls
         assert token not in result.stdout + result.stderr
         return clone, token, result
 

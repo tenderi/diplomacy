@@ -1,9 +1,16 @@
 #!/bin/bash
 #
-# upgrade.sh — update the whole stack in place: pull (unless the deploy
-# workflow has already checked out a SHA), fill in any missing secrets,
-# rebuild, restart (migrations run in the API container's entrypoint), make
-# sure the nightly backup is scheduled, and check that everything answers.
+# upgrade.sh — update the whole stack in place: pull the code (unless the
+# deploy workflow has already checked out a SHA), fill in any missing secrets,
+# pull that commit's images from GHCR, restart (migrations run in the API
+# container's entrypoint), make sure the nightly backup is scheduled, and
+# check that everything answers.
+#
+#   ./upgrade.sh           pull the images GitHub Actions built for this commit
+#                          (ghcr.io/tenderi/diplomacy-<service>:<sha>); if the
+#                          pull fails, build them here instead, with a warning
+#   ./upgrade.sh --build   build the images on this host and skip the pull
+#                          (GHCR or Actions down, or a commit Actions never built)
 #
 # Postgres data (pg_data) and the bot's queue (bot_data) are named volumes and
 # survive every rebuild. While the API restarts the bot queues player writes
@@ -11,6 +18,21 @@
 #
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd)"
+
+build=0
+for arg in "$@"; do
+    case "$arg" in
+        --build) build=1 ;;
+        -h | --help)
+            sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "upgrade.sh: unknown argument: $arg (try --help)" >&2
+            exit 2
+            ;;
+    esac
+done
 
 # By hand this runs on the main branch and pulls. The deploy workflow checks
 # out the exact SHA the Test Suite passed on (a detached HEAD) before calling
@@ -24,8 +46,38 @@ fi
 
 ./ensure_env.sh
 
-echo "==> Rebuilding images..."
-docker compose build
+# docker-compose.yml names our images ghcr.io/tenderi/diplomacy-<service>:${DIPLOMACY_IMAGE_TAG}.
+# The deploy workflow passes the SHA it checked out; by hand it is the checkout's commit.
+DIPLOMACY_IMAGE_TAG=${DIPLOMACY_IMAGE_TAG:-$(git rev-parse HEAD)}
+export DIPLOMACY_IMAGE_TAG
+
+built=0
+build_here() {
+    echo "==> Building images on this host (tag ${DIPLOMACY_IMAGE_TAG})..."
+    docker compose build
+    built=1
+}
+
+if [ "$build" = 1 ]; then
+    build_here
+else
+    # Only the images we build (postgres and caddy stay as they are), and only
+    # those of active profiles: diplomacy_docs runs with Caddy (COMPOSE_PROFILES=tls).
+    active=$(docker compose config --services)
+    own=()
+    for svc in diplomacy_api diplomacy_bot diplomacy_web diplomacy_docs; do
+        if grep -qx "$svc" <<<"$active"; then
+            own+=("$svc")
+        fi
+    done
+    echo "==> Pulling images for ${DIPLOMACY_IMAGE_TAG} from GHCR: ${own[*]}"
+    if ! docker compose pull --quiet "${own[@]}"; then
+        # The `::warning::` prefix makes the deploy workflow's log flag it.
+        echo "::warning::Could not pull ghcr.io/tenderi/diplomacy-*:${DIPLOMACY_IMAGE_TAG}" \
+            "(not built yet, a private package, or GHCR down); building on this host instead."
+        build_here
+    fi
+fi
 
 # One-time cutover from the new_implementation/ layout (v3.0.1). That
 # directory was the Compose project name, so the running containers are
@@ -38,17 +90,36 @@ if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=new_implement
 fi
 
 echo "==> Recreating containers..."
-docker compose up -d --remove-orphans
+docker compose up -d --no-build --remove-orphans
+
+# Record the running tag in .env, which Compose reads: without it a bare
+# `docker compose up -d` by hand would ask for the `local` tag and build it.
+if grep -q '^DIPLOMACY_IMAGE_TAG=' .env; then
+    (umask 077 && awk -v v="$DIPLOMACY_IMAGE_TAG" 'BEGIN{FS=OFS="="} $1=="DIPLOMACY_IMAGE_TAG"{$0="DIPLOMACY_IMAGE_TAG="v} {print}' .env >.env.tmp)
+    cat .env.tmp >.env # keeps .env's owner and mode (600)
+    rm -f .env.tmp
+else
+    printf 'DIPLOMACY_IMAGE_TAG=%s\n' "$DIPLOMACY_IMAGE_TAG" >>.env
+fi
 
 echo "==> Cleaning up old images..."
+# Our images are tagged by commit, so the replaced ones are not dangling: remove
+# every image of ours that no container uses, by label -- GHCR images carry the
+# source label, host-built ones Compose's project label. Never a bare
+# `prune -a`: the host runs other projects' images too.
+docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/tenderi/diplomacy"
+docker image prune -af --filter "label=com.docker.compose.project=diplomacy"
 docker image prune -f
-# Nothing above prunes the BuildKit cache, and it grew to 6.5 GB of the 20 GB
-# disk. Empty it: a capped prune (--max-used-space) leaves the records it
-# counts as "shared", which still held 2.8 GB of real disk. The next local
-# build is cold. The cache is shared by every project on the host.
-echo "==> Emptying the build cache..."
-docker builder prune -af >/dev/null
-docker system df | grep -E '^(TYPE|Build Cache)'
+# After a build here (--build, or a failed pull): nothing above prunes the
+# BuildKit cache, and it grew to 6.5 GB of the 20 GB disk. Empty it: a capped
+# prune (--max-used-space) leaves the records it counts as "shared", which
+# still held 2.8 GB of real disk. The next local build is cold. The cache is
+# shared by every project on the host.
+if [ "$built" = 1 ]; then
+    echo "==> Emptying the build cache..."
+    docker builder prune -af >/dev/null
+    docker system df | grep -E '^(TYPE|Build Cache)'
+fi
 
 ./backup.sh --install
 
