@@ -657,26 +657,33 @@ def notify_turn_processed(
     )
     # Units the adjustment just processed removed for a power that ordered too
     # few disbands (BD5): told to that power's player and to the group.
+    # And units a retreat phase removed though their power never disbanded them
+    # (BJ1): a retreat that bounced, or a unit left without a retreat order.
     disorder: dict[str, list[str]] = {}
+    lost: dict[str, list[str]] = {}
     try:
         if processed_turn is not None:
             disorder = game_service.civil_disorder_disbands(game_id, processed_turn)
+            lost = game_service.retreat_disbands(game_id, processed_turn)
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read civil-disorder disbands for game {game_id}: {e}")
     try:
         for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
             mine = [p for p in powers if p in duties]
             removed = {p: disorder[p] for p in sorted(powers) if p in disorder}
+            retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
             # in a retreat or adjustment phase they are told too when they owe
             # orders. In a movement phase their own client is already asking.
-            # Nor does the response point out which units civil disorder removed.
+            # Nor does the response point out which units civil disorder or a bounced
+            # retreat removed.
             if (
                 exclude_telegram_id is not None
                 and str(telegram_id) == str(exclude_telegram_id)
                 and (phase_type == "MOVEMENT" or not mine)
                 and not removed
+                and not retreat_lost
             ):
                 continue
             notify_user(
@@ -686,6 +693,11 @@ def notify_turn_processed(
                     + [
                         civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
                         for p, units in removed.items()
+                    ]
+                    + [
+                        f"As {p}: {line}" if len(retreat_lost) > 1 else line
+                        for p, lines in retreat_lost.items()
+                        for line in lines
                     ]
                 )
                 + due,
@@ -704,6 +716,7 @@ def notify_turn_processed(
     else:
         channel_text = f"The turn has been processed. {label}: nobody has anything to order."
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
+    group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
 
 

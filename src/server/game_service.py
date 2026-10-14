@@ -77,6 +77,12 @@ class GameOverError(ValueError):
     """
 
 
+def _order_str(result: dict[str, Any]) -> str:
+    """A stored result's order as text: the ``order_str`` ``process_turn`` saved, or
+    (for a result stored before it did) one formatted from the order."""
+    return str(result.get("order_str") or format_order(order_from_dict(result["order"])))
+
+
 class GameService:
     def __init__(self, repo: Any, map: Optional[MapData] = None) -> None:
         self._repo = repo
@@ -1051,9 +1057,44 @@ class GameService:
         results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
         out: dict[str, list[str]] = {}
         for r in results:
-            if r.get("civil_disorder"):
-                order_str = r.get("order_str") or format_order(order_from_dict(r["order"]))
-                out.setdefault(r["order"]["power"], []).append(order_str.removeprefix("D "))
+            # A retreat phase's civil-disorder disband keeps the retreats it had; an
+            # adjustment's never has any (``retreat_disbands`` tells that one).
+            if r.get("civil_disorder") and not r.get("retreat_options"):
+                out.setdefault(r["order"]["power"], []).append(_order_str(r).removeprefix("D "))
+        return out
+
+    def retreat_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
+        """Why ``turn``'s retreat phase removed units their power did not choose to
+        disband (BJ1), one sentence per unit, per power::
+
+            {"FRANCE": ["A MAR's retreat to PIE bounced (FRANCE and ITALY both
+                         retreated there): it was disbanded."],
+             "RUSSIA": ["A WAR had no retreat order and was disbanded (civil disorder)."]}
+
+        A bounced retreat is a ``RETREAT`` result ``BOUNCE``; an unordered unit with
+        somewhere to go is the ``civil_disorder`` disband that carries its
+        ``retreat_options``. Empty for any other turn."""
+        results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
+        bounced = [r for r in results if r["order"]["type"] == "RETREAT" and r["result"] == "BOUNCE"]
+        powers_by_dest: dict[str, list[str]] = {}
+        for r in bounced:
+            powers_by_dest.setdefault(r["order"]["dest"].split("/")[0], []).append(r["order"]["power"])
+        out: dict[str, list[str]] = {}
+        for r in results:
+            power = r["order"]["power"]
+            if r in bounced:
+                unit, _, dest = _order_str(r).partition(" R ")
+                who = powers_by_dest[r["order"]["dest"].split("/")[0]]
+                if len(set(who)) == 1:
+                    there = f"{power} retreated {len(who)} units there"
+                else:
+                    names = sorted(set(who))
+                    both = "both" if len(names) == 2 else "all"
+                    there = f"{', '.join(names[:-1])} and {names[-1]} {both} retreated there"
+                out.setdefault(power, []).append(f"{unit}'s retreat to {dest} bounced ({there}): it was disbanded.")
+            elif r.get("civil_disorder") and r.get("retreat_options"):
+                unit = _order_str(r).removeprefix("D ")
+                out.setdefault(power, []).append(f"{unit} had no retreat order and was disbanded (civil disorder).")
         return out
 
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
