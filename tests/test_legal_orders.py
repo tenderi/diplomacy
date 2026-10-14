@@ -19,6 +19,7 @@ from engine.map_loader import load_standard_map
 from engine.orders.parser import parse_order
 from engine.orders.validation import validate
 from engine.types import (
+    DislodgedUnit,
     GameState,
     Location,
     PhaseType,
@@ -372,6 +373,18 @@ class TestPowersWithOrdersToGive:
         state = _retreat_state()
         # Germany has units on the board but nothing to retreat.
         assert powers_with_orders_to_give(_MAP, state) == frozenset({"FRANCE"})
+
+    def test_retreat_a_power_whose_units_can_only_disband_is_excluded(self) -> None:
+        """BJ2: a trapped unit is disbanded whatever its power orders."""
+        state = _retreat_state()
+        (du,) = state.dislodged
+        trapped = replace(state, dislodged=frozenset({replace(du, retreats=())}))
+        assert powers_with_orders_to_give(_MAP, trapped) == frozenset()
+        # One unit with somewhere to go is enough to owe orders.
+        both = replace(state, dislodged=frozenset({du, DislodgedUnit(
+            unit=Unit(UnitKind.ARMY, "FRANCE", Location("BEL")),
+            attacker_origin="RUH", retreats=())}))
+        assert powers_with_orders_to_give(_MAP, both) == frozenset({"FRANCE"})
 
     def test_adjustment_build_and_disband_only(self) -> None:
         build = _build_state()  # France delta +2, everyone else owns SCs, no units
