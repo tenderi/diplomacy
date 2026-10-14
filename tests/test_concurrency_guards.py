@@ -167,3 +167,32 @@ def test_a_group_game_needs_the_real_bot_secret_not_any_body_secret(client: Test
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Only the bot creates a game for a Telegram group."
     assert client.get(f"/channels/{group}/game", headers=BOT).json() == {"linked": False}
+
+
+def test_two_powers_conceding_together_both_leave_the_board(client: TestClient) -> None:
+    """FRANCE and ITALY concede in the same phase and both requests load the
+    board before either writes. ``concede`` used to write the board it loaded, so
+    ITALY's write put FRANCE's units and centres back; the removal is now applied
+    to the board on the locked row."""
+    game_id, _ = _game_with_an_order(client)
+    repo = game_service._repo
+    repo.modify_pending_orders(game_id, lambda pending: {**pending, "ITALY": ["A VEN H"], "GERMANY": ["A MUN H"]})
+    repo.modify_draw_votes(game_id, lambda votes: {"FRANCE": "yes", "ITALY": "yes", "TURKEY": "yes"})
+    loaded = game_service.load(game_id)
+    with patch.object(game_service, "load", return_value=loaded):
+        france = game_service.concede(game_id, "FRANCE")
+        italy = game_service.concede(game_id, "ITALY")
+    assert france == {"status": "ok", "power": "FRANCE", "game_status": "ACTIVE", "eliminated": True}
+    assert italy == {"status": "ok", "power": "ITALY", "game_status": "ACTIVE", "eliminated": True}
+
+    after = game_service.load(game_id).state
+    gone = ("FRANCE", "ITALY")
+    assert after.units == frozenset(u for u in loaded.state.units if u.power not in gone)
+    assert len(after.units) == 22 - 3 - 3
+    assert after.ownership == {p: o for p, o in loaded.state.ownership.items() if o not in gone}
+    assert len(after.ownership) == 22 - 3 - 3
+    assert after.phase_name == "S1901M"
+    assert after.status.value == "ACTIVE"
+    assert game_service.meta(game_id)["phase_code"] == "S1901M"
+    assert repo.get_pending_orders(game_id) == {"GERMANY": ["A MUN H"]}
+    assert repo.get_draw_votes(game_id) == {"TURKEY": "yes"}

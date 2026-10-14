@@ -117,8 +117,8 @@ class GameModel(Base):
     channel_settings = Column(JSON, nullable=True)  # Channel settings (auto_post_maps, etc.)
     observer_mode = Column(Boolean, default=False, nullable=True)  # If True, non-players can spectate
     # When the current ``phase_code`` began (naive UTC). Set on creation and every
-    # time the phase changes (``GameRepo.save_state`` / ``restore_state`` /
-    # ``update_state_json``). The bot sends the wall-clock time an order was
+    # time the phase changes (``GameRepo.save_state`` / ``restore_state``).
+    # The bot sends the wall-clock time an order was
     # *composed* (``client_timestamp``) with every order submission, and a
     # submission composed before this instant was written against a board that
     # no longer exists -- the turn was processed while the message sat in the
