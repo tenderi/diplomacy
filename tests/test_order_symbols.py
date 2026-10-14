@@ -249,3 +249,18 @@ def test_a_retreat_starts_from_the_dislodged_unit() -> None:
     start = spy.points()[0]
     anchor = get_dislodged_unit_coordinates(SVG)["BUR"]
     assert math.dist(start, anchor) < token_radius() + 8 < math.dist(start, CENTRES["BUR"])
+
+
+def test_a_bounced_retreat_stops_at_the_border() -> None:
+    gs, state = _board({"FRANCE": ["A BUR"], "ITALY": ["A PIE"], "GERMANY": ["A RUH", "A MUN"],
+                        "AUSTRIA": ["A TYR", "A VEN"]})
+    after = gs.sandbox_adjudicate(state, {"GERMANY": ["A RUH - BUR", "A MUN S A RUH - BUR"],
+                                          "AUSTRIA": ["A TYR - PIE", "A VEN S A TYR - PIE"]})
+    view = after["view"]
+    res = gs.sandbox_adjudicate(gs.sandbox_state(after["state"]),
+                                {"FRANCE": ["A BUR R MAR"], "ITALY": ["A PIE R MAR"]})["resolution"]
+    assert [r["result"] for r in res["results"]] == ["BOUNCE", "BOUNCE"]
+    kinds = {u["location"]: u["kind"] for u in view["units"]}
+    plan = plan_orders(resolution_dict_to_viz(res, kinds), build_scene(units_for_render(view), SVG))
+    assert plan.legend == {"retreat", "bounce"}
+    assert len([s for s in _run(plan.over) if FAILURE in s.colours()]) == 2

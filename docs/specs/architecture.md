@@ -292,7 +292,7 @@ was dislodged…", "As FRANCE, you may build 1 unit."). The DM is plain text (no
 `parse_mode`). The channel post names the phase too, and in a
 retreat or adjustment phase the powers that owe orders. The caller of a manual process is
 skipped unless they owe orders in a new retreat or adjustment phase, or civil disorder
-removed one of their units (below): their HTTP response carries the resolution, not
+or a bounced retreat removed one of their units (below): their HTTP response carries the resolution, not
 their retreat options or build count, and does not single out a civil-disorder removal.
 
 **A civil-disorder removal is announced.** When the processed turn was an adjustment in
@@ -307,6 +307,16 @@ one more line, in that power's DM and in the channel post
 - channel post — the same sentence about the power: "FRANCE was 2 disbands short, so …",
   "GERMANY was 1 disband short, so …", one line per power, civil-disorder dummies
   included.
+
+**A unit a retreat phase removed without its power choosing it is announced the same
+way.** `GameService.retreat_disbands` reads the processed retreat phase's results: a
+`Retreat` that `BOUNCE`d and a `civil_disorder` disband carrying `retreat_options`. Each
+gets one line in its owner's DM (prefixed "As FRANCE: " for a player holding more than one
+such power) and, prefixed with the power, in the channel post:
+
+- "A MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was
+  disbanded." ("FRANCE retreated 2 units there" when one power bounced its own units);
+- "A WAR had no retreat order and was disbanded (civil disorder)."
 
 These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel

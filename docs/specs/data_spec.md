@@ -81,8 +81,14 @@ OrderResult(order: Order, result: ResultCode, dislodged: bool = False,
 Resolution(results: tuple[OrderResult, ...] = ())
 ```
 
-`civil_disorder` is true only on a `DISBAND` the adjustment adjudicator made for a power
-that ordered too few disbands; its `order` is a synthetic `Disband` the power never sent.
+`civil_disorder` is true only on a `DISBAND` the engine made for a power that never
+ordered it; its `order` is a synthetic `Disband` the power never sent. That is either an
+adjustment's removal for a power that ordered too few disbands (`retreat_options` empty)
+or a retreat phase's removal of a dislodged unit left without an order though it could
+have retreated (`retreat_options` lists where it could have gone). In a retreat phase,
+`BOUNCE` on a `Retreat` means two or more units retreated into one province and each was
+disbanded (`adjudication.md` §8). A stored result without `civil_disorder` (older rows)
+reads as `false`.
 
 `ResultCode`: `OK`, `BOUNCE`, `CUT`, `VOID`, `NO_CONVOY`, `DISLODGED`, `DISBAND`,
 `BUILD`, `WAIVE` — see `types.py`'s enum docstring for the precise meaning of each; the
@@ -323,8 +329,12 @@ passed through unchanged; `power`/`order_str` are the only fields added on top
 (`GameService.last_resolution_view`). This is what a client uses to answer "what
 happened to my orders?" without re-deriving adjudication itself. The web results
 list (`OrderEntry.tsx` `ResultList`, text from `lib/resultText.ts` `describeResult`) shows
-a `civil_disorder` result as "Disbanded by civil disorder: too few disbands were
-ordered." and an ordered disband as "Unit was disbanded.".
+an adjustment's `civil_disorder` result as "Disbanded by civil disorder: too few disbands
+were ordered.", a retreat phase's (one with `retreat_options`) as "Disbanded by civil
+disorder: no retreat was ordered.", a bounced retreat as "Retreat bounced: another unit
+retreated to the same province, and the unit was disbanded.", a `DISBAND` on a `Retreat`
+order as "The retreat was not legal — the unit was disbanded." and an ordered disband
+as "Unit was disbanded.".
 
 ### Order/resolution overlay maps: `GET .../map/orders`, `GET .../map/resolution`
 

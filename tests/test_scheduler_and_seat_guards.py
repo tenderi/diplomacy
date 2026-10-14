@@ -57,7 +57,8 @@ class TestFailedDeadlineIsSpent:
         api_shared.process_due_deadlines(now)
         api_shared.process_due_deadlines(now + timedelta(seconds=1))
 
-        assert process.call_count == 1  # the second tick found nothing due
+        # Other tests' games share the database and may be due too: count only this one.
+        assert [c.args[0] for c in process.call_args_list].count(str(game_id)) == 1  # the second tick found nothing due
         schedule = parse_schedule(DAILY, "UTC")
         expected = {schedule.next_deadline(now), schedule.next_deadline(now + timedelta(seconds=5))}
         assert _stored_deadline(game_id) in expected

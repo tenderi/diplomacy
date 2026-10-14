@@ -42,8 +42,8 @@ def test_6h_1_no_supports_during_retreat():
     h.retreats("AUSTRIA", "F TRI R ALB", "A SER S F TRI - ALB")
     h.retreats("TURKEY", "F GRE R ALB")
     h.adjudicate_retreats()
-    h.assert_disbanded("F TRI")
-    h.assert_disbanded("F GRE")
+    h.assert_retreat_bounced("F TRI")
+    h.assert_retreat_bounced("F GRE")
 
 
 def test_6h_2_no_supports_from_retreating_unit():
@@ -69,8 +69,8 @@ def test_6h_2_no_supports_from_retreating_unit():
     h.retreats("ENGLAND", "F NWY R NTH")
     h.retreats("RUSSIA", "F EDI R NTH", "F HOL S F EDI - NTH")
     h.adjudicate_retreats()
-    h.assert_disbanded("F NWY")
-    h.assert_disbanded("F EDI")
+    h.assert_retreat_bounced("F NWY")
+    h.assert_retreat_bounced("F EDI")
     h.assert_disbanded("F HOL")
 
 
@@ -182,8 +182,8 @@ def test_6h_7_multiple_retreat_to_same_area_disbands():
 
     h.retreats("ITALY", "A VIE R TYR", "A BOH R TYR")
     h.adjudicate_retreats()
-    h.assert_disbanded("A VIE")
-    h.assert_disbanded("A BOH")
+    h.assert_retreat_bounced("A VIE")
+    h.assert_retreat_bounced("A BOH")
 
 
 def test_6h_8_triple_retreat_to_same_area_disbands():
@@ -206,9 +206,9 @@ def test_6h_8_triple_retreat_to_same_area_disbands():
     h.retreats("ENGLAND", "F NWY R NTH")
     h.retreats("RUSSIA", "F EDI R NTH", "F HOL R NTH")
     h.adjudicate_retreats()
-    h.assert_disbanded("F NWY")
-    h.assert_disbanded("F EDI")
-    h.assert_disbanded("F HOL")
+    h.assert_retreat_bounced("F NWY")
+    h.assert_retreat_bounced("F EDI")
+    h.assert_retreat_bounced("F HOL")
 
 
 def test_6h_9_dislodged_unit_does_not_contest_attackers_area():
@@ -378,8 +378,8 @@ def test_6h_14_no_retreat_with_support_in_main_phase():
     h.retreats("ENGLAND", "A PIC R BEL")
     h.retreats("FRANCE", "A BUR R BEL")
     h.adjudicate_retreats()
-    h.assert_disbanded("A PIC")
-    h.assert_disbanded("A BUR")
+    h.assert_retreat_bounced("A PIC")
+    h.assert_retreat_bounced("A BUR")
 
 
 def test_6h_15_no_coastal_crawl_in_retreat():

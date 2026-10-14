@@ -220,6 +220,15 @@ class Harness:
             f"{spec}: expected DISBAND, got {r.result.name}"
         )
 
+    def assert_retreat_bounced(self, spec: str) -> None:
+        """A retreat that met another retreat into the same province: ``BOUNCE``,
+        and no unit reached the destination (each bouncer is disbanded)."""
+        r = self._retreat_result_at(spec)
+        assert r.result is ResultCode.BOUNCE, f"{spec}: expected BOUNCE, got {r.result.name}"
+        assert self.retreat_state is not None
+        dest = r.order.dest.province
+        assert self.retreat_state.unit_at(dest) is None, f"{spec}: nobody may land in {dest}"
+
     def assert_built(self, spec: str) -> None:
         r = self._retreat_result_at(spec)
         assert r.result is ResultCode.BUILD, f"{spec}: expected BUILD, got {r.result.name}"
