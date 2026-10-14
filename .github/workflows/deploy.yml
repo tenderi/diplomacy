@@ -39,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref to deploy (commit SHA or tag). Defaults to current main."
+        description: "Git ref to deploy (commit SHA, short or full, or tag). Defaults to current main."
         required: false
         default: ""
 
@@ -69,16 +69,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # The commit the Test Suite passed on, or the dispatched SHA/tag
-          # (github.sha: the dispatched ref's commit, never a branch name).
-          ref: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+          # Full history and tags: a dispatched short SHA is resolved below, and
+          # checkout's own `ref:` only takes a full SHA, a branch or a tag.
+          fetch-depth: 0
 
       - name: Resolve the full SHA
         id: target
-        # A dispatched short SHA or tag becomes the full SHA: the image tag and
-        # the commit the host checks out must name the same thing.
+        # The commit the Test Suite passed on, or the dispatched SHA/tag
+        # (github.sha: the dispatched ref's commit, never a branch name). It
+        # becomes the full SHA: the image tag and the commit the host checks out
+        # must name the same thing.
+        env:
+          REF: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
         run: |
-          sha=$(git rev-parse HEAD)
+          sha=$(git rev-parse --verify --end-of-options "$REF^{commit}")
+          git checkout --quiet --detach "$sha"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/tenderi/diplomacy-${{ matrix.service }}:$sha" >> "$GITHUB_OUTPUT"
 

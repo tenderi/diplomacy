@@ -15,7 +15,9 @@ the stack (F3 in ``fix_plan.md``), but they catch the regressions that matter:
 """
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -208,7 +210,30 @@ class TestComposeImages:
         assert (
             f"    image: ghcr.io/tenderi/diplomacy-{svc}:${{DIPLOMACY_IMAGE_TAG:-local}}\n"
             f"    build:\n      context: .\n      dockerfile: docker/{svc}.Dockerfile\n"
+            # The label upgrade.sh prunes by: a host build must carry it as the GHCR
+            # images do, or its SHA-tagged images are never removed.
+            "      labels:\n        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy\n"
         ) in compose
+
+    def test_the_resolved_build_config_carries_the_prune_label(self) -> None:
+        """What Compose actually hands the builder, not just the file's text."""
+        docker = shutil.which("docker")
+        if docker is None or subprocess.run([docker, "compose", "version"], capture_output=True).returncode != 0:
+            pytest.skip("docker compose not installed")
+        env = {k: "x" for k in (*GENERATED_SECRETS, "TELEGRAM_BOT_TOKEN")}
+        result = subprocess.run(
+            [docker, "compose", "-f", str(PROJECT_ROOT / "docker-compose.yml"), "--profile", "tls",
+             "config", "--format", "json", "--no-path-resolution"],
+            env={"PATH": "/usr/bin:/bin", "HOME": "/tmp", **env},
+            capture_output=True, text=True, check=True,
+        )
+        services = json.loads(result.stdout)["services"]
+        built = {name for name, svc in services.items() if "build" in svc}
+        assert built == {"diplomacy_api", "diplomacy_bot", "diplomacy_web", "diplomacy_docs"}
+        for name in built:
+            assert services[name]["build"]["labels"] == {
+                "org.opencontainers.image.source": "https://github.com/tenderi/diplomacy"
+            }, name
 
 
 class TestUpgradeRuns:
@@ -289,7 +314,6 @@ class TestUpgradeRuns:
         prunes = [c.split(" ", 1)[1] for c in calls if "image prune" in c]
         assert prunes == [
             "image prune -af --filter label=org.opencontainers.image.source=https://github.com/tenderi/diplomacy",
-            "image prune -af --filter label=com.docker.compose.project=diplomacy",
             "image prune -f",
         ]
 
@@ -515,9 +539,12 @@ class TestDeployWorkflow:
     def test_manual_run_resolves_a_commit_not_a_branch_name(self, workflow: str) -> None:
         # The VPS checkout has no local `main` branch; `git checkout --detach main` fails there.
         assert 'sha="main"' not in workflow
-        assert "ref: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}" in workflow
+        assert "REF: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}" in workflow
         # A tag or short SHA becomes the full SHA that both tags the images and is checked out.
-        assert "sha=$(git rev-parse HEAD)" in workflow
+        # actions/checkout's `ref:` takes no short SHA, so it fetches everything and git resolves.
+        assert "fetch-depth: 0" in workflow
+        assert 'sha=$(git rev-parse --verify --end-of-options "$REF^{commit}")' in workflow
+        assert 'git checkout --quiet --detach "$sha"' in workflow
         assert 'sha="${{ needs.images.outputs.sha }}"' in workflow
 
     def test_builds_the_images_in_actions_and_the_host_pulls_them(self, workflow: str) -> None:

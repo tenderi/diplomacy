@@ -90,7 +90,7 @@ npm run build                              # → frontend/dist
 npm run test:run                           # Vitest + React Testing Library
 
 # Production (see docs/DEPLOYMENT.md)
-./upgrade.sh          # on the VPS: build + start the whole stack, verify (deploy.yml runs this)
+./upgrade.sh          # on the VPS: pull the images + start the whole stack, verify (deploy.yml runs this)
 ```
 
 **Local gates before every push** (mirrors CI):
@@ -208,15 +208,17 @@ bot and nginx reach the API by service name. p2p's bot shares the VPS and is not
 
 Scripts, all in the repository root: `install.sh` (first-time host setup: Docker, swap,
 `.env`, backup cron), `ensure_env.sh` (creates `.env` and generates any blank secret — never
-prints one), `upgrade.sh` (build, restart, verify; fails if the API or site is down),
+prints one), `upgrade.sh` (pull the commit's images from GHCR, building on the host only if that fails or
+with `--build`; restart, verify; fails if the API or site is down),
 `backup.sh` (nightly `pg_dump`, copied to Proton Drive with rclone), `harden_host.sh`
 (sshd, fail2ban, unattended upgrades). Every secret except the Telegram token is generated
 **on the host** and never leaves it; the bot and the API read `DIPLOMACY_BOT_SECRET` from the
 same `.env`, so it cannot drift.
 
-**Deploy-on-merge:** `.github/workflows/deploy.yml` SSHes in as `root` after a green Test
-Suite on `main`, checks out that exact SHA, writes `TELEGRAM_BOT_TOKEN` (the only secret
-GitHub holds for the host) into `.env`, and runs `./upgrade.sh`. Gated on the
+**Deploy-on-merge:** after a green Test Suite on `main`, `.github/workflows/deploy.yml`
+builds the images in Actions and pushes them to GHCR as
+`ghcr.io/tenderi/diplomacy-<service>:<sha>`, then SSHes in as `root`, checks out that SHA, writes `TELEGRAM_BOT_TOKEN` (the only secret
+GitHub holds for the host) into `.env`, and runs `./upgrade.sh`, which pulls those images. Gated on the
 `DEPLOY_CONTROL_ENABLED` repository variable.
 
 **Read-only checks on production** are fine: `ssh diplomacy-vps`, then e.g.
