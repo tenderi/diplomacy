@@ -474,10 +474,14 @@ such a unit as unordered; the bot prints the note after the `✅`.
 `GameService.orders_status` (and so `GET /games/{id}/orders_status` and
 `process_turn?require_all=true`) counts only the powers that have a decision to make this
 phase, via `server.legal_orders.powers_with_orders_to_give`: every power with a unit in a
-movement phase, only powers with a dislodged unit in a retreat phase, and in an adjustment
-phase only powers that must disband or that are owed a build and have a vacant owned home
-centre to put it on. A power `legal_orders_for_power` would offer nothing but `WAIVE` is
-not waited on.
+movement phase, only powers with a dislodged unit that has at least one retreat option
+(`DislodgedUnit.retreats`, from `compute_retreat_options`) in a retreat phase, and in an
+adjustment phase only powers that must disband or that are owed a build and have a vacant
+owned home centre to put it on. A power `legal_orders_for_power` would offer nothing but
+`WAIVE`, or nothing but disbands of units with nowhere to retreat, is not waited on: the
+adjudicator waives or disbands for it anyway, so it is in `nothing_to_do`. A power with
+one unit that can retreat is waited on, and owes an order for that unit only (a trapped
+unit needs none to make it complete).
 
 Those powers (civil-disorder dummies left out) are `active_powers`, and each of them is in
 exactly one of `submitted` — it has at least one stored order this phase — and `missing`.

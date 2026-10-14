@@ -280,7 +280,10 @@ place the full picture exists.
 - retreat — to each dislodged power, every dislodged unit with its retreat options as the
   adjudicator computed them ("…Fall 1901 retreats: your orders are due.\nYour A BUR was
   dislodged: it may retreat to GAS, PIC, RUH, or disband.", or "…has nowhere to retreat: it
-  must disband.");
+  must disband."); a power whose dislodged units *all* have nowhere to retreat owes no order
+  (`phase_duties`' `forced_disbands`): its player is told to wait, plus "Your A BUR was
+  dislodged and has nowhere to retreat: it is disbanded, no order needed.", and the channel
+  post does not list it as due;
 - adjustment — the build count (`adjustments_owed`, plus how many more are waived for want
   of a free home centre) or the disband count ("You may build 2 units (1 more waived: no
   free home supply centre).", "You must disband 1 unit.");
