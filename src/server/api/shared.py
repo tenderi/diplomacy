@@ -652,6 +652,8 @@ def notify_turn_processed(
         due = f" No deadline is set for {label}."
     phase_type = duties_view["phase_type"]
     duties: dict[str, dict[str, Any]] = duties_view["duties"]
+    # Dislodged units with no retreat, of powers that owe nothing (BJ2).
+    forced: dict[str, list[str]] = duties_view.get("forced_disbands") or {}
     header = f"The turn has been processed for game {game_id}" + (
         " because its deadline passed." if trigger == "deadline" else "."
     )
@@ -672,6 +674,7 @@ def notify_turn_processed(
             mine = [p for p in powers if p in duties]
             removed = {p: disorder[p] for p in sorted(powers) if p in disorder}
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
+            trapped = {p: forced[p] for p in sorted(powers) if p in forced}
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
             # in a retreat or adjustment phase they are told too when they owe
@@ -684,12 +687,13 @@ def notify_turn_processed(
                 and (phase_type == "MOVEMENT" or not mine)
                 and not removed
                 and not retreat_lost
+                and not trapped
             ):
                 continue
             notify_user(
                 telegram_id,
                 "\n".join(
-                    [turn_message(header, label, phase_type, {p: duties[p] for p in mine})]
+                    [turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)]
                     + [
                         civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
                         for p, units in removed.items()
@@ -735,7 +739,13 @@ def _units(n: int) -> str:
     return f"{n} unit" if n == 1 else f"{n} units"
 
 
-def turn_message(header: str, label: str, phase_type: str, duties: dict[str, dict[str, Any]]) -> str:
+def turn_message(
+    header: str,
+    label: str,
+    phase_type: str,
+    duties: dict[str, dict[str, Any]],
+    forced: Optional[dict[str, list[str]]] = None,
+) -> str:
     """The "turn processed" DM for one player, from ``GameService.phase_duties``
     restricted to the powers that player holds and owes orders for.
 
@@ -747,11 +757,25 @@ def turn_message(header: str, label: str, phase_type: str, duties: dict[str, dic
     The DM addresses its reader as "you" (BD4): every power in ``duties`` is
     theirs. Only a player holding more than one power owing orders is told
     which power each line is about.
+
+    ``forced`` (``phase_duties``' ``forced_disbands`` for this player's powers)
+    lists dislodged units with nowhere to retreat whose power owes no order
+    (BJ2): the player is told they are lost, not asked for anything.
     """
     if phase_type == "MOVEMENT":
         return f"{header} Orders are due for {label}."
+    forced = forced or {}
+    tagged = len(forced) + len(duties) > 1
+    lost = [
+        f"Your {unit}{f' ({power})' if tagged else ''} was dislodged and has nowhere to retreat:"
+        " it is disbanded, no order needed."
+        for power, units in sorted(forced.items())
+        for unit in units
+    ]
     if not duties:
-        return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
+        return "\n".join(
+            [f"{header} {label}: you have nothing to order this phase; wait for the other powers.", *lost]
+        )
     several = len(duties) > 1
     whose = f" for {_join_names(sorted(duties))}" if several else ""
     lines = [f"{header} {label}: your orders are due{whose}."]
@@ -772,7 +796,7 @@ def turn_message(header: str, label: str, phase_type: str, duties: dict[str, dic
             lines.append(f"{as_power} may build {_units(duty['build'])}{waived}.")
         if duty.get("disband"):
             lines.append(f"{as_power} must disband {_units(duty['disband'])}.")
-    return "\n".join(lines)
+    return "\n".join(lines + lost)
 
 
 def next_deadline(
