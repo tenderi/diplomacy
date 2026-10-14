@@ -126,9 +126,13 @@ def powers_with_orders_to_give(map: MapData, state: GameState) -> frozenset[str]
     This is what "everyone has submitted" should mean, and it is phase-shaped:
 
     - **MOVEMENT** -- every power with a unit on the board.
-    - **RETREAT** -- only powers with a dislodged unit. Everyone else has
-      nothing to order, so a status report that lists them as "waiting on"
-      (or a ``require_all`` gate that blocks on them) is simply wrong.
+    - **RETREAT** -- only powers with a dislodged unit that has somewhere to
+      go (``DislodgedUnit.retreats``, as ``compute_retreat_options`` computed
+      it). Everyone else has nothing to order, so a status report that lists
+      them as "waiting on" (or a ``require_all`` gate that blocks on them) is
+      simply wrong. A unit with no retreat can only disband, which the
+      adjudicator does for it anyway -- the retreat-phase twin of a build that
+      can only be waived.
     - **ADJUSTMENT** -- powers that must disband, plus powers entitled to
       build that actually have a legal build available. A power whose
       ``centers - units`` delta is zero has nothing to do; one that is owed a
@@ -139,14 +143,15 @@ def powers_with_orders_to_give(map: MapData, state: GameState) -> frozenset[str]
 
     Same delta and same ``legal_builds`` filter as ``legal_orders_for_power``,
     so a power is listed here exactly when that function would hand it a
-    non-empty menu (``WAIVE`` alone does not count).
+    non-empty menu (``WAIVE`` alone does not count, nor does a retreat menu of
+    nothing but disbands).
     """
     if state.status is GameStatus.COMPLETED:
         return frozenset()  # nobody has anything left to order
     if state.phase_type is PhaseType.MOVEMENT:
         return frozenset(u.power for u in state.units)
     if state.phase_type is PhaseType.RETREAT:
-        return frozenset(du.power for du in state.dislodged)
+        return frozenset(du.power for du in state.dislodged if du.retreats)
 
     powers = {u.power for u in state.units} | set(state.ownership.values())
     out: set[str] = set()

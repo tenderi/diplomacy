@@ -368,7 +368,8 @@ class GameService:
     def _orders_complete(self, power: str, state: GameState, orders: list[str]) -> bool:
         """Has ``power`` given an order to everything that must act this phase?
 
-        Movement: every unit. Retreat: every dislodged unit. Adjustment: as
+        Movement: every unit. Retreat: every dislodged unit with somewhere to
+        go (a unit with no retreat is disbanded whatever it is told). Adjustment: as
         many builds/waives, or disbands, as it is owed (``adjustments_owed``:
         builds capped at the sites it can actually build on). W10's auto-processing
         waits for this, not merely for *an* order: bot players send orders one
@@ -381,7 +382,8 @@ class GameService:
         if state.phase_type == PhaseType.MOVEMENT:
             return {u.location.province for u in state.units_of(power)} <= ordered
         if state.phase_type == PhaseType.RETREAT:
-            return {du.unit.location.province for du in state.dislodged if du.unit.power == power} <= ordered
+            must_act = {du.unit.location.province for du in state.dislodged if du.unit.power == power and du.retreats}
+            return must_act <= ordered
         return len(parsed) >= adjustments_owed(self._map, state, power)
 
     def clear_orders(self, game_id: str, power: str) -> None:
@@ -1103,7 +1105,8 @@ class GameService:
 
         ``active_powers`` is phase-shaped (``powers_with_orders_to_give``, minus
         civil-disorder dummies): in a retreat phase only powers with a dislodged
-        unit are expected to act, in an adjustment phase only powers with a build
+        unit that has somewhere to retreat are expected to act (a unit that can
+        only disband needs no order: the engine disbands it), in an adjustment phase only powers with a build
         or disband to make. Every active power is in exactly one of
         ``submitted`` (it has at least one stored order this phase) or
         ``missing`` (none yet -- an empty stored list, which is what a batch of
@@ -1151,6 +1154,11 @@ class GameService:
           from ``adjustments_owed`` and ``m`` the builds the centre count allows
           but no free home centre can take;
         - MOVEMENT: ``{}``.
+
+        ``forced_disbands`` (``{power: ["F ANK"]}``) names, in a retreat phase,
+        each dislodged unit with no retreat whose power is *not* in ``duties``:
+        it owes no order (BJ2), but its player is still told the unit is lost.
+        Empty in any other phase, and for a dummy.
         """
         sj = self._repo.get_state_json(game_id)
         if sj is None:
@@ -1174,7 +1182,16 @@ class GameService:
                 duties[power] = {"build": owed, "waived": delta - owed} if delta > 0 else {"disband": owed}
             else:
                 duties[power] = {}
-        return {"phase": state.phase_name, "phase_type": state.phase_type.value, "duties": duties}
+        forced: dict[str, list[str]] = {}
+        for du in sorted(state.dislodged, key=lambda d: str(d.location)):
+            if du.power not in duties and du.power not in dummies:
+                forced.setdefault(du.power, []).append(f"{du.kind.value} {du.location}")
+        return {
+            "phase": state.phase_name,
+            "phase_type": state.phase_type.value,
+            "duties": duties,
+            "forced_disbands": forced,
+        }
 
     def meta(self, game_id: str) -> Optional[dict[str, Any]]:
         """The game's denormalized row fields -- ``map_name``, ``phase_code``,
