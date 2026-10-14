@@ -42,8 +42,29 @@ describe('describeResult', () => {
     const adjustmentDisband = describeResult(
       entry({ order: { type: 'DISBAND', power: 'FRANCE' }, result: 'DISBAND' })
     )
-    expect(retreatDisband).toMatch(/no legal retreat/i)
-    expect(adjustmentDisband).not.toMatch(/no legal retreat/i)
+    expect(retreatDisband).toBe('The retreat was not legal — the unit was disbanded.')
+    expect(adjustmentDisband).toBe('Unit was disbanded.')
+  })
+
+  it('tells a bounced retreat from a blocked move', () => {
+    expect(
+      describeResult(entry({ order: { type: 'RETREAT', power: 'FRANCE' }, result: 'BOUNCE' }))
+    ).toBe('Retreat bounced: another unit retreated to the same province, and the unit was disbanded.')
+  })
+
+  it('says an unordered retreat-phase unit was disbanded by civil disorder', () => {
+    expect(
+      describeResult(
+        entry({
+          order: { type: 'DISBAND', power: 'RUSSIA', unit: 'WAR' },
+          result: 'DISBAND',
+          civil_disorder: true,
+          retreat_options: ['UKR', 'SIL'],
+          power: 'RUSSIA',
+          order_str: 'D A WAR',
+        })
+      )
+    ).toBe('Disbanded by civil disorder: no retreat was ordered.')
   })
 
   it('says a civil-disorder disband was not ordered', () => {

@@ -17,7 +17,9 @@
 ## Status
 
 - **Last updated:** 2026-10-14. Track BJ (retreat/adjustment play-through findings) is
-  open (BJ1, BJ2 remain; `v3.0.114` did BJ3 and BJ4). Track BI (concurrency follow-ups from BH3) is done and
+  open (BJ2 remains; `v3.0.113` did BJ1: a bounced retreat is marked `BOUNCE`, an unordered
+  dislodged unit's disband `civil_disorder`, and both are DM'd to the owner and posted to the
+  group; `v3.0.114` did BJ3 and BJ4). Track BI (concurrency follow-ups from BH3) is done and
   removed: `v3.0.111` made a concession a locked read-modify-write of the board (two powers
   conceding at once both leave it) and replaced `tests/test_idempotency.py`'s 5xx test, which
   never reached the middleware's 5xx check, with an honest raised-exception test. Track BH (tests for untested guards in risky code) is
@@ -116,11 +118,6 @@ Found by a play-through of the retreat and adjustment phases against a local API
 2026-10-14 (positions forced through `state_json`). Adjudication was right in every case;
 these are about what players are told and when a phase waits.
 
-- [ ] **BJ1** A retreat that bounces (two units retreating to one province) and a dislodged
-  unit left without an order are both recorded as a plain `DISBAND` / `D A WAR` with
-  `civil_disorder: false`, and nobody is told. Mark them in the resolution (a bounced
-  retreat distinct from a chosen disband; an unordered one as `civil_disorder`, as winter
-  does) and DM the owner, as the winter civil-disorder disband already does.
 - [ ] **BJ2** A power whose only dislodged units have no retreat counts as `missing` in
   `orders_status`, so an `auto_process` game waits for an order that changes nothing
   (`D F ANK`) and the group post lists that power as due. A forced disband needs no order.
