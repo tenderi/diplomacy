@@ -42,6 +42,13 @@ docker compose up -d --remove-orphans
 
 echo "==> Cleaning up old images..."
 docker image prune -f
+# Nothing above prunes the BuildKit cache, and it grew to 6.5 GB of the 20 GB
+# disk. Empty it: a capped prune (--max-used-space) leaves the records it
+# counts as "shared", which still held 2.8 GB of real disk. The next local
+# build is cold. The cache is shared by every project on the host.
+echo "==> Emptying the build cache..."
+docker builder prune -af >/dev/null
+docker system df | grep -E '^(TYPE|Build Cache)'
 
 ./backup.sh --install
 
