@@ -296,6 +296,17 @@ not "first submitted wins", and not decided by strength
 (retreats don't have supports). An unordered or illegally-ordered dislodged unit disbands
 outright.
 
+The results say why each unit left the board, so a player can tell a disband they chose
+from one that happened to them:
+
+- a retreat that collided is reported as its `Retreat` order with `BOUNCE` (the unit is
+  disbanded all the same; nobody lands in the province);
+- a unit with at least one legal retreat but no order is a synthetic `Disband` reported as
+  `DISBAND` with `civil_disorder=True` and the `retreat_options` it had — the retreat
+  options are what tell it from an adjustment's civil-disorder disband, which has none;
+- an explicit `Disband`, an illegal retreat (reported as its `Retreat` order) and a trapped
+  unit that was given no order (it had nowhere to go) are a plain `DISBAND`.
+
 ## 9. Adjustments (builds, disbands, civil disorder)
 
 `src/engine/adjudicator/adjustments.py` reconciles each power's **unit count** against
