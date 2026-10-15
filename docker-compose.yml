@@ -8,7 +8,16 @@
 # upgrade script and debugging) -- never on a public interface. Postgres is
 # not published at all.
 #
-# Usage:  docker compose up -d        (upgrade.sh does build + up + checks)
+# Usage:  docker compose up -d        (upgrade.sh does pull + up + checks)
+#
+# The four images of our own (api, bot, web, docs) are built in GitHub Actions
+# and pulled from GHCR as ghcr.io/tenderi/diplomacy-<service>:<commit sha>
+# (.github/workflows/deploy.yml); upgrade.sh sets DIPLOMACY_IMAGE_TAG to the
+# checked-out commit and records it in .env, so a bare `docker compose up -d`
+# keeps the deployed images. Each keeps its `build:` so `docker compose build` (and
+# `upgrade.sh --build`) still builds them locally; without DIPLOMACY_IMAGE_TAG
+# a local build is tagged `local`. A host build carries the same source label
+# as the GHCR images, which is what upgrade.sh prunes old images by.
 
 # The project name, fixed rather than taken from the directory name: this
 # file lived in new_implementation/ until v3.0.1, and moving it must not
@@ -49,9 +58,12 @@ services:
       - no-new-privileges:true
 
   diplomacy_api:
+    image: ghcr.io/tenderi/diplomacy-api:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       - SQLALCHEMY_DATABASE_URL=postgresql+psycopg2://diplomacy:${POSTGRES_PASSWORD}@postgres:5432/diplomacy_db
       - DIPLOMACY_ENVIRONMENT=production
@@ -100,9 +112,12 @@ services:
       - ALL
 
   diplomacy_bot:
+    image: ghcr.io/tenderi/diplomacy-bot:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/bot.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
       - DIPLOMACY_BOT_SECRET=${DIPLOMACY_BOT_SECRET:?set DIPLOMACY_BOT_SECRET in .env}
@@ -136,9 +151,12 @@ services:
       - ALL
 
   diplomacy_web:
+    image: ghcr.io/tenderi/diplomacy-web:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     environment:
       # Fixed for the same reason as the bot's DIPLOMACY_API_URL.
       - DIPLOMACY_API_UPSTREAM=diplomacy_api:8000
@@ -158,9 +176,12 @@ services:
   diplomacy_docs:
     # The documentation site (docs/ via MkDocs), served by Caddy at DOCS_DOMAIN.
     # Started with Caddy (the "tls" profile); nothing publishes its port.
+    image: ghcr.io/tenderi/diplomacy-docs:${DIPLOMACY_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: docker/docs.Dockerfile
+      labels:
+        - org.opencontainers.image.source=https://github.com/tenderi/diplomacy
     profiles: ["tls"]
     logging: *logging
     restart: always

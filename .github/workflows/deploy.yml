@@ -1,7 +1,16 @@
 name: Deploy
 
 # Deploys the whole stack (docker-compose.yml: Postgres, API, Telegram bot, web
-# frontend) to the VPS over SSH after the Test Suite is green on main.
+# frontend, docs) to the VPS over SSH after the Test Suite is green on main.
+#
+# The images are built here, not on the VPS (1 vCPU, 1.8 GiB: a build there was
+# the biggest CPU and memory spike the host saw). The `images` job builds the
+# four images of the deployed SHA and pushes them to GHCR as
+# ghcr.io/tenderi/diplomacy-<service>:<full sha>; the `deploy` job then runs
+# upgrade.sh on the host with DIPLOMACY_IMAGE_TAG=<sha>, which pulls them
+# anonymously (the packages must be public) and builds on the host only if
+# the pull fails. Rollback: run this workflow by hand with the previous SHA;
+# its images already exist, so `images` does not rebuild them.
 #
 # The only secret GitHub holds for the host is TELEGRAM_BOT_TOKEN, written into
 # the host's .env on every run. Every other secret (Postgres password, JWT
@@ -30,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref to deploy (commit SHA or tag). Defaults to current main."
+        description: "Git ref to deploy (commit SHA, short or full, or tag). Defaults to current main."
         required: false
         default: ""
 
@@ -42,28 +51,97 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  images:
     runs-on: ubuntu-latest
     if: >-
       vars.DEPLOY_CONTROL_ENABLED == 'true' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [api, bot, web, docs]
+    outputs:
+      # Every matrix leg writes the same value.
+      sha: ${{ steps.target.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history and tags: a dispatched short SHA is resolved below, and
+          # checkout's own `ref:` only takes a full SHA, a branch or a tag.
+          fetch-depth: 0
+
+      - name: Resolve the full SHA
+        id: target
+        # The commit the Test Suite passed on, or the dispatched SHA/tag
+        # (github.sha: the dispatched ref's commit, never a branch name). It
+        # becomes the full SHA: the image tag and the commit the host checks out
+        # must name the same thing.
+        env:
+          REF: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          sha=$(git rev-parse --verify --end-of-options "$REF^{commit}")
+          git checkout --quiet --detach "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/tenderi/diplomacy-${{ matrix.service }}:$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Already pushed?
+        id: exists
+        # A redeploy or a rollback finds its images already in GHCR and does not
+        # rebuild them, so a rollback ships the very image that ran before.
+        env:
+          IMAGE: ${{ steps.target.outputs.image }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "$IMAGE already exists; not rebuilding."
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        if: steps.exists.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/${{ matrix.service }}.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.target.outputs.image }}
+          # The source label links the GHCR package to the public repository.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.target.outputs.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
     environment: production
 
     steps:
       - name: Resolve target
         id: target
         run: |
-          if [ -n "${{ inputs.ref }}" ]; then
-            sha="${{ inputs.ref }}"
-          elif [ -n "${{ github.event.workflow_run.head_sha }}" ]; then
-            sha="${{ github.event.workflow_run.head_sha }}"
-          else
-            sha="${{ github.sha }}"  # the dispatched ref's commit, never a branch name
-          fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}" >> "$GITHUB_OUTPUT"
-          echo "user=${{ vars.VPS_USER || 'root' }}" >> "$GITHUB_OUTPUT"
-          echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy' }}" >> "$GITHUB_OUTPUT"
+          sha="${{ needs.images.outputs.sha }}"
+          [ -n "$sha" ] || { echo "::error::The images job reported no SHA"; exit 1; }
+          {
+            echo "sha=$sha"
+            echo "host=${{ vars.VPS_HOST || '87.58.144.64' }}"
+            echo "user=${{ vars.VPS_USER || 'root' }}"
+            echo "repo_dir=${{ vars.VPS_REPO_DIR || '~/diplomacy' }}"
+          } >> "$GITHUB_OUTPUT"
           echo "Will deploy $sha to ${{ vars.VPS_USER || 'root' }}@${{ vars.VPS_HOST || '87.58.144.64' }}"
 
       - name: Check required secrets
@@ -106,9 +184,11 @@ jobs:
           #   1. checks out the exact SHA the Test Suite passed on;
           #   2. writes TELEGRAM_BOT_TOKEN into .env, leaving every other line
           #      (the host-generated secrets, WEB_BIND, ...) as it is;
-          #   3. runs upgrade.sh: fill any missing secret, rebuild, restart
-          #      (migrations run in the API entrypoint), schedule the backup,
-          #      and fail unless the API and the site both answer.
+          #   3. runs upgrade.sh with DIPLOMACY_IMAGE_TAG=$SHA: fill any missing
+          #      secret, pull the images the `images` job pushed (building on
+          #      the host only if the pull fails), restart (migrations run in
+          #      the API entrypoint), schedule the backup, and fail unless the
+          #      API and the site both answer.
           #
           # The token is prepended to the script as a `printf %q` assignment:
           # stdin is the script itself (`bash -s`), so a remote `read` would
@@ -144,7 +224,7 @@ jobs:
           chmod 600 .env
           # upgrade.sh skips its `git pull` on a detached HEAD; the checkout
           # above is what pins the deployed SHA.
-          ./upgrade.sh
+          DIPLOMACY_IMAGE_TAG="$SHA" ./upgrade.sh
           REMOTE
           } | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=20 "$TARGET" \
                 "SHA='$SHA' REPO_DIR='$REPO_DIR' bash -s"
