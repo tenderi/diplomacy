@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-14. Track BJ (retreat/adjustment play-through findings) is
+- **Last updated:** 2026-10-14. `v3.0.118` did issue #225: the bot long-polls
+  `GET /bot/outbox?wait=25` instead of polling every 3 s, and healthy health checks and
+  empty polls are dropped from the API's access log (F3 has the production check). Track BJ (retreat/adjustment play-through findings) is
   done and removed: `v3.0.113` did BJ1 (bounced and unordered retreat disbands are marked and
   announced), `v3.0.115` BJ2 (a unit with no retreat needs no order), `v3.0.114` BJ3 and BJ4.
   Track BI (concurrency follow-ups from BH3) is done and
@@ -150,6 +152,13 @@ coherent* to use.
 - [ ] Stop the old game stack on the home server (`kattotuuletin.local`:
       `cd ~/diplomacy/new_implementation && docker compose down`; keep its `pg_data` volume
       until sure — it held no games). The tunnel and p2p's stack there are not ours.
+- [ ] After the `v3.0.118` deploy (issue #225), count the API's access-log lines over an
+      idle hour (`docker compose logs --since 1h diplomacy_api | wc -l`). Before: 1,315
+      lines/hour, 1,195 of them `/bot/outbox` polls; the issue's target is at least 90% fewer.
+- [ ] The API's graceful shutdown now waits for the bot's open long-poll (up to 25 s), longer
+      than Docker's default 10 s stop timeout, so a deploy's `docker compose up` stopping the
+      API ends in a SIGKILL. Harmless (the wait holds no transaction; the bot re-polls), but
+      slower: consider `--timeout-graceful-shutdown 5` on the API's uvicorn command.
 - [ ] Delete the unused `DIPLOMACY_BOT_SECRET` repository secret
       (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); nothing reads it.
 

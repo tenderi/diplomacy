@@ -174,8 +174,8 @@ There are three delivery surfaces, and they are not interchangeable:
 
 - **Telegram DM** — `notify_user(telegram_id, message)` and
   `notify_players(numeric_game_id, message, exclude_telegram_id=None)` in `api/shared.py`.
-  These **write a row to the `bot_outbox` table** and return; the bot pulls undelivered rows
-  over `GET /bot/outbox` every few seconds and acks them (`POST /bot/outbox/ack`) once
+  These **write a row to the `bot_outbox` table** and return; the bot long-polls
+  `GET /bot/outbox?wait=25` for undelivered rows and acks them (`POST /bot/outbox/ack`) once
   Telegram has accepted the message. Server code never talks to Telegram and never pushes
   at the bot (see *Deployment and message reliability* below).
   Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
@@ -512,12 +512,41 @@ an older write — and DMs each result. Each request carries:
 falls back to the cache when the API is unreachable, which is what lets `/order A PAR - BUR`
 resolve *which power you hold* and reach the queue while the server is down.
 
-**Server → player** (`bot_outbox` table, `routes/bot_outbox.py`,
+**Server → player** (`bot_outbox` table, `routes/bot_outbox.py`, `api/long_poll.py`,
 `notifications.notification_loop`). Described in the section above. Delivery is
 at-least-once: a row is acked only after Telegram accepts the message, so a crash between
 send and ack can repeat a DM. Permanent Telegram failures (user blocked the bot, chat not
 found) are acked as failed with the error kept on the row. Delivered rows are purged after
 7 days.
+
+The poll is a **long-poll**. `GET /bot/outbox?wait=N` (`0 ≤ N ≤ 60`, default 0 = answer at
+once) answers immediately when rows are pending; otherwise it holds the request until a row
+is committed or `N` seconds pass, and then answers with what is there (`[]` on timeout).
+The wait holds no database connection: the request registers an `asyncio.Event` and queries
+only when woken. Two things wake it: `DatabaseService.enqueue_bot_notification` calls its
+`bot_outbox` listeners after each commit, which wake every waiter *in that process*; and
+every `DIPLOMACY_OUTBOX_RECHECK_SECONDS` (default 2) the waiter queries anyway, which is how
+a row committed by *another* uvicorn worker is found. Postgres `LISTEN/NOTIFY` would wake
+across workers too, but costs a dedicated listener connection per worker, a thread to poll
+it and reconnect handling; one indexed query every two seconds for the one waiting request
+is simpler to get right, and its worst case is still faster than the fixed 3 s poll it
+replaced. Reading and acking are unchanged: the long-poll only changes *when* the response
+is sent.
+
+The bot asks for `wait=DIPLOMACY_NOTIFY_WAIT_SECONDS` (default 25) with an HTTP timeout ten
+seconds longer, and polls again at once after a poll that handed over rows. A poll that
+handed over nothing in less than `DIPLOMACY_NOTIFY_POLL_SECONDS` (default 3) — an API that
+ignores `wait`, the API unreachable, Telegram refusing — sleeps out the rest of that, so the
+loop never spins. Each cycle touches the heartbeat, at most ~35 s apart (the replay loop
+touches it every 5 s as well), well inside the healthcheck's 120 s staleness limit.
+
+**The access log.** `api/access_log.py` keeps healthy noise out of uvicorn's access log: a
+`logging.Filter` on `uvicorn.access` (installed by `_api_module`, so it applies however
+uvicorn is started) drops `/healthz`, `/health` and *empty* `GET /bot/outbox` lines whose
+status is below 400. Every error on those paths is still logged, and so is a poll that
+handed rows over. uvicorn's access record carries no response body, so the route sets
+`X-Outbox-Count`, and the outermost middleware (`QuietAccessLogMiddleware`) marks an empty
+poll in a context variable for exactly the `send` that uvicorn logs from.
 
 **What the bot needs to run:** `python-telegram-bot`, `requests`, and a writable
 `DIPLOMACY_BOT_DATA_DIR`. Nothing else — no database URL, no engine, no FastAPI. The Docker
