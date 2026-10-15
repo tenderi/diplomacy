@@ -36,7 +36,11 @@ USER app
 
 EXPOSE 8000 8432
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4).status == 200 else 1)"
+# bash's /dev/tcp makes the probe a plain HTTP request with no interpreter
+# start-up (python:3.14-slim has neither curl nor wget). It passes only on a
+# "200" status line. --start-interval polls fast until the first success (needs
+# Docker Engine >= 25), then --interval applies.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=40s --start-interval=2s --retries=3 \
+    CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000 && printf 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && read -r status <&3 && case \"$status\" in *' 200 '*) exit 0;; esac; exit 1"]
 
 ENTRYPOINT ["/usr/local/bin/api-entrypoint.sh"]
