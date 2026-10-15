@@ -94,7 +94,7 @@ the deploy workflow write it. Set `DOMAIN` for HTTPS (below); without one, set
 public URL. Then:
 
 ```bash
-./upgrade.sh        # build, start (migrations run in the API entrypoint), verify
+./upgrade.sh        # pull the images, start (migrations run in the API entrypoint), verify
 ```
 
 ### Ports and the UpCloud firewall
@@ -144,7 +144,7 @@ and registration rate limits depend on it.
 link fails the build) and Caddy serves it under its own certificate. To turn it on:
 an A record for the name → the VPS, then `DOCS_DOMAIN=<name>` in `.env` and
 `./upgrade.sh` (needs `DOMAIN` too; the docs container runs with Caddy).
-`upgrade.sh` warns if it doesn't answer. It is rebuilt on every deploy, so a merged
+`upgrade.sh` warns if it doesn't answer. Its image is rebuilt for every deploy, so a merged
 doc change is live minutes later. Preview locally:
 `pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10" && mkdocs serve`.
 
@@ -196,22 +196,55 @@ What protects the host and the site, and where it lives:
 ## Deploy-on-merge (GitHub Actions)
 
 `.github/workflows/deploy.yml` deploys automatically after the Test Suite is
-green on `main` (or on demand: *Run workflow*, optionally with a SHA or tag).
-It SSHes in as `root`, fetches and checks out the exact SHA that passed
-(detached), writes `TELEGRAM_BOT_TOKEN` into `.env` (only that line), and runs
-`./upgrade.sh`, which:
+green on `main` (or on demand: *Run workflow*, optionally with a SHA, short
+or full, or a tag). Nothing is built on the VPS. The workflow has two jobs:
 
-1. runs `ensure_env.sh` (fills any missing secret);
-2. `docker compose build` -- a failed build leaves the running stack alone;
-3. `docker compose up -d --remove-orphans`;
-4. removes dangling images and empties the BuildKit build cache
-   (`docker builder prune -af`), printing its size;
-5. installs the nightly backup cron job if missing;
-6. waits for `http://127.0.0.1:8000/healthz` and checks
-   `http://127.0.0.1/api/healthz` (nginx → API), and **fails the workflow** if
-   either does not answer.
+1. **`images`** builds the four images of our own (`api`, `bot`, `web`, `docs`,
+   from `docker/*.Dockerfile`) in GitHub Actions, with the Actions layer cache,
+   and pushes them to GHCR as `ghcr.io/tenderi/diplomacy-<service>:<full commit
+   SHA>`. A tag that already exists is not rebuilt.
+2. **`deploy`** SSHes in as `root`, fetches and checks out that SHA (detached),
+   writes `TELEGRAM_BOT_TOKEN` into `.env` (only that line), and runs
+   `DIPLOMACY_IMAGE_TAG=<sha> ./upgrade.sh`, which:
+   1. runs `ensure_env.sh` (fills any missing secret);
+   2. `docker compose pull` of the four services (`docker-compose.yml` names
+      them `ghcr.io/tenderi/diplomacy-<service>:${DIPLOMACY_IMAGE_TAG}`;
+      `postgres` and `caddy` are left as they are). **If the pull fails**, it
+      prints a `::warning::` (shown on the workflow run) and builds the images
+      on the host instead, as every deploy did before: a slower deploy, not a
+      broken one. A failed build leaves the running stack alone;
+   3. `docker compose up -d --no-build --remove-orphans`;
+   4. removes the images of ours that no container uses (by label: never
+      another project's) and the dangling ones; after a build on the host it
+      also empties the BuildKit build cache (`docker builder prune -af`),
+      printing its size;
+   5. installs the nightly backup cron job if missing;
+   6. waits for `http://127.0.0.1:8000/healthz` and checks
+      `http://127.0.0.1/api/healthz` (nginx → API), and **fails the workflow** if
+      either does not answer.
 
 The token travels on stdin, never in a command line.
+
+**The GHCR packages must be public**, because the VPS pulls anonymously and
+holds no registry credential. A package GitHub creates on the first push may
+start out private, and the workflow's token cannot change that: on GitHub,
+*Packages* → `diplomacy-api` (and `-bot`, `-web`, `-docs`) → *Package
+settings* → *Change visibility* → *Public*. Until then every deploy falls back
+to building on the host (the `::warning::` above). To check from anywhere:
+
+```bash
+tok=$(curl -fsS "https://ghcr.io/token?scope=repository:tenderi/diplomacy-api:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -fsSI -H "Authorization: Bearer $tok" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" \
+  https://ghcr.io/v2/tenderi/diplomacy-api/manifests/<full sha>   # 200: public
+```
+
+**Rollback** is a deploy of the previous commit: *Actions* → *Deploy* → *Run
+workflow* with the last good SHA (`gh workflow run deploy.yml -R
+tenderi/diplomacy -f ref=<sha>`). Its images are still in GHCR, so `images`
+skips the build and the host pulls exactly what ran before. Database
+migrations are not rolled back; a rollback across a migration needs its
+`downgrade` run by hand first.
 
 One-time setup, from a machine that can SSH into the VPS:
 
@@ -237,6 +270,7 @@ On the VPS, in `/root/diplomacy`:
 
 ```bash
 ./upgrade.sh                           # the same thing the workflow runs
+./upgrade.sh --build                   # build the images here instead of pulling them
 docker compose ps
 docker compose logs -f diplomacy_bot   # or diplomacy_api, diplomacy_web, postgres
 docker compose restart diplomacy_bot
@@ -252,7 +286,15 @@ journalctl COM_DOCKER_COMPOSE_SERVICE=diplomacy_api -p err --since -7d  # errors
 ```
 
 The deploy leaves the checkout on a detached SHA; `upgrade.sh` by hand there
-rebuilds that SHA without pulling. `git checkout main` first to pull.
+redeploys that SHA without pulling the code. `git checkout main` first to pull.
+By hand, the image tag is the checked-out commit (`git rev-parse HEAD`): a commit
+of `main` that went through the Deploy workflow has its images in GHCR; any other
+falls back to building on the host, as does `--build` (use it when GHCR or
+Actions is down). The host build needs the 2 GB swap and pins the CPU for a few
+minutes (a cold build measured 138 s with the CPU saturated throughout), so
+prefer pulling. After a successful start `upgrade.sh` records the tag as
+`DIPLOMACY_IMAGE_TAG` in `.env`, so a bare `docker compose up -d` by hand keeps
+the deployed images instead of building new ones.
 
 ## Admin operations
 
