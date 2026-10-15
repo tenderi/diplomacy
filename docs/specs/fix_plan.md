@@ -119,6 +119,34 @@
 
 ---
 
+# Track BL — Game-end and seat play-through findings (2026-10-15)
+
+From a play-through of press, draw votes, concession, victory and quit/replace against a
+local API. Press, draw, solo win and replace otherwise work as specified.
+
+- [ ] **BL1** A game whose seats aren't all filled accepts `concede`, draw votes and orders
+  (`game_service.py` `concede`/`submit_draw_vote`/`set_orders` only call `_require_active`).
+  A power conceding in the lobby is dead once the table fills. Refuse all three with 409
+  "the game hasn't started" until every power is seated or a dummy.
+- [ ] **BL2** A conceded (eliminated) power can still send press and broadcasts, cast draw
+  votes (announced as a vote), concede again (re-announced to everyone), and quit and rejoin
+  its dead seat. Make a repeat concede a no-op, refuse press, votes and rejoin for an
+  eliminated power. When only one non-eliminated power remains, the game ends with it as the
+  winner.
+- [ ] **BL3** A vacated seat (after `/quit`) blocks a draw: `_draw_quorum` still requires the
+  unseated power's vote. Leave it required (the seat can be refilled) but say so: the quit
+  announcement and the vote tally name the vacant power and how to fill it (`/replace`, or
+  the creator making it a dummy). Quit on a finished game is refused.
+- [ ] **BL4** Bot text: there is no `/concede` in the bot (web only). Add it, with a
+  confirm step. `/quit`'s reply says what happens to the units. `/nodraw` says "withdrawn"
+  only when `changed` is true, and both draw replies say votes last until the phase is
+  processed.
+- [ ] **BL5** Smaller: a deadline in the past is acknowledged as "Orders in by then"
+  (refuse it); a turn processed with a vacant power doesn't say that power's units held;
+  check that `process_turn` ending a game invalidates the `users/{tid}` cache entries.
+
+---
+
 # Track BK — Cold map render cost (issue #227)
 
 Measured on the 1-vCPU VPS: a cold render of a starting board takes ~1.15 s, of which
