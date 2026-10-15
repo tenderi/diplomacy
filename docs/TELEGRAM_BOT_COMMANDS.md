@@ -65,14 +65,15 @@ the browser), as long as the web account has not joined a game yet.
 | `/join <game_id> random [password]` | Join a 🎲 random-powers game: the bot deals you one of the open powers. Naming a power there is refused. |
 | `/join <game_id> <power>` | Join directly as a specific power, skipping the menu. |
 | `/join <game_id> <power> <password>` | Join a **private** game (🔒 in the game list). Ask the game's creator for the password. The bot deletes your message afterwards so the password doesn't stay in the chat. Five wrong guesses lock you out of that game for 15 minutes. |
-| `/quit <game_id>` | Leave a game. Your seat is vacated — units and any orders you submitted stay exactly as they are for whoever takes it over — and you can no longer act for that power (or see it under `/games`). |
+| `/quit <game_id>` | Leave a game. Your seat is vacated — units and any orders you submitted stay exactly as they are for whoever takes it over — and you can no longer act for that power (or see it under `/games`). Until someone takes the seat with `/replace`, its units hold every turn. |
+| `/concede [game_id]` | Give up for good, after a yes/no confirmation (also 🏳️ Concede in the game menu). Your units are removed and your supply centres become neutral; the others play on. The API's refusal (already conceded, game over) is shown as worded. |
 | `/replace <game_id> <power> [password]` | Take over a vacated power (a private game needs its password). `/join <game_id> <power>` on a vacated seat does the same thing. Not in a random-powers game, where `/join` deals the vacated seats at random. |
 | `/wait` | Join the queue for a new game (the "⏳ Queue for the next new game" button); a game is created automatically once 7 players are waiting, and everyone in the queue is messaged with their assigned power. The queue is stored server-side, so it survives a bot restart. |
 | `/leavequeue` | Leave the queue (`/unwait` still works). |
 | `/players [game_id]` | List all players and their powers. |
 | `/status [game_id]` | Current phase, deadline, who has submitted orders, and the draw-vote tally. |
 | `/draw [game_id]` | Vote yes to end the game as a draw. If your vote completes quorum — every surviving power has voted yes — the game ends immediately. |
-| `/nodraw [game_id]` | Withdraw a draw vote you previously cast. |
+| `/nodraw [game_id]` | Withdraw a draw vote you previously cast; the reply says so only if you had one. Votes last until the phase is processed. |
 | `/deadline <game_id> <hours>` | Set the order deadline that many hours from now. The turn is processed automatically when it passes (units without orders hold), everyone in the game is told, and a reminder goes out 10 minutes before. The deadline is spent once its phase is processed; only a weekly schedule (below) sets the next one for you. |
 | `/deadline <game_id> clear` | Remove the deadline. |
 | `/deadline <game_id>` | Show the current deadline and the weekly schedule, if any. |

@@ -208,7 +208,11 @@ class TestMessages:
 class TestSeats:
     def test_quit_leaves_the_named_game(self) -> None:
         with patch.object(bot_games, "api_post", return_value={"status": "ok"}) as post:
-            assert _run(bot_games.quit, *_command(["7"])) == "You have left Game 7."
+            assert _run(bot_games.quit, *_command(["7"])) == (
+                "You have left Game 7. Your seat is vacant: in a game that has started, "
+                "your units hold every turn until someone takes the seat with "
+                "/replace 7 <power>. To give up for good instead, use /concede 7."
+            )
         post.assert_called_once_with("/games/7/quit", {"telegram_id": str(ME), "game_id": 7})
 
     def test_quit_shows_the_servers_refusal(self) -> None:
