@@ -66,9 +66,12 @@ class TestDrawCommand:
             {"power": "FRANCE", "vote": True, "telegram_id": "12345"},
         )
         text = message.reply_text.call_args[0][0]
-        assert "recorded" in text
-        assert "1/3 voted" in text
-        assert "FRANCE" in text
+        assert text == (
+            "🗳️ Your draw vote for Game 1 has been recorded.\n"
+            "1/3 voted for a draw so far.\n"
+            "Voted yes: FRANCE\n"
+            "Draw votes last until the phase is processed."
+        )
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')
@@ -150,6 +153,7 @@ class TestNodrawCommand:
             "votes": [],
             "required": ["FRANCE", "GERMANY", "ENGLAND"],
             "quorum_reached": False,
+            "changed": True,
         }
         update, context, message = _make_update_and_context()
 
@@ -160,8 +164,27 @@ class TestNodrawCommand:
             {"power": "FRANCE", "vote": False, "telegram_id": "12345"},
         )
         text = message.reply_text.call_args[0][0]
-        assert "withdrawn" in text
-        assert "0/3 voted" in text
+        assert text == (
+            "🗳️ Your draw vote for Game 1 has been withdrawn.\n"
+            "0/3 voted for a draw so far.\n"
+            "Draw votes last until the phase is processed."
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_nodraw_without_a_vote_says_nothing_changed(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "recorded", "game_status": "ACTIVE", "changed": False, "votes": [],
+            "required": ["FRANCE", "GERMANY", "ENGLAND"], "quorum_reached": False,
+        }
+        update, context, message = _make_update_and_context()
+        asyncio.run(nodraw(update, context))
+        assert message.reply_text.call_args[0][0] == (
+            "🗳️ You had no draw vote in Game 1; nothing changed.\n"
+            "0/3 voted for a draw so far.\n"
+            "Draw votes last until the phase is processed."
+        )
 
 
 class TestStatusDrawVoteLine:
