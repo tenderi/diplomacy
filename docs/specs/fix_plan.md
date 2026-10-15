@@ -10,13 +10,16 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BK**.
+>   history. Track letters run in sequence; the next free one is **BL**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-15. `v3.0.119` made the container healthchecks cheap (issue #226). `v3.0.118` did issue #225: the bot long-polls
+- **Last updated:** 2026-10-15. `v3.0.120` did part 2 of issue #227: the bot sends a turn
+  map it already uploaded by Telegram `file_id`. Part 1 (rasterise the base once) was measured
+  and not worth it; the cold-render cost is in the Python tinting (track BK). `v3.0.119` made the
+  container healthchecks cheap (issue #226). `v3.0.118` did issue #225: the bot long-polls
   `GET /bot/outbox?wait=25` instead of polling every 3 s, and healthy health checks and
   empty polls are dropped from the API's access log (F3 has the production check). Track BJ (retreat/adjustment play-through findings) is
   done and removed: `v3.0.113` did BJ1 (bounced and unordered retreat disbands are marked and
@@ -115,6 +118,17 @@
   **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
 
 ---
+
+# Track BK — Cold map render cost (issue #227)
+
+Measured on the 1-vCPU VPS: a cold render of a starting board takes ~1.15 s, of which
+`cairosvg.svg2png` is only 0.35-0.48 s (about a third); `process_turn` takes ~10 ms. Caching
+the base raster would save at most ~0.4 s per cache miss, below the 0.5 s bar set for it.
+
+- [ ] **BK1** The other ~0.7 s of a cold render is `_color_provinces_by_power_with_transparency`
+  (per-pixel province tinting in `rendering/svg_paths.py`) plus footer and PNG encode. Profile
+  it and only then decide whether to cache the base raster or vectorise the tinting. Output
+  must stay pixel-identical with the map cache cleared.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

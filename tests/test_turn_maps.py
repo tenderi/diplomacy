@@ -11,6 +11,8 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from telegram.error import BadRequest
+
 from rendering.view_adapter import units_for_render
 from server.api import ADMIN_TOKEN, app
 from server.api.shared import game_service, phase_label
@@ -144,6 +146,52 @@ class TestBotDelivery:
             asyncio.run(notifications._send_outbox_item(bot, int(GROUP), self._row(2, {"game_id": "7"})))
         assert [c.args[0] for c in fetch.call_args_list] == ["/games/7/map/turn/3/orders", "/games/7/map"]
         assert bot.send_photo.call_args.kwargs["caption"] == "caption"
+
+    @pytest.fixture(autouse=True)
+    def _fresh_file_ids(self) -> None:
+        notifications._photo_file_ids.clear()
+
+    @staticmethod
+    def _uploaded(file_id: str) -> Mock:
+        return Mock(photo=[Mock(file_id="small"), Mock(file_id=file_id)])
+
+    def test_a_second_recipient_of_the_same_map_gets_the_file_id_not_the_bytes(self) -> None:
+        payload = {"game_id": "7", "path": "/games/7/map/history/2"}
+        bot = Mock(send_photo=AsyncMock(return_value=self._uploaded("FID")))
+        with patch.object(notifications, "api_get_bytes", return_value=PNG) as fetch:
+            asyncio.run(notifications._send_outbox_item(bot, -1, self._row(1, payload)))
+            asyncio.run(notifications._send_outbox_item(bot, -2, self._row(2, payload)))
+        assert fetch.call_count == 1
+        first, second = bot.send_photo.call_args_list
+        assert first.kwargs["photo"].getvalue() == PNG
+        assert (second.kwargs["chat_id"], second.kwargs["photo"], second.kwargs["caption"]) == (-2, "FID", "caption")
+
+    def test_a_refused_file_id_falls_back_to_the_bytes_and_is_refreshed(self) -> None:
+        payload = {"game_id": "7", "path": "/games/7/map/history/2"}
+        notifications._photo_file_ids[payload["path"]] = "STALE"
+        bot = Mock(send_photo=AsyncMock(side_effect=[BadRequest("wrong file identifier"), self._uploaded("NEW"), None]))
+        with patch.object(notifications, "api_get_bytes", return_value=PNG) as fetch:
+            asyncio.run(notifications._send_outbox_item(bot, -1, self._row(1, payload)))
+            asyncio.run(notifications._send_outbox_item(bot, -2, self._row(2, payload)))
+        assert fetch.call_count == 1
+        calls = bot.send_photo.call_args_list
+        assert calls[0].kwargs["photo"] == "STALE"
+        assert calls[1].kwargs["photo"].getvalue() == PNG
+        assert calls[2].kwargs["photo"] == "NEW"
+
+    def test_the_legacy_current_map_is_never_remembered(self) -> None:
+        bot = Mock(send_photo=AsyncMock(return_value=self._uploaded("FID")))
+        with patch.object(notifications, "api_get_bytes", return_value=PNG) as fetch:
+            asyncio.run(notifications._send_outbox_item(bot, -1, self._row(1, {"game_id": "7"})))
+            asyncio.run(notifications._send_outbox_item(bot, -2, self._row(2, {"game_id": "7"})))
+        assert fetch.call_count == 2
+        assert notifications._photo_file_ids == {}
+
+    def test_the_file_id_map_is_bounded_oldest_first(self) -> None:
+        for i in range(notifications._PHOTO_FILE_ID_LIMIT + 3):
+            notifications._remember_photo(f"/p/{i}", self._uploaded(f"F{i}"))
+        assert len(notifications._photo_file_ids) == notifications._PHOTO_FILE_ID_LIMIT
+        assert "/p/0" not in notifications._photo_file_ids and "/p/3" in notifications._photo_file_ids
 
     def test_an_image_the_api_refuses_is_failed_and_does_not_block_the_rest(self) -> None:
         bad = self._row(1, {"game_id": "7", "path": "/games/7/map/turn/9/orders"})

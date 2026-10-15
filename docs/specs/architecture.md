@@ -189,7 +189,8 @@ There are three delivery surfaces, and they are not interchangeable:
   `/games/{id}/channel/*` routes; `telegram_bot/channels.py` only formats text. Gated by the
   link's settings (`auto_post_notifications`, `auto_post_maps`); a no-op for a game without a
   group. A `channel_map` row names the image to send by `payload.path`, and the bot fetches it
-  at delivery. After each processed turn *k* those are `/games/{id}/map/turn/{k}/orders` (the
+  at delivery (a turn map it has already uploaded is re-sent by its Telegram `file_id`, from a
+  bounded in-memory map, and uploaded again if Telegram refuses the id). After each processed turn *k* those are `/games/{id}/map/turn/{k}/orders` (the
   board as the turn began, every order drawn and coloured by its result, standoffs marked --
   skipped when nobody had anything to order) and `/games/{id}/map/history/{k+1}` (the board
   it produced, dislodged units included). By turn number, never "the current map": a post
