@@ -64,6 +64,25 @@ HEARTBEAT_PATH = Path(os.environ.get("DIPLOMACY_BOT_HEARTBEAT", "/tmp/diplomacy-
 # A notification older than this when delivered gets its creation time prefixed.
 LATE_THRESHOLD = timedelta(seconds=90)
 # Telegram permanently rejects these (chat gone, bot blocked); do not retry.
+# Telegram's file_id for each turn map already uploaded, by API path: one phase's
+# images go to a group and may go to several chats, and a file_id saves the later
+# uploads (and the API fetch). Bounded, oldest entry out first; lost on restart,
+# which just costs one more upload.
+_PHOTO_FILE_ID_LIMIT = 64
+_photo_file_ids: dict[str, str] = {}
+
+
+def _remember_photo(path: str, message: Any) -> None:
+    photos = getattr(message, "photo", None)
+    file_id = getattr(photos[-1], "file_id", None) if photos else None
+    if not isinstance(file_id, str):
+        return
+    _photo_file_ids.pop(path, None)
+    _photo_file_ids[path] = file_id
+    while len(_photo_file_ids) > _PHOTO_FILE_ID_LIMIT:
+        del _photo_file_ids[next(iter(_photo_file_ids))]
+
+
 _PERMANENT_TELEGRAM_ERRORS = (Forbidden, BadRequest)
 # These mean "Telegram is not reachable/ready right now"; retry next tick.
 _TRANSIENT_TELEGRAM_ERRORS = (NetworkError, TimedOut, RetryAfter)
@@ -158,9 +177,24 @@ async def _send_outbox_item(bot: Any, chat_id: int, item: dict[str, Any]) -> Non
     payload = item.get("payload") or {}
     if kind == "channel_map":
         game_id = payload.get("game_id")
-        path = payload.get("path") or f"/games/{game_id}/map"
-        img_bytes = await asyncio.to_thread(api_get_bytes, path)
-        await bot.send_photo(chat_id=chat_id, photo=BytesIO(img_bytes), caption=item.get("message") or None)
+        path = payload.get("path")
+        caption = item.get("message") or None
+        # Only a turn's own map is a stable image. The legacy "current map" path is
+        # not: it changes when the game advances, so it is never remembered.
+        file_id = _photo_file_ids.get(path) if path else None
+        if file_id is not None:
+            try:
+                await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
+                return
+            except BadRequest as e:
+                # A stale file_id looks the same as a bad chat here; uploading the
+                # bytes settles it either way (and refreshes the entry).
+                logger.info("Telegram refused cached file_id for %s (%s); uploading it again", path, e)
+                _photo_file_ids.pop(path, None)
+        img_bytes = await asyncio.to_thread(api_get_bytes, path or f"/games/{game_id}/map")
+        sent = await bot.send_photo(chat_id=chat_id, photo=BytesIO(img_bytes), caption=caption)
+        if path:
+            _remember_photo(path, sent)
     elif kind == "channel_create_thread":
         await bot.create_forum_topic(chat_id=chat_id, name=item.get("message") or "Discussion")
     elif kind == "channel_text":
