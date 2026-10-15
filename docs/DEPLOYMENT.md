@@ -390,7 +390,9 @@ docker compose up -d
 - `docker compose ps` -- Postgres, the API, the bot, nginx and the docs site
   report `healthy` (Caddy has no healthcheck; `upgrade.sh` checks the site
   through it). The bot's healthcheck watches a heartbeat file both of its
-  background loops touch, so a wedged bot is restarted by Docker.
+  background loops touch, so a wedged bot is restarted by Docker. The checks are cheap on purpose: the API's is a
+  bash `/dev/tcp` request to `/healthz` (no Python start-up), and both it and Postgres's
+  poll every 60 s, every 2 s (`start_interval`, Docker >= 25) until first healthy.
 - `docker compose logs diplomacy_bot` logs `API unreachable; player writes are
   being queued locally` once when the API drops and `API reachable again; N
   queued write(s) waiting` once when it returns, not on every poll.

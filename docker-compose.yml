@@ -48,9 +48,13 @@ services:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U diplomacy -d diplomacy_db"]
-      interval: 10s
+      # Fast polling only while starting (start_interval, Docker >= 25), so
+      # depends_on service_healthy releases quickly; then once a minute.
+      interval: 60s
       timeout: 5s
       retries: 5
+      start_period: 30s
+      start_interval: 2s
     logging: *logging
     restart: always
     # A process can't gain privileges it didn't start with (setuid binaries).
