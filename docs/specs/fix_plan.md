@@ -16,9 +16,12 @@
 
 ## Status
 
-- **Last updated:** 2026-10-15. `v3.0.120` did part 2 of issue #227: the bot sends a turn
+- **Last updated:** 2026-10-15. `v3.0.124` did BK1 (Track BK, now removed): profiling showed the
+  cold-render cost was the footer's and overlays' full-canvas 3x LANCZOS downscale, not the
+  tinting; it now resizes only the drawn window (a cold start-board render 0.93 s -> 0.52 s,
+  pixel-identical). `v3.0.120` did part 2 of issue #227: the bot sends a turn
   map it already uploaded by Telegram `file_id`. Part 1 (rasterise the base once) was measured
-  and not worth it; the cold-render cost is in the Python tinting (track BK). `v3.0.119` made the
+  and not worth it. `v3.0.119` made the
   container healthchecks cheap (issue #226). `v3.0.118` did issue #225: the bot long-polls
   `GET /bot/outbox?wait=25` instead of polling every 3 s, and healthy health checks and
   empty polls are dropped from the API's access log (F3 has the production check). Track BJ (retreat/adjustment play-through findings) is
@@ -146,17 +149,6 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   check that `process_turn` ending a game invalidates the `users/{tid}` cache entries.
 
 ---
-
-# Track BK — Cold map render cost (issue #227)
-
-Measured on the 1-vCPU VPS: a cold render of a starting board takes ~1.15 s, of which
-`cairosvg.svg2png` is only 0.35-0.48 s (about a third); `process_turn` takes ~10 ms. Caching
-the base raster would save at most ~0.4 s per cache miss, below the 0.5 s bar set for it.
-
-- [ ] **BK1** The other ~0.7 s of a cold render is `_color_provinces_by_power_with_transparency`
-  (per-pixel province tinting in `rendering/svg_paths.py`) plus footer and PNG encode. Profile
-  it and only then decide whether to cache the base raster or vectorise the tinting. Output
-  must stay pixel-identical with the map cache cleared.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
