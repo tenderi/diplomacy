@@ -386,14 +386,20 @@ async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vo
 
     votes = result.get("votes", [])
     required = result.get("required", [])
-    action = "recorded" if vote else "withdrawn"
-    lines = [f"🗳️ Your draw vote for Game {game_id} has been {action}."]
+    if vote:
+        first = f"🗳️ Your draw vote for Game {game_id} has been recorded."
+    elif result.get("changed"):
+        first = f"🗳️ Your draw vote for Game {game_id} has been withdrawn."
+    else:
+        first = f"🗳️ You had no draw vote in Game {game_id}; nothing changed."
+    lines = [first]
     if required:
         lines.append(f"{len(votes)}/{len(required)} voted for a draw so far.")
         if votes:
             lines.append("Voted yes: " + ", ".join(votes))
     else:
         lines.append("No draw vote is currently possible (fewer than two surviving powers).")
+    lines.append("Draw votes last until the phase is processed.")
     await update.message.reply_text("\n".join(lines))
 
 
@@ -1127,7 +1133,11 @@ async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         result = api_post(f"/games/{game_id}/quit", {"telegram_id": user_id, "game_id": int(game_id)})
         if result.get("status") == "ok":
-            await update.message.reply_text(f"You have left Game {game_id}.")
+            await update.message.reply_text(
+                f"You have left Game {game_id}. Your seat is vacant: in a game that has started, "
+                f"your units hold every turn until someone takes the seat with "
+                f"/replace {game_id} <power>. To give up for good instead, use /concede {game_id}."
+            )
         elif result.get("status") == "not_in_game":
             await update.message.reply_text(f"You are not in Game {game_id}.")
         else:

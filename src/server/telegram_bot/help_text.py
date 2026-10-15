@@ -168,7 +168,7 @@ a notification about -- so the game id is only needed to switch games.
 • `/games` - Your games; `/game [id]` - a game's menu (and make it current)
 • `/status`, `/viewmap`, `/players`
 • `/findgame` - Open games, the queue, the demo; `/join <id> [power] [password]`
-• `/leavequeue` - Leave the queue for a new game; `/quit <id>` - leave a game
+• `/leavequeue` - Leave the queue for a new game; `/quit <id>` - leave a game (your units hold until someone takes the seat with `/replace`); `/concede [id]` - give up for good, your units are removed (asks first)
 
 *💬 Talking*
 • `/messages` - Messages in your game
@@ -185,7 +185,7 @@ a notification about -- so the game id is only needed to switch games.
 • `/notready` / `/ready` - Ask the table to wait before a turn auto-processes, or stop waiting
 • `/deadline <id>` - Show it; `/deadline <id> <hours|clear>` - set or remove it. To put a change to a vote, use ⏰ Deadline in the game menu
 • `/deadline <id> schedule mon,wed,fri 16:00 [Europe/Helsinki]` - A deadline every week at those times (`schedule off` stops it)
-• `/draw` / `/nodraw` - Vote to end the game as a draw
+• `/draw` / `/nodraw` - Vote to end the game as a draw; votes last until the phase is processed
 • Game creator: `/autoprocess <id> on|off`, `/dummy <id> <power> [off]`, and ⚙️ Process turn now in the game menu
 
 *🔧 Other*
