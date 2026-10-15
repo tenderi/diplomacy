@@ -34,7 +34,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from .api_client import api_get, api_get_bytes, api_post_reliable, queued_reply
+from .api_client import api_get, api_post, api_get_bytes, api_post_reliable, queued_reply
 from .game_context import GameContextError, current_game, fetch_user_games, resolve_game_and_power
 from .games import (
     AWAITING, POWERS, is_group_member, format_deadline, join_game, propose_deadline, set_wait_flag, status_text,
@@ -150,6 +150,7 @@ def _hub_keyboard(game_id: str, power: str, state: dict, orders_status: Optional
             rows.append([_btn("✋ Wait for me before processing", game_id, "nr")])
     if is_creator:
         rows.append([_btn("⚙️ Process turn now", game_id, "pt")])
+    rows.append([_btn("🏳️ Concede", game_id, "cd")])
     rows.append([_btn("🔄 Refresh", game_id, "hub"), InlineKeyboardButton("⬅️ All games", callback_data="my_games")])
     return InlineKeyboardMarkup(rows)
 
@@ -263,6 +264,57 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
         )
     elif action == "pt":
         await _process_turn(send, user_id, game_id)
+    elif action == "cd":
+        await send(concede_prompt(game_id, power), reply_markup=concede_keyboard(game_id), parse_mode=None)
+    elif action == "cdok":
+        await send(concede_game(game_id, power, user_id), reply_markup=InlineKeyboardMarkup([_back(game_id)]), parse_mode=None)
+
+
+def concede_prompt(game_id: str, power: str) -> str:
+    return (
+        f"Concede game {game_id} as {power}? Your units are removed from the board and you "
+        f"{power} is out of the game; the others play on. This cannot be undone."
+    )
+
+
+def concede_keyboard(game_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[_btn("🏳️ Yes, concede", game_id, "cdok"), _btn("No, keep playing", game_id, "hub")]])
+
+
+def concede_game(game_id: str, power: str, user_id: str) -> str:
+    """Concede ``power`` via ``POST /games/{id}/concede``; returns the reply.
+
+    A plain ``api_post``, not ``api_post_reliable``: the player is looking at the
+    answer, and replaying a concession later -- after they changed their mind, or
+    after a seat was refilled -- would be wrong. If the API is unreachable they
+    are told so and can tap again. A refusal (409: already conceded, game over,
+    the turn moved on) is shown as the API worded it.
+    """
+    try:
+        result = api_post(f"/games/{game_id}/concede", {"power": power, "telegram_id": user_id})
+    except requests.RequestException as e:
+        return f"Could not concede game {game_id}: {e}"
+    text = f"🏳️ You have conceded game {game_id}. {power}'s units are removed; the others play on."
+    if result.get("auto_processed"):
+        text += " Your seat was the last hold-up, so the turn has been processed."
+    return text
+
+
+async def concede(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/concede [game_id] -- give up your power for good, after a yes/no question."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    args = context.args or []
+    try:
+        game_id, power = resolve_game_and_power(str(user.id), args[0] if args else None)
+    except GameContextError as e:
+        await update.message.reply_text(e.message)
+        return
+    except requests.RequestException as e:
+        await update.message.reply_text(f"Error resolving game: {e}")
+        return
+    await update.message.reply_text(concede_prompt(game_id, power), reply_markup=concede_keyboard(game_id))
 
 
 def _clear_orders(chat_id: int, user_id: str, game_id: str, power: str) -> str:

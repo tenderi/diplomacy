@@ -137,7 +137,7 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   unseated power's vote. Leave it required (the seat can be refilled) but say so: the quit
   announcement and the vote tally name the vacant power and how to fill it (`/replace`, or
   the creator making it a dummy). Quit on a finished game is refused.
-- [ ] **BL4** Bot text: there is no `/concede` in the bot (web only). Add it, with a
+- [x] **BL4** Bot text: there is no `/concede` in the bot (web only). Add it, with a
   confirm step. `/quit`'s reply says what happens to the units. `/nodraw` says "withdrawn"
   only when `changed` is true, and both draw replies say votes last until the phase is
   processed.

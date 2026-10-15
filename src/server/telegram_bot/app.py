@@ -31,7 +31,7 @@ from server.telegram_bot.games import (
     ready, notready, autoprocess, nickname,
 )
 from server.telegram_bot.hub import (
-    cancel, find_game, game_command, games, games_list_callback, handle_game_callback,
+    cancel, concede, find_game, game_command, games, games_list_callback, handle_game_callback,
 )
 from server.telegram_bot.orders import (
     order, orders, myorders, clearorders, clear, orderhistory, processturn, viewmap, selectunit,
@@ -88,7 +88,8 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand("findgame", "Open games, the queue, and the demo"),
     BotCommand("join", "Join a game: /join <id> [power]"),
     BotCommand("leavequeue", "Leave the queue for a new game"),
-    BotCommand("quit", "Leave a game"),
+    BotCommand("quit", "Leave a game (your seat stays open)"),
+    BotCommand("concede", "Give up for good: your units are removed"),
     BotCommand("queue", "Orders/messages waiting for the game server"),
     BotCommand("link", "Link this Telegram account to a browser account"),
     BotCommand("nickname", "Show or set the nickname other players see"),
@@ -225,6 +226,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("draw", draw))
     app.add_handler(CommandHandler("nodraw", nodraw))
     app.add_handler(CommandHandler("quit", quit))
+    app.add_handler(CommandHandler("concede", concede))
     app.add_handler(CommandHandler("orders", orders))
     app.add_handler(CommandHandler("order", order))
     app.add_handler(CommandHandler("processturn", processturn))

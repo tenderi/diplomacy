@@ -124,7 +124,7 @@ Deals are not binding, and neither are promises. That's the game.
   deadline, everyone gets a reminder. Units without orders hold.
 - **Draw:** `/draw` votes to end the game as a shared draw. It ends when every surviving
   power agrees. `/nodraw` takes your vote back.
-- **Leaving:** `/quit N`. Your power becomes free for someone else to take over.
+- **Leaving:** `/quit N`. Your power becomes free for someone else to take over; its units hold until then. `/concede N` gives up for good instead.
 
 ---
 
