@@ -413,6 +413,18 @@ empty seats and the next deadline if there is one. The bot's demo game is full f
 start: Germany plus six dummies. The DAIDE listener's game (`games.daide`) is exempt: its
 seats are live DAIDE connections held in memory, not seat rows.
 
+**Nothing is played before the game starts.** A game has started once its table is full
+(as above) or a turn has been processed; a game that has run a turn stays started even if a
+dummy seat is reopened later (that holds up only processing). Until then
+`POST /games/set_orders`, `POST /games/{id}/draw_vote` and `POST /games/{id}/concede`
+answer **409** with the header `X-Error-Code: seats_unfilled` and the detail
+`Game 2 hasn't started: 1 power is unseated (Russia): seat players or mark them as dummies.`,
+naming every open power (`api/shared.py`'s `require_started`). A power conceding in the
+lobby would otherwise be dead once the table filled. Orders a game already holds when it
+loses (or never had) a full table stay stored and are adjudicated as usual once it fills;
+reading the board, the pending orders and the order status is unaffected. A finished game
+is left to the service, which answers with how it ended.
+
 **Deadlines are never imposed by the server.** A game has a deadline only when a player
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's
@@ -437,6 +449,31 @@ neutral, like the unowned centres at game start), so `Game.eliminated_powers()` 
 once. Ownership otherwise persists until a unit stands there, so a conceded power that kept
 its centres would be owed builds at the next Winter and could walk back in. `/quit` is the
 other path: the seat is vacated for a replacement and the board is untouched.
+
+**An eliminated power has left the game** (it conceded, or lost its last unit and centre;
+`GameService.is_eliminated`, false once the game has ended). While the game goes on it
+cannot concede again (409 `FRANCE has already conceded`, not announced a second time), vote
+on a draw (409 `... has been eliminated from game N; it cannot vote on a draw`), send
+private or broadcast press or a channel broadcast (409 `... it can no longer send
+messages`), and nobody can take its seat back through `/join` with that power, `/replace`
+or a random join (409 `... its seat cannot be taken`; a random join skips it). Both service
+refusals are `PowerEliminatedError`, a `GameOverError`, so every route already mapping that
+to 409 maps them. **When a concession leaves one power standing, the game ends with it as
+the sole winner** (`GameService._end_if_last_standing`, written like a draw: `Game.draw`
+narrowed to the survivor, `save_state` guarded by the board it was decided on, so two last
+powers conceding together leave no winner). Only the concession that ended the game
+announces it: one landing at the same moment finds the game ended and returns it as ended,
+with no "play on" notice and no auto-processing. The concede response then carries
+`game_status: "COMPLETED"` and `winners: ["GERMANY"]`, and instead of the concession notice
+`notify_last_power_standing` clears the deadline, invalidates every player's cached game
+list, tells the players (the winner reads "you are the last power standing and win") and
+posts to the game's group.
+
+**A group broadcast (`POST /games/{id}/channel/broadcast`) is posted as the caller's own
+seat.** A web user's broadcast carries their seat's power whatever the body's `power` says;
+naming another power is a 403 `You do not hold ENGLAND in game N`. The bot or an admin may
+name a power only if the Telegram user in `telegram_id` holds it (else the same 403), or
+omit it for a public broadcast. A player whose power is eliminated cannot post either way.
 
 **Seat writes go through `DatabaseService.assign_player_seat`**, never through attribute
 assignment on a row returned by a DAL getter — those rows are detached the moment the

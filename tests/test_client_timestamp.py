@@ -79,6 +79,7 @@ def _seed(client):
     # The browser user takes a power too, so it may call process_turn.
     assert client.post(f"/games/{game_id}/join", json={"game_id": int(game_id), "power": "ENGLAND"},
                        headers=headers).status_code == 200
+    fill_with_dummies(game_id)
     return game_id, fr, de, headers
 
 

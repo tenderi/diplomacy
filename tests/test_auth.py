@@ -6,6 +6,8 @@ import os
 import time
 import pytest
 
+from tests.table_helpers import fill_with_dummies
+
 try:
     from dotenv import load_dotenv
     _root = os.path.join(os.path.dirname(__file__), "..")
@@ -419,6 +421,7 @@ def test_set_orders_with_bearer(client):
         json={"game_id": int(game_id), "power": "FRANCE"},
         headers=headers,
     )
+    fill_with_dummies(game_id)
 
     set_orders = client.post(
         "/games/set_orders",

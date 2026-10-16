@@ -16,10 +16,13 @@
 
 ## Status
 
-- **Last updated:** 2026-10-15. `v3.0.124` did BK1 (Track BK, now removed): profiling showed the
+- **Last updated:** 2026-10-16. `v3.0.125` did BL1 and BL2: orders, draw votes and
+  concessions are a 409 `seats_unfilled` until the game starts, an eliminated power can't
+  concede again, vote, send press or have its seat retaken, and a concession that leaves one
+  power ends the game with it as the winner. `v3.0.124` did BK1 (Track BK, now removed): profiling showed the
   cold-render cost was the footer's and overlays' full-canvas 3x LANCZOS downscale, not the
   tinting; it now resizes only the drawn window (a cold start-board render 0.93 s -> 0.52 s,
-  pixel-identical). `v3.0.120` did part 2 of issue #227: the bot sends a turn
+  pixel-identical). `v3.0.122` did BL4 (bot `/concede`). `v3.0.120` did part 2 of issue #227: the bot sends a turn
   map it already uploaded by Telegram `file_id`. Part 1 (rasterise the base once) was measured
   and not worth it. `v3.0.119` made the
   container healthchecks cheap (issue #226). `v3.0.118` did issue #225: the bot long-polls
@@ -127,11 +130,11 @@
 From a play-through of press, draw votes, concession, victory and quit/replace against a
 local API. Press, draw, solo win and replace otherwise work as specified.
 
-- [ ] **BL1** A game whose seats aren't all filled accepts `concede`, draw votes and orders
+- [x] **BL1** A game whose seats aren't all filled accepts `concede`, draw votes and orders
   (`game_service.py` `concede`/`submit_draw_vote`/`set_orders` only call `_require_active`).
   A power conceding in the lobby is dead once the table fills. Refuse all three with 409
   "the game hasn't started" until every power is seated or a dummy.
-- [ ] **BL2** A conceded (eliminated) power can still send press and broadcasts, cast draw
+- [x] **BL2** A conceded (eliminated) power can still send press and broadcasts, cast draw
   votes (announced as a vote), concede again (re-announced to everyone), and quit and rejoin
   its dead seat. Make a repeat concede a no-op, refuse press, votes and rejoin for an
   eliminated power. When only one non-eliminated power remains, the game ends with it as the
