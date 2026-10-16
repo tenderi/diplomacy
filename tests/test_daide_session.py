@@ -167,6 +167,8 @@ class TestNmeHlo:
         await _dispatch(s1, w1, t.NME, *text_clause("Bot"), *text_clause("1.0"))
         power = s1.power
         server.unregister(gid, power, s1)
+        # The passcode is random in 1..8191; a fixed guess would match once in 8191 runs.
+        wrong = s1.passcode % 8191 + 1
 
         w2 = FakeWriter()
         s2 = DaideSession(None, w2, server)
@@ -178,7 +180,7 @@ class TestNmeHlo:
             t.POWER_TOKEN_BY_ENGINE_NAME[power],
             t.CLOSE_PAREN,
             t.OPEN_PAREN,
-            Token.from_int(1),
+            Token.from_int(wrong),
             t.CLOSE_PAREN,
         )
         assert s2.power is None

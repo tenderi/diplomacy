@@ -43,6 +43,9 @@ from PIL import Image, ImageDraw, ImageFont
 #: transparent and short-lived, so the memory is a transient 3x-area RGBA buffer.
 SUPERSAMPLE = 3
 
+#: Output pixels a LANCZOS (a=3) downscale reads beyond the pixel it produces.
+_LANCZOS_REACH = 3
+
 
 def _scale_font(font: Any, factor: int) -> Any:
     """Return ``font`` re-instantiated ``factor`` times larger, or ``font`` unchanged.
@@ -151,6 +154,24 @@ def antialiased_overlay(base: Image.Image, factor: int = SUPERSAMPLE) -> Iterato
         raise ValueError(f"supersample factor must be >= 1, got {factor}")
     layer = Image.new("RGBA", (base.width * factor, base.height * factor), (0, 0, 0, 0))
     yield ScaledDraw(ImageDraw.Draw(layer), factor)
-    if factor > 1:
-        layer = layer.resize(base.size, Image.LANCZOS)
-    base.alpha_composite(layer)
+    if factor == 1:
+        base.alpha_composite(layer)
+        return
+    # Downscale only the part of the layer that was drawn on. Everything outside the
+    # drawn box is transparent and stays transparent through the filter, so a window
+    # padded by the filter's reach gives the same pixels as resizing the whole layer
+    # (the full resize was the largest single cost of a cold render).
+    box = layer.getchannel("A").getbbox()
+    if box is None:
+        return
+    margin = _LANCZOS_REACH + 1
+    left = max(0, box[0] // factor - margin)
+    top = max(0, box[1] // factor - margin)
+    right = min(base.width, -(-box[2] // factor) + margin)
+    bottom = min(base.height, -(-box[3] // factor) + margin)
+    window = layer.resize(
+        (right - left, bottom - top),
+        Image.LANCZOS,
+        box=(left * factor, top * factor, right * factor, bottom * factor),
+    )
+    base.alpha_composite(window, (left, top))

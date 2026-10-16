@@ -119,7 +119,7 @@ no topology of its own.
 | `overlays.py` | What each order and outcome looks like (`plan_orders` → under-the-units lines, token ops, over-the-units markers), drawn on the board the orders were given on, every marker on the unit that gave the order. |
 | `arrows.py` | Geometry (trim, offset, spline through a convoy chain, heads, bars, octagon, burst) as pure functions, plus cased drawing primitives. |
 | `tokens.py` | Unit tokens: a power-coloured disc with a bold `A`/`F`, sprites supersampled and cached. |
-| `antialias.py` | `PIL.ImageDraw` does no anti-aliasing, so overlays are drawn onto a 3× transparent layer through a coordinate/width-scaling `ScaledDraw` proxy and LANCZOS-downscaled onto the board. |
+| `antialias.py` | `PIL.ImageDraw` does no anti-aliasing, so overlays are drawn onto a 3× transparent layer through a coordinate/width-scaling `ScaledDraw` proxy and LANCZOS-downscaled onto the board (only the drawn window is resized; pixels equal a full-layer resize). |
 | `legend.py`, `cache.py` | The footer strip under the map (title, the key for the symbols actually drawn, power swatches); the in-memory + on-disk (`/tmp/diplomacy_map_cache`) cache, keyed with `RENDERER_VERSION`. |
 | `order_overlay.py` | Adapts engine `Order`/`Resolution` objects into the overlay's order dicts: each carries its unit's province, the raw result and the `dislodged` flag; a convoyed move carries its fleet chain. |
 | `view_adapter.py` | Pure helpers turning a `GameService.view` dict into render inputs (`units_for_render`, `retreat_options_for_render`, `phase_info`, `svg_path_for_map_name`). |
