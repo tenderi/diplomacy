@@ -30,6 +30,7 @@ def _germany(client: TestClient) -> tuple[str, str]:
     game_id = str(client.post("/games/create", json={"map_name": "standard"}, headers=_register_and_login(client, "mrg")).json()["game_id"])
     tg = _telegram_user(client, "germany")
     assert client.post(f"/games/{game_id}/join", json=_as(tg, power="GERMANY")).status_code == 200
+    fill_with_dummies(game_id)
     return game_id, tg
 
 

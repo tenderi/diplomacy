@@ -412,10 +412,10 @@ class TestGameHistory:
         tg = f"hist_{int(datetime.now().timestamp() * 1000000)}"
         client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": tg})
         client.post(f"/games/{game_id}/join", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "power": "FRANCE"})
+        fill_with_dummies(game_id)
         ordered = client.post("/games/set_orders", json={"game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
                                                          "telegram_id": tg, "bot_secret": BOT_SECRET})
         assert ordered.status_code == 200, ordered.text
-        fill_with_dummies(game_id)
         assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
 
         resp = client.get(f"/games/{game_id}/history/1")

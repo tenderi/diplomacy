@@ -46,6 +46,7 @@ class TestSetOrders:
         headers = _register_and_login(client, "ord_set1")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
 
         resp = client.post("/games/set_orders", json={
             "game_id": game_id,
@@ -65,6 +66,7 @@ class TestSetOrders:
         headers = _register_and_login(client, "ord_sup1")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
 
         resp = client.post("/games/set_orders", json={
             "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR", "A PAR H"],
@@ -115,6 +117,7 @@ class TestSetOrders:
         headers = _register_and_login(client, "ord_inv")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
 
         resp = client.post("/games/set_orders", json={
             "game_id": game_id,
@@ -207,6 +210,7 @@ class TestGetOrdersTelegramAuth:
         headers = _register_and_login(client, "ord_tg1")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
         client.post("/games/set_orders", json={
             "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"],
             "telegram_id": "tg_orders1", "bot_secret": BOT_SECRET,

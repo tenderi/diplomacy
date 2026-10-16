@@ -874,6 +874,76 @@ def unseated_message(unseated: list[str]) -> str:
     return f"{count} {noun} unseated ({names}): seat players or mark them as dummies."
 
 
+def require_started(game_id: str) -> None:
+    """409 until the game has started (BL1): orders, draw votes and concessions
+    wait for the full table -- every power seated or a dummy. A power conceding
+    in the lobby used to be dead once the table filled.
+
+    Started means the table is full now, or a turn has been processed: a game
+    that has run a turn has started even if a dummy seat was reopened since
+    (that only holds up processing, ``process_turn``'s own check). A seat its
+    player quit still counts as seated (``seats_filled``). A finished game is
+    left to the service, which says how it ended."""
+    row = db_service.get_game_by_game_id(game_id)
+    meta = game_service.meta(game_id) or {}
+    if row is None or meta.get("status") == "completed" or meta.get("current_turn", 0) > 0:
+        return  # unknown: the caller says 404; finished: the service says how
+    unseated = unseated_powers(game_id, int(row.id))
+    if unseated:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Game {game_id} hasn't started: {unseated_message(unseated)}",
+            headers={"X-Error-Code": "seats_unfilled"},
+        )
+
+
+def require_not_eliminated(game_id: str, power: str, action: str) -> None:
+    """409 when ``power`` is out of a game still being played (BL2): it conceded,
+    or lost its last unit and centre. ``action`` finishes the sentence: "it can
+    no longer send messages"."""
+    if game_service.is_eliminated(game_id, power):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{power.upper()} has been eliminated from game {game_id}; {action}.",
+        )
+
+
+def notify_last_power_standing(
+    game_id: str,
+    numeric_game_id: int,
+    winner: str,
+    *,
+    conceded: str,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Announce a game a concession ended: one power is left, and it wins (BL2).
+    ``conceded`` names the power whose concession ended it (``power_label``).
+
+    Like a draw this ends the game without a processed turn, so it clears the
+    deadline itself and is not ``notify_turn_processed``. The concession is
+    committed; every send is best-effort. Each player's cached game list shows
+    the game's status, so it is invalidated with the game's own entries."""
+    ended = f"{conceded} has conceded, and game {game_id} has ended"
+    text = f"{ended}: {power_label(game_id, winner)} is the last power standing and wins."
+    invalidate_cache(f"games/{game_id}")
+    try:
+        for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
+            invalidate_cache(f"users/{telegram_id_val}")
+        db_service.update_game_deadline(numeric_game_id, None)
+        notify_players(
+            numeric_game_id,
+            text,
+            exclude_telegram_id=exclude_telegram_id,
+            buttons=game_buttons(game_id, ended=True),
+            own=lambda powers: (
+                f"{ended}: you are the last power standing and win." if winner in powers else None
+            ),
+        )
+    except (SQLAlchemyError, OSError) as e:
+        scheduler_logger.error(f"Failed to notify the end of game {game_id}: {e}")
+    post_to_game_group(game_id, f"🏆 Game {game_id} has ended\n{text}")
+
+
 def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:
     """The deadline a phase beginning now gets: the next slot of the game's
     weekly schedule, or ``None`` when it has none (or is over)."""

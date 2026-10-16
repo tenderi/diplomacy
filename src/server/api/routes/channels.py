@@ -16,7 +16,10 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from persistence.database_service import ChannelTakenError
 
 from .auth import get_current_user_optional, http_bearer, require_bot_secret
-from ..shared import BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows
+from ..shared import (
+    BOT_USERNAME, db_service, game_service, is_admin_token, is_bot_secret, logger, phase_label, player_rows,
+    require_not_eliminated,
+)
 from ...response_cache import invalidate_cache
 
 _ALL_POWERS = {"AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"}
@@ -346,8 +349,49 @@ def post_map_to_channel(game_id: str) -> Dict[str, Any]:
     }
 
 
+def _broadcast_power(
+    game_id: str,
+    req: BroadcastMessageRequest,
+    credentials: Optional[HTTPAuthorizationCredentials],
+    x_bot_secret: Optional[str],
+    x_admin_token: Optional[str],
+) -> Optional[str]:
+    """The power a group broadcast is posted as, or ``None`` for a public one.
+
+    A web user posts as their own seat, whatever the body says: ``req.power``
+    is the client's claim, and trusting it let a seated user post as another
+    power, or (with ``power: null``) as a public broadcast after conceding. The
+    bot or an admin may name a power, but only the one held by the Telegram user
+    it acts for (``req.telegram_id``). Either way, a power that has left the
+    game no longer speaks for it (BL2): its player cannot post at all.
+    """
+    row = db_service.get_game_by_game_id(game_id)
+    if row is None:  # pragma: no cover -- the linked-channel lookup 404s first
+        raise HTTPException(status_code=404, detail="Game not found")
+    trusted = is_bot_secret(x_bot_secret) or is_admin_token(x_admin_token)
+    user = None if trusted else get_current_user_optional(credentials)
+    if user is None:
+        user = db_service.get_user_by_telegram_id(req.telegram_id)
+    seat = (
+        db_service.get_player_by_game_id_and_user_id(game_id=int(row.id), user_id=int(user.id))
+        if user is not None else None
+    )
+    own = str(seat.power_name).upper() if seat is not None else None
+    if req.power and req.power.upper() != own:
+        raise HTTPException(status_code=403, detail=f"You do not hold {req.power.upper()} in game {game_id}")
+    if own is not None:
+        require_not_eliminated(game_id, own, "it can no longer send messages")
+    return own if (req.power or not trusted) else None
+
+
 @router.post("/games/{game_id}/channel/broadcast", dependencies=[Depends(require_game_player_or_bot)])
-def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dict[str, Any]:
+def post_broadcast_to_channel(
+    game_id: str,
+    req: BroadcastMessageRequest,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None),
+) -> Dict[str, Any]:
     """Queue a broadcast message for the linked channel, with optional threading.
 
     Queued onto ``bot_outbox``, not posted synchronously -- see
@@ -363,13 +407,14 @@ def post_broadcast_to_channel(game_id: str, req: BroadcastMessageRequest) -> Dic
     if not channel_info:
         raise HTTPException(status_code=404, detail=f"Game {game_id} is not linked to a channel")
     channel_id = channel_info.get("channel_id")
+    power = _broadcast_power(game_id, req, credentials, x_bot_secret, x_admin_token)
 
     # req.message is free text a caller supplied -- escape it before
     # folding it into a Markdown-formatted post, or an unescaped
     # `_`/`*`/`` ` ``/`[` in it 400s the whole send.
     safe_message = escape_markdown(req.message)
-    if req.power:
-        formatted = f"📢 *{req.power}* → All Powers\n\n{safe_message}"
+    if power:
+        formatted = f"📢 *{power}* → All Powers\n\n{safe_message}"
     else:
         formatted = f"📢 *PUBLIC BROADCAST*\n\n{safe_message}"
 

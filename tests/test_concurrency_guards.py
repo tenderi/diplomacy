@@ -182,8 +182,8 @@ def test_two_powers_conceding_together_both_leave_the_board(client: TestClient) 
     with patch.object(game_service, "load", return_value=loaded):
         france = game_service.concede(game_id, "FRANCE")
         italy = game_service.concede(game_id, "ITALY")
-    assert france == {"status": "ok", "power": "FRANCE", "game_status": "ACTIVE", "eliminated": True}
-    assert italy == {"status": "ok", "power": "ITALY", "game_status": "ACTIVE", "eliminated": True}
+    assert france == {"status": "ok", "power": "FRANCE", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False}
+    assert italy == {"status": "ok", "power": "ITALY", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False}
 
     after = game_service.load(game_id).state
     gone = ("FRANCE", "ITALY")

@@ -14,7 +14,7 @@ from .auth import resolve_user_or_telegram, get_current_user, http_bearer
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
 from ..shared import (
     db_service, game_service, scheduler_logger, logger, notify_players, notify_user,
-    is_anonymous, power_label,
+    is_anonymous, power_label, require_not_eliminated,
 )
 from persistence.database import MessageModel
 
@@ -107,6 +107,8 @@ def send_private_message(
     player = db_service.get_player_by_game_id_and_user_id(game_id=int(game_model.id), user_id=int(user.id))  # type: ignore
     if player is None:
         raise HTTPException(status_code=403, detail="Sender not in game")
+    # BL2: a power that conceded (or was wiped out) has left the table.
+    require_not_eliminated(str(game_id), str(player.power_name), "it can no longer send messages")
     # Validate recipient power exists in game and has a player assigned
     if req.recipient_power is None or req.recipient_power == "":  # type: ignore
         raise HTTPException(status_code=400, detail="Recipient power required for private message")
@@ -180,6 +182,8 @@ def send_broadcast_message(
     player = db_service.get_player_by_game_id_and_user_id(game_id=numeric_id, user_id=int(user.id))  # type: ignore
     if player is None:
         raise HTTPException(status_code=403, detail="Sender not in game")
+    # BL2: a power that conceded (or was wiped out) has left the table.
+    require_not_eliminated(str(game_id), str(player.power_name), "it can no longer send messages")
     sent_at = normalize_client_timestamp(req.client_timestamp)
     msg = db_service.create_message(
         game_id=numeric_id,

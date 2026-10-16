@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+
+from tests.table_helpers import fill_with_dummies
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
@@ -156,6 +158,7 @@ class TestRoutesQueueForTheGroup:
 
     def test_dashboard_names_the_seated_players(self, client: TestClient) -> None:
         game_id, creator = self._linked_game(client)
+        fill_with_dummies(game_id)
         client.post("/games/set_orders", json=_as(creator, game_id=game_id, power="FRANCE", orders=["A PAR H"]))
         row = self._post(client, f"/games/{game_id}/channel/dashboard")
         assert row["kind"] == "channel_text" and row["payload"]["parse_mode"] == "Markdown"

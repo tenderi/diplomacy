@@ -117,6 +117,7 @@ def set_orders(
     _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
     if not any(o.strip() for o in req.orders):
         raise HTTPException(status_code=400, detail="No orders given: send at least one order.")
+    api_shared.require_started(str(req.game_id))
     _refuse_if_stale(str(req.game_id), req.client_timestamp)
     try:
         raw = game_service.submit_orders(str(req.game_id), req.power, req.orders, merge=req.merge)
