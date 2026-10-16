@@ -793,25 +793,31 @@ async def deadline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def seat_lines(players_list: list, dummies: list) -> list[str]:
-    """One Markdown line per seat, shared by /players and a group's /status.
+    """One Markdown line per power, shared by /players and a group's /status.
 
-    ``nickname`` is user-controlled and these messages are sent with
-    parse_mode='Markdown', so it is escaped -- an unescaped `_`/`*`/`` ` ``/`[`
-    once made Telegram reject the whole message. A held seat with no nickname
-    (or any seat of an anonymous game, which sends none) is the power alone."""
+    Every power gets a line, in alphabetical order: the API lists only the
+    seats it has rows for, so an open power would otherwise vanish and a
+    six-player table looks full. ``nickname`` is user-controlled and these
+    messages are sent with parse_mode='Markdown', so it is escaped -- an
+    unescaped `_`/`*`/`` ` ``/`[` once made Telegram reject the whole message.
+    A held seat with no nickname says so; a seat of an anonymous game (which
+    sends neither nickname nor user id) is only "taken"."""
+    by_power = {player.get('power'): player for player in players_list}
     lines = []
-    for player in players_list:
-        power = player.get('power', 'Unknown')
-        status_emoji = "✅" if player.get('is_active', True) else "❌"
-        if player.get('nickname'):
-            who = f" - {escape_markdown(player['nickname'])}"
-        elif player.get('seated', player.get('user_id') is not None):
-            who = ""
+    for power in sorted(set(POWERS) | set(by_power) - {None}):
+        player = by_power.get(power) or {}
+        seated = player.get('seated', player.get('user_id') is not None or bool(player.get('nickname')))
+        if not seated:
+            lines.append(f"🤖 *{power}* - civil disorder" if power in dummies else f"⬜ *{power}* - open")
         else:
-            who = " - open"
-        lines.append(f"{status_emoji} *{power}*{who}")
-    for power in dummies:
-        lines.append(f"🤖 *{power}* - civil disorder")
+            status_emoji = "✅" if player.get('is_active', True) else "❌"
+            if player.get('nickname'):
+                who = escape_markdown(player['nickname'])
+            elif player.get('user_id') is not None:
+                who = "no nickname"
+            else:
+                who = "taken"
+            lines.append(f"{status_emoji} *{power}* - {who}")
     return lines
 
 
