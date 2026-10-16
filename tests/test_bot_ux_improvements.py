@@ -224,7 +224,35 @@ class TestMarkdownEscaping:
 
         asyncio.run(players(update, context))
 
-        assert message.reply_text.call_args[0][0].splitlines()[2:] == ["✅ *FRANCE*", "❌ *ITALY* - open"]
+        assert message.reply_text.call_args[0][0].splitlines()[2:] == [
+            "⬜ *AUSTRIA* - open", "⬜ *ENGLAND* - open", "✅ *FRANCE* - taken", "⬜ *GERMANY* - open",
+            "⬜ *ITALY* - open", "⬜ *RUSSIA* - open", "⬜ *TURKEY* - open",
+        ]
+
+    @patch("server.telegram_bot.games.api_get")
+    @patch("server.telegram_bot.game_context.api_get")
+    def test_players_shows_the_open_seat_and_who_has_no_nickname(self, mock_ctx_get, mock_games_get):
+        """#238: six seats taken, two without a nickname. The open RUSSIA used to
+        be left out (so the table looked full) and ENGLAND/AUSTRIA showed bare."""
+        mock_ctx_get.return_value = {"games": [{"game_id": "2", "power": "ENGLAND"}]}
+        nicknames = {"ENGLAND": None, "GERMANY": "teBo", "FRANCE": "Pawes", "ITALY": "Pansku",
+                     "TURKEY": "KukaKumma", "AUSTRIA": None}
+
+        def fake_get(path, *args, **kwargs):
+            if path.endswith("/players"):
+                return [{"power": p, "seated": True, "user_id": i, "is_active": True, "nickname": n}
+                        for i, (p, n) in enumerate(nicknames.items(), start=1)]
+            return {"dummy_powers": []}
+
+        mock_games_get.side_effect = fake_get
+        update, context, message = _make_update_and_context()
+
+        asyncio.run(players(update, context))
+
+        assert message.reply_text.call_args[0][0].splitlines()[2:] == [
+            "✅ *AUSTRIA* - no nickname", "✅ *ENGLAND* - no nickname", "✅ *FRANCE* - Pawes",
+            "✅ *GERMANY* - teBo", "✅ *ITALY* - Pansku", "⬜ *RUSSIA* - open", "✅ *TURKEY* - KukaKumma",
+        ]
 
     @patch("server.telegram_bot.games.api_get")
     @patch("server.telegram_bot.game_context.api_get")

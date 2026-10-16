@@ -561,10 +561,13 @@ class TestStatusInAGroup:
         text = self._seat_run("group")
         assert text.endswith(
             "\n👥 *Players*\n"
+            "⬜ *AUSTRIA* - open\n"
+            "⬜ *ENGLAND* - open\n"
             "✅ *FRANCE* - snake\\_eyes\n"
-            "✅ *GERMANY*\n"
-            "✅ *ITALY* - open\n"
+            "✅ *GERMANY* - taken\n"
+            "⬜ *ITALY* - open\n"
             "🤖 *RUSSIA* - civil disorder\n"
+            "⬜ *TURKEY* - open\n"
         )
 
     def test_a_private_status_has_no_seat_list(self) -> None:
@@ -627,7 +630,8 @@ class TestReadCommandsInAGroup:
         update, asked = self._run(text, "supergroup", {"linked": True, "game_id": "2"})
         assert asked[0] == first_call
         if text.startswith("/players"):
-            assert update.message.reply_text.call_args[0][0] == "👥 *Players in Game 2*\n\n✅ *FRANCE*"
+            assert update.message.reply_text.call_args[0][0] .startswith(
+                "👥 *Players in Game 2*\n\n⬜ *AUSTRIA* - open\n⬜ *ENGLAND* - open\n✅ *FRANCE* - taken\n")
         else:
             assert update.message.reply_photo.call_args[1]["caption"] == "🗺️ *Game 2 Map*"
 
