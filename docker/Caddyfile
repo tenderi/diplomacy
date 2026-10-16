@@ -43,3 +43,10 @@
 	header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	reverse_proxy diplomacy_docs:80
 }
+
+# Other sites on this host that are not part of diplomacy: one *.caddy file
+# each in /root/caddy-sites on the host, their static files under /root/www
+# (mounted at /srv/www). This Caddy owns ports 80/443, so every other public
+# hostname on the VPS goes through here. Those files belong to their own
+# projects; no matches is fine.
+import /etc/caddy/sites/*.caddy

@@ -151,6 +151,18 @@ an A record for the name → the VPS, then `DOCS_DOMAIN=<name>` in `.env` and
 doc change is live minutes later. Preview locally:
 `pip install "mkdocs>=1.6,<2" "mkdocs-material>=9.5,<10" && mkdocs serve`.
 
+### Other sites on the host
+
+Caddy holds ports 80/443, so any other public site on the VPS goes through it.
+`docker/Caddyfile` ends with `import /etc/caddy/sites/*.caddy`: each project puts
+one site block in `/root/caddy-sites/<name>.caddy` on the host and its static files
+under `/root/www/<name>/` (seen by Caddy as `/srv/www/<name>/`). Both are mounted
+read-only. After changing a site file, reload without a restart:
+`docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+A broken site file makes that reload fail and leaves the running config in place,
+but the next `docker compose up` would fail to start Caddy, so validate first:
+`docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile`.
+
 ### Password reset ("Forgot password?")
 
 The web login page's *Forgot password?* sends a single-use link, valid for an

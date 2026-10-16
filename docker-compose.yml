@@ -210,6 +210,10 @@ services:
       - "443:443/udp"
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Other projects' sites (docker/Caddyfile, last line): their Caddy
+      # configs and static files. Read-only; Docker creates missing dirs.
+      - /root/caddy-sites:/etc/caddy/sites:ro
+      - /root/www:/srv/www:ro
       # Certificates and the ACME account: keep them, or every restart asks
       # Let's Encrypt again and soon hits its rate limit.
       - caddy_data:/data

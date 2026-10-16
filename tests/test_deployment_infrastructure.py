@@ -80,6 +80,15 @@ class TestCompose:
         caddyfile = _read(PROJECT_ROOT / "docker" / "Caddyfile")
         assert "{$DOMAIN}" in caddyfile and "reverse_proxy diplomacy_web:80" in caddyfile
 
+    def test_caddy_imports_other_sites_read_only(self, compose: str) -> None:
+        # Caddy owns 80/443, so other projects on the host add their sites
+        # here; they must not be able to write into this container.
+        caddy = compose.split("\n  caddy:", 1)[1].split("\nvolumes:", 1)[0]
+        assert "/root/caddy-sites:/etc/caddy/sites:ro" in caddy
+        assert "/root/www:/srv/www:ro" in caddy
+        caddyfile = _read(PROJECT_ROOT / "docker" / "Caddyfile")
+        assert caddyfile.rstrip().endswith("import /etc/caddy/sites/*.caddy")
+
     def test_nginx_takes_the_client_address_from_caddy_and_never_appends(self) -> None:
         # Behind Caddy every peer is Caddy; without real_ip all visitors share its
         # address in the per-IP rate limits. Appending to a client's own
