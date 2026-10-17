@@ -225,7 +225,8 @@ def test_a_solo_victory_names_the_winner() -> None:
     won = GameState(
         1901, Season.WINTER, PhaseType.ADJUSTMENT,
         units=frozenset({Unit(UnitKind.ARMY, "FRANCE", Location("PAR"))}),
-        ownership={"PAR": "FRANCE"},
+        # 18 centres: a solo, not the last power standing (BL6).
+        ownership={c: "FRANCE" for c in "PAR MAR BRE SPA POR BEL HOL LON LVP EDI NWY SWE DEN ROM NAP VEN TUN MUN".split()},
         status=GameStatus.COMPLETED,
         winners=frozenset({"FRANCE"}),
     )
