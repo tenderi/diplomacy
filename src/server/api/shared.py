@@ -575,6 +575,23 @@ def after_draw_vote(
         scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
 
 
+def _turn_ending_texts(game_id: str, winners: list[str], how: str) -> tuple[str, str]:
+    """(everyone's line, the sole winner's own line) for a game a turn ended,
+    both without the final full stop."""
+    ended = f"Game {game_id} has ended"
+    if how == "solo":
+        return f"{ended}: {power_label(game_id, winners[0])} has won with a solo victory", (
+            f"{ended}: you have won with a solo victory."
+        )
+    if how == "last_standing":
+        return f"{ended}: {power_label(game_id, winners[0])} is the last power standing and wins", (
+            f"{ended}: you are the last power standing and win."
+        )
+    if how == "no_winner":
+        return f"{ended}: no power is left, so nobody wins", ""
+    return ended, ""
+
+
 def notify_turn_processed(
     game_id: str,
     numeric_game_id: int,
@@ -596,7 +613,8 @@ def notify_turn_processed(
 
     ``processed_turn``/``processed_phase`` name the turn just adjudicated; with them
     the game's Telegram group also gets that turn's orders map and result map.
-    ``game_ended`` means the turn ended the game, which only a solo victory does;
+    ``game_ended`` means the turn ended the game (a solo victory, or one power or
+    none left standing);
     a draw ends one without a turn and goes through ``notify_game_drawn``.
 
     Before this existed the two paths told players wildly different amounts (G3):
@@ -630,13 +648,12 @@ def notify_turn_processed(
     reminder_sent[numeric_game_id] = False
 
     if game_ended:
-        # A processed turn ends a game only by a solo victory (``Game.process``);
-        # a draw ends it without a turn and is announced by ``notify_game_drawn``.
-        view = game_service.view(game_id) or {}
-        ended = f"Game {game_id} has ended"
-        winners = view.get("winners") or []
-        if len(winners) == 1:
-            ended += f": {power_label(game_id, winners[0])} has won with a solo victory"
+        # A processed turn ends a game by a solo victory, or by leaving one
+        # power standing or none (BL6, ``GameService.ending``); a draw ends it
+        # without a turn and is announced by ``notify_game_drawn``.
+        ending = game_service.ending(game_id) or {"winners": [], "how": ""}
+        ended, own_text = _turn_ending_texts(game_id, ending["winners"], ending["how"])
+        winners = ending["winners"]
         try:
             notify_players(
                 numeric_game_id,
@@ -644,11 +661,7 @@ def notify_turn_processed(
                 exclude_telegram_id=exclude_telegram_id,
                 buttons=game_buttons(game_id, ended=True),
                 # The winner is told "you have won" (BD4).
-                own=lambda powers: (
-                    f"Game {game_id} has ended: you have won with a solo victory."
-                    if len(winners) == 1 and winners[0] in powers
-                    else None
-                ),
+                own=lambda powers: own_text if len(winners) == 1 and winners[0] in powers else None,
             )
         except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
             scheduler_logger.exception("Failed to notify players for game %s", game_id)
@@ -943,20 +956,25 @@ def require_not_eliminated(game_id: str, power: str, action: str) -> None:
 def notify_last_power_standing(
     game_id: str,
     numeric_game_id: int,
-    winner: str,
+    winner: Optional[str],
     *,
     conceded: str,
     exclude_telegram_id: Optional[str] = None,
 ) -> None:
-    """Announce a game a concession ended: one power is left, and it wins (BL2).
-    ``conceded`` names the power whose concession ended it (``power_label``).
+    """Announce a game a concession ended: one power is left, and it wins (BL2),
+    or ``winner`` is ``None`` and nobody is (the last powers conceded at the
+    same moment, BL6). ``conceded`` names the power whose concession ended it
+    (``power_label``).
 
     Like a draw this ends the game without a processed turn, so it clears the
     deadline itself and is not ``notify_turn_processed``. The concession is
     committed; every send is best-effort. Each player's cached game list shows
     the game's status, so it is invalidated with the game's own entries."""
     ended = f"{conceded} has conceded, and game {game_id} has ended"
-    text = f"{ended}: {power_label(game_id, winner)} is the last power standing and wins."
+    if winner is None:
+        text = f"{ended}: no power is left, so nobody wins."
+    else:
+        text = f"{ended}: {power_label(game_id, winner)} is the last power standing and wins."
     invalidate_cache(f"games/{game_id}")
     try:
         for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
@@ -968,7 +986,9 @@ def notify_last_power_standing(
             exclude_telegram_id=exclude_telegram_id,
             buttons=game_buttons(game_id, ended=True),
             own=lambda powers: (
-                f"{ended}: you are the last power standing and win." if winner in powers else None
+                f"{ended}: you are the last power standing and win."
+                if winner is not None and winner in powers
+                else None
             ),
         )
     except (SQLAlchemyError, OSError) as e:
@@ -1314,6 +1334,13 @@ def finish_processed_turn(
     # A deadline is scoped to the phase it was set for (Track N): spent now.
     # Only a weekly schedule the players set arms the next one.
     game_ended = view is not None and view["status"] == "COMPLETED"
+    if game_ended:
+        # Each player's cached game list shows the game's status (BL5/BL6).
+        try:
+            for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
+                invalidate_cache(f"users/{telegram_id_val}")
+        except SQLAlchemyError as e:
+            scheduler_logger.error(f"Failed to read the players of ended game {game_id}: {e}")
     next_deadline_at = None if game_ended else scheduled_deadline(game_id)
     previous = db_service.get_game_by_id(numeric_game_id)
     had_deadline = previous is not None and previous.deadline is not None

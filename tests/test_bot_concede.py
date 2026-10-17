@@ -68,6 +68,19 @@ def test_concede_that_processes_the_turn_says_so() -> None:
     assert text.endswith(" Your seat was the last hold-up, so the turn has been processed.")
 
 
+@pytest.mark.parametrize(
+    ("winners", "outcome"),
+    [(["GERMANY"], "GERMANY is the last power standing and wins"), ([], "no power is left, so nobody wins")],
+)
+def test_a_concession_that_ends_the_game_says_so(winners: list[str], outcome: str) -> None:
+    """BL6: the conceder is left out of the end announcement, so their reply
+    tells them; it used to say "the others play on" about an ended game."""
+    result = {"status": "ok", "game_status": "COMPLETED", "winners": winners, "auto_processed": False}
+    with patch.object(hub, "api_post", return_value=result):
+        text = hub.concede_game("7", "FRANCE", str(ME))
+    assert text == f"🏳️ You have conceded game 7, and it has ended: {outcome}."
+
+
 def test_a_409_shows_the_apis_detail() -> None:
     with patch.object(hub, "api_post", side_effect=_conflict("FRANCE has already conceded")):
         assert hub.concede_game("7", "FRANCE", str(ME)) == "Could not concede game 7: FRANCE has already conceded"

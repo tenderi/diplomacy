@@ -221,6 +221,9 @@ paths) — built directly from `GameState`:
   "season": "SPRING",
   "phase_type": "MOVEMENT",             // MOVEMENT | RETREAT | ADJUSTMENT
   "status": "ACTIVE",                   // ACTIVE | COMPLETED
+  "winners": null,                      // null while ACTIVE; once COMPLETED: one power (a solo,
+                                        // or the last power standing), several (a draw), or []
+                                        // (nobody was left: the last powers conceded together)
   "units": [ {"kind": "F", "power": "FRANCE", "location": "BRE"}, ... ],
   "units_by_power": { "FRANCE": [ ... ], ... },
   "ownership": { "PAR": "FRANCE", ... },
@@ -288,7 +291,8 @@ votes and concessions get the same 409 and header, the detail prefixed with
 `Game N hasn't started: `, until the table is full or a turn has been processed
 (architecture.md, "Nothing is played before the game starts"); `POST /games/{id}/concede`
 returns `{status, power, game_status, eliminated, winners, auto_processed}`, `winners`
-naming the last power standing when the concession ended the game (else `[]`).
+naming the last power standing when the concession ended the game (else `[]`; a
+concession that left nobody also ends it, `game_status: "COMPLETED"` with `winners: []`).
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):

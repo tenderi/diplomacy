@@ -802,12 +802,14 @@ def concede_game(
     row = db_service.get_game_by_game_id(game_id)
     ended_game = result.pop("ended_game")
     if result["game_status"] == "COMPLETED":
-        # BL2: one power is left, and the game is over with it as the winner.
-        # Announced once, by the concession that ended it: another conceding at
-        # the same moment returns the ended game without a second notice.
+        # BL2: one power is left, and the game is over with it as the winner
+        # (BL6: or none is, and nobody wins). Announced once, by the concession
+        # that ended it: another conceding at the same moment returns the ended
+        # game without a second notice.
         if row is not None and ended_game:
+            winner = result["winners"][0] if result["winners"] else None
             api_shared.notify_last_power_standing(
-                game_id, int(row.id), result["winners"][0], conceded=label, exclude_telegram_id=caller,
+                game_id, int(row.id), winner, conceded=label, exclude_telegram_id=caller,
             )
         result["auto_processed"] = False
         return result
