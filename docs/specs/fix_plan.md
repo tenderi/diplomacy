@@ -150,6 +150,11 @@ local API. Press, draw, solo win and replace otherwise work as specified.
 - [ ] **BL5** Smaller: a deadline in the past is acknowledged as "Orders in by then"
   (refuse it); a turn processed with a vacant power doesn't say that power's units held;
   check that `process_turn` ending a game invalidates the `users/{tid}` cache entries.
+- [ ] **BL6** The game doesn't end when nobody, or one power, is left by any route but a
+  concession. Adjudication that wipes out every power but one leaves the game ACTIVE until
+  someone reaches 18 centres; the last two powers conceding at the same moment leave an
+  ACTIVE game with no units at all. Run the same last-power-standing check after
+  `process_turn`, and end a game with no power left (no winners).
 
 ---
 
