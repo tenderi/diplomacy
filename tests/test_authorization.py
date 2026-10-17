@@ -5,6 +5,8 @@ Tests that users can only perform actions for their assigned powers and games.
 """
 import time
 import pytest
+
+from tests.table_helpers import fill_with_dummies
 from fastapi.testclient import TestClient
 
 from server.api import app
@@ -53,6 +55,7 @@ class TestOrderSubmissionAuthorization:
             "game_id": int(game_id),
             "power": "FRANCE"
         })
+        fill_with_dummies(game_id)
 
         resp = client.post("/games/set_orders", json={
             "game_id": game_id,
@@ -317,6 +320,7 @@ class TestBearerTokenAuthorization:
             "power": "FRANCE"
         }, headers=headers)
         assert join_resp.status_code == 200
+        fill_with_dummies(game_id)
 
         orders_resp = client.post("/games/set_orders", json={
             "game_id": game_id,

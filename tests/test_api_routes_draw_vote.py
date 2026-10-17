@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from server.api import app
 from tests.conftest import _get_db_url
+from tests.table_helpers import fill_with_dummies
 
 BOT_SECRET = "test_bot_secret_for_tests"
 
@@ -43,6 +44,9 @@ class TestDrawVote:
         headers = _register_and_login(client, "dv_ok")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "dv_user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        # A second player, so France's vote alone is no quorum (dummies never vote).
+        assert client.post(f"/games/{game_id}/join", json={"power": "GERMANY"}, headers=headers).status_code == 200
+        fill_with_dummies(game_id)
 
         resp = client.post(f"/games/{game_id}/draw_vote", json={
             "power": "FRANCE", "vote": True,
@@ -118,6 +122,7 @@ class TestConcede:
         headers = _register_and_login(client, "cc_ok")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "cc_user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
 
         resp = client.post(f"/games/{game_id}/concede", json={
             "power": "FRANCE", "telegram_id": "cc_user1", "bot_secret": BOT_SECRET,

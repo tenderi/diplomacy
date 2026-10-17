@@ -77,6 +77,13 @@ class GameOverError(ValueError):
     """
 
 
+class PowerEliminatedError(GameOverError):
+    """A write for a power that is out of the game (conceded, or no units and
+    no centres left) while the game goes on: it may not concede again or vote on
+    a draw. A ``GameOverError`` -- the game is over *for that power* -- so every
+    route that maps ``GameOverError`` to 409 maps this too."""
+
+
 def _order_str(result: dict[str, Any]) -> str:
     """A stored result's order as text: the ``order_str`` ``process_turn`` saved, or
     (for a result stored before it did) one formatted from the order."""
@@ -613,6 +620,8 @@ class GameService:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id, "draw votes are no longer accepted")
         power = power.upper()
+        if power in game.eliminated_powers():
+            raise PowerEliminatedError(f"{power} has been eliminated from game {game_id}; it cannot vote on a draw")
 
         had_voted: list[bool] = []
 
@@ -737,9 +746,15 @@ class GameService:
             raise OrderError(f"game {game_id} not found")
         _require_active(game, game_id, "a power can no longer concede")
         power = power.upper()
+        already = f"{power} has already conceded"
+        if power in game.eliminated_powers():
+            raise PowerEliminatedError(already)
 
         def without_power(current: dict[str, Any]) -> dict[str, Any]:
             state = state_from_dict(current)
+            if power in Game(map=self._map, state=state).eliminated_powers():
+                # The same power conceding twice at once: the first left already.
+                raise PowerEliminatedError(already)
             return state_to_dict(
                 replace(
                     state,
@@ -770,12 +785,78 @@ class GameService:
         self._repo.modify_draw_votes(game_id, lambda votes: {p: v for p, v in votes.items() if p != power})
 
         eliminated = power in Game(map=self._map, state=new_state).eliminated_powers()
-        return {
+        ended = self._end_if_last_standing(game_id)
+        result: dict[str, Any] = {
             "status": "ok",
             "power": power,
             "game_status": new_state.status.value,
             "eliminated": eliminated,
+            "winners": [],
+            "ended_game": ended is not None,
         }
+        if ended is None:
+            # Two last powers conceding at once: the other request may have
+            # ended the game in between, and this one must not report it as
+            # going on (nor announce "the remaining powers play on").
+            ended = self.load(game_id)
+        if ended is not None and ended.state.status is GameStatus.COMPLETED:
+            result["game_status"] = ended.state.status.value
+            result["winners"] = sorted(ended.state.winners or ())
+        return result
+
+    def _end_if_last_standing(self, game_id: str) -> Optional[Game]:
+        """End the game with its one remaining power as the winner, if only one
+        power is not eliminated (BL2): the others conceded or were wiped out, so
+        there is nobody left to play against. Returns the ended game, or ``None``
+        if the game goes on (or already ended).
+
+        Written like a draw (``Game.draw`` narrowed to the survivor, then
+        ``save_state``), guarded by the board it was decided on: a concession that
+        lands in between changes the board, and the check runs again on the new
+        one -- two last powers conceding together leave no survivor, not a winner
+        who left.
+        """
+        for _ in range(_ADJUDICATION_ATTEMPTS):
+            # One read: the ended board must be built from the very state
+            # the save is guarded by, or a concession committed between two
+            # reads would be written back over.
+            stored = self._repo.get_state_json(game_id)
+            if stored is None:
+                return None
+            game = Game(map=self._map, state=state_from_dict(stored))
+            if game.state.status is GameStatus.COMPLETED:
+                return None
+            survivors = frozenset(self._map.home_centers) - game.eliminated_powers()
+            if len(survivors) != 1:
+                return None
+            ended = game.draw(survivors)
+            try:
+                self._repo.save_state(
+                    game_id,
+                    state_to_dict(ended.state),
+                    phase_code=ended.state.phase_name,
+                    status=ended.state.status.value.lower(),
+                    expected_phase_code=game.state.phase_name,
+                    expected_state_json=stored,
+                    refuse_completed=True,
+                )
+            except PhaseInputsChangedError:  # a concession landed in between
+                continue
+            except StaleGameError:  # pragma: no cover -- the game ended or moved on meanwhile
+                return None
+            return ended
+        return None  # pragma: no cover -- a concession on every attempt
+
+    def is_eliminated(self, game_id: str, power: str) -> bool:
+        """Whether ``power`` is out of a game that is still being played: it
+        conceded, or has no unit and no centre left. Such a power may no longer
+        send press, vote, or have its seat taken (BL2). ``False`` once the game
+        has ended, so the losers can still talk after it, and for an unknown game.
+        """
+        game = self.load(game_id)
+        if game is None or game.state.status is GameStatus.COMPLETED:
+            return False
+        return power.upper() in game.eliminated_powers()
 
     # -- sandbox (stateless) ------------------------------------------------
     #

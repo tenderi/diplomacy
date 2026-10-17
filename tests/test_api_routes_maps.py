@@ -92,6 +92,7 @@ class TestGenerateOrdersMap:
         game_id = _create_game(client, headers)
         join = client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "genmap_orders", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
         assert join.status_code == 200, join.text
+        fill_with_dummies(game_id)
         submit = client.post("/games/set_orders", json={
             "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR", "F BRE - MAO"],
             "telegram_id": "genmap_orders", "bot_secret": BOT_SECRET,
@@ -201,9 +202,12 @@ class TestGetGameOrdersMapPng:
         france = _register_and_login(client, "ordersmap_fr")
         germany = _register_and_login(client, "ordersmap_de")
         game_id = _create_game(client, france)
-        for headers, power, order in ((france, "FRANCE", "A PAR - BUR"), (germany, "GERMANY", "A MUN - RUH")):
+        orders = ((france, "FRANCE", "A PAR - BUR"), (germany, "GERMANY", "A MUN - RUH"))
+        for headers, power, _ in orders:
             join = client.post(f"/games/{game_id}/join", json={"power": power}, headers=headers)
             assert join.status_code == 200, join.text
+        fill_with_dummies(game_id)
+        for headers, power, order in orders:
             ordered = client.post(
                 "/games/set_orders", json={"game_id": game_id, "power": power, "orders": [order]}, headers=headers
             )

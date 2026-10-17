@@ -65,6 +65,7 @@ def test_pending_orders_stay_out_of_the_public_state(client: TestClient) -> None
     ``/orders/{power}`` (uncached), which follows every write."""
     game_id, tg = _game(client)
     client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    fill_with_dummies(game_id)
     own = {"telegram_id": tg, "bot_secret": BOT_SECRET}
     assert "orders" not in _state(client, game_id)  # warm
     assert client.post("/games/set_orders", json=_as(tg, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"])).status_code == 200

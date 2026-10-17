@@ -740,6 +740,7 @@ def submit_draw_vote(
     _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.require_started(game_id)
     try:
         result = game_service.submit_draw_vote(game_id, req.power, req.vote)
     except OrderError as e:
@@ -778,6 +779,7 @@ def concede_game(
     _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
+    api_shared.require_started(game_id)
     label = power_label(game_id, req.power)
     try:
         result = game_service.concede(game_id, req.power)
@@ -787,20 +789,32 @@ def concede_game(
         # Stale: the turn was processed while this request was in flight.
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+    caller = _caller_telegram_id(credentials, req.telegram_id)
+    row = db_service.get_game_by_game_id(game_id)
+    ended_game = result.pop("ended_game")
+    if result["game_status"] == "COMPLETED":
+        # BL2: one power is left, and the game is over with it as the winner.
+        # Announced once, by the concession that ended it: another conceding at
+        # the same moment returns the ended game without a second notice.
+        if row is not None and ended_game:
+            api_shared.notify_last_power_standing(
+                game_id, int(row.id), result["winners"][0], conceded=label, exclude_telegram_id=caller,
+            )
+        result["auto_processed"] = False
+        return result
 
     # G3a: a power leaving changes the board for everyone -- its units come off
     # immediately -- and used to be invisible until somebody looked. Not a
     # turn-processed event (the game continues), so a plain `notify_players`
     # rather than the `notify_turn_processed` fan-out.
     try:
-        row = db_service.get_game_by_game_id(game_id)
         if row is not None:
             notify_players(
                 int(row.id),
                 f"{label} has conceded and left game {game_id}. "
                 f"Its units have been removed and its supply centres are now neutral; "
                 f"the remaining powers play on.",
-                exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                exclude_telegram_id=caller,
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify concession for game %s", game_id)
@@ -956,6 +970,7 @@ def _take_random_seat(game_id: int, user_id: int, dummy_powers: List[str]) -> tu
     open_powers = [
         p for p in sorted(REQUIRED_POWERS)
         if p not in dummy_powers and (p not in seats or seats[p].user_id is None)
+        and not game_service.is_eliminated(str(game_id), p)
     ]
     secrets.SystemRandom().shuffle(open_powers)
     for power in open_powers:
@@ -1018,6 +1033,9 @@ def join_game(
     existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
     if existing:
         return {"status": "already_joined", "player_id": existing.id, "power": existing.power_name}
+    if req.power is not None:
+        # BL2: a conceded power's seat is dead; taking it back revives nothing.
+        api_shared.require_not_eliminated(str(game_id), req.power, "its seat cannot be taken")
     _require_join_password(str(game_id), user, req.join_password)
     if random_powers:
         power, taken = _take_random_seat(game_id, int(user.id), (view or {}).get("dummy_powers", []))
@@ -1121,6 +1139,7 @@ def replace_player(
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
     if player is None:
         raise HTTPException(status_code=404, detail="Power not found in game")
+    api_shared.require_not_eliminated(str(game_id), req.power, "its seat cannot be taken")
     # Only allow replacement if user_id is None and is_active is False
     if player.user_id is not None:
         raise HTTPException(status_code=400, detail="Power is already assigned to a user. Only unassigned, inactive powers can be replaced.")

@@ -283,7 +283,12 @@ created (a waiting-list game) can be ended early only by an admin. The game view
 A game with a power that is neither seated nor a dummy is refused with 409, the header
 `X-Error-Code: seats_unfilled` (the name a client switches on) and the detail
 `"N powers are unseated (Austria, ...): seat players or mark them as dummies."`, whoever
-calls (see architecture.md, "A turn is processed only at a full table").
+calls (see architecture.md, "A turn is processed only at a full table"). Orders, draw
+votes and concessions get the same 409 and header, the detail prefixed with
+`Game N hasn't started: `, until the table is full or a turn has been processed
+(architecture.md, "Nothing is played before the game starts"); `POST /games/{id}/concede`
+returns `{status, power, game_status, eliminated, winners, auto_processed}`, `winners`
+naming the last power standing when the concession ended the game (else `[]`).
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):
