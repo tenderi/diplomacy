@@ -11,6 +11,8 @@ import time
 from unittest.mock import patch
 
 import pytest
+
+from tests.table_helpers import fill_with_dummies
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
@@ -93,6 +95,7 @@ class TestQuit:
 
     def test_pending_orders_survive_a_quit_for_the_replacement(self, client):
         game_id, a = _game_with_france(client)
+        fill_with_dummies(game_id)
         r = client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"]))
         assert r.status_code == 200
         client.post(f"/games/{game_id}/quit", json=_as(a))
@@ -107,6 +110,7 @@ class TestFillingAVacatedSeat:
 
     def test_replace_assigns_the_new_user(self, client):
         game_id, a = _game_with_france(client)
+        fill_with_dummies(game_id)
         client.post(f"/games/{game_id}/quit", json=_as(a))
         b = _telegram_user(client, "replacer")
         r = client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE"))
@@ -155,6 +159,7 @@ class TestFillingAVacatedSeat:
 
     def test_quitter_can_come_back(self, client):
         game_id, a = _game_with_france(client)
+        fill_with_dummies(game_id)
         client.post(f"/games/{game_id}/quit", json=_as(a))
         r = client.post(f"/games/{game_id}/join", json=_as(a, power="FRANCE"))
         assert r.status_code == 200 and r.json()["status"] == "ok", r.text
