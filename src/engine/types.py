@@ -420,6 +420,8 @@ class GameState:
     - ``winners`` — set when ``status`` becomes ``COMPLETED``: the power(s) that
       ended the game. A single power means a solo (≥ ``VICTORY_CENTERS`` centers);
       more than one means a negotiated draw among survivors (see ``Game.draw``).
+      A single power may also be the last one standing, and an empty set means
+      nobody was left (both decided by the server, ``GameService``).
       ``None`` while the game is still ``ACTIVE``/``FORMING``.
     """
 

@@ -35,7 +35,12 @@ def _retreats_owed(game_id: str) -> None:
     state = GameState(
         1901, Season.SPRING, PhaseType.RETREAT,
         units=frozenset({Unit(UnitKind.ARMY, "AUSTRIA", Location("VIE"))}),
-        ownership={"VIE": "AUSTRIA"},
+        # Every power keeps a centre: a board that eliminated all but AUSTRIA
+        # would end the game with it as the last power standing (BL6).
+        ownership={
+            "VIE": "AUSTRIA", "LON": "ENGLAND", "PAR": "FRANCE", "BER": "GERMANY",
+            "ROM": "ITALY", "MOS": "RUSSIA", "ANK": "TURKEY",
+        },
         dislodged=(
             _dislodged("FRANCE", "MAR", ["PIE", "GAS"]),
             _dislodged("ITALY", "VEN", ["PIE", "TUS"]),

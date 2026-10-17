@@ -339,8 +339,8 @@ class TestTheLastPowerStandingWins:
     def test_a_concession_between_the_read_and_the_save_is_not_undone(self) -> None:
         """FRANCE's concession leaves GERMANY, and GERMANY concedes right after
         FRANCE's request has read the board. Ending the game from that read would
-        write GERMANY's units back and crown it; the guarded save must refuse, and
-        the re-read finds nobody left."""
+        write GERMANY's units back and crown it; the guarded save must refuse. With
+        nobody left, GERMANY's concession ended the game without a winner (BL6)."""
         game_id, _ = _game(TestClient(app), ["FRANCE", "GERMANY"])
         fill_with_dummies(game_id)
         for power in ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"):
@@ -354,7 +354,7 @@ class TestTheLastPowerStandingWins:
             board = real_read(gid)
             if not fired:
                 fired.append(True)
-                assert game_service.concede(gid, "GERMANY")["ended_game"] is False
+                assert game_service.concede(gid, "GERMANY")["ended_game"] is True
             return board
 
         def racing(service: GameService, gid: str) -> object:
@@ -369,5 +369,5 @@ class TestTheLastPowerStandingWins:
         assert result["ended_game"] is False
         game = game_service.load(game_id)
         assert game is not None
-        assert game.state.status is not GameStatus.COMPLETED
+        assert (game.state.status, game.state.winners) == (GameStatus.COMPLETED, frozenset())
         assert [u for u in game.state.units if u.power == "GERMANY"] == []

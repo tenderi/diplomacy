@@ -256,7 +256,7 @@ place the full picture exists.
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
 | **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
-| **Game ended by a turn** (a solo: 18 centres) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
+| **Game ended by a turn** (a solo: 18 centres; or the turn left one power or none) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." A turn that eliminated the last opponent reads "Game N has ended: FRANCE is the last power standing and wins." (the winner: "you are the last power standing and win"), one that left nobody "Game N has ended: no power is left, so nobody wins." (`GameService.ending` tells them apart). One message: it replaces the usual turn DM. Every player's cached game list is invalidated | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
 | Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
 | Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
@@ -465,16 +465,25 @@ private or broadcast press or a channel broadcast (409 `... it can no longer sen
 messages`), and nobody can take its seat back through `/join` with that power, `/replace`
 or a random join (409 `... its seat cannot be taken`; a random join skips it). Both service
 refusals are `PowerEliminatedError`, a `GameOverError`, so every route already mapping that
-to 409 maps them. **When a concession leaves one power standing, the game ends with it as
-the sole winner** (`GameService._end_if_last_standing`, written like a draw: `Game.draw`
-narrowed to the survivor, `save_state` guarded by the board it was decided on, so two last
-powers conceding together leave no winner). Only the concession that ended the game
+to 409 maps them. **When a concession or a processed turn leaves one power standing, the game ends with it
+as the sole winner; when it leaves none, the game ends with no winners** (`COMPLETED`,
+`winners` empty). Both go through `GameService._last_standing_end` (`Game.draw` narrowed to
+the survivors). It is a server rule, not the engine's: under the rules adjudication alone
+can only eliminate every other power by taking all their home centres, which is already
+an 18-centre solo, so only after concessions (whose centres turn neutral) can a survivor be
+short of 18; and the engine's DATC boards hold only a few powers, which it must not end.
+A processed turn applies it before its one `save_state`, so the end and the turn are
+one write and one announcement. After a concession it is `_end_if_last_standing`, written
+like a draw: `save_state` guarded by the board it was decided on, so two last powers
+conceding together leave no winner rather than crowning one who left. Only the concession that ended the game
 announces it: one landing at the same moment finds the game ended and returns it as ended,
 with no "play on" notice and no auto-processing. The concede response then carries
 `game_status: "COMPLETED"` and `winners: ["GERMANY"]`, and instead of the concession notice
 `notify_last_power_standing` clears the deadline, invalidates every player's cached game
-list, tells the players (the winner reads "you are the last power standing and win") and
-posts to the game's group.
+list, tells the players (the winner reads "you are the last power standing and win"; with nobody
+left, "no power is left, so nobody wins") and posts to the game's group. The conceder, left
+out of that, is told by the reply to their concession (the bot: "You have conceded game N,
+and it has ended: ...").
 
 **A group broadcast (`POST /games/{id}/channel/broadcast`) is posted as the caller's own
 seat.** A web user's broadcast carries their seat's power whatever the body's `power` says;
