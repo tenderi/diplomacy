@@ -75,6 +75,25 @@ class TestDrawCommand:
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')
+    def test_draw_names_vacant_seats_still_needed(self, mock_ctx_get, mock_post):
+        mock_ctx_get.return_value = _ONE_GAME
+        mock_post.return_value = {
+            "status": "recorded", "game_status": "ACTIVE", "votes": ["FRANCE"],
+            "required": ["FRANCE", "GERMANY"], "vacant": ["GERMANY"], "quorum_reached": False,
+        }
+        update, context, message = _make_update_and_context()
+        asyncio.run(draw(update, context))
+        assert message.reply_text.call_args[0][0] == (
+            "🗳️ Your draw vote for Game 1 has been recorded.\n"
+            "1/2 voted for a draw so far.\n"
+            "Voted yes: FRANCE\n"
+            "Still needed from vacant seats: GERMANY. Someone can take a seat with "
+            "/replace 1 <power>, or the game's creator can make it a dummy with /dummy 1 <power>.\n"
+            "Draw votes last until the phase is processed."
+        )
+
+    @patch('server.telegram_bot.games.api_post')
+    @patch('server.telegram_bot.game_context.api_get')
     def test_draw_reaches_quorum_ends_game(self, mock_ctx_get, mock_post):
         mock_ctx_get.return_value = _ONE_GAME
         mock_post.return_value = {

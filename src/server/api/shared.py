@@ -13,7 +13,7 @@ import pytz
 from datetime import datetime, timezone, timedelta
 import re
 from fastapi import HTTPException
-from typing import Callable, Coroutine, Dict, Any, Optional, TYPE_CHECKING
+from typing import Callable, Coroutine, Dict, Any, Iterable, Optional, TYPE_CHECKING
 
 from ..db_config import SQLALCHEMY_DATABASE_URL
 from persistence.database_service import DatabaseService, DeadlineProposalChange
@@ -553,6 +553,13 @@ def after_draw_vote(
             # Both fields are always lists from `GameService.submit_draw_vote`:
             # `votes` is the yes-voters, `required` every power that must agree.
             tally = f"({len(result.get('votes') or [])}/{len(result.get('required') or [])} agreed)"
+            vacant = result.get("vacant")
+            if vacant is None:  # the DAIDE hook passes the service's result as is
+                vacant = vacant_voters(
+                    game_id,
+                    int(row.id),
+                    set(result.get("required") or ()) - set(result.get("votes") or ()),
+                )
             label = power_label(game_id, power)
             text = (
                 f"{label} has voted to end game {game_id} in a draw {tally}. "
@@ -561,6 +568,8 @@ def after_draw_vote(
                 if vote
                 else f"{label} has withdrawn its vote to end game {game_id} in a draw {tally}."
             )
+            if vacant:
+                text += " " + vacant_seat_hint(game_id, vacant)
             notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id)
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
@@ -864,6 +873,27 @@ def unseated_powers(game_id: str, numeric_game_id: int) -> list[str]:
     seated = {str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id)}
     taken = seated | set(game_service.dummy_powers(game_id))
     return sorted(set(game_service.map.initial_ownership.values()) - taken)
+
+
+def vacant_voters(game_id: str, numeric_game_id: int, needed: Iterable[str]) -> list[str]:
+    """Of the powers ``needed`` for a vote, those whose seat is vacant (BL3): a
+    row whose player quit, so nobody can vote until it is refilled or made a
+    dummy. Sorted."""
+    wanted = {str(p).upper() for p in needed}
+    return sorted(
+        str(p.power_name).upper()
+        for p in db_service.get_players_by_game_id(numeric_game_id)
+        if p.user_id is None and str(p.power_name).upper() in wanted
+    )
+
+
+def vacant_seat_hint(game_id: str, powers: Iterable[str]) -> str:
+    """How to fill a vacant seat, naming the real commands (BL3)."""
+    names = ", ".join(p.title() for p in powers)
+    return (
+        f"Vacant: {names}. Someone can take the seat with /replace {game_id} <power>, "
+        f"or the game's creator can make it a dummy with /dummy {game_id} <power>."
+    )
 
 
 def unseated_message(unseated: list[str]) -> str:
