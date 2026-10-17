@@ -138,3 +138,12 @@ class TestWritesRefusedOnCompletedGame:
         assert vote.json()["detail"] == head + "draw votes are no longer accepted"
         concede = client.post(f"/games/{game_id}/concede", json=_as_france(tg))
         assert concede.json()["detail"] == head + "a power can no longer concede"
+
+
+def test_quit_on_a_finished_game_is_refused(client) -> None:
+    game_id, tg = _drawn_game(client)
+    r = client.post(f"/games/{game_id}/quit", json=_as_france(tg))
+    assert r.status_code == 409
+    assert r.json()["detail"] == f"Game {game_id} is already over; there is no seat to quit."
+    seat = next(p for p in client.get(f"/games/{game_id}/players").json() if p["power"] == "FRANCE")
+    assert seat["user_id"] is not None

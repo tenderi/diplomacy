@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-16. `v3.0.125` did BL1 and BL2: orders, draw votes and
+- **Last updated:** 2026-10-17. `v3.0.126` did BL3: a vacant seat's draw vote stays required but
+  the quit announcement and draw tallies name it and how to fill it, and quit on a finished game
+  is a 409. `v3.0.125` did BL1 and BL2: orders, draw votes and
   concessions are a 409 `seats_unfilled` until the game starts, an eliminated power can't
   concede again, vote, send press or have its seat retaken, and a concession that leaves one
   power ends the game with it as the winner. `v3.0.124` did BK1 (Track BK, now removed): profiling showed the
@@ -139,7 +141,7 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   its dead seat. Make a repeat concede a no-op, refuse press, votes and rejoin for an
   eliminated power. When only one non-eliminated power remains, the game ends with it as the
   winner.
-- [ ] **BL3** A vacated seat (after `/quit`) blocks a draw: `_draw_quorum` still requires the
+- [x] **BL3** A vacated seat (after `/quit`) blocks a draw: `_draw_quorum` still requires the
   unseated power's vote. Leave it required (the seat can be refilled) but say so: the quit
   announcement and the vote tally name the vacant power and how to fill it (`/replace`, or
   the creator making it a dummy). Quit on a finished game is refused.
