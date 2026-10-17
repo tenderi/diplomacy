@@ -747,6 +747,11 @@ def submit_draw_vote(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except (StaleGameError, GameOverError) as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    row = db_service.get_game_by_game_id(game_id)
+    if row is not None:
+        result["vacant"] = api_shared.vacant_voters(
+            game_id, int(row.id), set(result.get("required") or ()) - set(result.get("votes") or ())
+        )
     api_shared.after_draw_vote(
         game_id, req.power, req.vote, result,
         exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
@@ -762,6 +767,10 @@ def draw_vote_status(game_id: str) -> Dict[str, Any]:
     status = game_service.get_draw_votes(game_id)
     if status is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    row = db_service.get_game_by_game_id(game_id)
+    status["vacant"] = (
+        api_shared.vacant_voters(game_id, int(row.id), status["missing"]) if row is not None else []
+    )
     return status
 
 
@@ -1102,6 +1111,8 @@ def quit_game(
         player = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
         if player is None:
             raise HTTPException(status_code=404, detail="Player not found in game")
+    if (game_service.meta(str(game_id)) or {}).get("status") == "completed":
+        raise HTTPException(status_code=409, detail=f"Game {game_id} is already over; there is no seat to quit.")
     # Vacate the seat: user_id -> NULL, is_active -> False, one commit.
     db_service.assign_player_seat(int(player.id), None, False)
     telegram_id_val = getattr(user, "telegram_id", None)
@@ -1114,7 +1125,12 @@ def quit_game(
         notify_user(telegram_id_val, f"You have quit game {game_id}.")
     try:
         power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-        notify_players(game_id, f"{power_label(game_id, str(power_name), user)} has left game {game_id}.")
+        notify_players(
+            game_id,
+            f"{power_label(game_id, str(power_name), user)} has left game {game_id}. "
+            f"{api_shared.vacant_seat_hint(str(game_id), [str(power_name)])} "
+            "Until then its draw vote is still needed.",
+        )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify players of quit event")
     return {"status": "ok"}

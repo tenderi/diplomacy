@@ -399,6 +399,14 @@ async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vo
             lines.append("Voted yes: " + ", ".join(votes))
     else:
         lines.append("No draw vote is currently possible (fewer than two surviving powers).")
+    vacant = result.get("vacant") or []
+    if vacant:
+        arg = vacant[0] if len(vacant) == 1 else "<power>"
+        lines.append(
+            f"Still needed from vacant seats: {', '.join(vacant)}. Someone can take a seat with "
+            f"/replace {game_id} {arg}, or the game's creator can make it a dummy with "
+            f"/dummy {game_id} {arg}."
+        )
     lines.append("Draw votes last until the phase is processed.")
     await update.message.reply_text("\n".join(lines))
 
