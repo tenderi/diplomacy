@@ -253,8 +253,8 @@ class TestVacantSeatBlocksDraw:
         text = notify.call_args[0][1]
         assert text == (
             f"GERMANY has left game {game_id}. Vacant: Germany. Someone can take the seat with "
-            f"/replace {game_id} <power>, or the game's creator can make it a dummy with "
-            f"/dummy {game_id} <power>. Until then its draw vote is still needed."
+            f"/replace {game_id} GERMANY, or the game's creator can make it a dummy with "
+            f"/dummy {game_id} GERMANY. Until then its draw vote is still needed."
         )
 
     def test_draw_vote_names_the_vacant_power_still_needed(self, client):
@@ -269,8 +269,8 @@ class TestVacantSeatBlocksDraw:
         text = notify.call_args[0][1]
         assert text.endswith(
             f"Use /draw to agree or /nodraw to withdraw. Vacant: Germany. Someone can take the seat "
-            f"with /replace {game_id} <power>, or the game's creator can make it a dummy with "
-            f"/dummy {game_id} <power>."
+            f"with /replace {game_id} GERMANY, or the game's creator can make it a dummy with "
+            f"/dummy {game_id} GERMANY."
         )
         status = client.get(f"/games/{game_id}/draw_vote_status").json()
         assert status["vacant"] == ["GERMANY"]

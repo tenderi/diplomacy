@@ -88,7 +88,7 @@ class TestDrawCommand:
             "1/2 voted for a draw so far.\n"
             "Voted yes: FRANCE\n"
             "Still needed from vacant seats: GERMANY. Someone can take a seat with "
-            "/replace 1 <power>, or the game's creator can make it a dummy with /dummy 1 <power>.\n"
+            "/replace 1 GERMANY, or the game's creator can make it a dummy with /dummy 1 GERMANY.\n"
             "Draw votes last until the phase is processed."
         )
 
