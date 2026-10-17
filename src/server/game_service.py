@@ -39,6 +39,7 @@ from engine.types import (
     PhaseType,
     ProvinceType,
     UnitKind,
+    VICTORY_CENTERS,
     Waive,
 )
 from server.legal_orders import adjustments_owed, powers_with_orders_to_give
@@ -438,6 +439,10 @@ class GameService:
                     continue
 
         resolution, next_game = game.adjudicate(orders)
+        # BL6: a turn that leaves one power standing (or none) ends the game, in
+        # the same write as the turn itself, so the turn result and the end are
+        # one event and announced once (``notify_turn_processed``).
+        next_game = self._last_standing_end(next_game) or next_game
 
         # Record the orders players actually submitted (with truthful A/F letters
         # against the pre-adjudication board) before pending is cleared.
@@ -805,16 +810,15 @@ class GameService:
         return result
 
     def _end_if_last_standing(self, game_id: str) -> Optional[Game]:
-        """End the game with its one remaining power as the winner, if only one
-        power is not eliminated (BL2): the others conceded or were wiped out, so
-        there is nobody left to play against. Returns the ended game, or ``None``
-        if the game goes on (or already ended).
+        """After a concession, end the game if at most one power is not
+        eliminated (``_last_standing_end``, BL2/BL6): the survivor wins alone, and
+        with nobody left the game ends without a winner. Returns the ended game,
+        or ``None`` if the game goes on (or already ended).
 
-        Written like a draw (``Game.draw`` narrowed to the survivor, then
-        ``save_state``), guarded by the board it was decided on: a concession that
-        lands in between changes the board, and the check runs again on the new
-        one -- two last powers conceding together leave no survivor, not a winner
-        who left.
+        Written like a draw (``Game.draw``, then ``save_state``), guarded by the
+        board it was decided on: a concession that lands in between changes the
+        board, and the check runs again on the new one -- two last powers
+        conceding together leave no survivor, not a winner who left.
         """
         for _ in range(_ADJUDICATION_ATTEMPTS):
             # One read: the ended board must be built from the very state
@@ -824,12 +828,9 @@ class GameService:
             if stored is None:
                 return None
             game = Game(map=self._map, state=state_from_dict(stored))
-            if game.state.status is GameStatus.COMPLETED:
+            ended = self._last_standing_end(game)
+            if ended is None:
                 return None
-            survivors = frozenset(self._map.home_centers) - game.eliminated_powers()
-            if len(survivors) != 1:
-                return None
-            ended = game.draw(survivors)
             try:
                 self._repo.save_state(
                     game_id,
@@ -846,6 +847,39 @@ class GameService:
                 return None
             return ended
         return None  # pragma: no cover -- a concession on every attempt
+
+    def _last_standing_end(self, game: Game) -> Optional[Game]:
+        """``game`` ended for want of opponents, or ``None`` if it goes on (or
+        already ended). One power not eliminated wins alone; none left (the last
+        powers conceded at the same moment) ends it with no winners
+        (``winners`` empty, not ``None``). Like a draw, a direct state
+        transition: the board and phase are kept as they are."""
+        if game.state.status is GameStatus.COMPLETED:
+            return None
+        survivors = frozenset(self._map.home_centers) - game.eliminated_powers()
+        if len(survivors) > 1:
+            return None
+        return game.draw(survivors)
+
+    def ending(self, game_id: str) -> Optional[dict[str, Any]]:
+        """How a finished game ended, ``None`` while it goes on (or for an
+        unknown game): ``{"winners": [...], "how": ...}`` where ``how`` is
+        ``"solo"`` (one winner holding ``VICTORY_CENTERS`` centres),
+        ``"last_standing"`` (one winner, everyone else eliminated), ``"draw"``
+        (several) or ``"no_winner"`` (nobody was left)."""
+        game = self.load(game_id)
+        if game is None or game.state.status is not GameStatus.COMPLETED:
+            return None
+        winners = sorted(game.state.winners or ())
+        if len(winners) > 1:
+            how = "draw"
+        elif not winners:
+            how = "no_winner"
+        elif sum(1 for o in game.state.ownership.values() if o == winners[0]) >= VICTORY_CENTERS:
+            how = "solo"
+        else:
+            how = "last_standing"
+        return {"winners": winners, "how": how}
 
     def is_eliminated(self, game_id: str, power: str) -> bool:
         """Whether ``power`` is out of a game that is still being played: it

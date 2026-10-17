@@ -16,7 +16,10 @@
 
 ## Status
 
-- **Last updated:** 2026-10-17. `v3.0.126` did BL3: a vacant seat's draw vote stays required but
+- **Last updated:** 2026-10-17. `v3.0.127` did BL6: a processed turn that leaves one power
+  (or none) ends the game, as a concession already did, and the last powers conceding together
+  end it with no winners; a turn that ends a game refreshes every player's cached game list
+  (BL5's cache point). `v3.0.126` did BL3: a vacant seat's draw vote stays required but
   the quit announcement and draw tallies name it and how to fill it, and quit on a finished game
   is a 409. `v3.0.125` did BL1 and BL2: orders, draw votes and
   concessions are a 409 `seats_unfilled` until the game starts, an eliminated power can't
@@ -150,13 +153,17 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   only when `changed` is true, and both draw replies say votes last until the phase is
   processed.
 - [ ] **BL5** Smaller: a deadline in the past is acknowledged as "Orders in by then"
-  (refuse it); a turn processed with a vacant power doesn't say that power's units held;
-  check that `process_turn` ending a game invalidates the `users/{tid}` cache entries.
-- [ ] **BL6** The game doesn't end when nobody, or one power, is left by any route but a
+  (refuse it); a turn processed with a vacant power doesn't say that power's units held.
+- [x] **BL6** The game doesn't end when nobody, or one power, is left by any route but a
   concession. Adjudication that wipes out every power but one leaves the game ACTIVE until
   someone reaches 18 centres; the last two powers conceding at the same moment leave an
   ACTIVE game with no units at all. Run the same last-power-standing check after
-  `process_turn`, and end a game with no power left (no winners).
+  `process_turn`, and end a game with no power left (no winners). Also (from BL5): a turn
+  that ends the game invalidates every player's `users/{tid}` cache entry.
+- [ ] **BL7** A game that ends with no winners (the last powers conceded together) sends
+  DAIDE clients nothing: `daide/server.py` sends `SLO` only for one winner and `DRW` only
+  for a draw vote. Send them the end (`OFF`, or whatever the DAIDE spec gives for a game
+  over without a winner).
 
 ---
 
