@@ -817,9 +817,14 @@ class GameService:
         who left.
         """
         for _ in range(_ADJUDICATION_ATTEMPTS):
-            game = self.load(game_id)
+            # One read: the ended board must be built from the very state
+            # the save is guarded by, or a concession committed between two
+            # reads would be written back over.
             stored = self._repo.get_state_json(game_id)
-            if game is None or stored is None or game.state.status is GameStatus.COMPLETED:
+            if stored is None:
+                return None
+            game = Game(map=self._map, state=state_from_dict(stored))
+            if game.state.status is GameStatus.COMPLETED:
                 return None
             survivors = frozenset(self._map.home_centers) - game.eliminated_powers()
             if len(survivors) != 1:
@@ -835,7 +840,7 @@ class GameService:
                     expected_state_json=stored,
                     refuse_completed=True,
                 )
-            except PhaseInputsChangedError:  # pragma: no cover -- a concession landed in between
+            except PhaseInputsChangedError:  # a concession landed in between
                 continue
             except StaleGameError:  # pragma: no cover -- the game ended or moved on meanwhile
                 return None

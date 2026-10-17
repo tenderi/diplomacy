@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from engine.types import GameStatus
 from server.api import app
 from server.api.shared import db_service, game_service
 from server.api.routes.auth import _create_access_token
@@ -334,3 +335,39 @@ class TestTheLastPowerStandingWins:
         play_on.assert_not_called()
         players.assert_not_called()  # the end is FRANCE's request's to announce
         auto.assert_not_called()
+
+    def test_a_concession_between_the_read_and_the_save_is_not_undone(self) -> None:
+        """FRANCE's concession leaves GERMANY, and GERMANY concedes right after
+        FRANCE's request has read the board. Ending the game from that read would
+        write GERMANY's units back and crown it; the guarded save must refuse, and
+        the re-read finds nobody left."""
+        game_id, _ = _game(TestClient(app), ["FRANCE", "GERMANY"])
+        fill_with_dummies(game_id)
+        for power in ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"):
+            game_service.concede(game_id, power)
+        repo = game_service._repo
+        real_read = repo.get_state_json
+        original = GameService._end_if_last_standing
+        fired: list[bool] = []
+
+        def read_then_germany_concedes(gid: str) -> object:
+            board = real_read(gid)
+            if not fired:
+                fired.append(True)
+                assert game_service.concede(gid, "GERMANY")["ended_game"] is False
+            return board
+
+        def racing(service: GameService, gid: str) -> object:
+            if fired:
+                return original(service, gid)
+            with patch.object(repo, "get_state_json", side_effect=read_then_germany_concedes):
+                return original(service, gid)
+
+        with patch.object(GameService, "_end_if_last_standing", autospec=True, side_effect=racing):
+            result = game_service.concede(game_id, "FRANCE")
+        assert fired == [True]
+        assert result["ended_game"] is False
+        game = game_service.load(game_id)
+        assert game is not None
+        assert game.state.status is not GameStatus.COMPLETED
+        assert [u for u in game.state.units if u.power == "GERMANY"] == []
