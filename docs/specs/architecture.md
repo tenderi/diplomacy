@@ -451,8 +451,9 @@ its centres would be owed builds at the next Winter and could walk back in. `/qu
 other path: the seat is vacated for a replacement and the board is untouched. A finished game
 refuses `/quit` (409, "Game N is already over; there is no seat to quit."). A vacant seat's draw
 vote stays required, since the seat can be refilled: the quit announcement says "Vacant: Germany.
-Someone can take the seat with /replace N <power>, or the game's creator can make it a dummy with
-/dummy N <power>. Until then its draw vote is still needed.", and `POST .../draw_vote` and
+Someone can take the seat with /replace N GERMANY, or the game's creator can make it a dummy with
+/dummy N GERMANY. Until then its draw vote is still needed." (with two or more vacant seats the
+commands say `<power>`), and `POST .../draw_vote` and
 `GET .../draw_vote_status` carry `vacant` (the vacant powers whose vote is still missing), which
 the bot's `/draw` reply and the vote announcement repeat.
 
