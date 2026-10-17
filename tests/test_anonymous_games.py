@@ -157,7 +157,7 @@ class TestAnnouncements:
         label = _label(anonymous, "GERMANY", bert_nick)
         with OutboxProbe() as probe:
             assert client.post(f"/games/{game_id}/quit", json=_as(bert)).status_code == 200
-        assert f"{label} has left game {game_id}." in probe.by_recipient()[anna]
+        assert any(m.startswith(f"{label} has left game {game_id}. Vacant: ") for m in probe.by_recipient()[anna])
 
 
 class TestRelayedMessages:

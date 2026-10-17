@@ -233,3 +233,49 @@ class TestProcessTurnRequireAll:
         assert client.post(path, headers=_BOT).status_code == 400
         client.post("/games/set_orders", json=_as(a, game_id=game_id, power="FRANCE", orders=["A PAR H", "A MAR H", "F BRE H"]))
         assert client.post(path, headers=_BOT).status_code == 200
+
+
+class TestVacantSeatBlocksDraw:
+    """BL3: a quit seat's draw vote is still required; players are told so."""
+
+    def _table(self, client):
+        game_id, a = _game_with_france(client)
+        b = _telegram_user(client, "germany")
+        r = client.post(f"/games/{game_id}/join", json=_as(b, power="GERMANY"))
+        assert r.status_code == 200, r.text
+        fill_with_dummies(game_id)
+        return game_id, a, b
+
+    def test_quit_announcement_names_the_seat_and_how_to_fill_it(self, client):
+        game_id, a, b = self._table(client)
+        with patch("server.api.routes.games.notify_players") as notify:
+            assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
+        text = notify.call_args[0][1]
+        assert text == (
+            f"GERMANY has left game {game_id}. Vacant: Germany. Someone can take the seat with "
+            f"/replace {game_id} <power>, or the game's creator can make it a dummy with "
+            f"/dummy {game_id} <power>. Until then its draw vote is still needed."
+        )
+
+    def test_draw_vote_names_the_vacant_power_still_needed(self, client):
+        game_id, a, b = self._table(client)
+        assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
+        with patch("server.api.shared.notify_players") as notify:
+            r = client.post(f"/games/{game_id}/draw_vote", json=_as(a, power="FRANCE", vote=True))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["vacant"] == ["GERMANY"]
+        assert body["quorum_reached"] is False
+        text = notify.call_args[0][1]
+        assert text.endswith(
+            f"Use /draw to agree or /nodraw to withdraw. Vacant: Germany. Someone can take the seat "
+            f"with /replace {game_id} <power>, or the game's creator can make it a dummy with "
+            f"/dummy {game_id} <power>."
+        )
+        status = client.get(f"/games/{game_id}/draw_vote_status").json()
+        assert status["vacant"] == ["GERMANY"]
+        assert status["missing"] == ["GERMANY"]
+
+    def test_a_filled_seat_is_not_vacant(self, client):
+        game_id, a, b = self._table(client)
+        assert client.get(f"/games/{game_id}/draw_vote_status").json()["vacant"] == []
