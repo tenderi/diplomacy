@@ -16,7 +16,9 @@
 
 ## Status
 
-- **Last updated:** 2026-10-17. `v3.0.127` did BL6: a processed turn that leaves one power
+- **Last updated:** 2026-10-18. `v3.0.128` did issue #242: the web header shows the nickname
+  (or "Set a nickname"), the game view offers the form to a seated player without one, and the
+  bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
   (or none) ends the game, as a concession already did, and the last powers conceding together
   end it with no winners; a turn that ends a game refreshes every player's cached game list
   (BL5's cache point). `v3.0.126` did BL3: a vacant seat's draw vote stays required but

@@ -232,7 +232,8 @@ There are three delivery surfaces, and they are not interchangeable:
   a typed id for any other game is refused, not swapped for the group's game. `/status`
   leaves out the caller's power, which would unmask an anonymous game, and ends with the
   same seat list `/players` shows: all seven powers, each with its nickname, "no nickname",
-  "taken" (anonymous), "open" or "civil disorder"; a bare
+  "taken" (anonymous), "open" or "civil disorder" (a private `/players` adds a line on
+  `/nickname <name>` when the caller's own seat has no nickname); a bare
   `/unlinkgroup` detaches it. Every other game command is private (the group guard).
 - **Web client** — pull-only. The SPA polls `GET /games/{id}/state`; nothing is pushed. Any row
   below is therefore "visible on next poll" for the browser, and that is not a gap to close
