@@ -844,10 +844,11 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         # In a group: the group's game (the list names no one's power for the
         # caller), not the game the caller last used in private.
+        my_power = None
         if in_group(update.effective_chat):
             game_id = group_read_game(update.effective_chat.id, game_id_arg)
         else:
-            game_id, _power = resolve_game_and_power(user_id, game_id_arg)
+            game_id, my_power = resolve_game_and_power(user_id, game_id_arg)
     except GameContextError as e:
         await update.message.reply_text(e.message)
         return
@@ -873,6 +874,12 @@ async def players(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     lines = [f"👥 *Players in Game {game_id}*\n", *seat_lines(players_list, dummies)]
+    mine = next((p for p in players_list if my_power and p.get('power') == my_power), None)
+    if mine and mine.get('user_id') is not None and not mine.get('nickname'):
+        lines.append(
+            f"\nYou have no nickname, so others see only {escape_markdown(my_power)}. "
+            "Set one with /nickname <name>, or on the home page of the web app."
+        )
 
     try:
         await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
