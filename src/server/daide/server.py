@@ -311,7 +311,8 @@ class DaideServer:
         `Game.draw()` is only ever reached through `submit_draw_vote`, which
         calls `broadcast_draw_completion` itself and marks
         ``_completion_notified`` immediately, so a `COMPLETED` status reaching
-        this method un-notified is always a solo, never a multi-power draw.
+        this method un-notified is a solo (`SLO`) or a game that ended with no
+        winner (BL6; `DRW`, as `DaideServer.broadcast_draw_completion` sends it).
         """
         sessions = self.sessions_for(game_id)
         if not sessions:
@@ -348,6 +349,9 @@ class DaideServer:
         completed = game.state.status.value == "COMPLETED"
         already_notified = self._completion_notified.get(game_id, False)
         winner = game.winner() if completed and not already_notified else None
+        # BL7: completed, not yet announced, and no solo winner: the game ended
+        # with nobody winning (BL6, or the last powers conceding together).
+        no_winner = completed and not already_notified and winner is None
 
         for daide_session in sessions.values():
             with contextlib.suppress(ConnectionError, OSError):
@@ -358,5 +362,7 @@ class DaideServer:
                     await daide_session._send(t.OUT, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[power], t.CLOSE_PAREN)
                 if winner is not None:
                     await daide_session._send(t.SLO, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[winner], t.CLOSE_PAREN)
+                if no_winner:
+                    await daide_session._send(t.DRW)
         if completed:
             self._completion_notified[game_id] = True
