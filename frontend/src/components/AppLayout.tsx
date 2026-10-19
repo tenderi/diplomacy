@@ -29,6 +29,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/sandbox">Sandbox</Link>
                 </Button>
+                <Button variant="ghost" size="sm" asChild>
+                  {user.nickname ? (
+                    <Link to="/" title="Change your nickname">{user.nickname}</Link>
+                  ) : (
+                    <Link to="/">Set a nickname</Link>
+                  )}
+                </Button>
                 <LinkTelegramButton variant="ghost" size="sm" />
                 <Button variant="outline" size="sm" onClick={logout}>
                   Logout

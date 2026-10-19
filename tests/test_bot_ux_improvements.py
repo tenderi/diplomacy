@@ -249,10 +249,33 @@ class TestMarkdownEscaping:
 
         asyncio.run(players(update, context))
 
-        assert message.reply_text.call_args[0][0].splitlines()[2:] == [
+        text = message.reply_text.call_args[0][0]
+        assert "You have no nickname, so others see only ENGLAND. Set one with /nickname <name>" in text
+        assert text.splitlines()[2:9] == [
             "✅ *AUSTRIA* - no nickname", "✅ *ENGLAND* - no nickname", "✅ *FRANCE* - Pawes",
             "✅ *GERMANY* - teBo", "✅ *ITALY* - Pansku", "⬜ *RUSSIA* - open", "✅ *TURKEY* - KukaKumma",
         ]
+
+    @patch("server.telegram_bot.games.api_get")
+    @patch("server.telegram_bot.game_context.api_get")
+    def test_players_gives_no_nickname_hint_to_a_player_who_has_one(self, mock_ctx_get, mock_games_get):
+        """#242: only the caller's own missing nickname earns the hint; another seat's does not."""
+        mock_ctx_get.return_value = {"games": [{"game_id": "2", "power": "FRANCE"}]}
+
+        def fake_get(path, *args, **kwargs):
+            if path.endswith("/players"):
+                return [{"power": "FRANCE", "seated": True, "user_id": 1, "is_active": True, "nickname": "Pawes"},
+                        {"power": "ENGLAND", "seated": True, "user_id": 2, "is_active": True, "nickname": None}]
+            return {"dummy_powers": []}
+
+        mock_games_get.side_effect = fake_get
+        update, context, message = _make_update_and_context()
+
+        asyncio.run(players(update, context))
+
+        text = message.reply_text.call_args[0][0]
+        assert "ENGLAND* - no nickname" in text
+        assert "/nickname" not in text
 
     @patch("server.telegram_bot.games.api_get")
     @patch("server.telegram_bot.game_context.api_get")

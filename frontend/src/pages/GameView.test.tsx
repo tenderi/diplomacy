@@ -1577,3 +1577,31 @@ describe('GameView — the Telegram group (BB2b)', () => {
     expect(fetchMock.mock.calls.some(([url]) => (url as string).endsWith('/channel'))).toBe(false)
   })
 })
+
+describe('GameView — nickname affordance', () => {
+  const noNick = { ...mockAuth, user: { ...mockUser, nickname: null } }
+  const renderWith = (auth: typeof mockAuth | typeof noNick) =>
+    render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={auth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+  it('offers the nickname form to a seated player without a nickname', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: null }]))
+    const { container } = renderWith(noNick)
+    expect(await within(container).findByText(/You have no nickname, so other players see only FRANCE/)).toBeInTheDocument()
+    expect(within(container).getByLabelText('Nickname')).toBeInTheDocument()
+  })
+
+  it('offers nothing to a player who has a nickname', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+    const { container } = renderWith(mockAuth)
+    await within(container).findByText('Players')
+    expect(within(container).queryByText(/You have no nickname/)).toBeNull()
+  })
+})
