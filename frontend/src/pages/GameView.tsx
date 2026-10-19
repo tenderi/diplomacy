@@ -7,6 +7,7 @@ import {
   type ProvinceInfo,
   type ProvinceNames,
 } from '@/lib/provinceNames'
+import { NicknameForm } from '@/components/NicknameForm'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import MapViewer from '@/components/MapViewer'
@@ -911,6 +912,14 @@ export default function GameView() {
             )
           })}
         </ul>
+        {myPower && user && !user.nickname && (
+          <div className="mt-3">
+            <p className="text-sm text-muted-foreground mb-1">
+              You have no nickname, so other players see only {myPower}. Set one here:
+            </p>
+            <NicknameForm />
+          </div>
+        )}
       </section>
 
       {myPower && gameId && <TelegramGroupCard gameId={gameId} />}

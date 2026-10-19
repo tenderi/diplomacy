@@ -146,4 +146,22 @@ describe('AppLayout', () => {
     )
     expect(within(container).queryByRole('link', { name: /send feedback/i })).toBeNull()
   })
+
+  it.each([
+    ['Test', 'Test'],
+    [null, 'Set a nickname'],
+  ])('header shows nickname %s as the link "%s" to the form', (nickname, label) => {
+    const auth = {
+      user: { id: 1, email: 'a@b.com', nickname, telegram_id: null, telegram_linked: false },
+      loading: false, login: vi.fn(), register: vi.fn(), logout: vi.fn(), refreshUser: vi.fn(),
+    }
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={auth}>
+          <AppLayout><p>page</p></AppLayout>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(within(container).getByRole('link', { name: label })).toHaveAttribute('href', '/')
+  })
 })
