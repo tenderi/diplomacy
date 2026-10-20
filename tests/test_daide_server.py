@@ -245,6 +245,29 @@ class TestNotifyGameProcessed:
         # newly-eliminated power.
         assert not any(_decode_frame(f)[0] == t.OUT for f in w_aus.sent)
 
+    async def test_a_game_that_ended_with_no_winner_sends_drw_once(self, service: GameService) -> None:
+        """BL7: COMPLETED with no winners (BL6) is a bare `DRW`, not silence, once."""
+        from engine.types import GameStatus
+
+        gid = _new_game(service)
+        server = DaideServer(service, game_id=gid)
+        w_aus = FakeWriter()
+        s_aus = DaideSession(None, w_aus, server)
+        s_aus.power = "AUSTRIA"
+        server.register(gid, "AUSTRIA", s_aus)
+        state = service.load(gid).state
+        ended = replace(state, units=frozenset(), status=GameStatus.COMPLETED, winners=frozenset())
+        service.restore_snapshot(gid, state_to_dict(ended), phase_code=ended.phase_name)
+
+        await server.notify_game_processed(gid)
+        assert [_decode_frame(f) for f in w_aus.sent][-1] == [t.DRW]
+        assert not any(_decode_frame(f)[0] == t.SLO for f in w_aus.sent)
+
+        w_aus.sent.clear()
+        await server.notify_game_processed(gid)
+        await server.broadcast_draw_completion(gid)
+        assert not any(t.DRW in _decode_frame(f) for f in w_aus.sent)
+
     async def test_no_sessions_on_the_game_is_a_no_op(self, service: GameService) -> None:
         gid = _new_game(service)
         server = DaideServer(service, game_id=gid)

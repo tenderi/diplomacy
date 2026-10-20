@@ -142,6 +142,7 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
         patch("server.api.shared.notify_players") as players,
         patch("server.api.shared.post_to_game_group") as group,
         patch("server.api.routes.games.notify_players") as play_on,
+        patch("server.api.shared._notify_daide_drawn") as daide,
     ):
         r = client.post(f"/games/{game_id}/concede", json=_as(seats["FRANCE"], power="FRANCE"))
     assert r.status_code == 200, r.text
@@ -154,6 +155,7 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
     assert game_service.ending(game_id) == {"winners": [], "how": "no_winner"}
 
     text = f"FRANCE has conceded, and game {game_id} has ended: no power is left, so nobody wins."
+    daide.assert_called_once_with(game_id)  # BL7: DAIDE clients get `DRW`
     play_on.assert_not_called()
     (_numeric, sent), kwargs = players.call_args
     assert (players.call_count, sent) == (1, text)
