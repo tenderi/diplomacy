@@ -247,7 +247,9 @@ mostly the ones that happen while the API is unreachable. `api/error_log.py` log
 the API returns at ERROR, so a route's own `HTTPException(500)` alerts too.
 
 (`DaideServer.notify_game_processed` is a fourth, protocol-level path — `NOW`/`ORD`/`OUT`/`SLO`
-to connected DAIDE bots. It is orthogonal to the table below and fires from both `process_turn`
+to connected DAIDE bots; a game that ends with no winners (BL6, or the last powers conceding
+together) sends a bare `DRW` once per game, since `OFF` means the server is shutting down and
+a solo `SLO` needs a winner. It is orthogonal to the table below and fires from both `process_turn`
 call sites already.)
 
 **The matrix.** Every trigger of an event notifies the same people; this table is the one

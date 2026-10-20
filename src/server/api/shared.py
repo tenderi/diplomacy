@@ -976,6 +976,9 @@ def notify_last_power_standing(
     else:
         text = f"{ended}: {power_label(game_id, winner)} is the last power standing and wins."
     invalidate_cache(f"games/{game_id}")
+    if winner is None:
+        # BL7: DAIDE clients get the bare `DRW` (game over, no solo) once.
+        _notify_daide_drawn(game_id)
     try:
         for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
             invalidate_cache(f"users/{telegram_id_val}")

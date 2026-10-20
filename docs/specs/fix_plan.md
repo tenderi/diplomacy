@@ -16,7 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-10-18. `v3.0.128` did issue #242: the web header shows the nickname
+- **Last updated:** 2026-10-19. `v3.0.129` did BL7: a game that ends with no winners sends
+  DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
   (or none) ends the game, as a concession already did, and the last powers conceding together
@@ -162,10 +163,11 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   ACTIVE game with no units at all. Run the same last-power-standing check after
   `process_turn`, and end a game with no power left (no winners). Also (from BL5): a turn
   that ends the game invalidates every player's `users/{tid}` cache entry.
-- [ ] **BL7** A game that ends with no winners (the last powers conceded together) sends
+- [x] **BL7** A game that ends with no winners (the last powers conceded together) sends
   DAIDE clients nothing: `daide/server.py` sends `SLO` only for one winner and `DRW` only
   for a draw vote. Send them the end (`OFF`, or whatever the DAIDE spec gives for a game
-  over without a winner).
+  over without a winner). Done (v3.0.129): bare `DRW`, once per game, from both the
+  processed-turn path and the concession that ended it.
 
 ---
 
