@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-19. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-20. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
