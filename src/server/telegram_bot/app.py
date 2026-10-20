@@ -11,7 +11,7 @@ import sys
 from typing import Optional
 
 from telegram import BotCommand, BotCommandScopeAllGroupChats, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import NetworkError, TelegramError, TimedOut
+from telegram.error import BadRequest, NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application, ApplicationBuilder, ApplicationHandlerStop, CommandHandler, ContextTypes, CallbackQueryHandler,
     MessageHandler, filters
@@ -330,6 +330,11 @@ async def _on_handler_error(update: object, context: ContextTypes.DEFAULT_TYPE) 
     if update is None and isinstance(context.error, (NetworkError, TimedOut)):
         # The polling loop lost Telegram for a moment; python-telegram-bot retries.
         logger.warning("Telegram polling error: %s", context.error)
+        return
+    if isinstance(context.error, BadRequest) and "message is not modified" in str(context.error).lower():
+        # A button that redraws its own message unchanged (the game menu pressed
+        # while it is already showing): the player already sees the answer.
+        logger.debug("Unchanged edit on %s", trigger)
         return
     logger.error("Error handling %s", trigger, exc_info=context.error)
     if not isinstance(update, Update):

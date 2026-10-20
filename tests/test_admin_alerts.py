@@ -254,3 +254,24 @@ def test_a_failing_apology_never_raises() -> None:
     update.effective_message.reply_text = AsyncMock(side_effect=TelegramError("blocked"))
     asyncio.run(bot_app._on_handler_error(update, Mock(error=RuntimeError("boom"))))
     update.effective_message.reply_text.assert_awaited_once_with(SORRY)
+
+
+def test_a_button_that_redraws_its_message_unchanged_is_neither_an_error_nor_an_apology(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from telegram.error import BadRequest
+
+    update = _failed_update("private", button=True)
+    error = BadRequest("Message is not modified: specified new message content and reply markup are exactly the same")
+    with caplog.at_level(logging.DEBUG, logger=bot_app.logger.name):
+        asyncio.run(bot_app._on_handler_error(update, Mock(error=error)))
+    update.effective_message.reply_text.assert_not_awaited()
+    assert [r.levelname for r in caplog.records] == ["DEBUG"]
+
+
+def test_any_other_bad_request_is_still_an_error_with_an_apology() -> None:
+    from telegram.error import BadRequest
+
+    update = _failed_update("private", button=True)
+    asyncio.run(bot_app._on_handler_error(update, Mock(error=BadRequest("Message to edit not found"))))
+    update.effective_message.reply_text.assert_awaited_once_with(SORRY)
