@@ -1,4 +1,4 @@
-"""BJ3 / BJ4: a refused replacement says what it dropped; an army build names no coast."""
+"""BJ3 / BJ4 / BO1: a fully refused replacement changes nothing; an army build names no coast."""
 from __future__ import annotations
 
 import pytest
@@ -18,7 +18,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_all_refused_non_merge_submission_names_the_dropped_orders(client: TestClient) -> None:
+def test_all_refused_non_merge_submission_keeps_the_earlier_orders(client: TestClient) -> None:
     game_id, tg = _one_build(client)
     body = _as(tg, game_id=game_id, power="FRANCE")
     ok = client.post("/games/set_orders", json={**body, "orders": ["BUILD F BRE"]})
@@ -26,10 +26,19 @@ def test_all_refused_non_merge_submission_names_the_dropped_orders(client: TestC
     resp = client.post("/games/set_orders", json={**body, "orders": ["BUILD A MUN"]})
     assert resp.json()["results"] == [{
         "order": "BUILD A MUN", "success": False, "error": "MUN is not a home supply center of FRANCE",
-        "replaced": ["BUILD F BRE"], "superseded_by": None,
-        "note": "none of these orders was accepted, so your earlier orders were dropped: BUILD F BRE",
+        "replaced": [], "superseded_by": None,
+        "note": "none of these orders was accepted, so nothing was changed. Your earlier orders stand: BUILD F BRE",
     }]
-    assert game_service.pending_orders_view(game_id).get("FRANCE", []) == []
+    assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD F BRE"]
+
+
+def test_partly_valid_replace_still_replaces(client: TestClient) -> None:
+    game_id, tg = _one_build(client)
+    body = _as(tg, game_id=game_id, power="FRANCE")
+    client.post("/games/set_orders", json={**body, "orders": ["BUILD F BRE"]})
+    resp = client.post("/games/set_orders", json={**body, "orders": ["BUILD A MUN", "BUILD A PAR"]})
+    assert [r["success"] for r in resp.json()["results"]] == [False, True]
+    assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD A PAR"]
 
 
 def test_accepted_replacement_reports_nothing_dropped(client: TestClient) -> None:

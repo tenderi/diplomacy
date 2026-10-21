@@ -199,9 +199,12 @@ class GameService:
 
         # The stored orders ``_make_room`` pushed out, filled in by ``store``.
         dropped: list[str] = []
+        # The stored orders a fully refused replacement left in place.
+        kept_orders: list[str] = []
 
         def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
             dropped.clear()
+            kept_orders.clear()
             new_orders = accepted
             if merge:
                 kept = []
@@ -219,6 +222,11 @@ class GameService:
                     kept, pushed_out = self._make_room(kept, len(accepted), slots, power)
                     dropped.extend(pushed_out)
                 new_orders = kept + accepted
+            elif not accepted and results and pending.get(power):
+                # A request refused in full changes nothing: the power keeps
+                # the plan it already had.
+                kept_orders.extend(pending.get(power, []))
+                return pending
             else:
                 dropped.extend(o for o in pending.get(power, []) if o not in accepted)
             return {**pending, power: new_orders}
@@ -226,13 +234,13 @@ class GameService:
         # One locked read-modify-write, and only if the phase these orders were
         # validated against is still the live one (StaleGameError otherwise).
         self._repo.modify_pending_orders(game_id, store, expected_phase_code=state.phase_name)
-        if not merge and not accepted and dropped and results:
-            # Nothing in the replacement was accepted, so the stored orders are
-            # gone and no accepted result exists to carry the news: the first
-            # (refused) result does.
-            results[0]["replaced"] = list(dropped)
+        if not merge and not accepted and kept_orders:
+            # Nothing in the replacement was accepted, so the stored orders were
+            # left alone; no accepted result exists to carry the news, so the
+            # first (refused) result does.
             results[0]["note"] = (
-                f"none of these orders was accepted, so your earlier orders were dropped: {', '.join(dropped)}"
+                "none of these orders was accepted, so nothing was changed. "
+                f"Your earlier orders stand: {', '.join(kept_orders)}"
             )
         elif merge:
             _report_replaced(results, dropped, state, power, slots)
