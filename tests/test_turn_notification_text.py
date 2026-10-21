@@ -223,3 +223,23 @@ def test_a_processed_turn_says_a_vacant_powers_units_held(
     assert posted == [
         f"The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n{line}"
     ]
+
+
+def test_a_power_that_ordered_before_quitting_is_not_said_to_have_held(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL5: /quit keeps pending orders, so Italy's orders are adjudicated: no vacant line."""
+    game_id, _row, users = _seeded_game(client)
+    italy_tg = users[REQUIRED_POWERS.index("ITALY")][1]
+    resp = client.post(
+        "/games/set_orders",
+        json={"game_id": game_id, "power": "ITALY", "orders": ["A ROM - VEN"], "telegram_id": italy_tg, "bot_secret": BOT_SECRET},
+    )
+    assert resp.status_code == 200, resp.text
+    quit_resp = client.post(f"/games/{game_id}/quit", json={"telegram_id": italy_tg, "bot_secret": BOT_SECRET})
+    assert quit_resp.status_code == 200, quit_resp.text
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
+    assert _by_power(probe, users)["FRANCE"] == [
+        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement."
+    ]

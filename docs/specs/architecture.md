@@ -333,7 +333,7 @@ When the phase just processed had a deadline and the new one has none, they end 
 "No deadline is set for <phase>." instead. A deadline announcement ("Deadline for game N set to …")
 adds "This deadline covers the current phase only." `POST /games/{id}/deadline` refuses a deadline at or
 before now (422, "That deadline has already passed. Choose a time in the future."). After a processed
-movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units adds
+movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units and ordered nothing that turn (orders it sent before quitting stand) adds
 "<Power>'s seat is vacant: its units held." to every DM and to the group post.
 
 **How a player is named** depends on the game (`games.anonymous`, fixed at creation).

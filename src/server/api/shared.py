@@ -678,7 +678,7 @@ def notify_turn_processed(
     vacant_line = ""
     if processed_phase and processed_phase.endswith("M"):
         try:
-            vacant_line = vacant_held_line(game_id, numeric_game_id)
+            vacant_line = vacant_held_line(game_id, numeric_game_id, processed_turn)
         except SQLAlchemyError as e:
             scheduler_logger.error(f"Failed to read the vacant seats of game {game_id}: {e}")
     # Dislodged units with no retreat, of powers that owe nothing (BJ2).
@@ -910,16 +910,24 @@ def vacant_voters(game_id: str, numeric_game_id: int, needed: Iterable[str]) -> 
     )
 
 
-def vacant_held_line(game_id: str, numeric_game_id: int) -> str:
+def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None) -> str:
     """For a processed movement turn, "Italy's seat is vacant: its units held." for
     each power whose seat is vacant (a player row whose user quit; not a dummy,
-    which civil disorder plays) and which still has units (BL5). ``""`` if none."""
+    which civil disorder plays) and which still has units (BL5). A power that submitted orders before quitting is
+    left out (``/quit`` keeps pending orders): only one with none in the processed
+    turn's order history held for want of orders. ``""`` if none."""
     view = game_service.view(game_id)
     if view is None:
         return ""
     with_units = {str(p).upper() for p, units in (view.get("units_by_power") or {}).items() if units}
     dummies = {str(p).upper() for p in game_service.dummy_powers(game_id)}
-    powers = [p for p in vacant_voters(game_id, numeric_game_id, with_units) if p not in dummies]
+    ordered: set[str] = set()
+    if processed_turn is not None:
+        submitted = game_service.order_history(game_id).get(str(processed_turn), {})
+        ordered = {str(p).upper() for p, orders in submitted.items() if orders}
+    powers = [
+        p for p in vacant_voters(game_id, numeric_game_id, with_units) if p not in dummies and p not in ordered
+    ]
     if not powers:
         return ""
     if len(powers) == 1:
