@@ -21,6 +21,11 @@ process — see "DAIDE protocol support" below), and the deadline scheduler back
 inside the API process. The scheduler's loop sleeps on the event loop but does each 30-second
 tick's work (processing due turns, reminders, proposal expiry, housekeeping) on a worker
 thread (`asyncio.to_thread`), so processing a turn never stalls the API or DAIDE clients.
+A tick reads every active game once and then works through them, each taking seconds, so
+before processing a due game it re-reads it and skips it unless it is still in the phase it
+saw with a deadline still due; it passes that phase to `GameService.process_turn` as
+`expected_phase_code`, which raises `StaleGameError` if the stored phase has moved on. A
+game another path processed meanwhile is never adjudicated again with no orders.
 
 ## Package boundaries
 
