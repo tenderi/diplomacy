@@ -239,7 +239,8 @@ paths) — built directly from `GameState`:
   "wait_flags": ["ENGLAND"],            // powers that asked the table to wait
   "private": false,                     // joining needs a password (never the hash)
   "anonymous": false,                   // players known only by their power (games.anonymous)
-  "random_powers": false                // joiners are dealt an open power (games.random_powers)
+  "random_powers": false,               // joiners are dealt an open power (games.random_powers)
+  "created_by_user_id": 7               // the creator; null when anonymous (the view is public)
 }
 ```
 
@@ -281,7 +282,9 @@ Who may call it: the game's creator (`games.created_by_user_id`) — as a Bearer
 as a Telegram player when the bot passes their `telegram_id` in the JSON body — plus the
 bare bot secret and the admin token. Anyone else, seated or not, gets 403; a game nobody
 created (a waiting-list game) can be ended early only by an admin. The game view carries
-`created_by_user_id` so the web shows "Process turn" only to the creator, and
+`created_by_user_id` so the web shows "Process turn" only to the creator (null in an
+anonymous game, whose public view must not link a user id to its creator; the web then
+reads `is_creator` from `GET /users/me/games`), and
 `GET /users/{telegram_id}/games` marks created games with `is_creator: true` for the bot.
 A game with a power that is neither seated nor a dummy is refused with 409, the header
 `X-Error-Code: seats_unfilled` (the name a client switches on) and the detail

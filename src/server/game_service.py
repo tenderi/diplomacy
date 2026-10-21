@@ -1063,7 +1063,10 @@ class GameService:
             "anonymous": anonymous,
             "random_powers": bool(meta.get("random_powers")),
             # Who may end a turn early (clients show "Process turn" only to them).
-            "created_by_user_id": meta.get("created_by_user_id"),
+            # Null in an anonymous game: this view is public, and a user id here
+            # would name the creator. The creator learns it from is_creator in
+            # GET /users/me/games.
+            "created_by_user_id": None if anonymous else meta.get("created_by_user_id"),
         }
 
     def pending_orders_view(self, game_id: str) -> Optional[dict[str, list[str]]]:
