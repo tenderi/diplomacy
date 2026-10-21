@@ -157,6 +157,64 @@ def test_reminder_and_notification():
         assert any(reminder_msgs)
 
 
+def _reminders_sent(game_id: str, now: datetime.datetime) -> int:
+    """Run one reminder pass at ``now``; how many reminders it sent ``game_id``."""
+    with patch("server.api.shared.notify_players") as mock_notify:
+        check_and_send_reminders(now)
+    return sum(
+        1 for call in mock_notify.call_args_list
+        if call.args[0] == int(game_id) and "Reminder" in call.args[1]
+    )
+
+
+def _restart_api_process() -> None:
+    """What a restart or a second uvicorn worker loses: the process's memory.
+    Before BN2 the reminder was remembered in ``shared.reminder_sent``; now
+    nothing in the process remembers it, so this only clears that if present."""
+    import server.api.shared as shared
+
+    vars(shared).get("reminder_sent", {}).clear()
+
+
+def test_reminder_is_not_resent_after_a_restart_inside_the_window():
+    """BN2: an API restart (a deploy) or a second worker inside the 10-minute
+    window used to send every player the reminder again."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    game_id = _create_game_as_player(client, headers)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    deadline = now + datetime.timedelta(minutes=8)
+    db_service.update_game_deadline(int(game_id), deadline)
+
+    assert _reminders_sent(game_id, now) == 1
+    _restart_api_process()
+    assert _reminders_sent(game_id, now + datetime.timedelta(minutes=1)) == 0
+    assert db_service.get_game_by_id(int(game_id)).reminded_deadline == deadline.replace(tzinfo=None)
+
+
+def test_a_changed_deadline_is_reminded_again():
+    """A new deadline -- a different value, or the same value written again for
+    a new phase -- gets its own reminder; claiming one is single-winner."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    game_id = _create_game_as_player(client, headers)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    first = now + datetime.timedelta(minutes=8)
+    db_service.update_game_deadline(int(game_id), first)
+    assert _reminders_sent(game_id, now) == 1
+
+    second = now + datetime.timedelta(minutes=9)
+    db_service.update_game_deadline(int(game_id), second)
+    assert _reminders_sent(game_id, now) == 1
+    assert _reminders_sent(game_id, now) == 0
+
+    db_service.update_game_deadline(int(game_id), second)
+    assert db_service.claim_deadline_reminder(int(game_id), second) is True
+    assert db_service.claim_deadline_reminder(int(game_id), second) is False
+    # A stale read of an old deadline claims nothing.
+    assert db_service.claim_deadline_reminder(int(game_id), first) is False
+
+
 def test_deadline_set_to_now():
     """Test that a deadline set to now is processed immediately."""
     client = TestClient(app)
