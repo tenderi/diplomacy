@@ -312,10 +312,12 @@ def test_accepted_proposal_rearms_the_ten_minute_reminder():
     client = TestClient(app)
     game_id, users = _seeded_game(client)
     numeric_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
-    api_shared.reminder_sent[numeric_id] = True
+    old = datetime.now(timezone.utc) + timedelta(minutes=5)
+    api_shared.db_service.update_game_deadline(numeric_id, old)
+    assert api_shared.db_service.claim_deadline_reminder(numeric_id, old) is True
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 1.0}, headers=users["FRANCE"])
     assert _accept(client, game_id, users)["status"] == "accepted"
-    assert api_shared.reminder_sent[numeric_id] is False
+    assert api_shared.db_service.get_game_by_id(numeric_id).reminded_deadline is None
 
 
 def test_finished_game_takes_no_deadline_writes():

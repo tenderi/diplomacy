@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-21. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-21. `v3.0.136` did BN2: the 10-minute deadline reminder is remembered in `games.reminded_deadline`, so a restart or a second worker no longer re-sends it. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -140,9 +140,9 @@
   still spent" write, so when a manual or auto process committed between the scheduler's
   read and its `process_turn`, the scheduler overwrote the deadline already armed for the
   new phase (with the next weekly slot, or None). It now skips the game.
-- [ ] **BN2** The 10-minute deadline reminder is tracked in the in-memory `reminder_sent`
-  dict (`shared.py`), so an API restart or deploy inside the window re-sends it to every
-  player. Persist it (e.g. remember the reminded deadline on the game row).
+- [x] **BN2** The 10-minute deadline reminder was tracked in the in-memory `reminder_sent`
+  dict (`shared.py`), so an API restart or deploy inside the window re-sent it to every
+  player. It is now `games.reminded_deadline`, claimed by one conditional update.
 - [x] **BN3** architecture.md's notification matrix said "Deadline set or cleared" has no
   channel post, but `routes/games.py` `set_deadline` posts `⏰ {text}` to the game group.
   The row now says so.

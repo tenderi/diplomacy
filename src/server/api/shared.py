@@ -70,8 +70,6 @@ scheduler_logger.setLevel(logging.INFO)
 # pushed at the bot; they are committed to the ``bot_outbox`` table (see
 # ``notify_user`` below) and the bot pulls them over ``GET /bot/outbox``.
 
-# In-memory reminder tracking
-reminder_sent: dict[int, bool] = {}  # game_id -> bool
 
 # How long a phase lasts when a game does not say (``games.phase_length_seconds``
 # is NULL). Used only by the explicit ``POST /games/{id}/deadline`` route as the
@@ -644,8 +642,6 @@ def notify_turn_processed(
     best-effort and logged.
     """
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
-    # A new turn means the next deadline gets its own 10-minute reminder.
-    reminder_sent[numeric_game_id] = False
 
     if game_ended:
         # A processed turn ends a game by a solo victory, or by leaving one
@@ -1053,7 +1049,6 @@ def arm_scheduled_deadline(game_id: str, numeric_game_id: int) -> Optional[datet
     deadline = scheduled_deadline(game_id)
     if deadline is not None:
         db_service.update_game_deadline(numeric_game_id, deadline)
-        reminder_sent[numeric_game_id] = False
         invalidate_cache(f"games/{game_id}")
     return deadline
 
@@ -1222,11 +1217,9 @@ def _run_proposal_change(
     change: Callable[[Optional[Dict[str, Any]]], DeadlineProposalChange],
 ) -> Dict[str, Any]:
     """Run ``change`` under the row lock (``modify_deadline_proposal``). A new
-    deadline gets its own 10-minute reminder, as ``POST .../deadline`` does."""
-    outcome = _modify_proposal(game_id, change)
-    if outcome.set_deadline:
-        reminder_sent[numeric_game_id] = False
-    return outcome.result
+    deadline gets its own 10-minute reminder, as ``POST .../deadline`` does:
+    writing it clears ``games.reminded_deadline``."""
+    return _modify_proposal(game_id, change).result
 
 
 def vote_on_deadline_proposal(
@@ -1456,7 +1449,6 @@ def skip_deadline_for_empty_seats(game_id: str, numeric_game_id: int, unseated: 
     scheduler_logger.info("Deadline for game %s passed with seats unfilled; not processing.", game_id)
     next_slot = scheduled_deadline(game_id)
     db_service.update_game_deadline(numeric_game_id, next_slot)
-    reminder_sent[numeric_game_id] = False
     invalidate_cache(f"games/{game_id}")
     if next_slot is not None:
         after = f"The next deadline is {format_scheduled_deadline(next_slot, game_schedule(game_id))}."
@@ -1540,7 +1532,9 @@ def process_due_deadlines(now: datetime) -> None:
 def check_and_send_reminders(now: datetime) -> None:
     """Send a one-time 10-minute-to-deadline reminder for every active game whose
     deadline is due within the next 10 minutes and hasn't already had one sent
-    (tracked in-memory via ``reminder_sent``).
+    (``games.reminded_deadline``). ``DatabaseService.claim_deadline_reminder``
+    records it with a conditional UPDATE before sending, so a restart or a
+    second uvicorn worker inside the window does not send it again.
 
     Split out from ``deadline_scheduler`` so it's callable directly -- both by the
     scheduler's own loop and by tests, which would otherwise have no way to
@@ -1563,12 +1557,11 @@ def check_and_send_reminders(now: datetime) -> None:
                     deadline = deadline.replace(tzinfo=pytz.UTC)
                 # Send reminder 10 minutes before deadline
                 if deadline - now <= timedelta(minutes=10) and deadline > now:
-                    if not reminder_sent.get(game_id_val, False):
+                    if db_service.claim_deadline_reminder(int(game_id_val), deadline):
                         gid = getattr(game, "game_id", None) or game_id_val
                         notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.", buttons=game_buttons(gid))  # type: ignore
                         post_to_game_group(gid, f"⏰ Game {gid}: 10 minutes until the deadline. Orders go to me in private.", dm_start=f"orders_{gid}")
                         scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
-                        reminder_sent[game_id_val] = True
     except Exception:  # noqa: BLE001 -- boundary: scheduler loop must survive one bad iteration
         scheduler_logger.exception("Error sending deadline reminders")
 
