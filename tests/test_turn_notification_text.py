@@ -128,7 +128,7 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
     due = " Next deadline: 2026-10-05 16:00 UTC."
     messages = _by_power(probe, users)
     assert messages["FRANCE"] == [
-        f"{head} your orders are due.\nYou may build 2 units (1 more waived: no free home supply centre).{due}"
+        f"{head} your orders are due.\nYou may build 2 units (free home centres: MAR, PAR; 1 more waived: no free home supply centre).{due}"
     ]
     assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit.{due}"]
     for power in ("ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):

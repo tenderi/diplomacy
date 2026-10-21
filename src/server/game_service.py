@@ -20,7 +20,7 @@ from engine.adjudicator.retreats import compute_retreat_options
 from engine.map_loader import MapData, load_standard_map
 from engine.game import Game, powers_on_board
 from engine.orders.parser import OrderParseError, format_order, parse_order
-from engine.orders.validation import validate
+from engine.orders.validation import legal_builds, validate
 from engine.simple_ai import generate_orders
 from engine.serialization import (
     order_from_dict,
@@ -1204,13 +1204,40 @@ class GameService:
                 out.setdefault(r["order"]["power"], []).append(_order_str(r).removeprefix("D "))
         return out
 
+    def waived_builds(self, game_id: str, turn: int) -> dict[str, int]:
+        """Builds ``turn``'s adjustment waived because the power sent no orders at all
+        (BO2), per power: ``{"FRANCE": 2}``. Only builds the power could have made
+        count: a build with no free home centre is waived whatever it ordered, and a
+        power that ordered anything (a build, an explicit waive) chose its outcome.
+        A civil-disorder dummy owes no one an explanation. Empty for any other turn."""
+        results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
+        ordered = self.order_history(game_id).get(str(turn), {})
+        waives: dict[str, int] = {}
+        for r in results:
+            if r["order"]["type"] == "WAIVE":
+                waives[r["order"]["power"]] = waives.get(r["order"]["power"], 0) + 1
+        sj = self._repo.get_state_json(game_id)
+        if not waives or sj is None:
+            return {}
+        state = state_from_dict(sj)
+        dummies = self.dummy_powers(game_id)
+        out: dict[str, int] = {}
+        for power, n in sorted(waives.items()):
+            if ordered.get(power) or power in dummies:
+                continue
+            # Nothing was built, so the board's free home centres are what they were.
+            owed = min(n, len({b.location.province for b in legal_builds(power, state, self._map)}))
+            if owed:
+                out[power] = owed
+        return out
+
     def retreat_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
         """Why ``turn``'s retreat phase removed units their power did not choose to
         disband (BJ1), one sentence per unit, per power::
 
             {"FRANCE": ["A MAR's retreat to PIE bounced (FRANCE and ITALY both
                          retreated there): it was disbanded."],
-             "RUSSIA": ["A WAR had no retreat order and was disbanded (civil disorder)."]}
+             "RUSSIA": ["A WAR had no valid retreat order and was disbanded."]}
 
         A bounced retreat is a ``RETREAT`` result ``BOUNCE``; an unordered unit with
         somewhere to go is the ``civil_disorder`` disband that carries its
@@ -1235,7 +1262,7 @@ class GameService:
                 out.setdefault(power, []).append(f"{unit}'s retreat to {dest} bounced ({there}): it was disbanded.")
             elif r.get("civil_disorder") and r.get("retreat_options"):
                 unit = _order_str(r).removeprefix("D ")
-                out.setdefault(power, []).append(f"{unit} had no retreat order and was disbanded (civil disorder).")
+                out.setdefault(power, []).append(f"{unit} had no valid retreat order and was disbanded.")
         return out
 
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
@@ -1289,7 +1316,8 @@ class GameService:
         - RETREAT: ``{"retreats": [{"unit": "A BUR", "options": ["BEL", "PIC"]}]}``,
           the options being ``DislodgedUnit.retreats`` as the adjudicator computed
           them (``compute_retreat_options``), not recomputed here;
-        - ADJUSTMENT: ``{"build": n, "waived": m}`` or ``{"disband": n}``, ``n``
+        - ADJUSTMENT: ``{"build": n, "waived": m, "sites": ["MAR", "PAR"]}`` (the free home
+          centres) or ``{"disband": n}``, ``n``
           from ``adjustments_owed`` and ``m`` the builds the centre count allows
           but no free home centre can take;
         - MOVEMENT: ``{}``.
@@ -1318,7 +1346,11 @@ class GameService:
             elif state.phase_type is PhaseType.ADJUSTMENT:
                 delta = len(state.centers_of(power)) - len(state.units_of(power))
                 owed = adjustments_owed(self._map, state, power)
-                duties[power] = {"build": owed, "waived": delta - owed} if delta > 0 else {"disband": owed}
+                if delta > 0:
+                    sites = sorted({b.location.province for b in legal_builds(power, state, self._map)})
+                    duties[power] = {"build": owed, "waived": delta - owed, "sites": sites}
+                else:
+                    duties[power] = {"disband": owed}
             else:
                 duties[power] = {}
         forced: dict[str, list[str]] = {}
