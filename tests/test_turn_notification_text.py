@@ -199,3 +199,27 @@ def test_a_dislodged_dummy_owes_nobody_anything(client: TestClient, monkeypatch:
     )
     assert probe.by_recipient() == {e: [wait], f: [wait]}
     assert posted == ["The turn has been processed. Fall 1901 retreats: nobody has anything to order."]
+
+
+def test_a_processed_turn_says_a_vacant_powers_units_held(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BL5: Italy quit, so nobody ordered its units; the DMs and the group say they held."""
+    game_id, _row, users = _seeded_game(client)
+    italy_tg = users[REQUIRED_POWERS.index("ITALY")][1]
+    quit_resp = client.post(
+        f"/games/{game_id}/quit", json={"telegram_id": italy_tg, "bot_secret": BOT_SECRET}
+    )
+    assert quit_resp.status_code == 200, quit_resp.text
+    posted: list[str] = []
+    monkeypatch.setattr(api_shared, "_post_turn_to_channel", lambda _g, text, *_a: posted.append(text))
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
+    line = "Italy's seat is vacant: its units held."
+    messages = _by_power(probe, users)
+    assert messages["FRANCE"] == [
+        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n{line}"
+    ]
+    assert posted == [
+        f"The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n{line}"
+    ]

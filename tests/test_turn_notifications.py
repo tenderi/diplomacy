@@ -131,11 +131,8 @@ def test_manual_and_deadline_triggers_notify_the_same_players() -> None:
 
     # --- deadline trigger, fresh game, same shape ------------------------
     game_id2, row_id2, users2 = _seeded_game(client)
-    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
-    resp = client.post(
-        f"/games/{game_id2}/deadline", json={"deadline": past}, headers=users2[0][0]
-    )
-    assert resp.status_code == 200, resp.text
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)
+    api_shared.db_service.update_game_deadline(row_id2, past)
 
     with OutboxProbe() as mock_post:
         process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
@@ -292,11 +289,9 @@ def test_both_triggers_snapshot_the_processed_turn() -> None:
     manual_deadline = client.get(f"/games/{game_id}/deadline").json()["deadline"]
 
     # --- deadline trigger -----------------------------------------------
-    game_id2, _row2, users2 = _seeded_game(client)
-    past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
-    assert client.post(
-        f"/games/{game_id2}/deadline", json={"deadline": past}, headers=users2[0][0]
-    ).status_code == 200
+    game_id2, row2, users2 = _seeded_game(client)
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)
+    api_shared.db_service.update_game_deadline(row2, past)
     with OutboxProbe():
         api_shared.process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
     deadline_snapshots = snapshot_turns(game_id2)

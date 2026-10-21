@@ -86,8 +86,7 @@ def test_the_route_answers_409_and_announces_nothing(client: TestClient) -> None
 
 def test_the_deadline_scheduler_skips_a_game_another_worker_processed(client: TestClient) -> None:
     game_id, tg = _game_with_an_order(client)
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-    assert client.post(f"/games/{game_id}/deadline", json=_as(tg, deadline=past)).status_code == 200
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
     stale = StaleGameError("already processed concurrently")
     with OutboxProbe() as probe, patch.object(game_service, "process_turn", side_effect=stale):
         api_shared.process_due_deadlines(datetime.now(timezone.utc))
