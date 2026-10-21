@@ -34,10 +34,13 @@ from engine.types import (
     Disband,
     GameState,
     GameStatus,
+    Location,
     Move,
     Order,
     PhaseType,
     ProvinceType,
+    SupportHold,
+    SupportMove,
     UnitKind,
     VICTORY_CENTERS,
     Waive,
@@ -287,6 +290,7 @@ class GameService:
                     # Store it as ``... VIA`` so the map overlay and DAIDE (which read
                     # ``via_convoy``) show it as the convoy the adjudicator resolves.
                     order = replace(order, via_convoy=True)
+                order = _with_board_coasts(order, state)
                 stored = format_order(order, kinds)
                 # The stored string is what adjudication (and the merge in
                 # ``submit_orders``) parses back. An order that validates but
@@ -1480,6 +1484,40 @@ def _order_key(order: Order) -> Optional[str]:
     if isinstance(order, Build):
         return order.location.province
     return order.unit.province  # type: ignore[attr-defined]
+
+
+def _with_board_coasts(order: Order, state: GameState) -> Order:
+    """``order`` with every unit it names placed on the coast that unit stands on.
+
+    A fleet on a split-coast province may be ordered without its coast
+    (``F STP - BOT`` for the fleet at ``STP/SC``): validation and adjudication
+    match units by province, so the order is valid. It was stored as written,
+    and the pending orders, the resolution's ``order_str`` and the order history
+    all showed ``F STP - BOT``. Filling in the board's coast makes them show the
+    unit the order moves, the same whether or not the player typed the coast.
+    A coast the player did name is kept: validation has already refused a wrong
+    one for the ordered unit. Destinations are untouched.
+    """
+    if isinstance(order, (Build, Waive)):
+        return order
+
+    def on_board(loc: Location, dislodged: bool = False) -> Location:
+        if loc.coast is not None:
+            return loc
+        if dislodged:
+            du = state.dislodged_at(loc.province)
+            unit = du.unit if du is not None else None
+        else:
+            unit = state.unit_at(loc.province)
+        return unit.location if unit is not None else loc
+
+    in_retreat = state.phase_type is PhaseType.RETREAT
+    order = replace(order, unit=on_board(order.unit, dislodged=in_retreat))  # type: ignore[attr-defined]
+    if isinstance(order, SupportHold):
+        return replace(order, target=on_board(order.target))
+    if isinstance(order, SupportMove):
+        return replace(order, origin=on_board(order.origin))
+    return order
 
 
 def _check_dummy_set(powers: list[str], map_data: Optional[MapData] = None) -> list[str]:
