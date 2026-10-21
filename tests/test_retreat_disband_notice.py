@@ -77,7 +77,7 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
     expected[by_power["ITALY"]] = [
         head + "\nA VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
     ]
-    expected[by_power["RUSSIA"]] = [head + "\nA WAR had no retreat order and was disbanded (civil disorder)."]
+    expected[by_power["RUSSIA"]] = [head + "\nA WAR had no valid retreat order and was disbanded."]
     assert _dms(probe) == expected
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
         (
@@ -86,7 +86,7 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
             "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
             "FRANCE: A MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded.\n"
             "ITALY: A VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded.\n"
-            "RUSSIA: A WAR had no retreat order and was disbanded (civil disorder).",
+            "RUSSIA: A WAR had no valid retreat order and was disbanded.",
         )
     ]
     # The web results list reads the same marks.

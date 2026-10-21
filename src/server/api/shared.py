@@ -688,8 +688,10 @@ def notify_turn_processed(
     # (BJ1): a retreat that bounced, or a unit left without a retreat order.
     disorder: dict[str, list[str]] = {}
     lost: dict[str, list[str]] = {}
+    waived: dict[str, int] = {}
     try:
         if processed_turn is not None:
+            waived = game_service.waived_builds(game_id, processed_turn)
             disorder = game_service.civil_disorder_disbands(game_id, processed_turn)
             lost = game_service.retreat_disbands(game_id, processed_turn)
     except SQLAlchemyError as e:
@@ -700,6 +702,7 @@ def notify_turn_processed(
             removed = {p: disorder[p] for p in sorted(powers) if p in disorder}
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             trapped = {p: forced[p] for p in sorted(powers) if p in forced}
+            my_waived = {p: waived[p] for p in sorted(powers) if p in waived}
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
             # in a retreat or adjustment phase they are told too when they owe
@@ -713,6 +716,7 @@ def notify_turn_processed(
                 and not removed
                 and not retreat_lost
                 and not trapped
+                and not my_waived
             ):
                 continue
             notify_user(
@@ -728,6 +732,7 @@ def notify_turn_processed(
                         for p, lines in retreat_lost.items()
                         for line in lines
                     ]
+                    + [(f"As {p}, your " if len(my_waived) > 1 else "Your ") + waived_line(n) for p, n in my_waived.items()]
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
                 + due,
@@ -747,6 +752,7 @@ def notify_turn_processed(
         channel_text = f"The turn has been processed. {label}: nobody has anything to order."
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
+    group_lines += [f"{power_label(game_id, p)}: {waived_line(n)}" for p, n in sorted(waived.items())]
     if vacant_line:
         group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
@@ -761,6 +767,14 @@ def civil_disorder_line(subject: str, units: list[str]) -> str:
     short = "1 disband" if len(units) == 1 else f"{len(units)} disbands"
     were = "was" if len(units) == 1 else "were"
     return f"{subject} {short} short, so {_join_names(units)} {were} disbanded (civil disorder)."
+
+
+def waived_line(n: int) -> str:
+    """A power's builds waived because it sent no adjustment orders (BO2):
+    "2 builds were waived: no orders came in." The DM prefixes "Your", the group
+    post the power's name and a colon, as the neighbouring lines do."""
+    builds = "build was" if n == 1 else "builds were"
+    return f"{n} {builds} waived: no orders came in."
 
 
 def _units(n: int) -> str:
@@ -820,8 +834,13 @@ def turn_message(
             else:
                 lines.append(f"Your {retreat['unit']}{of} was dislodged and has nowhere to retreat: it must disband.")
         if duty.get("build"):
-            waived = f" ({duty['waived']} more waived: no free home supply centre)" if duty.get("waived") else ""
-            lines.append(f"{as_power} may build {_units(duty['build'])}{waived}.")
+            notes = []
+            if duty.get("sites"):
+                notes.append(f"free home centres: {', '.join(duty['sites'])}")
+            if duty.get("waived"):
+                notes.append(f"{duty['waived']} more waived: no free home supply centre")
+            note = f" ({'; '.join(notes)})" if notes else ""
+            lines.append(f"{as_power} may build {_units(duty['build'])}{note}.")
         if duty.get("disband"):
             lines.append(f"{as_power} must disband {_units(duty['disband'])}.")
     return "\n".join(lines + lost)
