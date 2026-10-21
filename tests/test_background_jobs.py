@@ -151,11 +151,12 @@ def test_one_failing_game_does_not_stop_the_deadline_sweep(
     monkeypatch.setattr(shared.db_service, "get_games_with_deadlines_and_active_status", Mock(return_value=games))
     monkeypatch.setattr(shared, "unseated_powers", Mock(return_value=[]))
     monkeypatch.setattr(shared, "scheduled_deadline", Mock(return_value=None))
+    monkeypatch.setattr(shared, "_deadline_still_due", Mock(return_value=True))
     monkeypatch.setattr(shared.game_service, "view", Mock(return_value={"phase": "S1901M"}))
     update = Mock()
     monkeypatch.setattr(shared.db_service, "update_game_deadline", update)
 
-    def process(game_id: str) -> None:
+    def process(game_id: str, **_: object) -> None:
         raise RuntimeError(f"boom {game_id}")
 
     monkeypatch.setattr(shared.game_service, "process_turn", Mock(side_effect=process))
