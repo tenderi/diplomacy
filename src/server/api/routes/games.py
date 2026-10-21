@@ -1470,9 +1470,8 @@ def set_deadline(
     if deadline is None and req.phase_length_seconds is not None:
         deadline = api_shared.next_deadline(req.phase_length_seconds)
     db_service.update_game_deadline(int(game.id), deadline)
-    # A new deadline gets its own 10-minute reminder, even if the previous one
-    # for this phase already fired (extending a deadline after the reminder).
-    api_shared.reminder_sent[int(game.id)] = False
+    # Writing it clears ``reminded_deadline``: a new deadline gets its own
+    # 10-minute reminder, even if the previous one for this phase already fired.
     invalidate_cache(f"games/{game_id}")
 
     # Everyone plays to the same clock, so everyone hears it change. Best-effort,

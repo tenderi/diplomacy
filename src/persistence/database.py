@@ -90,6 +90,13 @@ class GameModel(Base):
     # orders survived (``order_history``) but their outcomes did not.
     resolution_history = Column(JSON, nullable=True)
     deadline = Column(DateTime, nullable=True)  # Optional deadline for turn processing
+    # The deadline whose 10-minute reminder has been sent (naive UTC, like
+    # ``deadline``). Durable so a restart or a second uvicorn worker does not
+    # send it again; ``DatabaseService.claim_deadline_reminder`` sets it with a
+    # conditional UPDATE only one caller can win. Every write of ``deadline``
+    # clears it, so a new deadline (even an equal value for a new phase) gets
+    # its own reminder.
+    reminded_deadline = Column(DateTime, nullable=True)
     # How long each phase lasts, in seconds, for a caller that wants to arm an
     # automatic deadline explicitly (``POST /games/{id}/deadline`` with
     # ``phase_length_seconds`` and no ``deadline``). Purely a convenience for
