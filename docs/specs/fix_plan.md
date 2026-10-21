@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-21. `v3.0.136` did BN2: the 10-minute deadline reminder is remembered in `games.reminded_deadline`, so a restart or a second worker no longer re-sends it. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-21. `v3.0.137` did BN6: the deadline scheduler re-checks a game's phase and deadline before processing it and passes the phase it saw to `process_turn`, so a game advanced (or a deadline extended) after the scheduler's read is no longer adjudicated with no orders. `v3.0.136` did BN2: the 10-minute deadline reminder is remembered in `games.reminded_deadline`, so a restart or a second worker no longer re-sends it. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -137,9 +137,10 @@
 
 - [x] **BN1** Scheduler race: in `process_due_deadlines` (`server/api/shared.py`) the
   `except StaleGameError` branch fell through to the "processing failed: the deadline is
-  still spent" write, so when a manual or auto process committed between the scheduler's
-  read and its `process_turn`, the scheduler overwrote the deadline already armed for the
-  new phase (with the next weekly slot, or None). It now skips the game.
+  still spent" write, so when another worker's processing committed inside
+  `process_turn`'s own read-to-save window, the scheduler overwrote the deadline already
+  armed for the new phase (with the next weekly slot, or None). It now skips the game.
+  (A commit *before* `process_turn` loaded the game raised nothing: that is BN6.)
 - [x] **BN2** The 10-minute deadline reminder was tracked in the in-memory `reminder_sent`
   dict (`shared.py`), so an API restart or deploy inside the window re-sent it to every
   player. It is now `games.reminded_deadline`, claimed by one conditional update.
@@ -149,6 +150,15 @@
 - [x] **BN4** `GameService.view()` returns `created_by_user_id` on the unauthenticated
   `GET /games/{id}/state`, also for anonymous games, and data_spec's view shape doesn't
   list it. Null it for anonymous games (check how the frontend uses it first) and document it.
+- [x] **BN6** The deadline scheduler could adjudicate a phase nobody had had a chance to
+  order for. `process_due_deadlines` reads every active game once, then processes them one
+  by one, seconds apart; a game processed meanwhile by another path (manual, auto-process)
+  was then processed again from the stale row, and `process_turn` adjudicated the phase it
+  freshly loaded, so the new phase ran with every unit holding. The same went for a
+  deadline pushed back within the phase. The scheduler now re-reads the game and skips it
+  unless it is still in the phase it saw with a deadline still due, and passes that phase
+  to `GameService.process_turn(expected_phase_code=...)`, which raises `StaleGameError`
+  if the stored phase differs.
 - [ ] **BN5** (maintainer decision) After quit and replace, the new holder of a power reads
   every earlier private message sent to that power (`routes/messages.py` filters by
   `recipient_power`, not by user). Decide whether that is intended.

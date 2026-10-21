@@ -402,7 +402,7 @@ class GameService:
 
     # -- turn processing --------------------------------------------------
 
-    def process_turn(self, game_id: str) -> dict[str, Any]:
+    def process_turn(self, game_id: str, expected_phase_code: Optional[str] = None) -> dict[str, Any]:
         """Adjudicate all pending orders, advance the phase, persist, clear orders.
 
         Raises ``StaleGameError`` if another process already advanced this game's
@@ -410,10 +410,16 @@ class GameService:
         loaded no longer matches what's persisted) -- the caller (an HTTP route)
         should surface that as 409 rather than silently re-adjudicating or
         clobbering the concurrent result.
+
+        ``expected_phase_code`` is the phase the caller decided to process (the
+        deadline scheduler passes the phase of the row whose deadline fell due).
+        If the stored phase is already another one, the game moved on after the
+        caller looked, and this raises ``StaleGameError`` instead of
+        adjudicating a phase nobody has had a chance to order for.
         """
         for attempt in range(_ADJUDICATION_ATTEMPTS):
             try:
-                return self._process_turn_once(game_id)
+                return self._process_turn_once(game_id, expected_phase_code)
             except PhaseInputsChangedError:
                 # An order or a concession landed mid-adjudication; the phase is
                 # still ours to process, so adjudicate it again with them.
@@ -421,11 +427,18 @@ class GameService:
                     raise
         raise AssertionError("unreachable")  # pragma: no cover
 
-    def _process_turn_once(self, game_id: str) -> dict[str, Any]:
+    def _process_turn_once(self, game_id: str, expected_phase_code: Optional[str] = None) -> dict[str, Any]:
         sj = self._repo.get_state_json(game_id)
         if sj is None:
             raise OrderError(f"game {game_id} not found")
         game = Game(map=self._map, state=state_from_dict(sj))
+        if expected_phase_code is not None and game.state.phase_name != expected_phase_code:
+            # The save below checks the phase *this call* loaded; this checks the
+            # one the caller meant. (BN6)
+            raise StaleGameError(
+                f"game {game_id}: expected phase {expected_phase_code!r}, "
+                f"found {game.state.phase_name!r}; already processed concurrently"
+            )
         _require_active(game, game_id, "the turn cannot be processed")
 
         submitted = self._repo.get_pending_orders(game_id)

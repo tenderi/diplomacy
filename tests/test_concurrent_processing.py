@@ -102,7 +102,7 @@ def test_a_scheduler_that_loses_the_race_keeps_the_new_phase_deadline(client: Te
     armed = datetime(2099, 1, 2, 3, 4, 5)
     real_process_turn = game_service.process_turn
 
-    def processed_elsewhere(gid: str) -> None:
+    def processed_elsewhere(gid: str, **_: object) -> None:
         real_process_turn(gid)  # the other worker's turn
         db_service.update_game_deadline(int(gid), armed)  # and the deadline it arms
         raise StaleGameError("already processed concurrently")
@@ -111,6 +111,66 @@ def test_a_scheduler_that_loses_the_race_keeps_the_new_phase_deadline(client: Te
         api_shared.process_due_deadlines(datetime.now(timezone.utc))
     assert game_service.meta(game_id)["phase_code"] == "F1901M"
     assert db_service.get_game_by_game_id(game_id).deadline == armed
+
+
+def test_the_scheduler_does_not_adjudicate_a_phase_that_began_after_its_read(client: TestClient) -> None:
+    """BN6: the scheduler reads every active game once, then works through them. A
+    game processed meanwhile is at F1901M with a fresh deadline; the scheduler must
+    not adjudicate F1901M, which nobody has ordered for yet."""
+    game_id, _ = _game_with_an_order(client)
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
+    stale_rows = db_service.get_games_with_deadlines_and_active_status()
+    game_service.process_turn(game_id)  # another path processes S1901M ...
+    armed = datetime(2099, 1, 2, 3, 4, 5)
+    db_service.update_game_deadline(int(game_id), armed)  # ... and arms F1901M's deadline
+    with patch.object(db_service, "get_games_with_deadlines_and_active_status", return_value=stale_rows):
+        api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert game_service.meta(game_id)["phase_code"] == "F1901M"
+    assert list(game_service.order_history(game_id)) == ["0"]
+    assert db_service.get_game_by_game_id(game_id).deadline == armed
+
+
+def test_the_scheduler_passes_the_phase_it_saw_to_process_turn(client: TestClient) -> None:
+    """BN6, the narrower window: the game moves on after the scheduler's re-check
+    but before process_turn loads it. The phase the scheduler saw goes with the call,
+    so process_turn refuses instead of adjudicating the new phase."""
+    game_id, _ = _game_with_an_order(client)
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
+    real_process_turn = game_service.process_turn
+    armed = datetime(2099, 1, 2, 3, 4, 5)
+
+    def advanced_just_before(gid: str, **kwargs: object) -> dict:
+        real_process_turn(gid)  # the other path
+        db_service.update_game_deadline(int(gid), armed)
+        return real_process_turn(gid, **kwargs)  # the scheduler's own call
+
+    with patch.object(game_service, "process_turn", side_effect=advanced_just_before):
+        api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert game_service.meta(game_id)["phase_code"] == "F1901M"
+    assert list(game_service.order_history(game_id)) == ["0"]
+    assert db_service.get_game_by_game_id(game_id).deadline == armed
+
+
+def test_process_turn_refuses_a_phase_other_than_the_expected_one(client: TestClient) -> None:
+    game_id, _ = _game_with_an_order(client)
+    with pytest.raises(StaleGameError, match="expected phase 'W1905A', found 'S1901M'"):
+        game_service.process_turn(game_id, expected_phase_code="W1905A")
+    assert game_service.meta(game_id)["phase_code"] == "S1901M"
+    assert game_service.process_turn(game_id, expected_phase_code="S1901M")["phase"] == "F1901M"
+
+
+def test_the_scheduler_skips_a_deadline_extended_after_its_read(client: TestClient) -> None:
+    """BN6: the same race within one phase -- the deadline was pushed back after the
+    scheduler read the row; the phase must wait for the new deadline."""
+    game_id, _ = _game_with_an_order(client)
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
+    stale_rows = db_service.get_games_with_deadlines_and_active_status()
+    extended = datetime(2099, 1, 2, 3, 4, 5)
+    db_service.update_game_deadline(int(game_id), extended)
+    with patch.object(db_service, "get_games_with_deadlines_and_active_status", return_value=stale_rows):
+        api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert game_service.meta(game_id)["phase_code"] == "S1901M"
+    assert db_service.get_game_by_game_id(game_id).deadline == extended
 
 
 def test_auto_processing_stops_when_it_loses_the_race(client: TestClient) -> None:
