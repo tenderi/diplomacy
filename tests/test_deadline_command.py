@@ -499,3 +499,19 @@ class TestDeadlineSchedule:
             "📅 Game 1 has a deadline every Mon, Wed, Fri at 16:00 (UTC). "
             "Stop it with /deadline 1 schedule off."
         ]
+
+
+@patch('server.telegram_bot.games.api_post')
+@patch('server.telegram_bot.game_context.api_get')
+def test_a_refused_past_deadline_shows_the_servers_message(mock_ctx_get, mock_post):
+    from server.telegram_bot.api_client import ApiError
+
+    mock_ctx_get.return_value = _ONE_GAME
+    mock_post.side_effect = ApiError("That deadline has already passed. Choose a time in the future.")
+    update, context, message = _make_update_and_context(args=["1", "12"])
+
+    asyncio.run(deadline(update, context))
+
+    assert message.reply_text.call_args[0][0] == (
+        "Could not set the deadline: That deadline has already passed. Choose a time in the future."
+    )

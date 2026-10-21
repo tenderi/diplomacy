@@ -9,7 +9,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +28,7 @@ from ...deadline_schedule import ScheduleError, parse_schedule
 from engine.types import GameStatus
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
+from persistence.database import utcnow_naive
 from persistence.game_repo import StaleGameError
 from server.game_service import GameOverError, OrderError
 from server.nickname import display_name
@@ -1415,6 +1416,13 @@ def set_deadline_schedule(
     }
 
 
+def _naive_utc_value(value: datetime) -> datetime:
+    """``value`` as naive UTC (a naive input is taken to be UTC already)."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 @router.post("/games/{game_id}/deadline")
 def set_deadline(
     game_id: str,
@@ -1447,6 +1455,11 @@ def set_deadline(
         raise HTTPException(
             status_code=400,
             detail="phase_length_seconds must be >= 0 (0 means no automatic deadline)",
+        )
+    if req.deadline is not None and _naive_utc_value(req.deadline) <= utcnow_naive():
+        raise HTTPException(
+            status_code=422,
+            detail="That deadline has already passed. Choose a time in the future.",
         )
     if req.phase_length_seconds is not None:
         db_service.update_game_phase_length(int(game.id), req.phase_length_seconds)
