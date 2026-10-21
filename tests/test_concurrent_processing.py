@@ -94,6 +94,25 @@ def test_the_deadline_scheduler_skips_a_game_another_worker_processed(client: Te
     assert game_service.meta(game_id)["phase_code"] == "S1901M"
 
 
+def test_a_scheduler_that_loses_the_race_keeps_the_new_phase_deadline(client: TestClient) -> None:
+    """BN1: another path processed the turn and armed the next phase's deadline between
+    the scheduler's read and its process_turn; the scheduler must not overwrite it."""
+    game_id, _ = _game_with_an_order(client)
+    db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
+    armed = datetime(2099, 1, 2, 3, 4, 5)
+    real_process_turn = game_service.process_turn
+
+    def processed_elsewhere(gid: str) -> None:
+        real_process_turn(gid)  # the other worker's turn
+        db_service.update_game_deadline(int(gid), armed)  # and the deadline it arms
+        raise StaleGameError("already processed concurrently")
+
+    with patch.object(game_service, "process_turn", side_effect=processed_elsewhere):
+        api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert game_service.meta(game_id)["phase_code"] == "F1901M"
+    assert db_service.get_game_by_game_id(game_id).deadline == armed
+
+
 def test_auto_processing_stops_when_it_loses_the_race(client: TestClient) -> None:
     game_id, _ = _game_with_an_order(client)
     with patch.object(game_service, "ready_to_auto_process", return_value=True), \

@@ -1510,6 +1510,10 @@ def process_due_deadlines(now: datetime) -> None:
                             "PROCESS_TURN for game %s already processed concurrently, skipping.",
                             game_id_str,
                         )
+                        # The other path owns the new phase and has already
+                        # armed (or cleared) its deadline; writing one here
+                        # would overwrite it.
+                        continue
                     except Exception:  # noqa: BLE001 -- boundary: one failing game must not stop the others' deadlines
                         scheduler_logger.exception("Failed to process turn for game %s", game_id_str)
                     else:
