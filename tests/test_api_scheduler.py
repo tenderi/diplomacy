@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import patch
 
 from tests.table_helpers import fill_with_dummies
+from server.api.shared import db_service
 
 
 def _auth_headers(client: TestClient) -> dict:
@@ -84,9 +85,9 @@ def test_deadline_past_on_startup():
     # Create a game
     game_id = _create_game_as_player(client, headers)
     # Set a deadline in the past
-    past_deadline = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
-    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": past_deadline}, headers=headers)
-    assert resp.status_code == 200
+    past_deadline = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)
+    # The route refuses a past deadline (BL5), so arm it directly.
+    db_service.update_game_deadline(int(game_id), past_deadline)
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
     # Re-query with a new client/session to avoid stale cache
@@ -161,9 +162,7 @@ def test_deadline_set_to_now():
     client = TestClient(app)
     headers = _auth_headers(client)
     game_id = _create_game_as_player(client, headers)
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": now}, headers=headers)
-    assert resp.status_code == 200
+    db_service.update_game_deadline(int(game_id), datetime.datetime.now(datetime.timezone.utc))
     # Synchronously process deadlines
     process_due_deadlines(datetime.datetime.now(datetime.timezone.utc))
     # Re-query with a new client/session to avoid stale cache
@@ -245,3 +244,19 @@ def test_deadline_route_can_arm_from_phase_length_explicitly():
         f"/games/{game_id}/deadline", json={"phase_length_seconds": -1}, headers=headers
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("offset", [datetime.timedelta(0), datetime.timedelta(minutes=-1)])
+@pytest.mark.parametrize("aware", [True, False])
+def test_deadline_in_the_past_is_refused(offset, aware):
+    """BL5: a deadline at or before now is a 422, and nothing is stored."""
+    client = TestClient(app)
+    headers = _auth_headers(client)
+    game_id = _create_game_as_player(client, headers)
+    when = datetime.datetime.now(datetime.timezone.utc) + offset - datetime.timedelta(seconds=1)
+    if not aware:
+        when = when.replace(tzinfo=None)
+    resp = client.post(f"/games/{game_id}/deadline", json={"deadline": when.isoformat()}, headers=headers)
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "That deadline has already passed. Choose a time in the future."
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] is None

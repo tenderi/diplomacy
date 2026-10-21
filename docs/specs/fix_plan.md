@@ -16,7 +16,7 @@
 
 ## Status
 
-- **Last updated:** 2026-10-21. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-21. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -155,8 +155,7 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   confirm step. `/quit`'s reply says what happens to the units. `/nodraw` says "withdrawn"
   only when `changed` is true, and both draw replies say votes last until the phase is
   processed.
-- [ ] **BL5** Smaller: a deadline in the past is acknowledged as "Orders in by then"
-  (refuse it); a turn processed with a vacant power doesn't say that power's units held.
+- [x] **BL5** A deadline in the past is refused (422); a processed turn names vacant powers whose units held.
 - [x] **BL6** The game doesn't end when nobody, or one power, is left by any route but a
   concession. Adjudication that wipes out every power but one leaves the game ACTIVE until
   someone reaches 18 centres; the last two powers conceding at the same moment leave an

@@ -674,6 +674,13 @@ def notify_turn_processed(
         due = f" No deadline is set for {label}."
     phase_type = duties_view["phase_type"]
     duties: dict[str, dict[str, Any]] = duties_view["duties"]
+    # Units that held because a vacant seat's power ordered nothing (BL5).
+    vacant_line = ""
+    if processed_phase and processed_phase.endswith("M"):
+        try:
+            vacant_line = vacant_held_line(game_id, numeric_game_id, processed_turn)
+        except SQLAlchemyError as e:
+            scheduler_logger.error(f"Failed to read the vacant seats of game {game_id}: {e}")
     # Dislodged units with no retreat, of powers that owe nothing (BJ2).
     forced: dict[str, list[str]] = duties_view.get("forced_disbands") or {}
     header = f"The turn has been processed for game {game_id}" + (
@@ -726,6 +733,7 @@ def notify_turn_processed(
                         for line in lines
                     ]
                 )
+                + (f"\n{vacant_line}" if vacant_line else "")
                 + due,
                 game_buttons(game_id),
             )
@@ -743,6 +751,8 @@ def notify_turn_processed(
         channel_text = f"The turn has been processed. {label}: nobody has anything to order."
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
+    if vacant_line:
+        group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
 
 
@@ -898,6 +908,31 @@ def vacant_voters(game_id: str, numeric_game_id: int, needed: Iterable[str]) -> 
         for p in db_service.get_players_by_game_id(numeric_game_id)
         if p.user_id is None and str(p.power_name).upper() in wanted
     )
+
+
+def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None) -> str:
+    """For a processed movement turn, "Italy's seat is vacant: its units held." for
+    each power whose seat is vacant (a player row whose user quit; not a dummy,
+    which civil disorder plays) and which still has units (BL5). A power that submitted orders before quitting is
+    left out (``/quit`` keeps pending orders): only one with none in the processed
+    turn's order history held for want of orders. ``""`` if none."""
+    view = game_service.view(game_id)
+    if view is None:
+        return ""
+    with_units = {str(p).upper() for p, units in (view.get("units_by_power") or {}).items() if units}
+    dummies = {str(p).upper() for p in game_service.dummy_powers(game_id)}
+    ordered: set[str] = set()
+    if processed_turn is not None:
+        submitted = game_service.order_history(game_id).get(str(processed_turn), {})
+        ordered = {str(p).upper() for p, orders in submitted.items() if orders}
+    powers = [
+        p for p in vacant_voters(game_id, numeric_game_id, with_units) if p not in dummies and p not in ordered
+    ]
+    if not powers:
+        return ""
+    if len(powers) == 1:
+        return f"{powers[0].title()}'s seat is vacant: its units held."
+    return f"{_join_names([p.title() for p in powers])} have vacant seats: their units held."
 
 
 def vacant_seat_hint(game_id: str, powers: Iterable[str]) -> str:

@@ -132,8 +132,7 @@ def test_every_processed_turn_arms_the_next_slot_and_says_when():
     game_id, users = _game(client, POWERS)
     client.post(f"/games/{game_id}/deadline/schedule", json={"schedule": "daily 12:00"}, headers=users["FRANCE"])
     # Pull this phase's deadline into the past, as if the slot had arrived.
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-    assert client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=users["FRANCE"]).status_code == 200
+    api_shared.db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
 
     # One player with Telegram linked, to read the DM back from the outbox.
     telegram_id = str(900_000_000 + int(game_id))
@@ -155,8 +154,7 @@ def test_every_processed_turn_arms_the_next_slot_and_says_when():
 def test_without_a_schedule_a_processed_turn_still_leaves_no_deadline():
     client = TestClient(app)
     game_id, users = _game(client, POWERS)
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-    client.post(f"/games/{game_id}/deadline", json={"deadline": past}, headers=users["FRANCE"])
+    api_shared.db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) - timedelta(minutes=1))
     telegram_id = str(900_000_000 + int(game_id))
     france_id = int(client.get("/auth/me", headers=users["FRANCE"]).json()["id"])
     api_shared.db_service.set_user_telegram_id(france_id, telegram_id)
