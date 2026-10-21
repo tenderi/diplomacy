@@ -294,6 +294,8 @@ export default function GameView() {
   /** The viewer's own power from GET /users/me/games: an anonymous game's player list
    * has no user ids to find it by. */
   const [ownPower, setOwnPower] = useState<string | null>(null)
+  /** Whether the viewer created this anonymous game (its public state names no creator). */
+  const [ownIsCreator, setOwnIsCreator] = useState(false)
 
   const load = useCallback(() => {
     if (!gameId) return
@@ -312,7 +314,11 @@ export default function GameView() {
   }, [gameId])
 
   const myPower = user ? (players.find((p) => p.user_id === user.id)?.power ?? ownPower) : null
-  const isCreator = !!user && state?.created_by_user_id != null && state.created_by_user_id === user.id
+  const isCreator =
+    !!user &&
+    (state?.anonymous
+      ? ownIsCreator
+      : state?.created_by_user_id != null && state.created_by_user_id === user.id)
   const isSeated = (p: Player | undefined) => !!p && (p.seated ?? p.user_id != null)
   const takenPowers = new Set(players.filter(isSeated).map((p) => p.power))
   const dummyPowers = new Set(state?.dummy_powers ?? [])
@@ -323,11 +329,19 @@ export default function GameView() {
   useEffect(() => {
     if (!gameId || !user || !state?.anonymous) {
       setOwnPower(null)
+      setOwnIsCreator(false)
       return
     }
-    apiJson<{ games?: { game_id: number | string; power: string }[] }>('/users/me/games')
-      .then((d) => setOwnPower(d.games?.find((g) => String(g.game_id) === String(gameId))?.power ?? null))
-      .catch(() => setOwnPower(null))
+    apiJson<{ games?: { game_id: number | string; power: string; is_creator?: boolean }[] }>('/users/me/games')
+      .then((d) => {
+        const mine = d.games?.find((g) => String(g.game_id) === String(gameId))
+        setOwnPower(mine?.power ?? null)
+        setOwnIsCreator(!!mine?.is_creator)
+      })
+      .catch(() => {
+        setOwnPower(null)
+        setOwnIsCreator(false)
+      })
   }, [gameId, user, state?.anonymous, players])
 
   useEffect(() => {
