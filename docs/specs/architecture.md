@@ -295,8 +295,9 @@ place the full picture exists.
   dislodged and has nowhere to retreat: it is disbanded, no order needed.", and the channel
   post does not list it as due;
 - adjustment — the build count (`adjustments_owed`, plus how many more are waived for want
-  of a free home centre) or the disband count ("You may build 2 units (1 more waived: no
-  free home supply centre).", "You must disband 1 unit.");
+  of a free home centre) and the free home centres themselves, or the disband count ("You may
+  build 2 units (free home centres: MAR, PAR; 1 more waived: no free home supply centre).",
+  "You must disband 1 unit.");
 - a player with nothing to order in a retreat or adjustment phase is told so and to wait.
 
 The DM addresses its reader as "you"; only a player owing orders for more than one power
@@ -329,7 +330,15 @@ such power) and, prefixed with the power, in the channel post:
 
 - "A MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was
   disbanded." ("FRANCE retreated 2 units there" when one power bounced its own units);
-- "A WAR had no retreat order and was disbanded (civil disorder)."
+- "A WAR had no valid retreat order and was disbanded." (no order, or one that was
+  rejected; the line does not say "civil disorder", which a present player did not cause).
+
+**A build waived for want of orders is announced.** `GameService.waived_builds` reads the
+processed adjustment's bare `WAIVE` results for a power that sent no adjustment orders
+at all (a power that ordered anything, or has no free home centre, or is a dummy, is not
+announced). Its DM gets "Your 2 builds were waived: no orders came in." (prefixed "As
+FRANCE, your " for a player holding more than one such power) and the channel post
+"FRANCE: 2 builds were waived: no orders came in."
 
 These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
