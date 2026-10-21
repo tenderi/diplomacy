@@ -171,11 +171,6 @@ local API. Press, draw, solo win and replace otherwise work as specified.
 
 ---
 
-# Track BM — Dependency security (2026-10-21)
-
-- [x] BM1 — Pillow `>=13.0.0,<14.0.0` (8 CVEs in 12.3.0, fixed only in 13.0.0).
-      Start, units, orders, resolution and retreat boards render byte-identical.
-
 # Track F — Manual acceptance and host chores (maintainer)
 
 No automated test spans a real human playing a real game: it needs a live bot token and a
