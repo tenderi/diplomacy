@@ -781,6 +781,7 @@ class DatabaseService:
             game_model.pending_deadline_proposal = outcome.proposal
             if outcome.set_deadline:
                 game_model.deadline = _naive_utc(outcome.deadline)
+                game_model.reminded_deadline = None
             session.commit()
             return outcome
 
@@ -844,8 +845,31 @@ class DatabaseService:
             game = session.query(GameModel).filter_by(id=game_id).first()
             if game:
                 game.deadline = deadline
+                # A new deadline gets its own 10-minute reminder.
+                game.reminded_deadline = None
                 session.commit()
-    
+
+    def claim_deadline_reminder(self, game_id: int, deadline: datetime) -> bool:
+        """Record that the 10-minute reminder for ``deadline`` is being sent;
+        ``True`` only for the one caller that records it.
+
+        A single conditional UPDATE, so of any number of scheduler ticks --
+        across restarts and uvicorn workers -- exactly one wins per deadline
+        value: it matches only while ``deadline`` is still the one the caller
+        read and the reminder for it has not been claimed.
+        """
+        naive = _naive_utc(deadline)
+        with self.session_factory() as session:
+            result = session.execute(
+                text(
+                    "UPDATE games SET reminded_deadline = :d WHERE id = :id "
+                    "AND deadline = :d AND reminded_deadline IS DISTINCT FROM :d"
+                ),
+                {"d": naive, "id": game_id},
+            )
+            session.commit()
+            return bool(result.rowcount == 1)  # type: ignore[attr-defined]
+
 
     # --- Orders ---
 

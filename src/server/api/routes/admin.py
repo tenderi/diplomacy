@@ -8,7 +8,7 @@ from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
 import os
 
-from ..shared import db_service, server, logger, notify_players, reminder_sent, is_admin_token
+from ..shared import db_service, server, logger, notify_players, is_admin_token
 from ...response_cache import get_cache_stats, clear_response_cache, invalidate_cache
 
 router = APIRouter()
@@ -45,7 +45,6 @@ def admin_delete_game(game_id: int) -> Dict[str, Any]:
     notify_players(game_id, f"Game {game_id} has been deleted by an admin.")
     if not db_service.delete_game(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
-    reminder_sent.pop(game_id, None)
     invalidate_cache(f"games/{game_id}")
     for telegram_id in telegram_ids:
         invalidate_cache(f"users/{telegram_id}")

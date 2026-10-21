@@ -175,24 +175,31 @@ def test_manual_trigger_notifies_the_ordinary_case_not_only_game_end() -> None:
     )
 
 
+def _pretend_reminded(row_id: int) -> None:
+    """Give the game a deadline whose 10-minute reminder has already been sent."""
+    deadline = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
+    api_shared.db_service.update_game_deadline(row_id, deadline)
+    assert api_shared.db_service.claim_deadline_reminder(row_id, deadline) is True
+
+
 @pytest.mark.integration
 @pytest.mark.database
 def test_reminder_flag_is_reset_by_both_triggers() -> None:
     """A new turn must re-arm the 10-minute reminder, whichever trigger ran.
 
-    The deadline path did this (`reminder_sent[id] = False`); the manual path did
-    not, so a game processed by hand never sent another deadline reminder for the
-    rest of its life. Now both go through `notify_turn_processed`.
+    The deadline path did this; the manual path did not, so a game processed by
+    hand never sent another deadline reminder for the rest of its life. Both now
+    write the next phase's deadline, which clears ``games.reminded_deadline``.
     """
     client = TestClient(app)
     game_id, row_id, users = _seeded_game(client)
 
-    api_shared.reminder_sent[row_id] = True
+    _pretend_reminded(row_id)
     with OutboxProbe():
         resp = client.post(f"/games/{game_id}/process_turn", headers=users[0][0])
     assert resp.status_code == 200, resp.text
-    assert api_shared.reminder_sent.get(row_id) is False, (
-        "manual process_turn left the reminder flag set, suppressing every future reminder"
+    assert api_shared.db_service.get_game_by_id(row_id).reminded_deadline is None, (
+        "manual process_turn left the reminder claimed, suppressing every future reminder"
     )
 
 
@@ -223,7 +230,7 @@ def test_setting_a_deadline_tells_everyone_but_the_setter_and_rearms_the_reminde
     everyone = {tg for _h, tg in users}
     future = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)).isoformat()
 
-    api_shared.reminder_sent[row_id] = True  # pretend the previous deadline's reminder fired
+    _pretend_reminded(row_id)  # the previous deadline's reminder fired
     with OutboxProbe() as probe:
         resp = client.post(
             f"/games/{game_id}/deadline",
@@ -239,7 +246,7 @@ def test_setting_a_deadline_tells_everyone_but_the_setter_and_rearms_the_reminde
         " Orders in by then; the turn is processed automatically when it passes."
         " This deadline covers the current phase only."
     ) in texts
-    assert api_shared.reminder_sent[row_id] is False
+    assert api_shared.db_service.get_game_by_id(row_id).reminded_deadline is None
 
     # Clearing is announced too, with the opposite promise.
     with OutboxProbe() as probe:
