@@ -10,13 +10,13 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BL**.
+>   history. Track letters run in sequence; the next free one is **BN**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-20. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-21. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -170,6 +170,11 @@ local API. Press, draw, solo win and replace otherwise work as specified.
   processed-turn path and the concession that ended it.
 
 ---
+
+# Track BM — Dependency security (2026-10-21)
+
+- [x] BM1 — Pillow `>=13.0.0,<14.0.0` (8 CVEs in 12.3.0, fixed only in 13.0.0).
+      Start, units, orders, resolution and retreat boards render byte-identical.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
