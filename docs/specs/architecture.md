@@ -261,7 +261,7 @@ place the full picture exists.
 | **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
 | **Game ended by a turn** (a solo: 18 centres; or the turn left one power or none) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." A turn that eliminated the last opponent reads "Game N has ended: FRANCE is the last power standing and wins." (the winner: "you are the last power standing and win"), one that left nobody "Game N has ended: no power is left, so nobody wins." (`GameService.ending` tells them apart). One message: it replaces the usual turn DM. Every player's cached game list is invalidated | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Deadline reminder (10 min out) | all players | — | — | `check_and_send_reminders` |
-| Deadline set or cleared | all players except the setter | — | next poll | `routes/games.py` `set_deadline` |
+| Deadline set or cleared | all players except the setter | the same text, prefixed "⏰ " | next poll | `routes/games.py` `set_deadline` |
 | Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
 | Player joined | all players | — | next poll | `routes/games.py` join |
 | Game full / started | all players | — | next poll | `routes/games.py` join |
