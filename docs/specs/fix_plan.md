@@ -10,13 +10,13 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BN**.
+>   history. Track letters run in sequence; the next free one is **BO**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-21. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-21. `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -133,40 +133,25 @@
 
 ---
 
-# Track BL — Game-end and seat play-through findings (2026-10-15)
+# Track BN — spec-vs-code audit (2026-10-21)
 
-From a play-through of press, draw votes, concession, victory and quit/replace against a
-local API. Press, draw, solo win and replace otherwise work as specified.
-
-- [x] **BL1** A game whose seats aren't all filled accepts `concede`, draw votes and orders
-  (`game_service.py` `concede`/`submit_draw_vote`/`set_orders` only call `_require_active`).
-  A power conceding in the lobby is dead once the table fills. Refuse all three with 409
-  "the game hasn't started" until every power is seated or a dummy.
-- [x] **BL2** A conceded (eliminated) power can still send press and broadcasts, cast draw
-  votes (announced as a vote), concede again (re-announced to everyone), and quit and rejoin
-  its dead seat. Make a repeat concede a no-op, refuse press, votes and rejoin for an
-  eliminated power. When only one non-eliminated power remains, the game ends with it as the
-  winner.
-- [x] **BL3** A vacated seat (after `/quit`) blocks a draw: `_draw_quorum` still requires the
-  unseated power's vote. Leave it required (the seat can be refilled) but say so: the quit
-  announcement and the vote tally name the vacant power and how to fill it (`/replace`, or
-  the creator making it a dummy). Quit on a finished game is refused.
-- [x] **BL4** Bot text: there is no `/concede` in the bot (web only). Add it, with a
-  confirm step. `/quit`'s reply says what happens to the units. `/nodraw` says "withdrawn"
-  only when `changed` is true, and both draw replies say votes last until the phase is
-  processed.
-- [x] **BL5** A deadline in the past is refused (422); a processed turn names vacant powers whose units held.
-- [x] **BL6** The game doesn't end when nobody, or one power, is left by any route but a
-  concession. Adjudication that wipes out every power but one leaves the game ACTIVE until
-  someone reaches 18 centres; the last two powers conceding at the same moment leave an
-  ACTIVE game with no units at all. Run the same last-power-standing check after
-  `process_turn`, and end a game with no power left (no winners). Also (from BL5): a turn
-  that ends the game invalidates every player's `users/{tid}` cache entry.
-- [x] **BL7** A game that ends with no winners (the last powers conceded together) sends
-  DAIDE clients nothing: `daide/server.py` sends `SLO` only for one winner and `DRW` only
-  for a draw vote. Send them the end (`OFF`, or whatever the DAIDE spec gives for a game
-  over without a winner). Done (v3.0.129): bare `DRW`, once per game, from both the
-  processed-turn path and the concession that ended it.
+- [x] **BN1** Scheduler race: in `process_due_deadlines` (`server/api/shared.py`) the
+  `except StaleGameError` branch fell through to the "processing failed: the deadline is
+  still spent" write, so when a manual or auto process committed between the scheduler's
+  read and its `process_turn`, the scheduler overwrote the deadline already armed for the
+  new phase (with the next weekly slot, or None). It now skips the game.
+- [ ] **BN2** The 10-minute deadline reminder is tracked in the in-memory `reminder_sent`
+  dict (`shared.py`), so an API restart or deploy inside the window re-sends it to every
+  player. Persist it (e.g. remember the reminded deadline on the game row).
+- [x] **BN3** architecture.md's notification matrix said "Deadline set or cleared" has no
+  channel post, but `routes/games.py` `set_deadline` posts `⏰ {text}` to the game group.
+  The row now says so.
+- [ ] **BN4** `GameService.view()` returns `created_by_user_id` on the unauthenticated
+  `GET /games/{id}/state`, also for anonymous games, and data_spec's view shape doesn't
+  list it. Null it for anonymous games (check how the frontend uses it first) and document it.
+- [ ] **BN5** (maintainer decision) After quit and replace, the new holder of a power reads
+  every earlier private message sent to that power (`routes/messages.py` filters by
+  `recipient_power`, not by user). Decide whether that is intended.
 
 ---
 
