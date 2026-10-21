@@ -1334,7 +1334,7 @@ describe('GameView — player actions', () => {
     ).toBeInTheDocument()
   })
 
-  it('says which stored orders a fully refused submission dropped', async () => {
+  it('relays the note that a fully refused submission changed nothing', async () => {
     const base = stubFetchActive(activeMovementState, francePlayers)
     const { posts, fetchMock } = recordingPosts(
       vi.fn((url: string, init?: RequestInit) =>
@@ -1342,7 +1342,7 @@ describe('GameView — player actions', () => {
       ) as unknown as ReturnType<typeof stubFetchActive>,
       () => ({
         results: [
-          { order: 'A PAR - LON', success: false, error: 'LON is not adjacent to PAR', replaced: ['A PAR H'] },
+          { order: 'A PAR - LON', success: false, error: 'LON is not adjacent to PAR', note: 'none of these orders was accepted, so nothing was changed. Your earlier orders stand: A PAR H' },
         ],
       })
     )
@@ -1355,7 +1355,7 @@ describe('GameView — player actions', () => {
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(
       await within(container).findByText(
-        'Not accepted: A PAR - LON (LON is not adjacent to PAR) Your earlier orders were dropped: A PAR H.'
+        'Not accepted: A PAR - LON (LON is not adjacent to PAR) none of these orders was accepted, so nothing was changed. Your earlier orders stand: A PAR H'
       )
     ).toBeInTheDocument()
   })
