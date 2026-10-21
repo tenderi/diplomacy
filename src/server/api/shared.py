@@ -1462,6 +1462,20 @@ def skip_deadline_for_empty_seats(game_id: str, numeric_game_id: int, unseated: 
     post_to_game_group(game_id, text)
 
 
+def _deadline_still_due(game_pk: int, seen_phase: str | None, now: datetime) -> bool:
+    """Whether the game is still in ``seen_phase`` with a deadline at or before
+    ``now``, read fresh from the database. ``now`` is timezone-aware UTC."""
+    fresh = db_service.get_game_by_id(game_pk)
+    if fresh is None or fresh.status != 'active' or fresh.phase_code != seen_phase:
+        return False
+    deadline = fresh.deadline
+    if deadline is None:
+        return False
+    if deadline.tzinfo is None or deadline.tzinfo.utcoffset(deadline) is None:
+        deadline = deadline.replace(tzinfo=pytz.UTC)
+    return bool(deadline <= now)
+
+
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
@@ -1482,6 +1496,17 @@ def process_due_deadlines(now: datetime) -> None:
                     now = now.replace(tzinfo=pytz.UTC)
                 if deadline <= now:
                     game_id_str = str(getattr(game, 'game_id', None) or game_id_val)
+                    # BN6: the rows were read before the loop, and each earlier
+                    # game takes seconds (maps, notifications). Meanwhile this one
+                    # may have been processed by another path, or its deadline
+                    # pushed back; re-read it and act only on what is still due.
+                    seen_phase = getattr(game, 'phase_code', None)
+                    if not _deadline_still_due(int(game_id_val), seen_phase, now):
+                        scheduler_logger.info(
+                            "Game %s changed since the scheduler read it (phase or deadline); skipping.",
+                            game_id_str,
+                        )
+                        continue
                     unseated = unseated_powers(game_id_str, int(game_id_val))
                     if unseated:
                         skip_deadline_for_empty_seats(game_id_str, int(game_id_val), unseated)
@@ -1496,7 +1521,9 @@ def process_due_deadlines(now: datetime) -> None:
                     prev_view = game_service.view(game_id_str)
                     prev_phase_code = prev_view["phase"] if prev_view else None
                     try:
-                        game_service.process_turn(game_id_str)
+                        # The phase whose deadline fell due, not whatever phase
+                        # is stored by the time process_turn loads it.
+                        game_service.process_turn(game_id_str, expected_phase_code=seen_phase)
                     except StaleGameError:
                         scheduler_logger.warning(
                             "PROCESS_TURN for game %s already processed concurrently, skipping.",
