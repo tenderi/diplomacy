@@ -794,6 +794,78 @@ class TestSplitCoastOrdersSurviveStorage:
         service.process_turn(gid)
         assert {"kind": "F", "power": "FRANCE", "location": "SPA/SC"} in service.view(gid)["units"]
 
+    def test_fleet_move_from_a_coast_into_a_named_coast(self, service):
+        gid = self._board(service, PhaseType.MOVEMENT)
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({Unit(UnitKind.FLEET, "FRANCE", Location("POR"))}),
+            ownership={},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        assert service.submit_orders(gid, "FRANCE", ["F POR - SPA/NC"])[0]["ok"] is True
+        assert service.pending_orders_view(gid)["FRANCE"] == ["F POR - SPA/NC"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        assert [(r["result"], r["order_str"]) for r in results] == [("OK", "F POR - SPA/NC")]
+        assert service.view(gid)["units"] == [{"kind": "F", "power": "FRANCE", "location": "SPA/NC"}]
+
+
+class TestOrdersNameTheUnitsCoast:
+    """A fleet on a split-coast province may be ordered without its coast
+    (``F STP - BOT`` for the fleet at ``STP/SC``), and the order is valid. It
+    was stored as written, so the pending orders, the resolution's ``order_str``
+    and the order history showed ``F STP - BOT`` (BO3). The stored order now
+    names the coast the unit stands on."""
+
+    def test_a_move_written_without_the_fleets_coast_is_stored_with_it(self, service):
+        gid = _new_game(service)
+        assert service.submit_orders(gid, "RUSSIA", ["F STP - BOT", "A MOS S F STP"])[0]["ok"] is True
+        assert service.pending_orders_view(gid)["RUSSIA"] == ["F STP/SC - BOT", "A MOS S F STP/SC"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        russian = {r["order_str"]: r for r in results if r["order"]["power"] == "RUSSIA"}
+        assert sorted(russian) == ["A MOS S F STP/SC", "A WAR H", "F SEV H", "F STP/SC - BOT"]
+        assert russian["F STP/SC - BOT"]["order"] == {
+            "type": "MOVE", "power": "RUSSIA", "unit": "STP/SC", "dest": "BOT", "via_convoy": False,
+        }
+        assert russian["F STP/SC - BOT"]["result"] == "OK"
+        assert service.order_history(gid)["0"]["RUSSIA"] == ["F STP/SC - BOT", "A MOS S F STP/SC"]
+
+    def test_supports_name_the_supported_fleets_coast(self, service):
+        gid = _new_game(service)
+        state = GameState(
+            1901, Season.SPRING, PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.FLEET, "FRANCE", Location("SPA", "NC")),
+                Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("GAS")),
+            }),
+            ownership={},
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        results = service.submit_orders(gid, "FRANCE", ["F MAO S F SPA - POR", "A GAS S F SPA"])
+        assert [r["ok"] for r in results] == [True, True]
+        assert service.pending_orders_view(gid)["FRANCE"] == ["F MAO S F SPA/NC - POR", "A GAS S F SPA/NC"]
+
+    def test_a_retreat_written_without_the_fleets_coast_is_stored_with_it(self, service):
+        gid = _new_game(service)
+        fleet = Unit(UnitKind.FLEET, "RUSSIA", Location("STP", "SC"))
+        state = GameState(
+            1901, Season.SPRING, PhaseType.RETREAT,
+            units=frozenset({Unit(UnitKind.ARMY, "GERMANY", Location("STP"))}),
+            ownership={},
+            dislodged=(DislodgedUnit(fleet, "LVN", (Location("BOT"), Location("FIN"))),),
+        )
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        assert service.submit_orders(gid, "RUSSIA", ["F STP R BOT"])[0]["ok"] is True
+        assert service.pending_orders_view(gid)["RUSSIA"] == ["F STP/SC R BOT"]
+        results = service.process_turn(gid)["resolution"]["results"]
+        assert [r["order_str"] for r in results] == ["F STP/SC R BOT"]
+
+    def test_a_named_coast_and_an_unoccupied_support_target_are_kept_as_written(self, service):
+        gid = _new_game(service)
+        orders = ["F STP/SC - BOT", "A MOS S A UKR - WAR"]
+        assert [r["ok"] for r in service.submit_orders(gid, "RUSSIA", orders)] == [True, True]
+        assert service.pending_orders_view(gid)["RUSSIA"] == orders
+
 
 class TestMergedAdjustmentOrders:
     def test_a_build_sent_after_a_waive_replaces_it(self, service):
