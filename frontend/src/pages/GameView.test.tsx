@@ -452,6 +452,7 @@ function stubFetchActive(
     ordersStatus?: Record<string, unknown>
     savedOrders?: string[]
     legalOrders?: Record<string, unknown>
+    myGames?: Record<string, unknown>[]
     lastResolution?: Record<string, unknown>
     deadline?: Record<string, unknown>
   } = {}
@@ -480,6 +481,7 @@ function stubFetchActive(
       } as Response)
     if (url.includes('/legal_orders/'))
       return jsonResponse(opts.legalOrders ?? { orders: [], orders_by_unit: {} })
+    if (url.includes('/users/me/games')) return jsonResponse({ games: opts.myGames ?? [] })
     if (url.includes('/state')) return jsonResponse(state)
     if (url.includes('/players')) return jsonResponse(players)
     if (url.includes('/orders/')) return jsonResponse({ orders: opts.savedOrders ?? [] })
@@ -549,6 +551,24 @@ describe('GameView — process turn: the creator only, and confirmed', () => {
     expect(
       within(container).queryByRole('button', { name: /resolve orders and advance/i })
     ).not.toBeInTheDocument()
+  })
+
+  it('shows it to the creator of an anonymous game, whose state names no creator', async () => {
+    const state = { ...activeMovementState, anonymous: true, created_by_user_id: null }
+    const myGames = [{ game_id: 10, power: 'FRANCE', is_creator: true }]
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers, { myGames }))
+
+    render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByRole('button', { name: /resolve orders and advance/i })).toBeInTheDocument()
   })
 
   it('requires confirmation before calling process_turn for the creator', async () => {

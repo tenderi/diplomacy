@@ -82,6 +82,21 @@ class TestTheSettingIsStored:
         assert _listed(client, game_id)["anonymous"] is True
 
 
+class TestWhoCreatedTheGame:
+    def test_a_public_game_names_its_creator_and_an_anonymous_one_does_not(self, client):
+        from server.api.shared import game_service
+
+        for anonymous in (False, True):
+            game_id, anna, *_ = _game(client, anonymous=anonymous)
+            creator = game_service.meta(game_id)["created_by_user_id"]
+            assert isinstance(creator, int)
+            shown = client.get(f"/games/{game_id}/state").json()["created_by_user_id"]
+            assert shown == (None if anonymous else creator)
+            # The creator still learns it, from an authenticated route.
+            mine = client.get(f"/users/{anna}/games", headers=_BOT).json()["games"]
+            assert [g["is_creator"] for g in mine if str(g["game_id"]) == game_id] == [True]
+
+
 class TestWhoHoldsASeat:
     def test_an_anonymous_game_shows_seats_but_never_who_holds_them(self, client):
         game_id, *_ = _game(client, anonymous=True)
