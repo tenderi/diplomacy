@@ -10,13 +10,13 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **BP**.
+>   history. Track letters run in sequence; the next free one is **BQ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-10-21. `v3.0.140` did BO3: an order naming a fleet on a split coast without its coast (`F STP - BOT`) is stored, resolved and shown with the coast the fleet stands on (`F STP/SC - BOT`); Track BO is done and removed. `v3.0.139` did BO2 and BO4: builds waived for want of orders are told to the power and the group, the adjustment DM names the free home centres, and an unordered retreat disband no longer says "civil disorder". `v3.0.138` did BO1: a replace submission refused in full leaves the power's earlier orders in place (Track BO holds the other play-through findings). `v3.0.137` did BN6: the deadline scheduler re-checks a game's phase and deadline before processing it and passes the phase it saw to `process_turn`, so a game advanced (or a deadline extended) after the scheduler's read is no longer adjudicated with no orders. `v3.0.136` did BN2: the 10-minute deadline reminder is remembered in `games.reminded_deadline`, so a restart or a second worker no longer re-sends it. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
+- **Last updated:** 2026-10-22. `v3.0.141` planned Track BP (two review notes: the implicit waive of a partial build, and the empty-seat deadline skip writing over a freshly armed deadline) and checked off F3's access-log count. `v3.0.140` did BO3: an order naming a fleet on a split coast without its coast (`F STP - BOT`) is stored, resolved and shown with the coast the fleet stands on (`F STP/SC - BOT`); Track BO is done and removed. `v3.0.139` did BO2 and BO4: builds waived for want of orders are told to the power and the group, the adjustment DM names the free home centres, and an unordered retreat disband no longer says "civil disorder". `v3.0.138` did BO1: a replace submission refused in full leaves the power's earlier orders in place (Track BO holds the other play-through findings). `v3.0.137` did BN6: the deadline scheduler re-checks a game's phase and deadline before processing it and passes the phase it saw to `process_turn`, so a game advanced (or a deadline extended) after the scheduler's read is no longer adjudicated with no orders. `v3.0.136` did BN2: the 10-minute deadline reminder is remembered in `games.reminded_deadline`, so a restart or a second worker no longer re-sends it. `v3.0.135` did BN4: an anonymous game's public `/state` no longer carries `created_by_user_id` (the web reads `is_creator` from `/users/me/games`). `v3.0.134` planned Track BN (spec-vs-code audit) and did BN1 (a deadline scheduler that loses the processing race to another worker no longer overwrites the deadline that worker armed for the new phase) and BN3 (the notification matrix lists the group post for a deadline change); Track BL is done and removed. `v3.0.132` did BL5: `POST /games/{id}/deadline` refuses a deadline at or before now with a 422, and a processed movement turn tells players (DM and group) which vacant seats' units held. `v3.0.131` did BM1: Pillow 13 (`pip-audit` reported 8 CVEs against 12.3.0, all fixed in 13.0.0); rendered boards are byte-identical. `v3.0.130`: a button that redraws its message unchanged (Telegram "message is not modified") no longer logs an error, alerts the maintainer and apologises to the player. `v3.0.129` did BL7: a game that ends with no winners sends
   DAIDE clients a bare `DRW`. `v3.0.128` did issue #242: the web header shows the nickname
   (or "Set a nickname"), the game view offers the form to a seated player without one, and the
   bot's private `/players` tells the caller how to set one. `v3.0.127` did BL6: a processed turn that leaves one power
@@ -165,6 +165,21 @@
 
 ---
 
+# Track BP — Review notes from Track BO / BN6
+
+- [ ] **BP1** A power that orders fewer builds than it is owed while free home centres
+  remain (e.g. builds 1 of 2) has the rest waived implicitly, and nobody says so: the
+  BO2 notice (`GameService.waived_builds`) covers only a power that sent no orders at all.
+  Tell the power (DM, and the group post's adjustment summary if BO2 puts it there) how
+  many builds were waived. An explicit `WAIVE` is the power's choice and needs no notice.
+- [ ] **BP2** `skip_deadline_for_empty_seats` (`server/api/shared.py`) writes the next
+  deadline unconditionally, after BN6's re-check. If the last seat fills in between,
+  `arm_scheduled_deadline` arms a deadline that this write then replaces (or clears).
+  Write the deadline only if the stored one is still the one the scheduler saw (a locked
+  compare-and-set), and skip the "waits for a full table" notice when it isn't.
+
+---
+
 # Track F — Manual acceptance and host chores (maintainer)
 
 No automated test spans a real human playing a real game: it needs a live bot token and a
@@ -201,8 +216,8 @@ coherent* to use.
 - [ ] Stop the old game stack on the home server (`kattotuuletin.local`:
       `cd ~/diplomacy/new_implementation && docker compose down`; keep its `pg_data` volume
       until sure — it held no games). The tunnel and p2p's stack there are not ours.
-- [ ] After the `v3.0.118` deploy (issue #225), count the API's access-log lines over an
-      idle hour (`docker compose logs --since 1h diplomacy_api | wc -l`). Before: 1,315
+- [x] After the `v3.0.118` deploy (issue #225), count the API's access-log lines over an
+      idle hour (2026-10-21: 0 lines in the idle hour) (`docker compose logs --since 1h diplomacy_api | wc -l`). Before: 1,315
       lines/hour, 1,195 of them `/bot/outbox` polls; the issue's target is at least 90% fewer.
 - [ ] Delete the unused `DIPLOMACY_BOT_SECRET` repository secret
       (`gh secret delete DIPLOMACY_BOT_SECRET -R tenderi/diplomacy`); nothing reads it.
