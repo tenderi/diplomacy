@@ -1460,16 +1460,31 @@ def maybe_auto_process(game_id: str) -> int:
     return processed
 
 
-def skip_deadline_for_empty_seats(game_id: str, numeric_game_id: int, unseated: list[str]) -> None:
+def skip_deadline_for_empty_seats(
+    game_id: str,
+    numeric_game_id: int,
+    unseated: list[str],
+    seen_deadline: datetime,
+    seen_phase: str | None,
+) -> None:
     """A deadline passed in a game with empty seats (BA6): the turn is not
     processed, the deadline is spent -- a weekly schedule moves to its next
     slot, a one-off deadline is cleared -- so the scheduler does not find it
     again every tick, and the players and the game's group are told why
     nothing happened. Filling the last seat arms a scheduled deadline again
-    (``arm_scheduled_deadline``)."""
-    scheduler_logger.info("Deadline for game %s passed with seats unfilled; not processing.", game_id)
+    (``arm_scheduled_deadline``).
+
+    The deadline is spent only if it is still ``seen_deadline`` in
+    ``seen_phase`` (BP2): a seat filled since the scheduler's re-check may have
+    armed a fresh deadline, which this must neither overwrite nor answer with
+    a "waits for a full table" notice."""
     next_slot = scheduled_deadline(game_id)
-    db_service.update_game_deadline(numeric_game_id, next_slot)
+    if not db_service.replace_game_deadline_if_unchanged(numeric_game_id, seen_deadline, seen_phase, next_slot):
+        scheduler_logger.info(
+            "Game %s's deadline changed while the scheduler skipped it for empty seats; leaving it.", game_id
+        )
+        return
+    scheduler_logger.info("Deadline for game %s passed with seats unfilled; not processing.", game_id)
     invalidate_cache(f"games/{game_id}")
     if next_slot is not None:
         after = f"The next deadline is {format_scheduled_deadline(next_slot, game_schedule(game_id))}."
@@ -1530,7 +1545,9 @@ def process_due_deadlines(now: datetime) -> None:
                         continue
                     unseated = unseated_powers(game_id_str, int(game_id_val))
                     if unseated:
-                        skip_deadline_for_empty_seats(game_id_str, int(game_id_val), unseated)
+                        skip_deadline_for_empty_seats(
+                            game_id_str, int(game_id_val), unseated, deadline, seen_phase
+                        )
                         continue
                     scheduler_logger.warning(f"Missed or due deadline detected for game {game_id_val} (deadline was {deadline}, now {now}). Processing turn immediately.")
                     # Process the turn. Double-processing within this worker is

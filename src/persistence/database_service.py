@@ -849,6 +849,39 @@ class DatabaseService:
                 game.reminded_deadline = None
                 session.commit()
 
+    def replace_game_deadline_if_unchanged(
+        self,
+        game_id: int,
+        seen_deadline: datetime,
+        seen_phase: Optional[str],
+        deadline: Optional[datetime],
+    ) -> bool:
+        """Set the deadline to ``deadline`` only while the game is still in
+        ``seen_phase`` with the deadline ``seen_deadline`` the caller read;
+        ``True`` if it wrote.
+
+        A single conditional UPDATE (like ``claim_deadline_reminder``), so a
+        deadline another path wrote after the caller's read -- the one
+        ``arm_scheduled_deadline`` sets when the last seat fills, or a new
+        phase's -- is never overwritten. Clears ``reminded_deadline`` as every
+        deadline write does.
+        """
+        with self.session_factory() as session:
+            result = session.execute(
+                text(
+                    "UPDATE games SET deadline = :new, reminded_deadline = NULL "
+                    "WHERE id = :id AND deadline = :seen AND phase_code = :phase"
+                ),
+                {
+                    "new": _naive_utc(deadline),
+                    "seen": _naive_utc(seen_deadline),
+                    "phase": seen_phase,
+                    "id": game_id,
+                },
+            )
+            session.commit()
+            return bool(result.rowcount == 1)  # type: ignore[attr-defined]
+
     def claim_deadline_reminder(self, game_id: int, deadline: datetime) -> bool:
         """Record that the 10-minute reminder for ``deadline`` is being sent;
         ``True`` only for the one caller that records it.

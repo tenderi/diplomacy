@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server.api import app, process_due_deadlines
+from server.api import shared
 from server.api.shared import db_service, game_buttons, game_service
 from server.daide.server import DaideServer
 from tests.conftest import _get_db_url
@@ -130,6 +131,34 @@ def test_the_scheduler_skips_a_game_with_empty_seats_spends_the_deadline_and_say
     group.assert_called_once_with(game_id, text)
 
 
+def test_a_deadline_armed_after_the_schedulers_check_is_not_spent_or_announced(client: TestClient) -> None:
+    """BP2: the last seat fills, arming a fresh deadline, between the
+    scheduler's re-check and its write. The fresh deadline stays, and nobody is
+    told the turn waits for a full table."""
+    game_id, _ = _game(client, ["ITALY", "TURKEY"], ["GERMANY"])
+    numeric = int(db_service.get_game_by_game_id(game_id).id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db_service.update_game_deadline(numeric, now - datetime.timedelta(minutes=1))
+    armed = (now + datetime.timedelta(days=2)).replace(tzinfo=None, microsecond=0)
+    real_unseated = shared.unseated_powers
+
+    def unseated_then_seat_filled(gid: str, pk: int) -> list[str]:
+        unseated = real_unseated(gid, pk)
+        db_service.update_game_deadline(numeric, armed)  # what arm_scheduled_deadline writes
+        return unseated
+
+    with (
+        patch("server.api.shared.unseated_powers", side_effect=unseated_then_seat_filled),
+        patch("server.api.shared.notify_players") as players,
+        patch("server.api.shared.post_to_game_group") as group,
+    ):
+        process_due_deadlines(now)
+    assert db_service.get_game_by_game_id(game_id).deadline == armed
+    assert _phase(game_id) == "S1901M"
+    players.assert_not_called()
+    group.assert_not_called()
+
+
 def test_a_skipped_scheduled_deadline_moves_to_the_next_slot_and_names_it(client: TestClient) -> None:
     game_id, _ = _game(
         client, ["ITALY", "TURKEY"], ["GERMANY"], deadline_schedule="mon 18:00", deadline_timezone="UTC"
@@ -182,3 +211,15 @@ def test_a_daide_game_processes_at_its_deadline(client: TestClient) -> None:
     db_service.update_game_deadline(numeric, now - datetime.timedelta(minutes=1))
     process_due_deadlines(now)
     assert _phase(game_id) == "F1901M"
+
+
+def test_spending_a_deadline_needs_the_phase_and_deadline_the_scheduler_saw(client: TestClient) -> None:
+    game_id, _ = _game(client, ["ITALY", "TURKEY"], ["GERMANY"])
+    numeric = int(db_service.get_game_by_game_id(game_id).id)
+    seen = datetime.datetime(2030, 1, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    db_service.update_game_deadline(numeric, seen)
+    assert db_service.replace_game_deadline_if_unchanged(numeric, seen, "F1901M", None) is False
+    assert db_service.replace_game_deadline_if_unchanged(numeric, seen.replace(minute=1), "S1901M", None) is False
+    assert db_service.get_game_by_game_id(game_id).deadline == seen.replace(tzinfo=None)
+    assert db_service.replace_game_deadline_if_unchanged(numeric, seen, "S1901M", None) is True
+    assert db_service.get_game_by_game_id(game_id).deadline is None
