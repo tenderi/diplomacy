@@ -1208,12 +1208,13 @@ class GameService:
                 out.setdefault(r["order"]["power"], []).append(_order_str(r).removeprefix("D "))
         return out
 
-    def waived_builds(self, game_id: str, turn: int) -> dict[str, int]:
-        """Builds ``turn``'s adjustment waived because the power sent no orders at all
-        (BO2), per power: ``{"FRANCE": 2}``. Only builds the power could have made
-        count: a build with no free home centre is waived whatever it ordered, and a
-        power that ordered anything (a build, an explicit waive) chose its outcome.
-        A civil-disorder dummy owes no one an explanation. Empty for any other turn."""
+    def waived_builds(self, game_id: str, turn: int) -> dict[str, tuple[int, bool]]:
+        """Builds ``turn``'s adjustment waived without the power asking (BO2, BP1), per
+        power: ``{"FRANCE": 2}``. That is its unused builds (it sent no orders, or
+        ordered fewer builds than it was owed) less its explicit ``WAIVE`` orders,
+        which are its choice. Only builds the power could have made count: a build
+        with no free home centre is waived whatever it ordered. A civil-disorder
+        dummy owes no one an explanation. Empty for any other turn."""
         results = self.resolution_history(game_id).get(str(turn), {}).get("results", [])
         ordered = self.order_history(game_id).get(str(turn), {})
         waives: dict[str, int] = {}
@@ -1225,14 +1226,17 @@ class GameService:
             return {}
         state = state_from_dict(sj)
         dummies = self.dummy_powers(game_id)
-        out: dict[str, int] = {}
+        out: dict[str, tuple[int, bool]] = {}
         for power, n in sorted(waives.items()):
-            if ordered.get(power) or power in dummies:
+            if power in dummies:
                 continue
-            # Nothing was built, so the board's free home centres are what they were.
-            owed = min(n, len({b.location.province for b in legal_builds(power, state, self._map)}))
-            if owed:
-                out[power] = owed
+            explicit = sum(1 for o in ordered.get(power, []) if o.strip().upper() == "WAIVE")
+            # The board is the post-adjustment one: the home centres still free are those
+            # the power could have built on and did not (each build took one).
+            free = len({b.location.province for b in legal_builds(power, state, self._map)})
+            unused = min(n, free) - explicit
+            if unused > 0:
+                out[power] = (unused, bool(ordered.get(power)))
         return out
 
     def retreat_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
