@@ -134,6 +134,7 @@ export function UnitOrdersSection({
   submitting,
   provinceNames = {},
   unitOwners = {},
+  phaseCode,
 }: {
   phase: string
   myUnits: UnitOut[]
@@ -148,10 +149,17 @@ export function UnitOrdersSection({
   provinceNames?: ProvinceNames
   /** province -> power, so a support option says whose unit it backs (BQ5). */
   unitOwners?: Record<string, string>
+  /** Phase code ("S1901M"); a new one discards half-made choices, as the orders are replaced. */
+  phaseCode?: string
 }) {
   // An order type chosen but with no target yet. It is not an order, so it lives here
   // and never reaches `orderByUnit` (BQ1).
   const [pendingType, setPendingType] = useState<Record<string, OrderType>>({})
+  const [pendingPhase, setPendingPhase] = useState(phaseCode)
+  if (pendingPhase !== phaseCode) {
+    setPendingPhase(phaseCode)
+    setPendingType({})
+  }
   const unitsToShow = phase === 'Retreat' ? myUnits.filter((u) => u.is_dislodged) : myUnits
   const incomplete = unitsToShow.filter((u) => {
     const id = unitKey(u)
@@ -186,7 +194,7 @@ export function UnitOrdersSection({
             >
               <span className="font-medium">{unitId}</span>
               <Select
-                value={selectedOrderType || undefined}
+                value={selectedOrderType}
                 onValueChange={(t) => {
                   if (!t) return
                   const type = t as OrderType
@@ -210,8 +218,12 @@ export function UnitOrdersSection({
               </Select>
               {selectedOrderType && selectedOrderType !== 'hold' && (
                 <Select
-                  value={targetValue || undefined}
+                  value={targetValue}
                   onValueChange={(fullOrder) => {
+                    setPendingType((prev) => {
+                      const { [unitId]: _done, ...rest } = prev
+                      return rest
+                    })
                     setOrderByUnit((prev) => ({ ...prev, [unitId]: fullOrder }))
                   }}
                   disabled={!grouped || loading}

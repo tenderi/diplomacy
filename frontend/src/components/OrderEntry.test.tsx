@@ -39,7 +39,7 @@ const GROUPED_ORDERS = [
   'F EDI S A LVP H',
 ]
 
-function Harness({ names = {} }: { names?: Record<string, string> }) {
+function Harness({ names = {}, phaseCode }: { names?: Record<string, string>; phaseCode?: string }) {
   const [orders, setOrders] = useState<Record<string, string>>({})
   return (
     <UnitOrdersSection
@@ -53,6 +53,7 @@ function Harness({ names = {} }: { names?: Record<string, string> }) {
       loading={false}
       onSubmit={() => {}}
       provinceNames={names}
+      phaseCode={phaseCode}
     />
   )
 }
@@ -101,6 +102,18 @@ describe('UnitOrdersSection', () => {
     const options = (await screen.findAllByRole('option')).map((o) => o.textContent)
     expect(options).toEqual(['CLY – Clyde', 'NTH – North Sea'])
     fireEvent.click(screen.getByRole('option', { name: 'NTH – North Sea' }))
+    expect(submitDisabled()).toBe(false)
+  })
+
+  it('forgets a half-made choice when the phase changes', async () => {
+    const { rerender } = render(<Harness phaseCode="S1901M" />)
+    open('Order type for F EDI')
+    fireEvent.click(await screen.findByRole('option', { name: 'Move' }))
+    expect(submitDisabled()).toBe(true)
+    rerender(<Harness phaseCode="F1901M" />)
+    expect(screen.getByRole('combobox', { name: 'Order type for F EDI' }).textContent).toBe(
+      'No order (holds)'
+    )
     expect(submitDisabled()).toBe(false)
   })
 
