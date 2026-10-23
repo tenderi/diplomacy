@@ -10,6 +10,33 @@
     box-sizing: border-box;
     border-color: var(--border);
   }
+  /* Native checkboxes and radios are 13 px: enlarge them on touch screens. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+  @media (min-width: 640px) {
+    input[type="checkbox"],
+    input[type="radio"] {
+      width: 1rem;
+      height: 1rem;
+    }
+  }
+  /* Labels wrapping them get a taller hit area on small screens. */
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 2.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  @media (min-width: 640px) {
+    label:has(> input[type="checkbox"]),
+    label:has(> input[type="radio"]) {
+      min-height: 0;
+    }
+  }
   *:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
