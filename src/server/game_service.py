@@ -1188,10 +1188,10 @@ class GameService:
         """The movement phase's resolution when ``last`` is the retreat phase that
         followed it (BR3), else ``None``. The retreat results alone cannot say why a
         power has builds or disbands; the movement ones can. A retreat resolution is
-        recognised by its content (a ``RETREAT`` order, or a result that kept
-        ``retreat_options``): no phase is stored with it."""
+        recognised by the ``phase`` stored with it (``_resolution_dict``); a
+        resolution stored before that was recorded falls back to its content."""
         results = last.get("results", [])
-        if not any(r["order"]["type"] == "RETREAT" or r.get("retreat_options") for r in results):
+        if not _is_retreat_resolution(last):
             return None
         history = self._repo.get_resolution_history(game_id)
         turns = sorted(int(k) for k in history)
@@ -1582,6 +1582,20 @@ def _require_active(
 _MOVEMENT_ORDER_TYPES = frozenset({"HOLD", "MOVE", "SUPPORT_HOLD", "SUPPORT_MOVE", "CONVOY"})
 
 
+def _is_retreat_resolution(resolution: dict[str, Any]) -> bool:
+    """Whether ``resolution`` adjudicated a retreat phase: by its stored ``phase``
+    (``S1901R``), else (older rows) by content, which cannot tell an all-disband
+    retreat from an adjustment and so misses it."""
+    phase = resolution.get("phase")
+    if phase:
+        return str(phase).endswith("R")
+    results = resolution.get("results", [])
+    types = {r["order"]["type"] for r in results}
+    if types & (_MOVEMENT_ORDER_TYPES | {"BUILD", "WAIVE"}):
+        return False
+    return "RETREAT" in types
+
+
 def _decorated_results(resolution: dict[str, Any]) -> list[dict[str, Any]]:
     """A stored resolution's results with the flattened ``power`` and a ``order_str``."""
     results: list[dict[str, Any]] = []
@@ -1596,6 +1610,7 @@ def _resolution_dict(resolution: Any, board: GameState) -> dict[str, Any]:
     formatted against ``board``, the pre-adjudication state."""
     kind_by_province = kind_by_province_of(board)
     resolution_dict = resolution_to_dict(resolution)
+    resolution_dict["phase"] = board.phase_name
     resolution_dict["results"] = [
         {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
         for r in resolution_dict["results"]
