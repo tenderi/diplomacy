@@ -28,6 +28,16 @@ function clampScale(scale: number): number {
 }
 
 /**
+ * Scale at which the whole image fits a viewport (contain). On a portrait phone the
+ * width is the binding side, so this is fit-to-width. A zero-sized viewport (jsdom, or a
+ * not-yet-laid-out element) falls back to 1:1 rather than dividing to nothing.
+ */
+export function fitScaleFor(vw: number, vh: number, nw: number, nh: number): number {
+  if (!vw || !vh || !nw || !nh) return 1
+  return clampScale(Math.min(vw / nw, vh / nh))
+}
+
+/**
  * Scale about a fixed point so the pixel under the cursor stays under the cursor.
  * `px`/`py` are relative to the transform's origin (the centre of the viewport).
  */
@@ -60,7 +70,7 @@ export default function MapViewer({ src, alt, className }: MapViewerProps) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`Enlarge map: ${alt}`}
-        title="Click to enlarge"
+        title="Enlarge map"
         className={cn(
           'group relative block w-full cursor-zoom-in overflow-hidden rounded-md border border-border',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -72,11 +82,14 @@ export default function MapViewer({ src, alt, className }: MapViewerProps) {
           aria-hidden="true"
           className={cn(
             'pointer-events-none absolute bottom-2 right-2 rounded bg-black/70 px-2 py-1',
-            'text-xs font-medium text-white opacity-0 transition-opacity',
-            'group-hover:opacity-100 group-focus-visible:opacity-100',
+            // Visible by default: touch devices have no hover, so only hover-capable
+            // pointers get the fade-in behaviour.
+            'text-xs font-medium text-white opacity-100 transition-opacity',
+            '[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100',
+            '[@media(hover:hover)]:group-focus-visible:opacity-100',
           )}
         >
-          Click to enlarge
+          Tap to enlarge
         </span>
       </button>
       {open && <MapLightbox src={src} alt={alt} onClose={() => setOpen(false)} />}
@@ -106,11 +119,7 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
   const fitScale = useCallback((): number => {
     const vp = viewportRef.current
     if (!natural || !vp) return 1
-    const w = vp.clientWidth
-    const h = vp.clientHeight
-    // clientWidth/Height are 0 in jsdom; fall back to 1:1 rather than dividing to 0.
-    if (!w || !h) return 1
-    return clampScale(Math.min(w / natural.w, h / natural.h))
+    return fitScaleFor(vp.clientWidth, vp.clientHeight, natural.w, natural.h)
   }, [natural])
 
   const fitToViewport = useCallback(() => {
@@ -220,14 +229,15 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
       aria-modal="true"
       aria-label={`Map viewer: ${alt}`}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex flex-col bg-black/90 outline-none"
+      className="fixed inset-0 z-50 flex flex-col bg-neutral-950 outline-none"
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/15 px-3 py-2 text-white">
-        <span className="mr-auto truncate text-sm font-medium">{alt}</span>
+      <div className="flex flex-nowrap items-center gap-1.5 border-b border-white/15 bg-neutral-950 px-2 py-2 text-white sm:gap-2 sm:px-3">
+        <span className="mr-auto hidden min-w-0 truncate text-sm font-medium sm:block">{alt}</span>
+        <span className="mr-auto sm:hidden" />
         <ViewerButton onClick={() => setTransform((t) => zoomAbout(t, 1 / ZOOM_STEP, 0, 0))} label="Zoom out">
           &minus;
         </ViewerButton>
-        <span className="w-14 text-center text-xs tabular-nums" aria-live="polite">
+        <span className="w-11 text-center text-xs tabular-nums sm:w-14" aria-live="polite">
           {zoomPercent}%
         </span>
         <ViewerButton onClick={() => setTransform((t) => zoomAbout(t, ZOOM_STEP, 0, 0))} label="Zoom in">
@@ -243,9 +253,12 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
           href={src}
           target="_blank"
           rel="noreferrer"
-          className="rounded border border-white/25 px-2 py-1 text-xs hover:bg-white/15"
+          aria-label="Open PNG"
+          title="Open PNG"
+          className="min-w-8 rounded border border-white/25 px-2 py-1 text-center text-xs leading-none hover:bg-white/15"
         >
-          Open PNG
+          <span aria-hidden="true">&#8599;</span>
+          <span className="sr-only">Open PNG</span>
         </a>
         <ViewerButton onClick={onClose} label="Close map viewer">
           &times;
@@ -281,8 +294,8 @@ function MapLightbox({ src, alt, onClose }: MapLightboxProps) {
         />
       </div>
 
-      <p className="border-t border-white/15 px-3 py-1.5 text-center text-xs text-white/60">
-        Drag to pan &middot; scroll or pinch to zoom &middot; double-click toggles 1:1 &middot; Esc closes
+      <p className="border-t border-white/15 bg-neutral-950 px-3 py-1.5 text-center text-xs text-white/60">
+        Drag to pan &middot; pinch to zoom &middot; double-tap for 1:1<span className="hidden sm:inline"> &middot; Esc closes</span>
       </p>
     </div>
   )
@@ -303,7 +316,7 @@ function ViewerButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="min-w-8 rounded border border-white/25 px-2 py-1 text-xs leading-none hover:bg-white/15"
+      className="min-w-8 shrink-0 rounded border border-white/25 px-2 py-1 text-xs leading-none hover:bg-white/15"
     >
       {children}
     </button>

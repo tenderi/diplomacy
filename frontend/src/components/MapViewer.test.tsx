@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
-import MapViewer from './MapViewer'
+import MapViewer, { fitScaleFor } from './MapViewer'
 
 // `globals` is off in vite.config.ts, so Testing Library cannot register its automatic
 // per-test cleanup -- without this every test would see the previous test's DOM. Same
@@ -250,5 +250,35 @@ describe('MapViewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close map viewer' }))
     expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function), true)
     removeSpy.mockRestore()
+  })
+
+  it('computes the fit-to-viewport scale: width-bound on a portrait phone', () => {
+    // 390x800 viewport, 1835x1360 board: width is the binding side.
+    expect(fitScaleFor(390, 800, 1835, 1360)).toBeCloseTo(390 / 1835, 6)
+    // Landscape desktop: height binds.
+    expect(fitScaleFor(1600, 500, 1835, 1360)).toBeCloseTo(500 / 1360, 6)
+  })
+
+  it('falls back to 1:1 for an unmeasurable viewport or image', () => {
+    expect(fitScaleFor(0, 0, 1835, 1360)).toBe(1)
+    expect(fitScaleFor(390, 800, 0, 0)).toBe(1)
+  })
+
+  it('does not hide the enlarge hint behind hover, which touch screens lack', () => {
+    render(<MapViewer src={SRC} alt="Board — S1901M" />)
+    const hint = screen.getByText(/to enlarge/i)
+    const tokens = hint.className.split(/\s+/)
+    expect(tokens).toContain('opacity-100')
+    expect(tokens).not.toContain('opacity-0')
+    expect(tokens).not.toContain('group-hover:opacity-100')
+  })
+
+  it('keeps the toolbar on one row with an opaque backdrop', () => {
+    open()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.className).toContain('bg-neutral-950')
+    const bar = within(dialog).getByRole('link', { name: 'Open PNG' }).parentElement as HTMLElement
+    expect(bar.className).toContain('flex-nowrap')
+    expect(bar.className).not.toContain('flex-wrap')
   })
 })
