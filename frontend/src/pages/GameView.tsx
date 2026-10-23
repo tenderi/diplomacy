@@ -1118,6 +1118,12 @@ export default function GameView() {
                 loading={legalOrdersLoading}
                 onSubmit={handleSubmitOrders}
                 submitting={submitting}
+                provinceNames={provinceNames}
+                unitOwners={Object.fromEntries(
+                  Object.entries(state?.units_by_power ?? {}).flatMap(([pw, us]) =>
+                    us.map((u) => [u.location.split('/')[0], pw] as const)
+                  )
+                )}
               />
             )}
           </section>

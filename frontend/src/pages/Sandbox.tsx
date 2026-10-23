@@ -500,6 +500,7 @@ export default function Sandbox() {
                     })
                   }
                   legalOrdersByUnit={legalByUnit}
+                  provinceNames={provinceNames}
                   loading={legalLoading && !legal[power]}
                 />
               )}
