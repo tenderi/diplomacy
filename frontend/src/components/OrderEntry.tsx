@@ -3,6 +3,7 @@
  * sandbox (`Sandbox`): the per-unit order pickers, the adjustment-phase slot pickers,
  * the adjudicated-result list, and the unit/legal-order types they work on.
  */
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -12,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { glossOrder, provinceLabel, type ProvinceNames } from '@/lib/provinceNames'
+import { glossOrder, provinceLabel, provinceName, type ProvinceNames } from '@/lib/provinceNames'
 import {
   type OrderType,
   type ParsedLegalOrder,
@@ -84,6 +85,44 @@ export function unitKey(u: UnitOut): string {
   return `${u.unit_type} ${u.province}${u.coast ? `/${u.coast}` : ''}`
 }
 
+/** "NTH" -> "NTH – North Sea"; a code with no known name stays as it is. */
+function codeWithName(code: string, names: ProvinceNames): string {
+  const name = provinceName(code, names)
+  return name === code ? code : `${code} – ${name}`
+}
+
+/**
+ * Target text for the picker: the engine-built label with province names added.
+ * A support/convoy names whose unit is supported ("A BUR (FRANCE)") when `owners`
+ * (province -> power) knows it. Display only: the order string is untouched.
+ */
+export function describeTarget(
+  opt: ParsedLegalOrder,
+  names: ProvinceNames,
+  owners: Record<string, string> = {}
+): string {
+  if (opt.type === 'move' || opt.type === 'retreat') {
+    const by = opt.targetLabel.endsWith(' (by convoy)') ? ' (by convoy)' : ''
+    return codeWithName(opt.targetValue, names) + by
+  }
+  if (opt.type === 'support' || opt.type === 'convoy') {
+    const m = opt.targetLabel.match(/^([AF]) ([A-Z]{3}(?:\/[A-Z]{2})?)(?: (\(hold\)|→ ([A-Z]{3}(?:\/[A-Z]{2})?)))?$/)
+    if (m) {
+      const owner = owners[m[2].split('/')[0]]
+      const who = owner ? ` (${owner})` : ''
+      const unit = `${m[1]} ${m[2]}${who}`
+      if (m[4]) return `${unit} → ${codeWithName(m[4], names)}`
+      return m[3] ? `${unit} (hold)` : unit
+    }
+  }
+  return opt.targetLabel
+}
+
+/** Types that are not complete until a target is chosen. */
+function needsTarget(t: OrderType | ''): boolean {
+  return t !== '' && t !== 'hold'
+}
+
 export function UnitOrdersSection({
   phase,
   myUnits,
@@ -93,6 +132,9 @@ export function UnitOrdersSection({
   loading,
   onSubmit,
   submitting,
+  provinceNames = {},
+  unitOwners = {},
+  phaseCode,
 }: {
   phase: string
   myUnits: UnitOut[]
@@ -103,12 +145,30 @@ export function UnitOrdersSection({
   /** Omitted where there is nothing to submit (the sandbox holds orders locally). */
   onSubmit?: () => void
   submitting?: boolean
+  /** code -> full name, for target labels (BQ5). */
+  provinceNames?: ProvinceNames
+  /** province -> power, so a support option says whose unit it backs (BQ5). */
+  unitOwners?: Record<string, string>
+  /** Phase code ("S1901M"); a new one discards half-made choices, as the orders are replaced. */
+  phaseCode?: string
 }) {
+  // An order type chosen but with no target yet. It is not an order, so it lives here
+  // and never reaches `orderByUnit` (BQ1).
+  const [pendingType, setPendingType] = useState<Record<string, OrderType>>({})
+  const [pendingPhase, setPendingPhase] = useState(phaseCode)
+  if (pendingPhase !== phaseCode) {
+    setPendingPhase(phaseCode)
+    setPendingType({})
+  }
   const unitsToShow = phase === 'Retreat' ? myUnits.filter((u) => u.is_dislodged) : myUnits
+  const incomplete = unitsToShow.filter((u) => {
+    const id = unitKey(u)
+    return !orderByUnit[id] && needsTarget(pendingType[id] ?? '')
+  })
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
-        One row per unit. Choose order type, then target.
+        One row per unit. Choose order type, then target. A unit with no order holds.
       </p>
       {loading ? (
         <p className="text-sm text-muted-foreground mb-2">Loading legal orders…</p>
@@ -120,7 +180,7 @@ export function UnitOrdersSection({
           const grouped = data?.grouped
           const currentOrder = orderByUnit[unitId]
           const parsedCurrent = currentOrder ? parseLegalOrder(currentOrder) : null
-          const selectedOrderType: OrderType | '' = parsedCurrent?.type ?? ''
+          const selectedOrderType: OrderType | '' = parsedCurrent?.type ?? pendingType[unitId] ?? ''
           const orderTypes = grouped ? getOrderTypesFromGrouped(grouped, phase) : []
           // A unit can have an order before its menu has loaded (orders are fetched
           // separately), so the menu may still be missing here.
@@ -134,20 +194,19 @@ export function UnitOrdersSection({
             >
               <span className="font-medium">{unitId}</span>
               <Select
-                value={selectedOrderType || undefined}
+                value={selectedOrderType}
                 onValueChange={(t) => {
                   if (!t) return
-                  const opts = getTargetOptionsForType(grouped!, t as OrderType)
-                  const first = opts[0]
-                  setOrderByUnit((prev) => ({
-                    ...prev,
-                    [unitId]: first?.fullOrder ?? '',
-                  }))
+                  const type = t as OrderType
+                  // Hold is complete by itself; every other type waits for a chosen target.
+                  const hold = type === 'hold' ? getTargetOptionsForType(grouped!, type)[0] : undefined
+                  setPendingType((prev) => ({ ...prev, [unitId]: type }))
+                  setOrderByUnit((prev) => ({ ...prev, [unitId]: hold?.fullOrder ?? '' }))
                 }}
                 disabled={!grouped || loading}
               >
                 <SelectTrigger className="w-full" aria-label={`Order type for ${unitId}`}>
-                  <SelectValue placeholder="Order type" />
+                  <SelectValue placeholder="No order (holds)" />
                 </SelectTrigger>
                 <SelectContent>
                   {orderTypes.map((t) => (
@@ -159,19 +218,23 @@ export function UnitOrdersSection({
               </Select>
               {selectedOrderType && selectedOrderType !== 'hold' && (
                 <Select
-                  value={targetValue || undefined}
+                  value={targetValue}
                   onValueChange={(fullOrder) => {
+                    setPendingType((prev) => {
+                      const { [unitId]: _done, ...rest } = prev
+                      return rest
+                    })
                     setOrderByUnit((prev) => ({ ...prev, [unitId]: fullOrder }))
                   }}
                   disabled={!grouped || loading}
                 >
                   <SelectTrigger className="w-full" aria-label={`Target for ${unitId} order`}>
-                    <SelectValue placeholder="Target" />
+                    <SelectValue placeholder="Choose target" />
                   </SelectTrigger>
                   <SelectContent>
                     {targetOptions.map((opt) => (
                       <SelectItem key={opt.fullOrder} value={opt.fullOrder}>
-                        {opt.targetLabel}
+                        {describeTarget(opt, provinceNames, unitOwners)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -185,9 +248,16 @@ export function UnitOrdersSection({
         })}
       </ul>
       {onSubmit && (
-        <Button onClick={onSubmit} disabled={submitting}>
-          {submitting ? 'Submitting...' : 'Submit orders'}
-        </Button>
+        <>
+          <Button onClick={onSubmit} disabled={submitting || incomplete.length > 0}>
+            {submitting ? 'Submitting...' : 'Submit orders'}
+          </Button>
+          {incomplete.length > 0 && (
+            <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+              Choose a target for {incomplete.map(unitKey).join(', ')} before submitting.
+            </p>
+          )}
+        </>
       )}
     </>
   )
