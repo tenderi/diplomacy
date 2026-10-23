@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, within, waitFor, fireEvent, screen, cleanup } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router'
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameView from './GameView'
 
@@ -1623,5 +1623,158 @@ describe('GameView — nickname affordance', () => {
     const { container } = renderWith(mockAuth)
     await within(container).findByText('Players')
     expect(within(container).queryByText(/You have no nickname/)).toBeNull()
+  })
+})
+
+describe('GameView — turn status stays current (BQ3)', () => {
+  const pending = { phase: 'S1901M', active_powers: ['FRANCE'], submitted: [], missing: ['FRANCE'] }
+  const done = { phase: 'S1901M', active_powers: ['FRANCE'], submitted: ['FRANCE'], missing: [] }
+
+  /** Stub whose orders_status answer can be swapped; counts state GETs. */
+  function mutableStub(initial: Record<string, unknown>) {
+    const box = { status: initial, stateGets: 0, stateGate: null as Promise<void> | null }
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse({ results: [{ order: 'A PAR - BUR', success: true, error: null }] })
+      if (url.includes('/orders_status')) return jsonResponse(box.status)
+      if (url.endsWith('/state')) {
+        box.stateGets++
+        if (box.stateGate) await box.stateGate
+      }
+      if (url.includes('/legal_orders/')) return jsonResponse({ detail: 'Not Found' }, 404)
+      return base(url, init)
+    })
+    return { box, fetchMock }
+  }
+
+  function setVisibility(v: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    setVisibility('visible')
+  })
+
+  it('refreshes the status card right after a submission', async () => {
+    const { box, fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const textbox = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    await within(container).findByText(/You still need to submit orders for FRANCE/)
+    box.status = done
+    fireEvent.change(textbox, { target: { value: 'A PAR - BUR' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    expect(await within(container).findByText('Your orders are in for FRANCE.')).toBeInTheDocument()
+  })
+
+  it('polls every 30 s while visible, pauses while hidden, refreshes on becoming visible', async () => {
+    const { box, fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { container } = renderGame10()
+    await within(container).findByText(/You still need to submit orders for FRANCE/)
+    const before = box.stateGets
+    box.status = done
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(box.stateGets).toBe(before)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(box.stateGets).toBe(before + 1)
+    expect(await within(container).findByText('Your orders are in for FRANCE.')).toBeInTheDocument()
+
+    setVisibility('hidden')
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(box.stateGets).toBe(before + 1)
+    setVisibility('visible')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(box.stateGets).toBe(before + 2)
+  })
+
+  it('does not start a refresh while the previous one is still in flight', async () => {
+    const { box, fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { container } = renderGame10()
+    await within(container).findByText(/You still need to submit orders for FRANCE/)
+    const before = box.stateGets
+    let release!: () => void
+    box.stateGate = new Promise<void>((r) => { release = r })
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(box.stateGets).toBe(before + 1)
+    box.stateGate = null
+    release()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(box.stateGets).toBe(before + 2)
+  })
+
+  it('a poll that returns a new phase clears the old order text and refetches the deadline', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    let phase = 'S1901M'
+    let deadlineGets = 0
+    let savedOrders: string[] = []
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/state'))
+        return jsonResponse({ ...activeMovementState, phase, season: phase === 'S1901M' ? 'SPRING' : 'FALL' })
+      if (url.includes('/deadline')) deadlineGets++
+      if (url.includes('/orders/FRANCE')) return jsonResponse({ orders: savedOrders })
+      if (url.includes('/legal_orders/')) return jsonResponse({ detail: 'Not Found' }, 404)
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { container } = renderGame10()
+    const textbox = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(textbox, { target: { value: 'A PAR - BUR' } })
+    expect(textbox).toHaveValue('A PAR - BUR')
+    const before = deadlineGets
+    phase = 'F1901M'
+    await vi.advanceTimersByTimeAsync(30_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(within(container).getByPlaceholderText(/A PAR - BUR/)).toHaveValue('')
+    expect(deadlineGets).toBe(before + 1)
+  })
+
+  it('ignores a poll still in flight when the game changes', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let stateGets = 0
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/games/10/state') && ++stateGets === 2) {
+        await gate
+        return jsonResponse({ ...activeMovementState, game_id: '10', phase: 'F1901M' })
+      }
+      if (url.endsWith('/games/11/state'))
+        return jsonResponse({ ...activeMovementState, game_id: '11' })
+      if (url.includes('/legal_orders/')) return jsonResponse({ detail: 'Not Found' }, 404)
+      return base(url.replace('/games/11/', '/games/10/'), init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    function GoTo() {
+      const navigate = useNavigate()
+      return <button onClick={() => navigate('/games/11')}>go</button>
+    }
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <GoTo />
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    await within(container).findByText(/You still need to submit orders for FRANCE/)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(stateGets).toBe(2)
+    fireEvent.click(within(container).getByText('go'))
+    await vi.advanceTimersByTimeAsync(0)
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(within(container).queryByText(/F1901M/)).toBeNull()
+    expect(within(container).getByText(/Spring 1901 · S1901M/)).toBeInTheDocument()
   })
 })
