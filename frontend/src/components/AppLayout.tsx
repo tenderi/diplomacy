@@ -15,7 +15,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-border bg-card px-4 py-3">
         <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <Link to="/" className="text-lg font-semibold text-foreground hover:text-primary">
+          <Link to="/" className="inline-flex min-h-10 items-center text-lg font-semibold text-foreground hover:text-primary sm:min-h-0">
             Diplomacy
           </Link>
           <nav className="flex flex-wrap items-center gap-2">
@@ -60,8 +60,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* The AGPL (section 13) requires offering the source to everyone who uses
           the program over a network. A modified deployment must point this at
           its own source. */}
-      <footer className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
-        <div className="max-w-4xl mx-auto flex flex-wrap gap-x-3 gap-y-1">
+      <footer className="border-t border-border px-4 py-3 text-xs text-muted-foreground [&_a]:inline-flex [&_a]:min-h-10 [&_a]:items-center sm:[&_a]:min-h-0">
+        <div className="max-w-4xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-0 sm:gap-y-1">
           {user && (
             <Link to={feedbackTo} className="underline underline-offset-2 hover:text-foreground">
               Send feedback
