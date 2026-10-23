@@ -333,12 +333,14 @@ such power) and, prefixed with the power, in the channel post:
 - "A WAR had no valid retreat order and was disbanded." (no order, or one that was
   rejected; the line does not say "civil disorder", which a present player did not cause).
 
-**A build waived for want of orders is announced.** `GameService.waived_builds` reads the
-processed adjustment's bare `WAIVE` results for a power that sent no adjustment orders
-at all (a power that ordered anything, or has no free home centre, or is a dummy, is not
-announced). Its DM gets "Your 2 builds were waived: no orders came in." (prefixed "As
-FRANCE, your " for a player holding more than one such power) and the channel post
-"FRANCE: 2 builds were waived: no orders came in."
+**A build waived without the power's asking is announced.** `GameService.waived_builds`
+reads the processed adjustment's `WAIVE` results for a power that left builds unused (it sent
+no adjustment orders, or ordered fewer builds than it was owed), minus the `WAIVE` orders it
+sent itself, capped at the free home centres it had (a power with no free centre, or a dummy,
+is not announced). Its DM gets "Your 2 builds were waived: no orders came in." when it ordered
+nothing, or "Your 1 build was waived: it was not ordered." ("they were not ordered" for
+several) when it ordered some builds (prefixed "As FRANCE, your " for a player holding more
+than one such power), and the channel post "FRANCE: 2 builds were waived: no orders came in."
 
 These lines come before "Next deadline: …", which still ends the DM and the post.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel

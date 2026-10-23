@@ -688,7 +688,7 @@ def notify_turn_processed(
     # (BJ1): a retreat that bounced, or a unit left without a retreat order.
     disorder: dict[str, list[str]] = {}
     lost: dict[str, list[str]] = {}
-    waived: dict[str, int] = {}
+    waived: dict[str, tuple[int, bool]] = {}
     try:
         if processed_turn is not None:
             waived = game_service.waived_builds(game_id, processed_turn)
@@ -732,7 +732,7 @@ def notify_turn_processed(
                         for p, lines in retreat_lost.items()
                         for line in lines
                     ]
-                    + [(f"As {p}, your " if len(my_waived) > 1 else "Your ") + waived_line(n) for p, n in my_waived.items()]
+                    + [(f"As {p}, your " if len(my_waived) > 1 else "Your ") + waived_line(n, partial) for p, (n, partial) in my_waived.items()]
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
                 + due,
@@ -752,7 +752,7 @@ def notify_turn_processed(
         channel_text = f"The turn has been processed. {label}: nobody has anything to order."
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
-    group_lines += [f"{power_label(game_id, p)}: {waived_line(n)}" for p, n in sorted(waived.items())]
+    group_lines += [f"{power_label(game_id, p)}: {waived_line(n, partial)}" for p, (n, partial) in sorted(waived.items())]
     if vacant_line:
         group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
@@ -769,12 +769,14 @@ def civil_disorder_line(subject: str, units: list[str]) -> str:
     return f"{subject} {short} short, so {_join_names(units)} {were} disbanded (civil disorder)."
 
 
-def waived_line(n: int) -> str:
-    """A power's builds waived because it sent no adjustment orders (BO2):
-    "2 builds were waived: no orders came in." The DM prefixes "Your", the group
-    post the power's name and a colon, as the neighbouring lines do."""
+def waived_line(n: int, partial: bool = False) -> str:
+    """A power's builds waived without its asking (BO2, BP1): for want of any
+    adjustment orders, "2 builds were waived: no orders came in.", or, when it ordered
+    some builds, "1 build was waived: it was not ordered." The DM prefixes "Your",
+    the group post the power's name and a colon, as the neighbouring lines do."""
     builds = "build was" if n == 1 else "builds were"
-    return f"{n} {builds} waived: no orders came in."
+    why = "it was not ordered" if n == 1 and partial else "they were not ordered" if partial else "no orders came in"
+    return f"{n} {builds} waived: {why}."
 
 
 def _units(n: int) -> str:

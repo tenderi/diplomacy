@@ -89,5 +89,38 @@ def test_builds_waived_for_want_of_orders_are_announced() -> None:
     ]
 
 
+def _process_with(orders: dict[str, list[str]]) -> tuple[list[str], list[str]]:
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    _winter_with_builds_owed(game_id)
+    row_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
+    api_shared.db_service.link_game_to_channel(game_id, GROUP, any_displacer=True)
+    for power, o in orders.items():
+        api_shared.game_service.submit_orders(game_id, power, o)
+    with OutboxProbe() as probe:
+        api_shared.game_service.process_turn(game_id)
+        api_shared.finish_processed_turn(game_id, row_id, prev_phase_code="W1901A", trigger="deadline")
+    france_tg = {power: tg for power, (_h, tg) in zip(POWERS, users)}["FRANCE"]
+    channel = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
+    return _dms(probe)[france_tg], channel
+
+
+def test_a_partial_build_announces_the_builds_left_unused() -> None:
+    dms, channel = _process_with({"FRANCE": ["BUILD A PAR"], "ENGLAND": ["WAIVE"]})
+    assert dms[-1].endswith("\nYour 1 build was waived: it was not ordered.")
+    assert [m.splitlines()[-1] for m in channel] == ["FRANCE: 1 build was waived: it was not ordered."]
+
+
+def test_a_partial_build_with_an_explicit_waive_is_not_announced() -> None:
+    dms, channel = _process_with({"FRANCE": ["BUILD A PAR", "WAIVE"], "ENGLAND": ["WAIVE"]})
+    assert "waived" not in dms[-1]
+    assert all("waived" not in m for m in channel)
+
+
+def test_waived_line_for_a_partial_build() -> None:
+    assert api_shared.waived_line(1, True) == "1 build was waived: it was not ordered."
+    assert api_shared.waived_line(2, True) == "2 builds were waived: they were not ordered."
+
+
 def test_waived_line_is_singular_for_one_build() -> None:
     assert api_shared.waived_line(1) == "1 build was waived: no orders came in."
