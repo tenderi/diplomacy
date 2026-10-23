@@ -948,45 +948,6 @@ export default function GameView() {
         provinceNames={provinceNames}
       />
 
-      <section className="mb-6">
-        <h2 className="text-lg font-medium mb-2">Players</h2>
-        <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-          {POWERS.map((p) => {
-            const pl = players.find((x) => x.power === p)
-            const seated = isSeated(pl)
-            const label = seated
-              ? pl?.nickname || (pl?.user_id != null ? 'Player' : 'Taken')
-              : dummyPowers.has(p)
-                ? 'Civil disorder'
-                : 'Open'
-            return (
-              <li
-                key={p}
-                className="flex items-center justify-between border-b border-border/50 py-1"
-              >
-                <span className="font-medium">
-                  {p}
-                  {p === myPower ? ' (you)' : ''}
-                </span>
-                <span className={cn('text-muted-foreground', !seated && 'italic')}>
-                  {label}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-        {myPower && user && !user.nickname && (
-          <div className="mt-3">
-            <p className="text-sm text-muted-foreground mb-1">
-              You have no nickname, so other players see only {myPower}. Set one here:
-            </p>
-            <NicknameForm />
-          </div>
-        )}
-      </section>
-
-      {myPower && gameId && <TelegramGroupCard gameId={gameId} />}
-
       {mapUrl && (
         <div className="mb-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -1130,6 +1091,45 @@ export default function GameView() {
           </section>
         </>
       )}
+
+      <section className="mb-6">
+        <h2 className="text-lg font-medium mb-2">Players</h2>
+        <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          {POWERS.map((p) => {
+            const pl = players.find((x) => x.power === p)
+            const seated = isSeated(pl)
+            const label = seated
+              ? pl?.nickname || (pl?.user_id != null ? 'Player' : 'Taken')
+              : dummyPowers.has(p)
+                ? 'Civil disorder'
+                : 'Open'
+            return (
+              <li
+                key={p}
+                className="flex items-center justify-between border-b border-border/50 py-1"
+              >
+                <span className="font-medium">
+                  {p}
+                  {p === myPower ? ' (you)' : ''}
+                </span>
+                <span className={cn('text-muted-foreground', !seated && 'italic')}>
+                  {label}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+        {myPower && user && !user.nickname && (
+          <div className="mt-3">
+            <p className="text-sm text-muted-foreground mb-1">
+              You have no nickname, so other players see only {myPower}. Set one here:
+            </p>
+            <NicknameForm />
+          </div>
+        )}
+      </section>
+
+      {myPower && gameId && <TelegramGroupCard gameId={gameId} />}
 
       {myPower && state.status === 'ACTIVE' && (
         <section className="mb-6">
