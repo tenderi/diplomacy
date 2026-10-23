@@ -1119,6 +1119,7 @@ export default function GameView() {
                 onSubmit={handleSubmitOrders}
                 submitting={submitting}
                 provinceNames={provinceNames}
+                phaseCode={state?.phase}
                 unitOwners={Object.fromEntries(
                   Object.entries(state?.units_by_power ?? {}).flatMap(([pw, us]) =>
                     us.map((u) => [u.location.split('/')[0], pw] as const)
