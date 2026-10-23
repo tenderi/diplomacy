@@ -431,7 +431,7 @@ message as is; the bot reads `unseated` from `GET /games/{id}/orders_status`, sk
 process the game; it spends the deadline, so it does not find it again every tick (a
 weekly schedule moves to its next slot, a one-off deadline is cleared; filling the last
 seat arms a scheduled one again), and tells the players and the game's group, naming the
-empty seats and the next deadline if there is one. The bot's demo game is full from the
+empty seats and the next deadline if there is one. It spends the deadline with a compare-and-set (`DatabaseService.replace_game_deadline_if_unchanged`): only while the game is still in the phase, with the deadline, the scheduler saw. A deadline armed meanwhile (the last seat filling) is kept, and no notice goes out. The bot's demo game is full from the
 start: Germany plus six dummies. The DAIDE listener's game (`games.daide`) is exempt: its
 seats are live DAIDE connections held in memory, not seat rows.
 
