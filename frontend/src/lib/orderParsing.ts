@@ -149,6 +149,10 @@ export function groupLegalOrdersByType(orders: string[]): GroupedByType {
 }
 
 /** Order type label for UI */
+export function orderTypeLabel(type: OrderType, phase: string): string {
+  return type === 'destroy' && phase === 'Retreat' ? 'Disband' : ORDER_TYPE_LABELS[type]
+}
+
 export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   hold: 'Hold',
   move: 'Move',
@@ -171,7 +175,8 @@ export function getOrderTypesFromGrouped(grouped: GroupedByType, phase: string):
   if (grouped.convoy.length) types.push('convoy')
   if (phase === 'Retreat' && grouped.retreat.length) types.push('retreat')
   if (phase === 'Adjustment' && grouped.build.length) types.push('build')
-  if (phase === 'Adjustment' && grouped.destroy.length) types.push('destroy')
+  // A dislodged unit may be disbanded outright (`D A MUN`), the same as in an adjustment.
+  if ((phase === 'Adjustment' || phase === 'Retreat') && grouped.destroy.length) types.push('destroy')
   if (phase === 'Adjustment' && grouped.waive.length) types.push('waive')
   return types
 }
