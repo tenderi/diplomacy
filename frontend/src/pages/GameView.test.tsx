@@ -3,6 +3,12 @@ import { render, within, waitFor, fireEvent, screen, cleanup } from '@testing-li
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router'
 import { AuthContext } from '@/contexts/AuthContext'
 import GameView from './GameView'
+import { toast } from 'sonner'
+
+vi.mock('sonner', async (orig) => {
+  const mod = await orig<typeof import('sonner')>()
+  return { ...mod, toast: Object.assign(vi.fn(), mod.toast, { success: vi.fn(), warning: vi.fn() }) }
+})
 
 /** Minimal ok-response Response stub for a JSON body, used across the tests below. */
 function jsonResponse(body: unknown, status = 200): Promise<Response> {
@@ -1362,6 +1368,32 @@ describe('GameView — player actions', () => {
     expect(
       await within(container).findByText('Not accepted: A PAR - LON (LON is not adjacent to PAR)')
     ).toBeInTheDocument()
+  })
+
+  it('shows the server note on an accepted but replaced order', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const { posts, fetchMock } = recordingPosts(
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/legal_orders/') ? jsonResponse({ detail: 'Not Found' }, 404) : base(url, init)
+      ) as unknown as ReturnType<typeof stubFetchActive>,
+      () => ({
+        results: [
+          { order: 'BUILD F STP/SC', success: true, error: null, note: 'replaced by a later order in this submission' },
+          { order: 'BUILD F STP/NC', success: true, error: null },
+        ],
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'BUILD F STP/SC\nBUILD F STP/NC' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(
+        'Orders submitted. replaced by a later order in this submission'
+      )
+    )
   })
 
   it('relays the note that a fully refused submission changed nothing', async () => {
