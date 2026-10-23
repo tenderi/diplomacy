@@ -21,8 +21,8 @@ import {
   parseLegalOrder,
   groupLegalOrdersByType,
   getOrderTypesFromGrouped,
+  orderTypeLabel,
   getTargetOptionsForType,
-  ORDER_TYPE_LABELS,
 } from '@/lib/orderParsing'
 import { type OrderResultEntry, describeResult, resultBadgeClass } from '@/lib/resultText'
 
@@ -168,7 +168,9 @@ export function UnitOrdersSection({
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
-        One row per unit. Choose order type, then target. A unit with no order holds.
+        One row per unit. Choose order type, then target. {phase === 'Retreat'
+          ? 'A dislodged unit with no order is disbanded.'
+          : 'A unit with no order holds.'}
       </p>
       {loading ? (
         <p className="text-sm text-muted-foreground mb-2">Loading legal orders…</p>
@@ -199,24 +201,26 @@ export function UnitOrdersSection({
                   if (!t) return
                   const type = t as OrderType
                   // Hold is complete by itself; every other type waits for a chosen target.
-                  const hold = type === 'hold' ? getTargetOptionsForType(grouped!, type)[0] : undefined
+                  // A retreat-phase disband likewise names its unit and needs no target.
+                  const complete = type === 'hold' || (type === 'destroy' && phase === 'Retreat')
+                  const hold = complete ? getTargetOptionsForType(grouped!, type)[0] : undefined
                   setPendingType((prev) => ({ ...prev, [unitId]: type }))
                   setOrderByUnit((prev) => ({ ...prev, [unitId]: hold?.fullOrder ?? '' }))
                 }}
                 disabled={!grouped || loading}
               >
                 <SelectTrigger className="w-full" aria-label={`Order type for ${unitId}`}>
-                  <SelectValue placeholder="No order (holds)" />
+                  <SelectValue placeholder={phase === 'Retreat' ? 'No order (disbands)' : 'No order (holds)'} />
                 </SelectTrigger>
                 <SelectContent>
                   {orderTypes.map((t) => (
                     <SelectItem key={t} value={t}>
-                      {ORDER_TYPE_LABELS[t]}
+                      {orderTypeLabel(t, phase)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {selectedOrderType && selectedOrderType !== 'hold' && (
+              {selectedOrderType && selectedOrderType !== 'hold' && !(selectedOrderType === 'destroy' && phase === 'Retreat') && (
                 <Select
                   value={targetValue}
                   onValueChange={(fullOrder) => {
@@ -242,6 +246,9 @@ export function UnitOrdersSection({
               )}
               {selectedOrderType === 'hold' && targetOptions.length > 0 && (
                 <span className="text-muted-foreground text-sm">Hold</span>
+              )}
+              {selectedOrderType === 'destroy' && phase === 'Retreat' && (
+                <span className="text-muted-foreground text-sm">Disband</span>
               )}
             </li>
           )
@@ -283,6 +290,17 @@ export function BuildOrdersSection({
   const grouped = groupLegalOrdersByType(orders)
   const options: ParsedLegalOrder[] = [...grouped.build, ...grouped.destroy, ...grouped.waive]
   const slots = Array.from({ length: adjustment?.slots ?? 0 }, (_, i) => i)
+  // One order per province: a build in STP/SC and one in STP/NC would collide, the
+  // server keeping only the later. Hide a province (any coast) another slot has chosen.
+  const provinceOf = (order: string): string | null => {
+    const m = order.match(/^(?:BUILD|D|DISBAND)\s+[AF]\s+([A-Z]{3})/i)
+    return m ? m[1].toUpperCase() : null
+  }
+  const takenByOtherSlot = (opt: ParsedLegalOrder, slot: number): boolean => {
+    const prov = provinceOf(opt.fullOrder)
+    if (!prov) return false
+    return buildOrderSlots.some((o, j) => j !== slot && !!o && provinceOf(o) === prov)
+  }
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
@@ -317,7 +335,9 @@ export function BuildOrdersSection({
                 <SelectValue placeholder="Build / Destroy" />
               </SelectTrigger>
               <SelectContent>
-                {options.map((opt) => (
+                {options
+                  .filter((opt) => !takenByOtherSlot(opt, i))
+                  .map((opt) => (
                   <SelectItem key={opt.fullOrder} value={opt.fullOrder}>
                     {opt.targetLabel}
                   </SelectItem>

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { type OrderResultEntry } from '@/lib/resultText'
 import { groupLegalOrdersByType, parseLegalOrder } from '@/lib/orderParsing'
-import { ResultList, UnitOrdersSection, describeTarget } from './OrderEntry'
+import { BuildOrdersSection, ResultList, UnitOrdersSection, describeTarget } from './OrderEntry'
 
 function disband(unit: string, civil_disorder: boolean): OrderResultEntry {
   return {
@@ -136,5 +136,66 @@ describe('describeTarget', () => {
   })
   it('keeps a bare code when the name is unknown', () => {
     expect(describeTarget(parseLegalOrder('F EDI - CLY')!, {})).toBe('CLY')
+  })
+})
+
+
+const RETREAT_ORDERS = ['A MUN R BOH', 'A MUN R TYR', 'D A MUN']
+
+function RetreatHarness({ orders = RETREAT_ORDERS }: { orders?: string[] }) {
+  const [sel, setSel] = useState<Record<string, string>>({})
+  return (
+    <>
+      <UnitOrdersSection
+        phase="Retreat"
+        myUnits={[{ unit_type: 'A', province: 'MUN', is_dislodged: true }]}
+        orderByUnit={sel}
+        setOrderByUnit={setSel}
+        legalOrdersByUnit={{ 'A MUN': { orders, grouped: groupLegalOrdersByType(orders) } }}
+        loading={false}
+        onSubmit={() => {}}
+      />
+      <output data-testid="sel">{JSON.stringify(sel)}</output>
+    </>
+  )
+}
+
+describe('retreat phase', () => {
+  it('says an unordered dislodged unit is disbanded', () => {
+    render(<RetreatHarness />)
+    expect(screen.getByRole('combobox', { name: 'Order type for A MUN' }).textContent).toBe(
+      'No order (disbands)'
+    )
+    expect(screen.getByText(/One row per unit/).textContent).toBe(
+      'One row per unit. Choose order type, then target. A dislodged unit with no order is disbanded.'
+    )
+  })
+
+  it.each([[RETREAT_ORDERS], [['D A MUN']]])('offers Disband and submits the legal string', async (orders) => {
+    render(<RetreatHarness orders={orders} />)
+    open('Order type for A MUN')
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(names).toEqual(orders.length > 1 ? ['Retreat', 'Disband'] : ['Disband'])
+    fireEvent.click(screen.getByRole('option', { name: 'Disband' }))
+    expect(screen.getByTestId('sel').textContent).toBe('{"A MUN":"D A MUN"}')
+    expect(submitDisabled()).toBe(false)
+  })
+})
+
+describe('BuildOrdersSection', () => {
+  it('does not offer a province already chosen in another slot, on any coast', async () => {
+    const orders = ['BUILD F STP/SC', 'BUILD F STP/NC', 'BUILD A MOS']
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'build', slots: 2 } as never}
+        orders={orders}
+        buildOrderSlots={['BUILD F STP/SC', '']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    open('Build or destroy order for slot 2')
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(names).toEqual(['A MOS'])
   })
 })

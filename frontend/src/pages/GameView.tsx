@@ -633,7 +633,13 @@ export default function GameView() {
         const lost = note ? ` ${note}` : ''
         setError(`Not accepted: ${refused.map((x) => `${x.order} (${x.error ?? 'invalid'})`).join('; ')}${lost}`)
       } else {
-        toast.success('Orders submitted')
+        // Accepted orders can still carry a note (e.g. one replaced by a later order).
+        const notes = (r.results ?? []).map((x) => x.note).filter((n): n is string => !!n)
+        if (notes.length > 0) {
+          toast.warning(`Orders submitted. ${notes.join(' ')}`)
+        } else {
+          toast.success('Orders submitted')
+        }
       }
     } catch (e) {
       setError(describeActionError(e, 'Submit orders failed'))
