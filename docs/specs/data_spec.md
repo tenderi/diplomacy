@@ -336,6 +336,11 @@ returns the same `resolution` shape directly, 404 when the game doesn't exist,
 }
 ```
 
+When the last resolution is a retreat phase's (a `RETREAT` order, or a result that kept
+`retreat_options`) and the turn before it is a movement phase's, the response also carries
+`"movement": {"results": [...]}`, that movement phase's results in the same shape, so a client
+can show why a power has builds or disbands after the retreat (`GameService._movement_before_retreat`).
+
 Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
 passed through unchanged; `power`/`order_str` are the only fields added on top
