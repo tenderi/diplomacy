@@ -78,7 +78,8 @@ def legal_orders_for_power(map: MapData, state: GameState, power: str) -> dict[s
           "units": [{"kind": "F", "location": "STP/SC", "province": "STP", "coast": "SC"}],
           "orders_by_unit": {"F STP/SC": ["F STP/SC H", "F STP/SC - BOT", ...]},
           "orders": [...],                       # flat, deduplicated, sorted
-          "adjustment": {"delta": 2, "action": "build", "slots": 2},  # ADJUSTMENT only
+          "adjustment": {"delta": 2, "action": "build", "slots": 2,
+                         "centers": 6, "units": 4},  # ADJUSTMENT only
         }
 
     Every key of ``orders_by_unit`` is exactly ``f"{kind} {location}"`` (coast
@@ -219,9 +220,7 @@ def _can_reach(map: MapData, frm: Location, kind: UnitKind, dest_province: str) 
 def _own_moves(map: MapData, unit: Unit) -> list[Location]:
     """Destinations ``unit`` could move to directly, coast-correct for fleets."""
     if unit.kind is UnitKind.ARMY:
-        return sorted(
-            (Location(p) for p in map.army_moves(unit.province)), key=_loc_key
-        )
+        return sorted((Location(p) for p in map.army_moves(unit.province)), key=_loc_key)
     return sorted(map.fleet_moves(unit.location), key=_loc_key)
 
 
@@ -235,7 +234,8 @@ def _convoy_shores(map: MapData, state: GameState) -> list[tuple[frozenset[str],
     only as long as the fleets actually on the board make it.
     """
     held = {
-        u.province for u in state.units
+        u.province
+        for u in state.units
         if u.kind is UnitKind.FLEET and map.province_type(u.province) is ProvinceType.WATER
     }
     chains: list[tuple[frozenset[str], frozenset[str]]] = []
@@ -320,9 +320,7 @@ def _movement_orders(
                     continue
                 bucket.append(
                     format_order(
-                        SupportMove(
-                            power, unit=u.location, origin=other.location, dest=dest
-                        ),
+                        SupportMove(power, unit=u.location, origin=other.location, dest=dest),
                         support_kbp,
                     )
                 )
@@ -334,7 +332,9 @@ def _movement_orders(
         # so no convoy longer than one fleet could be ordered from either.
         for dest in sorted(_convoy_destinations(map, u, chains)):
             bucket.append(
-                format_order(Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp)
+                format_order(
+                    Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp
+                )
             )
         for seas, shore in chains:
             if u.kind is UnitKind.FLEET and u.province in seas:
@@ -345,7 +345,12 @@ def _movement_orders(
                             continue
                         bucket.append(
                             format_order(
-                                Convoy(power, unit=u.location, origin=Location(origin), dest=Location(dest)),
+                                Convoy(
+                                    power,
+                                    unit=u.location,
+                                    origin=Location(origin),
+                                    dest=Location(dest),
+                                ),
                                 {u.province: u.kind.value, origin: "A"},
                             )
                         )
@@ -359,9 +364,7 @@ def _movement_orders(
 # -- RETREAT --------------------------------------------------------------
 
 
-def _retreat_orders(
-    power: str, dus: list[DislodgedUnit]
-) -> tuple[dict[str, list[str]], list[str]]:
+def _retreat_orders(power: str, dus: list[DislodgedUnit]) -> tuple[dict[str, list[str]], list[str]]:
     orders_by_unit: dict[str, list[str]] = {}
     flat: list[str] = []
 
@@ -398,15 +401,33 @@ def _adjustment_orders(
             orders_by_unit.setdefault(key, []).append(s)
             flat.append(s)
         flat.append("WAIVE")
-        adjustment = {"delta": delta, "action": "build", "slots": adjustments_owed(map, state, power)}
+        adjustment = {
+            "delta": delta,
+            "action": "build",
+            "slots": adjustments_owed(map, state, power),
+            "centers": centers,
+            "units": len(my_units),
+        }
     elif delta < 0:
         for u in sorted(my_units, key=_unit_key):
             key = f"{u.kind.value} {u.location}"
             s = format_order(Disband(power, unit=u.location), {u.province: u.kind.value})
             orders_by_unit[key] = [s]
             flat.append(s)
-        adjustment = {"delta": delta, "action": "disband", "slots": -delta}
+        adjustment = {
+            "delta": delta,
+            "action": "disband",
+            "slots": -delta,
+            "centers": centers,
+            "units": len(my_units),
+        }
     else:
-        adjustment = {"delta": 0, "action": "none", "slots": 0}
+        adjustment = {
+            "delta": 0,
+            "action": "none",
+            "slots": 0,
+            "centers": centers,
+            "units": len(my_units),
+        }
 
     return orders_by_unit, flat, adjustment

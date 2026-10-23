@@ -34,7 +34,43 @@ export type UnitOut = { unit_type: string; province: string; coast?: string; is_
 export type NewUnit = { kind: 'A' | 'F'; power: string; location: string }
 export type DislodgedOut = { unit: NewUnit; attacker_origin: string | null; retreats: string[] }
 /** Adjustment-phase summary from the legal-orders view: how many build/disband slots. */
-export type AdjustmentInfo = { delta: number; action: 'build' | 'disband' | 'none'; slots: number }
+export type AdjustmentInfo = {
+  delta: number
+  action: 'build' | 'disband' | 'none'
+  slots: number
+  /** Supply centres and units the power holds, the two numbers `delta` is the difference of. */
+  centers?: number
+  units?: number
+}
+
+const COAST_NAMES: Record<string, string> = { NC: 'north coast', SC: 'south coast', EC: 'east coast' }
+
+/** "BUILD F STP/SC" -> "Build fleet – St Petersburg (south coast)"; "D A MUN" -> "Disband A MUN – Munich". */
+export function describeAdjustmentOrder(order: string, names: ProvinceNames): string {
+  const m = order.trim().match(/^(BUILD|D|DISBAND)\s+([AF])\s+([A-Z]{3})(?:\/([A-Z]{2}))?$/i)
+  if (!m) return order.trim().toUpperCase() === 'WAIVE' ? 'Waive (build nothing)' : order
+  const [, verb, kind, prov, coast] = m
+  const name = names[prov.toUpperCase()] ?? prov.toUpperCase()
+  const where = coast ? `${name} (${COAST_NAMES[coast.toUpperCase()] ?? coast})` : name
+  if (verb.toUpperCase() === 'BUILD') return `Build ${kind.toUpperCase() === 'A' ? 'army' : 'fleet'} – ${where}`
+  return `Disband ${kind.toUpperCase()} ${prov.toUpperCase()}${coast ? `/${coast.toUpperCase()}` : ''} – ${where}`
+}
+
+function adjustmentSummary(a?: AdjustmentInfo): string {
+  if (!a || a.action === 'none') return 'No builds or disbands this turn.'
+  const noun = a.action === 'build' ? 'build' : 'disband'
+  const count = `${a.slots} ${noun}${a.slots === 1 ? '' : 's'}`
+  const why =
+    a.centers != null && a.units != null
+      ? `: ${a.centers} centre${a.centers === 1 ? '' : 's'}, ${a.units} unit${a.units === 1 ? '' : 's'}`
+      : ''
+  const limited =
+    a.action === 'build' && a.slots < a.delta
+      ? ` (only ${a.slots} free home centre${a.slots === 1 ? '' : 's'} to build on)`
+      : ''
+  const hint = a.action === 'build' ? ' Select one order per slot, or waive.' : ' Select a unit to remove per slot.'
+  return `${count[0].toUpperCase()}${count.slice(1)}${why}${limited}.${hint}`
+}
 /**
  * Response shape of GET /games/{id}/legal_orders/{power} (see server.legal_orders).
  * `orders_by_unit` keys are exactly `${kind} ${location}` (coast included); every string in
@@ -273,6 +309,7 @@ export function UnitOrdersSection({
 export function BuildOrdersSection({
   adjustment,
   orders,
+  provinceNames = {},
   buildOrderSlots,
   setBuildOrderSlots,
   loading,
@@ -281,6 +318,7 @@ export function BuildOrdersSection({
 }: {
   adjustment?: AdjustmentInfo
   orders: string[]
+  provinceNames?: ProvinceNames
   buildOrderSlots: string[]
   setBuildOrderSlots: React.Dispatch<React.SetStateAction<string[]>>
   loading: boolean
@@ -304,11 +342,7 @@ export function BuildOrdersSection({
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
-        {adjustment?.action === 'build'
-          ? 'Build: select one order per slot, or waive.'
-          : adjustment?.action === 'disband'
-            ? 'Disband: select a unit to remove per slot.'
-            : 'No builds or disbands this turn.'}
+        {adjustmentSummary(adjustment)}
       </p>
       {loading ? (
         <p className="text-sm text-muted-foreground mb-2">Loading options…</p>
@@ -339,7 +373,7 @@ export function BuildOrdersSection({
                   .filter((opt) => !takenByOtherSlot(opt, i))
                   .map((opt) => (
                   <SelectItem key={opt.fullOrder} value={opt.fullOrder}>
-                    {opt.targetLabel}
+                    {describeAdjustmentOrder(opt.fullOrder, provinceNames)}
                   </SelectItem>
                 ))}
               </SelectContent>

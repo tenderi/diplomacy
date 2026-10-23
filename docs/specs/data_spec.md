@@ -459,7 +459,7 @@ positive delta and a `Disband` a negative one (`FRANCE has no unit to disband (3
 centres, 1 unit); it may build 2 units`). The adjudicator voids anything else. The *count*
 is a whole-submission rule and lives in `GameService._check_orders`: a submission may hold
 at most `adjustments_owed` builds/waives (the delta, capped at the vacant owned home
-centres — the `adjustment.slots` of `legal_orders`) or disbands; the later ones beyond it
+centres — the `adjustment.slots` of `legal_orders`, which also carries the `centers` and `units` the delta is made of) or disbands; the later ones beyond it
 are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are merged
 (`merge=true`, every bot path) the stored ones are trimmed to make room for the new ones —
 stored waives first, then the oldest — so the stored list never exceeds the count: a
