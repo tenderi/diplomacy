@@ -131,6 +131,36 @@ describe('GameView — RETREAT phase', () => {
     expect(within(container).getByText('A PAR')).toBeInTheDocument()
     expect(within(container).queryByText('A MAR')).not.toBeInTheDocument()
   })
+
+  it('puts the order entry before the secondary cards (BQ6)', async () => {
+    const franceUnits = [{ kind: 'A', power: 'FRANCE', location: 'MAR' }]
+    const st = {
+      game_id: '2', map_name: 'standard', phase: 'S1901M', year: 1901, season: 'SPRING',
+      phase_type: 'MOVEMENT', status: 'ACTIVE', units: franceUnits,
+      units_by_power: { FRANCE: franceUnits }, ownership: { MAR: 'FRANCE' },
+      supply_centers: { MAR: 'FRANCE' }, dislodged: [], contested: [],
+      players: { FRANCE: { user_id: 1, is_active: true } }, orders: {},
+    }
+    const legal = {
+      phase: 'S1901M', phase_type: 'MOVEMENT', power: 'FRANCE',
+      units: [{ kind: 'A', location: 'MAR', province: 'MAR', coast: null }],
+      orders_by_unit: { 'A MAR': ['A MAR H'] }, orders: ['A MAR H'],
+    }
+    vi.stubGlobal('fetch', stubFetchFor(st, legal))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/2']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const orders = await within(container).findByRole('heading', { name: 'Orders' })
+    const players = within(container).getByRole('heading', { name: 'Players' })
+    const follows = orders.compareDocumentPosition(players) & Node.DOCUMENT_POSITION_FOLLOWING
+    expect(follows).toBeTruthy()
+  })
 })
 
 describe('GameView — ADJUSTMENT phase', () => {
