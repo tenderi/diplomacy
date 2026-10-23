@@ -240,6 +240,9 @@ function senderLabel(m: Message): string {
   return m.sender_name ? `${power} (${m.sender_name})` : power
 }
 
+/** Background refresh period; GET /games/{id}/state is cached server-side for 30 s. */
+const POLL_INTERVAL_MS = 30_000
+
 export default function GameView() {
   const { gameId } = useParams<{ gameId: string }>()
   const { user } = useAuth()
@@ -311,6 +314,49 @@ export default function GameView() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
+  }, [gameId])
+
+  /** Quiet background re-fetch: no spinner, no `error` reset, and state is replaced only
+   * when the payload differs, so unsaved order entry is not reset by an unchanged poll.
+   * Everything lives in the effect so a game change cancels a request still in flight. */
+  useEffect(() => {
+    if (!gameId) return
+    let cancelled = false
+    let inFlight = false
+    let last = ''
+    const refresh = async () => {
+      if (inFlight || document.visibilityState !== 'visible') return
+      inFlight = true
+      try {
+        const [s, p] = await Promise.all([
+          apiJson<GameState>(`/games/${gameId}/state`),
+          apiJson<Player[]>(`/games/${gameId}/players`),
+        ])
+        if (cancelled) return
+        const key = JSON.stringify([s, p])
+        if (key !== last) {
+          last = key
+          setState(s)
+          setPlayers(Array.isArray(p) ? p : [])
+        }
+        if (s.status === 'ACTIVE') {
+          const os = await apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
+          if (!cancelled) setOrdersStatus(os)
+        }
+      } catch {
+        // A failed background refresh keeps what is on screen; the next tick retries.
+      } finally {
+        inFlight = false
+      }
+    }
+    const id = setInterval(() => void refresh(), POLL_INTERVAL_MS)
+    const onVisible = () => void refresh()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [gameId])
 
   const myPower = user ? (players.find((p) => p.user_id === user.id)?.power ?? ownPower) : null
@@ -577,6 +623,9 @@ export default function GameView() {
       // validated on its own); saying "submitted" for those hid the refusal.
       // `load()` clears `error` first, so it runs before the message is set.
       load()
+      void apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
+        .then(setOrdersStatus)
+        .catch(() => undefined)
       const refused = (r.results ?? []).filter((x) => !x.success)
       if (refused.length > 0) {
         // A submission refused in full leaves the stored orders alone; the server says so.
