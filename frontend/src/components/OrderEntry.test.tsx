@@ -196,6 +196,66 @@ describe('BuildOrdersSection', () => {
     )
     open('Build or destroy order for slot 2')
     const names = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(names).toEqual(['A MOS'])
+    expect(names).toEqual(['Build army – MOS'])
+  })
+
+  it('says how many builds and why, and labels options with verb, name and coast', async () => {
+    const names = { STP: 'St Petersburg', MOS: 'Moscow' }
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'build', delta: 2, slots: 2, centers: 6, units: 4 }}
+        orders={['BUILD F STP/SC', 'BUILD A MOS', 'WAIVE']}
+        provinceNames={names}
+        buildOrderSlots={['', '']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByText(/^2 builds: 6 centres, 4 units/).textContent).toBe(
+      '2 builds: 6 centres, 4 units. Select one order per slot, or waive.'
+    )
+    open('Build or destroy order for slot 1')
+    const labels = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(labels).toEqual([
+      'Build fleet – St Petersburg (south coast)',
+      'Build army – Moscow',
+      'Waive (build nothing)',
+    ])
+  })
+
+  it('uses the singular for one centre or one unit', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'disband', delta: -1, slots: 1, centers: 1, units: 2 }}
+        orders={['D A MUN']}
+        provinceNames={{ MUN: 'Munich' }}
+        buildOrderSlots={['']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByText(/^1 disband:/).textContent).toBe(
+      '1 disband: 1 centre, 2 units. Select a unit to remove per slot.'
+    )
+  })
+
+  it('names a disband count and labels disbands', async () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'disband', delta: -1, slots: 1, centers: 3, units: 4 }}
+        orders={['D A MUN']}
+        provinceNames={{ MUN: 'Munich' }}
+        buildOrderSlots={['']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByText(/^1 disband:/).textContent).toBe(
+      '1 disband: 3 centres, 4 units. Select a unit to remove per slot.'
+    )
+    open('Build or destroy order for slot 1')
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
+      'Disband A MUN – Munich',
+    ])
   })
 })

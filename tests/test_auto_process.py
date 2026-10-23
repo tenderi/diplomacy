@@ -194,7 +194,7 @@ def test_builds_owed_stop_at_the_sites_there_are_to_build_on(client: TestClient)
     )
     game_service.restore_snapshot(game_id, board, "W1901A")
     legal = client.get(f"/games/{game_id}/legal_orders/FRANCE").json()
-    assert legal["adjustment"] == {"delta": 2, "action": "build", "slots": 1}
+    assert legal["adjustment"] == {"delta": 2, "action": "build", "slots": 1, "centers": 5, "units": 3}
 
     resp = client.post("/games/set_orders", json=_as(f, game_id=game_id, power="FRANCE", orders=["BUILD F BRE"], merge=True)).json()
     assert resp["auto_processed"] == 1
