@@ -86,7 +86,7 @@ def test_the_trapped_power_is_told_and_not_listed_as_due(
 
     head = f"The turn has been processed for game {game_id}. Fall 1901 retreats:"
     assert probe.by_recipient() == {
-        e: [f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband."],
+        e: [f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband. With no order it is disbanded."],
         f: [
             f"{head} you have nothing to order this phase; wait for the other powers.\n"
             "Your A BUR was dislodged and has nowhere to retreat: it is disbanded, no order needed."
