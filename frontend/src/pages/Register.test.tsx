@@ -36,7 +36,7 @@ describe('Register', () => {
         <AuthProvider>
           <Routes>
             <Route path="/register" element={<Register />} />
-            <Route path="/" element={<p>home</p>} />
+            <Route path="/games" element={<p>games list</p>} />
           </Routes>
         </AuthProvider>
       </MemoryRouter>
@@ -45,7 +45,7 @@ describe('Register', () => {
     fireEvent.change(within(container).getByLabelText(/^password/i), { target: { value: 'long enough' } })
     fireEvent.change(within(container).getByLabelText(/nickname/i), { target: { value: 'Ann-Marie' } })
     fireEvent.click(within(container).getByRole('button', { name: /register/i }))
-    expect(await within(container).findByText('home')).toBeInTheDocument()
+    expect(await within(container).findByText("games list")).toBeInTheDocument()
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toContain('/auth/register')
     expect(JSON.parse(String(init.body))).toEqual({ email: 'new@b.com', password: 'long enough', nickname: 'Ann-Marie' })
@@ -118,7 +118,7 @@ describe('Register', () => {
       <MemoryRouter initialEntries={['/start']}>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<p>home page</p>} />
+            <Route path="/games" element={<p>home page</p>} />
             <Route path="/start" element={<LinkOnceSignedIn />} />
             <Route path="/register" element={<Register />} />
           </Routes>

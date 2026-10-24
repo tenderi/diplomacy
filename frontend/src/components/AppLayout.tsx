@@ -18,11 +18,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <Link to="/" className="inline-flex min-h-10 items-center text-lg font-semibold text-foreground hover:text-primary sm:min-h-0">
             Diplomacy
           </Link>
-          <nav className="flex flex-wrap items-center gap-2">
+          <nav className="contents">
             {loading ? (
               <span className="text-muted-foreground text-sm">Loading...</span>
             ) : user ? (
               <>
+                <div data-testid="header-links" className="order-3 flex w-full flex-wrap items-center gap-1 sm:order-2 sm:w-auto sm:gap-2">
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/games">Games</Link>
                 </Button>
@@ -31,13 +32,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </Button>
                 <Button variant="ghost" size="sm" asChild>
                   {user.nickname ? (
-                    <Link to="/" title="Change your nickname">{user.nickname}</Link>
+                    <Link to="/" title="Change your nickname" className="max-w-[10rem] truncate">{user.nickname}</Link>
                   ) : (
                     <Link to="/">Set a nickname</Link>
                   )}
                 </Button>
                 <LinkTelegramButton variant="ghost" size="sm" />
-                <Button variant="outline" size="sm" onClick={logout}>
+                </div>
+                <Button variant="outline" size="sm" onClick={logout} className="order-2 sm:order-3">
                   Logout
                 </Button>
               </>

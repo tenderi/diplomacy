@@ -73,6 +73,32 @@ describe('AppLayout', () => {
     expect(within(container).getByRole('button', { name: /logout/i })).toBeInTheDocument()
   })
 
+  it('keeps the phone header to two rows: Logout beside the logo, links on their own row', () => {
+    const mockAuth = {
+      user: { id: 1, email: 'a@b.com', nickname: 'Test', telegram_id: null, telegram_linked: false },
+      loading: false,
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    }
+    const { container } = render(
+      <MemoryRouter>
+        <AuthContext.Provider value={mockAuth}>
+          <AppLayout>
+            <div>Content</div>
+          </AppLayout>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const links = within(container).getByTestId('header-links')
+    expect(links).toHaveClass('w-full', 'order-3')
+    const logout = within(container).getByRole('button', { name: /logout/i })
+    expect(logout).toHaveClass('order-2')
+    expect(links).not.toContainElement(logout)
+    expect(within(container).getByRole('link', { name: /source code/i })).toBeInTheDocument()
+  })
+
   it('shows Loading in nav when loading is true', () => {
     const mockAuth = {
       user: null,
