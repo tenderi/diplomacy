@@ -70,14 +70,17 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
         " Orders are due for Fall 1901 movement."
     )
     by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
-    expected = {tg: [head] for tg in by_power.values()}
+    # Only AUSTRIA has a unit to order with; the others hold centres alone (BS2).
+    idle = head.replace("Orders are due for Fall 1901 movement.", "Fall 1901 movement: you have nothing to order this phase; wait for the other powers.")
+    expected = {tg: [idle] for tg in by_power.values()}
+    expected[by_power["AUSTRIA"]] = [head]
     expected[by_power["FRANCE"]] = [
-        head + "\nA MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
+        idle + "\nA MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
     ]
     expected[by_power["ITALY"]] = [
-        head + "\nA VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
+        idle + "\nA VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
     ]
-    expected[by_power["RUSSIA"]] = [head + "\nA WAR had no valid retreat order and was disbanded."]
+    expected[by_power["RUSSIA"]] = [idle + "\nA WAR had no valid retreat order and was disbanded."]
     assert _dms(probe) == expected
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
         (
