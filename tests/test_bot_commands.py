@@ -288,8 +288,8 @@ class TestOrderReadouts:
             reply = _run(bot_orders.orderhistory, *_command([]))
         assert reply == (
             "Order history for game 7:\n"
-            "\nS1901M:\n  FRANCE:\n    A PAR - BUR\n"
-            "\nF1901M:\n  FRANCE:\n    A BUR - MUN\n"
+            "\nSpring 1901 movement (S1901M):\n  FRANCE:\n    A PAR - BUR\n"
+            "\nFall 1901 movement (F1901M):\n  FRANCE:\n    A BUR - MUN\n"
             "\nTurn 2:\n  FRANCE:\n    A MUN H"
         )
 

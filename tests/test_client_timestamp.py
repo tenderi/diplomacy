@@ -150,6 +150,7 @@ class TestStaleOrders:
                                                    "telegram_id": fr, "bot_secret": SECRET, "client_timestamp": stale})
         assert r.status_code == 409, r.text
         assert "NOT applied" in r.json()["detail"]
+        assert "game " + game_id + " is now in Fall 1901 movement (F1901M). They were NOT applied" in r.json()["detail"].replace("\n", " ")
         pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": SECRET}).json()
         assert pending["orders"] == []
 

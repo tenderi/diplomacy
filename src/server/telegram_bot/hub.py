@@ -41,6 +41,7 @@ from .games import (
     vote_deadline, withdraw_deadline, _format_proposal,
 )
 from .messages import recent_messages_text, send_diplomatic_message
+from .utils import game_end_line, game_over_note
 from .orders import (
     Sender, my_orders_text, orderhistory_text, run_process_turn, show_unit_picker, start_order_walk,
 )
@@ -373,6 +374,12 @@ async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -
 
 async def _show_deadline(send: Sender, game_id: str, power: str) -> None:
     """The deadline, and buttons to put a change to a vote (or vote on one)."""
+    try:
+        if game_end_line(api_get(f"/games/{game_id}/state") or {}):
+            await send(game_over_note(game_id), reply_markup=InlineKeyboardMarkup([_back(game_id)]), parse_mode=None)
+            return
+    except requests.RequestException:
+        pass  # the deadline read below reports an unreachable API
     try:
         data = api_get(f"/games/{game_id}/deadline") or {}
     except requests.RequestException as e:
