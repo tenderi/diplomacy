@@ -99,8 +99,9 @@ export function glossOrder(
     if (token === 'A') return 'Army'
     if (token === 'F') return 'Fleet'
     if (token === '-') return '→'
-    // A unit that was dislodged did not "hold": the order failed.
-    if (token === 'H') return dislodged ? 'held' : 'holds'
+    // A unit that was dislodged did not "hold": the order failed. Only its own
+    // hold (`A MUN H`) is past tense, not the supported unit's in `A BOH S A MUN H`.
+    if (token === 'H') return dislodged && i === 2 ? 'held' : 'holds'
     if (token === 'S') return 'supports'
     if (token === 'C') return 'convoys'
     if (token === 'R') return 'retreats to'
