@@ -80,7 +80,8 @@ def _refuse_if_stale(game_id: str, client_timestamp: Optional[datetime]) -> None
         detail=(
             f"These orders were composed at {composed_at:%Y-%m-%d %H:%M} UTC, but the "
             f"turn was processed at {started:%Y-%m-%d %H:%M} UTC and game {game_id} is "
-            f"now in phase {getattr(row, 'phase_code', '?')}. They were NOT applied -- "
+            f"now in {api_shared.phase_label(str(getattr(row, 'phase_code', '?')))} "
+            f"({getattr(row, 'phase_code', '?')}). They were NOT applied -- "
             f"check the new board and submit fresh orders."
         ),
     )

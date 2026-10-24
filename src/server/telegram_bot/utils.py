@@ -1,7 +1,7 @@
 """
 Utility functions for Telegram bot, including Markdown escaping.
 """
-from typing import Union
+from typing import Optional, Union
 
 # Legacy Markdown (``parse_mode='Markdown'``, which every caller uses) honours a backslash
 # only before these four; anywhere else Telegram shows the backslash itself.
@@ -21,3 +21,42 @@ def escape_markdown(text: Union[str, None]) -> Union[str, None]:
     for char in _LEGACY_MARKDOWN_SPECIALS:
         text = text.replace(char, f'\\{char}')
     return text
+
+
+_SEASON_NAMES = {"S": "Spring", "F": "Fall", "W": "Winter"}
+_PHASE_NAMES = {"M": "movement", "R": "retreats", "A": "builds"}
+
+
+def phase_label(phase_code: object) -> str:
+    """``"S1901M"`` -> ``"Spring 1901 movement"``; anything else is returned as text.
+
+    The bot cannot import the server's helper of the same name (it ships with
+    ``requests`` and python-telegram-bot only)."""
+    code = str(phase_code)
+    season, year, kind = code[:1], code[1:-1], code[-1:]
+    if season in _SEASON_NAMES and kind in _PHASE_NAMES and year.isdigit():
+        return f"{_SEASON_NAMES[season]} {year} {_PHASE_NAMES[kind]}"
+    return code
+
+
+def phase_text(phase_code: object) -> str:
+    """The label with the code in brackets, for a player who types it: ``Fall 1903 movement (F1903M)``."""
+    label = phase_label(phase_code)
+    return label if label == str(phase_code) else f"{label} ({phase_code})"
+
+
+def game_end_line(view: dict) -> Optional[str]:
+    """``"Game ended: won by France"`` for a finished game's state view, else ``None``."""
+    if str(view.get("status", "")).upper() != "COMPLETED":
+        return None
+    winners = [str(w).title() for w in (view.get("winners") or [])]
+    if not winners:
+        return "Game ended with no winner"
+    if len(winners) == 1:
+        return f"Game ended: won by {winners[0]}"
+    return f"Game ended in a draw shared by {', '.join(winners)}"
+
+
+def game_over_note(game_id: object) -> str:
+    """The refusal for an action on a finished game."""
+    return f"Game {game_id} has ended."
