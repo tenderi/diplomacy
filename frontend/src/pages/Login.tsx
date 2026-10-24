@@ -12,7 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  if (user) return <Navigate to="/" replace />
+  if (user) return <Navigate to="/games" replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
