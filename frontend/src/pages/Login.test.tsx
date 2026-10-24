@@ -59,7 +59,7 @@ describe('Login', () => {
     })
   })
 
-  it('navigates to home on login success', async () => {
+  it('navigates to /games on login success', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => {
@@ -81,6 +81,7 @@ describe('Login', () => {
         <AuthProvider>
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/games" element={<p>games list</p>} />
             <Route path="/login" element={<Login />} />
           </Routes>
         </AuthProvider>
@@ -92,7 +93,7 @@ describe('Login', () => {
     if (passwordInput) fireEvent.change(passwordInput, { target: { value: 'pass1234' } })
     fireEvent.click(within(container).getByRole('button', { name: /login/i }))
     await waitFor(() => {
-      expect(within(container).getByRole('heading', { name: /diplomacy/i })).toBeInTheDocument()
+      expect(within(container).getByText('games list')).toBeInTheDocument()
     }, { timeout: 3000 })
   })
 
@@ -115,7 +116,7 @@ describe('Login', () => {
       <MemoryRouter initialEntries={['/start']}>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<p>home page</p>} />
+            <Route path="/games" element={<p>home page</p>} />
             <Route path="/start" element={<LinkOnceSignedIn />} />
             <Route path="/login" element={<Login />} />
           </Routes>
