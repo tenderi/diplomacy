@@ -197,14 +197,14 @@ class TestRetreatPhase:
 class TestAdjustmentPhase:
     def test_delta_positive_offers_builds_and_waive_no_disband(self) -> None:
         data = legal_orders_for_power(_MAP, _build_state(), "FRANCE")
-        assert data["adjustment"] == {"delta": 2, "action": "build", "slots": 2}
+        assert data["adjustment"] == {"delta": 2, "action": "build", "slots": 2, "centers": 3, "units": 1}
         assert "WAIVE" in data["orders"]
         assert any(o.startswith("BUILD ") for o in data["orders"])
         assert not any(o.startswith("D ") for o in data["orders"])
 
     def test_delta_negative_offers_only_disbands(self) -> None:
         data = legal_orders_for_power(_MAP, _disband_state(), "FRANCE")
-        assert data["adjustment"] == {"delta": -1, "action": "disband", "slots": 1}
+        assert data["adjustment"] == {"delta": -1, "action": "disband", "slots": 1, "centers": 3, "units": 4}
         assert data["orders"], "expected disband candidates"
         assert all(o.startswith("D ") for o in data["orders"])
         assert "WAIVE" not in data["orders"]
@@ -219,7 +219,7 @@ class TestAdjustmentPhase:
 
     def test_delta_zero_offers_nothing(self) -> None:
         data = legal_orders_for_power(_MAP, _balanced_state(), "FRANCE")
-        assert data["adjustment"] == {"delta": 0, "action": "none", "slots": 0}
+        assert data["adjustment"] == {"delta": 0, "action": "none", "slots": 0, "centers": 3, "units": 3}
         assert data["orders"] == []
         assert data["orders_by_unit"] == {}
 

@@ -657,20 +657,26 @@ export default function GameView() {
       void apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
         .then(setOrdersStatus)
         .catch(() => undefined)
-      const refused = (r.results ?? []).filter((x) => !x.success)
+      const results = r.results ?? []
+      const refused = results.filter((x) => !x.success)
+      // Accepted orders can still carry a note (e.g. one replaced by a later order);
+      // show those even when another order in the submission was refused.
+      const noteLines = results
+        .filter((x) => x.success && x.note)
+        .map((x) => `${x.order}: ${x.note!.charAt(0).toUpperCase()}${x.note!.slice(1)}`)
       if (refused.length > 0) {
         // A submission refused in full leaves the stored orders alone; the server says so.
         const note = refused.map((x) => x.note).find((n) => n)
         const lost = note ? ` ${note}` : ''
         setError(`Not accepted: ${refused.map((x) => `${x.order} (${x.error ?? 'invalid'})`).join('; ')}${lost}`)
-      } else {
-        // Accepted orders can still carry a note (e.g. one replaced by a later order).
-        const notes = (r.results ?? []).map((x) => x.note).filter((n): n is string => !!n)
-        if (notes.length > 0) {
-          toast.warning(`Orders submitted. ${notes.join(' ')}`)
-        } else {
-          toast.success('Orders submitted')
-        }
+      }
+      if (noteLines.length > 0) {
+        toast.warning(refused.length > 0 ? 'Some orders were accepted' : 'Orders submitted', {
+          description: noteLines.join('\n'),
+          classNames: { description: 'whitespace-pre-line' },
+        })
+      } else if (refused.length === 0) {
+        toast.success('Orders submitted')
       }
     } catch (e) {
       setError(describeActionError(e, 'Submit orders failed'))
@@ -1104,6 +1110,7 @@ export default function GameView() {
             ) : phase === 'Adjustment' ? (
               <BuildOrdersSection
                 adjustment={legalOrders?.adjustment}
+                provinceNames={provinceNames}
                 orders={legalOrders?.orders ?? []}
                 buildOrderSlots={buildOrderSlots}
                 setBuildOrderSlots={setBuildOrderSlots}
