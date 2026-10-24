@@ -13,7 +13,7 @@ export default function Register() {
   const [nickname, setNickname] = useState('')
   const [error, setError] = useState('')
 
-  if (user) return <Navigate to="/" replace />
+  if (user) return <Navigate to="/games" replace />
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
