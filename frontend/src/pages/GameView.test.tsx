@@ -1715,6 +1715,35 @@ describe('GameView — anonymous and public games', () => {
     expect(within(container).getByText('🕵️ Rumour (you, FRANCE) → ALL: England is weak')).toBeInTheDocument()
   })
 
+  it('shows each message phase, marks new ones and counts them in a jump link (BR5)', async () => {
+    window.localStorage.setItem('diplomacy:messages-seen:10', '1')
+    const messages = [
+      { id: 1, sender_user_id: 2, sender_power: 'GERMANY', recipient_power: null, text: 'Old news', phase_code: 'S1901M', timestamp: '2026-10-24T09:05:00' },
+      { id: 2, sender_user_id: 2, sender_power: 'GERMANY', recipient_power: null, text: 'Fresh news', phase_code: 'F1901M', timestamp: '2026-10-24T10:05:00' },
+    ]
+    vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), messages))
+    const { container } = renderGame10()
+
+    const link = await within(container).findByRole('link', { name: 'Messages (1 new)' })
+    expect(link.getAttribute('href')).toBe('#messages')
+    const section = within(container).getByRole('heading', { name: 'Messages' }).closest('section') as HTMLElement
+    const items = within(section).getAllByRole('listitem')
+    expect(items[0].textContent).toMatch(/^S1901M · .*GERMANY → ALL: Old news$/)
+    expect(items[0].textContent).not.toContain('NEW')
+    expect(items[1].textContent).toMatch(/^F1901M · .*NEWGERMANY → ALL: Fresh news$/)
+    window.localStorage.clear()
+  })
+
+  it('puts messages after order entry and before the players list', async () => {
+    vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), []))
+    const { container } = renderGame10()
+
+    await within(container).findByRole('heading', { name: 'Messages' })
+    const titles = within(container).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+    expect(titles.indexOf('Orders')).toBeLessThan(titles.indexOf('Messages'))
+    expect(titles.indexOf('Messages')).toBeLessThan(titles.indexOf('Players'))
+  })
+
   it('names a message sender by power and name in a public game', async () => {
     const messages = [{ id: 1, sender_user_id: 2, sender_power: 'GERMANY', sender_name: 'Bob', recipient_power: null, text: 'Hello all' }]
     vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), messages))
