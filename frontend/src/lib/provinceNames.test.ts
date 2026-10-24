@@ -80,6 +80,10 @@ describe('glossOrder', () => {
 
   it('reads a dislodged hold in the past tense', () => {
     expect(glossOrder('A MUN H', NAMES, true)).toBe('Army Munich held')
+    // The supporter was dislodged, not the unit it supported.
+    expect(glossOrder('A BOH S A MUN H', { ...NAMES, BOH: 'Bohemia' }, true)).toBe(
+      'Army Bohemia supports Army Munich holds'
+    )
   })
 
   it('reads a move in plain English', () => {
