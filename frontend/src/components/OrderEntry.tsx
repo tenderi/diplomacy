@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { glossOrder, provinceLabel, provinceName, type ProvinceNames } from '@/lib/provinceNames'
+import { COAST_NAMES, glossOrder, provinceLabel, provinceName, type ProvinceNames } from '@/lib/provinceNames'
 import {
   type OrderType,
   type ParsedLegalOrder,
@@ -43,7 +43,6 @@ export type AdjustmentInfo = {
   units?: number
 }
 
-const COAST_NAMES: Record<string, string> = { NC: 'north coast', SC: 'south coast', EC: 'east coast' }
 
 /** "BUILD F STP/SC" -> "Build fleet – St Petersburg (south coast)"; "D A MUN" -> "Disband A MUN – Munich". */
 export function describeAdjustmentOrder(order: string, names: ProvinceNames): string {
@@ -145,8 +144,8 @@ export function describeTarget(
     const m = opt.targetLabel.match(/^([AF]) ([A-Z]{3}(?:\/[A-Z]{2})?)(?: (\(hold\)|→ ([A-Z]{3}(?:\/[A-Z]{2})?)))?$/)
     if (m) {
       const owner = owners[m[2].split('/')[0]]
-      const who = owner ? ` (${owner})` : ''
-      const unit = `${m[1]} ${m[2]}${who}`
+      const who = owner ? ` (${owner.charAt(0)}${owner.slice(1).toLowerCase()})` : ''
+      const unit = `${m[1]} ${codeWithName(m[2], names)}${who}`
       if (m[4]) return `${unit} → ${codeWithName(m[4], names)}`
       return m[3] ? `${unit} (hold)` : unit
     }
@@ -410,7 +409,7 @@ export function ResultList({
         // A readable second line, never a replacement: the canonical order string
         // stays exactly as the engine produced it, because that is what a player
         // would retype and full province names do not parse (G1/G2).
-        const gloss = glossOrder(r.order_str, provinceNames)
+        const gloss = glossOrder(r.order_str, provinceNames, r.dislodged)
         return (
           <li key={i} className="border-b border-border/50 pb-2 text-sm">
             <div className="flex flex-wrap items-center gap-2">

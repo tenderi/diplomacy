@@ -29,6 +29,37 @@ describe('ResultList', () => {
     )
     expect(items[1].textContent).toBe('GERMANY: D A BERUnit was disbanded.')
   })
+
+  const NAMES = { MUN: 'Munich', STP: 'St Petersburg' }
+  it('reads a dislodged hold as held, not holds', () => {
+    const entry: OrderResultEntry = {
+      order: { type: 'HOLD', power: 'GERMANY', unit: 'MUN' },
+      result: 'DISLODGED',
+      dislodged: true,
+      retreat_options: [],
+      power: 'GERMANY',
+      order_str: 'A MUN H',
+    }
+    const { container } = render(<ResultList entries={[entry]} provinceNames={NAMES} />)
+    const text = within(container).getByRole('listitem').textContent
+    expect(text).toContain('A MUN HUnit was dislodged.Army Munich held')
+    expect(text).not.toContain('holds')
+  })
+
+  it('keeps the coast on a build result', () => {
+    const entry: OrderResultEntry = {
+      order: { type: 'BUILD', power: 'RUSSIA', location: 'STP/SC', kind: 'F' },
+      result: 'BUILD',
+      dislodged: false,
+      retreat_options: [],
+      power: 'RUSSIA',
+      order_str: 'BUILD F STP/SC',
+    }
+    const { container } = render(<ResultList entries={[entry]} provinceNames={NAMES} />)
+    expect(within(container).getByRole('listitem').textContent).toBe(
+      'BUILD F STP/SCBuild succeeded.Build fleet St Petersburg (south coast)'
+    )
+  })
 })
 
 const GROUPED_ORDERS = [
@@ -130,9 +161,9 @@ describe('describeTarget', () => {
   const owners = { LON: 'ENGLAND', LVP: 'ENGLAND' }
   it('names the supported unit owner and destination', () => {
     const opt = parseLegalOrder('F EDI S F LON - NTH')!
-    expect(describeTarget(opt, names, owners)).toBe('F LON (ENGLAND) → NTH – North Sea')
+    expect(describeTarget(opt, names, owners)).toBe('F LON – London (England) → NTH – North Sea')
     const hold = parseLegalOrder('F EDI S A LVP H')!
-    expect(describeTarget(hold, names, owners)).toBe('A LVP (ENGLAND) (hold)')
+    expect(describeTarget(hold, names, owners)).toBe('A LVP – Liverpool (England) (hold)')
   })
   it('keeps a bare code when the name is unknown', () => {
     expect(describeTarget(parseLegalOrder('F EDI - CLY')!, {})).toBe('CLY')
