@@ -14,7 +14,7 @@ from .api_client import api_post, api_get
 from .game_context import (
     GameContextError, group_read_game, in_group, resolve_game_and_power, set_current_game,
 )
-from .utils import escape_markdown
+from .utils import escape_markdown, game_end_line, game_over_note, phase_text
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
 
@@ -269,13 +269,16 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
     can't be read; the other parts are left out if they fail."""
     view = api_get(f"/games/{game_id}/state")
 
+    ended = game_end_line(view)
     text = (
         f"{title or f'📊 *Game {game_id} Status*'}\n\n"
+        + (f"🏁 *{ended}*\n" if ended else "")
         + (f"🎯 *You are:* {power}\n" if power else "")
-        + f"📅 *Turn:* {view.get('year')} {view.get('season')}\n"
-        f"🔄 *Phase:* {view.get('phase_type')}\n"
-        f"📝 *Phase Code:* {view.get('phase')}\n"
+        + (f"📅 *Final turn:* {phase_text(view.get('phase'))}\n" if ended
+           else f"📅 *Turn:* {phase_text(view.get('phase'))}\n")
     )
+    if ended:
+        return text + (_players_block(game_id, view) if with_players else "")
 
     try:
         deadline_data = api_get(f"/games/{game_id}/deadline")
@@ -328,14 +331,20 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
             text += "\n"
 
     if with_players:
-        try:
-            seats = api_get(f"/games/{game_id}/players")
-        except requests.RequestException:
-            seats = None
-        dummies = (view.get("dummy_powers") or []) if isinstance(view, dict) else []
-        if seats or dummies:
-            text += "\n👥 *Players*\n" + "\n".join(seat_lines(seats or [], dummies)) + "\n"
+        text += _players_block(game_id, view)
     return text
+
+
+def _players_block(game_id: str, view: dict) -> str:
+    """The seat list a group's /status appends ("" when there is none)."""
+    try:
+        seats = api_get(f"/games/{game_id}/players")
+    except requests.RequestException:
+        seats = None
+    dummies = (view.get("dummy_powers") or []) if isinstance(view, dict) else []
+    if seats or dummies:
+        return "\n👥 *Players*\n" + "\n".join(seat_lines(seats or [], dummies)) + "\n"
+    return ""
 
 
 async def _cast_draw_vote(update: Update, context: ContextTypes.DEFAULT_TYPE, vote: bool) -> None:
@@ -443,6 +452,11 @@ async def _set_wait_flag(update: Update, context: ContextTypes.DEFAULT_TYPE, wai
 def set_wait_flag(game_id: str, power: str, user_id: str, waiting: bool) -> str:
     """Raise or lower ``power``'s wait flag; returns the reply for the player.
     Shared with the game menu's Ready / Not ready button."""
+    try:
+        if game_end_line(api_get(f"/games/{game_id}/state") or {}):
+            return game_over_note(game_id)
+    except requests.RequestException:
+        pass  # the wait call below reports an unreachable API
     try:
         result = api_post(f"/games/{game_id}/wait", {"power": power, "waiting": waiting, "telegram_id": user_id})
     except requests.RequestException as e:

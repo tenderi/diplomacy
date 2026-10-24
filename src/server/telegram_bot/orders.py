@@ -20,7 +20,7 @@ from telegram.ext import ContextTypes
 
 from .api_client import api_get, api_post, api_post_reliable, queued_reply
 from .game_context import GameContextError, group_read_game, in_group, resolve_game_and_power
-from .utils import escape_markdown
+from .utils import escape_markdown, game_end_line, game_over_note, phase_label, phase_text
 
 logger = logging.getLogger("diplomacy.telegram_bot.orders")
 
@@ -453,7 +453,7 @@ def orderhistory_text(game_id: str) -> str:
     lines = [f"Order history for game {game_id}:"]
     for turn in sorted(history.keys(), key=lambda x: int(x)):
         # The phase code (S1901M); the bare turn counter only when none was recorded.
-        lines.append(f"\n{phases.get(turn) or f'Turn {turn}'}:")
+        lines.append(f"\n{phase_text(phases[turn]) if phases.get(turn) else f'Turn {turn}'}:")
         for power, power_orders in history[turn].items():
             lines.append(f"  {power}:")
             for o in power_orders:
@@ -514,6 +514,28 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await run_process_turn(update.message.reply_text, game_id, user_id)
 
 
+def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
+    """What the caller's power owes in the phase now current, from its legal orders."""
+    try:
+        _gid, power = resolve_game_and_power(telegram_id or "", game_id)
+        data = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except (GameContextError, requests.RequestException):
+        return f"Orders: /orderall {game_id}."
+    name = power.title()
+    units = data.get("units") or []
+    if data.get("phase_type") == "ADJUSTMENT":
+        adj = data.get("adjustment") or {}
+        slots = int(adj.get("slots") or 0)
+        if adj.get("action") in (None, "none") or slots <= 0:
+            return f"{name} has nothing to build or disband."
+        verb = "build" if adj.get("action") == "build" else "disband"
+        return f"{name} owes {slots} {verb}{'' if slots == 1 else 's'}: /orderall {game_id}."
+    if not units:
+        return f"{name} has nothing to order this phase."
+    what = "retreats" if data.get("phase_type") == "RETREAT" else "orders"
+    return f"{name} owes {what} for {len(units)} unit{'' if len(units) == 1 else 's'}: /orderall {game_id}."
+
+
 async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str] = None) -> None:
     """Adjudicate ``game_id``'s current phase (``POST /process_turn``) and
     report a short outcome summary.
@@ -556,7 +578,7 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
     dislodged = game_state.get("dislodged", [])
     contested = game_state.get("contested", [])
 
-    lines = ["✅ *Turn Processed!*", f"📊 New phase: {phase}"]
+    lines = ["✅ *Turn Processed!*", f"📊 Now: {phase_text(phase)}"]
 
     if dislodged:
         lines.append("\n💥 *Dislodged:*")
@@ -578,7 +600,7 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
         lines.append(f"\n🏁 *Game Complete!* Winners: {winners_text}")
         lines.append(f"\nView the final map from the game menu: /game {game_id}")
     else:
-        lines.append(f"\n🎮 Next orders: /orderall {game_id}, or open the game menu with /game {game_id}.")
+        lines.append(f"\n🎮 {_owed_text(game_id, telegram_id)} Game menu: /game {game_id}.")
 
     await send("\n".join(lines), parse_mode='Markdown')
 
@@ -715,7 +737,7 @@ async def show_unit_picker(
 
     await reply_or_edit(
         f"🎯 *{phase_header}*\n\n"
-        f"📊 Game: {game_id} | Power: {power} | Phase: {data.get('phase')}\n\n"
+        f"📊 Game: {game_id} | Power: {power} | Phase: {phase_text(data.get('phase'))}\n\n"
         f"🛡️ Army | 🚢 Fleet",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -841,6 +863,14 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
         await send(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
         return
 
+    try:
+        ended = game_end_line(api_get(f"/games/{game_id}/state") or {})
+    except requests.RequestException:
+        ended = None
+    if ended:
+        await send(f"{game_over_note(game_id)} {ended}.")
+        return
+
     phase_type = data.get("phase_type", "MOVEMENT")
     if phase_type == "ADJUSTMENT":
         adjustment = data.get("adjustment") or {}
@@ -944,7 +974,7 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
     keyboard.append([InlineKeyboardButton("🔄 Start over", callback_data=f"wlk|{game_id}|restart")])
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
     await send(
-        f"📋 *Your orders for game {game_id}* ({walk['power']}, {walk['phase']})\n\n" + "\n".join(lines) + note,
+        f"📋 *Your orders for game {game_id}* ({walk['power']}, {phase_label(walk['phase'])})\n\n" + "\n".join(lines) + note,
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -962,7 +992,7 @@ async def submit_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, ch
     if phase_now != walk["phase"]:
         _end_walk(context, game_id)
         await send(
-            f"⏰ Game {game_id} moved on to {phase_now} while you were choosing, so these orders "
+            f"⏰ Game {game_id} moved on to {phase_text(phase_now)} while you were choosing, so these orders "
             f"no longer apply. Start again with /orderall {game_id}."
         )
         return
