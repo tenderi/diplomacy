@@ -153,8 +153,10 @@ def test_reminder_and_notification():
     # (module-global in server.api.shared), not the server.api package namespace.
     with patch("server.api.shared._send_deadline_reminder") as mock_send:
         check_and_send_reminders(now + datetime.timedelta(minutes=2))
-    assert [(c.args[0], c.args[1]) for c in mock_send.call_args_list] == [(game_id, int(game_id))]
-    assert mock_send.call_args.args[2] == deadline_dt - (now + datetime.timedelta(minutes=2))
+    # Other tests' games share the database, so look only at this game's reminders.
+    ours = [c for c in mock_send.call_args_list if c.args[1] == int(game_id)]
+    assert [(c.args[0], c.args[1]) for c in ours] == [(game_id, int(game_id))]
+    assert ours[0].args[2] == deadline_dt - (now + datetime.timedelta(minutes=2))
 
 
 def _reminders_sent(game_id: str, now: datetime.datetime) -> int:
