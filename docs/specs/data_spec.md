@@ -307,7 +307,7 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
   "phase": "F1901M",           // GameState.phase_name of the *new* (post-adjudication) phase
   "game_status": "ACTIVE",     // GameState.status of the new phase -- "status" was already
                                 // taken by the pre-existing "ok" key above
-  "resolution": { "results": [ ... ] }  // the turn just adjudicated -- see below
+  "resolution": { "results": [ ... ], "phase": "S1901M" }  // the turn just adjudicated (and the phase it was) -- see below
 }
 ```
 
@@ -335,6 +335,12 @@ returns the same `resolution` shape directly, 404 when the game doesn't exist,
   ]
 }
 ```
+
+When the last resolution is a retreat phase's (each stored resolution carries a top-level
+`"phase"`, the code of the phase it adjudicated, e.g. `"F1901R"`; rows stored before that
+fall back to a `RETREAT` order among its results) and the turn before it is a movement phase's, the response also carries
+`"movement": {"results": [...]}`, that movement phase's results in the same shape, so a client
+can show why a power has builds or disbands after the retreat (`GameService._movement_before_retreat`).
 
 Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),

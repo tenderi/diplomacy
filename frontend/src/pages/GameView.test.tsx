@@ -728,6 +728,37 @@ describe('GameView — auto-processing and wait flags (W10)', () => {
 })
 
 describe('GameView — private games (W8)', () => {
+  it('shows a refused join next to the Join form, not in the page banner (BR6)', async () => {
+    const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' }]
+    const base = stubFetchActive({ ...activeMovementState, private: true }, otherPlayers)
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/join') && init?.method === 'POST') {
+        return jsonResponse({ detail: 'Wrong join password for game 10.' }, 403)
+      }
+      return base(url, init)
+    }))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    await within(container).findByText(/Private game/)
+    fireEvent.change(within(container).getByLabelText('Power to join as'), { target: { value: 'FRANCE' } })
+    fireEvent.change(within(container).getByLabelText('Game password'), { target: { value: 'nope' } })
+    fireEvent.click(within(container).getByRole('button', { name: /^join$/i }))
+    const alert = await within(container).findByText('Wrong join password for game 10.')
+    expect(within(container).getAllByText('Wrong join password for game 10.')).toHaveLength(1)
+    expect(alert.closest('section')).toContainElement(within(container).getByLabelText('Game password'))
+    expect(alert).toHaveFocus()
+  })
+
+
   it('asks for the password and sends it with the join', async () => {
     const posts: unknown[] = []
     const otherPlayers = [{ power: 'GERMANY', user_id: 2, is_active: true, nickname: 'Bob' }]
@@ -1079,6 +1110,39 @@ describe('GameView — results panel (E4)', () => {
       expect(within(container).getByText('AUSTRIA')).toBeInTheDocument()
     })
     expect(within(container).queryByText(/what happened last turn/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the movement results before the retreat ones, or alone when the power did not retreat (BR3)', async () => {
+    const res = (power: string, type: string, order_str: string, result: string, extra = {}) => ({
+      order: { type, power, unit: 'PAR', dest: 'BUR' },
+      result,
+      dislodged: false,
+      retreat_options: [],
+      power,
+      order_str,
+      ...extra,
+    })
+    const lastResolution = {
+      results: [res('GERMANY', 'RETREAT', 'A MUN R KIE', 'OK')],
+      movement: { results: [res('FRANCE', 'MOVE', 'A PAR - BUR', 'OK'), res('GERMANY', 'HOLD', 'A MUN H', 'OK')] },
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { lastResolution }))
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+    // FRANCE (the viewer) had no retreat: only the movement block, with its move.
+    expect(await within(container).findByText('A PAR - BUR')).toBeInTheDocument()
+    expect(within(container).getByRole('heading', { name: 'Movement' })).toBeInTheDocument()
+    expect(within(container).queryByRole('heading', { name: 'Retreats' })).toBeNull()
+    expect(within(container).queryByText(/had no orders recorded/)).toBeNull()
   })
 
   it("leads with the viewer's own power in plain language, not raw result codes", async () => {
