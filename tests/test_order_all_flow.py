@@ -149,7 +149,10 @@ def test_nothing_is_sent_if_the_turn_moved_on_meanwhile(api) -> None:
     api.get.side_effect = lambda path, **_kw: {"phase": "F1901M"} if path.endswith("/state") else MOVEMENT
     chat.press("Submit 3 orders")
     api.post.assert_not_called()
-    assert "moved on to F1901M" in chat.text
+    assert chat.text == (
+        "⏰ Game 1 moved on to Fall 1901 movement (F1901M) while you were choosing, "
+        "so these orders no longer apply. Start again with /orderall 1."
+    )
 
 
 def test_cancel_ends_the_walk_without_sending(api) -> None:
