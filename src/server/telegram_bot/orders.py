@@ -327,7 +327,8 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not results:
         await update.message.reply_text("No orders were processed.")
         return
-    await update.message.reply_text(_orders_received(results, game_id, power, user_id))
+    processed = bool((outcome.response or {}).get("auto_processed"))
+    await update.message.reply_text(_orders_received(results, game_id, power, user_id, processed=processed))
 
 
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
