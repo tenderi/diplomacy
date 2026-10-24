@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { toast } from 'sonner'
 import { apiJson, apiFetch, API_BASE, ApiError } from '@/api/client'
@@ -134,7 +134,11 @@ type SetOrderResult = { order: string; success: boolean; error: string | null; r
  * GET /games/{id}/last_resolution response (see GameService.last_resolution_view).
  * `{"results": []}` before any turn has been processed -- not an error, just nothing to show.
  */
-type LastResolution = { results: OrderResultEntry[] }
+type LastResolution = {
+  results: OrderResultEntry[]
+  /** Present when `results` are a retreat phase's: the movement phase's results before it. */
+  movement?: { results: OrderResultEntry[] }
+}
 /** Which overlay the board image shows: the plain board, currently pending orders, or the
  * last processed turn's adjudicated results (arrows coloured by outcome). */
 type MapMode = 'board' | 'orders' | 'resolution'
@@ -193,35 +197,52 @@ function ResultsSection({
 }) {
   if (!resolution || resolution.results.length === 0) return null
 
-  const mine = myPower ? resolution.results.filter((r) => r.power === myPower) : []
-  const others = resolution.results.filter((r) => r.power !== myPower)
+  // After a retreat phase the movement phase's results come first: they say why a power
+  // has builds or disbands. The retreat's follow only when the viewer had retreat orders.
+  const movement = resolution.movement?.results.length ? resolution.movement : null
+  const hasOwnRetreat = !!myPower && resolution.results.some((r) => r.power === myPower)
+  const blocks: { title: string | null; results: OrderResultEntry[] }[] = movement
+    ? [
+        { title: 'Movement', results: movement.results },
+        ...(hasOwnRetreat || !myPower ? [{ title: 'Retreats', results: resolution.results }] : []),
+      ]
+    : [{ title: null, results: resolution.results }]
 
   return (
     <section className="mb-6">
       <h2 className="text-lg font-medium mb-2">What happened last turn</h2>
-      {myPower ? (
-        mine.length > 0 ? (
-          <ResultList entries={mine} provinceNames={provinceNames} />
-        ) : (
-          <p className="text-sm text-muted-foreground mb-2">
-            {myPower} had no orders recorded for that turn.
-          </p>
-        )
-      ) : (
-        <p className="text-sm text-muted-foreground mb-2">
-          Join a power to see how its orders resolved.
-        </p>
-      )}
-      {others.length > 0 && (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-            Other powers&apos; results ({others.length})
-          </summary>
-          <div className="mt-2">
-            <ResultList entries={others} showPower provinceNames={provinceNames} />
+      {blocks.map(({ title, results }) => {
+        const mine = myPower ? results.filter((r) => r.power === myPower) : []
+        const others = results.filter((r) => r.power !== myPower)
+        return (
+          <div key={title ?? 'last'} className="mb-3">
+            {title && <h3 className="text-sm font-medium mb-1">{title}</h3>}
+            {myPower ? (
+              mine.length > 0 ? (
+                <ResultList entries={mine} provinceNames={provinceNames} />
+              ) : (
+                <p className="text-sm text-muted-foreground mb-2">
+                  {myPower} had no orders recorded for that turn.
+                </p>
+              )
+            ) : (
+              <p className="text-sm text-muted-foreground mb-2">
+                Join a power to see how its orders resolved.
+              </p>
+            )}
+            {others.length > 0 && (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                  Other powers&apos; results ({others.length})
+                </summary>
+                <div className="mt-2">
+                  <ResultList entries={others} showPower provinceNames={provinceNames} />
+                </div>
+              </details>
+            )}
           </div>
-        </details>
-      )}
+        )
+      })}
     </section>
   )
 }
@@ -255,6 +276,15 @@ export default function GameView() {
   const [joinPower, setJoinPower] = useState('')
   const [joinPassword, setJoinPassword] = useState('')
   const [joining, setJoining] = useState(false)
+  /** The join attempt's refusal, shown at the Join form (the page banner is off screen there). */
+  const [joinError, setJoinError] = useState('')
+  const joinErrorRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    // The form can be off screen on a phone: bring the refusal into view.
+    if (!joinError) return
+    joinErrorRef.current?.scrollIntoView?.({ block: 'center' })
+    joinErrorRef.current?.focus()
+  }, [joinError])
   /** One order string per unit (unit id e.g. "A PAR"); used for Movement and Retreat. */
   const [orderByUnit, setOrderByUnit] = useState<Record<string, string>>({})
   /** Build/Adjustment phase: selected build or destroy order per slot. */
@@ -581,6 +611,7 @@ export default function GameView() {
     if (!gameId || !(joinPower || state?.random_powers)) return
     setJoining(true)
     setError('')
+    setJoinError('')
     try {
       await apiJson(`/games/${gameId}/join`, {
         method: 'POST',
@@ -595,7 +626,7 @@ export default function GameView() {
       load()
       setMapUrl(`${API_BASE}/games/${gameId}/map?t=${Date.now()}`)
     } catch (e) {
-      setError(describeActionError(e, 'Join failed'))
+      setJoinError(describeActionError(e, 'Join failed'))
     } finally {
       setJoining(false)
     }
@@ -1024,6 +1055,11 @@ export default function GameView() {
                   {joining ? 'Joining...' : state.random_powers ? 'Join (random power)' : 'Join'}
                 </Button>
               </div>
+              {joinError && (
+                <p ref={joinErrorRef} tabIndex={-1} role="alert" className="mt-2 text-sm text-red-600">
+                  {joinError}
+                </p>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
