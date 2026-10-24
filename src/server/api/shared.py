@@ -831,7 +831,7 @@ def turn_message(
             if retreat["options"]:
                 lines.append(
                     f"Your {retreat['unit']}{of} was dislodged: it may retreat to "
-                    f"{', '.join(retreat['options'])}, or disband."
+                    f"{', '.join(retreat['options'])}, or disband. With no order it is disbanded."
                 )
             else:
                 lines.append(f"Your {retreat['unit']}{of} was dislodged and has nowhere to retreat: it must disband.")

@@ -89,11 +89,11 @@ def test_a_retreat_phase_tells_the_dislodged_their_options_and_the_rest_to_wait(
     head = f"The turn has been processed for game {game_id}. Fall 1901 retreats:"
     messages = _by_power(probe, users)
     assert messages["ENGLAND"] == [
-        f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband."
+        f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband. With no order it is disbanded."
     ]
     assert messages["GERMANY"] == [
         f"{head} your orders are due.\n"
-        "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband."
+        "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband. With no order it is disbanded."
     ]
     for power in ("FRANCE", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers."]
@@ -164,7 +164,7 @@ def test_a_player_holding_two_powers_is_told_which_line_is_whose() -> None:
     assert retreats == (
         "Head. Fall 1901 retreats: your orders are due for AUSTRIA and ITALY.\n"
         "Your A VIE (AUSTRIA) was dislodged and has nowhere to retreat: it must disband.\n"
-        "Your F ION (ITALY) was dislodged: it may retreat to TUN, or disband."
+        "Your F ION (ITALY) was dislodged: it may retreat to TUN, or disband. With no order it is disbanded."
     )
     builds = api_shared.turn_message(
         "Head.", "Winter 1901 builds", "ADJUSTMENT", {"FRANCE": {"build": 1}, "AUSTRIA": {"disband": 2}}

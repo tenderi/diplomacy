@@ -289,7 +289,7 @@ place the full picture exists.
 - movement — "Orders are due for Spring 1902 movement.";
 - retreat — to each dislodged power, every dislodged unit with its retreat options as the
   adjudicator computed them ("…Fall 1901 retreats: your orders are due.\nYour A BUR was
-  dislodged: it may retreat to GAS, PIC, RUH, or disband.", or "…has nowhere to retreat: it
+  dislodged: it may retreat to GAS, PIC, RUH, or disband. With no order it is disbanded.", or "…has nowhere to retreat: it
   must disband."); a power whose dislodged units *all* have nowhere to retreat owes no order
   (`phase_duties`' `forced_disbands`): its player is told to wait, plus "Your A BUR was
   dislodged and has nowhere to retreat: it is disbanded, no order needed.", and the channel

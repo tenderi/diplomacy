@@ -134,24 +134,24 @@ class TestTheApiNamesTheReplacedBuild:
 class TestTheBotSaysSo:
     def test_order_reply_names_the_replaced_build(self, client: TestClient) -> None:
         game_id, tg = _one_build(client)
-        assert _bot_order(client, game_id, tg, "BUILD F BRE") == "Order results:\n✅ BUILD F BRE"
+        assert _bot_order(client, game_id, tg, "BUILD F BRE") == "Orders received:\n✅ BUILD F BRE"
         assert _bot_order(client, game_id, tg, "BUILD A PAR") == (
-            "Order results:\n✅ BUILD A PAR replaced BUILD F BRE (you may build 1)"
+            "Orders received:\n✅ BUILD A PAR replaced BUILD F BRE (you may build 1)"
         )
 
     def test_a_waive_that_replaces_a_build_says_so(self, client: TestClient) -> None:
         game_id, tg = _one_build(client)
         _bot_order(client, game_id, tg, "BUILD F BRE")
         assert _bot_order(client, game_id, tg, "WAIVE") == (
-            "Order results:\n✅ WAIVE replaced BUILD F BRE (you may build 1)"
+            "Orders received:\n✅ WAIVE replaced BUILD F BRE (you may build 1)"
         )
 
     def test_a_build_within_the_allowance_reads_as_before(self, client: TestClient) -> None:
         game_id, tg = _france_in_winter(
             client, [Unit(UnitKind.ARMY, "FRANCE", Location("MAR"))], ["PAR", "BRE", "MAR"],
         )
-        assert _bot_order(client, game_id, tg, "BUILD F BRE") == "Order results:\n✅ BUILD F BRE"
-        assert _bot_order(client, game_id, tg, "BUILD A PAR") == "Order results:\n✅ BUILD A PAR"
+        assert _bot_order(client, game_id, tg, "BUILD F BRE") == "Orders received:\n✅ BUILD F BRE"
+        assert _bot_order(client, game_id, tg, "BUILD A PAR") == "Orders received:\n✅ BUILD A PAR"
         assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD F BRE", "BUILD A PAR"]
 
     def test_the_interactive_pick_names_the_replaced_build(self, client: TestClient) -> None:
