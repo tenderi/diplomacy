@@ -63,6 +63,13 @@ export function provinceName(location: string, names: ProvinceNames): string {
   return names[location.split('/')[0]] ?? location
 }
 
+/** Coast suffix -> words, e.g. `SC` -> `south coast`. */
+export const COAST_NAMES: Record<string, string> = {
+  NC: 'north coast',
+  SC: 'south coast',
+  EC: 'east coast',
+}
+
 /** Province-code-shaped tokens: 3 letters, optionally `/XX` for a coast. */
 const PROVINCE_TOKEN = /^[A-Z]{3}(\/[A-Z]{2})?$/
 
@@ -75,22 +82,36 @@ const PROVINCE_TOKEN = /^[A-Z]{3}(\/[A-Z]{2})?$/
  *
  * This never replaces the order string in the UI and is never sent anywhere.
  */
-export function glossOrder(orderStr: string, names: ProvinceNames): string | null {
+export function glossOrder(
+  orderStr: string,
+  names: ProvinceNames,
+  dislodged = false
+): string | null {
   if (!orderStr) return null
   let expanded = false
-  const words = orderStr.split(' ').map((token) => {
+  const tokens = orderStr.split(' ')
+  const words = tokens.map((token, i) => {
+    // "BUILD F STP/SC" -> "Build fleet St Petersburg (south coast)".
+    if (token === 'BUILD') return 'Build'
+    if ((token === 'A' || token === 'F') && tokens[i - 1] === 'BUILD') {
+      return token === 'A' ? 'army' : 'fleet'
+    }
     if (token === 'A') return 'Army'
     if (token === 'F') return 'Fleet'
     if (token === '-') return '→'
-    if (token === 'H') return 'holds'
+    // A unit that was dislodged did not "hold": the order failed. Only its own
+    // hold (`A MUN H`) is past tense, not the supported unit's in `A BOH S A MUN H`.
+    if (token === 'H') return dislodged && i === 2 ? 'held' : 'holds'
     if (token === 'S') return 'supports'
     if (token === 'C') return 'convoys'
     if (token === 'R') return 'retreats to'
     if (token === 'D') return 'disband'
     if (PROVINCE_TOKEN.test(token)) {
       const name = provinceName(token, names)
-      if (name !== token) expanded = true
-      return name
+      if (name === token) return name
+      expanded = true
+      const coast = token.split('/')[1]
+      return coast ? `${name} (${COAST_NAMES[coast] ?? coast})` : name
     }
     return token
   })
