@@ -1734,6 +1734,86 @@ describe('GameView — anonymous and public games', () => {
     window.localStorage.clear()
   })
 
+  describe('seen marking (BR5)', () => {
+    type FakeObserver = { el: Element | null; cb: IntersectionObserverCallback; disconnected: boolean }
+    let observers: FakeObserver[] = []
+    let visibleNow = false
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      window.localStorage.clear()
+    })
+    function stubObserver() {
+      observers = []
+      visibleNow = false
+      vi.stubGlobal(
+        'IntersectionObserver',
+        class {
+          rec: FakeObserver
+          constructor(cb: IntersectionObserverCallback) {
+            this.rec = { el: null, cb, disconnected: false }
+            observers.push(this.rec)
+          }
+          observe(el: Element) {
+            this.rec.el = el
+            // A real observer reports its initial state straight away.
+            if (visibleNow) this.report(true)
+          }
+          disconnect() {
+            this.rec.disconnected = true
+          }
+          report(v: boolean) {
+            this.rec.cb([{ isIntersecting: v } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+          }
+        }
+      )
+    }
+    const live = () => observers.filter((o) => !o.disconnected)
+    const msg = (id: number) => ({ id, sender_user_id: 2, sender_power: 'GERMANY', recipient_power: null, text: `m${id}`, phase_code: 'S1901M', timestamp: '2026-10-24T09:05:00' })
+
+    it('observes the mounted messages section, and marks it seen when it scrolls into view', async () => {
+      stubObserver()
+      vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), [msg(1), msg(2)]))
+      const { container } = renderGame10()
+      await within(container).findByRole('link', { name: 'Messages (2 new)' })
+
+      await waitFor(() => expect(live().some((o) => (o.el as HTMLElement | null)?.id === 'messages' && o.el?.isConnected)).toBe(true))
+      expect(window.localStorage.getItem('diplomacy:messages-seen:10')).toBeNull()
+      const o = live().find((x) => (x.el as HTMLElement | null)?.id === 'messages')!
+      o.cb([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+      expect(window.localStorage.getItem('diplomacy:messages-seen:10')).toBe('2')
+    })
+
+    it('does not mark a message that arrives while the log is on screen as seen', async () => {
+      stubObserver()
+      let list = [msg(1), msg(2)]
+      const base = stubFetchActive(activeMovementState, francePlayers)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          if (url.includes('/users/me/games')) return jsonResponse({ games: [] })
+          if (url.endsWith('/games/10/broadcast')) {
+            list = [...list, msg(3)]
+            return jsonResponse({ status: 'ok' })
+          }
+          if (url.includes('/messages')) return jsonResponse({ messages: list })
+          return base(url, init)
+        })
+      )
+      const { container } = renderGame10()
+      await within(container).findByRole('link', { name: 'Messages (2 new)' })
+      await waitFor(() => expect(live().length).toBeGreaterThan(0))
+      visibleNow = true
+      live().forEach((o) => o.cb([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
+      expect(window.localStorage.getItem('diplomacy:messages-seen:10')).toBe('2')
+
+      fireEvent.click(within(container).getByRole('checkbox'))
+      fireEvent.change(within(container).getByPlaceholderText('Type a message...'), { target: { value: 'hi' } })
+      fireEvent.click(within(container).getByRole('button', { name: 'Send' }))
+      await within(container).findByText('GERMANY → ALL: m3')
+      expect(window.localStorage.getItem('diplomacy:messages-seen:10')).toBe('2')
+    })
+  })
+
   it('puts messages after order entry and before the players list', async () => {
     vi.stubGlobal('fetch', withMessages(stubFetchActive(activeMovementState, francePlayers), []))
     const { container } = renderGame10()
