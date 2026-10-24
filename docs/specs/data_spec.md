@@ -134,7 +134,9 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
   the field table above — each order type serializes exactly its own fields).
 - `resolution_to_dict(resolution)` -> `{results: [{order, result, dislodged,
   retreat_options, civil_disorder}, ...]}` (a stored result without `civil_disorder`,
-  written before the field existed, reads back as `false`).
+  written before the field existed, reads back as `false`). A stored resolution also
+  carries `phase` and `eliminated`: the powers that processing turn put out (sorted;
+  absent in older rows), which the turn notification announces.
 
 `to_json()`/`state_from_json()`/`order_from_json()`/`resolution_from_json()` are thin
 `json.dumps`/`json.loads` wrappers around the dict functions.
