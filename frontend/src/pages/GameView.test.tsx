@@ -1006,9 +1006,9 @@ describe('GameView — Adjustment build slots restored from the server', () => {
     })
     // Restored from the server, not left on the "Build / Destroy" placeholder.
     await waitFor(() => {
-      expect(within(container).getByText('A MAR')).toBeInTheDocument()
+      expect(within(container).getByText('Build army – MAR')).toBeInTheDocument()
     })
-    expect(within(container).getByText('Waive')).toBeInTheDocument()
+    expect(within(container).getByText('Waive (build nothing)')).toBeInTheDocument()
     expect(within(container).queryAllByText('Build / Destroy')).toHaveLength(0)
   })
 })
@@ -1442,7 +1442,7 @@ describe('GameView — player actions', () => {
       ) as unknown as ReturnType<typeof stubFetchActive>,
       () => ({
         results: [
-          { order: 'BUILD F STP/SC', success: true, error: null, note: 'replaced by a later order in this submission' },
+          { order: 'BUILD F STP/SC', success: true, error: null, note: 'replaced by a later order in this submission: BUILD F STP/NC' },
           { order: 'BUILD F STP/NC', success: true, error: null },
         ],
       })
@@ -1455,9 +1455,40 @@ describe('GameView — player actions', () => {
     await waitFor(() => expect(posts).toHaveLength(1))
     await waitFor(() =>
       expect(toast.warning).toHaveBeenCalledWith(
-        'Orders submitted. replaced by a later order in this submission'
+        'Orders submitted',
+        expect.objectContaining({
+          description: 'BUILD F STP/SC: Replaced by a later order in this submission: BUILD F STP/NC',
+        })
       )
     )
+  })
+
+  it('still shows an accepted order\'s note when another order was refused', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    const { posts, fetchMock } = recordingPosts(
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/legal_orders/') ? jsonResponse({ detail: 'Not Found' }, 404) : base(url, init)
+      ) as unknown as ReturnType<typeof stubFetchActive>,
+      () => ({
+        results: [
+          { order: 'BUILD F STP/SC', success: true, error: null, note: 'replaced by a later order' },
+          { order: 'BUILD A XXX', success: false, error: 'bad province' },
+        ],
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'BUILD F STP/SC\nBUILD A XXX' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(
+        'Some orders were accepted',
+        expect.objectContaining({ description: 'BUILD F STP/SC: Replaced by a later order' })
+      )
+    )
+    expect(await within(container).findByText('Not accepted: BUILD A XXX (bad province)')).toBeInTheDocument()
   })
 
   it('relays the note that a fully refused submission changed nothing', async () => {
