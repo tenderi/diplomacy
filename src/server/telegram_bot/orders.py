@@ -182,6 +182,42 @@ def resolve_pending_order(
     return cached[idx]
 
 
+def unordered_note(game_id: str, power: str, user_id: str) -> str:
+    """BS5: what the power still has no order for this phase, as a line to append
+    to an order confirmation (``""`` when nothing is missing or the API can't say).
+
+    Movement: ``No order yet (holds): F NWG``; retreat: ``(disbanded)``;
+    adjustment: how many builds or disbands are still unordered and what the
+    server does about them. Built from ``legal_orders`` (the units and the
+    phase) and the power's pending orders; any failure just omits the line.
+    """
+    try:
+        legal = api_get(f"/games/{game_id}/legal_orders/{power}")
+        pending = api_get(f"/games/{game_id}/orders/{power}", telegram_id=user_id).get("orders", [])
+    except requests.RequestException:
+        return ""
+    phase_type = legal.get("phase_type")
+    if phase_type == "ADJUSTMENT":
+        adj = legal.get("adjustment") or {}
+        left = int(adj.get("slots", 0)) - len(pending)
+        if left <= 0:
+            return ""
+        if adj.get("action") == "build":
+            return f"{left} build{'s' if left != 1 else ''} not ordered yet: unordered builds are waived."
+        if adj.get("action") == "disband":
+            return (
+                f"{left} disband{'s' if left != 1 else ''} not ordered yet: if you send none, the server "
+                "chooses them by the civil-disorder rule (farthest from home first)."
+            )
+        return ""
+    keys = [f"{u['kind']} {u['location']}" for u in legal.get("units", [])]
+    missing = [k for k in keys if not any(o.startswith(k + " ") for o in pending)]
+    if not missing:
+        return ""
+    fate = "disbanded" if phase_type == "RETREAT" else "holds"
+    return f"No order yet ({fate}): {', '.join(missing)}"
+
+
 def format_order_results(results: list[dict[str, Any]]) -> str:
     """``✅ A PAR - BUR`` / ``❌ A PAR - MOS  Error: ...`` lines for a
     ``POST /games/set_orders`` response. Shared by the three submission paths
@@ -198,6 +234,16 @@ def format_order_results(results: list[dict[str, Any]]) -> str:
         else:
             lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
     return "\n".join(lines)
+
+
+def _orders_received(
+    results: list[dict[str, Any]], game_id: str, power: str, user_id: str, processed: bool = False
+) -> str:
+    """The confirmation of a submission: the results plus, unless the turn just
+    ran, what is still unordered (BS5)."""
+    text = "Orders received:\n" + format_order_results(results)
+    note = "" if processed else unordered_note(game_id, power, user_id)
+    return text + ("\n" + note if note else "")
 
 
 def _orders_description(game_id: str, power: str, order_list: list[str]) -> str:
@@ -281,7 +327,7 @@ async def order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not results:
         await update.message.reply_text("No orders were processed.")
         return
-    await update.message.reply_text("Order results:\n" + format_order_results(results))
+    await update.message.reply_text(_orders_received(results, game_id, power, user_id))
 
 
 async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -881,10 +927,15 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
         order = walk["chosen"].get(step)
         lines.append(f"• `{order}`" if order else f"• {step}: _skipped_")
     skipped = sum(1 for s in walk["steps"] if s not in walk["chosen"])
-    note = (
-        f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, it holds."
-        if skipped and not walk["adjust"] else ""
-    )
+    note = ""
+    if skipped and walk["adjust"]:
+        note = (
+            f"\n\nSkipped: {skipped}. A skipped build is waived; if you owe disbands and order too few, "
+            "the server chooses the rest by the civil-disorder rule (farthest from home first)."
+        )
+    elif skipped:
+        fate = "it is disbanded" if str(walk["phase"]).endswith("R") else "it holds"
+        note = f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, {fate}."
     count = len(walk["chosen"])
     keyboard = []
     if count:
@@ -934,7 +985,7 @@ async def submit_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, ch
     if (outcome.response or {}).get("auto_processed"):
         extra = "\n\n⚡ That completed the turn -- it has been processed."
     await send(
-        "Order results:\n" + format_order_results(results) + extra,
+        _orders_received(results, game_id, power, user_id, processed=bool(extra)) + extra,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("📋 My orders", callback_data=f"g|{game_id}|view"),
             InlineKeyboardButton("🎮 Game menu", callback_data=f"g|{game_id}|hub"),
