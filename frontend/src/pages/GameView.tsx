@@ -280,9 +280,14 @@ export default function GameView() {
   const [state, setState] = useState<GameState | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
   const [messages, setMessages] = useState<Message[]>([])
-  const messagesRef = useRef<HTMLElement>(null)
-  /** The newest message id the viewer had seen when the page opened (BR5); newer ones are marked. */
-  const [seenBaseline] = useState(() => readSeenMessageId(gameId))
+  /** The messages section, held in state (a callback ref) so effects re-run when it mounts or
+   *  remounts: it only exists once the game has loaded, and unmounts while it reloads. */
+  const [messagesEl, setMessagesEl] = useState<HTMLElement | null>(null)
+  /** The newest message id the viewer had seen when the page opened (BR5); newer ones are
+   *  marked. Re-read when the game changes. */
+  const [baseline, setBaseline] = useState(() => ({ gameId, id: readSeenMessageId(gameId) }))
+  if (baseline.gameId !== gameId) setBaseline({ gameId, id: readSeenMessageId(gameId) })
+  const seenBaseline = baseline.gameId === gameId ? baseline.id : 0
   const [mapUrl, setMapUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -408,16 +413,25 @@ export default function GameView() {
     [messages, seenBaseline, myPower]
   )
   const newestMessageId = messages.reduce((max, m) => Math.max(max, m.id ?? 0), 0)
-  // The log counts as seen once it scrolls into view; the NEW marks stay for this visit.
+  const newestMessageRef = useRef(newestMessageId)
+  newestMessageRef.current = newestMessageId
+  // The log counts as seen when it scrolls into view while the tab is visible. One observer
+  // per mounted section, kept across message refreshes: a new observer reports its initial
+  // state at once, which would mark a message that arrived off-screen as seen.
   useEffect(() => {
-    const el = messagesRef.current
-    if (!el || newestMessageId === 0 || typeof IntersectionObserver === 'undefined') return
+    if (!messagesEl || typeof IntersectionObserver === 'undefined') return
     const obs = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) writeSeenMessageId(gameId, newestMessageId)
+      if (
+        entries.some((e) => e.isIntersecting) &&
+        document.visibilityState !== 'hidden' &&
+        newestMessageRef.current > 0
+      ) {
+        writeSeenMessageId(gameId, newestMessageRef.current)
+      }
     })
-    obs.observe(el)
+    obs.observe(messagesEl)
     return () => obs.disconnect()
-  }, [gameId, newestMessageId])
+  }, [gameId, messagesEl])
   const isCreator =
     !!user &&
     (state?.anonymous
@@ -944,7 +958,7 @@ export default function GameView() {
             className="mt-1 inline-block text-sm text-primary underline"
             onClick={(e) => {
               e.preventDefault()
-              messagesRef.current?.scrollIntoView?.({ behavior: 'smooth' })
+              messagesEl?.scrollIntoView?.({ behavior: 'smooth' })
               writeSeenMessageId(gameId, newestMessageId)
             }}
           >
@@ -1183,7 +1197,7 @@ export default function GameView() {
         </>
       )}
 
-      <section id="messages" ref={messagesRef} className="mb-6 scroll-mt-4">
+      <section id="messages" ref={setMessagesEl} className="mb-6 scroll-mt-4">
         <h2 className="text-lg font-medium mb-2">Messages</h2>
         <ul className="list-none p-2 max-h-48 overflow-auto border border-border rounded-lg space-y-1">
           {messages.length === 0 && <li className="text-muted-foreground text-sm">No messages yet.</li>}
