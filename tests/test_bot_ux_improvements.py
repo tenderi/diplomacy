@@ -476,6 +476,8 @@ class TestProcessTurnConfirmation:
                 return {"submitted": ["FRANCE", "GERMANY"], "missing": []}
             if endpoint.endswith("/state"):
                 return {"phase": "F1901M", "status": "IN_PROGRESS", "dislodged": [], "contested": []}
+            if "/legal_orders/" in endpoint:
+                return {"phase_type": "MOVEMENT", "units": [{"kind": "A", "location": "PAR"}]}
             raise AssertionError(endpoint)
 
         mock_orders_get.side_effect = orders_get_side
@@ -486,7 +488,10 @@ class TestProcessTurnConfirmation:
 
         mock_post.assert_called_once_with("/games/1/process_turn", {"telegram_id": "12345"})
         text = message.reply_text.call_args[0][0]
-        assert "Turn Processed" in text
+        assert text == (
+            "✅ *Turn Processed!*\n📊 Now: Fall 1901 movement (F1901M)\n\n"
+            "🎮 France owes orders for 1 unit: /orderall 1. Game menu: /game 1."
+        )
 
     def test_button_callback_ptforce_runs_process_turn(self):
         query = Mock()
