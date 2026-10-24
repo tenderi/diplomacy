@@ -67,6 +67,21 @@ describe('provinceName', () => {
 })
 
 describe('glossOrder', () => {
+  it('keeps the coast on a build and words it as a build', () => {
+    expect(glossOrder('BUILD F STP/SC', NAMES)).toBe('Build fleet St Petersburg (south coast)')
+    expect(glossOrder('BUILD A BER', NAMES)).toBe('Build army Berlin')
+  })
+
+  it('keeps the coast in a move from a split coast', () => {
+    expect(glossOrder('F STP/SC - BOT', { ...NAMES, BOT: 'Gulf of Bothnia' })).toBe(
+      'Fleet St Petersburg (south coast) → Gulf of Bothnia'
+    )
+  })
+
+  it('reads a dislodged hold in the past tense', () => {
+    expect(glossOrder('A MUN H', NAMES, true)).toBe('Army Munich held')
+  })
+
   it('reads a move in plain English', () => {
     expect(glossOrder('A BER - KIE', NAMES)).toBe('Army Berlin → Kiel')
   })
