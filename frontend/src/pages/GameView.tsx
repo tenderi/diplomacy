@@ -29,6 +29,12 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import {
+  formatMessageTime,
+  readSeenMessageId,
+  unreadMessageIds,
+  writeSeenMessageId,
+} from '@/lib/messageMeta'
+import {
   type GroupedByType,
   groupLegalOrdersByType,
   extractUnitFromOrderString,
@@ -94,6 +100,10 @@ type Message = {
   /** A rumour: a broadcast sent anonymously. The sender is hidden from everyone but
    *  the sender, who still gets their own `sender_power`. */
   anonymous?: boolean
+  /** Naive UTC ISO time the message was written. */
+  timestamp?: string
+  /** The phase it was written in (null for messages that predate the column). */
+  phase_code?: string | null
 }
 /**
  * GET /games/{id}/draw_vote_status response (see GameService.get_draw_votes).
@@ -270,6 +280,14 @@ export default function GameView() {
   const [state, setState] = useState<GameState | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
   const [messages, setMessages] = useState<Message[]>([])
+  /** The messages section, held in state (a callback ref) so effects re-run when it mounts or
+   *  remounts: it only exists once the game has loaded, and unmounts while it reloads. */
+  const [messagesEl, setMessagesEl] = useState<HTMLElement | null>(null)
+  /** The newest message id the viewer had seen when the page opened (BR5); newer ones are
+   *  marked. Re-read when the game changes. */
+  const [baseline, setBaseline] = useState(() => ({ gameId, id: readSeenMessageId(gameId) }))
+  if (baseline.gameId !== gameId) setBaseline({ gameId, id: readSeenMessageId(gameId) })
+  const seenBaseline = baseline.gameId === gameId ? baseline.id : 0
   const [mapUrl, setMapUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -390,6 +408,30 @@ export default function GameView() {
   }, [gameId])
 
   const myPower = user ? (players.find((p) => p.user_id === user.id)?.power ?? ownPower) : null
+  const unreadIds = useMemo(
+    () => unreadMessageIds(messages, seenBaseline, myPower ?? null),
+    [messages, seenBaseline, myPower]
+  )
+  const newestMessageId = messages.reduce((max, m) => Math.max(max, m.id ?? 0), 0)
+  const newestMessageRef = useRef(newestMessageId)
+  newestMessageRef.current = newestMessageId
+  // The log counts as seen when it scrolls into view while the tab is visible. One observer
+  // per mounted section, kept across message refreshes: a new observer reports its initial
+  // state at once, which would mark a message that arrived off-screen as seen.
+  useEffect(() => {
+    if (!messagesEl || typeof IntersectionObserver === 'undefined') return
+    const obs = new IntersectionObserver((entries) => {
+      if (
+        entries.some((e) => e.isIntersecting) &&
+        document.visibilityState !== 'hidden' &&
+        newestMessageRef.current > 0
+      ) {
+        writeSeenMessageId(gameId, newestMessageRef.current)
+      }
+    })
+    obs.observe(messagesEl)
+    return () => obs.disconnect()
+  }, [gameId, messagesEl])
   const isCreator =
     !!user &&
     (state?.anonymous
@@ -910,6 +952,20 @@ export default function GameView() {
         <p className="text-sm text-muted-foreground">
           {seasonLabel} {state.year} · {state.phase}
         </p>
+        {messages.length > 0 && (
+          <a
+            href="#messages"
+            className="mt-1 inline-block text-sm text-primary underline"
+            onClick={(e) => {
+              e.preventDefault()
+              messagesEl?.scrollIntoView?.({ behavior: 'smooth' })
+              writeSeenMessageId(gameId, newestMessageId)
+            }}
+          >
+            Messages
+            {unreadIds.size > 0 ? ` (${unreadIds.size} new)` : ` (${messages.length})`}
+          </a>
+        )}
       </div>
 
       {error && (
@@ -1141,6 +1197,87 @@ export default function GameView() {
         </>
       )}
 
+      <section id="messages" ref={setMessagesEl} className="mb-6 scroll-mt-4">
+        <h2 className="text-lg font-medium mb-2">Messages</h2>
+        <ul className="list-none p-2 max-h-48 overflow-auto border border-border rounded-lg space-y-1">
+          {messages.length === 0 && <li className="text-muted-foreground text-sm">No messages yet.</li>}
+          {messages.map((m, i) => {
+            const isNew = unreadIds.has(m.id as number)
+            const when = formatMessageTime(m.timestamp)
+            return (
+              <li
+                key={m.id ?? i}
+                className={cn('text-sm', isNew && 'rounded bg-primary/10 px-1')}
+              >
+                <span className="text-xs text-muted-foreground">
+                  {[m.phase_code, when].filter(Boolean).join(' · ')}
+                  {isNew && <strong className="ml-1 text-primary">NEW</strong>}
+                </span>
+                <br />
+                {senderLabel(m)} → {m.recipient_power ?? 'ALL'}: {m.text}
+              </li>
+            )
+          })}
+        </ul>
+        <div className="mt-2 space-y-2">
+          <Label className="flex items-center gap-2">
+            <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
+            Broadcast to all
+          </Label>
+          {broadcast && (
+            <div className="pl-6">
+              <Label className="flex items-start gap-2 leading-snug">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  aria-describedby="rumour-hint"
+                  checked={anonymousBroadcast}
+                  onChange={(e) => setAnonymousBroadcast(e.target.checked)}
+                />
+                <span className="min-w-0">Send anonymously (rumour)</span>
+              </Label>
+              <p id="rumour-hint" className="text-xs text-muted-foreground mt-0.5">Nobody is told who sent it.</p>
+            </div>
+          )}
+          {!broadcast && (
+            <select
+              value={messageRecipient}
+              onChange={(e) => setMessageRecipient(e.target.value)}
+              aria-label="Message recipient power"
+              className={cn(
+                "block h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              )}
+            >
+              <option value="">To power...</option>
+              {POWERS.filter((p) => p !== myPower && takenPowers.has(p)).map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
+          <Textarea
+            value={messageText}
+            onChange={(e) => setMessageText(e.target.value)}
+            rows={2}
+            className="max-w-md"
+            placeholder="Type a message..."
+            maxLength={MAX_MESSAGE_LENGTH}
+            aria-describedby={messageText.length >= MESSAGE_COUNTER_FROM ? 'message-counter' : undefined}
+          />
+          {messageText.length >= MESSAGE_COUNTER_FROM && (
+            <p id="message-counter" className="text-xs text-muted-foreground" aria-live="polite">
+              {MAX_MESSAGE_LENGTH - messageText.length} characters left
+            </p>
+          )}
+          <Button
+            onClick={handleSendMessage}
+            disabled={!messageText.trim() || messageText.length > MAX_MESSAGE_LENGTH || sendingMsg || (!broadcast && !messageRecipient)}
+          >
+            {sendingMsg ? 'Sending...' : 'Send'}
+          </Button>
+        </div>
+      </section>
+
       <section className="mb-6">
         <h2 className="text-lg font-medium mb-2">Players</h2>
         <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -1295,75 +1432,6 @@ export default function GameView() {
           </AlertDialog>
         </section>
       )}
-
-      <section className="mb-6">
-        <h2 className="text-lg font-medium mb-2">Messages</h2>
-        <ul className="list-none p-2 max-h-48 overflow-auto border border-border rounded-lg space-y-1">
-          {messages.length === 0 && <li className="text-muted-foreground text-sm">No messages yet.</li>}
-          {messages.map((m, i) => (
-            <li key={m.id ?? i} className="text-sm">
-              {senderLabel(m)} → {m.recipient_power ?? 'ALL'}: {m.text}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-2 space-y-2">
-          <Label className="flex items-center gap-2">
-            <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
-            Broadcast to all
-          </Label>
-          {broadcast && (
-            <div className="pl-6">
-              <Label className="flex items-start gap-2 leading-snug">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 shrink-0"
-                  aria-describedby="rumour-hint"
-                  checked={anonymousBroadcast}
-                  onChange={(e) => setAnonymousBroadcast(e.target.checked)}
-                />
-                <span className="min-w-0">Send anonymously (rumour)</span>
-              </Label>
-              <p id="rumour-hint" className="text-xs text-muted-foreground mt-0.5">Nobody is told who sent it.</p>
-            </div>
-          )}
-          {!broadcast && (
-            <select
-              value={messageRecipient}
-              onChange={(e) => setMessageRecipient(e.target.value)}
-              aria-label="Message recipient power"
-              className={cn(
-                "block h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              )}
-            >
-              <option value="">To power...</option>
-              {POWERS.filter((p) => p !== myPower && takenPowers.has(p)).map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          )}
-          <Textarea
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            rows={2}
-            className="max-w-md"
-            placeholder="Type a message..."
-            maxLength={MAX_MESSAGE_LENGTH}
-            aria-describedby={messageText.length >= MESSAGE_COUNTER_FROM ? 'message-counter' : undefined}
-          />
-          {messageText.length >= MESSAGE_COUNTER_FROM && (
-            <p id="message-counter" className="text-xs text-muted-foreground" aria-live="polite">
-              {MAX_MESSAGE_LENGTH - messageText.length} characters left
-            </p>
-          )}
-          <Button
-            onClick={handleSendMessage}
-            disabled={!messageText.trim() || messageText.length > MAX_MESSAGE_LENGTH || sendingMsg || (!broadcast && !messageRecipient)}
-          >
-            {sendingMsg ? 'Sending...' : 'Send'}
-          </Button>
-        </div>
-      </section>
     </div>
   )
 }
