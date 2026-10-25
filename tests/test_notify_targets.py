@@ -10,8 +10,9 @@ import datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
-from engine.serialization import state_to_dict
+from engine.serialization import resolution_from_dict, state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
 from server.api import app
 from server.api import shared as api_shared
@@ -89,6 +90,37 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
     assert {str(r["telegram_id"]) for r in later.rows() if r["kind"] == "dm"} == {
         by_power[p] for p in POWERS if p not in ("TURKEY", "ITALY")
     }
+
+
+def test_the_stored_eliminated_key_does_not_break_resolution_readers() -> None:
+    client = TestClient(app)
+    game_id, _users = _seeded_game(client)
+    _fall_board(game_id)
+    api_shared.game_service.submit_orders(game_id, "FRANCE", ["A TUS - ROM"])
+    api_shared.game_service.process_turn(game_id)
+    stored = api_shared.game_service.last_resolution(game_id)
+    assert stored is not None and stored["eliminated"] == ["ITALY"]
+    assert len(resolution_from_dict(stored).results) == len(stored["results"])
+    response = client.get(f"/games/{game_id}/last_resolution")
+    assert response.status_code == 200
+    assert "eliminated" not in response.json()
+    assert sorted(r["order_str"] for r in response.json()["results"] if r["power"] == "FRANCE") == ["A PAR H", "A TUS - ROM"]
+
+
+def test_a_failed_elimination_read_still_sends_every_turn_dm(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    row_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
+    api_shared.game_service.process_turn(game_id)
+
+    def db_down(_game_id: str) -> frozenset[str]:
+        raise OperationalError("SELECT 1", {}, Exception("db down"))
+
+    monkeypatch.setattr(api_shared.game_service, "eliminated_powers", db_down)
+    with OutboxProbe() as probe:
+        api_shared.finish_processed_turn(game_id, row_id, prev_phase_code="S1901M", trigger="deadline")
+    head = f"The turn has been processed for game {game_id} because its deadline passed."
+    assert _dms(probe) == {tg: [f"{head} Orders are due for Fall 1901 movement."] for _h, tg in users}
 
 
 def test_the_reminder_goes_to_powers_still_owing_orders_with_the_phase_and_minutes_left() -> None:

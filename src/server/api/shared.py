@@ -698,9 +698,11 @@ def notify_turn_processed(
         scheduler_logger.error(f"Failed to read civil-disorder disbands for game {game_id}: {e}")
     # Powers this turn eliminated (BS2): the table is told once, here; a power out
     # earlier (conquered or conceded) is owed no more turn DMs.
-    eliminated = game_service.eliminated_powers(game_id)
+    # A failed read degrades to "no one is out", never to losing the turn's DMs.
+    eliminated: frozenset[str] = frozenset()
     newly: list[str] = []
     try:
+        eliminated = game_service.eliminated_powers(game_id)
         if processed_turn is not None:
             newly = game_service.eliminated_in_turn(game_id, processed_turn)
     except SQLAlchemyError as e:
