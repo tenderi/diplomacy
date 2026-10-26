@@ -167,11 +167,13 @@ def test_without_a_schedule_a_processed_turn_still_leaves_no_deadline():
     # BE1: the spent deadline is said to be gone, in the DM and the group post.
     assert probe.by_recipient()[telegram_id] == [
         f"The turn has been processed for game {game_id} because its deadline passed. "
-        "Orders are due for Fall 1901 movement. No deadline is set for Fall 1901 movement."
+        "Orders are due for Fall 1901 movement.\n\nNo deadline is set for Fall 1901 movement. "
+        f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
     ]
     assert posted == [
         "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private."
-        " No deadline is set for Fall 1901 movement."
+        "\n\nNo deadline is set for Fall 1901 movement. "
+        f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
     ]
 
 

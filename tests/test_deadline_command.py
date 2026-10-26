@@ -515,3 +515,26 @@ def test_a_refused_past_deadline_shows_the_servers_message(mock_ctx_get, mock_po
     assert message.reply_text.call_args[0][0] == (
         "Could not set the deadline: That deadline has already passed. Choose a time in the future."
     )
+
+
+class TestStatusWithoutDeadline:
+    @patch('server.telegram_bot.games.api_get')
+    @patch('server.telegram_bot.game_context.api_get')
+    def test_status_says_none_set(self, mock_ctx_get, mock_get):
+        mock_ctx_get.return_value = _ONE_GAME
+
+        def fake_get(endpoint, **kwargs):
+            if endpoint.endswith("/deadline"):
+                return {"status": "ok", "deadline": None}
+            if endpoint.endswith("/orders_status"):
+                return {"submitted": [], "missing": []}
+            if endpoint.endswith("/draw_vote_status"):
+                return {"votes": [], "required": []}
+            return {"phase": "S1901M", "phase_type": "MOVEMENT", "year": 1901, "season": "SPRING"}
+
+        mock_get.side_effect = fake_get
+        update, context, message = _make_update_and_context(args=["1"])
+
+        asyncio.run(status(update, context))
+
+        assert "⏰ *Deadline:* none set\n" in message.reply_text.call_args[0][0]

@@ -246,3 +246,8 @@ def test_every_not_accepted_form_comes_with_a_form_that_parses() -> None:
     above already covers them; this pins that each rejected form has one."""
     line = next(l for l in help_text.ORDER_FORMAT_NOTES.splitlines() if "Not accepted" in l)
     assert line.count("(write `") == len(help_text.REJECTED_ORDER_FORMS)
+
+
+def test_help_names_the_movement_seasons_as_the_game_does() -> None:
+    assert "*Movement* (Spring/Fall): Submit movement, support, convoy orders" in help_text.RULES_TEXT
+    assert "Autumn" not in help_text.RULES_TEXT
