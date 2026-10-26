@@ -1287,7 +1287,7 @@ def propose_deadline(
         else:
             needed = result["needed_for_majority"]
             what = (
-                f"a {_hours_text(req.hours)} deadline, counted from when the proposal passes"
+                f"a deadline of {_hours_text(req.hours)}, counted from when the proposal passes"
                 if req.hours is not None
                 else "no deadline (clearing it)"
             )

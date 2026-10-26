@@ -522,7 +522,7 @@ def _accepted_deadline_text(result: dict) -> str:
     if result.get("deadline"):
         return format_deadline(result["deadline"])
     if result.get("value_hours") is not None:
-        return f"{result['value_hours']}h from now"
+        return f"{result['value_hours']:g}h from now"
     return "no deadline"
 
 
@@ -604,7 +604,7 @@ def set_deadline_schedule(game_id: str, user_id: str, words: list[str]) -> str:
 
 
 def _format_proposal(game_id: str, proposal: dict) -> str:
-    what = f"{proposal['value_hours']}h" if proposal.get("value_hours") is not None else "clearing it"
+    what = f"{proposal['value_hours']:g}h" if proposal.get("value_hours") is not None else "clearing it"
     needed = proposal["needed_for_majority"]
     yes = proposal["yes_votes"]
     no = proposal["no_votes"]
