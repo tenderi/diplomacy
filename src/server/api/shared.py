@@ -1683,7 +1683,7 @@ def _send_deadline_reminder(game_id: str, numeric_game_id: int, left: timedelta)
     post_to_game_group(
         game_id,
         f"⏰ Game {game_id}: orders for {label} are due in {minutes} {unit}"
-        f" (still to come: {', '.join(sorted(missing))}). Orders go to me in private.",
+        f" (still to come: {', '.join(power_label(game_id, p) for p in sorted(missing))}). Orders go to me in private.",
         dm_start=f"orders_{game_id}",
     )
 

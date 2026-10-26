@@ -179,7 +179,7 @@ class TestDeadlineProposeVoteWithdraw:
             {"power": "FRANCE", "hours": 24.0, "vote_hours": None, "telegram_id": "12345"},
         )
         text = message.reply_text.call_args[0][0]
-        assert "FRANCE" in text and "24.0h" in text
+        assert "FRANCE" in text and "proposes: 24h\n" in text
         assert "1/2 needed" in text
 
     @patch('server.telegram_bot.games.api_post')
@@ -274,7 +274,7 @@ class TestDeadlineProposeVoteWithdraw:
 
         asyncio.run(deadline(update, context))
 
-        assert "12.0h from now" in message.reply_text.call_args[0][0]
+        assert "12h from now" in message.reply_text.call_args[0][0]
 
     @patch('server.telegram_bot.games.api_post')
     @patch('server.telegram_bot.game_context.api_get')
@@ -341,7 +341,7 @@ class TestDeadlineProposeVoteWithdraw:
 
         texts = [c.args[0] for c in message.reply_text.call_args_list]
         assert any("no deadline" in t for t in texts)
-        assert any("GERMANY" in t and "6.0h" in t for t in texts)
+        assert any("GERMANY" in t and "6h" in t and "6.0h" not in t for t in texts)
 
 
 class TestStatusShowsFormattedDeadline:
