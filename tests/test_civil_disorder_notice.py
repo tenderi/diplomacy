@@ -67,7 +67,8 @@ def _expected(game_id: str, users: list[tuple[dict, str]], due: str = "") -> tup
         " Orders are due for Spring 1902 movement."
     )
     by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
-    expected = {tg: [head + due] for tg in by_power.values()}
+    # The four powers with no unit and no centre are out (BS2): no "orders are due" DM.
+    expected = {by_power["ITALY"]: [head + due]}
     # F KIE is farther from a French home centre than A MUN; A PAR is home.
     expected[by_power["FRANCE"]] = [
         head + "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + due

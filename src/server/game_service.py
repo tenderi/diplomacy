@@ -483,6 +483,9 @@ class GameService:
         # reload has no other way to recover which kind made the order (see
         # last_resolution_view's docstring / kind_by_province_of).
         resolution_dict = _resolution_dict(resolution, game.state)
+        # Powers this turn put out (BS2): kept with the turn so its notification
+        # tells the table once, and never mistakes an earlier concession for it.
+        resolution_dict["eliminated"] = sorted(next_game.eliminated_powers() - game.eliminated_powers())
         self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
@@ -912,10 +915,19 @@ class GameService:
         send press, vote, or have its seat taken (BL2). ``False`` once the game
         has ended, so the losers can still talk after it, and for an unknown game.
         """
+        return power.upper() in self.eliminated_powers(game_id)
+
+    def eliminated_powers(self, game_id: str) -> frozenset[str]:
+        """The powers ``is_eliminated`` reports out: empty for an ended or unknown game."""
         game = self.load(game_id)
         if game is None or game.state.status is GameStatus.COMPLETED:
-            return False
-        return power.upper() in game.eliminated_powers()
+            return frozenset()
+        return game.eliminated_powers()
+
+    def eliminated_in_turn(self, game_id: str, turn: int) -> list[str]:
+        """The powers ``turn``'s processing eliminated (BS2), sorted: by conquest, not
+        by conceding earlier. Empty for a turn processed before this was recorded."""
+        return list(self.resolution_history(game_id).get(str(turn), {}).get("eliminated", []))
 
     # -- sandbox (stateless) ------------------------------------------------
     #
