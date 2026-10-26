@@ -87,7 +87,7 @@ RULES_TEXT = f"""
 {ORDER_FORMAT_NOTES}
 
 *🔄 Game Phases:*
-• *Movement* (Spring/Autumn): Submit movement, support, convoy orders
+• *Movement* (Spring/Fall): Submit movement, support, convoy orders
 • *Retreat*: Retreat dislodged units to adjacent provinces, or disband
 • *Builds*: Build, disband, or waive based on supply center control
 

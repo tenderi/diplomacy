@@ -667,7 +667,10 @@ def notify_turn_processed(
     duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
     label = phase_label(duties_view["phase"])
     if deadline_cleared and not next_deadline_text:
-        due = f" No deadline is set for {label}."
+        due = (
+            f"\n\nNo deadline is set for {label}. "
+            f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
+        )
     phase_type = duties_view["phase_type"]
     duties: dict[str, dict[str, Any]] = duties_view["duties"]
     # Units that held because a vacant seat's power ordered nothing (BL5).

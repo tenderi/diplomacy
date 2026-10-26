@@ -287,8 +287,13 @@ def status_text(game_id: str, power: Optional[str], user_id: str, *, title: Opti
     except requests.RequestException:
         deadline = None
         schedule = None
+        deadline_known = False
+    else:
+        deadline_known = True
     if deadline:
         text += f"⏰ *Deadline:* {format_deadline(deadline)}\n"
+    elif deadline_known:
+        text += "⏰ *Deadline:* none set\n"
     if schedule:
         # A timezone such as America/New_York carries a Markdown underscore.
         text += f"🗓 *Schedule:* {escape_markdown(schedule['description'])}\n"
