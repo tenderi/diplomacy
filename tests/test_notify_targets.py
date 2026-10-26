@@ -7,6 +7,7 @@ of powers still owing orders, names the phase, and says the minutes really left.
 from __future__ import annotations
 
 import datetime
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -143,6 +144,28 @@ def test_the_reminder_goes_to_powers_still_owing_orders_with_the_phase_and_minut
     assert [r["message"] for r in probe.rows() if r["kind"] == "channel_text"] == [
         f"⏰ Game {game_id}: orders for Spring 1901 movement are due in 7 minutes"
         " (still to come: AUSTRIA, GERMANY, ITALY, RUSSIA, TURKEY). Orders go to me in private."
+    ]
+
+
+def test_the_reminder_group_post_names_missing_powers_with_their_nicknames() -> None:
+    client = TestClient(app)
+    game_id, _users = _seeded_game(client)
+    row_id = int(api_shared.db_service.get_game_by_game_id(game_id).id)
+    api_shared.db_service.link_game_to_channel(game_id, GROUP, any_displacer=True)
+    nick = f"Zed{uuid.uuid4().hex[:8]}"
+    seat = api_shared.db_service.get_player_by_game_id_and_power(game_id=game_id, power="ITALY")
+    api_shared.db_service.set_nickname(int(seat.user_id), nick)
+    api_shared.game_service.submit_orders(game_id, "ENGLAND", ["F LON H"])
+    api_shared.game_service.submit_orders(game_id, "FRANCE", ["A PAR H"])
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    api_shared.db_service.update_game_deadline(row_id, now + datetime.timedelta(minutes=7, seconds=20))
+
+    with OutboxProbe() as probe:
+        api_shared.check_and_send_reminders(now)
+
+    assert [r["message"] for r in probe.rows() if r["kind"] == "channel_text"] == [
+        f"⏰ Game {game_id}: orders for Spring 1901 movement are due in 7 minutes"
+        f" (still to come: AUSTRIA, GERMANY, ITALY ({nick}), RUSSIA, TURKEY). Orders go to me in private."
     ]
 
 
