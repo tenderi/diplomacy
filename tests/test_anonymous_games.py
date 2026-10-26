@@ -169,7 +169,7 @@ class TestAnnouncements:
     @pytest.mark.parametrize("anonymous", [True, False])
     def test_a_quit_names_the_power_and_in_a_public_game_the_player(self, client, anonymous):
         game_id, anna, bert, bert_nick = _game(client, anonymous=anonymous)
-        label = _label(anonymous, "GERMANY", bert_nick)
+        label = _label(anonymous, "Germany", bert_nick)
         with OutboxProbe() as probe:
             assert client.post(f"/games/{game_id}/quit", json=_as(bert)).status_code == 200
         assert any(m.startswith(f"{label} has left game {game_id}. Vacant: ") for m in probe.by_recipient()[anna])

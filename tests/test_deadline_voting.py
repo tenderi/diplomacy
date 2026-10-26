@@ -380,3 +380,24 @@ def test_two_votes_cast_together_are_both_counted():
     thread.join(timeout=10)
     pending = client.get(f"/games/{game_id}/deadline").json()["pending_proposal"]
     assert pending["yes_votes"] == ["FRANCE", "GERMANY", "ITALY"]
+
+
+@pytest.mark.parametrize(
+    ("hours", "expected"),
+    [(48.0, "a 48h deadline"), (1.5, "a 1.5h deadline")],
+)
+def test_proposal_notice_says_the_hours_count_from_when_it_passes(hours, expected):
+    from unittest.mock import patch
+
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    with patch("server.api.routes.games.notify_players") as notify:
+        resp = client.post(
+            f"/games/{game_id}/deadline/propose",
+            json={"power": "FRANCE", "hours": hours}, headers=users["FRANCE"],
+        )
+    assert resp.status_code == 200, resp.text
+    assert notify.call_args[0][1] == (
+        f"FRANCE proposes changing game {game_id}'s deadline to {expected}, counted from when "
+        f"the proposal passes. Needs 4 yes votes (1/4 so far). Use /deadline {game_id} vote yes|no."
+    )
