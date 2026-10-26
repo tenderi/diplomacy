@@ -108,6 +108,16 @@ class TestQuit:
 class TestFillingAVacatedSeat:
     BOT = _BOT
 
+    def test_replace_notice_writes_the_power_title_cased(self, client):
+        game_id, a = _game_with_france(client)
+        fill_with_dummies(game_id)
+        client.post(f"/games/{game_id}/quit", json=_as(a))
+        b = _telegram_user(client, "replacer2")
+        with patch("server.api.routes.games.notify_players") as notify:
+            assert client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE")).status_code == 200
+        text = notify.call_args[0][1]
+        assert text.endswith(f"has taken over France in game {game_id}.")
+
     def test_replace_assigns_the_new_user(self, client):
         game_id, a = _game_with_france(client)
         fill_with_dummies(game_id)
@@ -252,7 +262,7 @@ class TestVacantSeatBlocksDraw:
             assert client.post(f"/games/{game_id}/quit", json=_as(b)).status_code == 200
         text = notify.call_args[0][1]
         assert text == (
-            f"GERMANY has left game {game_id}. Vacant: Germany. Someone can take the seat with "
+            f"Germany has left game {game_id}. Vacant: Germany. Someone can take the seat with "
             f"/replace {game_id} GERMANY, or the game's creator can make it a dummy with "
             f"/dummy {game_id} GERMANY. Until then its draw vote is still needed."
         )
