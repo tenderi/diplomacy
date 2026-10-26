@@ -696,9 +696,29 @@ def notify_turn_processed(
             lost = game_service.retreat_disbands(game_id, processed_turn)
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read civil-disorder disbands for game {game_id}: {e}")
+    # Powers this turn eliminated (BS2): the table is told once, here; a power out
+    # earlier (conquered or conceded) is owed no more turn DMs.
+    # A failed read degrades to "no one is out", never to losing the turn's DMs.
+    eliminated: frozenset[str] = frozenset()
+    newly: list[str] = []
+    try:
+        eliminated = game_service.eliminated_powers(game_id)
+        if processed_turn is not None:
+            newly = game_service.eliminated_in_turn(game_id, processed_turn)
+    except SQLAlchemyError as e:
+        scheduler_logger.error(f"Failed to read the eliminations of game {game_id}: {e}")
     try:
         for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
-            mine = [p for p in powers if p in duties]
+            live = [p for p in powers if p not in eliminated]
+            mine = [p for p in live if p in duties]
+            out_lines = [
+                (
+                    f"Your power {p} has been eliminated from game {game_id}: it has no units or supply centres left."
+                    if p in powers
+                    else elimination_line(game_id, p)
+                )
+                for p in newly
+            ]
             removed = {p: disorder[p] for p in sorted(powers) if p in disorder}
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             trapped = {p: forced[p] for p in sorted(powers) if p in forced}
@@ -717,12 +737,15 @@ def notify_turn_processed(
                 and not retreat_lost
                 and not trapped
                 and not my_waived
+                and not out_lines
             ):
                 continue
+            if not live and not (removed or retreat_lost or trapped or my_waived or out_lines):
+                continue  # every power this player holds is out: nothing to order, nothing new
             notify_user(
                 telegram_id,
                 "\n".join(
-                    [turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)]
+                    ([turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)] if live else [header])
                     + [
                         civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
                         for p, units in removed.items()
@@ -733,6 +756,7 @@ def notify_turn_processed(
                         for line in lines
                     ]
                     + [(f"As {p}, your " if len(my_waived) > 1 else "Your ") + waived_line(n, partial) for p, (n, partial) in my_waived.items()]
+                    + out_lines
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
                 + due,
@@ -753,9 +777,15 @@ def notify_turn_processed(
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
     group_lines += [f"{power_label(game_id, p)}: {waived_line(n, partial)}" for p, (n, partial) in sorted(waived.items())]
+    group_lines += [elimination_line(game_id, p) for p in newly]
     if vacant_line:
         group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
+
+
+def elimination_line(game_id: Any, power: str) -> str:
+    """The table's notice that ``power`` was put out by the turn just processed (BS2)."""
+    return f"{power_label(game_id, power)} has been eliminated from game {game_id}: it has no units or supply centres left."
 
 
 def civil_disorder_line(subject: str, units: list[str]) -> str:
@@ -806,9 +836,11 @@ def turn_message(
     lists dislodged units with nowhere to retreat whose power owes no order
     (BJ2): the player is told they are lost, not asked for anything.
     """
-    if phase_type == "MOVEMENT":
+    if phase_type == "MOVEMENT" and duties:
         return f"{header} Orders are due for {label}."
     forced = forced or {}
+    if phase_type == "MOVEMENT":  # a power with centres but no unit
+        return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
     tagged = len(forced) + len(duties) > 1
     lost = [
         f"Your {unit}{f' ({power})' if tagged else ''} was dislodged and has nowhere to retreat:"
@@ -1624,11 +1656,33 @@ def check_and_send_reminders(now: datetime) -> None:
                 if deadline - now <= timedelta(minutes=10) and deadline > now:
                     if db_service.claim_deadline_reminder(int(game_id_val), deadline):
                         gid = getattr(game, "game_id", None) or game_id_val
-                        notify_players(game_id_val, f"Reminder: The deadline for submitting orders in game {game_id_val} is in 10 minutes.", buttons=game_buttons(gid))  # type: ignore
-                        post_to_game_group(gid, f"⏰ Game {gid}: 10 minutes until the deadline. Orders go to me in private.", dm_start=f"orders_{gid}")
+                        _send_deadline_reminder(str(gid), int(game_id_val), deadline - now)
                         scheduler_logger.info(f"Sent 10-minute reminder for game {game_id_val} (deadline: {deadline})")
     except Exception:  # noqa: BLE001 -- boundary: scheduler loop must survive one bad iteration
         scheduler_logger.exception("Error sending deadline reminders")
+
+
+def _send_deadline_reminder(game_id: str, numeric_game_id: int, left: timedelta) -> None:
+    """The deadline reminder (BS4): to the players of powers still owing orders
+    only, naming the phase and the minutes really left (rounded, at least 1). When
+    nobody owes orders there is nothing to remind anyone of."""
+    status = game_service.orders_status(game_id)
+    if status is None or not status["missing"]:
+        return
+    missing = set(status["missing"])
+    label = phase_label(status["phase"])
+    minutes = max(1, round(left.total_seconds() / 60))
+    unit = "minute" if minutes == 1 else "minutes"
+    text = f"Reminder: orders for {label} in game {game_id} are due in {minutes} {unit}."
+    for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
+        if missing & set(powers):
+            notify_user(telegram_id, text, game_buttons(game_id))
+    post_to_game_group(
+        game_id,
+        f"⏰ Game {game_id}: orders for {label} are due in {minutes} {unit}"
+        f" (still to come: {', '.join(sorted(missing))}). Orders go to me in private.",
+        dm_start=f"orders_{game_id}",
+    )
 
 
 # The scheduler loop runs every 30 s; housekeeping every 120th tick (~1 h).
