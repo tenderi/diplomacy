@@ -300,6 +300,29 @@ place the full picture exists.
   "You must disband 1 unit.");
 - a player with nothing to order in a retreat or adjustment phase is told so and to wait.
 
+**Each player is told what the turn did to their own units** (BW1), in a block after those
+lines (`GameService.turn_outcomes`, `api.shared.turn_results_lines`): "Your results for
+Spring 1901 movement:" and then one line per unit, sorted by province, worded like the web's
+results list:
+
+- movement — "A PAR - BUR bounced.", "F BRE - MAO succeeded.", "A MUN S A PAR - BUR was
+  cut.", "A KIE - BUR was invalid, so the unit held.", "A LON - BEL VIA failed: no convoy
+  route.", "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
+  power only, never a nickname: "F TRI was dislodged by A TYR (ITALY).", "A VIE - TRI
+  bounced; dislodged by A BOH (RUSSIA)."; a power that ordered none of its several units
+  gets one line: "No orders, so F BRE, A MAR and A PAR held.";
+- retreat — "F TRI retreated to ALB.", "A BUR was disbanded." (a disband it ordered);
+- adjustment — "A PAR was built.", "F KIE was disbanded." (a disband it ordered);
+- after the turn that changed centre ownership (a Fall turn), a last line for each power
+  whose centres changed: "Centres: +BEL, -TRI (now 5)." (from the resolution's `centres`).
+
+"Held (no order)" is read from the resolution's `unordered` mark, so an order refused at
+submission shows up here as the unit holding. The block leaves out what the DM's own
+notices already say: a bounced or unordered retreat disband, a civil-disorder disband, a
+trapped unit's disband and waived builds (below). A player holding several powers gets a
+block per power, headed "As FRANCE, your results for …:". The channel post carries no
+one's results.
+
 The DM addresses its reader as "you"; only a player owing orders for more than one power
 is told which is which ("your orders are due for AUSTRIA and ITALY", "Your F ION (ITALY)
 was dislodged…", "As FRANCE, you may build 1 unit."). The DM is plain text (no
@@ -342,7 +365,8 @@ nothing, or "Your 1 build was waived: it was not ordered." ("they were not order
 several) when it ordered some builds (prefixed "As FRANCE, your " for a player holding more
 than one such power), and the channel post "FRANCE: 2 builds were waived: no orders came in."
 
-These lines come before "Next deadline: …", which still ends the DM and the post.
+These lines come before "Next deadline: …", which still ends the DM and the post: on the
+first line's end when the DM is one line, on its own line otherwise.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
 post end with "Next deadline: …", and the game-started DM with "First deadline: …".
 When the phase just processed had a deadline and the new one has none, they end with

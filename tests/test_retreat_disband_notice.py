@@ -73,6 +73,8 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
     # Only AUSTRIA has a unit to order with; the others hold centres alone (BS2).
     idle = head.replace("Orders are due for Fall 1901 movement.", "Fall 1901 movement: you have nothing to order this phase; wait for the other powers.")
     expected = {tg: [idle] for tg in by_power.values()}
+    # GERMANY's own disband is its result (BW1); the forced ones are told once each.
+    expected[by_power["GERMANY"]] = [idle + "\nYour results for Spring 1901 retreats:\nA MUN was disbanded."]
     expected[by_power["AUSTRIA"]] = [head]
     expected[by_power["FRANCE"]] = [
         idle + "\nA MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."

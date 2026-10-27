@@ -699,6 +699,15 @@ def notify_turn_processed(
             lost = game_service.retreat_disbands(game_id, processed_turn)
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read civil-disorder disbands for game {game_id}: {e}")
+    # What the turn did to each power's own units, and its centre changes (BW1):
+    # told only to that power's player, never to the group.
+    outcomes: dict[str, list[str]] = {}
+    try:
+        if processed_turn is not None:
+            outcomes = game_service.turn_outcomes(game_id, processed_turn)
+    except SQLAlchemyError as e:
+        scheduler_logger.error(f"Failed to read the turn outcomes of game {game_id}: {e}")
+    processed_label = phase_label(processed_phase) if processed_phase else "the last turn"
     # Powers this turn eliminated (BS2): the table is told once, here; a power out
     # earlier (conquered or conceded) is owed no more turn DMs.
     # A failed read degrades to "no one is out", never to losing the turn's DMs.
@@ -726,6 +735,7 @@ def notify_turn_processed(
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             trapped = {p: forced[p] for p in sorted(powers) if p in forced}
             my_waived = {p: waived[p] for p in sorted(powers) if p in waived}
+            results_lines = turn_results_lines(processed_label, {p: outcomes[p] for p in sorted(live) if p in outcomes})
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
             # in a retreat or adjustment phase they are told too when they owe
@@ -745,10 +755,10 @@ def notify_turn_processed(
                 continue
             if not live and not (removed or retreat_lost or trapped or my_waived or out_lines):
                 continue  # every power this player holds is out: nothing to order, nothing new
-            notify_user(
-                telegram_id,
+            body = (
                 "\n".join(
                     ([turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)] if live else [header])
+                    + results_lines
                     + [
                         civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
                         for p, units in removed.items()
@@ -762,9 +772,10 @@ def notify_turn_processed(
                     + out_lines
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
-                + due,
-                game_buttons(game_id),
             )
+            # A deadline closes a one-line DM; after several lines it gets its own.
+            tail = "\n" + due.removeprefix(" ") if due.startswith(" ") and "\n" in body else due
+            notify_user(telegram_id, body + tail, game_buttons(game_id))
     except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
         scheduler_logger.exception("Failed to notify players for game %s", game_id)
 
@@ -784,6 +795,18 @@ def notify_turn_processed(
     if vacant_line:
         group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
+
+
+def turn_results_lines(label: str, outcomes: dict[str, list[str]]) -> list[str]:
+    """The turn DM's results block (BW1) for one player's powers, from
+    ``GameService.turn_outcomes``: "Your results for Spring 1901 movement:" then a
+    line per unit; a player holding several powers gets one block per power, each
+    headed "As FRANCE, your results for ...:"."""
+    return [
+        line
+        for power, lines in outcomes.items()
+        for line in [(f"As {power}, your" if len(outcomes) > 1 else "Your") + f" results for {label}:", *lines]
+    ]
 
 
 def elimination_line(game_id: Any, power: str) -> str:
