@@ -1697,6 +1697,8 @@ def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[
         if code == "OK":
             return f"{unit} retreated to {dest}."
         return None if code == "BOUNCE" else f"{text} was invalid, so {unit} was disbanded."
+    if kind in ("BUILD", "DISBAND") and code == "VOID":
+        return f"{text} was invalid, so nothing happened."
     if kind == "DISBAND":
         return None if unordered or r.get("civil_disorder") else f"{text.removeprefix('D ')} was disbanded."
     if kind == "BUILD":
