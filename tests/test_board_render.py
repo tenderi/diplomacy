@@ -113,3 +113,23 @@ def test_a_fleet_tints_the_gulf_of_lyon() -> None:
     x, y = get_svg_province_coordinates(SVG)["LYO"]
     box = (int(x) + 20, int(y) + 20, int(x) + 50, int(y) + 50)  # off the token
     assert _differs(_image(empty_sea).crop(box), _image(fleet).crop(box))
+
+
+def test_sea_hatch_stripes_are_bold_and_distinct_from_land_fill() -> None:
+    """Issue #297: a fleet's sea was hatched with 1 px lines at low alpha, almost
+    invisible. The stripes must be wide, strong and spaced, and the sea must still show
+    both striped and unstriped pixels (land is a solid fill)."""
+    from rendering.visualization_config import get_config
+
+    specs = get_config().get_marker_specs()
+    assert specs["sea_hatch_width"] == 4
+    assert specs["sea_hatch_spacing"] == 14
+    assert specs["sea_hatch_alpha"] == 200
+
+    plain = board.render_base(SVG, {})
+    hatched = board.render_base(SVG, {"ENGLAND": ["F NTH"]})
+    diff = ImageChops.difference(plain.convert("RGB"), hatched.convert("RGB"))
+    changed = sum(1 for px in diff.getdata() if max(px) > 40)
+    total = sum(1 for px in diff.getdata() if max(px) > 0)
+    assert changed > 5000  # strong stripes, not a faint wash
+    assert changed < total  # but not a solid fill: gaps between stripes stay lighter
