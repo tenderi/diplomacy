@@ -1,0 +1,142 @@
+"""BV2: a phase in which no power has anything to order runs at once.
+
+A movement turn that dislodges a unit with nowhere to retreat yields a retreat
+phase nobody owes an order in. It used to sit there until the deadline or a
+manual process, wasting a schedule slot. Now it is processed straight after the
+turn that produced it, whatever ``auto_process`` says, and the players get one
+DM, for the phase that needs them, still carrying the trapped unit's notice.
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from persistence.game_repo import StaleGameError
+from server.api import app
+from server.api import shared as api_shared
+from server.api.shared import db_service, game_service
+from tests.conftest import _get_db_url
+from tests.reliability_helpers import OutboxProbe
+from tests.test_auto_process import BOT, _order, _phase, _table
+
+pytestmark = [pytest.mark.integration, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
+
+
+def _unit(kind: str, power: str, prov: str) -> dict[str, Any]:
+    return {"kind": kind, "power": power, "location": prov}
+
+
+def _trap_board(game_id: str) -> None:
+    """S1901M: England can take BEL from PIC with two supports; France's A BEL
+    then has nowhere to go (HOL is English, RUH and BUR German, PIC the
+    attacker's origin)."""
+    board = game_service.state_json(game_id)
+    assert board is not None
+    board["units"] = [
+        _unit("A", "ENGLAND", "PIC"),
+        _unit("A", "ENGLAND", "HOL"),
+        _unit("F", "ENGLAND", "NTH"),
+        _unit("A", "FRANCE", "BEL"),
+        _unit("A", "FRANCE", "PAR"),
+        _unit("A", "GERMANY", "RUH"),
+        _unit("A", "GERMANY", "BUR"),
+    ]
+    game_service.restore_snapshot(game_id, board, "S1901M")
+
+
+def _dislodge(client: TestClient, game_id: str, e: str, f: str) -> None:
+    _order(client, game_id, e, "ENGLAND", ["A PIC - BEL", "A HOL S A PIC - BEL", "F NTH S A PIC - BEL"])
+    _order(client, game_id, f, "FRANCE", ["A BEL H", "A PAR H"])
+
+
+def test_a_trapped_retreat_phase_runs_straight_after_the_movement(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    posted: list[str] = []
+    monkeypatch.setattr(api_shared, "_post_turn_to_channel", lambda _g, text, *_a: posted.append(text))
+    with OutboxProbe() as probe:
+        resp = client.post(f"/games/{game_id}/process_turn", headers=BOT)
+    assert resp.status_code == 200, resp.text
+    # Straight past the empty S1901R, though auto_process is off.
+    assert resp.json()["phase"] == "F1901M"
+    assert _phase(client, game_id) == "F1901M"
+    units = client.get(f"/games/{game_id}/state").json()["units_by_power"]
+    assert [u["location"] for u in units["FRANCE"]] == ["PAR"]
+    # One snapshot per processed phase: the movement and the retreat.
+    assert sorted(s.turn_number for s in db_service.get_game_snapshots_by_game_id(int(game_id))) == [0, 1, 2]
+
+    head = f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement."
+    assert probe.by_recipient() == {
+        e: [
+            f"{head}\nYour results for Spring 1901 movement:\n"
+            "A HOL S A PIC - BEL succeeded.\nF NTH S A PIC - BEL succeeded.\nA PIC - BEL succeeded."
+        ],
+        f: [
+            f"{head}\nYour results for Spring 1901 movement:\nA BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"
+            "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed."
+        ],
+    }
+    # The group sees both phases go by.
+    assert posted == [
+        "The turn has been processed. Spring 1901 retreats: nobody has anything to order.",
+        "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.",
+    ]
+
+
+def test_the_deadline_path_chains_the_empty_phase_too(client: TestClient) -> None:
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    now = datetime.now(timezone.utc)
+    db_service.update_game_deadline(int(game_id), now - timedelta(minutes=1))
+    api_shared.process_due_deadlines(now)
+    assert _phase(client, game_id) == "F1901M"
+
+
+def test_a_phase_someone_owes_orders_in_still_waits(client: TestClient) -> None:
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    board = game_service.state_json(game_id)
+    assert board is not None
+    # Free BUR: France's A BEL can now retreat there, so France owes an order.
+    board["units"] = [u for u in board["units"] if u["location"] != "BUR"]
+    game_service.restore_snapshot(game_id, board, "S1901M")
+    _dislodge(client, game_id, e, f)
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "S1901R"
+    assert game_service.phase_needs_nobody(game_id) is False
+
+
+def test_another_worker_processing_the_empty_phase_still_gets_the_lines_out(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    real = game_service.process_turn
+    calls: list[str | None] = []
+
+    def once(gid: str, expected_phase_code: str | None = None) -> dict[str, Any]:
+        calls.append(expected_phase_code)
+        if len(calls) > 1:
+            raise StaleGameError(f"game {gid} is no longer in {expected_phase_code}")
+        return real(gid, expected_phase_code)
+
+    monkeypatch.setattr(game_service, "process_turn", once)
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/process_turn", headers=BOT).json()["phase"] == "S1901R"
+    assert calls == [None, "S1901R"]
+    assert probe.by_recipient()[f] == [
+        f"The turn has been processed for game {game_id}.\nYour results for Spring 1901 movement:\n"
+        "A BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"
+        "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed."
+    ]
