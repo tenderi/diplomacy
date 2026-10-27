@@ -69,12 +69,18 @@ def _expected(game_id: str, users: list[tuple[dict, str]], due: str = "") -> tup
     by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
     # The four powers with no unit and no centre are out (BS2): no "orders are due" DM.
     expected = {by_power["ITALY"]: [head + due]}
+    # After several lines the deadline gets its own (BW1).
+    own_line = "\n" + due.removeprefix(" ") if due else ""
     # F KIE is farther from a French home centre than A MUN; A PAR is home.
     expected[by_power["FRANCE"]] = [
-        head + "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + due
+        head + "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + own_line
     ]
+    # GERMANY's own disband is its result; the civil-disorder one is told once, below it.
     expected[by_power["GERMANY"]] = [
-        head + "\nYou were 1 disband short, so A SIL was disbanded (civil disorder)." + due
+        head
+        + "\nYour results for Winter 1901 builds:\nA PRU was disbanded."
+        + "\nYou were 1 disband short, so A SIL was disbanded (civil disorder)."
+        + own_line
     ]
     group = (
         f"🔔 Turn Processed - Game {game_id}\n"

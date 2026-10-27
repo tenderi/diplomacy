@@ -48,8 +48,20 @@ def test_a_movement_phase_names_itself(client: TestClient, monkeypatch: pytest.M
         assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
     messages = _by_power(probe, users)
     assert messages["ENGLAND"] == []  # the caller has the result in the response
+    # Each player is also told their units held, nobody having ordered (BW1).
+    held = {
+        "FRANCE": "F BRE, A MAR and A PAR",
+        "GERMANY": "A BER, F KIE and A MUN",
+        "ITALY": "F NAP, A ROM and A VEN",
+        "AUSTRIA": "A BUD, F TRI and A VIE",
+        "RUSSIA": "A MOS, F SEV, F STP/SC and A WAR",
+        "TURKEY": "F ANK, A CON and A SMY",
+    }
     for power in REQUIRED_POWERS[1:]:
-        assert messages[power] == [f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement."]
+        assert messages[power] == [
+            f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n"
+            f"Your results for Spring 1901 movement:\nNo orders, so {held[power]} held."
+        ]
     assert posted == ["The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private."]
 
 
@@ -88,15 +100,24 @@ def test_a_retreat_phase_tells_the_dislodged_their_options_and_the_rest_to_wait(
 
     head = f"The turn has been processed for game {game_id}. Fall 1901 retreats:"
     messages = _by_power(probe, users)
+    results = "Your results for Fall 1901 movement:"
     assert messages["ENGLAND"] == [
-        f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband. With no order it is disbanded."
+        f"{head} your orders are due.\nYour A BEL was dislodged: it may retreat to PIC, or disband. With no order it is disbanded.\n"
+        f"{results}\nA BEL (no order) was dislodged by A RUH (GERMANY).\n"
+        "F EDI held (no order).\nF LON held (no order).\nA LVP held (no order)."
     ]
     assert messages["GERMANY"] == [
         f"{head} your orders are due.\n"
-        "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband. With no order it is disbanded."
+        "Your A BUR was dislodged: it may retreat to GAS, PIC, RUH, or disband. With no order it is disbanded.\n"
+        f"{results}\nA BER held (no order).\nA BUR (no order) was dislodged by A PAR (FRANCE).\n"
+        "A HOL S A RUH - BEL succeeded.\nF KIE held (no order).\nA MUN held (no order).\nA RUH - BEL succeeded."
     ]
-    for power in ("FRANCE", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
-        assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers."]
+    assert messages["FRANCE"] == [
+        f"{head} you have nothing to order this phase; wait for the other powers.\n"
+        f"{results}\nF BRE held (no order).\nA MAR S A PAR - BUR succeeded.\nA PAR - BUR succeeded."
+    ]
+    for power in ("ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
+        assert messages[power][0].startswith(f"{head} you have nothing to order this phase; wait for the other powers.\n{results}\nNo orders, so ")
     assert posted == [
         "The turn has been processed. Fall 1901 retreats: orders are due from ENGLAND, GERMANY"
         " -- send them to me in private."
@@ -128,9 +149,11 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
     due = " Next deadline: 2026-10-05 16:00 UTC."
     messages = _by_power(probe, users)
     assert messages["FRANCE"] == [
-        f"{head} your orders are due.\nYou may build 2 units (free home centres: MAR, PAR; 1 more waived: no free home supply centre).{due}"
+        f"{head} your orders are due.\nYou may build 2 units (free home centres: MAR, PAR; 1 more waived: no free home supply centre)."
+        "\nNext deadline: 2026-10-05 16:00 UTC."
     ]
-    assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit.{due}"]
+    # After several lines the deadline gets its own (BW1).
+    assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit.\nNext deadline: 2026-10-05 16:00 UTC."]
     for power in ("ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers.{due}"]
     assert posted == [
@@ -218,7 +241,8 @@ def test_a_processed_turn_says_a_vacant_powers_units_held(
     line = "Italy's seat is vacant: its units held."
     messages = _by_power(probe, users)
     assert messages["FRANCE"] == [
-        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n{line}"
+        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n"
+        f"Your results for Spring 1901 movement:\nNo orders, so F BRE, A MAR and A PAR held.\n{line}"
     ]
     assert posted == [
         f"The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n{line}"
@@ -241,5 +265,6 @@ def test_a_power_that_ordered_before_quitting_is_not_said_to_have_held(
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/process_turn", headers=users[0][0]).status_code == 200
     assert _by_power(probe, users)["FRANCE"] == [
-        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement."
+        f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n"
+        "Your results for Spring 1901 movement:\nNo orders, so F BRE, A MAR and A PAR held."
     ]

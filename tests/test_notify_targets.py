@@ -72,8 +72,15 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
     ]
     # TURKEY conceded earlier: no orders to give, but it still hears the table's news.
     assert dms[by_power["TURKEY"]] == [f"{head}\n{out}"]
-    for power in ("ENGLAND", "FRANCE", "GERMANY", "RUSSIA", "AUSTRIA"):
-        assert dms[by_power[power]] == [f"{head} Orders are due for Spring 1902 movement.\n{out}"]
+    results = "Your results for Fall 1901 movement:"
+    assert dms[by_power["FRANCE"]] == [
+        f"{head} Orders are due for Spring 1902 movement.\n{results}\n"
+        f"A PAR held (no order).\nA TUS - ROM succeeded.\nCentres: +ROM (now 2).\n{out}"
+    ]
+    for power, unit in (("ENGLAND", "A LON"), ("GERMANY", "A BER"), ("RUSSIA", "A MOS"), ("AUSTRIA", "A VIE")):
+        assert dms[by_power[power]] == [
+            f"{head} Orders are due for Spring 1902 movement.\n{results}\n{unit} held (no order).\n{out}"
+        ]
     assert len(dms) == 7
     group = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
     assert group == [
@@ -121,7 +128,22 @@ def test_a_failed_elimination_read_still_sends_every_turn_dm(monkeypatch: pytest
     with OutboxProbe() as probe:
         api_shared.finish_processed_turn(game_id, row_id, prev_phase_code="S1901M", trigger="deadline")
     head = f"The turn has been processed for game {game_id} because its deadline passed."
-    assert _dms(probe) == {tg: [f"{head} Orders are due for Fall 1901 movement."] for _h, tg in users}
+    held = {
+        "ENGLAND": "F EDI, F LON and A LVP",
+        "FRANCE": "F BRE, A MAR and A PAR",
+        "GERMANY": "A BER, F KIE and A MUN",
+        "ITALY": "F NAP, A ROM and A VEN",
+        "AUSTRIA": "A BUD, F TRI and A VIE",
+        "RUSSIA": "A MOS, F SEV, F STP/SC and A WAR",
+        "TURKEY": "F ANK, A CON and A SMY",
+    }
+    assert _dms(probe) == {
+        tg: [
+            f"{head} Orders are due for Fall 1901 movement.\n"
+            f"Your results for Spring 1901 movement:\nNo orders, so {held[power]} held."
+        ]
+        for power, (_h, tg) in zip(POWERS, users)
+    }
 
 
 def test_the_reminder_goes_to_powers_still_owing_orders_with_the_phase_and_minutes_left() -> None:
