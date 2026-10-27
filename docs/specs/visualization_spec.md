@@ -43,7 +43,7 @@ attacker's arrow, not on the defender; a dislodgement is marked on the unit disl
   province it may retreat to, ending in a small open circle; a red ✗ beside a unit with
   nowhere to go.
 - **Provinces** are tinted with the owner's colour; an occupied province shows the
-  occupant's. Seas are hatched instead of filled. Ownership is recomputed only after Fall
+  occupant's. Seas are hatched instead of filled: bold diagonal stripes (`sea_hatch_width` 4 px, `sea_hatch_spacing` 14 px, `sea_hatch_alpha` 200), so the stripes read at a glance and never look like a land fill. Ownership is recomputed only after Fall
   settles, matching the engine.
 - **Power colours** (`colors.power_colors`): Austria red, England purple, France blue,
   Germany charcoal, Italy green, Russia teal, Turkey yellow — seven hues no two of which are

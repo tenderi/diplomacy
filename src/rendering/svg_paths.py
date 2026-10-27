@@ -151,7 +151,7 @@ def _color_provinces_by_power_with_transparency(
                             polygon_points = _extract_polygon_points_from_path(path_data, 195, 170)
                             pattern_color = (*rgb_color, tints["sea_hatch_alpha"])
                             if polygon_points and len(polygon_points) >= 3:
-                                _draw_ocean_pattern(overlay, polygon_points, pattern_color, spacing=10, angle=45, line_width=1)
+                                _draw_ocean_pattern(overlay, polygon_points, pattern_color, spacing=tints["sea_hatch_spacing"], angle=45, line_width=tints["sea_hatch_width"])
                         else:
                             transparent_color = (*rgb_color, tints["land_tint_alpha"])
                             _fill_svg_path_with_transform(overlay_draw, path_data, transparent_color, power_color, 195, 170)
