@@ -78,7 +78,9 @@ class VisualizationConfig:
             "build_badge_radius": 8,
             "faded_alpha": 140,
             "land_tint_alpha": 72,
-            "sea_hatch_alpha": 120,
+            "sea_hatch_alpha": 200,
+            "sea_hatch_width": 4,
+            "sea_hatch_spacing": 14,
         },
         "footer": {
             "padding": 12,
