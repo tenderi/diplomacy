@@ -529,9 +529,9 @@ def _accepted_deadline_text(result: dict) -> str:
 def format_deadline(iso: str, now: Optional[datetime] = None) -> str:
     """``2026-09-22 14:00 UTC (in 23h 59m)`` from the API's ISO-8601 deadline.
 
-    The API stores deadlines as naive UTC (see ``DatabaseService.
-    update_game_deadline``) and returns them without an offset, so a bare
-    timestamp is read as UTC. Falls back to the raw string if it won't parse.
+    The API returns deadlines as aware UTC (``+00:00``, ``shared.utc_iso``); a
+    bare timestamp without an offset is still read as UTC. Falls back to the raw
+    string if it won't parse.
     """
     try:
         when = datetime.fromisoformat(iso)
