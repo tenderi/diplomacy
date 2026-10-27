@@ -136,7 +136,12 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
   retreat_options, civil_disorder}, ...]}` (a stored result without `civil_disorder`,
   written before the field existed, reads back as `false`). A stored resolution also
   carries `phase` and `eliminated`: the powers that processing turn put out (sorted;
-  absent in older rows), which the turn notification announces.
+  absent in older rows), which the turn notification announces; `centres`, each power whose
+  supply centres the turn changed, `{power: {gained: [province...], lost: [...], count}}`
+  (`count` is how many it owns after); and `unordered: true` on a result whose order the
+  engine made up because the power sent none for that unit (an implicit hold, an
+  unordered retreat or adjustment disband). `centres` and `unordered` are absent in rows
+  stored before v3.0.176.
 
 `to_json()`/`state_from_json()`/`order_from_json()`/`resolution_from_json()` are thin
 `json.dumps`/`json.loads` wrappers around the dict functions.

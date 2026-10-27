@@ -486,6 +486,15 @@ class GameService:
         # Powers this turn put out (BS2): kept with the turn so its notification
         # tells the table once, and never mistakes an earlier concession for it.
         resolution_dict["eliminated"] = sorted(next_game.eliminated_powers() - game.eliminated_powers())
+        # BW1: what the turn DM tells each power about its own units -- which held
+        # for want of an order (the engine made up their order), and which centres
+        # changed hands (only a Fall turn changes ownership).
+        ordered = {(o.power, o.unit.province) for o in orders if isinstance(getattr(o, "unit", None), Location)}
+        for r in resolution_dict["results"]:
+            unit = r["order"].get("unit")
+            if unit is not None and (r["order"]["power"], unit.split("/")[0]) not in ordered:
+                r["unordered"] = True
+        resolution_dict["centres"] = _centre_changes(game.state.ownership, next_game.state.ownership)
         self._repo.save_state(
             game_id,
             state_to_dict(next_game.state),
@@ -1306,6 +1315,38 @@ class GameService:
                 out.setdefault(power, []).append(f"{unit} had no valid retreat order and was disbanded.")
         return out
 
+    def turn_outcomes(self, game_id: str, turn: int) -> dict[str, list[str]]:
+        """What ``turn`` did to each power's own units (BW1), one sentence per unit,
+        then the power's centre changes, for the turn-processed DM::
+
+            {"FRANCE": ["A PAR - BUR bounced.", "A MAR held (no order).",
+                        "Centres: +BEL, -SPA (now 5)."]}
+
+        Units sorted by province; a power that ordered none of its several units
+        gets one line ("No orders, so F BRE, A MAR and A PAR held."). Leaves out
+        what another notice of the same DM already says: a bounced or unordered
+        retreat disband (``retreat_disbands``), a civil-disorder disband, a trapped
+        unit's disband, and waives (``waived_builds`` tells those the power did not
+        choose). Empty for a turn not in ``resolution_history``."""
+        stored = self.resolution_history(game_id).get(str(turn), {})
+        results = stored.get("results", [])
+        out: dict[str, list[str]] = {}
+        idle: dict[str, list[str]] = {}  # units that held for want of any order
+        for r in sorted(results, key=lambda r: str(r["order"].get("unit") or r["order"].get("location") or "")):
+            line = _outcome_line(r, results)
+            if line is not None:
+                out.setdefault(r["order"]["power"], []).append(line)
+                if line.endswith(" held (no order)."):
+                    idle.setdefault(r["order"]["power"], []).append(line.removesuffix(" held (no order)."))
+        for power, units in idle.items():
+            if len(units) > 1 and len(units) == len(out[power]):
+                # A power that ordered nothing: one line, not one per unit.
+                out[power] = [f"No orders, so {', '.join(units[:-1])} and {units[-1]} held."]
+        for power, change in stored.get("centres", {}).items():
+            signed = [f"+{p}" for p in change["gained"]] + [f"-{p}" for p in change["lost"]]
+            out.setdefault(power, []).append(f"Centres: {', '.join(signed)} (now {change['count']}).")
+        return out
+
     def orders_status(self, game_id: str) -> Optional[dict[str, Any]]:
         """Where each power stands on its orders for the current phase. ``None``
         if the game doesn't exist.
@@ -1615,6 +1656,66 @@ def _decorated_results(resolution: dict[str, Any]) -> list[dict[str, Any]]:
         order = order_from_dict(r["order"])
         results.append({**r, "power": order.power, "order_str": r.get("order_str") or format_order(order)})
     return results
+
+
+def _centre_changes(before: Any, after: Any) -> dict[str, dict[str, Any]]:
+    """Per power whose centres changed between two ``ownership`` maps:
+    ``{"FRANCE": {"gained": ["BEL"], "lost": [], "count": 6}}`` (BW1)."""
+    out: dict[str, dict[str, Any]] = {}
+    for power in sorted(set(before.values()) | set(after.values())):
+        gained = sorted(p for p, o in after.items() if o == power and before.get(p) != power)
+        lost = sorted(p for p, o in before.items() if o == power and after.get(p) != power)
+        if gained or lost:
+            out[power] = {"gained": gained, "lost": lost, "count": sum(1 for o in after.values() if o == power)}
+    return out
+
+
+def _dislodger(results: list[dict[str, Any]], province: str) -> str:
+    """" by A TYR (ITALY)": the successful move into ``province`` that dislodged
+    the unit there, or "" if the stored results do not name one."""
+    for r in results:
+        if r["order"]["type"] == "MOVE" and r["result"] == "OK" and r["order"]["dest"].split("/")[0] == province:
+            return f" by {_order_str(r).partition(' - ')[0]} ({r['order']['power']})"
+    return ""
+
+
+def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[str]:
+    """One unit's line in the turn DM's results (BW1), or ``None`` for a result
+    another notice already tells (a bounced or unordered retreat disband,
+    civil disorder, a trapped unit) or a waive."""
+    kind, code, text = r["order"]["type"], r["result"], _order_str(r)
+    unordered = bool(r.get("unordered"))
+    province = str(r["order"].get("unit", "")).split("/")[0]
+    if kind == "HOLD":
+        unit = text.removesuffix(" H")
+        no_order = " (no order)" if unordered else ""
+        if r.get("dislodged"):
+            return f"{unit}{no_order} was dislodged{_dislodger(results, province)}."
+        return f"{unit} held{no_order}."
+    if kind == "RETREAT":
+        unit, _, dest = text.partition(" R ")
+        if code == "OK":
+            return f"{unit} retreated to {dest}."
+        return None if code == "BOUNCE" else f"{text} was invalid, so {unit} was disbanded."
+    if kind in ("BUILD", "DISBAND") and code == "VOID":
+        return f"{text} was invalid, so nothing happened."
+    if kind == "DISBAND":
+        return None if unordered or r.get("civil_disorder") else f"{text.removeprefix('D ')} was disbanded."
+    if kind == "BUILD":
+        return f"{text.removeprefix('BUILD ')} was built."
+    if kind == "WAIVE":
+        return None
+    gloss = {
+        "OK": "succeeded",
+        "BOUNCE": "bounced",
+        "CUT": "was cut",
+        "VOID": "was invalid, so the unit held",
+        "NO_CONVOY": "failed: no convoy route",
+        "DISLODGED": "failed",
+    }.get(code, code.lower())
+    if r.get("dislodged"):
+        return f"{text} {gloss}; dislodged{_dislodger(results, province)}."
+    return f"{text} {gloss}."
 
 
 def _resolution_dict(resolution: Any, board: GameState) -> dict[str, Any]:
