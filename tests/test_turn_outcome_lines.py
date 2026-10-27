@@ -60,9 +60,15 @@ def test_retreat_and_adjustment_codes() -> None:
         _r("D A MOS", {"type": "DISBAND", "power": "RUSSIA", "unit": "MOS"}, "DISBAND", civil_disorder=True),
         _r("BUILD F STP/SC", {"type": "BUILD", "power": "RUSSIA", "location": "STP/SC", "kind": "F"}, "BUILD"),
         _r("WAIVE", {"type": "WAIVE", "power": "RUSSIA"}, "WAIVE"),
+        _r("BUILD A PAR", {"type": "BUILD", "power": "FRANCE", "location": "PAR", "kind": "A"}, "VOID"),
+        _r("D F BRE", {"type": "DISBAND", "power": "FRANCE", "unit": "BRE"}, "VOID"),
     )
     assert out == {
-        "FRANCE": ["A BUR R PAR was invalid, so A BUR was disbanded."],
+        "FRANCE": [
+            "D F BRE was invalid, so nothing happened.",
+            "A BUR R PAR was invalid, so A BUR was disbanded.",
+            "BUILD A PAR was invalid, so nothing happened.",
+        ],
         "RUSSIA": ["F STP/SC was built."],
     }
 
