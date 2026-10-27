@@ -617,6 +617,23 @@ class GameService:
         status = self.orders_status(game_id)
         return status is not None and not status["missing"] and not status["incomplete"]
 
+    def phase_needs_nobody(self, game_id: str) -> bool:
+        """BV2: the game is running and in a retreat or adjustment phase in which
+        no power but a civil-disorder dummy has anything to order (``orders_status``'
+        ``active_powers`` is empty) -- say, a retreat phase whose only dislodged
+        unit has nowhere to go. Such a phase is complete the moment it starts, and
+        is processed at once whatever ``auto_process`` says. A movement phase never
+        is: a table of dummies alone is not played on by itself."""
+        meta = self._repo.get_meta(game_id)
+        sj = self._repo.get_state_json(game_id)
+        if meta is None or sj is None or meta.get("status") != "active":
+            return False
+        state = state_from_dict(sj)
+        if state.phase_type is PhaseType.MOVEMENT:
+            return False
+        dummies = self.dummy_powers(game_id)
+        return all(p in dummies for p in powers_with_orders_to_give(self._map, state))
+
     def set_dummy(self, game_id: str, power: str, dummy: bool) -> list[str]:
         """Make ``power`` a civil-disorder dummy, or open it again. Returns the new set.
 
