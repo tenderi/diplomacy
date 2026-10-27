@@ -220,3 +220,10 @@ def test_an_unknown_game_is_404():
     resp = client.post("/games/99999999/deadline/schedule", json={"schedule": "mon 16:00"}, headers=headers)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Game not found"
+
+
+def test_deadline_is_returned_as_aware_utc_so_a_browser_does_not_read_it_as_local_time():
+    client = TestClient(app)
+    game_id, _ = _game(client, POWERS[:-1])
+    api_shared.db_service.update_game_deadline(int(game_id), datetime(2031, 3, 4, 18, 30, 0))
+    assert client.get(f"/games/{game_id}/deadline").json()["deadline"] == "2031-03-04T18:30:00+00:00"

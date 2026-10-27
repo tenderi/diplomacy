@@ -451,7 +451,11 @@ is left to the service, which answers with how it ended.
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's
 **weekly schedule**. A deadline is scoped to its phase: every processing path spends it once
-the phase is adjudicated (`finish_processed_turn`).
+the phase is adjudicated (`finish_processed_turn`). `games.deadline` is stored as naive UTC; every API field that
+carries a deadline (`GET`/`POST /deadline`, `POST /deadline/schedule`, an accepted proposal,
+the archive restore) returns it as aware UTC ISO (`2026-10-27T18:00:00+00:00`, via
+`shared.utc_iso`), so a browser does not read it as local time. The web client also parses a
+naive deadline string as UTC (`parseUtc`).
 
 **Weekly schedules** (`server/deadline_schedule.py`, `games.deadline_schedule`) are a
 standing choice such as "Mon, Wed, Fri at 16:00 (Europe/Helsinki)", set by any player via
