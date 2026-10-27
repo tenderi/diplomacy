@@ -300,9 +300,10 @@ def test_accepted_proposal_returns_the_deadline_it_set():
     client.post(f"/games/{game_id}/deadline/propose", json={"power": "FRANCE", "hours": 12.0}, headers=users["FRANCE"])
     body = _accept(client, game_id, users)
     assert body["status"] == "accepted"
+    assert body["deadline"].endswith("+00:00")
     applied = datetime.fromisoformat(body["deadline"]).replace(tzinfo=None)
     assert timedelta(hours=11, minutes=59) < applied - before < timedelta(hours=12, minutes=1)
-    stored = datetime.fromisoformat(client.get(f"/games/{game_id}/deadline").json()["deadline"])
+    stored = datetime.fromisoformat(client.get(f"/games/{game_id}/deadline").json()["deadline"]).replace(tzinfo=None)
     assert abs(stored - applied) < timedelta(seconds=1)
 
 
