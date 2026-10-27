@@ -147,7 +147,9 @@ def test_every_processed_turn_arms_the_next_slot_and_says_when():
     assert armed in _expected("daily 12:00")
     assert probe.by_recipient()[telegram_id] == [
         f"The turn has been processed for game {game_id} because its deadline passed. "
-        f"Orders are due for Fall 1901 movement. Next deadline: {api_shared.format_deadline_utc(armed)}."
+        "Orders are due for Fall 1901 movement.\nYour results for Spring 1901 movement:\n"
+        "No orders, so F BRE, A MAR and A PAR held.\n"
+        f"Next deadline: {api_shared.format_deadline_utc(armed)}."
     ]
 
 
@@ -167,7 +169,8 @@ def test_without_a_schedule_a_processed_turn_still_leaves_no_deadline():
     # BE1: the spent deadline is said to be gone, in the DM and the group post.
     assert probe.by_recipient()[telegram_id] == [
         f"The turn has been processed for game {game_id} because its deadline passed. "
-        "Orders are due for Fall 1901 movement.\n\nNo deadline is set for Fall 1901 movement. "
+        "Orders are due for Fall 1901 movement.\nYour results for Spring 1901 movement:\n"
+        "No orders, so F BRE, A MAR and A PAR held.\n\nNo deadline is set for Fall 1901 movement. "
         f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
     ]
     assert posted == [
