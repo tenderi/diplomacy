@@ -1116,8 +1116,17 @@ class DeadlineProposalError(ValueError):
     checked separately, before any of these functions are called."""
 
 
-def _iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat() if value is not None else None
+def utc_iso(value: Optional[datetime]) -> Optional[str]:
+    """An API timestamp as aware UTC ISO (``2026-10-27T18:00:00+00:00``), or None.
+
+    Storage is naive UTC (``utcnow_naive``); a bare ISO string would be read as
+    the viewer's local time by a browser, so every deadline the API returns
+    goes through here. A naive value is UTC; an aware one is converted.
+    """
+    if value is None:
+        return None
+    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(timezone.utc).isoformat()
 
 
 def deadline_proposal_view(proposal: Dict[str, Any], active: frozenset[str]) -> Dict[str, Any]:
@@ -1248,7 +1257,7 @@ def _accepted(proposal: Dict[str, Any], active: frozenset[str]) -> DeadlinePropo
     deadline = None if value_hours is None else datetime.now(timezone.utc) + timedelta(hours=value_hours)
     return DeadlineProposalChange(
         None,
-        {"status": "accepted", "deadline": _iso(deadline), **deadline_proposal_view(proposal, active)},
+        {"status": "accepted", "deadline": utc_iso(deadline), **deadline_proposal_view(proposal, active)},
         set_deadline=True,
         deadline=deadline,
     )

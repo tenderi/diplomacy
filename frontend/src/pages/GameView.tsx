@@ -28,6 +28,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { formatDeadline } from '@/lib/deadline'
 import {
   formatMessageTime,
   readSeenMessageId,
@@ -159,23 +160,8 @@ const MAP_MODE_LABELS: Record<MapMode, string> = {
   orders: 'My pending orders',
   resolution: 'Last resolution',
 }
-/** Render a submission/order deadline as a short relative countdown. */
-function formatDeadline(iso: string | null, now: number): string {
-  if (!iso) return 'No deadline set for this phase.'
-  const target = new Date(iso).getTime()
-  if (Number.isNaN(target)) return 'No deadline set for this phase.'
-  const ms = target - now
-  if (ms <= 0) return 'Deadline has passed — waiting for the turn to be processed.'
-  const totalMinutes = Math.round(ms / 60000)
-  const days = Math.floor(totalMinutes / 1440)
-  const hours = Math.floor((totalMinutes % 1440) / 60)
-  const minutes = totalMinutes % 60
-  const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (days > 0 || hours > 0) parts.push(`${hours}h`)
-  parts.push(`${minutes}m`)
-  return `${parts.join(' ')} left this phase`
-}
+/** The part of `GET /games/{id}/deadline` the page shows. */
+type DeadlineInfo = { deadline: string | null; schedule?: { description: string } | null }
 
 /** A 409 StaleGameError carries a raw backend string (see game_repo.py) not meant for
  * display; translate it and any other action error into something a player can act on. */
@@ -388,8 +374,17 @@ export default function GameView() {
           setPlayers(Array.isArray(p) ? p : [])
         }
         if (s.status === 'ACTIVE') {
-          const os = await apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
-          if (!cancelled) setOrdersStatus(os)
+          // The deadline too: one set or changed mid-phase (a vote, the schedule, /deadline)
+          // does not change the phase, so the phase-keyed fetch below would never show it.
+          const [os, d] = await Promise.all([
+            apiJson<OrdersStatus>(`/games/${gameId}/orders_status`),
+            apiJson<DeadlineInfo>(`/games/${gameId}/deadline`),
+          ])
+          if (!cancelled) {
+            setOrdersStatus(os)
+            setDeadlineIso(d.deadline ?? null)
+            setScheduleText(d.schedule?.description ?? null)
+          }
         }
       } catch {
         // A failed background refresh keeps what is on screen; the next tick retries.
@@ -564,9 +559,7 @@ export default function GameView() {
     apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
       .then(setOrdersStatus)
       .catch(() => setOrdersStatus(null))
-    apiJson<{ deadline: string | null; schedule?: { description: string } | null }>(
-      `/games/${gameId}/deadline`,
-    )
+    apiJson<DeadlineInfo>(`/games/${gameId}/deadline`)
       .then((d) => {
         setDeadlineIso(d.deadline ?? null)
         setScheduleText(d.schedule?.description ?? null)
