@@ -524,6 +524,11 @@ silently discarded. A vacant seat is a row with `user_id NULL` and `is_active Fa
 takes it over the same way `/replace` does (the web client lists such seats as "Open");
 `_authorize_power` treats it as held by nobody.
 
+**Private press belongs to the seat, not the person.** `routes/messages.py` reads private
+messages by `recipient_power`, so whoever takes a seat (`/replace`, `/join` on a vacant
+seat) reads every message sent to that power before they held it: the newcomer learns what
+was promised to the power they now play. This is the maintainer's decision (issue #253).
+
 **A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once
