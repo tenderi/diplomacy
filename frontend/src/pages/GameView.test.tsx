@@ -1999,7 +1999,8 @@ describe('GameView — turn status stays current (BQ3)', () => {
     await vi.advanceTimersByTimeAsync(30_000)
     await vi.advanceTimersByTimeAsync(0)
     expect(within(container).getByPlaceholderText(/A PAR - BUR/)).toHaveValue('')
-    expect(deadlineGets).toBe(before + 1)
+    // The poll refetches it, and so does the effect keyed on the new phase.
+    expect(deadlineGets).toBe(before + 2)
   })
 
   it('ignores a poll still in flight when the game changes', async () => {

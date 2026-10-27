@@ -116,8 +116,7 @@ def _schedule(client: TestClient, game_id: str, seats: dict[str, str]) -> tuple[
         view = _deadline_view(client, game_id)
         assert view["schedule"]["description"] == "Mon, Wed, Fri at 16:00 (UTC)"
         assert view["deadline"] is not None
-        # The route answers the armed deadline tz-aware; it is stored naive UTC.
-        return {"status": "ok", "schedule": view["schedule"], "deadline": f"{view['deadline']}+00:00"}
+        return {"status": "ok", "schedule": view["schedule"], "deadline": view["deadline"]}
 
     return (
         lambda: client.post(
@@ -133,8 +132,8 @@ def _set_deadline(client: TestClient, game_id: str, seats: dict[str, str]) -> tu
 
     def check() -> dict[str, Any]:
         view = _deadline_view(client, game_id)
-        assert view["deadline"] == when
-        return {"status": "ok", "deadline": when, "phase_length_seconds": view["phase_length_seconds"]}
+        assert view["deadline"] == f"{when}+00:00"
+        return {"status": "ok", "deadline": f"{when}+00:00", "phase_length_seconds": view["phase_length_seconds"]}
 
     return lambda: client.post(f"/games/{game_id}/deadline", json=_as(seats["FRANCE"], deadline=when)), check
 

@@ -3,6 +3,7 @@ import { formatDeadline } from './deadline'
 
 // Helsinki is UTC+2/+3: a naive deadline read as local time comes out 2-3 h short. CI runs
 // in UTC, where that mistake is invisible, so force a non-UTC zone for these tests.
+declare const process: { env: Record<string, string | undefined> }
 const savedTz = process.env.TZ
 beforeAll(() => {
   process.env.TZ = 'Europe/Helsinki'
