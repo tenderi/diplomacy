@@ -1239,7 +1239,7 @@ def get_deadline(game_id: str) -> Dict[str, Any]:
         pending_proposal = api_shared.deadline_proposal_view(proposal, active)
     return {
         "status": "ok",
-        "deadline": deadline_value.isoformat() if deadline_value else None,
+        "deadline": api_shared.utc_iso(deadline_value),
         # The recurring length a caller can arm a deadline from via this
         # route's POST; None means the default, 0 means none was set.
         "phase_length_seconds": getattr(game, "phase_length_seconds", None),
@@ -1426,7 +1426,7 @@ def set_deadline_schedule(
     return {
         "status": "ok",
         "schedule": api_shared.schedule_view(schedule),
-        "deadline": deadline.isoformat() if deadline else None,
+        "deadline": api_shared.utc_iso(deadline),
     }
 
 
@@ -1505,7 +1505,7 @@ def set_deadline(
         scheduler_logger.exception("Failed to notify deadline change for game %s", game_id)
     return {
         "status": "ok",
-        "deadline": deadline.isoformat() if deadline else None,
+        "deadline": api_shared.utc_iso(deadline),
         "phase_length_seconds": (
             req.phase_length_seconds
             if req.phase_length_seconds is not None

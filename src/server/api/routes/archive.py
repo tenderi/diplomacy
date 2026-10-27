@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from .admin import require_admin
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..shared import arm_scheduled_deadline, db_service, game_service, logger
+from ..shared import arm_scheduled_deadline, db_service, game_service, logger, utc_iso
 from ...deadline_schedule import from_json as schedule_from_json
 
 router = APIRouter()
@@ -299,5 +299,5 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         "messages_restored": messages_restored,
         "messages_skipped": messages_skipped,
         "snapshots_restored": snapshots_restored,
-        "deadline": deadline.isoformat() if deadline else None,
+        "deadline": utc_iso(deadline),
     }

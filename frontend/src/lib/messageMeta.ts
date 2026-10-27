@@ -4,7 +4,7 @@
  */
 
 /** The API sends naive UTC (`2026-10-24T09:05:00`); read it as UTC, not local time. */
-function parseUtc(iso: string): Date {
+export function parseUtc(iso: string): Date {
   return new Date(/([zZ]|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`)
 }
 
