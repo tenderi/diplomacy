@@ -663,7 +663,7 @@ async def process_turn(
         # fan-out -- shared with the deadline scheduler and W10's
         # auto-processing so the three triggers cannot drift apart. The caller
         # is left out of the DMs: the resolution is in their response below.
-        api_shared.finish_processed_turn(
+        api_shared.after_turn_processed(
             game_id,
             int(row.id),
             prev_phase_code=prev_phase_code,
@@ -673,10 +673,13 @@ async def process_turn(
         # A next phase with nothing for a human to order runs now under
         # auto-process (W10) -- nothing else would trigger it.
         api_shared.maybe_auto_process(game_id)
+    # The phase the game is in now: past any that needed nobody (BV2) or that
+    # auto-processing ran.
+    now_view = game_service.view(game_id)
     return {
         "status": "ok",
-        "phase": turn_result["phase"],
-        "game_status": turn_result["status"],
+        "phase": now_view["phase"] if now_view else turn_result["phase"],
+        "game_status": now_view["status"] if now_view else turn_result["status"],
         "resolution": turn_result["resolution"],
     }
 

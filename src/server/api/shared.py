@@ -305,9 +305,18 @@ def player_rows(game: Any) -> list[dict[str, Any]]:
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
     """Tell the DAIDE sessions on ``game_id`` a turn was processed
-    (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`)."""
+    (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`).
+
+    The turn's resolution is read here, synchronously: the coroutine may run
+    only after ``after_turn_processed`` has processed the empty phase after it
+    (BV2), whose resolution would then be the stored ``last_resolution`` and be
+    sent as this turn's `ORD`s."""
+    if daide_server is None:
+        return
+    resolution = game_service.last_resolution(game_id) if resolved_phase is not None else None
     _run_on_daide_loop(
-        game_id, lambda daide: daide.notify_game_processed(game_id, resolved_phase=resolved_phase)
+        game_id,
+        lambda daide: daide.notify_game_processed(game_id, resolved_phase=resolved_phase, resolution=resolution),
     )
 
 
@@ -601,8 +610,18 @@ def notify_turn_processed(
     processed_phase: Optional[str] = None,
     next_deadline_text: Optional[str] = None,
     deadline_cleared: bool = False,
-) -> None:
+    fold: bool = False,
+    carried: Optional[dict[str, list[str]]] = None,
+) -> dict[str, list[str]]:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
+
+    ``fold`` means the new phase needs nobody and is about to be processed too
+    (BV2, ``after_turn_processed``): no player DM goes out for it. What each
+    player's DM would have said about the turn just processed -- its results,
+    a trapped unit's disband notice, units removed -- is returned instead,
+    keyed by Telegram id, and the next call takes it as ``carried`` and puts it
+    in that player's DM, after the line naming the phase that needs them. The
+    group post goes out either way. Returns ``{}`` unless ``fold``.
 
     ``next_deadline_text`` names the new phase's deadline when the game's weekly
     schedule armed one, and is appended to the DM and the channel post.
@@ -642,8 +661,12 @@ def notify_turn_processed(
     best-effort and logged.
     """
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
+    carried = carried or {}
 
     if game_ended:
+        # An empty phase that ended the game (its disbands left one power or
+        # none): what the turn before it did still reaches its players.
+        send_carried(game_id, carried)
         # A processed turn ends a game by a solo victory, or by leaving one
         # power standing or none (BL6, ``GameService.ending``); a draw ends it
         # without a turn and is announced by ``notify_game_drawn``.
@@ -662,7 +685,7 @@ def notify_turn_processed(
         except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
             scheduler_logger.exception("Failed to notify players for game %s", game_id)
         _post_turn_to_channel(game_id, f"The turn has been processed. {ended}.", processed_turn, processed_phase)
-        return
+        return {}
 
     duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
     label = phase_label(duties_view["phase"])
@@ -719,8 +742,10 @@ def notify_turn_processed(
             newly = game_service.eliminated_in_turn(game_id, processed_turn)
     except SQLAlchemyError as e:
         scheduler_logger.error(f"Failed to read the eliminations of game {game_id}: {e}")
+    folded: dict[str, list[str]] = {}
     try:
         for telegram_id, powers in db_service.get_player_powers_by_telegram_id(numeric_game_id).items():
+            earlier = carried.get(str(telegram_id), [])
             live = [p for p in powers if p not in eliminated]
             mine = [p for p in live if p in duties]
             out_lines = [
@@ -751,24 +776,31 @@ def notify_turn_processed(
                 and not trapped
                 and not my_waived
                 and not out_lines
+                and not earlier
             ):
                 continue
-            if not live and not (removed or retreat_lost or trapped or my_waived or out_lines):
+            if not live and not (removed or retreat_lost or trapped or my_waived or out_lines or earlier):
                 continue  # every power this player holds is out: nothing to order, nothing new
+            if fold:
+                # Nothing is due from anyone in this phase (BV2): the lines go
+                # into the DM for the phase after it.
+                news = (
+                    earlier
+                    + results_lines
+                    + trapped_lines(trapped, tagged=len(trapped) > 1)
+                    + _turn_news_lines(removed, retreat_lost, my_waived)
+                    + out_lines
+                    + ([vacant_line] if vacant_line else [])
+                )
+                if news:
+                    folded[str(telegram_id)] = news
+                continue
             body = (
                 "\n".join(
                     ([turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)] if live else [header])
+                    + earlier
                     + results_lines
-                    + [
-                        civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
-                        for p, units in removed.items()
-                    ]
-                    + [
-                        f"As {p}: {line}" if len(retreat_lost) > 1 else line
-                        for p, lines in retreat_lost.items()
-                        for line in lines
-                    ]
-                    + [(f"As {p}, your " if len(my_waived) > 1 else "Your ") + waived_line(n, partial) for p, (n, partial) in my_waived.items()]
+                    + _turn_news_lines(removed, retreat_lost, my_waived)
                     + out_lines
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
@@ -795,6 +827,39 @@ def notify_turn_processed(
     if vacant_line:
         group_lines.append(vacant_line)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
+    return folded
+
+
+def _turn_news_lines(
+    removed: dict[str, list[str]],
+    retreat_lost: dict[str, list[str]],
+    waived: dict[str, tuple[int, bool]],
+) -> list[str]:
+    """One player's lines about units civil disorder or a bounced retreat removed
+    and builds waived, each tagged with its power when they hold several."""
+    return (
+        [
+            civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
+            for p, units in removed.items()
+        ]
+        + [f"As {p}: {line}" if len(retreat_lost) > 1 else line for p, lines in retreat_lost.items() for line in lines]
+        + [
+            (f"As {p}, your " if len(waived) > 1 else "Your ") + waived_line(n, partial)
+            for p, (n, partial) in waived.items()
+        ]
+    )
+
+
+def send_carried(game_id: str, carried: dict[str, list[str]]) -> None:
+    """DM the lines a folded turn left for each player (BV2) on their own, when
+    no next-phase DM will carry them: the empty phase ended the game, or another
+    worker processed it first. Best-effort."""
+    for telegram_id, lines in carried.items():
+        notify_user(
+            telegram_id,
+            "\n".join([f"The turn has been processed for game {game_id}.", *lines]),
+            game_buttons(game_id),
+        )
 
 
 def turn_results_lines(label: str, outcomes: dict[str, list[str]]) -> list[str]:
@@ -867,13 +932,7 @@ def turn_message(
     forced = forced or {}
     if phase_type == "MOVEMENT":  # a power with centres but no unit
         return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
-    tagged = len(forced) + len(duties) > 1
-    lost = [
-        f"Your {unit}{f' ({power})' if tagged else ''} was dislodged and has nowhere to retreat:"
-        " it is disbanded, no order needed."
-        for power, units in sorted(forced.items())
-        for unit in units
-    ]
+    lost = trapped_lines(forced, tagged=len(forced) + len(duties) > 1)
     if not duties:
         return "\n".join(
             [f"{header} {label}: you have nothing to order this phase; wait for the other powers.", *lost]
@@ -904,6 +963,18 @@ def turn_message(
         if duty.get("disband"):
             lines.append(f"{as_power} must disband {_units(duty['disband'])}.")
     return "\n".join(lines + lost)
+
+
+def trapped_lines(forced: dict[str, list[str]], *, tagged: bool) -> list[str]:
+    """One "has nowhere to retreat" notice per unit in ``forced`` (``phase_duties``'
+    ``forced_disbands`` for one player's powers, BJ2); ``tagged`` names the power
+    after each unit, for a player who holds more than one."""
+    return [
+        f"Your {unit}{f' ({power})' if tagged else ''} was dislodged and has nowhere to retreat:"
+        " it is disbanded, no order needed."
+        for power, units in sorted(forced.items())
+        for unit in units
+    ]
 
 
 def next_deadline(
@@ -1421,10 +1492,17 @@ def finish_processed_turn(
     prev_phase_code: Optional[str],
     trigger: str,
     exclude_telegram_id: Optional[str] = None,
-) -> None:
+    fold: bool = False,
+    carried: Optional[dict[str, list[str]]] = None,
+) -> dict[str, list[str]]:
     """Everything that follows a successful ``GameService.process_turn``, for
     **every** trigger: the manual route, the deadline scheduler, and W10's
-    auto-processing.
+    auto-processing. Callers reach it through ``after_turn_processed``.
+
+    ``fold`` (the new phase needs nobody and runs next, BV2) leaves the
+    deadline alone -- the phase after the empty one arms or clears it, and says
+    so -- and returns the players' DM lines instead of sending them; ``carried``
+    is what the previous, folded call returned (``notify_turn_processed``).
 
     Each of these steps was once done by only one trigger -- the snapshot (W1),
     the cache invalidation, the notification fan-out (G3) -- and the deadline
@@ -1460,21 +1538,22 @@ def finish_processed_turn(
                 invalidate_cache(f"users/{telegram_id_val}")
         except SQLAlchemyError as e:
             scheduler_logger.error(f"Failed to read the players of ended game {game_id}: {e}")
-    next_deadline_at = None if game_ended else scheduled_deadline(game_id)
+    next_deadline_at = None if game_ended or fold else scheduled_deadline(game_id)
     previous = db_service.get_game_by_id(numeric_game_id)
     had_deadline = previous is not None and previous.deadline is not None
-    db_service.update_game_deadline(numeric_game_id, next_deadline_at)
+    if not fold:
+        db_service.update_game_deadline(numeric_game_id, next_deadline_at)
     # Wait flags ("don't process *this* phase yet", W10) were cleared with the
     # phase by ``save_state``; clearing them again here wiped flags already
     # raised for the new phase.
     current_turn = int(meta.get("current_turn", 0) or 0)
-    notify_turn_processed(
+    return notify_turn_processed(
         game_id,
         numeric_game_id,
         trigger=trigger,
         game_ended=game_ended,
         exclude_telegram_id=exclude_telegram_id,
-        deadline_cleared=had_deadline and next_deadline_at is None,
+        deadline_cleared=had_deadline and next_deadline_at is None and not fold,
         next_deadline_text=(
             format_scheduled_deadline(next_deadline_at, game_schedule(game_id))
             if next_deadline_at is not None
@@ -1483,7 +1562,73 @@ def finish_processed_turn(
         # save_state keys a turn's history by the counter *before* it increments.
         processed_turn=current_turn - 1 if current_turn > 0 else None,
         processed_phase=prev_phase_code,
+        fold=fold,
+        carried=carried,
     )
+
+
+def after_turn_processed(
+    game_id: str,
+    numeric_game_id: int,
+    *,
+    prev_phase_code: Optional[str],
+    trigger: str,
+    exclude_telegram_id: Optional[str] = None,
+) -> int:
+    """Finish a turn ``GameService.process_turn`` just processed
+    (``finish_processed_turn``), then process at once every phase after it that
+    needs nobody (BV2, ``GameService.phase_needs_nobody``): a retreat phase whose
+    only dislodged units have nowhere to go, an adjustment phase in which only
+    dummies build or disband. Such a phase would otherwise wait for the deadline
+    or a manual process, though nothing can change before then. ``auto_process``
+    does not matter. Returns how many such phases it processed.
+
+    Each runs through the same phase-checked ``process_turn`` as any turn; a
+    ``StaleGameError`` means another worker processed it first, and that
+    worker finishes it. Every processed phase gets its snapshot and group post,
+    but the players get one DM, for the phase that needs them: the earlier
+    phases' lines (results, a trapped unit's disband notice) are folded into it.
+    The deadline is armed or cleared once, for that last phase.
+
+    The one helper the manual route, the deadline scheduler and auto-processing
+    all finish a turn through."""
+    carried: dict[str, list[str]] = {}
+    processed = 0
+    while True:
+        empty = (
+            processed < MAX_AUTO_PHASES
+            and game_service.phase_needs_nobody(game_id)
+            and seats_filled(game_id, numeric_game_id)
+        )
+        carried = finish_processed_turn(
+            game_id,
+            numeric_game_id,
+            prev_phase_code=prev_phase_code,
+            trigger=trigger,
+            exclude_telegram_id=exclude_telegram_id,
+            fold=empty,
+            carried=carried,
+        )
+        if not empty:
+            return processed
+        prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
+        try:
+            game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+        except (StaleGameError, GameOverError):
+            # Someone else processed it (or ended the game): their DM will not
+            # carry these lines, so they go out on their own.
+            send_carried(game_id, carried)
+            return processed
+        except Exception:  # noqa: BLE001 -- boundary: the turn before is committed and must still be finished
+            # The game stays in the empty phase. It gets the deadline a phase
+            # gets (the folded call left the spent one armed), and the lines
+            # the turn before it produced still reach its players.
+            scheduler_logger.exception("Failed to process empty phase %s of game %s", prev_phase_code, game_id)
+            db_service.update_game_deadline(numeric_game_id, scheduled_deadline(game_id))
+            invalidate_cache(f"games/{game_id}")
+            send_carried(game_id, carried)
+            return processed
+        processed += 1
 
 
 # Cap on phases one auto-processing call may run back to back. A retreat or
@@ -1516,14 +1661,14 @@ def maybe_auto_process(game_id: str) -> int:
     while processed < MAX_AUTO_PHASES and game_service.ready_to_auto_process(game_id):
         prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
         try:
-            game_service.process_turn(game_id)
+            game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
         except (StaleGameError, GameOverError):
             break
         processed += 1
         row = db_service.get_game_by_game_id(game_id)
         if row is None:  # deleted between the two calls
             break
-        finish_processed_turn(game_id, int(row.id), prev_phase_code=prev_phase_code, trigger="auto")
+        processed += after_turn_processed(game_id, int(row.id), prev_phase_code=prev_phase_code, trigger="auto")
     return processed
 
 
@@ -1641,7 +1786,7 @@ def process_due_deadlines(now: datetime) -> None:
                     except Exception:  # noqa: BLE001 -- boundary: one failing game must not stop the others' deadlines
                         scheduler_logger.exception("Failed to process turn for game %s", game_id_str)
                     else:
-                        finish_processed_turn(
+                        after_turn_processed(
                             game_id_str,
                             int(game_id_val),
                             prev_phase_code=prev_phase_code,
