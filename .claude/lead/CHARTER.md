@@ -96,6 +96,12 @@ whenever you are deciding whether to start something new.
 
    Run independent work in parallel. Do small things (a one-line fix, a doc correction)
    yourself rather than spawning an agent for them.
+
+   **Always pass `run_in_background: false`.** You run headless: when you end a turn, the
+   session exits and every background subagent dies with it. Three runs in a row
+   (2026-10-27 to 2026-10-29) ended "success" after 12 minutes, with their workers killed
+   mid-change. To run two at once, put both `Agent` calls in one message: each blocks
+   until it finishes, and they run concurrently. Never end a turn while waiting for one.
 7. **Review.** When a worker reports a PR, start a `reviewer` subagent on it. If the
    reviewer finds real problems, send them back to the *same* worker with `SendMessage`,
    which keeps its context. Merge only what you would defend in the journal.
