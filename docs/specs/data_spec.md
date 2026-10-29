@@ -438,7 +438,7 @@ wins: `the unit in WAR is an army, not a fleet`, as for every other order.
 
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
-`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). Any other
+`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). Any other
 non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
 province (`LON cannot move to its own province`). A fleet moving to a split-coast province
 (BUL, SPA, STP) without naming a coast is accepted when exactly one coast is reachable from

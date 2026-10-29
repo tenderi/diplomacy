@@ -1066,11 +1066,10 @@ def join_game(
     player_model = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     player_id = player_model.id if player_model else user.id
     try:
-        game = db_service.get_game_by_id(int(game_id)) if isinstance(game_id, int) else db_service.get_game_by_game_id(str(game_id))  # type: ignore
-        if game:
-            who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-            # The joiner was told "You have joined ..." above; not twice.
-            notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.", exclude_telegram_id=telegram_id_val)  # type: ignore
+        # A join is one line in the group, not a DM to every seated player (seven
+        # joins sent 21). Players are DMed when the table fills, below.
+        who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
+        post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.")
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify players of join event")
     # Game start notification
