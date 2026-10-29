@@ -26,7 +26,7 @@ class _FakeDaide:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any, int]] = []
 
-    async def notify_game_processed(self, game_id: str, *, resolved_phase: Any = None) -> None:
+    async def notify_game_processed(self, game_id: str, *, resolved_phase: Any = None, resolution: Any = None) -> None:
         self.calls.append((game_id, resolved_phase, threading.get_ident()))
 
 

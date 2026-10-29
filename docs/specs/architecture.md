@@ -300,6 +300,27 @@ place the full picture exists.
   "You must disband 1 unit.");
 - a player with nothing to order in a retreat or adjustment phase is told so and to wait.
 
+**A phase nobody has anything to order in runs at once** (BV2): a retreat phase whose only
+dislodged units have nowhere to go, or an adjustment phase in which only dummies build or
+disband (`GameService.phase_needs_nobody`: a retreat or adjustment phase whose
+`powers_with_orders_to_give` are all dummies). Every trigger finishes a processed turn
+through `api.shared.after_turn_processed`, which calls `finish_processed_turn` and then, while
+the new phase needs nobody and the table is full, processes it through the same
+phase-checked `process_turn(expected_phase_code=…)`, whatever `auto_process` says (a
+`StaleGameError` means another worker did it). Each processed phase gets its snapshot and
+its group post ("Spring 1901 retreats: nobody has anything to order."), but no player DM:
+what that DM would have said about the turn before it (the results block, a trapped unit's
+"has nowhere to retreat" notice, units removed) is folded into the DM for the phase that
+needs them, after its first line. The deadline is armed or cleared once, for that phase. If
+the empty phase cannot be processed here (another worker got there first, or processing it
+raised), the folded lines go out on their own; on an error the game stays in the empty phase,
+which gets the deadline any new phase gets (the schedule's next slot, or none), and the turn
+before it stands: the route still answers 200 with that turn's resolution, and the scheduler
+goes on to the next game. `POST /games/{id}/process_turn` answers with the phase the game
+is in after all this. The DAIDE `ORD`s for each processed phase carry that phase's
+resolution, read when it was processed (not the stored `last_resolution`, which the empty
+phase after it has replaced by the time the broadcast runs).
+
 **Each player is told what the turn did to their own units** (BW1), in a block after those
 lines (`GameService.turn_outcomes`, `api.shared.turn_results_lines`): "Your results for
 Spring 1901 movement:" and then one line per unit, sorted by province, worded like the web's
@@ -565,7 +586,7 @@ and `draw_vote_status` of a draw-ended game reports the sharers as the votes (qu
 **Rules for adding a notification.**
 
 1. **One fan-out per event, shared by every trigger.** `notify_turn_processed` (called from
-   `finish_processed_turn`) serves the manual, deadline and auto-processing paths alike. If an event can be reached two ways, the
+   `finish_processed_turn`, reached through `after_turn_processed`) serves the manual, deadline and auto-processing paths alike. If an event can be reached two ways, the
    second way calls the same function — do not bolt a `notify_players` call onto the new call
    site.
 2. **Never notify the caller of their own action twice.** A player who presses "process turn"
