@@ -312,9 +312,14 @@ its group post ("Spring 1901 retreats: nobody has anything to order."), but no p
 what that DM would have said about the turn before it (the results block, a trapped unit's
 "has nowhere to retreat" notice, units removed) is folded into the DM for the phase that
 needs them, after its first line. The deadline is armed or cleared once, for that phase. If
-the empty phase cannot be processed here (another worker got there first), the folded
-lines go out on their own. `POST /games/{id}/process_turn` answers with the phase the game
-is in after all this.
+the empty phase cannot be processed here (another worker got there first, or processing it
+raised), the folded lines go out on their own; on an error the game stays in the empty phase,
+which gets the deadline any new phase gets (the schedule's next slot, or none), and the turn
+before it stands: the route still answers 200 with that turn's resolution, and the scheduler
+goes on to the next game. `POST /games/{id}/process_turn` answers with the phase the game
+is in after all this. The DAIDE `ORD`s for each processed phase carry that phase's
+resolution, read when it was processed (not the stored `last_resolution`, which the empty
+phase after it has replaced by the time the broadcast runs).
 
 **Each player is told what the turn did to their own units** (BW1), in a block after those
 lines (`GameService.turn_outcomes`, `api.shared.turn_results_lines`): "Your results for
