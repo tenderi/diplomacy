@@ -305,9 +305,18 @@ def player_rows(game: Any) -> list[dict[str, Any]]:
 
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
     """Tell the DAIDE sessions on ``game_id`` a turn was processed
-    (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`)."""
+    (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`).
+
+    The turn's resolution is read here, synchronously: the coroutine may run
+    only after ``after_turn_processed`` has processed the empty phase after it
+    (BV2), whose resolution would then be the stored ``last_resolution`` and be
+    sent as this turn's `ORD`s."""
+    if daide_server is None:
+        return
+    resolution = game_service.last_resolution(game_id) if resolved_phase is not None else None
     _run_on_daide_loop(
-        game_id, lambda daide: daide.notify_game_processed(game_id, resolved_phase=resolved_phase)
+        game_id,
+        lambda daide: daide.notify_game_processed(game_id, resolved_phase=resolved_phase, resolution=resolution),
     )
 
 
