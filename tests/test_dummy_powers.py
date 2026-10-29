@@ -91,7 +91,7 @@ def test_the_game_is_full_when_humans_and_dummies_cover_every_seat(client: TestC
     with OutboxProbe() as probe:
         assert client.post(f"/games/{game_id}/join", json=_as(c, power="FRANCE")).status_code == 200
     assert not any("is now full" in m for m in probe.messages())
-    assert any("has joined game" in m for m in probe.messages())
+    assert probe.by_recipient() == {c: [f"You have joined game {game_id} as FRANCE."]}
 
 
 def test_a_vacated_seat_made_a_dummy_is_not_counted_twice(client: TestClient) -> None:

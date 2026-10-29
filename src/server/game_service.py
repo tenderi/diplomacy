@@ -94,6 +94,9 @@ def _order_str(result: dict[str, Any]) -> str:
     return str(result.get("order_str") or format_order(order_from_dict(result["order"])))
 
 
+NEEDS_CONVOY_NOTE = "needs a convoy: the army is not next to its destination, so the move fails unless fleets convoy it"
+
+
 class GameService:
     def __init__(self, repo: Any, map: Optional[MapData] = None) -> None:
         self._repo = repo
@@ -280,12 +283,12 @@ class GameService:
                 continue
             vr = validate(order, state, self._map)
             if vr.ok:
-                if (
+                needs_convoy = (
                     isinstance(order, Move)
-                    and not order.via_convoy
                     and kinds.get(order.unit.province) == "A"
                     and not self._map.is_adjacent(order.unit, order.dest, UnitKind.ARMY)
-                ):
+                )
+                if needs_convoy and not order.via_convoy:  # type: ignore[union-attr]
                     # A valid non-adjacent army move is a convoyed one (``A NWY - YOR``).
                     # Store it as ``... VIA`` so the map overlay and DAIDE (which read
                     # ``via_convoy``) show it as the convoy the adjudicator resolves.
@@ -321,7 +324,11 @@ class GameService:
                 accepted_at.append(len(results))
                 if key is not None:
                     accepted_keys.add(key)
-                results.append({"order": raw, "ok": True, "reason": None})
+                result: dict[str, Any] = {"order": raw, "ok": True, "reason": None}
+                if needs_convoy:
+                    # Accepted, but it can only succeed if fleets convoy it.
+                    result["note"] = NEEDS_CONVOY_NOTE
+                results.append(result)
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
 
