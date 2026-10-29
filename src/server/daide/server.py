@@ -295,7 +295,13 @@ class DaideServer:
                     t.CLOSE_PAREN,
                 )
 
-    async def notify_game_processed(self, game_id: str, *, resolved_phase: Optional[str] = None) -> None:
+    async def notify_game_processed(
+        self,
+        game_id: str,
+        *,
+        resolved_phase: Optional[str] = None,
+        resolution: Optional[dict[str, Any]] = None,
+    ) -> None:
         """Push post-turn notifications to every session on ``game_id``.
 
         Always sends `NOW`. Sends `ORD` (one message per adjudicated order)
@@ -313,6 +319,10 @@ class DaideServer:
         ``_completion_notified`` immediately, so a `COMPLETED` status reaching
         this method un-notified is a solo (`SLO`) or a game that ended with no
         winner (BL6; `DRW`, as `DaideServer.broadcast_draw_completion` sends it).
+
+        ``resolution`` is that phase's serialized resolution, read by the caller
+        when it processed the phase; without it the stored ``last_resolution``
+        is used, which a later phase processed meanwhile (BV2) has replaced.
         """
         sessions = self.sessions_for(game_id)
         if not sessions:
@@ -325,7 +335,7 @@ class DaideServer:
 
         ord_messages: list[list[Token]] = []
         if resolved_phase is not None:
-            resolution_dict = self.game_service.last_resolution(game_id)
+            resolution_dict = resolution if resolution is not None else self.game_service.last_resolution(game_id)
             if resolution_dict:
                 resolution = resolution_from_dict(resolution_dict)
                 try:

@@ -13,10 +13,16 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from engine.serialization import resolution_from_dict
+from engine.types import PhaseType, Season
 from persistence.game_repo import StaleGameError
 from server.api import app
 from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
+from server.daide import tokens as t
+from server.daide.clauses import turn_clause
+from server.daide.server import DaideServer
+from server.daide.session import build_ord_tokens
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
 from tests.test_auto_process import BOT, _order, _phase, _table
@@ -140,3 +146,42 @@ def test_another_worker_processing_the_empty_phase_still_gets_the_lines_out(
         "A BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"
         "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed."
     ]
+
+
+class _Session:
+    """A DAIDE session that records what it is sent."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[Any, ...]] = []
+
+    async def _send(self, *tokens: Any) -> None:
+        self.sent.append(tokens)
+
+
+def test_daide_ord_carries_the_movement_results_not_the_empty_retreat_s(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_id, e, f = _table(client, auto=False)
+    _trap_board(game_id)
+    _dislodge(client, game_id, e, f)
+    daide = DaideServer(game_service)
+    session = _Session()
+    daide._sessions[game_id] = {"FRANCE": session}  # type: ignore[dict-item]
+    monkeypatch.setattr(api_shared, "daide_server", daide)
+    monkeypatch.setattr(api_shared, "main_loop", None)
+    resp = client.post(f"/games/{game_id}/process_turn", headers=BOT)
+    assert resp.status_code == 200, resp.text
+    movement = resolution_from_dict(resp.json()["resolution"])
+    retreat_dict = game_service.last_resolution(game_id)
+    assert retreat_dict is not None
+    retreat = resolution_from_dict(retreat_dict)
+
+    def ords(phase_type: PhaseType, results: Any) -> list[list[Any]]:
+        turn = list(turn_clause(Season.SPRING, phase_type, 1901))
+        return [list(build_ord_tokens(r.order, r.result, r.dislodged, phase_type, daide.map, turn)) for r in results]
+
+    expected = ords(PhaseType.MOVEMENT, movement.results) + ords(PhaseType.RETREAT, retreat.results)
+    # Seven movement orders, then the trapped unit's disband in S1901R. Read
+    # late, both batches were the retreat phase's.
+    assert (len(movement.results), len(retreat.results)) == (7, 1)
+    assert [list(m) for m in session.sent if m[0] == t.ORD] == expected
