@@ -703,6 +703,12 @@ def notify_turn_processed(
             vacant_line = vacant_held_line(game_id, numeric_game_id, processed_turn)
         except SQLAlchemyError as e:
             scheduler_logger.error(f"Failed to read the vacant seats of game {game_id}: {e}")
+        if trigger == "deadline":
+            try:
+                unordered = unordered_held_line(game_id, numeric_game_id, processed_turn)
+                vacant_line = "\n".join(x for x in (vacant_line, unordered) if x)
+            except SQLAlchemyError as e:
+                scheduler_logger.error(f"Failed to read who had not ordered in game {game_id}: {e}")
     # Dislodged units with no retreat, of powers that owe nothing (BJ2).
     forced: dict[str, list[str]] = duties_view.get("forced_disbands") or {}
     header = f"The turn has been processed for game {game_id}" + (
@@ -961,7 +967,10 @@ def turn_message(
             note = f" ({'; '.join(notes)})" if notes else ""
             lines.append(f"{as_power} may build {_units(duty['build'])}{note}.")
         if duty.get("disband"):
-            lines.append(f"{as_power} must disband {_units(duty['disband'])}.")
+            lines.append(
+                f"{as_power} must disband {_units(duty['disband'])}. "
+                "With no order, civil disorder picks which units are disbanded."
+            )
     return "\n".join(lines + lost)
 
 
@@ -1079,6 +1088,30 @@ def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optiona
     if len(powers) == 1:
         return f"{powers[0].title()}'s seat is vacant: its units held."
     return f"{_join_names([p.title() for p in powers])} have vacant seats: their units held."
+
+
+def unordered_held_line(game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None) -> str:
+    """For a movement turn processed because its deadline passed, "ITALY had not
+    ordered: its units held." for each seated, non-dummy power with units and no
+    orders in the processed turn's order history (BV3). Vacant seats have their
+    own line (``vacant_held_line``). ``""`` if none."""
+    view = game_service.view(game_id)
+    if view is None or processed_turn is None:
+        return ""
+    with_units = {str(p).upper() for p, units in (view.get("units_by_power") or {}).items() if units}
+    dummies = {str(p).upper() for p in game_service.dummy_powers(game_id)}
+    submitted = game_service.order_history(game_id).get(str(processed_turn), {})
+    ordered = {str(p).upper() for p, orders in submitted.items() if orders}
+    seated = {
+        str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id) if p.user_id is not None
+    }
+    powers = sorted((seated & with_units) - dummies - ordered)
+    if not powers:
+        return ""
+    names = [power_label(game_id, p) for p in powers]
+    if len(powers) == 1:
+        return f"{names[0]} had not ordered: its units held."
+    return f"{_join_names(names)} had not ordered: their units held."
 
 
 def vacant_seat_hint(game_id: str, powers: Iterable[str]) -> str:
@@ -1727,7 +1760,8 @@ def _deadline_still_due(game_pk: int, seen_phase: str | None, now: datetime) -> 
 def process_due_deadlines(now: datetime) -> None:
     """
     Process all games with deadlines <= now. Used by the scheduler and for testing.
-    Also marks players as inactive if they did not submit orders for the last turn.
+    A power that had not ordered has its units held and the turn notice names it
+    (``unordered_held_line``); nobody is marked inactive.
     """
     try:
         games = db_service.get_games_with_deadlines_and_active_status()
