@@ -66,20 +66,21 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
         f"The turn has been processed for game {game_id} because its deadline passed."
     )
     out = f"ITALY has been eliminated from game {game_id}: it has no units or supply centres left."
+    idle = "AUSTRIA, ENGLAND, GERMANY and RUSSIA had not ordered: their units held."
     dms = _dms(probe)
     assert dms[by_power["ITALY"]] == [
-        f"{head}\nYour power ITALY has been eliminated from game {game_id}: it has no units or supply centres left."
+        f"{head}\nYour power ITALY has been eliminated from game {game_id}: it has no units or supply centres left.\n{idle}"
     ]
     # TURKEY conceded earlier: no orders to give, but it still hears the table's news.
-    assert dms[by_power["TURKEY"]] == [f"{head}\n{out}"]
+    assert dms[by_power["TURKEY"]] == [f"{head}\n{out}\n{idle}"]
     results = "Your results for Fall 1901 movement:"
     assert dms[by_power["FRANCE"]] == [
         f"{head} Orders are due for Spring 1902 movement.\n{results}\n"
-        f"A PAR held (no order).\nA TUS - ROM succeeded.\nCentres: +ROM (now 2).\n{out}"
+        f"A PAR held (no order).\nA TUS - ROM succeeded.\nCentres: +ROM (now 2).\n{out}\n{idle}"
     ]
     for power, unit in (("ENGLAND", "A LON"), ("GERMANY", "A BER"), ("RUSSIA", "A MOS"), ("AUSTRIA", "A VIE")):
         assert dms[by_power[power]] == [
-            f"{head} Orders are due for Spring 1902 movement.\n{results}\n{unit} held (no order).\n{out}"
+            f"{head} Orders are due for Spring 1902 movement.\n{results}\n{unit} held (no order).\n{out}\n{idle}"
         ]
     assert len(dms) == 7
     group = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
@@ -87,6 +88,7 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
         f"🔔 Turn Processed - Game {game_id}\n"
         "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
         + out
+        + f"\n{idle}"
     ]
 
     # A later turn does not announce it again, and still skips both powers that are out.
@@ -140,7 +142,8 @@ def test_a_failed_elimination_read_still_sends_every_turn_dm(monkeypatch: pytest
     assert _dms(probe) == {
         tg: [
             f"{head} Orders are due for Fall 1901 movement.\n"
-            f"Your results for Spring 1901 movement:\nNo orders, so {held[power]} held."
+            f"Your results for Spring 1901 movement:\nNo orders, so {held[power]} held.\n"
+            "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
         ]
         for power, (_h, tg) in zip(POWERS, users)
     }

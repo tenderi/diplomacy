@@ -1223,8 +1223,10 @@ def _refuse_deadline_change_if_over(game: Any) -> None:
         raise HTTPException(status_code=409, detail="Game is over; its deadline can no longer be changed.")
 
 
-def _deadline_text(iso_value: Optional[str]) -> str:
-    return api_shared.format_deadline_utc(datetime.fromisoformat(iso_value) if iso_value else None)
+def _deadline_text(iso_value: Optional[str], game_id: str) -> str:
+    if not iso_value:
+        return api_shared.format_deadline_utc(None)
+    return api_shared.format_scheduled_deadline(datetime.fromisoformat(iso_value), api_shared.game_schedule(game_id))
 
 
 @router.get("/games/{game_id}/deadline")
@@ -1284,7 +1286,7 @@ def propose_deadline(
                 int(game.id),
                 f"{power_label(game_id, req.power)}'s deadline proposal for game {game_id} was accepted "
                 f"immediately (they're the only active power): deadline now "
-                f"{_deadline_text(result['deadline'])}.",
+                f"{_deadline_text(result['deadline'], game_id)}.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
             )
         else:
@@ -1330,7 +1332,7 @@ def vote_deadline_proposal(
             notify_players(
                 int(game.id),
                 f"Game {game_id}'s deadline proposal passed: deadline now "
-                f"{_deadline_text(result['deadline'])}.",
+                f"{_deadline_text(result['deadline'], game_id)}.",
                 exclude_telegram_id=exclude,
             )
         elif result["status"] == "rejected":
@@ -1495,7 +1497,7 @@ def set_deadline(
     # like every other notification; the write above is already committed.
     try:
         if deadline is not None:
-            when = api_shared.format_deadline_utc(deadline)
+            when = api_shared.format_scheduled_deadline(deadline, api_shared.game_schedule(game_id))
             text = (
                 f"Deadline for game {game_id} set to {when}. Orders in by then; the turn "
                 f"is processed automatically when it passes. This deadline covers the current phase only."
