@@ -1070,6 +1070,12 @@ def join_game(
         # joins sent 21). Players are DMed when the table fills, below.
         who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
         post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.")
+        if taken is not None:
+            # A vacated seat filled mid-game: the table is told by DM too, as a game
+            # without a group would otherwise never hear of it.
+            game = db_service.get_game_by_game_id(str(game_id))
+            if game is not None:
+                notify_players(int(game.id), f"{who} has joined game {game_id} as {power}.", exclude_telegram_id=telegram_id_val)
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify players of join event")
     # Game start notification

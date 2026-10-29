@@ -50,6 +50,18 @@ def test_a_join_without_a_group_is_not_announced_to_the_table() -> None:
     assert not any("has joined" in r["message"] for r in probe.rows())
 
 
+def test_a_vacated_seat_filled_mid_game_is_dmed_to_the_table() -> None:
+    client = TestClient(app)
+    game_id, users, _probe = _seat_all(client, group=False)
+    assert client.post(f"/games/{game_id}/quit", json=_as(users["FRANCE"], power="FRANCE")).status_code == 200
+    newcomer = _telegram_user(client, "Neu")[0]
+    with OutboxProbe() as probe:
+        assert client.post(f"/games/{game_id}/join", json=_as(newcomer, power="FRANCE")).status_code == 200
+    joined = [r["telegram_id"] for r in probe.rows() if r["kind"] == "dm" and "has joined" in r["message"]]
+    others = {tg for p, tg in users.items() if p != "FRANCE"}
+    assert set(joined) == others and len(joined) == 6
+
+
 def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
     client = TestClient(app)
     game_id, users, _probe = _seat_all(client, group=False)
