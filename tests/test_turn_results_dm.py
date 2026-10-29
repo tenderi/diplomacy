@@ -132,7 +132,7 @@ def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: p
         f"{results}\nA BUR - MUN succeeded.\nA PIC - BEL succeeded.\nCentres: +BEL, +MUN (now 5)."
     ]
     assert messages["GERMANY"] == [
-        f"{head}\nYou must disband 1 unit.\n"
+        f"{head}\nYou must disband 1 unit. With no order, civil disorder picks which units are disbanded.\n"
         f"{results}\nA BER held (no order).\nF KIE held (no order).\nA MUN - SIL succeeded.\nCentres: -MUN (now 2)."
     ]
     assert all("results" not in text and "Centres" not in text for text in posted)

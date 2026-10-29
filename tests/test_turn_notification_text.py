@@ -153,7 +153,7 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
         "\nNext deadline: 2026-10-05 16:00 UTC."
     ]
     # After several lines the deadline gets its own (BW1).
-    assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit.\nNext deadline: 2026-10-05 16:00 UTC."]
+    assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit. With no order, civil disorder picks which units are disbanded.\nNext deadline: 2026-10-05 16:00 UTC."]
     for power in ("ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers.{due}"]
     assert posted == [
@@ -194,7 +194,7 @@ def test_a_player_holding_two_powers_is_told_which_line_is_whose() -> None:
     )
     assert builds == (
         "Head. Winter 1901 builds: your orders are due for AUSTRIA and FRANCE.\n"
-        "As AUSTRIA, you must disband 2 units.\n"
+        "As AUSTRIA, you must disband 2 units. With no order, civil disorder picks which units are disbanded.\n"
         "As FRANCE, you may build 1 unit."
     )
 

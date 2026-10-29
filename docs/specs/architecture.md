@@ -395,7 +395,7 @@ When the phase just processed had a deadline and the new one has none, they end 
 adds "This deadline covers the current phase only." `POST /games/{id}/deadline` refuses a deadline at or
 before now (422, "That deadline has already passed. Choose a time in the future."). After a processed
 movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units and ordered nothing that turn (orders it sent before quitting stand) adds
-"<Power>'s seat is vacant: its units held." to every DM and to the group post.
+"<Power>'s seat is vacant: its units held." to every DM and to the group post. A movement turn processed because its deadline passed also adds "<POWERS> had not ordered: their units held." (or "<POWER> had not ordered: its units held.") for each seated power with units and no orders. A disband DM ends "With no order, civil disorder picks which units are disbanded." A deadline announcement and a proposal-passed notice give the time as the weekly schedule reads it ("2026-09-28 13:00 UTC (Mon 16:00 Europe/Helsinki)").
 
 **How a player is named** depends on the game (`games.anonymous`, fixed at creation).
 Every notification that names a power — join, quit, takeover, wait flag, draw vote,
