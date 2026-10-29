@@ -130,10 +130,13 @@ class TestAnnouncements:
             "/games/create", json={"map_name": "standard", "anonymous": True, **_as(anna)}, headers=_BOT,
         ).json()["game_id"])
         assert client.post(f"/games/{game_id}/join", json=_as(anna, power="FRANCE")).status_code == 200
+        db_service.link_game_to_channel(game_id, "-100777", any_displacer=True)
         with OutboxProbe() as probe:
             assert client.post(f"/games/{game_id}/join", json=_as(cleo, power="ITALY")).status_code == 200
         sent = probe.by_recipient()
-        assert f"A new player has joined game {game_id} as ITALY." in sent[anna]
+        # The table is told in the group, not by a DM to each seated player.
+        assert sent["-100777"] == [f"A new player has joined game {game_id} as ITALY."]
+        assert anna not in sent
         assert sent[cleo] == [
             f"You have joined game {game_id} as ITALY. "
             f"It is anonymous: the other players know you only as your power."
@@ -143,12 +146,14 @@ class TestAnnouncements:
     def test_a_public_join_names_the_player(self, client):
         game_id, anna, *_ = _game(client, anonymous=False)
         cleo, cleo_nick = _telegram_user(client, "Cleo")
+        db_service.link_game_to_channel(game_id, "-100777", any_displacer=True)
         with OutboxProbe() as probe:
             # Lower case in, upper case out -- the announcement and the response.
             r = client.post(f"/games/{game_id}/join", json=_as(cleo, power="italy"))
             assert (r.status_code, r.json()["power"]) == (200, "ITALY")
         sent = probe.by_recipient()
-        assert f"{cleo_nick} has joined game {game_id} as ITALY." in sent[anna]
+        assert sent["-100777"] == [f"{cleo_nick} has joined game {game_id} as ITALY."]
+        assert anna not in sent
         # The joiner hears it once, as "You have joined", not again as "Cleo has joined".
         assert sent[cleo] == [f"You have joined game {game_id} as ITALY."]
 
