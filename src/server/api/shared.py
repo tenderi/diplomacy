@@ -1619,6 +1619,15 @@ def after_turn_processed(
             # carry these lines, so they go out on their own.
             send_carried(game_id, carried)
             return processed
+        except Exception:  # noqa: BLE001 -- boundary: the turn before is committed and must still be finished
+            # The game stays in the empty phase. It gets the deadline a phase
+            # gets (the folded call left the spent one armed), and the lines
+            # the turn before it produced still reach its players.
+            scheduler_logger.exception("Failed to process empty phase %s of game %s", prev_phase_code, game_id)
+            db_service.update_game_deadline(numeric_game_id, scheduled_deadline(game_id))
+            invalidate_cache(f"games/{game_id}")
+            send_carried(game_id, carried)
+            return processed
         processed += 1
 
 
