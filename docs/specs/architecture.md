@@ -324,8 +324,11 @@ phase after it has replaced by the time the broadcast runs).
 
 A phase can also become empty while it stands (BX1): the creator makes the only power
 still owing a retreat, build or disband a dummy (`POST /games/{id}/dummies`), that power
-concedes (`POST /games/{id}/concede`), or the seat completing the table is taken
-(`POST /games/{id}/join`) while the phase needs only dummies. Each of those routes, after its
+concedes (`POST /games/{id}/concede`), the seat completing the table is taken
+(`POST /games/{id}/join`) while the phase needs only dummies, or an admin restores a game
+from the archive in such a phase (`POST /games/import`, after everything it restores; its
+response's `auto_processed` counts the phases processed, and its `deadline` is then the new
+phase's). Each of those routes, after its
 change is committed and announced, calls `api.shared.process_if_phase_needs_nobody`, which
 processes the phase through the same phase-checked `process_turn` and `after_turn_processed`
 when it needs nobody and the table is full, whatever `auto_process` says, so the players
@@ -491,10 +494,13 @@ message as is; the bot reads `unseated` from `GET /games/{id}/orders_status`, sk
 `maybe_auto_process` processes nothing. When a deadline passes, the scheduler does not
 process the game; it spends the deadline, so it does not find it again every tick (a
 weekly schedule moves to its next slot, a one-off deadline is cleared; filling the last
-seat arms a scheduled one again), and tells the players and the game's group, naming the
+unseated power arms a scheduled one again), and tells the players and the game's group, naming the
 empty seats and the next deadline if there is one. It spends the deadline with a compare-and-set (`DatabaseService.replace_game_deadline_if_unchanged`): only while the game is still in the phase, with the deadline, the scheduler saw. A deadline armed meanwhile (the last seat filling) is kept, and no notice goes out. The bot's demo game is full from the
 start: Germany plus six dummies. The DAIDE listener's game (`games.daide`) is exempt: its
 seats are live DAIDE connections held in memory, not seat rows.
+A seat its player quits is never unseated: its row stays, so quitting leaves the deadline
+as it is, the scheduler processes the turn at it (the vacant power's units hold, as for any
+power without orders), and retaking the seat changes no deadline -- there is none to re-arm.
 
 **Nothing is played before the game starts.** A game has started once its table is full
 (as above) or a turn has been processed; a game that has run a turn stays started even if a
