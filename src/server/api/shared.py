@@ -1801,8 +1801,13 @@ def skip_deadline_for_empty_seats(
     processed, the deadline is spent -- a weekly schedule moves to its next
     slot, a one-off deadline is cleared -- so the scheduler does not find it
     again every tick, and the players and the game's group are told why
-    nothing happened. Filling the last seat arms a scheduled deadline again
-    (``arm_scheduled_deadline``).
+    nothing happened. Filling the last unseated power arms a scheduled
+    deadline again (``arm_scheduled_deadline``, from the join that completes
+    the table). That join always makes a new seat row: a seat its player quit
+    keeps its row and still counts as seated (``seats_filled``), so a vacated
+    seat never brings a game here -- its deadline keeps running, the turn is
+    processed at it with that power's units holding, and retaking the seat has
+    nothing to re-arm.
 
     The deadline is spent only if it is still ``seen_deadline`` in
     ``seen_phase`` (BP2): a seat filled since the scheduler's re-check may have

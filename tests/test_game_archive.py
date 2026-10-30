@@ -10,6 +10,7 @@ from server.api import ADMIN_TOKEN, app
 from server.api.shared import game_service
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
+from tests.test_empty_phase_other_triggers import _no_group, _table, _winter
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
@@ -248,3 +249,34 @@ def test_a_rumour_round_trips_still_anonymous(client: TestClient, played_game: t
     assert [(m["sender_power"], m["anonymous"], m["text"]) for m in logged] == [
         ("FRANCE", False, "Belgium is yours"), (None, True, "Russia is lying"),
     ]
+
+
+def test_an_imported_phase_that_needs_nobody_is_processed_at_once(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BY2: a restored winter only a dummy owes runs on import, as it would on
+    any other trigger, instead of waiting for a deadline the export never set."""
+    game_id, _creator, _tgs = _table(client)
+    _winter(game_id, without=["VIE"])  # only Austria, a dummy, is owed a build
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    _no_group(monkeypatch)
+    report = client.post("/games/import", json=doc, headers=ADMIN).json()
+    assert report["players_linked"] == 3
+    assert report["auto_processed"] == 1
+    assert game_service.view(report["game_id"])["phase"] == "S1902M"
+    # The source game, not imported, still stands in its winter.
+    assert game_service.view(game_id)["phase"] == "W1901A"
+
+
+def test_an_imported_empty_phase_waits_for_a_seat_left_unlinked(client: TestClient) -> None:
+    """A power whose player has no account here comes back unseated: the table
+    is not full, so the phase is not processed."""
+    game_id, _creator, _tgs = _table(client)
+    _winter(game_id, without=["VIE"])
+    doc = client.get(f"/games/{game_id}/export", headers=ADMIN).json()
+    for entry in doc["players"]:
+        if entry["power"] == "GERMANY":
+            entry["telegram_id"] = None
+    report = client.post("/games/import", json=doc, headers=ADMIN).json()
+    assert (report["players_unlinked"], report["auto_processed"]) == (1, 0)
+    assert game_service.view(report["game_id"])["phase"] == "W1901A"
