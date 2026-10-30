@@ -27,7 +27,14 @@ from pydantic import BaseModel
 from .admin import require_admin
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..shared import arm_scheduled_deadline, db_service, game_service, logger, utc_iso
+from ..shared import (
+    arm_scheduled_deadline,
+    db_service,
+    game_service,
+    logger,
+    process_if_phase_needs_nobody,
+    utc_iso,
+)
 from ...deadline_schedule import from_json as schedule_from_json
 
 router = APIRouter()
@@ -290,6 +297,16 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         except (SQLAlchemyError, ValueError, TypeError) as e:
             logger.warning(f"Skipped a snapshot while importing game {game_id}: {e}")
 
+    # A restored phase nobody has anything to order in (only a dummy owes a
+    # build, only trapped units retreat) runs now, as on any other trigger
+    # (BY2), not at a deadline the export never carried. Last, so the turn it
+    # records follows the restored snapshots; the deadline reported is then
+    # the new phase's.
+    auto_processed = process_if_phase_needs_nobody(str(game_id), int(row.id))
+    if auto_processed:
+        processed_row = db_service.get_game_by_id(int(row.id))
+        deadline = processed_row.deadline if processed_row is not None else None
+
     return {
         "status": "ok",
         "game_id": str(game_id),
@@ -300,4 +317,6 @@ def import_game(req: ImportGameRequest) -> Dict[str, Any]:
         "messages_skipped": messages_skipped,
         "snapshots_restored": snapshots_restored,
         "deadline": utc_iso(deadline),
+        # Phases that needed nobody, processed on import (BY2): 0 or more.
+        "auto_processed": auto_processed,
     }
