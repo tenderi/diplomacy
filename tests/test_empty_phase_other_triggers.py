@@ -174,3 +174,31 @@ def test_a_failure_processing_the_emptied_phase_leaves_the_change_standing(
     assert resp.json()["auto_processed"] == 0
     assert _phase(client, game_id) == "W1901A"
     assert client.get(f"/games/{game_id}/state").json()["units_by_power"].get("GERMANY", []) == []
+
+
+def test_a_phase_moved_on_between_read_and_check_is_not_processed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two triggers on one empty phase: the other processes W1901A after this
+    one read the phase and before it checked it. This one must then not
+    process S1902M (every unit would hold, no orders given)."""
+    game_id, _creator, _tgs = _table(client)
+    _winter(game_id, without=["VIE"])  # only Austria, a dummy, is owed a build
+    real_needs_nobody = game_service.phase_needs_nobody
+    raced: list[str] = []
+
+    def other_trigger_first(gid: str) -> bool:
+        if not raced:
+            raced.append(gid)
+            empty = real_needs_nobody(gid)
+            assert empty
+            game_service.process_turn(gid, expected_phase_code="W1901A")  # the other trigger
+            return empty
+        return real_needs_nobody(gid)
+
+    monkeypatch.setattr(game_service, "phase_needs_nobody", other_trigger_first)
+    row = db_service.get_game_by_game_id(game_id)
+    assert row is not None
+    assert api_shared.process_if_phase_needs_nobody(game_id, int(row.id)) == 0
+    assert raced == [game_id]
+    assert _phase(client, game_id) == "S1902M"
