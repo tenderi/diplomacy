@@ -472,9 +472,12 @@ def notify_game_drawn(
     numeric_game_id: int,
     winners: list[str],
     *,
+    cause: Optional[str] = None,
     exclude_telegram_id: Optional[str] = None,
 ) -> None:
     """Announce a game that just ended in an agreed draw, naming who shares it.
+    ``cause`` is the write that completed the quorum when it was not a vote
+    ("FRANCE has conceded", BZ1); it leads the sentence.
 
     A draw is not a processed turn: ``GameService.submit_draw_vote`` ends the game
     inline when the last vote reaches quorum. So this is not
@@ -485,7 +488,8 @@ def notify_game_drawn(
     """
     def drawn(sharers: list[str], you: bool = False) -> str:
         names = (["you"] if you else []) + [power_label(game_id, power) for power in sharers]
-        return f"Game {game_id} has ended in a draw" + (f" shared by {_join_names(names)}" if names else "") + "."
+        ended = f"{cause}, and game {game_id} has ended" if cause else f"Game {game_id} has ended"
+        return f"{ended} in a draw" + (f" shared by {_join_names(names)}" if names else "") + "."
 
     def own(powers: list[str]) -> Optional[str]:
         # A sharer reads "shared by you, ENGLAND and ITALY" (BD4).
@@ -505,6 +509,39 @@ def notify_game_drawn(
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify players of the draw in game {game_id}: {e}")
     post_to_game_group(game_id, f"🤝 Draw - Game {game_id}\n{text}")
+
+
+def _settle_ended_game(game_id: str, numeric_game_id: int) -> None:
+    """What every game ended without a processed turn needs (a draw, a
+    concession or a dummy that left nobody to play): its cached views and each
+    player's cached game list, which shows its status, are dropped, and its
+    deadline is cleared -- there will never be another turn. Best-effort."""
+    invalidate_cache(f"games/{game_id}")
+    try:
+        for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
+            invalidate_cache(f"users/{telegram_id_val}")
+        db_service.update_game_deadline(numeric_game_id, None)
+    except SQLAlchemyError as e:
+        scheduler_logger.error(f"Failed to settle ended game {game_id}: {e}")
+
+
+def announce_draw(
+    game_id: str,
+    numeric_game_id: int,
+    winners: list[str],
+    *,
+    cause: Optional[str] = None,
+    exclude_telegram_id: Optional[str] = None,
+) -> None:
+    """Everything a game that just ended in an agreed draw announces, whichever
+    write completed the quorum (a vote, a concession, a dummy toggle; BZ1): the
+    DAIDE sessions get `DRW` (BD10), the caches and the deadline are settled,
+    and the players and the group are told (``notify_game_drawn``)."""
+    _notify_daide_drawn(game_id)
+    _settle_ended_game(game_id, numeric_game_id)
+    notify_game_drawn(
+        game_id, numeric_game_id, winners, cause=cause, exclude_telegram_id=exclude_telegram_id
+    )
 
 
 def after_draw_vote(
@@ -533,18 +570,17 @@ def after_draw_vote(
     Telegram outage must not fail a draw already committed to Postgres.
     """
     invalidate_cache(f"games/{game_id}")
-    if result.get("quorum_reached"):
-        _notify_daide_drawn(game_id)
     try:
         row = db_service.get_game_by_game_id(game_id)
         if row is None:
+            if result.get("quorum_reached"):
+                _notify_daide_drawn(game_id)
             return
         if result.get("quorum_reached"):
             # A draw ends the game inline, without a turn being processed --
-            # there will never be another one, so clear a stale deadline
-            # rather than leave it displayed by /status.
-            db_service.update_game_deadline(int(row.id), None)
-            notify_game_drawn(
+            # there will never be another one, so its deadline is cleared
+            # rather than left displayed by /status.
+            announce_draw(
                 game_id,
                 int(row.id),
                 list(result.get("winners") or []),
@@ -596,6 +632,8 @@ def _turn_ending_texts(game_id: str, winners: list[str], how: str) -> tuple[str,
         )
     if how == "no_winner":
         return f"{ended}: no power is left, so nobody wins", ""
+    if how == "only_dummies":
+        return f"{ended}: only civil-disorder powers are left, so nobody wins", ""
     return ended, ""
 
 
@@ -1172,31 +1210,31 @@ def notify_last_power_standing(
     numeric_game_id: int,
     winner: Optional[str],
     *,
-    conceded: str,
+    cause: str,
+    only_dummies: bool = False,
     exclude_telegram_id: Optional[str] = None,
 ) -> None:
-    """Announce a game a concession ended: one power is left, and it wins (BL2),
-    or ``winner`` is ``None`` and nobody is (the last powers conceded at the
-    same moment, BL6). ``conceded`` names the power whose concession ended it
-    (``power_label``).
+    """Announce a game a power leaving ended: one power is left, and it wins
+    (BL2), or ``winner`` is ``None`` and nobody is -- the last powers conceded
+    at the same moment (BL6), or ``only_dummies`` are left, with nobody to play
+    them (BZ4). ``cause`` is what ended it ("FRANCE has conceded", "ITALY is
+    now played by civil disorder").
 
-    Like a draw this ends the game without a processed turn, so it clears the
-    deadline itself and is not ``notify_turn_processed``. The concession is
-    committed; every send is best-effort. Each player's cached game list shows
-    the game's status, so it is invalidated with the game's own entries."""
-    ended = f"{conceded} has conceded, and game {game_id} has ended"
+    Like a draw this ends the game without a processed turn, so it settles the
+    deadline and the caches itself (``_settle_ended_game``) and is not
+    ``notify_turn_processed``. The write is committed; every send is
+    best-effort."""
+    ended = f"{cause}, and game {game_id} has ended"
     if winner is None:
-        text = f"{ended}: no power is left, so nobody wins."
+        nobody = "only civil-disorder powers are left" if only_dummies else "no power is left"
+        text = f"{ended}: {nobody}, so nobody wins."
     else:
         text = f"{ended}: {power_label(game_id, winner)} is the last power standing and wins."
-    invalidate_cache(f"games/{game_id}")
     if winner is None:
         # BL7: DAIDE clients get the bare `DRW` (game over, no solo) once.
         _notify_daide_drawn(game_id)
+    _settle_ended_game(game_id, numeric_game_id)
     try:
-        for telegram_id_val in db_service.get_player_telegram_ids(numeric_game_id):
-            invalidate_cache(f"users/{telegram_id_val}")
-        db_service.update_game_deadline(numeric_game_id, None)
         notify_players(
             numeric_game_id,
             text,
@@ -1211,6 +1249,33 @@ def notify_last_power_standing(
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify the end of game {game_id}: {e}")
     post_to_game_group(game_id, f"🏆 Game {game_id} has ended\n{text}")
+
+
+def announce_game_left(
+    game_id: str, how: str, *, cause: str, exclude_telegram_id: Optional[str] = None
+) -> None:
+    """Announce a game that a power leaving play ended -- a concession, or a
+    seat made a dummy -- ``how`` being ``GameService.ending``'s: a completed
+    draw quorum is announced as any agreed draw (``announce_draw``, BZ1), the
+    rest by ``notify_last_power_standing``. ``cause`` leads the text."""
+    row = db_service.get_game_by_game_id(game_id)
+    ending = game_service.ending(game_id)
+    if row is None or ending is None:
+        return
+    if how == "draw":
+        announce_draw(
+            game_id, int(row.id), ending["winners"], cause=cause, exclude_telegram_id=exclude_telegram_id
+        )
+        return
+    winners = ending["winners"]
+    notify_last_power_standing(
+        game_id,
+        int(row.id),
+        winners[0] if winners else None,
+        cause=cause,
+        only_dummies=how == "only_dummies",
+        exclude_telegram_id=exclude_telegram_id,
+    )
 
 
 def scheduled_deadline(game_id: str, now: Optional[datetime] = None) -> Optional[datetime]:

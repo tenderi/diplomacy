@@ -69,13 +69,20 @@ def test_concede_that_processes_the_turn_says_so() -> None:
 
 
 @pytest.mark.parametrize(
-    ("winners", "outcome"),
-    [(["GERMANY"], "GERMANY is the last power standing and wins"), ([], "no power is left, so nobody wins")],
+    ("winners", "how", "outcome"),
+    [
+        (["GERMANY"], "last_standing", "GERMANY is the last power standing and wins"),
+        ([], "no_winner", "no power is left, so nobody wins"),
+        # BZ4: the last human-held power conceded; only dummies are left.
+        ([], "only_dummies", "only civil-disorder powers are left, so nobody wins"),
+        # BZ1: the concession completed the draw votes already cast.
+        (["ENGLAND", "GERMANY"], "draw", "a draw shared by ENGLAND, GERMANY"),
+    ],
 )
-def test_a_concession_that_ends_the_game_says_so(winners: list[str], outcome: str) -> None:
+def test_a_concession_that_ends_the_game_says_so(winners: list[str], how: str, outcome: str) -> None:
     """BL6: the conceder is left out of the end announcement, so their reply
     tells them; it used to say "the others play on" about an ended game."""
-    result = {"status": "ok", "game_status": "COMPLETED", "winners": winners, "auto_processed": False}
+    result = {"status": "ok", "game_status": "COMPLETED", "winners": winners, "how": how, "auto_processed": False}
     with patch.object(hub, "api_post", return_value=result):
         text = hub.concede_game("7", "FRANCE", str(ME))
     assert text == f"🏳️ You have conceded game 7, and it has ended: {outcome}."

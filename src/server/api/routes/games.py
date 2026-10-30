@@ -465,13 +465,21 @@ def set_dummy_power(
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its dummy powers.")
     try:
-        dummies = game_service.set_dummy(game_id, req.power, req.dummy)
+        changed = game_service.set_dummy(game_id, req.power, req.dummy)
     except GameOverError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
+    dummies = changed["dummy_powers"]
     power = req.power.upper()
+    if changed["ended"] is not None:
+        # The new dummy completed the draw quorum (BZ1) or left only dummies
+        # in the game (BZ4): the end is the announcement.
+        api_shared.announce_game_left(
+            game_id, changed["ended"], cause=f"{power} is now played by civil disorder"
+        )
+        return {"status": "ok", "dummy_powers": dummies}
     notify_players(
         int(game_id),
         f"{power} in game {game_id} is now played by civil disorder."
@@ -809,13 +817,13 @@ def concede_game(
     ended_game = result.pop("ended_game")
     if result["game_status"] == "COMPLETED":
         # BL2: one power is left, and the game is over with it as the winner
-        # (BL6: or none is, and nobody wins). Announced once, by the concession
-        # that ended it: another conceding at the same moment returns the ended
-        # game without a second notice.
-        if row is not None and ended_game:
-            winner = result["winners"][0] if result["winners"] else None
-            api_shared.notify_last_power_standing(
-                game_id, int(row.id), winner, conceded=label, exclude_telegram_id=caller,
+        # (BL6: or none is, BZ4: or only dummies are, and nobody wins; BZ1: or
+        # the draw votes cast are now the whole quorum). Announced once, by the
+        # concession that ended it: another conceding at the same moment
+        # returns the ended game without a second notice.
+        if ended_game:
+            api_shared.announce_game_left(
+                game_id, result["how"], cause=f"{label} has conceded", exclude_telegram_id=caller
             )
         result["auto_processed"] = False
         return result

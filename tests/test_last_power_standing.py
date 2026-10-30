@@ -148,7 +148,7 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
     assert r.status_code == 200, r.text
     assert r.json() == {
         "status": "ok", "power": "FRANCE", "game_status": "COMPLETED", "eliminated": True,
-        "winners": [], "auto_processed": False,
+        "winners": [], "how": "no_winner", "auto_processed": False,
     }
     state = client.get(f"/games/{game_id}/state").json()
     assert (state["status"], state["winners"], state["units"]) == ("COMPLETED", [], [])
