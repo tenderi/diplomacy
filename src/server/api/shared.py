@@ -1628,6 +1628,10 @@ def after_turn_processed(
     carried: dict[str, list[str]] = {}
     processed = 0
     while True:
+        # The phase is read before it is checked, and that phase is the one
+        # processed: read after, it could be the phase another worker moved
+        # the game on to, which would then be processed with no orders.
+        checked_phase = (game_service.meta(game_id) or {}).get("phase_code")
         empty = (
             processed < MAX_AUTO_PHASES
             and game_service.phase_needs_nobody(game_id)
@@ -1644,7 +1648,7 @@ def after_turn_processed(
         )
         if not empty:
             return processed
-        prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
+        prev_phase_code = checked_phase
         try:
             game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
         except (StaleGameError, GameOverError):
@@ -1686,10 +1690,15 @@ def process_if_phase_needs_nobody(game_id: str, numeric_game_id: int) -> int:
     every other trigger: a ``StaleGameError`` or ``GameOverError`` means
     another worker processed it (or the game ended) first. An error processing
     it leaves the phase as it was, under its current deadline; the change that
-    led here is committed and its route still succeeds."""
+    led here is committed and its route still succeeds.
+
+    The phase is read before it is checked: read after, it could be the phase
+    another trigger has just moved the game on to, which would then be
+    processed with no orders. Read first, a phase that moved on is a
+    ``StaleGameError``."""
+    prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
     if not (game_service.phase_needs_nobody(game_id) and seats_filled(game_id, numeric_game_id)):
         return 0
-    prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
     try:
         game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
     except (StaleGameError, GameOverError):
@@ -1720,8 +1729,11 @@ def maybe_auto_process(game_id: str) -> int:
     # Checked once: no step below unseats a power.
     if row is None or not seats_filled(game_id, int(row.id)):
         return 0
-    while processed < MAX_AUTO_PHASES and game_service.ready_to_auto_process(game_id):
+    while processed < MAX_AUTO_PHASES:
+        # Read before the readiness check (see ``process_if_phase_needs_nobody``).
         prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
+        if not game_service.ready_to_auto_process(game_id):
+            break
         try:
             game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
         except (StaleGameError, GameOverError):
