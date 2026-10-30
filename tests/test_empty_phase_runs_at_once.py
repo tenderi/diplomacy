@@ -198,6 +198,8 @@ def test_a_failing_empty_phase_does_not_break_the_turn_before_it(
     db_service.update_game_deadline(int(game_id), datetime.now(timezone.utc) + timedelta(hours=1))
     _scheduled(monkeypatch)
     assert _fail_second_process(monkeypatch, {game_id}) == []
+    posted: list[str] = []
+    monkeypatch.setattr(api_shared, "post_to_game_group", lambda _g, text, **_k: posted.append(text))
     with OutboxProbe() as probe:
         resp = client.post(f"/games/{game_id}/process_turn", headers=BOT)
     # The movement is committed: the route reports it, not a 500.
@@ -207,11 +209,20 @@ def test_a_failing_empty_phase_does_not_break_the_turn_before_it(
     assert _phase(client, game_id) == "S1901R"
     # The spent movement deadline is replaced by the one the retreat phase gets.
     assert _deadline(game_id) == SLOT
+    # BX2: the players and the group are told the phase is stuck and how to move it.
+    stuck = (
+        f"⚠️ Game {game_id}: nobody has anything to order in Spring 1901 retreats, but it could not be "
+        "processed automatically. The game's creator can move it on with ⚙️ Process turn now in the game "
+        "menu (or Process turn on the web game page). "
+        "Otherwise it is processed at its deadline, 2031-03-03 16:00 UTC."
+    )
     assert probe.by_recipient()[f] == [
         f"The turn has been processed for game {game_id}.\nYour results for Spring 1901 movement:\n"
         "A BEL was dislodged by A PIC (ENGLAND).\nA PAR held.\n"
-        "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed."
+        "Your A BEL was dislodged and has nowhere to retreat: it is disbanded, no order needed.",
+        stuck,
     ]
+    assert posted == [stuck]
 
 
 def test_a_failing_empty_phase_does_not_stop_the_scheduler(
