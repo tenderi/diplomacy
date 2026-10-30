@@ -296,11 +296,17 @@ def concede_game(game_id: str, power: str, user_id: str) -> str:
     except requests.RequestException as e:
         return f"Could not concede game {game_id}: {e}"
     if result.get("game_status") == "COMPLETED":
-        # Your concession ended the game (BL2/BL6); the announcement leaves you out.
+        # Your concession ended the game (BL2/BL6/BZ1/BZ4); the announcement leaves you out.
         winners = result.get("winners") or []
-        outcome = (
-            f"{winners[0]} is the last power standing and wins" if winners else "no power is left, so nobody wins"
-        )
+        how = result.get("how")
+        if how == "draw":
+            outcome = f"a draw shared by {', '.join(winners)}"
+        elif how == "only_dummies":
+            outcome = "only civil-disorder powers are left, so nobody wins"
+        elif winners:
+            outcome = f"{winners[0]} is the last power standing and wins"
+        else:
+            outcome = "no power is left, so nobody wins"
         return f"🏳️ You have conceded game {game_id}, and it has ended: {outcome}."
     text = f"🏳️ You have conceded game {game_id}. {power}'s units are removed; the others play on."
     if result.get("auto_processed"):

@@ -474,7 +474,7 @@ class GameService:
         # BL6: a turn that leaves one power standing (or none) ends the game, in
         # the same write as the turn itself, so the turn result and the end are
         # one event and announced once (``notify_turn_processed``).
-        next_game = self._last_standing_end(next_game) or next_game
+        next_game = self._last_standing_end(next_game, self.dummy_powers(game_id)) or next_game
 
         # Record the orders players actually submitted (with truthful A/F letters
         # against the pre-adjudication board) before pending is cleared.
@@ -641,11 +641,16 @@ class GameService:
         dummies = self.dummy_powers(game_id)
         return all(p in dummies for p in powers_with_orders_to_give(self._map, state))
 
-    def set_dummy(self, game_id: str, power: str, dummy: bool) -> list[str]:
-        """Make ``power`` a civil-disorder dummy, or open it again. Returns the new set.
+    def set_dummy(self, game_id: str, power: str, dummy: bool) -> dict[str, Any]:
+        """Make ``power`` a civil-disorder dummy, or open it again. Returns
+        ``{"dummy_powers": [the new set], "ended": ...}``.
 
         Only a seat nobody holds can become a dummy; the caller checks who may do
-        this (the game's creator, or an admin). Raises ``OrderError`` for an
+        this (the game's creator, or an admin). A new dummy leaves the draw
+        quorum, so the votes already cast may now be every one needed (BZ1); and
+        if every power still in the game is then a dummy, nobody is left to play
+        (BZ4). Either ends the game here, and ``ended`` is how (``ending``'s
+        ``how``) when this call ended it, else ``None``. Raises ``OrderError`` for an
         unknown game or power, a held seat, or a change that would leave no
         human power at all; ``GameOverError`` on a finished game.
         """
@@ -666,7 +671,21 @@ class GameService:
             current.discard(power)
         updated = _check_dummy_set(sorted(current), self._map)
         self._repo.set_dummy_powers(game_id, updated)
-        return updated
+        return {"dummy_powers": updated, "ended": self._settle_after_leaving(game_id) if dummy else None}
+
+    def _settle_after_leaving(self, game_id: str) -> Optional[str]:
+        """After a power leaves play (a concession, a seat made a dummy): end
+        the game if that left nobody to play against (``_end_if_last_standing``)
+        or completed the draw quorum (``_end_if_draw_agreed``). Returns how it
+        ended (``ending``'s ``how``) when this call ended it, else ``None``."""
+        if self._end_if_last_standing(game_id) is not None:
+            ending = self.ending(game_id)
+            return ending["how"] if ending is not None else None
+        try:
+            agreed = self._end_if_draw_agreed(game_id)
+        except StaleGameError:  # the game ended, or moved on, meanwhile
+            return None
+        return "draw" if agreed is not None else None
 
     def submit_draw_vote(self, game_id: str, power: str, vote: bool) -> dict[str, Any]:
         """Record ``power``'s yes/no draw vote for the current phase.
@@ -705,37 +724,27 @@ class GameService:
             raise
         changed = bool(had_voted) and had_voted[-1] != vote
 
-        required = self._draw_quorum(game, game_id)
-        yes = {p for p in votes if p in required}
-        quorum_reached = bool(required) and required.issubset(yes)
-
-        if quorum_reached:
-            drawn = game.draw()
-            try:
-                # ``refuse_completed``: a second deciding vote cast at the same time
-                # also reached quorum; only the first may end the game and be
-                # announced.
-                self._repo.save_state(
-                    game_id,
-                    state_to_dict(drawn.state),
-                    phase_code=drawn.state.phase_name,
-                    status=drawn.state.status.value.lower(),
-                    expected_phase_code=game.state.phase_name,
-                    refuse_completed=True,
-                )  # clears pending orders and draw votes with it
-            except StaleGameError:
-                self._raise_if_ended(game_id)
-                raise
+        try:
+            # ``expected_phase_code``: a turn processed after the vote was cast
+            # (which cleared it) is the 409 the vote's own write would have been.
+            agreed = self._end_if_draw_agreed(game_id, expected_phase_code=game.state.phase_name)
+        except StaleGameError:
+            self._raise_if_ended(game_id)
+            raise
+        if agreed is not None:
+            drawn, required = agreed
             return {
                 "status": "completed",
                 "game_status": drawn.state.status.value,
                 "winners": sorted(drawn.state.winners or ()),
-                "votes": sorted(yes),
+                "votes": sorted(required),
                 "required": sorted(required),
                 "quorum_reached": True,
                 "changed": changed,
             }
 
+        required = self._draw_quorum(game, game_id)
+        yes = {p for p in votes if p in required}
         return {
             "status": "recorded",
             "game_status": game.state.status.value,
@@ -744,6 +753,57 @@ class GameService:
             "quorum_reached": False,
             "changed": changed,
         }
+
+    def _end_if_draw_agreed(
+        self, game_id: str, *, expected_phase_code: Optional[str] = None
+    ) -> Optional[tuple[Game, frozenset[str]]]:
+        """End the game as a draw if every power in the quorum (``_draw_quorum``)
+        has voted yes; returns ``(drawn game, quorum)``, or ``None`` if the
+        votes are short (or there is no quorum at all: only dummies are left).
+
+        Every write that can complete a quorum calls it after its own write: a
+        yes vote, and a concession or a dummy toggle, which shrink the quorum
+        (BZ1). The votes and the board are read here, and the save is guarded by
+        both (``expected_draw_votes``, ``expected_state_json``), so a vote
+        withdrawn or a concession landing in between is decided again on the new
+        inputs; ``refuse_completed`` lets only the first of two writes that both
+        complete the quorum end the game, and announce it.
+
+        Raises ``StaleGameError`` when the game has ended, or (given
+        ``expected_phase_code``) has moved on to another phase."""
+        for _ in range(_ADJUDICATION_ATTEMPTS):
+            stored = self._repo.get_state_json(game_id)
+            if stored is None:
+                return None
+            game = Game(map=self._map, state=state_from_dict(stored))
+            if expected_phase_code is not None and game.state.phase_name != expected_phase_code:
+                raise StaleGameError(
+                    f"game {game_id}: expected phase {expected_phase_code!r} but the "
+                    f"persisted phase is {game.state.phase_name!r} -- already processed "
+                    "concurrently"
+                )
+            if game.state.status is GameStatus.COMPLETED:
+                raise StaleGameError(f"game {game_id} has already ended")
+            votes = self._repo.get_draw_votes(game_id)
+            required = self._draw_quorum(game, game_id)
+            if not required or not required.issubset(votes):
+                return None
+            drawn = game.draw()
+            try:
+                self._repo.save_state(
+                    game_id,
+                    state_to_dict(drawn.state),
+                    phase_code=drawn.state.phase_name,
+                    status=drawn.state.status.value.lower(),
+                    expected_phase_code=game.state.phase_name,
+                    expected_state_json=stored,
+                    expected_draw_votes=votes,
+                    refuse_completed=True,
+                )  # clears pending orders and draw votes with it
+            except PhaseInputsChangedError:  # a vote or a concession landed in between
+                continue
+            return drawn, required
+        return None  # pragma: no cover -- the inputs changed on every attempt
 
     def _raise_if_ended(self, game_id: str, action: str = "draw votes are no longer accepted") -> None:
         """After a ``StaleGameError``: raise ``GameOverError`` (saying how the game
@@ -798,7 +858,11 @@ class GameService:
         """``power`` voluntarily leaves the game.
 
         Distinct from a draw: this does **not** end the game -- the remaining
-        powers play on. Removes all of ``power``'s units from the board **and
+        powers play on -- unless it leaves nobody to play against
+        (``_end_if_last_standing``) or the draw votes already cast are now the
+        whole quorum (``_end_if_draw_agreed``, BZ1). ``how`` says how the game
+        ended (``ending``'s ``how``), ``None`` while it goes on;
+        ``ended_game`` whether this call ended it. Removes all of ``power``'s units from the board **and
         releases its supply centers** (they become neutral, exactly like the
         unowned centers at game start, until someone occupies one at a Fall
         settle). Both halves matter: until ``v2.7.71`` only the units went, on
@@ -862,23 +926,26 @@ class GameService:
         self._repo.modify_draw_votes(game_id, lambda votes: {p: v for p, v in votes.items() if p != power})
 
         eliminated = power in Game(map=self._map, state=new_state).eliminated_powers()
-        ended = self._end_if_last_standing(game_id)
+        how = self._settle_after_leaving(game_id)
         result: dict[str, Any] = {
             "status": "ok",
             "power": power,
             "game_status": new_state.status.value,
             "eliminated": eliminated,
             "winners": [],
-            "ended_game": ended is not None,
+            "ended_game": how is not None,
+            "how": how,
         }
-        if ended is None:
-            # Two last powers conceding at once: the other request may have
-            # ended the game in between, and this one must not report it as
-            # going on (nor announce "the remaining powers play on").
-            ended = self.load(game_id)
+        # Two last powers conceding at once: the other request may have ended
+        # the game in between, and this one must not report it as going on (nor
+        # announce "the remaining powers play on").
+        ended = self.load(game_id)
         if ended is not None and ended.state.status is GameStatus.COMPLETED:
             result["game_status"] = ended.state.status.value
             result["winners"] = sorted(ended.state.winners or ())
+            if how is None:
+                ending = self.ending(game_id)
+                result["how"] = ending["how"] if ending is not None else None
         return result
 
     def _end_if_last_standing(self, game_id: str) -> Optional[Game]:
@@ -900,7 +967,7 @@ class GameService:
             if stored is None:
                 return None
             game = Game(map=self._map, state=state_from_dict(stored))
-            ended = self._last_standing_end(game)
+            ended = self._last_standing_end(game, self.dummy_powers(game_id))
             if ended is None:
                 return None
             try:
@@ -920,25 +987,31 @@ class GameService:
             return ended
         return None  # pragma: no cover -- a concession on every attempt
 
-    def _last_standing_end(self, game: Game) -> Optional[Game]:
+    def _last_standing_end(self, game: Game, dummies: frozenset[str]) -> Optional[Game]:
         """``game`` ended for want of opponents, or ``None`` if it goes on (or
         already ended). One power not eliminated wins alone; none left (the last
         powers conceded at the same moment) ends it with no winners
-        (``winners`` empty, not ``None``). Like a draw, a direct state
-        transition: the board and phase are kept as they are."""
+        (``winners`` empty, not ``None``), and so do several left that are all
+        civil-disorder ``dummies`` (BZ4): nobody is left to play them on. A seat
+        its player quit is not a dummy -- it can be taken again -- and keeps the
+        game going. Like a draw, a direct state transition: the board and phase
+        are kept as they are."""
         if game.state.status is GameStatus.COMPLETED:
             return None
         survivors = frozenset(self._map.home_centers) - game.eliminated_powers()
-        if len(survivors) > 1:
-            return None
-        return game.draw(survivors)
+        if len(survivors) <= 1:
+            return game.draw(survivors)
+        if survivors <= dummies:
+            return game.draw(frozenset())
+        return None
 
     def ending(self, game_id: str) -> Optional[dict[str, Any]]:
         """How a finished game ended, ``None`` while it goes on (or for an
         unknown game): ``{"winners": [...], "how": ...}`` where ``how`` is
         ``"solo"`` (one winner holding ``VICTORY_CENTERS`` centres),
         ``"last_standing"`` (one winner, everyone else eliminated), ``"draw"``
-        (several) or ``"no_winner"`` (nobody was left)."""
+        (several), ``"no_winner"`` (nobody was left) or ``"only_dummies"`` (no
+        winner: the powers left are all civil-disorder dummies, BZ4)."""
         game = self.load(game_id)
         if game is None or game.state.status is not GameStatus.COMPLETED:
             return None
@@ -946,7 +1019,8 @@ class GameService:
         if len(winners) > 1:
             how = "draw"
         elif not winners:
-            how = "no_winner"
+            left = frozenset(self._map.home_centers) - game.eliminated_powers()
+            how = "only_dummies" if left else "no_winner"
         elif sum(1 for o in game.state.ownership.values() if o == winners[0]) >= VICTORY_CENTERS:
             how = "solo"
         else:

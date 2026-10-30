@@ -301,9 +301,12 @@ calls (see architecture.md, "A turn is processed only at a full table"). Orders,
 votes and concessions get the same 409 and header, the detail prefixed with
 `Game N hasn't started: `, until the table is full or a turn has been processed
 (architecture.md, "Nothing is played before the game starts"); `POST /games/{id}/concede`
-returns `{status, power, game_status, eliminated, winners, auto_processed}`, `winners`
+returns `{status, power, game_status, eliminated, winners, how, auto_processed}`, `winners`
 naming the last power standing when the concession ended the game (else `[]`; a
-concession that left nobody also ends it, `game_status: "COMPLETED"` with `winners: []`).
+concession that left nobody, or only dummies, also ends it, `game_status: "COMPLETED"` with
+`winners: []`), or the draw's sharers when it completed the draw votes already cast. `how` is
+`null` while the game goes on, else `GameService.ending`'s: `"last_standing"`, `"no_winner"`,
+`"only_dummies"` or `"draw"`.
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):
