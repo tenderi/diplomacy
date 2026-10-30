@@ -223,3 +223,35 @@ def test_spending_a_deadline_needs_the_phase_and_deadline_the_scheduler_saw(clie
     assert db_service.get_game_by_game_id(game_id).deadline == seen.replace(tzinfo=None)
     assert db_service.replace_game_deadline_if_unchanged(numeric, seen, "S1901M", None) is True
     assert db_service.get_game_by_game_id(game_id).deadline is None
+
+
+def test_a_vacated_seat_keeps_the_deadline_running_and_retaking_it_leaves_it(client: TestClient) -> None:
+    """BY1: a seat its player quit still counts as seated, so quitting neither
+    clears nor spends the deadline, the scheduler processes the turn at it (the
+    vacant power's units hold), and retaking the seat leaves the deadline the
+    schedule set -- there is nothing to re-arm."""
+    game_id, _ = _game(
+        client,
+        ["AUSTRIA", "ENGLAND", "FRANCE", "ITALY", "RUSSIA"],
+        ["GERMANY", "TURKEY"],
+        deadline_schedule="mon 18:00",
+        deadline_timezone="UTC",
+    )
+    numeric = int(db_service.get_game_by_game_id(game_id).id)
+    armed = db_service.get_game_by_game_id(game_id).deadline
+    assert armed is not None  # the join that filled the table armed it
+    turkey = db_service.get_player_by_game_id_and_power(game_id=game_id, power="TURKEY")
+    quitter = db_service.get_user_by_id(int(turkey.user_id)).telegram_id
+    assert client.post(f"/games/{game_id}/quit", json=_as(quitter)).status_code == 200
+    assert shared.unseated_powers(game_id, numeric) == []
+    assert db_service.get_game_by_game_id(game_id).deadline == armed
+
+    process_due_deadlines(armed.replace(tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=1))
+    assert _phase(game_id) == "F1901M"
+    next_slot = db_service.get_game_by_game_id(game_id).deadline
+    assert next_slot is not None and (next_slot.weekday(), next_slot.hour) == (0, 18)  # the new phase's slot
+
+    retaker = _telegram_user(client, "retaker")
+    joined = client.post(f"/games/{game_id}/join", json=_as(retaker, power="TURKEY"))
+    assert joined.status_code == 200 and joined.json()["status"] == "ok", joined.text
+    assert db_service.get_game_by_game_id(game_id).deadline == next_slot

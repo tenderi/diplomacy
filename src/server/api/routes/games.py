@@ -1088,7 +1088,8 @@ def join_game(
         # Dummies fill their seats too (W9): 5 humans + 2 dummies is a full game.
         # Only a *new* seat can complete the table: taking over a vacated one
         # (its row already counted) is a replacement mid-game, and used to
-        # re-announce "the game has started" to everyone.
+        # re-announce "the game has started" to everyone. Nor does it need a
+        # deadline armed: a vacated seat never stopped the one running (BY1).
         if game is not None and taken is None and api_shared.seats_filled(str(game_id), int(game.id)):
             # A weekly schedule arms the first deadline now the game has started.
             first = api_shared.arm_scheduled_deadline(str(game_id), int(game.id))
