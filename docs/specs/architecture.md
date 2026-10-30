@@ -321,6 +321,18 @@ is in after all this. The DAIDE `ORD`s for each processed phase carry that phase
 resolution, read when it was processed (not the stored `last_resolution`, which the empty
 phase after it has replaced by the time the broadcast runs).
 
+A phase can also become empty while it stands (BX1): the creator makes the only power
+still owing a retreat, build or disband a dummy (`POST /games/{id}/dummies`), that power
+concedes (`POST /games/{id}/concede`), or the seat completing the table is taken
+(`POST /games/{id}/join`) while the phase needs only dummies. Each of those routes, after its
+change is committed and announced, calls `api.shared.process_if_phase_needs_nobody`, which
+processes the phase through the same phase-checked `process_turn` and `after_turn_processed`
+when it needs nobody and the table is full, whatever `auto_process` says, so the players
+read the change before the turn it caused. A `StaleGameError` or `GameOverError` means
+another worker (or the game's end) got there first; an error processing it is logged and
+leaves the phase under its current deadline, and the route still answers 200 for the change.
+A player quitting is not such a change: the vacated seat's power still owes its orders.
+
 **Each player is told what the turn did to their own units** (BW1), in a block after those
 lines (`GameService.turn_outcomes`, `api.shared.turn_results_lines`): "Your results for
 Spring 1901 movement:" and then one line per unit, sorted by province, worded like the web's
