@@ -596,14 +596,18 @@ messages by `recipient_power`, so whoever takes a seat (`/replace`, `/join` on a
 seat) reads every message sent to that power before they held it: the newcomer learns what
 was promised to the power they now play. This is the maintainer's decision (issue #253).
 
-**A `COMPLETED` game accepts no writes.** `GameService.submit_orders`, `process_turn`,
+**A `COMPLETED` game accepts no writes, except press.** `/message` and `/broadcast` stay open
+on purpose: a post-mortem chat is a normal Diplomacy custom (BZ5). `GameService.submit_orders`, `process_turn`,
 `submit_draw_vote` and `concede` all raise `GameOverError` (a `ValueError`, deliberately *not*
 an `OrderError` — routes map that to 404, and a finished game is found) once
 `state.status is COMPLETED`; the routes answer **409** with a message naming the outcome
 (`Game 12 is drawn between FRANCE, GERMANY; no further orders are accepted`, the clause fitted to the action), the bot
 shows that `detail` verbatim, and the DAIDE session answers `REJ`. `orders_status` reports no
 active or missing powers, `legal_orders` offers nothing (empty `units`, `orders_by_unit`, `orders`),
-and `draw_vote_status` of a draw-ended game reports the sharers as the votes (quorum reached).
+and `draw_vote_status` of a draw-ended game reports the sharers as the votes (quorum reached);
+of a game ended any other way it reports no required, voting or missing powers. `/replace` and
+`/join` answer 409 on a finished game, deadline withdraw likewise, and `GET .../deadline` shows
+no pending proposal for one.
 
 **Rules for adding a notification.**
 
