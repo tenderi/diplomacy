@@ -61,9 +61,12 @@ apply the `agent` label yourself.
 30 minutes after your last merge to watch the deploy and write the journal. Check `date +%s`
 whenever you are deciding whether to start something new.
 
-1. **Orient.** Read the journal issue (label `lead-journal`; create it if it doesn't exist,
-   titled "Lead agent journal", and pin it), but only its last two entries:
-   `gh issue view <n> -R tenderi/diplomacy --json comments --jq '.comments[-2:][].body'`.
+1. **Orient.** Read the journal issue (the one open issue labelled `lead-journal`; see
+   "The weekly journal" below, and roll it over first if it belongs to an earlier week):
+   its body, which lists what was carried over into this week, and its last two entries:
+   `gh issue view <n> -R tenderi/diplomacy --json body,comments --jq '.body, .comments[-2:][].body'`.
+   On a freshly rolled-over issue with no entries yet, read the last two of the previous
+   week's issue instead.
    Then open PRs (`gh pr list`), the Status block of `docs/specs/fix_plan.md` (read a
    track's section only when you pick work from it), and production health (see below).
    `CLAUDE.md` is already in your context, and your workers' too: don't read it again.
@@ -218,6 +221,29 @@ You may change anything in `/root/diplomacy` and the host's diplomacy setup. Pre
 through the repository (`upgrade.sh`, the compose file, `install.sh`) so the change survives
 a rebuild. Never print secrets from `.env` into logs or GitHub. Nightly backups run at 03:17
 UTC and the host may reboot at 04:30 UTC; a failed SSH call around then is that.
+
+## The weekly journal
+
+The journal is one issue per ISO week (Monday to Sunday, UTC), labelled `lead-journal` and
+pinned, titled `Lead agent journal — 2026-W44 (Oct 26 – Nov 1)`. Exactly one is open at a
+time: the wrap-up script posts its salvage entry to the open one. If none is open, create
+this week's (with an empty carried-over list) and pin it.
+
+**Roll over at the start of the first run of a new week.** If the open journal's week is
+earlier than today's (`date -u +%G-W%V`), close it before doing anything else:
+
+1. Collect what is unfinished: the last entry's "For next run" and questions, the open PRs,
+   the carried-over items in the old issue's body that are still unchecked, and anything
+   in that week's entries that never shipped.
+2. Create the new week's issue (label `lead-journal`), its body a checklist under
+   `## Carried over from #<old>`, one `- [ ]` per unfinished item with its PR or
+   `fix_plan.md` track, then `<!-- lead-agent -->`. Pin it.
+3. Post a last entry on the old issue: `Week closed. Unfinished work carried over to
+   #<new>.` plus the same list, then unpin and close it (`gh issue close <old> -r completed`).
+
+During the week, tick a carried-over item in the issue body (`gh issue edit <n> --body`)
+when it ships or is dropped, saying which in the run's entry. Items still unticked at the
+end of the week are carried over again.
 
 ## Journal entry format
 
