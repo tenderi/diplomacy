@@ -1685,18 +1685,25 @@ def empty_phase_failed(game_id: str, numeric_game_id: int, phase_code: Optional[
     from a processed turn or a player's change (a dummy, a concession, a join),
     and the deadline scheduler's own failure branch sends nothing."""
     scheduler_logger.exception("Failed to process empty phase %s of game %s", phase_code, game_id)
-    row = db_service.get_game_by_id(numeric_game_id)
-    deadline = row.deadline if row is not None else None
     label = phase_label(phase_code) if phase_code else "the current phase"
-    when = (
-        f"Otherwise it is processed at its deadline, {format_scheduled_deadline(deadline, game_schedule(game_id))}."
-        if deadline is not None
-        else "No deadline is set, so until then the game waits."
-    )
+    try:
+        row = db_service.get_game_by_id(numeric_game_id)
+    except SQLAlchemyError as e:
+        # The change that led here is committed: a failed read only drops the
+        # deadline sentence, it must not turn the caller's 200 into a 500.
+        scheduler_logger.error(f"Failed to read the deadline of stuck game {game_id}: {e}")
+        when = ""
+    else:
+        deadline = row.deadline if row is not None else None
+        when = " " + (
+            f"Otherwise it is processed at its deadline, {format_scheduled_deadline(deadline, game_schedule(game_id))}."
+            if deadline is not None
+            else "No deadline is set, so until then the game waits."
+        )
     text = (
         f"⚠️ Game {game_id}: nobody has anything to order in {label}, but it could not be "
         f"processed automatically. The game's creator can move it on with ⚙️ Process turn now "
-        f"in the game menu (or Process turn on the web game page). {when}"
+        f"in the game menu (or Process turn on the web game page).{when}"
     )
     try:
         notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
