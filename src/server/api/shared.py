@@ -1671,6 +1671,35 @@ def after_turn_processed(
 MAX_AUTO_PHASES = 6
 
 
+def process_if_phase_needs_nobody(game_id: str, numeric_game_id: int) -> int:
+    """BX1: process the current phase now if it needs nobody
+    (``GameService.phase_needs_nobody``) and every seat is filled, whatever
+    ``auto_process`` says. ``after_turn_processed`` does this for a phase a
+    processed turn leads into; this is for a phase that became empty some other
+    way -- the creator made the only power still owing a retreat, build or
+    disband a dummy, or that power conceded -- and would otherwise wait for its
+    deadline, or, with no deadline, for ever. Call it after the change is
+    committed and announced, so the players read the change before the turn it
+    caused. Returns how many phases it processed.
+
+    The same phase-checked ``process_turn`` and ``after_turn_processed`` as
+    every other trigger: a ``StaleGameError`` or ``GameOverError`` means
+    another worker processed it (or the game ended) first. An error processing
+    it leaves the phase as it was, under its current deadline; the change that
+    led here is committed and its route still succeeds."""
+    if not (game_service.phase_needs_nobody(game_id) and seats_filled(game_id, numeric_game_id)):
+        return 0
+    prev_phase_code = (game_service.meta(game_id) or {}).get("phase_code")
+    try:
+        game_service.process_turn(game_id, expected_phase_code=prev_phase_code)
+    except (StaleGameError, GameOverError):
+        return 0
+    except Exception:  # noqa: BLE001 -- boundary: the change that emptied the phase is committed
+        scheduler_logger.exception("Failed to process empty phase %s of game %s", prev_phase_code, game_id)
+        return 0
+    return 1 + after_turn_processed(game_id, numeric_game_id, prev_phase_code=prev_phase_code, trigger="auto")
+
+
 def maybe_auto_process(game_id: str) -> int:
     """W10: process the turn now if the game has ``auto_process`` on, every power
     that has something to order has submitted, nobody has asked to wait, and
