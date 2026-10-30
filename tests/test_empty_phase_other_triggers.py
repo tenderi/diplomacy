@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from server.api import app
 from server.api import shared as api_shared
@@ -195,6 +196,35 @@ def test_a_failure_processing_the_emptied_phase_leaves_the_change_standing(
     # Logged at ERROR, which the admin alert handler DMs to the maintainer.
     assert [r.getMessage() for r in caplog.records if r.levelname == "ERROR"] == [
         f"Failed to process empty phase W1901A of game {game_id}"
+    ]
+
+
+def test_a_failed_deadline_read_drops_only_the_deadline_sentence(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_id, _creator, tgs = _table(client)
+    _winter(game_id, without=["KIE"])
+
+    def broken_read(_numeric_id: int) -> None:
+        raise OperationalError("SELECT", {}, Exception("db gone"))
+
+    def boom(gid: str, expected_phase_code: str | None = None) -> dict[str, Any]:
+        # The database fails from here on, while the notice reads the deadline.
+        monkeypatch.setattr(db_service, "get_game_by_id", broken_read)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(game_service, "process_turn", boom)
+    posted: list[str] = []
+    monkeypatch.setattr(
+        api_shared, "post_to_game_group", lambda _g, text, **_k: posted.append(text)
+    )
+    resp = client.post(f"/games/{game_id}/concede", json=_as(tgs["GERMANY"], power="GERMANY"))
+    # The concession is committed: a failed read must not turn it into a 500.
+    assert resp.status_code == 200, resp.text
+    assert posted == [
+        f"⚠️ Game {game_id}: nobody has anything to order in Winter 1901 builds, but it could not be "
+        "processed automatically. The game's creator can move it on with ⚙️ Process turn now in the game "
+        "menu (or Process turn on the web game page)."
     ]
 
 
