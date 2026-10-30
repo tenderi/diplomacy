@@ -472,15 +472,17 @@ def set_dummy_power(
         raise HTTPException(status_code=400, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
     power = req.power.upper()
-    if req.dummy:
-        # The new dummy may have been the last power being waited on (W10).
-        api_shared.maybe_auto_process(game_id)
     notify_players(
         int(game_id),
         f"{power} in game {game_id} is now played by civil disorder."
         if req.dummy
         else f"{power} in game {game_id} is open again -- /join {game_id} to take it.",
     )
+    if req.dummy:
+        # The new dummy may have been the only power the phase needed (BX1),
+        # or the last one being waited on (W10).
+        api_shared.process_if_phase_needs_nobody(game_id, int(game_id))
+        api_shared.maybe_auto_process(game_id)
     return {"status": "ok", "dummy_powers": dummies}
 
 
@@ -833,8 +835,10 @@ def concede_game(
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify concession for game %s", game_id)
-    # The leaver may have been the last power the turn was waiting on (W10).
-    result["auto_processed"] = api_shared.maybe_auto_process(game_id)
+    # The leaver may have been the only power the phase needed (BX1), or the
+    # last one the turn was waiting on (W10).
+    processed = api_shared.process_if_phase_needs_nobody(game_id, int(row.id)) if row is not None else 0
+    result["auto_processed"] = processed + api_shared.maybe_auto_process(game_id)
     return result
 
 
@@ -1101,6 +1105,12 @@ def join_game(
     if telegram_id_val:
         # The bot resolves "which game am I in" from this list right after a join.
         invalidate_cache(f"users/{telegram_id_val}")
+    if taken is None:
+        # The seat that completes the table may leave a phase that needs nobody
+        # free to run (BX1): one reached while a seat stood open.
+        filled = db_service.get_game_by_game_id(str(game_id))
+        if filled is not None:
+            api_shared.process_if_phase_needs_nobody(str(game_id), int(filled.id))
     return {"status": "ok", "player_id": player_id, "power": power}
 
 def _title_power(label: str, power: str) -> str:
