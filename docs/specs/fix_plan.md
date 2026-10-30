@@ -151,6 +151,8 @@
 - [ ] **BZ5** Press after game end: architecture.md says a COMPLETED game accepts no writes, but
   `/message` and `/broadcast` are accepted. Decision: post-game press stays allowed (post-mortem
   chat); correct the spec.
+- [ ] **BZ6** `/replace` does not refuse a seat listed in `dummy_powers` (`/join` does), so a
+  replace can leave a power both seated and a dummy. It should be refused the same way.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
