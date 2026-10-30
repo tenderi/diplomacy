@@ -1660,12 +1660,56 @@ def after_turn_processed(
             # The game stays in the empty phase. It gets the deadline a phase
             # gets (the folded call left the spent one armed), and the lines
             # the turn before it produced still reach its players.
-            scheduler_logger.exception("Failed to process empty phase %s of game %s", prev_phase_code, game_id)
             db_service.update_game_deadline(numeric_game_id, scheduled_deadline(game_id))
             invalidate_cache(f"games/{game_id}")
             send_carried(game_id, carried)
+            empty_phase_failed(game_id, numeric_game_id, prev_phase_code)
             return processed
         processed += 1
+
+
+def empty_phase_failed(game_id: str, numeric_game_id: int, phase_code: Optional[str]) -> None:
+    """BX2: processing a phase that needs nobody raised (in ``after_turn_processed``
+    or ``process_if_phase_needs_nobody``; call it from the ``except`` branch, so
+    the log carries the traceback). The game stays in that phase.
+
+    The error is logged at ERROR, which ``install_admin_alerts`` DMs to the
+    maintainer. The players (DM) and the game's group are told that the phase
+    could not be processed automatically, that the game's creator can move it on
+    with "Process turn now", and when its deadline will try again -- or, with no
+    deadline set, that the game waits for that. No fallback deadline is armed:
+    deadlines exist only when set or scheduled (Track N), and the creator's
+    process or a deadline they set runs the same ``process_turn`` a timer would.
+
+    One notice per failure, never on a timer: these branches are reached only
+    from a processed turn or a player's change (a dummy, a concession, a join),
+    and the deadline scheduler's own failure branch sends nothing."""
+    scheduler_logger.exception("Failed to process empty phase %s of game %s", phase_code, game_id)
+    label = phase_label(phase_code) if phase_code else "the current phase"
+    try:
+        row = db_service.get_game_by_id(numeric_game_id)
+    except SQLAlchemyError as e:
+        # The change that led here is committed: a failed read only drops the
+        # deadline sentence, it must not turn the caller's 200 into a 500.
+        scheduler_logger.error(f"Failed to read the deadline of stuck game {game_id}: {e}")
+        when = ""
+    else:
+        deadline = row.deadline if row is not None else None
+        when = " " + (
+            f"Otherwise it is processed at its deadline, {format_scheduled_deadline(deadline, game_schedule(game_id))}."
+            if deadline is not None
+            else "No deadline is set, so until then the game waits."
+        )
+    text = (
+        f"⚠️ Game {game_id}: nobody has anything to order in {label}, but it could not be "
+        f"processed automatically. The game's creator can move it on with ⚙️ Process turn now "
+        f"in the game menu (or Process turn on the web game page).{when}"
+    )
+    try:
+        notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
+    except (SQLAlchemyError, OSError) as e:
+        scheduler_logger.error(f"Failed to notify the stuck phase of game {game_id}: {e}")
+    post_to_game_group(game_id, text)
 
 
 # Cap on phases one auto-processing call may run back to back. A retreat or
@@ -1704,7 +1748,7 @@ def process_if_phase_needs_nobody(game_id: str, numeric_game_id: int) -> int:
     except (StaleGameError, GameOverError):
         return 0
     except Exception:  # noqa: BLE001 -- boundary: the change that emptied the phase is committed
-        scheduler_logger.exception("Failed to process empty phase %s of game %s", prev_phase_code, game_id)
+        empty_phase_failed(game_id, numeric_game_id, prev_phase_code)
         return 0
     return 1 + after_turn_processed(game_id, numeric_game_id, prev_phase_code=prev_phase_code, trigger="auto")
 
