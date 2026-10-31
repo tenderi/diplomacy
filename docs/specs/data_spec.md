@@ -446,7 +446,9 @@ Moves and convoys. A non-adjacent **army** move between two coastal provinces is
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
 `A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). Any other
 non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
-province (`LON cannot move to its own province`). A fleet moving to a split-coast province
+province (`LON cannot move to its own province`); a support of a move into the supporter's
+own province is refused as such (`VEN cannot support a move into its own province`), not as
+out of reach. A fleet moving to a split-coast province
 (BUL, SPA, STP) without naming a coast is accepted when exactly one coast is reachable from
 where it stands (`F BLA - BUL` arrives on BUL/EC; the adjudicator infers it), refused as
 ambiguous when both are (`fleet move into split-coast BUL must name a coast (BUL/EC or
@@ -467,9 +469,11 @@ unit stands there`, `a standoff left it empty this turn, and no unit may retreat
 `it is not adjacent to PAR`.
 
 In an adjustment phase an order must also be on the right side of the power's delta
-(centres minus units), checked after the order's own checks: a `Build` or `Waive` needs a
-positive delta and a `Disband` a negative one (`FRANCE has no unit to disband (3 supply
-centres, 1 unit); it may build 2 units`). The adjudicator voids anything else. The *count*
+(centres minus units): a `Build` or `Waive` needs a positive delta and a `Disband` a
+negative one (`FRANCE has no unit to disband (3 supply centres, 1 unit); it may build 2
+units`). For a power that owes the other way this is checked *before* the order's own
+checks, so `BUILD A BER` from a power owing disbands says it must disband, not that BER is
+occupied; at a zero delta the order's own reason comes first (`no unit to disband at PIC`). The adjudicator voids anything else. The *count*
 is a whole-submission rule and lives in `GameService._check_orders`: a submission may hold
 at most `adjustments_owed` builds/waives (the delta, capped at the vacant owned home
 centres — the `adjustment.slots` of `legal_orders`, which also carries the `centers` and `units` the delta is made of) or disbands; the later ones beyond it
