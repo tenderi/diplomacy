@@ -459,11 +459,49 @@ class TestConvoyChains:
     def test_an_army_is_offered_every_shore_of_the_chain(self) -> None:
         data = _assert_all_orders_valid(_MAP, self._state(), "ENGLAND")
         via = [o for o in data["orders_by_unit"]["A LON"] if o.endswith(" VIA")]
-        # ENG + MAO touch these; WAL, being next to LON, is an ordinary move instead.
+        # ENG + MAO touch these. WAL is next to LON, so it is offered both as an
+        # ordinary move and by convoy.
         assert via == [
             "A LON - BEL VIA", "A LON - BRE VIA", "A LON - GAS VIA", "A LON - NAF VIA",
-            "A LON - PIC VIA", "A LON - POR VIA", "A LON - SPA VIA",
+            "A LON - PIC VIA", "A LON - POR VIA", "A LON - SPA VIA", "A LON - WAL VIA",
         ]
+        assert "A LON - WAL" in data["orders_by_unit"]["A LON"]
+
+    def test_an_army_is_offered_a_convoy_into_a_neighbour(self) -> None:
+        """``A X - Y VIA`` into an adjacent Y is the only way to ask for a
+        (foreign) convoy there instead of walking (DATC 6.G.7); the menus
+        offered only the land move, so the web and bot could not order it."""
+        state = GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({
+                Unit(UnitKind.ARMY, "ENGLAND", Location("PIC")),
+                Unit(UnitKind.FLEET, "FRANCE", Location("ENG")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("BEL")),
+            }),
+            ownership={},
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]["A PIC"]
+        assert "A PIC - BEL VIA" in bucket
+        assert "A PIC - BRE VIA" in bucket
+        assert "A PIC - BEL" in bucket
+        # The foreign convoy carries it: the swap with A BEL succeeds (6.G.7's point).
+        orders = [
+            parse_order("A PIC - BEL VIA", power="ENGLAND", map=_MAP),
+            parse_order("F ENG C A PIC - BEL", power="FRANCE", map=_MAP),
+            parse_order("A BEL - PIC", power="FRANCE", map=_MAP),
+        ]
+        _, after = Game(map=_MAP, state=state).adjudicate(orders)
+        assert Unit(UnitKind.ARMY, "ENGLAND", Location("BEL")) in after.state.units
+        assert Unit(UnitKind.ARMY, "FRANCE", Location("PIC")) in after.state.units
+
+    def test_no_convoy_into_a_neighbour_without_a_fleet(self) -> None:
+        state = GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset({Unit(UnitKind.ARMY, "ENGLAND", Location("PIC"))}),
+            ownership={},
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]["A PIC"]
+        assert [o for o in bucket if o.endswith(" VIA")] == []
 
     def test_each_fleet_of_a_chain_can_carry_it_and_the_convoy_resolves(self) -> None:
         state = self._state()

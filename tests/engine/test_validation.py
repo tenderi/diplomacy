@@ -193,6 +193,15 @@ class TestSupport:
         result = validate(order, state, m)
         assert result.ok is False
 
+    def test_support_move_into_own_province_says_so(self, m):
+        """``A VEN S A MUN - VEN`` answered "VEN cannot reach VEN to support a move"."""
+        state = _state([Unit(UnitKind.ARMY, "ITALY", Location("VEN"))])
+        order = parse_order("A VEN S A MUN - VEN", power="ITALY", map=m)
+        result = validate(order, state, m)
+        assert (result.ok, result.reason) == (
+            False, "VEN cannot support a move into its own province"
+        )
+
 
 class TestConvoy:
     def test_convoy_ok(self, m):
@@ -474,6 +483,29 @@ class TestAdjustmentDirection:
         assert (result.ok, result.reason) == (
             False, "FRANCE has no unit to disband (3 supply centres, 1 unit); it may build 2 units"
         )
+
+    def test_build_on_an_occupied_centre_while_owing_disbands_names_the_disbands(self, m):
+        """``BUILD A PAR`` with A PAR standing there, from a power owing a
+        disband, answered "PAR is occupied" -- true, and no help."""
+        state = _state([self.PAR, self.BUR], ownership={"PAR": "FRANCE"},
+                       phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Build("FRANCE", Location("PAR"), UnitKind.ARMY), state, m)
+        assert (result.ok, result.reason) == (
+            False, "FRANCE has no build to make (1 supply centre, 2 units); it must disband 1 unit"
+        )
+
+    def test_disband_of_no_unit_while_owed_builds_names_the_builds(self, m):
+        state = _state([self.BUR], ownership={"PAR": "FRANCE", "MAR": "FRANCE"},
+                       phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Disband("FRANCE", Location("PIC")), state, m)
+        assert (result.ok, result.reason) == (
+            False, "FRANCE has no unit to disband (2 supply centres, 1 unit); it may build 1 unit"
+        )
+
+    def test_at_delta_zero_the_orders_own_reason_comes_first(self, m):
+        state = _state([self.PAR], ownership={"PAR": "FRANCE"}, phase_type=PhaseType.ADJUSTMENT)
+        result = validate(Disband("FRANCE", Location("PIC")), state, m)
+        assert (result.ok, result.reason) == (False, "no unit to disband at PIC")
 
     def test_retreat_phase_disband_is_not_counted(self, m):
         du = DislodgedUnit(self.PAR)
