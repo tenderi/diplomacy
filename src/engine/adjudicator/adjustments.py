@@ -184,13 +184,16 @@ def _civil_disorder_order(map: MapData, power: str, units: list[Unit]) -> list[U
     """Units in the order they are removed under civil disorder.
 
     Farthest from the nearest home SC first; ties: fleet before army; then
-    province name alphabetically.
+    alphabetically by the province's name ("Norway" before "Norwegian Sea"),
+    not its abbreviation (NWG < NWY), as the rulebook says. The names come from
+    the map's `display_names`; the abbreviation only breaks a tie between names.
     """
 
-    def key(u: Unit) -> tuple[int, int, str]:
+    def key(u: Unit) -> tuple[int, int, str, str]:
         dist = _distance_to_home(map, power, u)
         fleet_first = 0 if u.kind is UnitKind.FLEET else 1
-        return (-dist, fleet_first, u.province)
+        name = map.display_names.get(u.province, u.province).casefold()
+        return (-dist, fleet_first, name, u.province)
 
     return sorted(units, key=key)
 
