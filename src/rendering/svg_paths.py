@@ -109,7 +109,7 @@ def _color_provinces_by_power_with_transparency(
             for unit in unit_list:
                 parts = unit.split()
                 if len(parts) == 2:
-                    prov = parts[1].upper()
+                    prov = parts[1].upper().split("/")[0]  # the province, not its coast
                     # Only override if this is not a dislodged unit
                     if not prov.startswith("DISLODGED_"):
                         province_power_map[prov] = color
