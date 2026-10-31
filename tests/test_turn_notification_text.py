@@ -154,7 +154,12 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
     ]
     # After several lines the deadline gets its own (BW1).
     assert messages["AUSTRIA"] == [f"{head} your orders are due.\nYou must disband 1 unit. With no order, civil disorder picks which units are disbanded.\nNext deadline: 2026-10-05 16:00 UTC."]
-    for power in ("ENGLAND", "GERMANY", "ITALY", "RUSSIA", "TURKEY"):
+    # Italy is one centre up with every home centre occupied: the build is waived, and it is told (CA2).
+    assert messages["ITALY"] == [
+        f"{head} you have nothing to order this phase; wait for the other powers."
+        "\nYour 1 build is waived: no free home supply centre.\nNext deadline: 2026-10-05 16:00 UTC."
+    ]
+    for power in ("ENGLAND", "GERMANY", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers.{due}"]
     assert posted == [
         "The turn has been processed. Winter 1901 builds: orders are due from AUSTRIA, FRANCE"
@@ -267,4 +272,26 @@ def test_a_power_that_ordered_before_quitting_is_not_said_to_have_held(
     assert _by_power(probe, users)["FRANCE"] == [
         f"The turn has been processed for game {game_id}. Orders are due for Fall 1901 movement.\n"
         "Your results for Spring 1901 movement:\nNo orders, so F BRE, A MAR and A PAR held."
+    ]
+
+
+def test_a_power_owed_builds_with_no_free_home_centre_is_told_they_are_waived() -> None:
+    """CA2: the DM says how many builds are waived and why, tagged when a player holds several."""
+    head = "Head."
+    one = api_shared.turn_message(head, "Winter 1908 builds", "ADJUSTMENT", {}, None, {"RUSSIA": 2})
+    assert one == (
+        "Head. Winter 1908 builds: you have nothing to order this phase; wait for the other powers."
+        "\nYour 2 builds are waived: no free home supply centre."
+    )
+    both = api_shared.turn_message(
+        head,
+        "Winter 1908 builds",
+        "ADJUSTMENT",
+        {"GERMANY": {"build": 1, "waived": 2, "sites": ["MUN"]}},
+        None,
+        {"RUSSIA": 1},
+    )
+    assert both.splitlines()[-2:] == [
+        "You may build 1 unit (free home centres: MUN; 2 more waived: no free home supply centre).",
+        "As RUSSIA, your 1 build is waived: no free home supply centre.",
     ]

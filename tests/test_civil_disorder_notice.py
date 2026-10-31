@@ -73,9 +73,9 @@ def _expected(game_id: str, users: list[tuple[dict, str]], due: str = "") -> tup
     own_line = "\n" + due.removeprefix(" ") if due else ""
     # F KIE is farther from a French home centre than A MUN; A PAR is home.
     expected[by_power["FRANCE"]] = [
-        head + "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + own_line
+        head + "\nYour results for Winter 1901 builds:\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)." + own_line
     ]
-    # GERMANY's own disband is its result; the civil-disorder one is told once, below it.
+    # GERMANY's own disband is its result; the civil-disorder one is told once, below it, under the same header (CA3).
     expected[by_power["GERMANY"]] = [
         head
         + "\nYour results for Winter 1901 builds:\nA PRU was disbanded."
@@ -133,6 +133,7 @@ def test_the_caller_who_processed_the_turn_still_hears_of_their_removals() -> No
     assert dms[by_power["FRANCE"]] == [
         f"The turn has been processed for game {game_id} because its deadline passed."
         " Orders are due for Spring 1902 movement."
+        "\nYour results for Winter 1901 builds:"
         "\nYou were 2 disbands short, so F KIE and A MUN were disbanded (civil disorder)."
     ]
     assert by_power["ITALY"] in dms
