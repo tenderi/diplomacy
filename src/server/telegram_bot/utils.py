@@ -1,7 +1,7 @@
 """
 Utility functions for Telegram bot, including Markdown escaping.
 """
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 # Legacy Markdown (``parse_mode='Markdown'``, which every caller uses) honours a backslash
 # only before these four; anywhere else Telegram shows the backslash itself.
@@ -43,6 +43,18 @@ def phase_text(phase_code: object) -> str:
     """The label with the code in brackets, for a player who types it: ``Fall 1903 movement (F1903M)``."""
     label = phase_label(phase_code)
     return label if label == str(phase_code) else f"{label} ({phase_code})"
+
+
+def ending_outcome(how: Optional[str], winners: List[str]) -> str:
+    """How a game that a power leaving play ended reads ("a draw shared by
+    ENGLAND, GERMANY"): ``how`` is the API's (``GameService.ending``)."""
+    if how == "draw":
+        return f"a draw shared by {', '.join(winners)}"
+    if how == "only_dummies":
+        return "only civil-disorder powers are left, so nobody wins"
+    if winners:
+        return f"{winners[0]} is the last power standing and wins"
+    return "no power is left, so nobody wins"
 
 
 def game_end_line(view: dict) -> Optional[str]:

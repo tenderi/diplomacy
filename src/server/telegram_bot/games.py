@@ -14,7 +14,7 @@ from .api_client import api_post, api_get
 from .game_context import (
     GameContextError, group_read_game, in_group, resolve_game_and_power, set_current_game,
 )
-from .utils import escape_markdown, game_end_line, game_over_note, phase_text
+from .utils import ending_outcome, escape_markdown, game_end_line, game_over_note, phase_text
 
 logger = logging.getLogger("diplomacy.telegram_bot.games")
 
@@ -938,6 +938,11 @@ async def dummy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     now = ", ".join(result.get("dummy_powers") or []) or "none"
     what = "is now played by civil disorder" if make_dummy else "is open for a player again"
+    if result.get("ended"):
+        # BZ1/BZ4: the new dummy completed the draw votes or left only dummies.
+        outcome = ending_outcome(result["ended"], result.get("winners") or [])
+        await update.message.reply_text(f"{power} {what} in game {game_id}, and the game has ended: {outcome}.")
+        return
     await update.message.reply_text(f"{power} {what} in game {game_id}. Civil-disorder powers: {now}.")
 
 
