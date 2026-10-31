@@ -485,13 +485,16 @@ write of the loaded board put the first one's units and centres back). A concess
 phase that has since been processed is a 409.
 
 The draw rows need their own call because the game is finalized inline the moment quorum is
-reached and the outcome goes to the caller only. `GameService._end_if_draw_agreed` reads the
-votes and the board, and if every power in the quorum has voted yes calls `Game.draw()` and
-`save_state`, guarded by both (`expected_draw_votes`, `expected_state_json`: a vote withdrawn
-or a concession landing in between is decided again) and by `refuse_completed` (of two writes
-completing the quorum at once, only the first ends and announces the game). Every write that
-can complete a quorum calls it: a yes vote (`submit_draw_vote`), a concession and a seat made
-a dummy, the last two because they take a power out of the quorum. A draw completed by
+reached and the outcome goes to the caller only. `GameService._end_if_draw_agreed` decides
+and writes in one transaction on the game row taken `FOR UPDATE` (`GameRepo.end_game_if`):
+it reads the board, the votes and the dummies on the locked row, and if every power in the
+quorum has voted yes writes `Game.draw()`'s board as `save_state` would. `refuse_completed`
+lets only the first of two writes completing the quorum at once end and announce the game.
+Every write that can complete a quorum commits its own change and then calls it: a yes vote
+(`submit_draw_vote`), a concession and a seat made a dummy, the last two because they take a
+power out of the quorum. Because each decision reads every input under the lock, of two such
+writes at once the one deciding second sees both; decided on separate unlocked reads, a vote
+and a dummy toggle could each miss the other's write and leave a completed quorum running. A draw completed by
 either is announced exactly as a voted one (`api.shared.announce_draw`: DAIDE `DRW`, the
 deadline cleared, every player's cached game list invalidated, the DM and the group post). The game is then `COMPLETED`, so the
 deadline scheduler skips it (`get_games_with_deadlines_and_active_status`) and **no later
@@ -587,9 +590,16 @@ can only eliminate every other power by taking all their home centres, which is 
 an 18-centre solo, so only after concessions (whose centres turn neutral) can a survivor be
 short of 18; and the engine's DATC boards hold only a few powers, which it must not end.
 A processed turn applies it before its one `save_state`, so the end and the turn are
-one write and one announcement. After a concession it is `_end_if_last_standing`, written
-like a draw: `save_state` guarded by the board it was decided on, so two last powers
-conceding together leave no winner rather than crowning one who left. Only the concession that ended the game
+one write and one announcement; its `save_state` is also guarded by the dummies it was
+decided on (`expected_dummy_powers`), so a seat made a dummy mid-adjudication, whose own check
+still saw the board before the turn, makes the turn adjudicate again rather than leave only
+dummies playing. After a concession or a dummy toggle it is `_end_if_last_standing`, decided
+and written like a draw on the locked row (`end_game_if`), so two last powers conceding
+together leave no winner rather than crowning one who left. The dummy set itself changes only
+through the locked `GameRepo.modify_dummy_powers` (two seats made dummies at once both stay;
+a game that ended meanwhile is a 409). Every one of these takes only the game row's lock, one
+transaction at a time, so they cannot deadlock with each other or with the other `modify_*`
+paths. Only the concession that ended the game
 announces it: one landing at the same moment finds the game ended and returns it as ended,
 with no "play on" notice and no auto-processing. The concede response then carries
 `game_status: "COMPLETED"` and `winners: ["GERMANY"]`, and instead of the concession notice
