@@ -354,7 +354,10 @@ results list:
 
 - movement — "A PAR - BUR bounced.", "F BRE - MAO succeeded.", "A MUN S A PAR - BUR was
   cut.", "A KIE - BUR was invalid, so the unit held.", "A LON - BEL VIA failed: no convoy
-  route.", "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
+  route." (or, when a fleet convoying it on a possible route was dislodged, "A LON - NWY VIA failed: the
+  convoy was broken when F NTH was dislodged."), a support void because it would dislodge the
+  supporter's own unit (DATC 6.D.10) "A VIE S A VEN - TRI had no effect: it would dislodge your
+  own F TRI." (both from `GameService.result_reason`, which the web shows too), "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
   power only, never a nickname: "F TRI was dislodged by A TYR (ITALY).", "A VIE - TRI
   bounced; dislodged by A BOH (RUSSIA)."; a power that ordered none of its several units
   gets one line: "No orders, so F BRE, A MAR and A PAR held.";

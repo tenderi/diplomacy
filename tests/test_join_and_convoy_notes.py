@@ -72,3 +72,15 @@ def test_a_non_adjacent_army_move_is_accepted_with_a_convoy_note() -> None:
     assert results[0]["note"] == NEEDS_CONVOY_NOTE
     assert results[1].get("note") is None
     assert results[2].get("note") is None
+
+
+def test_a_support_onto_the_supporters_own_unit_is_accepted_with_a_note() -> None:
+    """CA4: legal, but void unless that unit moves away -- said at submission."""
+    client = TestClient(app)
+    game_id, users, _probe = _seat_all(client, group=False)
+    body = _as(users["AUSTRIA"], game_id=game_id, power="AUSTRIA")
+    resp = client.post("/games/set_orders", json={**body, "orders": ["A VIE S A VEN - TRI", "A BUD S A VIE - GAL"]})
+    results = resp.json()["results"]
+    assert [r["success"] for r in results] == [True, True]
+    assert results[0]["note"] == "your own F TRI is there: this support has no effect unless it moves away"
+    assert results[1].get("note") is None
