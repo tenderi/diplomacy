@@ -77,12 +77,12 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
     expected[by_power["GERMANY"]] = [idle + "\nYour results for Spring 1901 retreats:\nA MUN was disbanded."]
     expected[by_power["AUSTRIA"]] = [head]
     expected[by_power["FRANCE"]] = [
-        idle + "\nA MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
+        idle + "\nYour results for Spring 1901 retreats:\nA MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
     ]
     expected[by_power["ITALY"]] = [
-        idle + "\nA VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
+        idle + "\nYour results for Spring 1901 retreats:\nA VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded."
     ]
-    expected[by_power["RUSSIA"]] = [idle + "\nA WAR had no valid retreat order and was disbanded."]
+    expected[by_power["RUSSIA"]] = [idle + "\nYour results for Spring 1901 retreats:\nA WAR had no valid retreat order and was disbanded."]
     assert _dms(probe) == expected
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
         (
