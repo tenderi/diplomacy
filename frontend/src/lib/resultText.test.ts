@@ -25,6 +25,22 @@ describe('describeResult', () => {
     }
   })
 
+  it('gives the server reason for a void support and a broken convoy (CA4)', () => {
+    expect(
+      describeResult(
+        entry({
+          order: { type: 'SUPPORT_MOVE', power: 'AUSTRIA' },
+          result: 'VOID',
+          reason: 'it would dislodge your own F TRI',
+        })
+      )
+    ).toBe('Had no effect: it would dislodge your own F TRI.')
+    expect(describeResult(entry({ result: 'NO_CONVOY', reason: 'F NTH was dislodged' }))).toBe(
+      'Convoy failed — F NTH was dislodged, so the move did not happen.'
+    )
+    expect(describeResult(entry({ result: 'VOID' }))).toBe('Order was invalid and was not carried out.')
+  })
+
   it('describes a blocked move in plain language, not "BOUNCE"', () => {
     expect(describeResult(entry({ result: 'BOUNCE' }))).toMatch(/blocked/i)
   })
