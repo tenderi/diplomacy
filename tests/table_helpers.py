@@ -28,6 +28,6 @@ def fill_with_dummies(game_id: str | int) -> list[str]:
         db_service.create_player(int(row.id), first)
         seated = {first}
     for power in sorted(set(game_service.map.home_centers) - seated - set(dummies)):
-        dummies = game_service.set_dummy(gid, power, True)
+        dummies = game_service.set_dummy(gid, power, True)["dummy_powers"]
     invalidate_cache(f"games/{gid}")
     return dummies

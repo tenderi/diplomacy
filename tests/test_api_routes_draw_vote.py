@@ -122,6 +122,8 @@ class TestConcede:
         headers = _register_and_login(client, "cc_ok")
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "cc_user1", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "cc_user2"})
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "cc_user2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "ENGLAND"})
         fill_with_dummies(game_id)
 
         resp = client.post(f"/games/{game_id}/concede", json={
@@ -131,7 +133,7 @@ class TestConcede:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["power"] == "FRANCE"
-        # Conceding one power out of seven never ends the game.
+        # ENGLAND's player plays on, so the game does.
         assert data["game_status"] == "ACTIVE"
 
         state = client.get(f"/games/{game_id}/state")

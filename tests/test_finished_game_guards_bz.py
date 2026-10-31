@@ -98,7 +98,7 @@ def test_replacing_into_a_dummy_seat_is_409(client: TestClient) -> None:
     other = _telegram_user(client, "keeper")
     assert client.post(f"/games/{game_id}/join", json=_as(other, power="GERMANY")).status_code == 200
     assert client.post(f"/games/{game_id}/quit", json=_as(tg)).status_code == 200
-    assert "FRANCE" in game_service.set_dummy(game_id, "FRANCE", True)
+    assert "FRANCE" in game_service.set_dummy(game_id, "FRANCE", True)["dummy_powers"]
     late = _telegram_user(client, "dummytaker")
     resp = client.post(f"/games/{game_id}/replace", json=_as(late, power="FRANCE"))
     assert resp.status_code == 409

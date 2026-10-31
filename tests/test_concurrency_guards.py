@@ -175,6 +175,10 @@ def test_two_powers_conceding_together_both_leave_the_board(client: TestClient) 
     ITALY's write put FRANCE's units and centres back; the removal is now applied
     to the board on the locked row."""
     game_id, _ = _game_with_an_order(client)
+    # Open seats (not dummies) keep the game going once FRANCE, its only
+    # player, has left (BZ4), and GERMANY's missing vote keeps it from a draw.
+    for power in ("GERMANY", "TURKEY"):
+        game_service.set_dummy(game_id, power, False)
     repo = game_service._repo
     repo.modify_pending_orders(game_id, lambda pending: {**pending, "ITALY": ["A VEN H"], "GERMANY": ["A MUN H"]})
     repo.modify_draw_votes(game_id, lambda votes: {"FRANCE": "yes", "ITALY": "yes", "TURKEY": "yes"})
@@ -182,8 +186,8 @@ def test_two_powers_conceding_together_both_leave_the_board(client: TestClient) 
     with patch.object(game_service, "load", return_value=loaded):
         france = game_service.concede(game_id, "FRANCE")
         italy = game_service.concede(game_id, "ITALY")
-    assert france == {"status": "ok", "power": "FRANCE", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False}
-    assert italy == {"status": "ok", "power": "ITALY", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False}
+    assert france == {"status": "ok", "power": "FRANCE", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False, "how": None}
+    assert italy == {"status": "ok", "power": "ITALY", "game_status": "ACTIVE", "eliminated": True, "winners": [], "ended_game": False, "how": None}
 
     after = game_service.load(game_id).state
     gone = ("FRANCE", "ITALY")

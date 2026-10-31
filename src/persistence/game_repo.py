@@ -37,6 +37,10 @@ def _pending(row: GameModel) -> dict[str, list[str]]:
     return {k: list(v) for k, v in dict(row.pending_orders or {}).items()}
 
 
+def _draw_votes(row: Any) -> dict[str, str]:
+    return {k: str(v) for k, v in dict(row.draw_votes or {}).items()}
+
+
 def _check_not_completed(row: Any, game_id: str, refuse_completed: bool) -> None:
     if refuse_completed and str(row.status or "").lower() == "completed":
         raise StaleGameError(f"game {game_id} has already ended")
@@ -135,8 +139,7 @@ class GameRepo:
         with self._session_factory() as session:
             row = self._locked_row(session, game_id, expected_phase_code)
             _check_not_completed(row, game_id, refuse_completed)
-            current = {k: str(v) for k, v in dict(row.draw_votes or {}).items()}
-            updated = change(current)
+            updated = change(_draw_votes(row))
             row.draw_votes = updated
             session.commit()
             return updated
@@ -155,9 +158,7 @@ class GameRepo:
         """Current phase's ``{power: "yes"}`` draw votes (empty if none cast)."""
         with self._session_factory() as session:
             row = self._row(session, game_id)
-            if row is None or not row.draw_votes:
-                return {}
-            return {k: str(v) for k, v in dict(row.draw_votes).items()}
+            return {} if row is None else _draw_votes(row)
 
     def get_last_resolution(self, game_id: str) -> Optional[dict[str, Any]]:
         """The most recent adjudication result, or ``None`` if the game has not yet
@@ -307,6 +308,7 @@ class GameRepo:
         expected_phase_code: Optional[str] = None,
         expected_pending_orders: Optional[dict[str, list[str]]] = None,
         expected_state_json: Optional[dict[str, Any]] = None,
+        expected_draw_votes: Optional[dict[str, str]] = None,
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
@@ -325,9 +327,10 @@ class GameRepo:
         locked for the check, so a concurrent writer waits and then sees the new
         phase instead of the one it loaded.
 
-        ``expected_pending_orders`` and ``expected_state_json``, when given, must
-        equal what is stored or ``PhaseInputsChangedError`` is raised: an order
-        accepted (or a concession written) after the caller read them would
+        ``expected_pending_orders``, ``expected_state_json`` and
+        ``expected_draw_votes``, when given, must equal what is stored or
+        ``PhaseInputsChangedError`` is raised: an order accepted (or a concession
+        written, or a draw vote withdrawn) after the caller read them would
         otherwise be cleared or overwritten unadjudicated.
 
         A phase transition ends everything scoped to the old phase, so
@@ -344,6 +347,7 @@ class GameRepo:
             or expected_phase_code is not None
             or expected_pending_orders is not None
             or expected_state_json is not None
+            or expected_draw_votes is not None
         )
         with self._session_factory() as session:
             row = self._row(session, game_id, lock=guarded)
@@ -362,6 +366,8 @@ class GameRepo:
                 raise PhaseInputsChangedError(
                     f"game {game_id}: orders or the board changed while the turn was being adjudicated"
                 )
+            if expected_draw_votes is not None and _draw_votes(row) != expected_draw_votes:
+                raise PhaseInputsChangedError(f"game {game_id}: the draw votes changed while the draw was being decided")
             row.pending_orders = {}
             row.draw_votes = {}
             row.wait_flags = {}
