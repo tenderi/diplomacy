@@ -191,7 +191,7 @@ or comments on an issue. Its rules are in **[`.claude/lead/CHARTER.md`](.claude/
 the two hard limits (the repo keeps existing; the home server is never touched), whose
 input counts as an instruction, and the run cycle. It triages issues, finds its own work,
 delegates to the `worker` and `reviewer` subagents in `.claude/agents/`, merges, and
-checks the deploy. It reports in the pinned **Lead agent journal** issue. Off switch:
+checks the deploy. It reports in the pinned **Lead agent journal**, a new issue each week (charter §The weekly journal). Off switch:
 `gh variable set LEAD_AGENT_ENABLED --body false -R tenderi/diplomacy`.
 
 ## Deployment (one VPS)
