@@ -306,7 +306,10 @@ naming the last power standing when the concession ended the game (else `[]`; a
 concession that left nobody, or only dummies, also ends it, `game_status: "COMPLETED"` with
 `winners: []`), or the draw's sharers when it completed the draw votes already cast. `how` is
 `null` while the game goes on, else `GameService.ending`'s: `"last_standing"`, `"no_winner"`,
-`"only_dummies"` or `"draw"`.
+`"only_dummies"` or `"draw"`. `POST /games/{id}/dummies` returns `{status, dummy_powers, ended,
+winners}`: `ended` is that same `how` when making the seat a dummy ended the game (the draw
+votes already cast were complete, or only dummies are left), else `null`, and `winners` is then
+the draw's sharers (`[]` otherwise).
 
 `POST /games/{id}/process_turn` (`api/routes/games.py`) returns, additively (the
 pre-existing `status: "ok"` key is unchanged so existing clients keep working):

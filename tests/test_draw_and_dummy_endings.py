@@ -131,8 +131,11 @@ class TestADummyCompletesTheDraw:
         ):
             r = client.post(f"/games/{game_id}/dummies", json={"power": "ITALY", "dummy": True}, headers=ADMIN)
         assert r.status_code == 200, r.text
-        assert r.json() == {"status": "ok", "dummy_powers": ["AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"]}
         everyone = sorted([*SHARERS, "ITALY"])
+        assert r.json() == {
+            "status": "ok", "dummy_powers": ["AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"],
+            "ended": "draw", "winners": everyone,
+        }
         assert _status(client, game_id) == {"status": "COMPLETED", "winners": everyone}
         text = (
             f"ITALY is now played by civil disorder, and game {game_id} has ended in a draw shared by "
@@ -200,6 +203,7 @@ class TestOnlyDummiesLeft:
         ):
             r = client.post(f"/games/{game_id}/dummies", json={"power": "GERMANY", "dummy": True}, headers=ADMIN)
         assert r.status_code == 200, r.text
+        assert (r.json()["ended"], r.json()["winners"]) == ("only_dummies", [])
         assert _status(client, game_id) == {"status": "COMPLETED", "winners": []}
         assert game_service.ending(game_id) == {"winners": [], "how": "only_dummies"}
         text = (

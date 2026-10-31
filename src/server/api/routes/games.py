@@ -479,7 +479,9 @@ def set_dummy_power(
         api_shared.announce_game_left(
             game_id, changed["ended"], cause=f"{power} is now played by civil disorder"
         )
-        return {"status": "ok", "dummy_powers": dummies}
+        ending = game_service.ending(game_id)
+        winners = ending["winners"] if ending is not None else []
+        return {"status": "ok", "dummy_powers": dummies, "ended": changed["ended"], "winners": winners}
     notify_players(
         int(game_id),
         f"{power} in game {game_id} is now played by civil disorder."
@@ -491,7 +493,7 @@ def set_dummy_power(
         # or the last one being waited on (W10).
         api_shared.process_if_phase_needs_nobody(game_id, int(game_id))
         api_shared.maybe_auto_process(game_id)
-    return {"status": "ok", "dummy_powers": dummies}
+    return {"status": "ok", "dummy_powers": dummies, "ended": None, "winners": []}
 
 
 @router.post("/games/add_player", dependencies=[Depends(require_admin)])
