@@ -8,6 +8,7 @@ vote), concede again (re-announced to everyone) and quit and rejoin its dead
 seat; and a game with one power left went on with nobody to play against.
 """
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -337,33 +338,26 @@ class TestTheLastPowerStandingWins:
         auto.assert_not_called()
 
     def test_a_concession_between_the_read_and_the_save_is_not_undone(self) -> None:
-        """FRANCE's concession leaves GERMANY, and GERMANY concedes right after
-        FRANCE's request has read the board. Ending the game from that read would
-        write GERMANY's units back and crown it; the guarded save must refuse. With
-        nobody left, GERMANY's concession ended the game without a winner (BL6)."""
+        """FRANCE's concession leaves GERMANY, and GERMANY's whole concession
+        lands before FRANCE's end check. Ending the game from FRANCE's board
+        would write GERMANY's units back and crown it; the check reads the board
+        on the locked row instead. With nobody left, GERMANY's concession ended
+        the game without a winner (BL6)."""
         game_id, _ = _game(TestClient(app), ["FRANCE", "GERMANY"])
         fill_with_dummies(game_id)
         for power in ("AUSTRIA", "ENGLAND", "ITALY", "RUSSIA", "TURKEY"):
             game_service.concede(game_id, power)
         repo = game_service._repo
-        real_read = repo.get_state_json
-        original = GameService._end_if_last_standing
+        real_end = repo.end_game_if
         fired: list[bool] = []
 
-        def read_then_germany_concedes(gid: str) -> object:
-            board = real_read(gid)
+        def germany_concedes_first(gid: str, *args: Any, **kwargs: Any) -> bool:
             if not fired:
                 fired.append(True)
                 assert game_service.concede(gid, "GERMANY")["ended_game"] is True
-            return board
+            return real_end(gid, *args, **kwargs)
 
-        def racing(service: GameService, gid: str) -> object:
-            if fired:
-                return original(service, gid)
-            with patch.object(repo, "get_state_json", side_effect=read_then_germany_concedes):
-                return original(service, gid)
-
-        with patch.object(GameService, "_end_if_last_standing", autospec=True, side_effect=racing):
+        with patch.object(repo, "end_game_if", side_effect=germany_concedes_first):
             result = game_service.concede(game_id, "FRANCE")
         assert fired == [True]
         assert result["ended_game"] is False

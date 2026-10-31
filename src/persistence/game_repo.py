@@ -41,6 +41,10 @@ def _draw_votes(row: Any) -> dict[str, str]:
     return {k: str(v) for k, v in dict(row.draw_votes or {}).items()}
 
 
+def _dummies(row: Any) -> frozenset[str]:
+    return frozenset(str(p) for p in row.dummy_powers or ())
+
+
 def _check_not_completed(row: Any, game_id: str, refuse_completed: bool) -> None:
     if refuse_completed and str(row.status or "").lower() == "completed":
         raise StaleGameError(f"game {game_id} has already ended")
@@ -60,6 +64,49 @@ class PhaseInputsChangedError(StaleGameError):
     used, and one changed before the write: an order arrived, or a power
     conceded, mid-adjudication. The phase has not moved, so the caller should
     adjudicate again rather than drop the change."""
+
+
+def _write_state(
+    row: GameModel,
+    state_json: dict[str, Any],
+    *,
+    phase_code: str,
+    status: str,
+    last_resolution: Optional[dict[str, Any]] = None,
+    order_history_entry: Optional[dict[str, list[str]]] = None,
+    resolution_history_entry: Optional[dict[str, Any]] = None,
+) -> None:
+    """``save_state``'s write, on a row the caller has locked and checked: the
+    next board, its phase and status, the counters, and the per-phase columns
+    cleared (a phase transition, or the game ending, ends them all)."""
+    row.pending_orders = {}
+    row.draw_votes = {}
+    row.wait_flags = {}
+    row.state_json = state_json
+    _stamp_phase_start(row, phase_code)
+    row.phase_code = phase_code
+    row.status = status
+    if last_resolution is not None:
+        row.last_resolution = last_resolution
+    turn_key = str(int(row.current_turn or 0))
+    if order_history_entry:
+        history = dict(row.order_history or {})
+        history[turn_key] = order_history_entry
+        row.order_history = history
+    if resolution_history_entry is not None:
+        # Keyed by the turn being *left behind*, exactly like
+        # ``order_history`` -- so ``order_history[t]`` and
+        # ``resolution_history[t]`` are the orders and their outcomes for
+        # the same turn. ``last_resolution`` still holds the newest one;
+        # this is the one that survives the next turn.
+        resolutions = dict(row.resolution_history or {})
+        resolutions[turn_key] = resolution_history_entry
+        row.resolution_history = resolutions
+    row.current_turn = int(row.current_turn or 0) + 1
+    row.current_year = state_json.get("year", row.current_year)
+    row.current_season = str(state_json.get("season", "SPRING")).capitalize()
+    row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
+    row.updated_at = datetime.now(timezone.utc)
 
 
 class GameRepo:
@@ -308,7 +355,7 @@ class GameRepo:
         expected_phase_code: Optional[str] = None,
         expected_pending_orders: Optional[dict[str, list[str]]] = None,
         expected_state_json: Optional[dict[str, Any]] = None,
-        expected_draw_votes: Optional[dict[str, str]] = None,
+        expected_dummy_powers: Optional[frozenset[str]] = None,
         last_resolution: Optional[dict[str, Any]] = None,
         order_history_entry: Optional[dict[str, list[str]]] = None,
         resolution_history_entry: Optional[dict[str, Any]] = None,
@@ -328,10 +375,10 @@ class GameRepo:
         phase instead of the one it loaded.
 
         ``expected_pending_orders``, ``expected_state_json`` and
-        ``expected_draw_votes``, when given, must equal what is stored or
+        ``expected_dummy_powers``, when given, must equal what is stored or
         ``PhaseInputsChangedError`` is raised: an order accepted (or a concession
-        written, or a draw vote withdrawn) after the caller read them would
-        otherwise be cleared or overwritten unadjudicated.
+        written, a seat made a dummy) after the caller read them would otherwise be cleared,
+        overwritten unadjudicated, or left out of the turn's ending (CB1).
 
         A phase transition ends everything scoped to the old phase, so
         ``pending_orders``, ``draw_votes`` and ``wait_flags`` are cleared in this same
@@ -347,7 +394,7 @@ class GameRepo:
             or expected_phase_code is not None
             or expected_pending_orders is not None
             or expected_state_json is not None
-            or expected_draw_votes is not None
+            or expected_dummy_powers is not None
         )
         with self._session_factory() as session:
             row = self._row(session, game_id, lock=guarded)
@@ -366,37 +413,54 @@ class GameRepo:
                 raise PhaseInputsChangedError(
                     f"game {game_id}: orders or the board changed while the turn was being adjudicated"
                 )
-            if expected_draw_votes is not None and _draw_votes(row) != expected_draw_votes:
-                raise PhaseInputsChangedError(f"game {game_id}: the draw votes changed while the draw was being decided")
-            row.pending_orders = {}
-            row.draw_votes = {}
-            row.wait_flags = {}
-            row.state_json = state_json
-            _stamp_phase_start(row, phase_code)
-            row.phase_code = phase_code
-            row.status = status
-            if last_resolution is not None:
-                row.last_resolution = last_resolution
-            turn_key = str(int(row.current_turn or 0))
-            if order_history_entry:
-                history = dict(row.order_history or {})
-                history[turn_key] = order_history_entry
-                row.order_history = history
-            if resolution_history_entry is not None:
-                # Keyed by the turn being *left behind*, exactly like
-                # ``order_history`` -- so ``order_history[t]`` and
-                # ``resolution_history[t]`` are the orders and their outcomes for
-                # the same turn. ``last_resolution`` still holds the newest one;
-                # this is the one that survives the next turn.
-                resolutions = dict(row.resolution_history or {})
-                resolutions[turn_key] = resolution_history_entry
-                row.resolution_history = resolutions
-            row.current_turn = int(row.current_turn or 0) + 1
-            row.current_year = state_json.get("year", row.current_year)
-            row.current_season = str(state_json.get("season", "SPRING")).capitalize()
-            row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
-            row.updated_at = datetime.now(timezone.utc)
+            if expected_dummy_powers is not None and _dummies(row) != expected_dummy_powers:
+                raise PhaseInputsChangedError(
+                    f"game {game_id}: the civil-disorder powers changed while the turn was being adjudicated"
+                )
+            _write_state(
+                row,
+                state_json,
+                phase_code=phase_code,
+                status=status,
+                last_resolution=last_resolution,
+                order_history_entry=order_history_entry,
+                resolution_history_entry=resolution_history_entry,
+            )
             session.commit()
+
+    def end_game_if(
+        self,
+        game_id: str,
+        decide: Callable[[dict[str, Any], dict[str, str], frozenset[str]], Optional[tuple[dict[str, Any], str, str]]],
+        *,
+        expected_phase_code: Optional[str] = None,
+        refuse_completed: bool = False,
+    ) -> bool:
+        """End the game if ``decide(state_json, draw_votes, dummy_powers)`` says
+        so, deciding and writing in one transaction on the row taken ``FOR
+        UPDATE`` (CB1). ``decide`` returns ``(state_json, phase_code, status)``
+        to write, as ``save_state`` would, or ``None`` to leave the game as it
+        is. Returns whether it wrote.
+
+        A game ends this way when a write that is not a turn completes an ending
+        -- a yes vote, a concession, a seat made a dummy (BZ1, BZ4) -- and each
+        such write calls this after committing its own change. Every input is
+        read on the locked row, so of two such writes racing, the one deciding
+        second sees both; decided on separate unlocked reads, each could miss
+        the other's write and both leave the game running.
+
+        ``expected_phase_code`` and ``refuse_completed`` refuse
+        (``StaleGameError``) as in ``save_state``."""
+        with self._session_factory() as session:
+            row = self._locked_row(session, game_id, expected_phase_code)
+            _check_not_completed(row, game_id, refuse_completed)
+            decided = decide(dict(row.state_json or {}), _draw_votes(row), _dummies(row))
+            if decided is None:
+                return False
+            state_json, phase_code, status = decided
+            _write_state(row, state_json, phase_code=phase_code, status=status)
+            session.commit()
+            return True
 
     def restore_state(
         self, game_id: str, state_json: dict[str, Any], *, phase_code: str
@@ -495,13 +559,24 @@ class GameRepo:
             session.commit()
             return updated
 
-    def set_dummy_powers(self, game_id: str, powers: list[str]) -> None:
+    def modify_dummy_powers(
+        self,
+        game_id: str,
+        change: Callable[[frozenset[str]], list[str]],
+        *,
+        refuse_completed: bool = False,
+    ) -> list[str]:
+        """``dummy_powers`` = ``change(current)`` in one locked transaction (see
+        ``modify_pending_orders``: two seats made dummies at once lost one, CB1).
+        ``refuse_completed`` refuses (``StaleGameError``) a game that has ended.
+        Returns the new set, sorted."""
         with self._session_factory() as session:
-            row = self._row(session, game_id)
-            if row is None:
-                raise ValueError(f"game {game_id} not found")
-            row.dummy_powers = sorted(powers)
+            row = self._locked_row(session, game_id, None)
+            _check_not_completed(row, game_id, refuse_completed)
+            updated = sorted(change(_dummies(row)))
+            row.dummy_powers = updated
             session.commit()
+            return updated
 
     def modify_state_json(
         self,
