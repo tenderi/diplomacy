@@ -334,7 +334,11 @@ its **supply-center count** independently, power by power:
   *and* sea steps, since a convoy could in principle carry them home, so
   `_distance_to_home`'s BFS for armies is not restricted to land adjacency; fleets are
   restricted to fleet adjacency), fleets removed before armies on a distance tie, and
-  alphabetical by province as the final tiebreak. Each such removal is a synthetic
+  then alphabetically by the province's **name** (`MapData.display_names`, from
+  `maps/standard.map`), not its abbreviation: the rulebook (p. 18, Civil Disorder) says
+  "If units are equally distant, then remove Fleets before Armies and then in
+  alphabetical order by the provinces in which they are located", so a fleet in Norway
+  goes before one in the Norwegian Sea although NWG sorts before NWY. Each such removal is a synthetic
   `Disband` reported as `DISBAND` with `civil_disorder=True`, so it can be told apart
   from an ordered one (the server announces it to the power). A `Build` or `Waive` submitted while a
   power owes disbands is `VOID` (you can't grow while shrinking).

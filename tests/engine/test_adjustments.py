@@ -6,7 +6,7 @@ build or waive up to the entitlement; one owing removals may only disband.
 """
 from __future__ import annotations
 
-from engine.adjudicator.adjustments import adjudicate_adjustments
+from engine.adjudicator.adjustments import _distance_to_home, adjudicate_adjustments
 from engine.map_loader import load_standard_map
 from engine.orders.parser import parse_order
 from engine.serialization import resolution_from_dict, resolution_to_dict
@@ -109,3 +109,16 @@ def test_only_the_civil_disorder_removals_are_marked_and_the_mark_survives_seria
     as_dict = resolution_to_dict(resolution)
     assert [r["civil_disorder"] for r in as_dict["results"]] == [False, True]
     assert resolution_from_dict(as_dict) == resolution
+
+
+def test_civil_disorder_breaks_the_last_tie_by_province_name_not_abbreviation() -> None:
+    # CA6. Rulebook p. 18: "If units are equally distant, then remove Fleets before
+    # Armies and then in alphabetical order by the provinces in which they are located."
+    # Both fleets are three fleet steps from Kiel; by abbreviation NWG < NWY, but by
+    # name "Norway" < "Norwegian Sea", so the fleet in Norway goes.
+    nwg = Unit(UnitKind.FLEET, "GERMANY", Location("NWG"))
+    nwy = Unit(UnitKind.FLEET, "GERMANY", Location("NWY"))
+    assert _distance_to_home(_MAP, "GERMANY", nwg) == _distance_to_home(_MAP, "GERMANY", nwy) == 3
+    results, new_state = _adjust([("GERMANY", "F", "NWG"), ("GERMANY", "F", "NWY")], {"GERMANY": ["KIE"]}, {})
+    assert results == [("DISBAND", ResultCode.DISBAND)]
+    assert {u.province for u in new_state.units} == {"NWG"}
