@@ -15,7 +15,8 @@ adjudicator, waiving a player's build with no error anywhere. This module
 enumerates the right order shapes per phase:
 
 - **MOVEMENT** — hold / move / support-hold / support-move / convoy, per unit
-  actually on the board for ``power``, plus moves by convoy (``VIA``) and the
+  actually on the board for ``power``, plus moves by convoy (``VIA``, into a
+  neighbour too: the only way to ask for a foreign convoy, DATC 6.G.7) and the
   convoys carrying them along each chain of fleet-held seas (``_convoy_shores``).
 - **RETREAT** — retreat / disband, per ``DislodgedUnit`` belonging to
   ``power``. Retreat destinations are read from the already-computed
@@ -265,16 +266,25 @@ def _convoy_shores(map: MapData, state: GameState) -> list[tuple[frozenset[str],
 
 
 def _convoy_destinations(
-    map: MapData, unit: Unit, chains: list[tuple[frozenset[str], frozenset[str]]]
+    map: MapData,
+    unit: Unit,
+    chains: list[tuple[frozenset[str], frozenset[str]]],
+    *,
+    include_adjacent: bool = False,
 ) -> set[str]:
-    """Provinces an army could reach only by convoy: the other shores of every
-    fleet chain it stands on, less its land neighbours (those are plain moves)."""
+    """Provinces an army could be convoyed to: the other shores of every fleet
+    chain it stands on. Its land neighbours are left out unless
+    ``include_adjacent`` -- for a support those are plain moves already, but an
+    army's own ``A X - Y VIA`` into a neighbour is the only way to ask for a
+    (foreign) convoy there rather than walk (DATC 6.G.7)."""
     if unit.kind is not UnitKind.ARMY:
         return set()
     out: set[str] = set()
     for _seas, shore in chains:
         if unit.province in shore:
             out |= shore - {unit.province}
+    if include_adjacent:
+        return out
     return out - set(map.army_moves(unit.province))
 
 
@@ -330,7 +340,7 @@ def _movement_orders(
         # order, the bot's buttons) never offered an army a move by convoy at
         # all, and a fleet only a convoy between two provinces it touched itself,
         # so no convoy longer than one fleet could be ordered from either.
-        for dest in sorted(_convoy_destinations(map, u, chains)):
+        for dest in sorted(_convoy_destinations(map, u, chains, include_adjacent=True)):
             bucket.append(
                 format_order(
                     Move(power, unit=u.location, dest=Location(dest), via_convoy=True), own_kbp

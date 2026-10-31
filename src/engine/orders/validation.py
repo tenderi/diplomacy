@@ -141,7 +141,8 @@ def _check_phase(order: Order, state: GameState, map: MapData) -> ValidationResu
 def _check_adjustment_direction(order: Order, state: GameState) -> ValidationResult | None:
     """Refuse a build or waive from a power that has no build to make, and a
     disband from one that has no unit to remove (adjustment phase only; run
-    after the order's own checks, whose reasons are more specific).
+    after the order's own checks, whose reasons are more specific -- except
+    when the power owes the other way, see ``_owes_the_other_way``).
 
     A power with more centres than units builds; one with fewer disbands; one
     with as many does neither. The adjudicator voids an order on the wrong
@@ -169,6 +170,17 @@ def _check_adjustment_direction(order: Order, state: GameState) -> ValidationRes
     return None
 
 
+def _owes_the_other_way(order: Order, state: GameState) -> ValidationResult | None:
+    """The direction refusal, but only for a power that owes adjustments the
+    other way: a build from a power owing disbands, a disband from one owing
+    builds. That reason comes before the order's own checks -- ``BUILD A BER``
+    from a power owing disbands said "BER is occupied", which is true (by the
+    very units it must cut) and no help."""
+    if len(state.centers_of(order.power)) == len(state.units_of(order.power)):
+        return None
+    return _check_adjustment_direction(order, state)
+
+
 def _plural(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
@@ -189,6 +201,9 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         return _check_adjustment_direction(order, state) or ValidationResult(True)
 
     if isinstance(order, Build):
+        early = _owes_the_other_way(order, state)
+        if early is not None:
+            return early
         result = _validate_build(order, state, map)
         if not result.ok:
             return result
@@ -204,6 +219,10 @@ def validate(order: Order, state: GameState, map: MapData) -> ValidationResult:
         return _validate_retreat(order, du, state, map)
 
     if isinstance(order, Disband):
+        if state.phase_type is PhaseType.ADJUSTMENT:
+            early = _owes_the_other_way(order, state)
+            if early is not None:
+                return early
         if state.phase_type is PhaseType.RETREAT:
             du = state.dislodged_at(order.unit.province)
             unit = du.unit if du is not None else None
@@ -312,6 +331,10 @@ def _validate_support_hold(order: SupportHold, unit: Unit, map: MapData) -> Vali
 
 
 def _validate_support_move(order: SupportMove, unit: Unit, map: MapData) -> ValidationResult:
+    if order.dest.province == unit.location.province:
+        return ValidationResult(
+            False, f"{unit.location} cannot support a move into its own province"
+        )
     if not _can_reach_province(map, unit.location, unit.kind, order.dest.province):
         return ValidationResult(
             False, f"{unit.location} cannot reach {order.dest.province} to support a move"

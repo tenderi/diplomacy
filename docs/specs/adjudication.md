@@ -189,7 +189,10 @@ move — under specific conditions (`_uses_convoy`):
   convoy intent is inferred from the army's **own power's** convoy order, swap or not
   (DATC 4.A.3 choice d) — a foreign fleet cannot "kidnap" a friendly army onto a convoy it
   never asked for (DATC 6.G.2/6.G.4). A convoy order on no possible route is `VOID` and
-  lends no intent (6.G.7); one that also creates a cycle is the 6.G.11 paradox.
+  lends no intent (6.G.7); one that also creates a cycle is the 6.G.11 paradox. So that
+  a player can ask for a (foreign) convoy into a neighbour, `legal_orders` offers an army
+  `A X - Y VIA` for every province Y on the shore of a chain of fleet-held seas it stands
+  on, adjacent or not, alongside the plain `A X - Y`.
 
 A **non-adjacent army move is legal** only when the board allows a convoy: both ends
 are coastal and a possible route (below) links them, whatever the fleets were ordered
