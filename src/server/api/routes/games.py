@@ -1038,16 +1038,9 @@ def join_game(
         raise HTTPException(status_code=400, detail="Choose a power to join as.")
     elif req.power.upper() not in REQUIRED_POWERS:
         raise HTTPException(status_code=400, detail=f"Invalid power name: {req.power}")
-    if view is not None and view["status"] == "COMPLETED":
-        raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
-    if req.power is not None and view is not None and req.power.upper() in view.get("dummy_powers", []):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"{req.power.upper()} is played by civil disorder in game {game_id}; "
-                f"the game's creator can open it."
-            ),
-        )
+    _refuse_if_ended(view, game_id)
+    if req.power is not None:
+        _refuse_if_dummy(view, req.power, game_id)
     # Check if already joined
     existing = db_service.get_player_by_game_id_and_user_id(game_id=game_id, user_id=int(user.id))  # type: ignore
     if existing:
@@ -1167,6 +1160,24 @@ def quit_game(
         scheduler_logger.exception("Failed to notify players of quit event")
     return {"status": "ok"}
 
+def _refuse_if_ended(view: Optional[Dict[str, Any]], game_id: Any) -> None:
+    """A finished game has no seat to fill: /join and /replace both refuse."""
+    if view is not None and view["status"] == "COMPLETED":
+        raise HTTPException(status_code=409, detail=f"Game {game_id} has ended; it cannot be joined.")
+
+
+def _refuse_if_dummy(view: Optional[Dict[str, Any]], power: str, game_id: Any) -> None:
+    """A dummy is played by civil disorder: /join and /replace both refuse its seat."""
+    if view is not None and power.upper() in view.get("dummy_powers", []):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{power.upper()} is played by civil disorder in game {game_id}; "
+                f"the game's creator can open it."
+            ),
+        )
+
+
 @router.post("/games/{game_id}/replace")
 def replace_player(
     game_id: int,
@@ -1176,6 +1187,9 @@ def replace_player(
     """Replace a vacated power in a game."""
     user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
     _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+    view = game_service.view(str(game_id))
+    _refuse_if_ended(view, game_id)
+    _refuse_if_dummy(view, req.power, game_id)
     if (game_service.meta(str(game_id)) or {}).get("random_powers"):
         # Picking the seat to take over would sidestep the draw: /join
         # takes over a vacant seat too, at random.
@@ -1255,7 +1269,9 @@ def get_deadline(game_id: str) -> Dict[str, Any]:
     deadline_value = getattr(game, 'deadline', None)
     proposal = db_service.get_pending_deadline_proposal(game_id)
     pending_proposal = None
-    if proposal is not None:
+    # Game end has several paths (draw, victory, last power standing) and none
+    # clears the proposal row, so a finished game reports none here instead.
+    if proposal is not None and getattr(game, "status", None) != "completed":
         active = game_service.active_powers(game_id) or frozenset()
         pending_proposal = api_shared.deadline_proposal_view(proposal, active)
     return {
@@ -1387,6 +1403,7 @@ def withdraw_deadline_proposal(
     """Cancel the pending deadline proposal. Only its original proposer may."""
     # ``_authorize_power`` answers a missing game with 404.
     _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _refuse_deadline_change_if_over(db_service.get_game_by_game_id(game_id))
     try:
         result = api_shared.withdraw_deadline_proposal(game_id, req.power)
     except api_shared.DeadlineProposalError as e:
