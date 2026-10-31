@@ -749,6 +749,8 @@ def notify_turn_processed(
                 scheduler_logger.error(f"Failed to read who had not ordered in game {game_id}: {e}")
     # Dislodged units with no retreat, of powers that owe nothing (BJ2).
     forced: dict[str, list[str]] = duties_view.get("forced_disbands") or {}
+    # Builds owed to a power with no free home centre: waived, told in this phase's DM (CA2).
+    unbuildable: dict[str, int] = duties_view.get("waived_builds") or {}
     header = f"The turn has been processed for game {game_id}" + (
         " because its deadline passed." if trigger == "deadline" else "."
     )
@@ -804,7 +806,15 @@ def notify_turn_processed(
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             trapped = {p: forced[p] for p in sorted(powers) if p in forced}
             my_waived = {p: waived[p] for p in sorted(powers) if p in waived}
-            results_lines = turn_results_lines(processed_label, {p: outcomes[p] for p in sorted(live) if p in outcomes})
+            my_unbuildable = {p: unbuildable[p] for p in sorted(live) if p in unbuildable}
+            # Automatic losses (civil disorder, a retreat that bounced or had no order) join
+            # the power's own results block, so they carry its header too (CA3).
+            block = {p: list(outcomes[p]) for p in sorted(live) if p in outcomes}
+            for p, units in removed.items():
+                block.setdefault(p, []).append(civil_disorder_line("You were", units))
+            for p, lines in retreat_lost.items():
+                block.setdefault(p, []).extend(lines)
+            results_lines = turn_results_lines(processed_label, dict(sorted(block.items())))
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
             # in a retreat or adjustment phase they are told too when they owe
@@ -818,6 +828,7 @@ def notify_turn_processed(
                 and not removed
                 and not retreat_lost
                 and not trapped
+                and not my_unbuildable
                 and not my_waived
                 and not out_lines
                 and not earlier
@@ -832,7 +843,8 @@ def notify_turn_processed(
                     earlier
                     + results_lines
                     + trapped_lines(trapped, tagged=len(trapped) > 1)
-                    + _turn_news_lines(removed, retreat_lost, my_waived)
+                    + unbuildable_lines(my_unbuildable, tagged=len(my_unbuildable) > 1)
+                    + _turn_news_lines(my_waived)
                     + out_lines
                     + ([vacant_line] if vacant_line else [])
                 )
@@ -841,10 +853,10 @@ def notify_turn_processed(
                 continue
             body = (
                 "\n".join(
-                    ([turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped)] if live else [header])
+                    ([turn_message(header, label, phase_type, {p: duties[p] for p in mine}, trapped, my_unbuildable)] if live else [header])
                     + earlier
                     + results_lines
-                    + _turn_news_lines(removed, retreat_lost, my_waived)
+                    + _turn_news_lines(my_waived)
                     + out_lines
                 )
                 + (f"\n{vacant_line}" if vacant_line else "")
@@ -874,24 +886,14 @@ def notify_turn_processed(
     return folded
 
 
-def _turn_news_lines(
-    removed: dict[str, list[str]],
-    retreat_lost: dict[str, list[str]],
-    waived: dict[str, tuple[int, bool]],
-) -> list[str]:
-    """One player's lines about units civil disorder or a bounced retreat removed
-    and builds waived, each tagged with its power when they hold several."""
-    return (
-        [
-            civil_disorder_line(f"As {p}, you were" if len(removed) > 1 else "You were", units)
-            for p, units in removed.items()
-        ]
-        + [f"As {p}: {line}" if len(retreat_lost) > 1 else line for p, lines in retreat_lost.items() for line in lines]
-        + [
-            (f"As {p}, your " if len(waived) > 1 else "Your ") + waived_line(n, partial)
-            for p, (n, partial) in waived.items()
-        ]
-    )
+def _turn_news_lines(waived: dict[str, tuple[int, bool]]) -> list[str]:
+    """One player's lines about builds waived without their asking, each tagged with
+    its power when they hold several. (Units civil disorder or a bounced retreat removed
+    are told inside the power's results block, ``turn_results_lines``.)"""
+    return [
+        (f"As {p}, your " if len(waived) > 1 else "Your ") + waived_line(n, partial)
+        for p, (n, partial) in waived.items()
+    ]
 
 
 def send_carried(game_id: str, carried: dict[str, list[str]]) -> None:
@@ -954,6 +956,7 @@ def turn_message(
     phase_type: str,
     duties: dict[str, dict[str, Any]],
     forced: Optional[dict[str, list[str]]] = None,
+    unbuildable: Optional[dict[str, int]] = None,
 ) -> str:
     """The "turn processed" DM for one player, from ``GameService.phase_duties``
     restricted to the powers that player holds and owes orders for.
@@ -970,13 +973,20 @@ def turn_message(
     ``forced`` (``phase_duties``' ``forced_disbands`` for this player's powers)
     lists dislodged units with nowhere to retreat whose power owes no order
     (BJ2): the player is told they are lost, not asked for anything.
+
+    ``unbuildable`` (``phase_duties``' ``waived_builds`` for this player's powers) maps a
+    power owed builds with no free home centre to their count: the player is told they are
+    waived (CA2), not asked for anything.
     """
     if phase_type == "MOVEMENT" and duties:
         return f"{header} Orders are due for {label}."
     forced = forced or {}
     if phase_type == "MOVEMENT":  # a power with centres but no unit
         return f"{header} {label}: you have nothing to order this phase; wait for the other powers."
-    lost = trapped_lines(forced, tagged=len(forced) + len(duties) > 1)
+    unbuildable = unbuildable or {}
+    lost = trapped_lines(forced, tagged=len(forced) + len(duties) > 1) + unbuildable_lines(
+        unbuildable, tagged=len(unbuildable) + len(duties) > 1
+    )
     if not duties:
         return "\n".join(
             [f"{header} {label}: you have nothing to order this phase; wait for the other powers.", *lost]
@@ -1010,6 +1020,17 @@ def turn_message(
                 "With no order, civil disorder picks which units are disbanded."
             )
     return "\n".join(lines + lost)
+
+
+def unbuildable_lines(unbuildable: dict[str, int], *, tagged: bool) -> list[str]:
+    """One notice per power owed builds it has no free home centre for (CA2); ``tagged``
+    names the power, for a player who holds more than one. Worded as the build line is:
+    "Your 3 builds are waived: no free home supply centre."."""
+    return [
+        (f"As {power}, your" if tagged else "Your")
+        + f" {n} {'build is' if n == 1 else 'builds are'} waived: no free home supply centre."
+        for power, n in sorted(unbuildable.items())
+    ]
 
 
 def trapped_lines(forced: dict[str, list[str]], *, tagged: bool) -> list[str]:
