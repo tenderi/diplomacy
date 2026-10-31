@@ -1517,6 +1517,11 @@ class GameService:
         each dislodged unit with no retreat whose power is *not* in ``duties``:
         it owes no order (BJ2), but its player is still told the unit is lost.
         Empty in any other phase, and for a dummy.
+
+        ``waived_builds`` (``{power: n}``) names, in an adjustment phase, each power owed
+        ``n`` builds that has no free home centre to put one on, so is not in ``duties``
+        (CA2): its player is told the builds are waived. Empty in any other phase, and
+        for a dummy.
         """
         sj = self._repo.get_state_json(game_id)
         if sj is None:
@@ -1544,6 +1549,12 @@ class GameService:
                     duties[power] = {"disband": owed}
             else:
                 duties[power] = {}
+        unbuildable: dict[str, int] = {}
+        if state.phase_type is PhaseType.ADJUSTMENT:
+            for power in sorted(set(state.ownership.values()) - set(duties) - dummies):
+                delta = len(state.centers_of(power)) - len(state.units_of(power))
+                if delta > 0:
+                    unbuildable[power] = delta
         forced: dict[str, list[str]] = {}
         for du in sorted(state.dislodged, key=lambda d: str(d.location)):
             if du.power not in duties and du.power not in dummies:
@@ -1553,6 +1564,7 @@ class GameService:
             "phase_type": state.phase_type.value,
             "duties": duties,
             "forced_disbands": forced,
+            "waived_builds": unbuildable,
         }
 
     def meta(self, game_id: str) -> Optional[dict[str, Any]]:

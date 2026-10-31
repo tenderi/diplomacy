@@ -299,7 +299,14 @@ place the full picture exists.
   of a free home centre) and the free home centres themselves, or the disband count ("You may
   build 2 units (free home centres: MAR, PAR; 1 more waived: no free home supply centre).",
   "You must disband 1 unit.");
-- a player with nothing to order in a retreat or adjustment phase is told so and to wait.
+- a power owed builds with no free home centre at all owes nothing, but is told so
+  (`phase_duties`' `waived_builds`): "Your 2 builds are waived: no free home supply centre."
+  under its wait line (or, if the next phase needs nobody, in the DM that carries the folded
+  lines). The after-phase waived notice (below) does not repeat it;
+- a player with nothing to order in a retreat or adjustment phase is told so and to wait;
+- units an adjustment or retreat phase removed on its own (civil disorder, a bounced or
+  unordered retreat) are told under the power's "Your results for Winter 1901 builds:" block,
+  with the header the ordered results get.
 
 **A phase nobody has anything to order in runs at once** (BV2): a retreat phase whose only
 dislodged units have nowhere to go, or an adjustment phase in which only dummies build or
@@ -358,8 +365,9 @@ results list:
 
 "Held (no order)" is read from the resolution's `unordered` mark, so an order refused at
 submission shows up here as the unit holding. The block leaves out what the DM's own
-notices already say: a bounced or unordered retreat disband, a civil-disorder disband, a
-trapped unit's disband and waived builds (below). A player holding several powers gets a
+notices already say: a trapped unit's disband and waived builds (below). A bounced or
+unordered retreat disband and a civil-disorder disband are lines of the same block (under its
+header, even when the power has no other result). A player holding several powers gets a
 block per power, headed "As FRANCE, your results for …:". The channel post carries no
 one's results.
 
