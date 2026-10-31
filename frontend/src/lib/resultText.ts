@@ -43,6 +43,11 @@ export interface OrderResultEntry {
    * had no order (that one keeps its `retreat_options`). Absent on results stored
    * before v3.0.82. */
   civil_disorder?: boolean
+  /** Why the order failed, when the code alone would mislead: a void support
+   * onto the supporter's own unit ("it would dislodge your own F TRI") or a
+   * convoy broken by a dislodged fleet ("F NTH was dislodged"). Derived by the
+   * server (`GameService.result_reason`), the same text the bot's DM uses. */
+  reason?: string
   power: string
   order_str: string
 }
@@ -75,8 +80,10 @@ export function describeResult(entry: OrderResultEntry): string {
     case 'CUT':
       return 'Support was cut by an attack and had no effect.'
     case 'VOID':
+      if (entry.reason) return `Had no effect: ${entry.reason}.`
       return 'Order was invalid and was not carried out.'
     case 'NO_CONVOY':
+      if (entry.reason) return `Convoy failed — ${entry.reason}, so the move did not happen.`
       return 'Convoy failed — no surviving path, so the move did not happen.'
     case 'DISLODGED':
       return 'Unit was dislodged.'

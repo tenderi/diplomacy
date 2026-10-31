@@ -357,16 +357,21 @@ can show why a power has builds or disbands after the retreat (`GameService._mov
 
 Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
-passed through unchanged; `power`/`order_str` are the only fields added on top
-(`GameService.last_resolution_view`). This is what a client uses to answer "what
-happened to my orders?" without re-deriving adjudication itself. The web results
+passed through unchanged; `power`/`order_str` are added on top, and `reason` where the
+code alone would mislead (`GameService.result_reason`, read from the same resolution's other
+results): a `VOID` support of a move onto a unit of the supporter's own power that stayed,
+`"it would dislodge your own F TRI"`, and a `NO_CONVOY` move or convoy whose convoying fleet
+was dislodged, `"F NTH was dislodged"` (`GameService.last_resolution_view`). This is what a
+client uses to answer "what happened to my orders?" without re-deriving adjudication itself. The web results
 list (`OrderEntry.tsx` `ResultList`, text from `lib/resultText.ts` `describeResult`) shows
 an adjustment's `civil_disorder` result as "Disbanded by civil disorder: too few disbands
 were ordered.", a retreat phase's (one with `retreat_options`) as "Disbanded by civil
 disorder: no retreat was ordered.", a bounced retreat as "Retreat bounced: another unit
 retreated to the same province, and the unit was disbanded.", a `DISBAND` on a `Retreat`
 order as "The retreat was not legal — the unit was disbanded." and an ordered disband
-as "Unit was disbanded.".
+as "Unit was disbanded."; a result with a `reason` reads "Had no effect: it would dislodge
+your own F TRI." (`VOID`) or "Convoy failed — F NTH was dislodged, so the move did not
+happen." (`NO_CONVOY`).
 
 ### Order/resolution overlay maps: `GET .../map/orders`, `GET .../map/resolution`
 
@@ -444,7 +449,7 @@ wins: `the unit in WAR is an army, not a fleet`, as for every other order.
 
 Moves and convoys. A non-adjacent **army** move between two coastal provinces is a convoyed
 move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is accepted like
-`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). Any other
+`A LON - BEL VIA`, and adjudication treats it as convoyed (`adjudication.md` §6). The submission result carries the note "needs a convoy: ..." (accepted, but it fails unless fleets convoy it). A support of a move onto the supporter's own unit is accepted (it is legal) with the note "your own F TRI is there: this support has no effect unless it moves away" (DATC 6.D.10). Any other
 non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
 province (`LON cannot move to its own province`); a support of a move into the supporter's
 own province is refused as such (`VEN cannot support a move into its own province`), not as
