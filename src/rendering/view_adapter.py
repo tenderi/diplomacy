@@ -1,7 +1,7 @@
 """Adapt ``GameService.view()`` dicts into the renderer's input shapes.
 
 ``rendering.map.Map`` speaks a pre-rewrite vocabulary: plain SVG paths, a
-``{power: ["A PAR", "F BRE", ...]}`` unit map (coast stripped), and a small
+``{power: ["A PAR", "F BRE", ...]}`` unit map (a fleet keeps its coast: ``F STP/NC``), and a small
 ``phase_info`` dict for the on-image phase label. The new engine's view (see
 ``server.game_service.GameService.view``) is GameState-native — ``units`` is a list
 of dicts, powers are grouped separately under ``units_by_power`` — so callers must
@@ -27,7 +27,7 @@ def svg_path_for_map_name(map_name: str) -> str:
 
 
 def units_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
-    """Build the renderer's ``{power: ["A PAR", "F STP", ...]}`` map (coast stripped).
+    """Build the renderer's ``{power: ["A PAR", "F STP", ...]}`` map (a fleet keeps its coast: ``F STP/NC``).
 
     Reads ``view["units_by_power"]`` — the grouped-by-power shape ``GameService.view``
     already provides. This is the single place that ``GameState``-native units
@@ -41,18 +41,18 @@ def units_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
     """
     out: dict[str, list[str]] = {}
     for power, units in view.get("units_by_power", {}).items():
-        out[power] = [f"{u['kind']} {u['location'].split('/')[0]}" for u in units]
+        out[power] = [f"{u['kind']} {u['location']}" for u in units]
     for du in view.get("dislodged", []):
         unit = du["unit"]
-        out.setdefault(unit["power"], []).append(f"{unit['kind']} DISLODGED_{unit['location'].split('/')[0]}")
+        out.setdefault(unit["power"], []).append(f"{unit['kind']} DISLODGED_{unit['location']}")
     return out
 
 
 def retreat_options_for_render(view: dict[str, Any]) -> dict[str, list[str]]:
     """``{province: [province, ...]}`` -- where each dislodged unit on a retreat
-    board may go (coasts stripped). Empty outside a retreat phase."""
+    board may go (a fleet keeps its coast). Empty outside a retreat phase."""
     return {
-        du["unit"]["location"].split("/")[0]: sorted({r.split("/")[0] for r in du.get("retreats", [])})
+        du["unit"]["location"]: sorted(set(du.get("retreats", [])))
         for du in view.get("dislodged", [])
     }
 

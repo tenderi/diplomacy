@@ -84,6 +84,11 @@ class Scene:
     def unit_at(self, province: str, *, dislodged: bool = False) -> Point | None:
         if dislodged and province in self.dislodged_at:
             return self.dislodged_at[province]
+        if province not in self.standing:
+            # An order naming a fleet by its bare province ("STP") finds it on its coast.
+            coasted = sorted(k for k in self.standing if k.startswith(f"{province}/"))
+            if coasted:
+                return self.centres.get(coasted[0])
         return self.centres.get(province)
 
     def has_token(self, province: str) -> bool:
