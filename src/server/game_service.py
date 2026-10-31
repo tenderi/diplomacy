@@ -771,6 +771,17 @@ class GameService:
                 "missing": [],
                 "quorum_reached": True,
             }
+        if game.state.status is GameStatus.COMPLETED:
+            # Ended by a solo victory or the last power standing: no vote is
+            # open, so none is required or missing.
+            return {
+                "phase": game.state.phase_name,
+                "game_status": game.state.status.value,
+                "required": [],
+                "votes": [],
+                "missing": [],
+                "quorum_reached": False,
+            }
         votes = self._repo.get_draw_votes(game_id)
         required = self._draw_quorum(game, game_id)
         yes = {p for p in votes if p in required}
