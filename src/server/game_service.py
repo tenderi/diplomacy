@@ -97,6 +97,11 @@ def _order_str(result: dict[str, Any]) -> str:
 NEEDS_CONVOY_NOTE = "needs a convoy: the army is not next to its destination, so the move fails unless fleets convoy it"
 
 
+def own_unit_support_note(kind: str, location: Location) -> str:
+    """The submission note for a support of a move onto the power's own unit (CA4)."""
+    return f"your own {kind} {location} is there: this support has no effect unless it moves away"
+
+
 class GameService:
     def __init__(self, repo: Any, map: Optional[MapData] = None) -> None:
         self._repo = repo
@@ -328,6 +333,10 @@ class GameService:
                 if needs_convoy:
                     # Accepted, but it can only succeed if fleets convoy it.
                     result["note"] = NEEDS_CONVOY_NOTE
+                own = state.unit_at(order.dest.province) if isinstance(order, SupportMove) else None
+                if own is not None and own.power == power:
+                    # Legal, but void unless that unit moves away (DATC 6.D.10).
+                    result["note"] = own_unit_support_note(own.kind.value, own.location)
                 results.append(result)
             else:
                 results.append({"order": raw, "ok": False, "reason": vr.reason})
@@ -1776,6 +1785,10 @@ def _decorated_results(resolution: dict[str, Any]) -> list[dict[str, Any]]:
     for r in resolution.get("results", []):
         order = order_from_dict(r["order"])
         results.append({**r, "power": order.power, "order_str": r.get("order_str") or format_order(order)})
+    for r in results:
+        reason = result_reason(r, results)
+        if reason is not None:
+            r["reason"] = reason
     return results
 
 
@@ -1798,6 +1811,60 @@ def _dislodger(results: list[dict[str, Any]], province: str) -> str:
         if r["order"]["type"] == "MOVE" and r["result"] == "OK" and r["order"]["dest"].split("/")[0] == province:
             return f" by {_order_str(r).partition(' - ')[0]} ({r['order']['power']})"
     return ""
+
+
+def _province(loc: Any) -> str:
+    return str(loc or "").split("/")[0]
+
+
+def _unit_text(r: dict[str, Any]) -> str:
+    """"A BUR": the unit a stored result's order is for."""
+    return " ".join(_order_str(r).split()[:2])
+
+
+def result_reason(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[str]:
+    """Why an order failed, when the bare code would mislead (CA4), read from the
+    other results of the same resolution:
+
+    - a ``VOID`` support of a move onto a unit of the supporter's own power that
+      stayed: "it would dislodge your own A BUR" (DATC 6.D.10; the order was legal);
+    - a ``NO_CONVOY`` move or convoy whose convoying fleet was dislodged:
+      "F NTH was dislodged".
+
+    ``None`` when the code says it all."""
+    order, code = r["order"], r["result"]
+    if order["type"] == "SUPPORT_MOVE" and code == "VOID":
+        origin, dest = _province(order.get("origin")), _province(order.get("dest"))
+        if not any(
+            o["order"]["type"] == "MOVE"
+            and _province(o["order"].get("unit")) == origin
+            and _province(o["order"].get("dest")) == dest
+            for o in results
+        ):
+            return None  # void for want of the supported move, not for the own unit
+        for o in results:
+            moved_out = o["order"]["type"] == "MOVE" and o["result"] == "OK"
+            if _province(o["order"].get("unit")) == dest and o["order"]["power"] == order["power"] and not moved_out:
+                return f"it would dislodge your own {_unit_text(o)}"
+        return None
+    if code == "NO_CONVOY" and order["type"] in ("MOVE", "CONVOY"):
+        origin = _province(order.get("unit") if order["type"] == "MOVE" else order.get("origin"))
+        dest = _province(order.get("dest"))
+        lost = sorted(
+            _unit_text(o)
+            for o in results
+            if o is not r
+            and o["order"]["type"] == "CONVOY"
+            # DISLODGED, not just the flag: a fleet off any route has a VOID
+            # convoy that can be dislodged too, and broke nothing.
+            and o["result"] == "DISLODGED"
+            and _province(o["order"].get("origin")) == origin
+            and _province(o["order"].get("dest")) == dest
+        )
+        if lost:
+            names = lost[0] if len(lost) == 1 else f"{', '.join(lost[:-1])} and {lost[-1]}"
+            return f"{names} {'was' if len(lost) == 1 else 'were'} dislodged"
+    return None
 
 
 def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[str]:
@@ -1834,6 +1901,9 @@ def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[
         "NO_CONVOY": "failed: no convoy route",
         "DISLODGED": "failed",
     }.get(code, code.lower())
+    reason = result_reason(r, results)
+    if reason is not None:
+        gloss = f"had no effect: {reason}" if code == "VOID" else f"failed: the convoy was broken when {reason}"
     if r.get("dislodged"):
         return f"{text} {gloss}; dislodged{_dislodger(results, province)}."
     return f"{text} {gloss}."
