@@ -84,6 +84,10 @@ class Scene:
     def unit_at(self, province: str, *, dislodged: bool = False) -> Point | None:
         if dislodged and province in self.dislodged_at:
             return self.dislodged_at[province]
+        if dislodged and province not in self.standing:
+            coasted_d = sorted(k for k in self.dislodged_at if k.startswith(f"{province}/"))
+            if coasted_d:
+                return self.dislodged_at[coasted_d[0]]
         if province not in self.standing:
             # An order naming a fleet by its bare province ("STP") finds it on its coast.
             coasted = sorted(k for k in self.standing if k.startswith(f"{province}/"))
@@ -286,7 +290,7 @@ def _plan_support(
 
     if order.get("supported_action") == "move" and order.get("supported_target") in scene.centres:
         target = order["supported_target"]
-        drawn = move_lines.get((supported, target))
+        drawn = move_lines.get((supported, target)) or move_lines.get((_bare(supported), _bare(target)))
         end = point_at(drawn, path_length(drawn) * 0.45)[0] if drawn else (
             (supported_at[0] + scene.centres[target][0]) / 2, (supported_at[1] + scene.centres[target][1]) / 2)
         dot_r = a["support_dot_radius"]
@@ -393,20 +397,26 @@ def _plan_destroy(plan: Plan, order: dict, scene: Scene) -> None:
     plan.legend.add("disband")
 
 
+def _bare(place: str) -> str:
+    """``STP/NC`` -> ``STP``: head-to-head and support lookups compare provinces."""
+    return place.split("/")[0]
+
+
 def plan_orders(orders: dict[str, list[dict]], scene: Scene, standoffs: list[str] | None = None) -> Plan:
     """Turn the order dicts into layered drawing operations."""
     plan = Plan()
     entries = [(power, o) for power, power_orders in orders.items() for o in power_orders]
     army_moves = {(o["province"], o.get("target")) for _, o in entries if o.get("type") == "move" and o.get("via_convoy")}
-    plain_moves = {(o["province"], o.get("target")) for _, o in entries
+    plain_moves = {(_bare(o["province"]), _bare(o.get("target") or "")) for _, o in entries
                    if o.get("type") == "move" and not o.get("convoy_chain")}
     move_lines: dict[tuple[str, str], list[Point]] = {}
     for _, o in entries:
         if o.get("type") == "move":
-            opposed = (o.get("target"), o["province"]) in plain_moves and not o.get("convoy_chain")
+            opposed = (_bare(o.get("target") or ""), _bare(o["province"])) in plain_moves and not o.get("convoy_chain")
             line = move_centreline(o, scene, opposed)
             if line is not None:
                 move_lines[(o["province"], o["target"])] = line
+                move_lines.setdefault((_bare(o["province"]), _bare(o["target"])), line)
     ring_count: dict[str, int] = {}
     drawn_chains: set[tuple[str, str]] = set()
 
@@ -414,7 +424,7 @@ def plan_orders(orders: dict[str, list[dict]], scene: Scene, standoffs: list[str
         colour = rgb(_cfg.get_power_color(power))
         kind = o.get("type")
         if kind == "move":
-            opposed = (o.get("target"), o["province"]) in plain_moves and not o.get("convoy_chain")
+            opposed = (_bare(o.get("target") or ""), _bare(o["province"])) in plain_moves and not o.get("convoy_chain")
             _plan_move(plan, o, colour, scene, opposed)
         elif kind == "hold":
             _plan_hold(plan, o, colour, scene)
