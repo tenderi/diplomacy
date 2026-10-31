@@ -43,11 +43,11 @@ class TestSvgPathForMapName:
 
 
 class TestUnitsForRender:
-    def test_groups_by_power_and_strips_coast(self):
+    def test_groups_by_power_and_keeps_a_fleets_coast(self):
         result = units_for_render(_view())
         assert result == {
             "FRANCE": ["A PAR", "F BRE"],
-            "ENGLAND": ["F STP"],
+            "ENGLAND": ["F STP/SC"],
         }
 
     def test_missing_units_by_power_is_empty(self):

@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 from engine.serialization import order_from_dict
 from engine.types import (
+    Location,
     Build,
     Convoy,
     Disband,
@@ -62,6 +63,11 @@ def _unit_label(province: str, kind_by_province: Optional[dict[str, str]]) -> st
     return f"{(kind_by_province or {}).get(province, 'A')} {province}"
 
 
+def _key(loc: Location) -> str:
+    """The renderer's place key: ``STP/NC`` for a fleet on a coast, else ``STP``."""
+    return f"{loc.province}/{loc.coast}" if loc.coast else loc.province
+
+
 def order_to_viz(
     order: Order,
     result: str = "pending",
@@ -77,29 +83,29 @@ def order_to_viz(
         "dislodged": dislodged,
     }
     if isinstance(order, Build):
-        return {**base, "type": "build", "unit": "", "province": order.location.province,
-                "target": order.location.province, "unit_kind": order.kind.value}
+        return {**base, "type": "build", "unit": "", "province": _key(order.location),
+                "target": _key(order.location), "unit_kind": order.kind.value}
     unit = getattr(order, "unit", None)
     if unit is None:  # Waive, and any future order with nothing to draw
         return None
     unit_province = unit.province
-    base |= {"unit": _unit_label(unit_province, kind_by_province), "province": unit_province}
+    base |= {"unit": _unit_label(unit_province, kind_by_province), "province": _key(unit)}
     if isinstance(order, Move):
-        return {**base, "type": "move", "target": order.dest.province,
+        return {**base, "type": "move", "target": _key(order.dest),
                 "via_convoy": order.via_convoy, "convoy_chain": []}
     if isinstance(order, Hold):
         return {**base, "type": "hold"}
     if isinstance(order, SupportHold):
         return {**base, "type": "support", "supported_action": "hold",
-                "supported_unit_province": order.target.province}
+                "supported_unit_province": _key(order.target)}
     if isinstance(order, SupportMove):
         return {**base, "type": "support", "supported_action": "move",
-                "supported_unit_province": order.origin.province, "supported_target": order.dest.province}
+                "supported_unit_province": _key(order.origin), "supported_target": _key(order.dest)}
     if isinstance(order, Convoy):
         return {**base, "type": "convoy", "convoyed_army_province": order.origin.province,
                 "target": order.dest.province, "convoy_chain": [unit_province]}
     if isinstance(order, Retreat):
-        return {**base, "type": "retreat", "target": order.dest.province}
+        return {**base, "type": "retreat", "target": _key(order.dest)}
     if isinstance(order, Disband):
         return {**base, "type": "destroy"}
     return None  # pragma: no cover - every unit order is handled above

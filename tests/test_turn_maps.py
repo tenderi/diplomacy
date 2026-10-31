@@ -57,7 +57,7 @@ def test_dislodged_units_are_drawn_where_they_were_knocked_out() -> None:
         "units_by_power": {"GERMANY": [{"kind": "A", "power": "GERMANY", "location": "BUR"}]},
         "dislodged": [{"unit": {"kind": "F", "power": "FRANCE", "location": "SPA/SC"}, "attacker_origin": "MAR", "retreats": []}],
     }
-    assert units_for_render(view) == {"GERMANY": ["A BUR"], "FRANCE": ["F DISLODGED_SPA"]}
+    assert units_for_render(view) == {"GERMANY": ["A BUR"], "FRANCE": ["F DISLODGED_SPA/SC"]}
 
 
 needs_db = pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")

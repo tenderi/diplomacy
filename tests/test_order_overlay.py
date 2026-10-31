@@ -76,9 +76,9 @@ def test_waive_draws_nothing() -> None:
     assert order_to_viz(Waive(power="FRANCE")) is None
 
 
-def test_coast_is_stripped_to_province() -> None:
+def test_coast_is_kept_in_the_place_key_but_not_the_unit_label() -> None:
     viz = order_to_viz(Move(power="RUSSIA", unit=_loc("STP", "SC"), dest=_loc("BOT")))
-    assert (viz["province"], viz["unit"]) == ("STP", "A STP")
+    assert (viz["province"], viz["unit"]) == ("STP/SC", "A STP")
 
 
 def test_waive_only_powers_are_dropped() -> None:
