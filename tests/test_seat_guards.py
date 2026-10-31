@@ -275,7 +275,7 @@ class TestTheLastPowerStandingWins:
         assert r.status_code == 200, r.text
         assert r.json() == {
             "status": "ok", "power": "FRANCE", "game_status": "COMPLETED", "eliminated": True,
-            "winners": ["GERMANY"], "auto_processed": False,
+            "winners": ["GERMANY"], "how": "last_standing", "auto_processed": False,
         }
         state = client.get(f"/games/{game_id}/state").json()
         assert (state["status"], state["winners"]) == ("COMPLETED", ["GERMANY"])
@@ -329,7 +329,7 @@ class TestTheLastPowerStandingWins:
         assert r.status_code == 200, r.text
         assert r.json() == {
             "status": "ok", "power": "ITALY", "game_status": "COMPLETED", "eliminated": True,
-            "winners": ["GERMANY"], "auto_processed": False,
+            "winners": ["GERMANY"], "how": "last_standing", "auto_processed": False,
         }
         assert raced[0]["ended_game"] is True
         play_on.assert_not_called()

@@ -252,8 +252,8 @@ mostly the ones that happen while the API is unreachable. `api/error_log.py` log
 the API returns at ERROR, so a route's own `HTTPException(500)` alerts too.
 
 (`DaideServer.notify_game_processed` is a fourth, protocol-level path — `NOW`/`ORD`/`OUT`/`SLO`
-to connected DAIDE bots; a game that ends with no winners (BL6, or the last powers conceding
-together) sends a bare `DRW` once per game, since `OFF` means the server is shutting down and
+to connected DAIDE bots; a game that ends with no winners (BL6, the last powers conceding
+together, or only dummies left) sends a bare `DRW` once per game, since `OFF` means the server is shutting down and
 a solo `SLO` needs a winner. It is orthogonal to the table below and fires from both `process_turn`
 call sites already.)
 
@@ -264,7 +264,7 @@ place the full picture exists.
 |---|---|---|---|---|
 | **Turn processed** (deadline) | all players, but a power that is out (eliminated or conceded) is owed no "Orders are due" and its player gets no turn DM; the power a turn eliminates (`resolution.eliminated`, so never a concession) is announced once, in that turn's DM to every player ("Your power ITALY has been eliminated …" to its own player, "ITALY has been eliminated from game N: it has no units or supply centres left." to the rest) and in the group post | notification + orders map + result map | next poll | `notify_turn_processed(trigger="deadline")` |
 | **Turn processed** (manual, or auto-processed) | all players **except the caller**, unless the caller owes orders in a new retreat or adjustment phase | notification + orders map + result map | next poll | `notify_turn_processed(trigger="manual")` |
-| **Game ended by a turn** (a solo: 18 centres; or the turn left one power or none) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." A turn that eliminated the last opponent reads "Game N has ended: FRANCE is the last power standing and wins." (the winner: "you are the last power standing and win"), one that left nobody "Game N has ended: no power is left, so nobody wins." (`GameService.ending` tells them apart). One message: it replaces the usual turn DM. Every player's cached game list is invalidated | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
+| **Game ended by a turn** (a solo: 18 centres; or the turn left one power or none) | all players (on a manual trigger, all except the caller): "Game N has ended: FRANCE has won with a solo victory."; the winner reads "Game N has ended: you have won with a solo victory." A turn that eliminated the last opponent reads "Game N has ended: FRANCE is the last power standing and wins." (the winner: "you are the last power standing and win"), one that left nobody "Game N has ended: no power is left, so nobody wins.", one that left only dummies "Game N has ended: only civil-disorder powers are left, so nobody wins." (`GameService.ending` tells them apart). One message: it replaces the usual turn DM. Every player's cached game list is invalidated | "🔔 Turn Processed - Game N" + "The turn has been processed. Game N has ended: …" + the final turn's two maps | next poll | `notify_turn_processed(game_ended=True)` |
 | Empty phase could not be processed (BX2: processing a phase that needs nobody raised) | all players: "⚠️ Game N: nobody has anything to order in Spring 1901 retreats, but it could not be processed automatically. The game's creator can move it on with ⚙️ Process turn now in the game menu (or Process turn on the web game page)." and then "Otherwise it is processed at its deadline, …" or "No deadline is set, so until then the game waits." (no fallback deadline is armed); the error is logged at ERROR, which DMs the maintainer (`install_admin_alerts`). One notice per failure: only a processed turn or a player's change reaches it, never a timer | the same text | next poll | `api.shared.empty_phase_failed` |
 | Deadline reminder (10 min out) | only the players of powers still owing orders (`orders_status.missing`; nobody, and so no post, when all have ordered), once per deadline (`games.reminded_deadline`, claimed by a conditional update, so neither a restart nor a second worker repeats it) | DM "Reminder: orders for Fall 1903 movement in game N are due in 7 minutes." (the real time left, rounded, at least 1 minute); group "⏰ Game N: orders for Fall 1903 movement are due in 7 minutes (still to come: FRANCE, ITALY; in a public game each power carries its nickname, "ITALY (Zed)"). Orders go to me in private." | — | `check_and_send_reminders` / `_send_deadline_reminder` |
 | Deadline set or cleared | all players except the setter | the same text, prefixed "⏰ " | next poll | `routes/games.py` `set_deadline` |
@@ -278,7 +278,7 @@ place the full picture exists.
 | Draw vote cast (not final) | all players except the voter: "FRANCE has voted to end game N in a draw (2/7 agreed). Draw votes last until this phase is processed. Use /draw to agree or /nodraw to withdraw." | — | next poll | `api.shared.after_draw_vote` |
 | Draw vote withdrawn | all players except the voter: "FRANCE has withdrawn its vote to end game N in a draw (1/7 agreed)." | — | next poll | `api.shared.after_draw_vote` |
 | Draw vote repeated, or a withdrawal with no vote to withdraw | nobody (`GameService.submit_draw_vote` returns `changed: false`) | — | — | `api.shared.after_draw_vote` |
-| Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND.") | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.notify_game_drawn` |
+| Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND."). When a concession or a new dummy completed the quorum, the cause leads ("ITALY has conceded, and game N has ended in a draw shared by …"; the conceder is left out, a dummy toggle leaves nobody out). Every player's cached game list is invalidated | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.announce_draw` → `notify_game_drawn` |
 | Draw voted over DAIDE (`DRW`, `NOT (DRW)`) | the three draw rows above, to every Telegram player (a DAIDE voter has no Telegram id to leave out); a completed draw, whichever surface cast the deciding vote, sends one `DRW` to every DAIDE session (`after_draw_vote` → `broadcast_draw_completion`, idempotent per game) | as above | next poll | `DaideServer(on_draw_vote=api.shared.after_draw_vote)`, wired in `_api_module` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
 | Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
@@ -473,9 +473,16 @@ from the one the request loaded, so two powers conceding at once both leave the 
 write of the loaded board put the first one's units and centres back). A concession from a
 phase that has since been processed is a 409.
 
-The draw rows need their own call because `submit_draw_vote` finalizes the game inline the
-moment quorum is reached (`GameService.submit_draw_vote` calls `Game.draw()` and `save_state`
-directly) and returns the outcome to the *voter* only. The game is then `COMPLETED`, so the
+The draw rows need their own call because the game is finalized inline the moment quorum is
+reached and the outcome goes to the caller only. `GameService._end_if_draw_agreed` reads the
+votes and the board, and if every power in the quorum has voted yes calls `Game.draw()` and
+`save_state`, guarded by both (`expected_draw_votes`, `expected_state_json`: a vote withdrawn
+or a concession landing in between is decided again) and by `refuse_completed` (of two writes
+completing the quorum at once, only the first ends and announces the game). Every write that
+can complete a quorum calls it: a yes vote (`submit_draw_vote`), a concession and a seat made
+a dummy, the last two because they take a power out of the quorum. A draw completed by
+either is announced exactly as a voted one (`api.shared.announce_draw`: DAIDE `DRW`, the
+deadline cleared, every player's cached game list invalidated, the DM and the group post). The game is then `COMPLETED`, so the
 deadline scheduler skips it (`get_games_with_deadlines_and_active_status`) and **no later
 turn-processed fan-out covers for it**; without the explicit notification six of seven
 players would find out by refreshing. A concession is announced for the same reason.
@@ -559,9 +566,12 @@ messages`), and nobody can take its seat back through `/join` with that power, `
 or a random join (409 `... its seat cannot be taken`; a random join skips it). Both service
 refusals are `PowerEliminatedError`, a `GameOverError`, so every route already mapping that
 to 409 maps them. **When a concession or a processed turn leaves one power standing, the game ends with it
-as the sole winner; when it leaves none, the game ends with no winners** (`COMPLETED`,
-`winners` empty). Both go through `GameService._last_standing_end` (`Game.draw` narrowed to
-the survivors). It is a server rule, not the engine's: under the rules adjudication alone
+as the sole winner; when it leaves none, or leaves only civil-disorder dummies (two or more:
+nobody is left to play them), the game ends with no winners** (`COMPLETED`, `winners`
+empty). A seat its player quit is not a dummy: it can be taken again, so it keeps the game
+going. Making the last such seat a dummy (`POST /games/{id}/dummies`) ends the game the same
+way. All of these go through `GameService._last_standing_end` (`Game.draw` narrowed to the
+survivors, or to nobody). It is a server rule, not the engine's: under the rules adjudication alone
 can only eliminate every other power by taking all their home centres, which is already
 an 18-centre solo, so only after concessions (whose centres turn neutral) can a survivor be
 short of 18; and the engine's DATC boards hold only a few powers, which it must not end.
@@ -574,7 +584,10 @@ with no "play on" notice and no auto-processing. The concede response then carri
 `game_status: "COMPLETED"` and `winners: ["GERMANY"]`, and instead of the concession notice
 `notify_last_power_standing` clears the deadline, invalidates every player's cached game
 list, tells the players (the winner reads "you are the last power standing and win"; with nobody
-left, "no power is left, so nobody wins") and posts to the game's group. The conceder, left
+left, "no power is left, so nobody wins"; with only dummies left, "only civil-disorder powers
+are left, so nobody wins") and posts to the game's group. A dummy toggle that ends the game
+is announced the same way, led by "GERMANY is now played by civil disorder", instead of the
+plain dummy notice. The conceder, left
 out of that, is told by the reply to their concession (the bot: "You have conceded game N,
 and it has ended: ...").
 
