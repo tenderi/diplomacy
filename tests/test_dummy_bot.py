@@ -33,6 +33,23 @@ class TestDummyCommand:
         assert "ITALY is now played by civil disorder" in message.reply_text.call_args[0][0]
 
     @patch("server.telegram_bot.games.api_post")
+    @pytest.mark.parametrize(
+        ("ended", "winners", "outcome"),
+        [
+            ("draw", ["FRANCE", "ITALY"], "a draw shared by FRANCE, ITALY"),
+            ("only_dummies", [], "only civil-disorder powers are left, so nobody wins"),
+        ],
+    )
+    def test_a_dummy_that_ends_the_game_says_so(self, mock_post, ended, winners, outcome):
+        """BZ1/BZ4: the creator may not be seated, so the reply is their only sign the game ended."""
+        mock_post.return_value = {"status": "ok", "dummy_powers": ["ITALY"], "ended": ended, "winners": winners}
+        update, context, message = _update(["7", "ITALY"])
+        asyncio.run(dummy(update, context))
+        message.reply_text.assert_called_once_with(
+            f"ITALY is now played by civil disorder in game 7, and the game has ended: {outcome}."
+        )
+
+    @patch("server.telegram_bot.games.api_post")
     def test_off_reopens_it(self, mock_post):
         mock_post.return_value = {"status": "ok", "dummy_powers": []}
         update, context, message = _update(["7", "ITALY", "off"])
