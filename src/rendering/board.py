@@ -103,11 +103,13 @@ def _get_cached_svg_data(
         for prov in tree.getroot().findall(".//jdipNS:PROVINCE", ns):
             name = prov.attrib.get("name")
             unit = prov.find("jdipNS:UNIT", ns)
+            # A coast entry is named "stp-nc" in the SVG; units are keyed "STP/NC".
+            name = name.upper().replace("-", "/") if name else name
             if name and unit is not None:
-                coords[name.upper()] = (float(unit.attrib.get("x", "0")), float(unit.attrib.get("y", "0")))
+                coords[name] = (float(unit.attrib.get("x", "0")), float(unit.attrib.get("y", "0")))
             dislodged = prov.find("jdipNS:DISLODGED_UNIT", ns)
             if name and dislodged is not None:
-                dislodged_coords[name.upper()] = (float(dislodged.attrib.get("x", "0")), float(dislodged.attrib.get("y", "0")))
+                dislodged_coords[name] = (float(dislodged.attrib.get("x", "0")), float(dislodged.attrib.get("y", "0")))
         _svg_cache[svg_path] = (tree, coords, dislodged_coords)
     return _svg_cache[svg_path]
 
@@ -151,6 +153,8 @@ def place_units(units: dict[str, list[str]], svg_path: str) -> list[PlacedUnit]:
             dislodged = prov.startswith("DISLODGED_")
             prov = prov.removeprefix("DISLODGED_")
             spot = (dislodged_coords if dislodged else coords).get(prov) or coords.get(prov)
+            if spot is None and "/" in prov:  # a coast the SVG does not know: the province
+                spot = coords.get(prov.split("/")[0])
             if spot is not None:
                 placed.append(PlacedUnit(power.upper(), kind, prov, spot, dislodged))
     return placed
@@ -191,7 +195,7 @@ def draw_retreat_options(
             if not unit.dislodged or unit.province not in retreat_options:
                 continue
             colour = rgb(_viz_config.get_power_color(unit.power))
-            options = [o.split("/")[0] for o in retreat_options[unit.province]]
+            options = retreat_options[unit.province]
             if not options:
                 x, y = unit.center
                 draw_cross(draw, (x + token_radius() + 6, y - token_radius()), 6, rgb(_viz_config.get_color("failure")),
