@@ -92,3 +92,53 @@ def test_scene_finds_a_fleet_named_by_its_bare_province():
     assert scene.unit_at("STP/NC") == scene.centres["STP/NC"]
     assert scene.unit_at("STP") == scene.centres["STP/NC"]
     assert build_scene({}, SVG).unit_at("STP") == scene.centres["STP"]
+
+
+def _move(province: str, target: str) -> dict:
+    return {"type": "move", "province": province, "target": target, "convoy_chain": [], "via_convoy": False,
+            "result": "pending", "status": "pending", "dislodged": False}
+
+
+def test_head_to_head_is_seen_across_a_coast():
+    from unittest.mock import patch
+
+    from rendering import overlays
+
+    scene = build_scene({"RUSSIA": ["F STP/NC"], "TURKEY": ["A BOT"]}, SVG)
+    seen = []
+    real = overlays.move_centreline
+
+    def spy(order, scene, opposed, **kw):
+        seen.append((order["province"], opposed))
+        return real(order, scene, opposed, **kw)
+
+    orders = {"RUSSIA": [_move("STP/NC", "BOT")], "TURKEY": [_move("BOT", "STP")]}
+    with patch.object(overlays, "move_centreline", spy):
+        overlays.plan_orders(orders, scene)
+    assert sorted(set(seen)) == [("BOT", True), ("STP/NC", True)]
+
+
+def test_support_dot_sits_on_a_move_into_a_coast():
+    from unittest.mock import patch
+
+    from rendering import overlays
+
+    scene = build_scene({"RUSSIA": ["F BOT", "A FIN"]}, SVG)
+    support = {"type": "support", "province": "FIN", "supported_action": "move", "supported_unit_province": "BOT",
+               "supported_target": "STP", "result": "pending", "status": "pending", "dislodged": False}
+    orders = {"RUSSIA": [_move("BOT", "STP/NC"), support]}
+    calls = []
+    real = overlays.point_at
+
+    def spy(path, dist):
+        calls.append(dist)
+        return real(path, dist)
+
+    with patch.object(overlays, "point_at", spy):
+        overlays.plan_orders(orders, scene)
+    assert len(calls) == 1
+
+
+def test_scene_finds_a_dislodged_fleet_named_by_its_bare_province():
+    scene = build_scene({"RUSSIA": ["F DISLODGED_STP/NC"]}, SVG)
+    assert scene.unit_at("STP", dislodged=True) == get_dislodged_unit_coordinates(SVG)["STP/NC"]
