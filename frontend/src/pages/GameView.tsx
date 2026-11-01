@@ -57,7 +57,7 @@ import {
 } from '@/components/OrderEntry'
 
 /** A seat from GET /games/{id}/players. An anonymous game sends `seated` but no `user_id` or name. */
-type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null; seated?: boolean }
+type Player = { power: string; user_id: number | null; is_active: boolean; nickname?: string | null; seated?: boolean; out?: boolean }
 /**
  * The GameState-native view returned by GET /games/{id}/state (see GameService.view).
  * `phase` is a code like "S1901M"; `phase_type` drives the order UI.
@@ -1277,7 +1277,9 @@ export default function GameView() {
           {POWERS.map((p) => {
             const pl = players.find((x) => x.power === p)
             const seated = isSeated(pl)
-            const label = seated
+            const label = pl?.out
+              ? 'Out (conceded or eliminated)'
+              : seated
               ? pl?.nickname || (pl?.user_id != null ? 'Player' : 'Taken')
               : dummyPowers.has(p)
                 ? 'Civil disorder'
@@ -1291,7 +1293,7 @@ export default function GameView() {
                   {p}
                   {p === myPower ? ' (you)' : ''}
                 </span>
-                <span className={cn('text-muted-foreground', !seated && 'italic')}>
+                <span className={cn('text-muted-foreground', (!seated || pl?.out) && 'italic')}>
                   {label}
                 </span>
               </li>

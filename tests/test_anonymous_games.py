@@ -103,7 +103,7 @@ class TestWhoHoldsASeat:
         seats = {p["power"]: p for p in client.get(f"/games/{game_id}/players").json()}
         assert seats["FRANCE"] == {
             "power": "FRANCE", "seated": True, "user_id": None, "is_active": True,
-            "nickname": None,
+            "out": False, "nickname": None,
         }
         assert {p["power"]: (p["seated"], p["user_id"]) for p in _listed(client, game_id)["players"]} == {
             "FRANCE": (True, None), "GERMANY": (True, None),
@@ -116,7 +116,7 @@ class TestWhoHoldsASeat:
         seats = {p["power"]: p for p in client.get(f"/games/{game_id}/players").json()}
         assert seats["GERMANY"]["nickname"] == bert_nick
         # A public game names a seat by nickname, never by its Telegram account.
-        assert sorted(seats["FRANCE"]) == ["is_active", "nickname", "power", "seated", "user_id"]
+        assert sorted(seats["FRANCE"]) == ["is_active", "nickname", "out", "power", "seated", "user_id"]
         assert seats["FRANCE"]["user_id"] == db_service.get_user_by_telegram_id(anna).id
         assert seats["FRANCE"]["seated"] is True
         assert isinstance(seats["FRANCE"]["user_id"], int)
