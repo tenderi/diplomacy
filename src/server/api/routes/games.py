@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
 from .admin import require_admin
-from .auth import require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
+from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
 from .channels import link_or_409
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
@@ -1627,8 +1627,9 @@ def get_resolution_history(game_id: str) -> Dict[str, Any]:
     return {"game_id": str(game_id), "resolutions": game_service.resolution_history(str(game_id))}
 
 @router.post("/games/{game_id}/snapshot")
-def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
-    """Save a snapshot of the current game state. Any authenticated caller."""
+def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_game_member)) -> Dict[str, Any]:
+    """Save a snapshot of the current game state. The bot, or the game's seated
+    players and creator (CC1: any account could add unbounded rows to any game)."""
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
