@@ -303,6 +303,20 @@ def player_rows(game: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def invalidate_user_caches(user_id: int, *telegram_ids: Optional[str]) -> None:
+    """Drop what a change to one account (its nickname, its Telegram link) leaves stale:
+    ``GET /users/{telegram_id}/games`` for each of ``telegram_ids`` (the account's old and
+    new id) and ``GET /games/{id}/players`` -- which shows the nickname -- for every game
+    the account is seated in."""
+    for telegram_id in telegram_ids:
+        if telegram_id:
+            invalidate_cache(f"users/{telegram_id}")
+    for player in db_service.get_players_by_user_id(int(user_id)):
+        game = db_service.get_game_by_id(int(player.game_id))
+        if game is not None:
+            invalidate_cache(f"games/{game.game_id}")
+
+
 def _notify_daide_processed(game_id: str, resolved_phase: Optional[str]) -> None:
     """Tell the DAIDE sessions on ``game_id`` a turn was processed
     (`DaideServer.notify_game_processed`: `NOW`/`ORD`/`OUT`/`SLO`).
