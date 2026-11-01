@@ -562,18 +562,27 @@ class GameRepo:
     def modify_dummy_powers(
         self,
         game_id: str,
-        change: Callable[[frozenset[str]], list[str]],
+        change: Callable[[frozenset[str], dict[str, Optional[int]]], list[str]],
         *,
         refuse_completed: bool = False,
     ) -> list[str]:
-        """``dummy_powers`` = ``change(current)`` in one locked transaction (see
-        ``modify_pending_orders``: two seats made dummies at once lost one, CB1).
+        """``dummy_powers`` = ``change(current, holders)`` in one locked
+        transaction (see ``modify_pending_orders``: two seats made dummies at
+        once lost one, CB1). ``holders`` is ``{power: user_id}`` for every seat
+        row, read after the game row is locked: a join takes the same lock
+        (``DatabaseService.create_player``/``claim_vacant_seat`` with
+        ``refuse_dummy``), so a seat cannot be taken between ``change``'s check
+        that it is empty and this write (CC3).
         ``refuse_completed`` refuses (``StaleGameError``) a game that has ended.
         Returns the new set, sorted."""
         with self._session_factory() as session:
             row = self._locked_row(session, game_id, None)
             _check_not_completed(row, game_id, refuse_completed)
-            updated = sorted(change(_dummies(row)))
+            holders: dict[str, Optional[int]] = {
+                str(p.power_name): p.user_id
+                for p in session.query(PlayerModel).filter_by(game_id=row.id).all()
+            }
+            updated = sorted(change(_dummies(row), holders))
             row.dummy_powers = updated
             session.commit()
             return updated

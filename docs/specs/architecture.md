@@ -597,7 +597,11 @@ dummies playing. After a concession or a dummy toggle it is `_end_if_last_standi
 and written like a draw on the locked row (`end_game_if`), so two last powers conceding
 together leave no winner rather than crowning one who left. The dummy set itself changes only
 through the locked `GameRepo.modify_dummy_powers` (two seats made dummies at once both stay;
-a game that ended meanwhile is a 409). Every one of these takes only the game row's lock, one
+a game that ended meanwhile is a 409), which reads who holds each seat under the same lock; a
+join or replace writes its seat (`DatabaseService.create_player` / `claim_vacant_seat` with
+`refuse_dummy`) only after taking that lock and finding the power is not a dummy. So a seat
+taken and the same seat made a dummy serialize: the second is refused (400 "held by a
+player" for the toggle, 409 "played by civil disorder" for the join). Every one of these takes only the game row's lock, one
 transaction at a time, so they cannot deadlock with each other or with the other `modify_*`
 paths. Only the concession that ended the game
 announces it: one landing at the same moment finds the game ended and returns it as ended,
