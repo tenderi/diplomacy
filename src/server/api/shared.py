@@ -939,12 +939,20 @@ def turn_results_lines(label: str, outcomes: dict[str, list[str]]) -> list[str]:
     """The turn DM's results block (BW1) for one player's powers, from
     ``GameService.turn_outcomes``: "Your results for Spring 1901 movement:" then a
     line per unit; a player holding several powers gets one block per power, each
-    headed "As FRANCE, your results for ...:"."""
-    return [
-        line
-        for power, lines in outcomes.items()
-        for line in [(f"As {power}, your" if len(outcomes) > 1 else "Your") + f" results for {label}:", *lines]
-    ]
+    headed "As FRANCE, your results for ...:". A power whose only line is its centre
+    change gets that line bare, with no header (CD2)."""
+    many = len(outcomes) > 1
+    out: list[str] = []
+    for power, lines in outcomes.items():
+        if all(line.startswith("Centres: ") for line in lines):
+            # Nothing but the centre change: the power had no part in this phase (a retreat
+            # phase folded in because only a dummy was dislodged), so the line must not sit
+            # under a header claiming results for it.
+            out.extend(f"As {power}: {line}" if many else line for line in lines)
+            continue
+        out.append((f"As {power}, your" if many else "Your") + f" results for {label}:")
+        out.extend(lines)
+    return out
 
 
 def elimination_line(game_id: Any, power: str) -> str:
