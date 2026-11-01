@@ -91,25 +91,25 @@ class TestAConcessionCompletesTheDraw:
         assert db_service.get_game_by_game_id(game_id).deadline is None
 
     def test_a_vote_withdrawn_meanwhile_is_decided_again(self, client: TestClient) -> None:
-        """GERMANY withdraws after the votes were read for the concession's
-        quorum check: the draw is refused and decided again on the new votes."""
+        """GERMANY withdraws after ITALY's concession was written and before its
+        quorum check: the check reads the votes on the locked row, so the draw
+        is decided on the new votes and refused."""
         game_id, _ = _three_humans_two_voting(client)
         repo = game_service._repo
-        real_get = repo.get_draw_votes
+        real_end = repo.end_game_if
         calls: list[int] = []
 
-        def read_then_germany_withdraws(gid: str) -> dict[str, str]:
-            votes = real_get(gid)
+        def germany_withdraws_first(gid: str, *args: Any, **kwargs: Any) -> bool:
             if not calls:
                 repo.modify_draw_votes(gid, lambda v: {p: x for p, x in v.items() if p != "GERMANY"})
             calls.append(1)
-            return votes
+            return real_end(gid, *args, **kwargs)
 
-        with patch.object(repo, "get_draw_votes", side_effect=read_then_germany_withdraws):
+        with patch.object(repo, "end_game_if", side_effect=germany_withdraws_first):
             result = game_service.concede(game_id, "ITALY")
         assert result["game_status"] == "ACTIVE"
         assert result["ended_game"] is False
-        assert len(calls) == 2
+        assert len(calls) == 2  # the last-standing check, then the draw's
         assert game_service.load(game_id).state.status.value == "ACTIVE"
         assert repo.get_draw_votes(game_id) == {"FRANCE": "yes"}
 

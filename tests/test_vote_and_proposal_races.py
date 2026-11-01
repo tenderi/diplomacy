@@ -100,9 +100,7 @@ def test_a_deciding_vote_whose_draw_loses_to_a_processed_turn_is_409_and_the_gam
     with patch.object(repo, "modify_draw_votes", side_effect=vote_then_the_turn_is_processed):
         resp = client.post(f"/games/{game_id}/draw_vote", json=_as(seats["FRANCE"], power="FRANCE", vote=True))
     assert resp.status_code == 409
-    assert resp.json()["detail"] == (
-        f"game {game_id}: expected phase 'S1901M' but the persisted phase is 'F1901M' -- already processed concurrently"
-    )
+    assert resp.json()["detail"] == f"game {game_id} has moved on from S1901M to F1901M"
     after = game_service.load(game_id).state
     assert after.status.value == "ACTIVE"
     assert after.phase_name == "F1901M"
