@@ -109,17 +109,17 @@ def test_a_dummy_toggle_on_a_game_drawn_meanwhile_is_the_game_over_error(client:
     the toggle is refused, and the finished game's dummies are left alone."""
     game_id, _ = _game(client, ["FRANCE"])
     repo = game_service._repo
-    real_players = repo.players
+    real_load = game_service.load
 
-    def players_then_a_draw(gid: str) -> Any:
-        seats = real_players(gid)
-        drawn = game_service.load(gid).draw()
+    def loaded_then_a_draw(gid: str) -> Any:
+        game = real_load(gid)
+        drawn = game.draw()
         repo.save_state(
             gid, state_to_dict(drawn.state), phase_code=drawn.state.phase_name, status="completed"
         )
-        return seats
+        return game
 
-    with patch.object(repo, "players", side_effect=players_then_a_draw), pytest.raises(GameOverError) as e:
+    with patch.object(game_service, "load", side_effect=loaded_then_a_draw), pytest.raises(GameOverError) as e:
         game_service.set_dummy(game_id, "ITALY", True)
     assert str(e.value) == (
         f"Game {game_id} is drawn between AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY; "

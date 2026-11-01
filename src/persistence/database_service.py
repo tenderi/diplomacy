@@ -50,6 +50,26 @@ class DeadlineProposalChange:
     deadline: Optional[datetime] = None
 
 
+class DummySeatError(Exception):
+    """The seat a join would take is a civil-disorder dummy (W9): refused by
+    ``create_player``/``claim_vacant_seat`` with ``refuse_dummy``."""
+
+    def __init__(self, power: str) -> None:
+        super().__init__(f"{power} is a civil-disorder dummy")
+        self.power = power
+
+
+def _lock_game_refusing_dummy(session: Session, game_id: int, power: str) -> None:
+    """Take the game's row ``FOR UPDATE`` and raise ``DummySeatError`` if
+    ``power`` is one of its dummies. ``GameRepo.modify_dummy_powers`` takes the
+    same lock and reads the seats under it, so a join and a dummy toggle on one
+    seat serialize: whichever commits second sees the other (CC3). The game row
+    is locked before any player row is written, the one lock order both use."""
+    row = session.query(GameModel).filter_by(id=game_id).with_for_update().first()
+    if row is not None and power in (row.dummy_powers or []):
+        raise DummySeatError(power)
+
+
 class ChannelTakenError(Exception):
     """The Telegram group already belongs to another game (``game_id``), and
     the caller may not take it away (``link_game_to_channel``)."""
@@ -427,8 +447,14 @@ class DatabaseService:
             session.commit()
 
     # --- Players ---
-    def create_player(self, game_id: int, power: str, user_id: Optional[int] = None) -> PlayerModel:
+    def create_player(
+        self, game_id: int, power: str, user_id: Optional[int] = None, *, refuse_dummy: bool = False
+    ) -> PlayerModel:
+        """Insert a seat row. ``refuse_dummy`` (a join) raises ``DummySeatError``
+        if ``power`` is a dummy, decided under the game-row lock."""
         with self.session_factory() as session:
+            if refuse_dummy:
+                _lock_game_refusing_dummy(session, game_id, power)
             player = PlayerModel(game_id=game_id, power_name=power, user_id=user_id, is_active=True)
             session.add(player)
             session.commit()
@@ -666,15 +692,22 @@ class DatabaseService:
             session.commit()
             return True
 
-    def claim_vacant_seat(self, player_id: int, user_id: int) -> bool:
+    def claim_vacant_seat(self, player_id: int, user_id: int, *, refuse_dummy: bool = False) -> bool:
         """Give a vacant seat to ``user_id`` -- only if it is still vacant.
 
         One conditional ``UPDATE ... WHERE user_id IS NULL``: two players taking
         the same vacated seat at once both used to succeed (check, then an
         unconditional ``assign_player_seat``), the second silently replacing the
         first, who had been told they joined. Returns whether this call got it.
+        ``refuse_dummy`` raises ``DummySeatError`` if the seat's power is a
+        dummy, decided under the game-row lock (``create_player``).
         """
         with self.session_factory() as session:
+            if refuse_dummy:
+                seat = session.query(PlayerModel).filter_by(id=player_id).first()
+                if seat is None:
+                    return False
+                _lock_game_refusing_dummy(session, int(seat.game_id), str(seat.power_name))
             claimed = (
                 session.query(PlayerModel)
                 .filter(PlayerModel.id == player_id, PlayerModel.user_id.is_(None))
