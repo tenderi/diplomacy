@@ -7,6 +7,8 @@ show the write, not a copy from before it.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -121,3 +123,61 @@ def test_a_draw_vote_and_a_dummy_show_in_the_state(client: TestClient) -> None:
     assert _state(client, game_id)["dummy_powers"] == []  # warm
     assert client.post(f"/games/{game_id}/dummies", json=_as(tg, power="ITALY", dummy=True)).status_code == 200
     assert _state(client, game_id)["dummy_powers"] == ["ITALY"]
+
+
+def _web_player(client: TestClient) -> tuple[dict[str, str], str]:
+    """A web account holding FRANCE in a fresh game. Returns ``(auth headers, game_id)``."""
+    email = f"cc2_{uuid.uuid4().hex}@example.com"
+    reg = client.post("/auth/register", json={"email": email, "password": "testpass123"})
+    assert reg.status_code == 200, reg.text
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    game_id, _ = _game(client)
+    assert client.post(f"/games/{game_id}/join", json={"power": "FRANCE"}, headers=headers).status_code == 200
+    return headers, game_id
+
+
+def _nicknames(client: TestClient, game_id: str) -> list[object]:
+    return [p["nickname"] for p in client.get(f"/games/{game_id}/players").json()]
+
+
+def _link(client: TestClient, headers: dict[str, str], tg: str) -> None:
+    code = client.post("/auth/me/link_code", headers=headers).json()["code"]
+    assert client.post("/auth/telegram/link", json={"telegram_id": tg, "code": code}).status_code == 200
+
+
+def test_a_web_nickname_shows_in_the_cached_seat_list(client: TestClient) -> None:
+    headers, game_id = _web_player(client)
+    assert _nicknames(client, game_id) == [None]  # warm
+    nick = f"Nick{uuid.uuid4().hex[:8]}"
+    assert client.patch("/auth/me", json={"nickname": nick}, headers=headers).status_code == 200
+    assert _nicknames(client, game_id) == [nick]
+
+
+def test_a_bot_nickname_shows_in_the_cached_seat_list(client: TestClient) -> None:
+    game_id, tg = _game(client)
+    client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
+    assert _nicknames(client, game_id) == [None]  # warm
+    nick = f"Bot{uuid.uuid4().hex[:8]}"
+    r = client.post("/users/nickname", json={"telegram_id": tg, "bot_secret": BOT_SECRET, "nickname": nick})
+    assert r.status_code == 200, r.text
+    assert _nicknames(client, game_id) == [nick]
+
+
+def test_unlinking_telegram_drops_the_cached_game_list(client: TestClient) -> None:
+    headers, game_id = _web_player(client)
+    tg = str(int(_telegram_user(client, "unlinkee")) + 7)  # an id no account holds yet
+    _link(client, headers, tg)
+    assert _my_games(client, tg) == [game_id]  # warm
+    assert client.post("/auth/me/unlink_telegram", headers=headers).status_code == 200
+    assert client.get(f"/users/{tg}/games", headers=BOT).status_code == 404
+
+
+def test_relinking_telegram_drops_the_old_ids_cached_game_list(client: TestClient) -> None:
+    headers, game_id = _web_player(client)
+    old = str(int(_telegram_user(client, "relink")) + 11)
+    new = str(int(old) + 13)
+    _link(client, headers, old)
+    assert _my_games(client, old) == [game_id]  # warm
+    _link(client, headers, new)
+    assert client.get(f"/users/{old}/games", headers=BOT).status_code == 404
+    assert _my_games(client, new) == [game_id]
