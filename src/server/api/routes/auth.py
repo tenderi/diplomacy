@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from server.nickname import normalize_nickname
 
-from ..shared import db_service, is_bot_secret, notify_user
+from ..shared import db_service, invalidate_user_caches, is_bot_secret, notify_user
 
 # Password hashing: use bcrypt directly (avoids passlib/bcrypt version quirks)
 try:
@@ -571,6 +571,8 @@ def set_nickname_or_409(user_id: int, nickname: Optional[str]) -> None:
         db_service.set_nickname(user_id, nickname)
     except IntegrityError:  # taken between the check and the write
         raise HTTPException(status_code=409, detail="That nickname is taken")
+    user = db_service.get_user_by_id(user_id)  # the cached seat list shows the nickname
+    invalidate_user_caches(user_id, getattr(user, "telegram_id", None))
 
 
 @router.patch("/me")
@@ -601,6 +603,7 @@ def unlink_telegram(current_user: Any = Depends(get_current_user)) -> Dict[str, 
     if not getattr(current_user, "telegram_id", None):
         return {"status": "ok", "message": "No Telegram linked."}
     db_service.unlink_telegram(current_user.id)
+    invalidate_user_caches(int(current_user.id), current_user.telegram_id)
     return {"status": "ok", "message": "Telegram unlinked."}
 
 
@@ -745,6 +748,7 @@ def link_telegram(req: LinkTelegramRequest, request: Request) -> Dict[str, Any]:
         # Played on Telegram first, registered on the web later: the Telegram
         # account holds the games, so it takes over the web login.
         if db_service.merge_web_login_into_telegram_account(user_id, int(existing.id)):
+            invalidate_user_caches(int(existing.id), req.telegram_id)  # may take the web nickname
             return {
                 "status": "ok",
                 "merged": True,
@@ -758,5 +762,7 @@ def link_telegram(req: LinkTelegramRequest, request: Request) -> Dict[str, Any]:
         )
     if existing and existing.id == user_id:
         return {"status": "ok", "message": "Telegram already linked to your account."}
+    old = db_service.get_user_by_id(user_id)
     db_service.set_user_telegram_id(user_id, req.telegram_id)
+    invalidate_user_caches(user_id, req.telegram_id, getattr(old, "telegram_id", None))
     return {"status": "ok", "message": "Telegram linked to your account."}
