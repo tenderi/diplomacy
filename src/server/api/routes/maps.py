@@ -18,7 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..shared import db_service, game_service, is_bot_secret, resolve_turn
-from .auth import get_current_user_optional, http_bearer, require_bot_or_user, require_bot_secret
+from .auth import get_current_user_optional, http_bearer, require_bot_or_game_member, require_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
 from rendering.view_adapter import phase_info, retreat_options_for_render, svg_path_for_map_name, units_for_render
@@ -400,8 +400,12 @@ def _render_and_save(
 
 
 @router.post("/games/{game_id}/generate_map")
-def generate_map_for_snapshot(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
-    """Generate and save a map image for the current game state."""
+def generate_map_for_snapshot(game_id: str, _: None = Depends(require_bot_or_game_member)) -> Dict[str, Any]:
+    """Generate and save a map image for the current game state.
+
+    The bot, or the game's seated players and creator: a render writes a file
+    and costs CPU, so not every signed-in account may force one (CC1).
+    """
     view = game_service.view(game_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -437,11 +441,12 @@ def generate_orders_map(game_id: str, _: None = Depends(require_bot_secret)) -> 
 
 
 @router.post("/games/{game_id}/generate_map/resolution")
-def generate_resolution_map(game_id: str, _: None = Depends(require_bot_or_user)) -> Dict[str, Any]:
+def generate_resolution_map(game_id: str, _: None = Depends(require_bot_or_game_member)) -> Dict[str, Any]:
     """Generate a resolution map: the last processed turn's orders, each drawn with
     its outcome, on the board they were given on (as ``GET .../map/resolution``).
 
-    Falls back to a plain board when no turn has been processed yet.
+    Falls back to a plain board when no turn has been processed yet. The bot,
+    or the game's seated players and creator (CC1).
     """
     row = db_service.get_game_by_game_id(game_id)
     view = game_service.view(game_id) if row is not None else None

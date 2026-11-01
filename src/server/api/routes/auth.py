@@ -391,6 +391,31 @@ def require_bot_or_user(
     )
 
 
+def require_bot_or_game_member(
+    game_id: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
+) -> None:
+    """Dependency: the bot secret, or a signed-in user seated in or creator of ``game_id``.
+
+    For per-game writes that ``require_bot_or_user`` alone leaves open to every
+    account (CC1: ``POST .../snapshot`` and ``.../generate_map``). An unknown game
+    is 404 for a signed-in caller, so it does not depend on membership; the bot
+    passes through and gets the route's own 404.
+    """
+    require_bot_or_user(credentials, x_bot_secret)  # the 401s, with their messages
+    if is_bot_secret(x_bot_secret):
+        return
+    user = resolve_user_or_telegram(credentials, None)
+    game = db_service.get_game_by_game_id(game_id)
+    if game is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    if game.created_by_user_id is not None and int(game.created_by_user_id) == int(user.id):
+        return
+    if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a player in this game.")
+
+
 def _user_response(user: Any) -> Dict[str, Any]:
     return {
         "id": user.id,
