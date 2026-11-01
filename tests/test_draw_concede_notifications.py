@@ -25,6 +25,7 @@ from engine.serialization import state_to_dict
 from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
 from server.api import app
 from server.api import shared as api_shared
+from server.response_cache import clear_response_cache
 from tests.reliability_helpers import OutboxProbe
 
 pytestmark = [pytest.mark.integration, pytest.mark.database]
@@ -263,3 +264,28 @@ def test_a_notification_failure_does_not_fail_the_draw() -> None:
 
     assert resp.json()["quorum_reached"] is True
     assert client.get(f"/games/{game_id}/state").json()["status"] == "COMPLETED"
+
+
+def test_players_marks_a_conceded_and_an_eliminated_power_out() -> None:
+    """CD4: the seat list showed a conceded power as seated and active, while
+    orders_status and draw_vote_status already dropped it. The cached list is
+    refreshed by the concession itself."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+
+    def rows() -> dict[str, dict]:
+        return {p["power"]: p for p in client.get(f"/games/{game_id}/players").json()}
+
+    assert [p["out"] for p in rows().values()] == [False] * 7  # also warms the cache
+    resp = client.post(f"/games/{game_id}/concede", json={"power": POWERS[2]}, headers=users[2][0])
+    assert resp.status_code == 200, resp.text
+    seats = rows()
+    row = seats[POWERS[2]]
+    assert {k: row[k] for k in ("power", "seated", "is_active", "out")} == {
+        "power": "GERMANY", "seated": True, "is_active": True, "out": True,
+    }
+    assert [p for p, r in seats.items() if r["out"]] == ["GERMANY"]
+    clear_response_cache()  # the patched answer must not be hidden by the cached one
+    with patch.object(api_shared.game_service, "eliminated_powers", return_value=frozenset({"ITALY"})):
+        eliminated = rows()
+    assert [p for p, r in eliminated.items() if r["out"]] == ["ITALY"]

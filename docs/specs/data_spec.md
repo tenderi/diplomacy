@@ -253,8 +253,9 @@ paths) — built directly from `GameState`:
 ```
 
 **Who a player is known as.** `GET /games/{id}/players` returns one row per seat:
-`power`, `seated`, `is_active`, `user_id`, `nickname` — the last two null in an
-anonymous game. It never carries a Telegram id: the route needs no login, and that id
+`power`, `seated`, `is_active`, `out`, `user_id`, `nickname` — the last two null in an
+anonymous game. `out` is true for a power that conceded or was eliminated (the set
+`orders_status` and `draw_vote_status` leave out); its seat keeps `seated`. It never carries a Telegram id: the route needs no login, and that id
 names a real Telegram account. `GET /games` lists each game's `anonymous` and `random_powers` flags and its seats as
 `{power, seated, user_id}` (`user_id` null when anonymous). `GET /games/{id}/messages`
 gives each message's `sender_power` (the seat its sender holds now; null if they left) and,
