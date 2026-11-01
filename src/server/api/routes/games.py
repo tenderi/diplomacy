@@ -1350,20 +1350,22 @@ def propose_deadline(
                 f"immediately (they're the only active power): deadline now "
                 f"{_deadline_text(result['deadline'], game_id)}.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                skip_out=True,
             )
         else:
             needed = result["needed_for_majority"]
             what = (
-                f"a deadline of {_hours_text(req.hours)}, counted from when the proposal passes"
+                f"a {_hours_text(req.hours)} deadline for game {game_id}, counted from when the proposal passes"
                 if req.hours is not None
-                else "no deadline (clearing it)"
+                else f"clearing game {game_id}'s deadline"
             )
             notify_players(
                 int(game.id),
-                f"{power_label(game_id, req.power)} proposes changing game {game_id}'s deadline to {what}. "
+                f"{power_label(game_id, req.power)} proposes {what}. "
                 f"Needs {needed} yes votes ({len(result['yes_votes'])}/{needed} so far). "
                 f"Use /deadline {game_id} vote yes|no.",
                 exclude_telegram_id=_caller_telegram_id(credentials, req.telegram_id),
+                skip_out=True,
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify deadline proposal for game %s", game_id)
@@ -1396,6 +1398,7 @@ def vote_deadline_proposal(
                 f"Game {game_id}'s deadline proposal passed: deadline now "
                 f"{_deadline_text(result['deadline'], game_id)}.",
                 exclude_telegram_id=exclude,
+                skip_out=True,
             )
         elif result["status"] == "rejected":
             proposer = str(result["proposed_by"]).upper()
@@ -1404,6 +1407,7 @@ def vote_deadline_proposal(
                 f"Game {game_id}'s deadline proposal (from {power_label(game_id, proposer)}) "
                 f"was voted down; nothing changed.",
                 exclude_telegram_id=exclude,
+                skip_out=True,
                 # The proposer reads "Your deadline proposal" (BD4).
                 own=lambda powers: (
                     f"Your deadline proposal in game {game_id} was voted down; nothing changed."
@@ -1418,6 +1422,7 @@ def vote_deadline_proposal(
                 f"{power_label(game_id, req.power)} voted yes on game {game_id}'s deadline proposal "
                 f"({len(result['yes_votes'])}/{needed} needed).",
                 exclude_telegram_id=exclude,
+                skip_out=True,
             )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify deadline vote for game %s", game_id)
