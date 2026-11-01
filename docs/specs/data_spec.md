@@ -386,7 +386,10 @@ from a browser; both routes are kept for existing server-side callers):
   or `telegram_id` + `bot_secret` query parameters); anyone else gets 403, since pending
   orders are secret. The web client fetches it with its token and shows it from a blob
   URL, as an `<img src>` sends no credentials. `POST .../generate_map/orders` draws every
-  power's pending orders and so takes the bot secret only.
+  power's pending orders and so takes the bot secret only; `POST .../generate_map` and
+  `.../generate_map/resolution` (like `POST .../snapshot`) take the bot secret or a
+  signed-in user seated in or creator of the game (`require_bot_or_game_member`), 403
+  for anyone else.
 - `GET /games/{id}/map/resolution` — the board plus arrows for the *last processed
   turn's* orders, coloured by `ResultCode`, plus standoff markers (plain board if no
   turn has been processed yet).
