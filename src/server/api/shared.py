@@ -299,9 +299,12 @@ def power_label(game_id: Any, power: str, user: Any = None) -> str:
 
 def player_rows(game: Any) -> list[dict[str, Any]]:
     """A game's seats as API clients see them (``GET /games/{id}/players``, the
-    group dashboard): ``power``, ``seated``, ``is_active`` and, in a public game
-    only, ``user_id``/``nickname`` (``None`` when anonymous). Never a Telegram id:
-    the route is public, and that id names a real Telegram account."""
+    group dashboard): ``power``, ``seated``, ``is_active``, ``out`` and, in a public
+    game only, ``user_id``/``nickname`` (``None`` when anonymous). Never a Telegram id:
+    the route is public, and that id names a real Telegram account. ``out`` is true
+    for a power that conceded or was eliminated (``GameService.eliminated_powers``,
+    as ``orders_status`` and ``draw_vote_status`` use it); the seat keeps ``seated``."""
+    out = game_service.eliminated_powers(str(game.game_id))
     anonymous = bool(getattr(game, "anonymous", False))
     rows: list[dict[str, Any]] = []
     for p in db_service.get_players_by_game_id(int(game.id)):
@@ -311,6 +314,7 @@ def player_rows(game: Any) -> list[dict[str, Any]]:
             "seated": p.user_id is not None,
             "user_id": None if anonymous else p.user_id,
             "is_active": getattr(p, "is_active", True),
+            "out": str(p.power_name).upper() in out,
             "nickname": getattr(user, "nickname", None) if user is not None else None,
         })
     return rows
