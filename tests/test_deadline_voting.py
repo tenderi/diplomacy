@@ -385,7 +385,7 @@ def test_two_votes_cast_together_are_both_counted():
 
 @pytest.mark.parametrize(
     ("hours", "expected"),
-    [(48.0, "a deadline of 48h"), (8.0, "a deadline of 8h"), (1.5, "a deadline of 1.5h")],
+    [(48.0, "a 48h deadline"), (8.0, "a 8h deadline"), (1.5, "a 1.5h deadline")],
 )
 def test_proposal_notice_says_the_hours_count_from_when_it_passes(hours, expected):
     from unittest.mock import patch
@@ -399,6 +399,6 @@ def test_proposal_notice_says_the_hours_count_from_when_it_passes(hours, expecte
         )
     assert resp.status_code == 200, resp.text
     assert notify.call_args[0][1] == (
-        f"FRANCE proposes changing game {game_id}'s deadline to {expected}, counted from when "
+        f"FRANCE proposes {expected} for game {game_id}, counted from when "
         f"the proposal passes. Needs 4 yes votes (1/4 so far). Use /deadline {game_id} vote yes|no."
     )
