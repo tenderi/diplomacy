@@ -179,8 +179,9 @@ and expired idempotency keys. `idempotency.py` is the middleware that replays a 
 ### Auth
 
 Two modes coexist: **JWT Bearer** (browser) and **`telegram_id` plus the bot secret**
-(Telegram bot). `resolve_user_or_telegram` turns either into a user; `require_bot_or_user`
-and `require_bot_secret` are the dependencies; per-power authorization is enforced in route
+(Telegram bot). `resolve_user_or_telegram` turns either into a user; `require_bot_or_user`,
+`require_bot_secret` and `require_bot_or_game_member` (the bot, or a user seated in or
+creator of the path's game: `POST .../snapshot`, `.../generate_map`) are the dependencies; per-power authorization is enforced in route
 handlers.
 
 ---

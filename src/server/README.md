@@ -55,7 +55,7 @@ match queue; the server creates a game when seven players are waiting.
 - **Deadlines:** `GET`/`POST /deadline` (a member sets or clears it), and
   `deadline/propose`, `deadline/vote`, `deadline/withdraw` for a majority vote.
 - **Endings:** `draw_vote`, `draw_vote_status`, `concede`.
-- **Snapshots:** `snapshot` (any authenticated caller), `snapshots`,
+- **Snapshots:** `snapshot` (the bot, or the game's seated players and creator), `snapshots`,
   `restore/{snapshot_id}` (admin only — it rewinds the game; players are told).
 - **Legal orders:** `GET /games/{id}/legal_orders/{power}` (and a per-unit variant) — the
   phase-aware list of everything legal right now, which the web client and the bot's order
@@ -88,7 +88,8 @@ in the game only),
 `/map/resolution` (the last turn's results), `/map/history/{turn}` (the board when turn
 *turn* began), `/map/turn/{turn}/orders` (turn *turn*'s orders on that board, coloured by
 result), `/maps/{map}/preview.png`. `GET /maps/{map}/provinces` gives full names, types and
-coasts. `POST /games/{id}/generate_map[/orders|/resolution]` renders to a file.
+coasts. `POST /games/{id}/generate_map[/orders|/resolution]` renders to a file (`/orders` the bot
+secret only; the other two the bot, or the game's seated players and creator).
 
 ### Telegram groups (`/games/{id}/channel…`)
 

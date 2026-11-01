@@ -508,7 +508,7 @@ class TestGameSnapshots:
         game_id = game_resp.json()["game_id"]
         
         opening = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
-        resp = client.post(f"/games/{game_id}/snapshot")
+        resp = client.post(f"/games/{game_id}/snapshot", headers={"X-Bot-Secret": "test_bot_secret_for_tests"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["turn"] == 0
         listed = client.get(f"/games/{game_id}/snapshots").json()["snapshots"]
