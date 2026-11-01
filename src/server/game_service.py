@@ -678,12 +678,13 @@ class GameService:
         power = power.upper()
         if power not in self._map.home_centers:
             raise OrderError(f"Unknown power {power}")
-        if dummy:
-            seat = self._repo.players(game_id).get(power)
-            if seat is not None and seat.get("user_id") is not None:
-                raise OrderError(f"{power} is held by a player; only an empty seat can be a dummy")
 
-        def toggle(current: frozenset[str]) -> list[str]:
+        def toggle(current: frozenset[str], holders: dict[str, Optional[int]]) -> list[str]:
+            # Decided on the seats read under the game-row lock, which a join
+            # takes too (CC3): a seat taken meanwhile is seen here, and a join
+            # after this write sees the dummy.
+            if dummy and holders.get(power) is not None:
+                raise OrderError(f"{power} is held by a player; only an empty seat can be a dummy")
             changed = current | {power} if dummy else current - {power}
             return _check_dummy_set(sorted(changed), self._map)
 

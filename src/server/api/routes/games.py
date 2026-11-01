@@ -29,6 +29,7 @@ from engine.types import GameStatus
 from ...legal_orders import legal_orders_for_power
 from ...response_cache import cached_response, invalidate_cache
 from persistence.database import utcnow_naive
+from persistence.database_service import DummySeatError
 from persistence.game_repo import StaleGameError
 from server.game_service import GameOverError, OrderError
 from server.nickname import display_name
@@ -977,14 +978,20 @@ def _take_chosen_seat(game_id: int, user_id: int, power: str) -> Any:
     if taken is not None and taken.user_id is not None:
         raise HTTPException(status_code=409, detail="Power already taken")
     if taken is not None:
-        if not db_service.claim_vacant_seat(int(taken.id), user_id):  # type: ignore
+        try:
+            claimed = db_service.claim_vacant_seat(int(taken.id), user_id, refuse_dummy=True)  # type: ignore
+        except DummySeatError as e:
+            raise _dummy_seat_conflict(power, game_id) from e
+        if not claimed:
             raise HTTPException(status_code=409, detail="Power already taken")
         return taken
     # Assign the power to this user (players table only; state is engine-owned).
     try:
-        db_service.create_player(game_id, power, user_id=user_id)
+        db_service.create_player(game_id, power, user_id=user_id, refuse_dummy=True)
     except IntegrityError as e:
         raise HTTPException(status_code=409, detail="Power already taken") from e
+    except DummySeatError as e:
+        raise _dummy_seat_conflict(power, game_id) from e
     return None
 
 
@@ -1005,12 +1012,15 @@ def _take_random_seat(game_id: int, user_id: int, dummy_powers: List[str]) -> tu
     for power in open_powers:
         seat = seats.get(power)
         if seat is not None:
-            if db_service.claim_vacant_seat(int(seat.id), user_id):  # type: ignore
-                return power, seat
+            try:
+                if db_service.claim_vacant_seat(int(seat.id), user_id, refuse_dummy=True):  # type: ignore
+                    return power, seat
+            except DummySeatError:  # made a dummy since the list was read
+                pass
             continue
         try:
-            db_service.create_player(game_id, power, user_id=user_id)
-        except IntegrityError:
+            db_service.create_player(game_id, power, user_id=user_id, refuse_dummy=True)
+        except (IntegrityError, DummySeatError):
             continue
         return power, None
     raise HTTPException(status_code=409, detail=f"Game {game_id} is full: every power is taken.")
@@ -1177,15 +1187,21 @@ def _refuse_if_ended(view: Optional[Dict[str, Any]], game_id: Any) -> None:
 
 
 def _refuse_if_dummy(view: Optional[Dict[str, Any]], power: str, game_id: Any) -> None:
-    """A dummy is played by civil disorder: /join and /replace both refuse its seat."""
+    """A dummy is played by civil disorder: /join and /replace both refuse its
+    seat. Checked early for the plain case; the seat write checks again under
+    the game-row lock (``refuse_dummy``), for a seat made a dummy meanwhile."""
     if view is not None and power.upper() in view.get("dummy_powers", []):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"{power.upper()} is played by civil disorder in game {game_id}; "
-                f"the game's creator can open it."
-            ),
-        )
+        raise _dummy_seat_conflict(power, game_id)
+
+
+def _dummy_seat_conflict(power: str, game_id: Any) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=(
+            f"{power.upper()} is played by civil disorder in game {game_id}; "
+            f"the game's creator can open it."
+        ),
+    )
 
 
 @router.post("/games/{game_id}/replace")
@@ -1223,7 +1239,11 @@ def replace_player(
         raise HTTPException(status_code=400, detail="User is already in the game")
     _require_join_password(str(game_id), user, req.join_password)
     # Fill the seat -- only if nobody took it since the checks above.
-    if not db_service.claim_vacant_seat(int(player.id), int(user.id)):  # type: ignore
+    try:
+        claimed = db_service.claim_vacant_seat(int(player.id), int(user.id), refuse_dummy=True)  # type: ignore
+    except DummySeatError as e:
+        raise _dummy_seat_conflict(req.power, game_id) from e
+    if not claimed:
         raise HTTPException(status_code=409, detail="Someone else has just taken this power.")
     telegram_id_val = getattr(user, "telegram_id", None)
     if telegram_id_val:
