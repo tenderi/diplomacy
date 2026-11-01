@@ -636,3 +636,11 @@ class TestOrderMatchesDocs:
         assert mock_post.call_args[0][0] == "/games/1/join"  # after registering
         text = message.reply_text.call_args[0][0]
         assert "You joined game 1 as FRANCE" in text
+
+
+def test_seat_lines_mark_a_power_that_is_out() -> None:
+    from server.telegram_bot.games import seat_lines
+
+    lines = seat_lines([{"power": "FRANCE", "seated": True, "is_active": True, "out": True, "nickname": "Al"}], [])
+    assert "🏳️ *FRANCE* - out (conceded or eliminated)" in lines
+    assert "✅ *FRANCE* - Al" not in lines

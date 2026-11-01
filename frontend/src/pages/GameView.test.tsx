@@ -167,6 +167,44 @@ describe('GameView — RETREAT phase', () => {
     const follows = orders.compareDocumentPosition(players) & Node.DOCUMENT_POSITION_FOLLOWING
     expect(follows).toBeTruthy()
   })
+
+  it('marks a conceded or eliminated power out in the players list (CD4)', async () => {
+    const franceUnits = [{ kind: 'A', power: 'FRANCE', location: 'MAR' }]
+    const st = {
+      game_id: '2', map_name: 'standard', phase: 'S1901M', year: 1901, season: 'SPRING',
+      phase_type: 'MOVEMENT', status: 'ACTIVE', units: franceUnits,
+      units_by_power: { FRANCE: franceUnits }, ownership: { MAR: 'FRANCE' },
+      supply_centers: { MAR: 'FRANCE' }, dislodged: [], contested: [],
+      players: { FRANCE: { user_id: 1, is_active: true } }, orders: {},
+    }
+    const legal = {
+      phase: 'S1901M', phase_type: 'MOVEMENT', power: 'FRANCE',
+      units: [{ kind: 'A', location: 'MAR', province: 'MAR', coast: null }],
+      orders_by_unit: { 'A MAR': ['A MAR H'] }, orders: ['A MAR H'],
+    }
+    const base = stubFetchFor(st, legal)
+    vi.stubGlobal('fetch', (url: string, ...rest: unknown[]) =>
+      String(url).includes('/players')
+        ? jsonResponse([
+            { power: 'FRANCE', user_id: 1, is_active: true, out: false, seated: true, nickname: 'Test' },
+            { power: 'GERMANY', user_id: 2, is_active: true, out: true, seated: true, nickname: 'Bert' },
+          ])
+        : (base as unknown as (u: string, ...r: unknown[]) => Promise<Response>)(url, ...rest),
+    )
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/2']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    const out = await within(container).findByText('Out (conceded or eliminated)')
+    expect(out.parentElement?.textContent).toContain('GERMANY')
+    expect(within(container).queryByText('Bert')).toBeNull()
+    expect(within(container).getAllByText('Out (conceded or eliminated)')).toHaveLength(1)
+  })
 })
 
 describe('GameView — ADJUSTMENT phase', () => {

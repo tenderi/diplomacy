@@ -834,7 +834,9 @@ def seat_lines(players_list: list, dummies: list) -> list[str]:
     for power in sorted(set(POWERS) | set(by_power) - {None}):
         player = by_power.get(power) or {}
         seated = player.get('seated', player.get('user_id') is not None or bool(player.get('nickname')))
-        if not seated:
+        if player.get('out'):
+            lines.append(f"🏳️ *{power}* - out (conceded or eliminated)")
+        elif not seated:
             lines.append(f"🤖 *{power}* - civil disorder" if power in dummies else f"⬜ *{power}* - open")
         else:
             status_emoji = "✅" if player.get('is_active', True) else "❌"
