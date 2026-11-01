@@ -212,8 +212,14 @@ def notify_players(
     buttons: Optional[list[list[dict[str, str]]]] = None,
     *,
     own: Optional[Callable[[list[str]], Optional[str]]] = None,
+    skip_out: bool = False,
 ) -> None:
     """Notify all players in a game, via ``notify_user`` (the durable outbox).
+
+    ``skip_out`` leaves out a player whose every power is out of the game
+    (conceded or eliminated): for a DM that asks the table to act (a draw
+    vote, a deadline proposal), which such a player cannot (CD1, as BS2 does
+    for the turn DM).
 
     ``own``, when given, is called with each recipient's powers and returns the
     text for a reader the message is about -- addressed to them as "you"
@@ -241,8 +247,15 @@ def notify_players(
         recipients = list(db_service.get_player_powers_by_telegram_id(game_id).items())
     else:
         recipients = [(t, []) for t in db_service.get_player_telegram_ids(game_id)]
+    out: frozenset[str] = frozenset()
+    if skip_out:
+        if own is None:
+            recipients = list(db_service.get_player_powers_by_telegram_id(game_id).items())
+        out = game_service.eliminated_powers(str(game_id))
     for telegram_id_val, powers in recipients:
         if exclude_telegram_id is not None and str(telegram_id_val) == str(exclude_telegram_id):
+            continue
+        if skip_out and powers and all(p in out for p in powers):
             continue
         text = (own(powers) if own is not None else None) or message
         notify_user(telegram_id_val, text, buttons)
@@ -627,7 +640,7 @@ def after_draw_vote(
             )
             if vacant:
                 text += " " + vacant_seat_hint(game_id, vacant)
-            notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id)
+            notify_players(int(row.id), text, exclude_telegram_id=exclude_telegram_id, skip_out=True)
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify draw vote for game {game_id}: {e}")
 
