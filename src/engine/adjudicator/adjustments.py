@@ -11,8 +11,8 @@ count**. For a power owning ``c`` centers and fielding ``u`` units:
   is waived (no unit appears).
 - ``c < u`` — the power must remove ``u - c`` units. Valid ``Disband`` orders are
   honoured up to that count; any shortfall is made up by **civil-disorder**
-  auto-removal (rulebook §CIVIL-DISORDER REMOVALS): the unit farthest from its
-  nearest home SC by shortest route (including convoys) goes first, the fleet
+  auto-removal (rules.pdf p.18; diplomacy_rules.md §CIVIL-DISORDER REMOVALS):
+  the unit farthest from its nearest home SC by shortest route (including convoys) goes first, the fleet
   before the army, ties broken by province name alphabetically.
 - ``c == u`` — no adjustment; any build/disband order is void.
 
