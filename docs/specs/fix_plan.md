@@ -10,7 +10,7 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CE**.
+>   history. Track letters run in sequence; the next free one is **CG**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
@@ -138,6 +138,22 @@ No automated test spans a real human playing a real game: it needs a live bot to
 human at a Telegram client, so this cannot be delegated to an agent. Every phase has
 automated coverage; what is unverified is whether the whole thing is *pleasant and
 coherent* to use.
+
+## CF — Split-coast findings from a bot order-walk sweep
+
+- [ ] **CF1** `legal_orders._movement_orders` offers a support into a split-coast province
+  only with a coast (`F POR S F MAO - SPA/NC`, `... - SPA/SC`), never the bare
+  `F POR S F MAO - SPA` that the rules allow and the engine accepts. A player who guesses
+  the wrong coast gets a VOID support (reproduced: `F MAO - SPA/NC` with
+  `F POR S F MAO - SPA/SC` bounced against `F WES - SPA/SC`). Offer one coast-free
+  support per split-coast destination (BUL, SPA, STP), deduplicated, in both the bot and
+  the web. Before choosing between that and "a coasted support matches either coast",
+  cross-check the rulebook, DATC and the old engine.
+- [ ] **CF2** In the bot's adjustment walk, Back hides the current step's own earlier
+  choice (`orders.show_walk_step` computes `taken` from every chosen build), so a player
+  who picked `BUILD F STP/SC` and pressed Back can't pick STP again. Exclude the current
+  step's own choice. Also: disband buttons (`D F STP/SC`) never get their ❌, because
+  `_order_verb` reads token 2 of a verb-first order.
 
 ## F1 — End-to-end play-through, both clients
 
