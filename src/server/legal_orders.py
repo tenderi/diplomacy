@@ -325,7 +325,15 @@ def _movement_orders(
                 for p in sorted(_convoy_destinations(map, other, chains))
                 if p != u.province
             ]
-            for dest in _own_moves(map, other) + by_convoy:
+            # A support names the destination province, not a coast: a fleet
+            # "may support an action anywhere in Spain ... without regard to the
+            # separation of the coastline" (rulebook), and the bare form counts
+            # whichever coast the mover takes, while a coasted support naming
+            # the wrong coast is void (DATC 6.B.9). So ``F MAO - SPA/NC`` and
+            # ``- SPA/SC`` give one ``S F MAO - SPA``.
+            support_dests = dict.fromkeys(d.province for d in _own_moves(map, other) + by_convoy)
+            for province in support_dests:
+                dest = Location(province)
                 if not _can_reach(map, u.location, u.kind, dest.province):
                     continue
                 bucket.append(
