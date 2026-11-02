@@ -346,8 +346,8 @@ def format_delivery_report(result: DeliveryResult) -> str:
     if result.status == "failed":
         return (
             f"❌ Not delivered (queued since {when}): {entry.description}\n"
-            f"The server kept failing ({result.error}, {MAX_SERVER_ERRORS} tries "
-            f"in a row), so I stopped trying. It did not refuse it: please send it again."
+            f"The server kept failing ({result.error} on {MAX_SERVER_ERRORS} tries), "
+            f"so I stopped trying. It did not refuse it: please send it again."
         )
     return (
         f"❌ Not delivered (queued since {when}): {entry.description}\n"
