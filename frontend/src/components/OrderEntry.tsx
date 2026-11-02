@@ -398,10 +398,13 @@ export function ResultList({
   entries,
   showPower = false,
   provinceNames = {},
+  retreatPending = true,
 }: {
   entries: OrderResultEntry[]
   showPower?: boolean
   provinceNames?: ProvinceNames
+  /** False once the retreat phase has been played: the forward-looking advice is stale. */
+  retreatPending?: boolean
 }) {
   return (
     <ul className="space-y-2">
@@ -427,7 +430,10 @@ export function ResultList({
               </span>
             </div>
             {gloss && <p className="text-xs text-muted-foreground">{gloss}</p>}
-            {r.dislodged && (
+            {r.dislodged && !retreatPending && (
+              <p className="mt-1 text-amber-700 dark:text-amber-400">This unit was dislodged in that turn.</p>
+            )}
+            {r.dislodged && retreatPending && (
               <p className="mt-1 text-amber-700 dark:text-amber-400">
                 This unit was dislodged and must retreat or disband next phase
                 {r.retreat_options.length > 0
