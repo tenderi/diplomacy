@@ -105,6 +105,7 @@ GameState(
     dislodged: tuple[DislodgedUnit, ...] = (),
     contested: frozenset[str] = frozenset(),  # standoff provinces (retreat phase only)
     status: GameStatus = GameStatus.ACTIVE,
+    winners: Optional[frozenset[str]] = None,  # None until the game is COMPLETED
 )
 ```
 
@@ -129,13 +130,14 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
   for round-trip equality — they decode back into sets).
 - `state_to_dict(state)` -> `{year, season, phase_type, units: [unit_dict...],
   ownership: {province: power}, dislodged: [dislodged_dict...], contested: [province...],
-  status}`.
+  status, winners}`, `winners` a sorted list of powers or `null` (the game has not ended).
 - `order_to_dict(order)` -> `{type, power, ...order-specific Location strings...}` (see
   the field table above — each order type serializes exactly its own fields).
 - `resolution_to_dict(resolution)` -> `{results: [{order, result, dislodged,
   retreat_options, civil_disorder}, ...]}` (a stored result without `civil_disorder`,
-  written before the field existed, reads back as `false`). A stored resolution also
-  carries `phase` and `eliminated`: the powers that processing turn put out (sorted;
+  written before the field existed, reads back as `false`). `resolution_to_dict` writes only
+  that; `GameService.process_turn` adds the rest before storing. A stored resolution also
+  carries `phase` (and each result's `order_str`, via `_resolution_dict`) and `eliminated`: the powers that processing turn put out (sorted;
   absent in older rows), which the turn notification announces; `centres`, each power whose
   supply centres the turn changed, `{power: {gained: [province...], lost: [...], count}}`
   (`count` is how many it owns after); and `unordered: true` on a result whose order the
@@ -191,8 +193,14 @@ from.
 ### `players` table (`PlayerModel`)
 
 Player-to-power assignment is not an engine concern.
-Key columns: `game_id` (FK), `power_name`, `user_id` (FK to `users`), `is_active`,
-`is_eliminated`. `GameRepo.players(game_id)` reads this into `{power: {user_id,
+Columns: `id`, `game_id` (FK, cascade), `power_name`, `user_id` (FK to `users`), `is_active`,
+`is_eliminated`, `home_supply_centers` (JSON), `controlled_supply_centers` (JSON),
+`orders_submitted`, `last_order_time`, `created_at`; `(game_id, power_name)` is unique. Only
+`user_id` and `is_active` are read for the API view: the board's `state_json` is the truth
+for centres, and whether a power is **out** is not read from `is_eliminated` either but
+derived from the board by `GameService.eliminated_powers` (a power with no units and no
+centres, which is also what a concession leaves; empty for an ended game), the set behind
+`out` in `/players` (§4) and the powers `orders_status` leaves out. `GameRepo.players(game_id)` reads this into `{power: {user_id,
 is_active}}` for the API view (§4); in an anonymous game the view nulls `user_id` and adds
 `seated`.
 
@@ -228,7 +236,8 @@ paths) — built directly from `GameState`:
   "year": 1901,
   "season": "SPRING",
   "phase_type": "MOVEMENT",             // MOVEMENT | RETREAT | ADJUSTMENT
-  "status": "ACTIVE",                   // ACTIVE | COMPLETED
+  "status": "ACTIVE",                   // ACTIVE | COMPLETED (GameStatus also has FORMING, but
+                                        // nothing sets it: a game is created ACTIVE)
   "winners": null,                      // null while ACTIVE; once COMPLETED: one power (a solo,
                                         // or the last power standing), several (a draw), or []
                                         // (nobody was left: the last powers conceded together)
@@ -321,14 +330,27 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
   "phase": "F1901M",           // GameState.phase_name of the *new* (post-adjudication) phase
   "game_status": "ACTIVE",     // GameState.status of the new phase -- "status" was already
                                 // taken by the pre-existing "ok" key above
-  "resolution": { "results": [ ... ], "phase": "S1901M" }  // the turn just adjudicated (and the phase it was) -- see below
+  "resolution": {              // the stored resolution of the turn just adjudicated
+    "phase": "S1901M",         // the phase it adjudicated
+    "eliminated": [],          // powers this turn put out (not an earlier concession), sorted
+    "centres": {"FRANCE": {"gained": ["BEL"], "lost": [], "count": 6}},  // per power whose centres changed (Fall only)
+    "results": [ ... ]         // per-result shape below, without `power` or `reason`
+  }
 }
 ```
 
+That is the dict `GameService.process_turn` stores (and `resolution_history` keeps): the
+engine's `resolution_to_dict` (`results`, §2) plus fields `GameService` adds, not the
+serializer: `phase` and each result's `order_str` (`_resolution_dict`), then `eliminated`,
+`centres` and, on a result for a unit the power gave no order (the engine made one up),
+`unordered: true`. The `power` and `reason` of a result are not stored.
+
 `GET /games/{id}/last_resolution` (added so a client can re-fetch this after a page
 reload, since the inline `process_turn` response above isn't persisted client-side)
-returns the same `resolution` shape directly, 404 when the game doesn't exist,
-`{"results": []}` when it exists but no turn has been processed yet:
+returns 404 when the game doesn't exist, `{"results": []}` when it exists but no turn has
+been processed yet, else `GameService.last_resolution_view`: only `results` (and
+`movement`, below), decorated, and **not** the stored dict: no `phase`, `eliminated` or
+`centres`. Each result is the stored one plus `power` and, where it applies, `reason`:
 
 ```jsonc
 {
@@ -339,11 +361,14 @@ returns the same `resolution` shape directly, 404 when the game doesn't exist,
       "dislodged": false,
       "retreat_options": [],
       "civil_disorder": false,  // true: a DISBAND made for the power, which never ordered it
-      "power": "FRANCE",        // convenience: same as order.power, flattened
-      "order_str": "A PAR - BUR"  // convenience: format_order(order), best-effort --
-                                   // without the pre-adjudication board's kind_by_province
-                                   // (not retained), a fleet at a non-split-coast
+      "order_str": "A PAR - BUR", // format_order(order), stored by process_turn against the
+                                   // pre-adjudication board; a resolution stored before that
+                                   // falls back to format_order without the board's
+                                   // kind_by_province, so a fleet at a non-split-coast
                                    // province may print as "A"
+      "unordered": true,        // only when set: the power gave this unit no order
+      "power": "FRANCE",        // convenience: same as order.power, flattened
+      "reason": "it would dislodge your own F TRI"  // only when set, see below
     },
     ...
   ]
@@ -356,9 +381,9 @@ fall back to a `RETREAT` order among its results) and the turn before it is a mo
 `"movement": {"results": [...]}`, that movement phase's results in the same shape, so a client
 can show why a power has builds or disbands after the retreat (`GameService._movement_before_retreat`).
 
-Both `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
+In both responses `order` and the bare `result`/`dislodged`/`retreat_options`/`civil_disorder` fields are exactly
 `engine.serialization.resolution_to_dict()`'s canonical per-`OrderResult` shape (§2),
-passed through unchanged; `power`/`order_str` are added on top, and `reason` where the
+passed through unchanged; `/last_resolution` adds `power` on top, and `reason` where the
 code alone would mislead (`GameService.result_reason`, read from the same resolution's other
 results): a `VOID` support of a move onto a unit of the supporter's own power that stayed,
 `"it would dislodge your own F TRI"`, and a `NO_CONVOY` move or convoy whose convoying fleet
