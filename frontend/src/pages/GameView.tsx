@@ -41,6 +41,7 @@ import {
   extractUnitFromOrderString,
 } from '@/lib/orderParsing'
 import { type OrderResultEntry, noResultsText } from '@/lib/resultText'
+import PreviousTurns from '@/components/PreviousTurns'
 import {
   POWERS,
   PHASE_BADGE_CLASS,
@@ -1053,6 +1054,9 @@ export default function GameView() {
         myPower={myPower ?? null}
         provinceNames={provinceNames}
       />
+      {gameId && state && (
+        <PreviousTurns gameId={gameId} phase={state.phase} myPower={myPower ?? null} provinceNames={provinceNames} />
+      )}
 
       {mapUrl && (
         <div className="mb-6">

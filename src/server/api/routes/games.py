@@ -1645,11 +1645,14 @@ def get_resolution_history(game_id: str) -> Dict[str, Any]:
 
     ``GET /games/{id}/last_resolution`` answers "what happened last turn" and is
     overwritten every turn; this answers it for every turn the game has played.
-    Empty for turns processed before ``resolution_history`` existed.
+    Empty for turns processed before ``resolution_history`` existed. Each result is
+    decorated as in ``last_resolution`` (``power``, ``order_str``, ``reason``) and each
+    turn carries its ``phase`` code. Public, like ``last_resolution``: it holds only
+    adjudicated, already-public outcomes.
     """
     if not game_service.exists(str(game_id)):
         raise HTTPException(status_code=404, detail="Game not found")
-    return {"game_id": str(game_id), "resolutions": game_service.resolution_history(str(game_id))}
+    return {"game_id": str(game_id), "resolutions": game_service.resolution_history_view(str(game_id))}
 
 @router.post("/games/{game_id}/snapshot")
 def save_game_snapshot(game_id: str, _: None = Depends(require_bot_or_game_member)) -> Dict[str, Any]:
