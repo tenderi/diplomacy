@@ -719,3 +719,72 @@ class TestOfferedConvoysAreReal:
         for fleet in ("F ENG", "F MAO", "F WES"):
             assert f"{fleet} C A LON - TUN" in data[fleet]
         assert "A LON - TUN VIA" in data["A LON"]
+
+
+class TestFleetSupportOfItsOwnConvoy:
+    """A fleet cannot support a move that only it could convoy: the adjudicator
+    voids that support (DATC 6.D.31), so the menu must not offer it."""
+
+    @staticmethod
+    def _state(*units: Unit) -> GameState:
+        return GameState(
+            year=1901, season=Season.SPRING, phase_type=PhaseType.MOVEMENT,
+            units=frozenset(units), ownership={},
+        )
+
+    @staticmethod
+    def _support_code(state: GameState, move: str, support: str, *extra: str) -> ResultCode:
+        orders = [parse_order(o, power="ENGLAND", map=_MAP) for o in (move, support, *extra)]
+        resolution, _ = Game(map=_MAP, state=state).adjudicate(orders)
+        return next(r.result for r in resolution.results if r.order == orders[1])
+
+    def test_a_lone_fleet_is_not_offered_support_of_its_own_convoy(self) -> None:
+        state = self._state(
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]["F NTH"]
+        # Only the land move into YOR is left; NWY, BEL, DEN, HOL and EDI went.
+        assert [o for o in bucket if o.startswith("F NTH S A LON - ")] == ["F NTH S A LON - YOR"]
+        # The order the menu used to offer is VOID when adjudicated.
+        code = self._support_code(state, "A LON - NWY VIA", "F NTH S A LON - NWY")
+        assert code is ResultCode.VOID
+
+    def test_another_fleet_that_could_carry_it_keeps_the_support(self) -> None:
+        state = self._state(
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("ENG")),
+        )
+        data = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]
+        assert "F NTH S A LON - BEL" in data["F NTH"]  # ENG can carry it
+        assert "F NTH S A LON - NWY" not in data["F NTH"]  # only through NTH
+        assert "F ENG S A LON - BEL" in data["F ENG"]  # NTH can carry it
+        code = self._support_code(
+            state, "A LON - BEL VIA", "F NTH S A LON - BEL", "F ENG C A LON - BEL"
+        )
+        assert code is ResultCode.OK
+
+    def test_an_army_supporter_is_unaffected(self) -> None:
+        state = self._state(
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            Unit(UnitKind.ARMY, "ENGLAND", Location("HOL")),
+        )
+        bucket = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]["A HOL"]
+        assert "A HOL S A LON - BEL" in bucket
+
+    def test_a_fleet_outside_the_route_is_unaffected(self) -> None:
+        state = self._state(
+            Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("HEL")),
+            Unit(UnitKind.FLEET, "ENGLAND", Location("BEL")),
+        )
+        data = _assert_all_orders_valid(_MAP, state, "ENGLAND")["orders_by_unit"]
+        assert "F HEL S A LON - HOL" in data["F HEL"]  # a sea fleet NTH can do without
+        assert "F BEL S A LON - HOL" in data["F BEL"]  # a coastal fleet
+        code = self._support_code(
+            state, "A LON - HOL VIA", "F HEL S A LON - HOL", "F NTH C A LON - HOL"
+        )
+        assert code is ResultCode.OK

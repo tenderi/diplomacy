@@ -324,6 +324,12 @@ def _movement_orders(
                 Location(p)
                 for p in sorted(_convoy_destinations(map, other, chains))
                 if p != u.province
+                # A fleet cannot support a move only it could convoy: the
+                # adjudicator voids that support (DATC 6.D.31).
+                and (
+                    u.kind is not UnitKind.FLEET
+                    or convoy_route_possible(map, state, other.province, p, without=u.province)
+                )
             ]
             # A support names the destination province, not a coast: a fleet
             # "may support an action anywhere in Spain ... without regard to the
