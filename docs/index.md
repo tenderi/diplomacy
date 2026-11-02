@@ -27,7 +27,7 @@ and on the web.
 
     ---
 
-    A large, zoomable map, last turn's results and order entry in your browser, at
+    A large, zoomable map, what happened to every order, order entry, messages and a sandbox for trying orders, in your browser, at
     [diplomacy.jallutähti.fi](https://diplomacy.xn--jalluthti-02a.fi).
 
     [:octicons-arrow-right-24: Browser client](BROWSER_CLIENT.md)
