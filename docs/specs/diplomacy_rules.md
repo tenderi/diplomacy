@@ -1,10 +1,13 @@
 # The Rules of Diplomacy
 
-> A plain-text transcript of the official rulebook, kept here so rules questions can be
-> grepped and cited. It contains OCR artefacts in the sample-game section (e.g. `Burl` for
-> `Bur`, `yen.` for `Ven.`, `Bull` for `Bul`) — **[`reference/rules.pdf`](../reference/rules.pdf) is the
-> authority** where the two disagree. For how this engine implements these rules, see
-> [`adjudication.md`](adjudication.md).
+> A plain-text transcript of the **classic edition** of the rulebook (Roman-numeral sections
+> I–XIII), kept here so rules questions can be grepped and cited. It is not a transcript of
+> [`reference/rules.pdf`](../reference/rules.pdf), which is the 2000 Avalon Hill edition
+> (numbered phases, civil disorder on p.18, "Rules to Help You Resolve Orders" on p.23) and
+> **is the authority** where the two disagree. On retreats, builds, centre ownership,
+> convoys and civil disorder the two editions agree. The sample-game section has OCR
+> artefacts (e.g. `Burl` for `Bur`, `yen.` for `Ven.`, `Bull` for `Bul`). For how this
+> engine implements these rules, see [`adjudication.md`](adjudication.md).
 
 I. PLAYERS AND COUNTRIES
 
