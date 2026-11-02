@@ -41,6 +41,14 @@ coverage report --fail-under=80
 cd frontend && npx tsc -b --noEmit && npm run test:coverage && npm run build
 ```
 
+The Python suite takes about four minutes with coverage. Most of what is left is real
+work per test (requests through `TestClient` against Postgres, map rendering). One cost is
+cut on purpose: `tests/conftest.py` makes `bcrypt.gensalt` default to the minimum cost (4)
+instead of bcrypt's 12, since hundreds of tests register users and each hash at cost 12 takes
+about a quarter of a second. Production code is untouched; `tests/test_password_hash_cost.py`
+checks that the API hashes at cost 12 with the real `gensalt`. A test that needs a real
+cost passes `rounds=` explicitly.
+
 ## The database trap
 
 **Database-dependent tests skip silently without `SQLALCHEMY_DATABASE_URL`** (or
