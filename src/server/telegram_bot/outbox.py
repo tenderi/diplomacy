@@ -27,11 +27,16 @@ Each entry carries:
 
 States: ``pending`` (waiting for a delivery attempt), ``inflight`` (an attempt
 is running in this process), ``delivered`` (server accepted; ``response``
-kept), ``rejected`` (server refused with a 4xx; ``last_error`` kept). Transient
-failures return an entry to ``pending`` with an exponential ``next_attempt_at``
-capped at ``MAX_BACKOFF_SECONDS``. Delivery is strictly in id order across all
-chats -- a message must not overtake the orders sent before it -- so the
-replayer stops at the first transient failure and resumes from it later.
+kept), ``rejected`` (server refused with a 4xx; ``last_error`` kept), ``failed``
+(the server answered a 5xx error ``MAX_SERVER_ERRORS`` times in a row, so the bot
+gave up; ``last_error`` kept). Transient failures -- no answer, a 502/503/504
+from a gateway, or a 5xx below that cap -- return an entry to ``pending`` with an
+exponential ``next_attempt_at`` capped at ``MAX_BACKOFF_SECONDS``. Delivery is
+strictly in id order across all chats -- a message must not overtake the orders
+sent before it -- so the replayer stops at the first transient failure and
+resumes from it later. ``server_errors`` counts the consecutive 5xx answers
+(other than 502/503/504) and is reset by any other transient failure: an outage
+never makes the bot give up, a route that keeps answering 500 does.
 
 A second, unrelated table (``user_games_cache``) remembers each user's last
 known games-and-powers list so ``/order`` and friends can still resolve which
@@ -59,6 +64,8 @@ PENDING = "pending"
 INFLIGHT = "inflight"
 DELIVERED = "delivered"
 REJECTED = "rejected"
+FAILED = "failed"
+FINISHED_STATES = (DELIVERED, REJECTED, FAILED)
 
 BASE_BACKOFF_SECONDS = 5
 MAX_BACKOFF_SECONDS = 60
@@ -79,7 +86,8 @@ CREATE TABLE IF NOT EXISTS outbox (
     last_error      TEXT,
     next_attempt_at TEXT,
     finished_at     TEXT,
-    response        TEXT
+    response        TEXT,
+    server_errors   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_outbox_state_id ON outbox(state, id);
 CREATE INDEX IF NOT EXISTS ix_outbox_chat_state ON outbox(chat_id, state);
@@ -127,6 +135,7 @@ class OutboxEntry:
     next_attempt_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     response: Optional[dict[str, Any]] = None
+    server_errors: int = 0
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "OutboxEntry":
@@ -144,6 +153,7 @@ class OutboxEntry:
             next_attempt_at=_load_ts(row["next_attempt_at"]),
             finished_at=_load_ts(row["finished_at"]),
             response=json.loads(row["response"]) if row["response"] else None,
+            server_errors=int(row["server_errors"] or 0),
         )
 
     def sent_at_label(self) -> str:
@@ -174,6 +184,9 @@ class Outbox:
         self._conn.execute("PRAGMA synchronous=FULL")
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(outbox)")}
+            if "server_errors" not in columns:  # a file written before v3.0.213
+                self._conn.execute("ALTER TABLE outbox ADD COLUMN server_errors INTEGER NOT NULL DEFAULT 0")
         self.reset_inflight()
 
     def close(self) -> None:
@@ -221,16 +234,32 @@ class Outbox:
                 (REJECTED, _dump_ts(utcnow()), error[:2000], entry_id),
             )
 
-    def mark_retry(self, entry_id: int, error: str, *, now: Optional[datetime] = None) -> datetime:
-        """Back to ``pending`` with a backoff; returns the next attempt time."""
+    def mark_failed(self, entry_id: int, error: str) -> None:
+        """Given up: the server kept answering with an error."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE outbox SET state = ?, finished_at = ?, last_error = ? WHERE id = ?",
+                (FAILED, _dump_ts(utcnow()), error[:2000], entry_id),
+            )
+
+    def mark_retry(
+        self, entry_id: int, error: str, *, server_error: bool = False, now: Optional[datetime] = None
+    ) -> datetime:
+        """Back to ``pending`` with a backoff; returns the next attempt time.
+
+        ``server_error``: the server answered with a 5xx error (not a gateway's
+        502/503/504), which adds one to ``server_errors``; any other transient
+        failure resets it.
+        """
         now = now or utcnow()
         with self._lock:
             row = self._conn.execute("SELECT attempts FROM outbox WHERE id = ?", (entry_id,)).fetchone()
             attempts = int(row["attempts"]) if row else 1
             next_at = now + timedelta(seconds=backoff_seconds(attempts))
             self._conn.execute(
-                "UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ? WHERE id = ?",
-                (PENDING, error[:2000], _dump_ts(next_at), entry_id),
+                "UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?,"
+                " server_errors = CASE WHEN ? THEN server_errors + 1 ELSE 0 END WHERE id = ?",
+                (PENDING, error[:2000], _dump_ts(next_at), int(server_error), entry_id),
             )
         return next_at
 
@@ -255,8 +284,8 @@ class Outbox:
         cutoff = _dump_ts(utcnow() - older_than)
         with self._lock:
             cur = self._conn.execute(
-                "DELETE FROM outbox WHERE state IN (?, ?) AND finished_at < ?",
-                (DELIVERED, REJECTED, cutoff),
+                "DELETE FROM outbox WHERE state IN (?, ?, ?) AND finished_at < ?",
+                (*FINISHED_STATES, cutoff),
             )
             return cur.rowcount
 
@@ -296,8 +325,8 @@ class Outbox:
         """The most recently finished entries for a chat, newest first."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM outbox WHERE state IN (?, ?) AND chat_id = ? ORDER BY id DESC LIMIT ?",
-                (DELIVERED, REJECTED, int(chat_id), limit),
+                "SELECT * FROM outbox WHERE state IN (?, ?, ?) AND chat_id = ? ORDER BY id DESC LIMIT ?",
+                (*FINISHED_STATES, int(chat_id), limit),
             ).fetchall()
         return [OutboxEntry.from_row(r) for r in rows]
 
