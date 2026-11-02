@@ -145,7 +145,7 @@ unit and dislodged-unit positions; `place_dislodged_anchors.py` recomputes the l
 | `api/error_log.py` | `ServerErrorLogMiddleware`: every 5xx the API returns is logged at ERROR with its method and path (a route's own `HTTPException(500)` included), so it reaches the journal and the maintainer's alerts. |
 | `api/access_log.py` | Keeps healthy `/healthz`, `/health` and empty `GET /bot/outbox` lines out of uvicorn's access log (a filter on `uvicorn.access` plus a middleware that marks an empty poll); errors on those paths are still logged. |
 | `api/long_poll.py` | The wait behind `GET /bot/outbox?wait=N`: woken by an outbox insert in this process, or by a periodic re-query for rows another worker committed. Holds no DB connection while waiting. |
-| `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
+| `response_cache.py` | In-memory response cache (TTL, LRU) behind `@cached_response` on `GET /games/{id}/state`, `/players`, `/observer_state` and `/users/{id}/games`; every write that changes one calls `invalidate_cache`. |
 | `daide/` | The DAIDE protocol package — see §6. |
 
 ### API route modules (`src/server/api/routes/`)

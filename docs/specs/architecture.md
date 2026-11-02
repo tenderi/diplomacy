@@ -142,8 +142,8 @@ src/server/daide/
                #   (Location, Unit, Order variants); decode reuses
                #   engine.orders.parser.parse_order rather than a second grammar
   session.py   # DaideSession: per-connection protocol state machine — the IM/RM
-               #   handshake, then NME/IAM/HLO/MAP/MDF/SCO/NOW/SUB/THX/MIS/TME/HST/DRW/
-               #   ADM/SND dispatch, all routed through GameService (never engine
+               #   handshake, then NME/IAM/HLO/MAP/MDF/SCO/NOW/SUB/NOT/GOF/MIS/TME/HST/DRW/
+               #   ADM/SND dispatch (THX is outbound only: the reply to SUB), all routed through GameService (never engine
                #   internals directly)
   server.py    # DaideServer: owns the listening socket, the game a connection's NME
                #   resolves against (created lazily on first successful NME, not at
@@ -271,7 +271,15 @@ place the full picture exists.
 | Weekly deadline schedule set or removed | all players except the setter | the same text | next poll | `routes/games.py` `set_deadline_schedule` |
 | Player joined | nobody by DM while the table is being seated (seven joins would send 21), but every seated player by DM when a vacated seat is taken over mid-game; the joiner's own "You have joined" confirmation, and a group post "X has joined game N as POWER." (a nickname in a public game, "A new player" in an anonymous one) when the game has a group | — | next poll | `routes/games.py` join |
 | Game full / started | all players | — | next poll | `routes/games.py` join |
-| Player quit / replaced | all players | — | next poll | `routes/games.py` quit, admin replace |
+| Player quit | the quitter: "You have quit game N." (instead of the general notice); all other players: "POWER has left game N. …" | — | next poll | `routes/games.py` quit |
+| Player replaced | all players **except the replacer**: "A new player has taken over Power in game N." (a nickname in a public game) | — | next poll | `routes/games.py` replace |
+| Seat marked inactive (admin) | all players: "Player Power has been marked inactive by admin and is eligible for replacement." | — | next poll | `routes/games.py` `mark_player_inactive` |
+| Game rolled back (admin) | all players: "Game N has been rolled back by an admin to phase …" (pending orders and draw votes cleared) | — | next poll | `routes/games.py` restore |
+| Game deleted (admin) | all players, sent before the rows go: "Game N has been deleted by an admin." | — | — | `routes/admin.py` delete game |
+| Dummy toggled | all players: "POWER in game N is now played by civil disorder." or "… is open again -- /join N to take it." (when the toggle completes a draw quorum the draw rows apply instead) | — | next poll | `routes/games.py` `set_dummy_power` |
+| Auto-process toggled | all players except the caller: "Game N now processes each turn as soon as all orders are in. …" or "… no longer processes turns automatically." | — | next poll | `routes/games.py` auto-process |
+| Wait flag raised or lowered | all players except the caller: "POWER asks game N to wait before the turn is processed." or "POWER is ready in game N." | — | next poll | `routes/games.py` `set_wait_flag` |
+| Deadline proposal vote | all players except the voter and any power that is out: a yes vote that does not decide ("POWER voted yes … (1/4 needed)"), the proposal passing, or its rejection (the proposer reads "Your deadline proposal …"). A "no" vote that does not reject sends nothing | — | next poll | `routes/games.py` deadline vote |
 | Broadcast message | all players except the sender | the broadcast text (when `auto_post_broadcasts`, default on) | next poll | `routes/messages.py` |
 | Rumour (anonymous broadcast) | all players, **the sender included**: "🕵️ Rumour in game {id}: …" | "🕵️ Rumour in game {id}: …" (same setting) | next poll | `routes/messages.py` |
 | Private message | recipient only | — | next poll | `routes/messages.py` |
@@ -281,7 +289,7 @@ place the full picture exists.
 | Draw quorum reached → game ends | all players except the voter: "Game N has ended in a draw shared by AUSTRIA, ENGLAND and FRANCE."; a sharer reads itself as "you" ("… shared by you, AUSTRIA and ENGLAND."). When a concession or a new dummy completed the quorum, the cause leads ("ITALY has conceded, and game N has ended in a draw shared by …"; the conceder is left out, a dummy toggle leaves nobody out). Every player's cached game list is invalidated | "🤝 Draw - Game N" + the same sentence; no maps (no turn was processed) | next poll | `api.shared.announce_draw` → `notify_game_drawn` |
 | Draw voted over DAIDE (`DRW`, `NOT (DRW)`) | the three draw rows above, to every Telegram player (a DAIDE voter has no Telegram id to leave out); a completed draw, whichever surface cast the deciding vote, sends one `DRW` to every DAIDE session (`after_draw_vote` → `broadcast_draw_completion`, idempotent per game) | as above | next poll | `DaideServer(on_draw_vote=api.shared.after_draw_vote)`, wired in `_api_module` |
 | Power conceded | all players except the conceder | — | next poll | `routes/games.py` `concede_game` |
-| Waiting list filled | all seven placed players, each told their own power | — | — | `api/routes/waiting_list.py` |
+| Waiting list filled | all seven placed players, each told their own power ("Game N created! You've been assigned POWER."), then a second DM to every player, "Game N is now full. Good luck to all players.", with the game's buttons | — | — | `api/routes/waiting_list.py` |
 
 **What the turn-processed DM says** is per player and names the new phase in words
 (`api.shared.turn_message`, fed by `GameService.phase_duties`, which uses the same
