@@ -218,7 +218,9 @@ enough; for a given fleet, reaching it from both ends is not (the halves may sha
 a dead-end sea walked there and back), so `_simple_route_through` searches for halves that
 share none. It reads only the board. `server/legal_orders.py` offers a convoy through a fleet
 by asking the same rule (`convoy_route_possible`), and `tests/test_legal_orders.py` checks
-the menu and the adjudicator agree.
+the menu and the adjudicator agree. It asks the rule with `without=` too: a fleet is not
+offered support for a convoyed move that no route avoiding that fleet could carry, since
+such a support is void (6.D.31).
 
 The convoy **path** itself (`_convoy_path_works`) is a breadth-first search over
 currently-surviving convoying fleets (`Convoy` orders whose origin/dest match the move,
