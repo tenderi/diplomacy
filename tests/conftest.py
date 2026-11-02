@@ -33,6 +33,24 @@ os.environ.setdefault("DIPLOMACY_BOT_SECRET", "test_bot_secret_for_tests")
 # so handler tests never write bot_data/ into the working tree.
 os.environ.setdefault("DIPLOMACY_BOT_DATA_DIR", tempfile.mkdtemp(prefix="diplomacy-bot-test-"))
 
+# bcrypt at its default cost (12) takes ~0.25 s per hash, and hundreds of tests
+# register users: that alone was minutes of the suite. Tests hash at the minimum
+# cost (4) instead. The hash format and checkpw path are unchanged, and
+# tests/test_password_hash_cost.py checks that production still uses the default
+# cost by calling the real gensalt. Patched here, before server modules import
+# and precompute auth's dummy hash.
+try:
+    import bcrypt as _bcrypt
+
+    REAL_BCRYPT_GENSALT = _bcrypt.gensalt
+
+    def _fast_gensalt(rounds: int = 4, prefix: bytes = b"2b") -> bytes:
+        return REAL_BCRYPT_GENSALT(rounds=rounds, prefix=prefix)
+
+    _bcrypt.gensalt = _fast_gensalt
+except ImportError:
+    pass
+
 # Initialize database schema BEFORE importing any database-dependent modules
 # This ensures schema exists before pytest imports test modules that might connect to DB
 _db_schema_initialized = False
