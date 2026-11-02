@@ -105,7 +105,10 @@ export function glossOrder(
     if (token === 'S') return 'supports'
     if (token === 'C') return 'convoys'
     if (token === 'R') return 'retreats to'
-    if (token === 'D') return 'disband'
+    if (token === 'D') return 'Disband'
+    // "A LVP - POR VIA" (or the long "VIA CONVOY"): the move goes by convoy.
+    if (token === 'VIA') return '(via convoy)'
+    if (token === 'CONVOY' && tokens[i - 1] === 'VIA') return null
     if (PROVINCE_TOKEN.test(token)) {
       const name = provinceName(token, names)
       if (name === token) return name
@@ -115,5 +118,5 @@ export function glossOrder(
     }
     return token
   })
-  return expanded ? words.join(' ') : null
+  return expanded ? words.filter((w) => w !== null).join(' ') : null
 }

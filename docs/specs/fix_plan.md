@@ -126,6 +126,9 @@
   bot's `/messages` shows private messages again; blank or oversized messages are a 400);
   `v3.0.55` did BB5 (the group guard leaves other bots' commands alone). `v3.0.49`
   finished BA7; `v3.0.47` moved the frontend to react-router 7 (AZ2).
+- `v3.0.217` did CH2 (web result wording: convoyed moves read "via convoy", a power that owed
+  nothing in an adjustment says so, disbands are capitalised and name the disband slot, a
+  dislodged unit names its attacker).
 - `v3.0.51`/`v3.0.52` added rumours (anonymous broadcasts, #157) to the API, the bot and
   the web composer.
 - **Track F** (a human playing the game end to end, and host chores) is the maintainer's.
@@ -140,7 +143,7 @@ A phone-sized play of the web SPA from Fall 1902 to Spring 1904 (five seats, two
   "waiting on AUSTRIA" until the page is reloaded. The page should show an "out of the
   game" notice in place of those controls (the players row's `out` flag), and Concede
   should refresh the page state.
-- [ ] **CH2** Result and order wording on the game page:
+- [x] **CH2** Result and order wording on the game page:
   - a convoyed move's gloss reads "Army Liverpool → Portugal VIA" (it should say "via
     convoy");
   - a power that had nothing to do in an adjustment phase sees "AUSTRIA had no orders
