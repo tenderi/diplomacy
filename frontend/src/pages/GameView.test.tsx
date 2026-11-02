@@ -2113,3 +2113,56 @@ describe('GameView — turn status stays current (BQ3)', () => {
     expect(within(container).getByText(/Spring 1901 · S1901M/)).toBeInTheDocument()
   })
 })
+
+describe('GameView — a power that is out (CH1)', () => {
+  const outPlayers = [{ power: 'FRANCE', user_id: 1, is_active: true, nickname: 'Test', out: true }]
+  const missingStatus = {
+    phase: 'S1901M', active_powers: ['FRANCE'], submitted: [], missing: ['FRANCE'],
+  }
+
+  it('shows an out notice instead of the order form, draw vote, quit and concede', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, outPlayers, { ordersStatus: missingStatus }))
+    const { container } = renderGame10()
+
+    expect(await within(container).findByRole('status')).toHaveTextContent(
+      'FRANCE is out of the game (conceded or eliminated). You can still follow the game, but no longer give orders or send messages.'
+    )
+    expect(within(container).queryByText(/You still need to submit orders/)).toBeNull()
+    expect(within(container).queryByRole('heading', { name: 'Orders' })).toBeNull()
+    expect(within(container).queryByRole('button', { name: 'Vote for draw' })).toBeNull()
+    expect(within(container).queryByRole('button', { name: 'Concede' })).toBeNull()
+    expect(within(container).queryByRole('button', { name: 'Quit (step away)' })).toBeNull()
+    expect(within(container).queryByPlaceholderText('Type a message...')).toBeNull()
+    expect(within(container).queryByRole('button', { name: 'Send' })).toBeNull()
+    expect(within(container).getByRole('heading', { name: 'Messages' })).toBeInTheDocument()
+    expect(within(container).getByRole('heading', { name: 'Players' })).toBeInTheDocument()
+  })
+
+  it('switches to the out state right after Concede, without a reload', async () => {
+    let conceded = false
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/concede') && init?.method === 'POST') {
+        conceded = true
+        return jsonResponse({ status: 'ok' })
+      }
+      if (url.includes('/orders_status'))
+        return jsonResponse(
+          conceded
+            ? { phase: 'S1901M', active_powers: [], submitted: [], missing: [] }
+            : missingStatus
+        )
+      if (conceded && url.includes('/players')) return jsonResponse(outPlayers)
+      return base(url, init)
+    }))
+    const { container } = renderGame10()
+
+    expect(await within(container).findByText(/waiting on FRANCE/)).toBeInTheDocument()
+    fireEvent.click(await within(container).findByRole('button', { name: 'Concede' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: /^concede$/i }))
+
+    expect(await within(container).findByRole('status')).toHaveTextContent('FRANCE is out of the game')
+    await waitFor(() => expect(within(container).queryByText(/waiting on FRANCE/)).toBeNull())
+    expect(within(container).queryByRole('button', { name: 'Concede' })).toBeNull()
+  })
+})

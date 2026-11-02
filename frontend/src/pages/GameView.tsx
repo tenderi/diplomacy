@@ -643,6 +643,9 @@ export default function GameView() {
     return next
   }, [legalOrders])
 
+  /** The viewer's power conceded or was eliminated: the API refuses its orders, draw votes,
+   * quit and concede with 409, so none of those controls are offered. */
+  const iAmOut = !!myPower && players.find((p) => p.power === myPower)?.out === true
   const iHaveSubmitted = !!(myPower && ordersStatus?.submitted.includes(myPower))
   const iHaveNothingToDo = !!(myPower && ordersStatus?.nothing_to_do?.includes(myPower))
 
@@ -857,7 +860,11 @@ export default function GameView() {
         body: JSON.stringify({ power: myPower }),
       })
       toast.success(`${myPower} has conceded`)
+      // Players (the `out` flag), the board and who is waited on all changed at once.
       load()
+      apiJson<OrdersStatus>(`/games/${gameId}/orders_status`)
+        .then(setOrdersStatus)
+        .catch(() => setOrdersStatus(null))
     } catch (e) {
       setError(describeActionError(e, 'Concede failed'))
     } finally {
@@ -981,7 +988,7 @@ export default function GameView() {
             )}
           </CardHeader>
           <CardContent className="space-y-2">
-            {myPower && (
+            {myPower && !iAmOut && (
               <p
                 className={cn(
                   'text-sm font-medium',
@@ -1014,7 +1021,7 @@ export default function GameView() {
                   : '.'}
               </p>
             )}
-            {myPower && ordersStatus && (
+            {myPower && !iAmOut && ordersStatus && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="text-sm font-medium">
                   Auto-process: {ordersStatus.auto_process ? 'on' : 'off'}
@@ -1133,7 +1140,14 @@ export default function GameView() {
         </section>
       )}
 
-      {myPower && (
+      {myPower && iAmOut && (
+        <p className="font-medium mb-4" role="status">
+          {myPower} is out of the game (conceded or eliminated). You can still follow the game,
+          but no longer give orders or send messages.
+        </p>
+      )}
+
+      {myPower && !iAmOut && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
           <section className="mb-6">
@@ -1219,6 +1233,7 @@ export default function GameView() {
             )
           })}
         </ul>
+        {!iAmOut && (
         <div className="mt-2 space-y-2">
           <Label className="flex items-center gap-2">
             <input type="checkbox" checked={broadcast} onChange={(e) => setBroadcast(e.target.checked)} />
@@ -1276,6 +1291,7 @@ export default function GameView() {
             {sendingMsg ? 'Sending...' : 'Send'}
           </Button>
         </div>
+        )}
       </section>
 
       <section className="mb-6">
@@ -1319,7 +1335,7 @@ export default function GameView() {
 
       {myPower && gameId && <TelegramGroupCard gameId={gameId} />}
 
-      {myPower && state.status === 'ACTIVE' && (
+      {myPower && !iAmOut && state.status === 'ACTIVE' && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Draw vote</h2>
           {drawStatus ? (
@@ -1344,7 +1360,7 @@ export default function GameView() {
         </section>
       )}
 
-      {myPower && state.status === 'ACTIVE' && (
+      {myPower && !iAmOut && state.status === 'ACTIVE' && (
         <section className="mb-6">
           <h2 className="text-lg font-medium mb-2">Leave game</h2>
           <p className="text-sm text-muted-foreground mb-2">
