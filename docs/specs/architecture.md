@@ -692,10 +692,20 @@ preserved.
 **Player → server** (`telegram_bot/outbox.py`, `api_client.api_post_reliable`). Orders and
 diplomatic messages are written to a SQLite queue (the `bot_data` volume) *before* the first
 attempt.
-Outcomes are exactly `delivered` / `queued` / `rejected`; the handler shows the matching
+Outcomes are `delivered` / `queued` / `rejected`; the handler shows the matching
 reply, and a background loop (`notifications.outbox_replay_loop`) retries queued entries
 strictly in id order — stopping at the first that is still unreachable so nothing overtakes
-an older write — and DMs each result. Each request carries:
+an older write — and DMs each result. A 4xx is a definitive answer (`rejected`, "The server
+refused it: …"). No answer, or a gateway's 502/503/504, is an outage: the entry stays queued
+as long as it lasts, with the backoff of `outbox.backoff_seconds` (5 s doubling to 60 s).
+Any other 5xx (500, 501, …) is the API failing on the request — a database blip, a bug — and
+is retried the same way, but only `api_client.MAX_SERVER_ERRORS` (8) times in a row, about
+four minutes: the queue is shared by every chat and strictly ordered, so a route that always
+answers 500 would otherwise hold back every player's writes behind it. Then the entry is
+`failed` and the player is told "The server kept failing (HTTP 500, 8 tries in a row), so I
+stopped trying. It did not refuse it: please send it again." An outage in between resets the
+count. An order retried after its phase ended gets the stale-order 409 below and is
+`rejected`. Each request carries:
 
 - **`client_timestamp`** — when the player composed it (the entry's creation time).
   `api/client_timestamp.py` normalises it to naive UTC, clamps far-future values, refuses

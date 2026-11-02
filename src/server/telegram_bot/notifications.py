@@ -46,7 +46,8 @@ from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, Tele
 from telegram.ext import Application, ContextTypes
 
 from .api_client import (
-    ApiUnreachableError, DeliveryResult, api_get, api_get_bytes, api_post, drain_outbox_once,
+    MAX_SERVER_ERRORS, ApiUnreachableError, DeliveryResult, api_get, api_get_bytes, api_post,
+    drain_outbox_once,
 )
 from .outbox import get_outbox
 
@@ -342,6 +343,12 @@ def format_delivery_report(result: DeliveryResult) -> str:
             from .orders import format_order_results  # local: orders imports api_client
             lines.append(format_order_results(results))
         return "\n".join(lines)
+    if result.status == "failed":
+        return (
+            f"❌ Not delivered (queued since {when}): {entry.description}\n"
+            f"The server kept failing ({result.error}, {MAX_SERVER_ERRORS} tries "
+            f"in a row), so I stopped trying. It did not refuse it: please send it again."
+        )
     return (
         f"❌ Not delivered (queued since {when}): {entry.description}\n"
         f"The server refused it: {result.error}"
