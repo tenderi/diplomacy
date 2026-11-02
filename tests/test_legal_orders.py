@@ -272,6 +272,57 @@ class TestCoastRegression:
         assert not (move_dests & nc_only)
 
 
+class TestSplitCoastSupport:
+    """A support into BUL/SPA/STP names the province, never a coast: the bare
+    form counts whichever coast the mover takes, a coasted one naming the
+    wrong coast is void (DATC 6.B.9), so offering only coasted supports made
+    the player guess the ally's coast."""
+
+    def _state(self) -> GameState:
+        units = frozenset(
+            {
+                Unit(UnitKind.FLEET, "FRANCE", Location("POR")),
+                Unit(UnitKind.FLEET, "FRANCE", Location("MAO")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("GAS")),
+                Unit(UnitKind.FLEET, "ITALY", Location("WES")),
+            }
+        )
+        return GameState(
+            year=1901,
+            season=Season.SPRING,
+            phase_type=PhaseType.MOVEMENT,
+            units=units,
+            ownership=dict(_MAP.initial_ownership),
+        )
+
+    def test_support_into_split_coast_is_offered_once_without_coast(self) -> None:
+        data = _assert_all_orders_valid(_MAP, self._state(), "FRANCE")
+        por = data["orders_by_unit"]["F POR"]
+        # The fleet's move offers both coasts; the support only the province, once.
+        assert "F MAO - SPA/NC" in data["orders_by_unit"]["F MAO"]
+        assert "F MAO - SPA/SC" in data["orders_by_unit"]["F MAO"]
+        assert por.count("F POR S F MAO - SPA") == 1
+        assert [o for o in por if " S " in o and "SPA/" in o] == []
+        # An army's support into Spain stays the one bare order too.
+        assert por.count("F POR S A GAS - SPA") == 1
+        # Every bucket is free of duplicates.
+        for key, bucket in data["orders_by_unit"].items():
+            assert len(bucket) == len(set(bucket)), key
+
+    def test_offered_bare_support_counts_for_either_coast(self) -> None:
+        for coast in ("NC", "SC"):
+            h = Harness()
+            h.units("FRANCE", "F POR", "F MAO")
+            h.units("ITALY", "F WES")
+            h.orders("FRANCE", "F POR S F MAO - SPA", f"F MAO - SPA/{coast}")
+            h.orders("ITALY", "F WES - SPA/SC")
+            h.adjudicate()
+            h.assert_success("F POR")
+            h.assert_success("F MAO")
+            h.assert_bounce("F WES")
+            assert h.unit_powers_at("SPA") == "FRANCE"
+
+
 # ---------------------------------------------------------------------------
 # 5. orders_by_unit key invariant.
 # ---------------------------------------------------------------------------
