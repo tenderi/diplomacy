@@ -103,6 +103,8 @@ def _order_verb(order_str: str) -> str:
     helper is never applied to them.
     """
     parts = order_str.split()
+    if parts and parts[0] == "D":  # disbands are verb-first: "D F STP/SC"
+        return "D"
     return parts[2] if len(parts) > 2 else ""
 
 
@@ -913,7 +915,9 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         # A chosen build takes its province: BUILD A BRE and BUILD F BRE cannot
         # both happen (the second is VOID and the build slot silently lost), so
         # after one the other is no longer offered.
-        taken = {_adjustment_site(o) for o in walk["chosen"].values() if o != "WAIVE"}
+        # The current step's own earlier choice (after Back) does not count, so
+        # it can be re-picked or changed (STP/SC -> STP/NC).
+        taken = {_adjustment_site(o) for s, o in walk["chosen"].items() if s != step and o != "WAIVE"}
         options = [o for o in walk["flat"] if o == "WAIVE" or _adjustment_site(o) not in taken]
         keyboard = order_buttons(context, game_id, options)
         title = f"🏗️ *{step}*"
