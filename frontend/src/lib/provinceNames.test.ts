@@ -116,10 +116,17 @@ describe('glossOrder', () => {
     expect(glossOrder('', NAMES)).toBeNull()
   })
 
+  it('glosses a convoyed move as "via convoy", in both spellings', () => {
+    expect(glossOrder('A BER - KIE VIA', NAMES)).toBe('Army Berlin → Kiel (via convoy)')
+    expect(glossOrder('A BER - KIE VIA CONVOY', NAMES)).toBe('Army Berlin → Kiel (via convoy)')
+  })
+
+  it('capitalises a disband like a build', () => {
+    expect(glossOrder('D A BER', NAMES)).toBe('Disband Army Berlin')
+  })
+
   it('leaves unrecognised tokens alone instead of dropping them', () => {
-    expect(glossOrder('A BER - KIE VIA CONVOY', NAMES)).toBe(
-      'Army Berlin → Kiel VIA CONVOY'
-    )
+    expect(glossOrder('A BER - KIE FOO', NAMES)).toBe('Army Berlin → Kiel FOO')
   })
 
   it('never emits a province code that a player could paste as an order', () => {

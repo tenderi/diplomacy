@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { describeResult, resultBadgeClass, type OrderResultEntry } from './resultText'
+import { describeResult, dislodgedBy, noResultsText, resultBadgeClass, type OrderResultEntry } from './resultText'
 
 function entry(overrides: Partial<OrderResultEntry> = {}): OrderResultEntry {
   return {
@@ -126,5 +126,42 @@ describe('resultBadgeClass', () => {
 
   it('falls back gracefully for an unknown code instead of throwing', () => {
     expect(() => resultBadgeClass('SOMETHING_NEW')).not.toThrow()
+  })
+})
+
+describe('dislodged by', () => {
+  const victim = entry({
+    order: { type: 'HOLD', power: 'AUSTRIA', unit: 'BUL' },
+    result: 'DISLODGED',
+    dislodged: true,
+    power: 'AUSTRIA',
+    order_str: 'A BUL H',
+  })
+  const attacker = entry({
+    order: { type: 'MOVE', power: 'RUSSIA', unit: 'SER', dest: 'BUL' },
+    power: 'RUSSIA',
+    order_str: 'A SER - BUL',
+  })
+  it('names the attacker found among the results', () => {
+    expect(describeResult(victim, [victim, attacker])).toBe('Unit was dislodged by A SER (RUSSIA).')
+    expect(dislodgedBy(victim, [victim, attacker])).toBe(' by A SER (RUSSIA)')
+  })
+  it('matches a coast destination and ignores a bounced move', () => {
+    const coast = entry({ ...attacker, order: { ...attacker.order, dest: 'BUL/SC' } })
+    expect(describeResult(victim, [coast])).toBe('Unit was dislodged by A SER (RUSSIA).')
+    expect(describeResult(victim, [{ ...attacker, result: 'BOUNCE' }])).toBe('Unit was dislodged.')
+  })
+  it('is unchanged without the other results', () => {
+    expect(describeResult(victim)).toBe('Unit was dislodged.')
+  })
+})
+
+describe('noResultsText', () => {
+  const build = entry({ order: { type: 'BUILD', power: 'FRANCE' }, result: 'BUILD', order_str: 'BUILD A PAR' })
+  it('says a power owed nothing in an adjustment phase', () => {
+    expect(noResultsText('AUSTRIA', [build])).toBe('AUSTRIA had nothing to build or disband.')
+  })
+  it('keeps the missed-turn wording for other phases', () => {
+    expect(noResultsText('AUSTRIA', [entry()])).toBe('AUSTRIA had no orders recorded for that turn.')
   })
 })

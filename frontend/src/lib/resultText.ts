@@ -53,7 +53,7 @@ export interface OrderResultEntry {
 }
 
 /** A short, plain-English sentence for one result entry -- no raw enum values. */
-export function describeResult(entry: OrderResultEntry): string {
+export function describeResult(entry: OrderResultEntry, allResults: OrderResultEntry[] = []): string {
   const orderType = entry.order.type
   switch (entry.result) {
     case 'OK':
@@ -86,7 +86,7 @@ export function describeResult(entry: OrderResultEntry): string {
       if (entry.reason) return `Convoy failed — ${entry.reason}, so the move did not happen.`
       return 'Convoy failed — no surviving path, so the move did not happen.'
     case 'DISLODGED':
-      return 'Unit was dislodged.'
+      return `Unit was dislodged${dislodgedBy(entry, allResults)}.`
     case 'DISBAND':
       if (entry.civil_disorder) {
         return entry.retreat_options.length > 0
@@ -125,4 +125,36 @@ export function resultBadgeClass(result: ResultCode | string): string {
     default:
       return 'bg-muted text-muted-foreground'
   }
+}
+
+/** " by A SER (RUSSIA)": the successful move into the province of a dislodged unit,
+ * found among the turn's results (the bot's `_dislodger`); "" when none is named. */
+export function dislodgedBy(entry: OrderResultEntry, results: OrderResultEntry[]): string {
+  const unit = entry.order.unit
+  if (typeof unit !== 'string') return ''
+  const province = unit.split('/')[0]
+  for (const r of results) {
+    const dest = r.order.dest
+    if (r.order.type === 'MOVE' && r.result === 'OK' && typeof dest === 'string' && dest.split('/')[0] === province) {
+      return ` by ${r.order_str.split(' - ')[0]} (${r.power})`
+    }
+  }
+  return ''
+}
+
+/** True when `results` are an adjustment phase's: every order is a build, waive or disband. */
+export function isAdjustmentResults(results: OrderResultEntry[]): boolean {
+  return (
+    results.length > 0 &&
+    results.every((r) => r.order.type === 'BUILD' || r.order.type === 'WAIVE' || r.order.type === 'DISBAND')
+  )
+}
+
+/** What to say when `power` has no entry in a turn's results. The engine records a result
+ * for every build (an unused entitlement is an implicit waive) and every disband (a
+ * shortfall is civil disorder), so in an adjustment phase a power with none owed nothing. */
+export function noResultsText(power: string, results: OrderResultEntry[]): string {
+  return isAdjustmentResults(results)
+    ? `${power} had nothing to build or disband.`
+    : `${power} had no orders recorded for that turn.`
 }
