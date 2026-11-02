@@ -2191,3 +2191,78 @@ describe('GameView — a power that is out (CH1)', () => {
     expect(within(container).queryByRole('button', { name: 'Concede' })).toBeNull()
   })
 })
+
+describe('GameView — polish (CH4)', () => {
+  const renderGame = () =>
+    render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+
+  it('shows a loading state, not the old map, while the pending-orders map loads (CH4)', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/map/orders') ? new Promise<Response>(() => {}) : base(url, init)
+      )
+    )
+    const { container } = renderGame()
+    await waitFor(() => expect(container.querySelector('[data-testid="map-inline"]')).not.toBeNull())
+    fireEvent.click(within(container).getByRole('button', { name: 'My pending orders' }))
+    expect(await within(container).findByRole('status')).toHaveTextContent('Loading the map…')
+    expect(container.querySelector('[data-testid="map-inline"]')).toBeNull()
+    expect(container.querySelector('img[alt^="Orders and results"]')).toBeNull()
+  })
+
+  it('says the pending-orders map could not be loaded instead of switching tabs (CH4)', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) =>
+        url.includes('/map/orders')
+          ? Promise.resolve({ ok: false, status: 500 } as Response)
+          : base(url, init)
+      )
+    )
+    const { container } = renderGame()
+    await waitFor(() => expect(container.querySelector('[data-testid="map-inline"]')).not.toBeNull())
+    fireEvent.click(within(container).getByRole('button', { name: 'My pending orders' }))
+    expect(await within(container).findByRole('alert')).toHaveTextContent(
+      'This map could not be loaded. Try again or pick another view.'
+    )
+    expect(container.querySelector('[data-testid="map-inline"]')).toBeNull()
+  })
+
+  it("lists other powers' results sorted by power, then order (CH4)", async () => {
+    const res = (power: string, order_str: string) => ({
+      order: { type: 'HOLD', power, unit: 'PAR' },
+      result: 'OK',
+      dislodged: false,
+      retreat_options: [],
+      power,
+      order_str,
+    })
+    const lastResolution = {
+      results: [
+        res('TURKEY', 'A SMY H'),
+        res('GERMANY', 'F KIE H'),
+        res('AUSTRIA', 'F TRI H'),
+        res('GERMANY', 'A BER H'),
+        res('FRANCE', 'A PAR H'),
+      ],
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { lastResolution }))
+    const { container } = renderGame()
+    await within(container).findByText('Other powers\' results (4)')
+    const text = container.querySelector('details')!.textContent ?? ''
+    const order = ['F TRI H', 'A BER H', 'F KIE H', 'A SMY H'].map((o) => text.indexOf(o))
+    expect(order.every((i) => i >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+  })
+})
