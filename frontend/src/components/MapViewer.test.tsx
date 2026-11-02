@@ -67,6 +67,13 @@ describe('MapViewer', () => {
     expect(trigger).toHaveAttribute('type', 'button')
   })
 
+  it('puts the enlarge badge at the top, off the legend strip along the map bottom', () => {
+    render(<MapViewer src={SRC} alt="Board — S1901M" />)
+    const badge = screen.getByText('Tap to enlarge')
+    expect(badge).toHaveClass('top-2')
+    expect(badge).not.toHaveClass('bottom-2')
+  })
+
   it('opens a labelled modal dialog showing the same image', () => {
     open()
     const dialog = screen.getByRole('dialog')
