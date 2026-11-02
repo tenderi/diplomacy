@@ -345,6 +345,12 @@ serializer: `phase` and each result's `order_str` (`_resolution_dict`), then `el
 `centres` and, on a result for a unit the power gave no order (the engine made one up),
 `unordered: true`. The `power` and `reason` of a result are not stored.
 
+`GET /games/{id}/resolutions` is `{"game_id", "resolutions": {turn: resolution}}`, every
+stored turn with the stored `phase` and its results decorated exactly as `/last_resolution`'s
+(`GameService.resolution_history_view`: `power`, `order_str`, `reason`). Like
+`/last_resolution` it needs no auth and hides nothing: adjudicated outcomes are public. The
+web's "Previous turns" selector reads it (the newest turn is the "last turn" section above it).
+
 `GET /games/{id}/last_resolution` (added so a client can re-fetch this after a page
 reload, since the inline `process_turn` response above isn't persisted client-side)
 returns 404 when the game doesn't exist, `{"results": []}` when it exists but no turn has

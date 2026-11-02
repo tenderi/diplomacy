@@ -277,6 +277,28 @@ class TestProcessTurn:
 
 
 @pytest.mark.unit
+class TestResolutionsHistory:
+    """GET /games/{game_id}/resolutions: per-turn, decorated like last_resolution."""
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_resolutions_not_found(self, client):
+        assert client.get("/games/nonexistent/resolutions").status_code == 404
+
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_resolutions_are_decorated_and_carry_phase(self, client):
+        game_id = client.post("/games/create", json={"map_name": "standard", "initial_phase": "Movement"}).json()["game_id"]
+        fill_with_dummies(game_id)
+        assert client.post(f"/games/{game_id}/process_turn", headers={"X-Bot-Secret": BOT_SECRET}).status_code == 200
+        last = client.get(f"/games/{game_id}/last_resolution").json()["results"]
+        body = client.get(f"/games/{game_id}/resolutions").json()
+        assert list(body["resolutions"]) == ["0"]
+        turn = body["resolutions"]["0"]
+        assert turn["phase"] == "S1901M"
+        assert turn["results"] == last
+        assert all(r["power"] == r["order"]["power"] and r["order_str"] for r in turn["results"])
+
+
+@pytest.mark.unit
 class TestLastResolution:
     """Test GET /games/{game_id}/last_resolution (E1b)."""
 
