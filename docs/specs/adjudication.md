@@ -137,6 +137,9 @@ geometrically, before the cut question is even asked — when (`_support_is_void
 - it's not a legally reachable support for the supporting unit (`_support_valid`), or
 - it names no real order to support (`_support_has_target`) — e.g. a hold-support for an
   empty province, or a move-support whose named mover isn't actually moving there, or
+  a move-support naming a coast the mover does not take (`F POR S F MAO - SPA/NC` for
+  `F MAO - SPA/SC`; DATC 6.B.9 — a support naming no coast matches either, 6.B.7/6.B.8,
+  so `legal_orders` offers supports into BUL, SPA and STP only without a coast), or
 - (`SupportMove`, **reported only**) it would help dislodge a **holding unit of the
   supporter's own power** at the destination — *unless* that unit is itself ordered to
   move away and the support was decisive elsewhere (`_support_decisive_elsewhere`): it

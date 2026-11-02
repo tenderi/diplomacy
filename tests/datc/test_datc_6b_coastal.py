@@ -152,12 +152,8 @@ def test_6b7_supporting_with_unspecified_coast():
     Portugal's support succeeds and the Italian fleet in the Western
     Mediterranean bounces.
 
-    KNOWN ENGINE LIMITATION: this engine's parser rejects a fleet-typed
-    support target naming a split-coast province with no coast at
-    *parse time* (``OrderParseError``: "fleet order for split-coast
-    province SPA must name a coast") -- it never reaches the adjudicator.
-    This test therefore documents the DATC-preferred outcome and is expected
-    to fail/error against the current parser.
+    The engine follows it: a support's destination naming no coast matches
+    the mover's either coast.
     """
     h = Harness()
     h.units("FRANCE", "F POR", "F MAO")
@@ -185,9 +181,7 @@ def test_6b8_supporting_with_unspecified_coast_when_only_one_coast_possible():
     DATC's preferred outcome: supporting without a coast is allowed, so
     Portugal's support succeeds and the Italian fleet bounces.
 
-    KNOWN ENGINE LIMITATION: same parse-time rejection as 6.B.7 -- a fleet
-    support target naming split-coast Spain with no coast raises
-    ``OrderParseError`` before adjudication runs.
+    The engine follows it, as in 6.B.7.
     """
     h = Harness()
     h.units("FRANCE", "F POR", "F GAS")
