@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { type OrderResultEntry } from '@/lib/resultText'
 import { groupLegalOrdersByType, parseLegalOrder } from '@/lib/orderParsing'
-import { BuildOrdersSection, ResultList, UnitOrdersSection, describeTarget } from './OrderEntry'
+import { adjustmentSlotLabel, BuildOrdersSection, ResultList, UnitOrdersSection, describeTarget } from './OrderEntry'
 
 function disband(unit: string, civil_disorder: boolean): OrderResultEntry {
   return {
@@ -288,5 +288,25 @@ describe('BuildOrdersSection', () => {
     expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
       'Disband A MUN – Munich',
     ])
+  })
+})
+
+describe('adjustmentSlotLabel', () => {
+  it('labels an empty slot by what the power owes', () => {
+    expect(adjustmentSlotLabel({ action: 'disband', delta: -1, slots: 1 })).toBe('Disband')
+    expect(adjustmentSlotLabel({ action: 'build', delta: 1, slots: 1 })).toBe('Build')
+  })
+  it('shows it as the select placeholder', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'disband', delta: -1, slots: 1 }}
+        orders={['D A MUN']}
+        provinceNames={{ MUN: 'Munich' }}
+        buildOrderSlots={['']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByRole('combobox').textContent).toBe('Disband')
   })
 })
