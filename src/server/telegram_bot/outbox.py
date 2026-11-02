@@ -28,15 +28,16 @@ Each entry carries:
 States: ``pending`` (waiting for a delivery attempt), ``inflight`` (an attempt
 is running in this process), ``delivered`` (server accepted; ``response``
 kept), ``rejected`` (server refused with a 4xx; ``last_error`` kept), ``failed``
-(the server answered a 5xx error ``MAX_SERVER_ERRORS`` times in a row, so the bot
+(the server answered a 5xx error ``MAX_SERVER_ERRORS`` times, so the bot
 gave up; ``last_error`` kept). Transient failures -- no answer, a 502/503/504
 from a gateway, or a 5xx below that cap -- return an entry to ``pending`` with an
 exponential ``next_attempt_at`` capped at ``MAX_BACKOFF_SECONDS``. Delivery is
 strictly in id order across all chats -- a message must not overtake the orders
 sent before it -- so the replayer stops at the first transient failure and
-resumes from it later. ``server_errors`` counts the consecutive 5xx answers
-(other than 502/503/504) and is reset by any other transient failure: an outage
-never makes the bot give up, a route that keeps answering 500 does.
+resumes from it later. ``server_errors`` counts the 5xx answers other than
+502/503/504; no answer and a gateway's 502/503/504 neither add to it nor reset
+it. So an outage never makes the bot give up, and a route that keeps answering
+500 does, even behind a gateway that flaps in between.
 
 A second, unrelated table (``user_games_cache``) remembers each user's last
 known games-and-powers list so ``/order`` and friends can still resolve which
@@ -249,7 +250,7 @@ class Outbox:
 
         ``server_error``: the server answered with a 5xx error (not a gateway's
         502/503/504), which adds one to ``server_errors``; any other transient
-        failure resets it.
+        failure leaves it as it is.
         """
         now = now or utcnow()
         with self._lock:
@@ -258,7 +259,7 @@ class Outbox:
             next_at = now + timedelta(seconds=backoff_seconds(attempts))
             self._conn.execute(
                 "UPDATE outbox SET state = ?, last_error = ?, next_attempt_at = ?,"
-                " server_errors = CASE WHEN ? THEN server_errors + 1 ELSE 0 END WHERE id = ?",
+                " server_errors = server_errors + ? WHERE id = ?",
                 (PENDING, error[:2000], _dump_ts(next_at), int(server_error), entry_id),
             )
         return next_at

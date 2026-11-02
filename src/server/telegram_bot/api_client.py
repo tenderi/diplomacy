@@ -48,7 +48,8 @@ TRANSIENT_STATUSES = frozenset({502, 503, 504})
 # Any other 5xx is the API answering with an error of its own (a database blip,
 # a bug). It is retried too -- ``server.api.idempotency`` never stores a 5xx
 # under the key, so the retry runs the request again -- but only this many
-# times in a row: the queue is strictly ordered across every chat, so an entry
+# times (no answer and a gateway's 502/503/504 in between neither count nor
+# reset the count): the queue is strictly ordered across every chat, so an entry
 # that a route answers with 500 every time would hold back every player's
 # orders behind it. With the outbox's backoff (5, 10, 20, 40, 60, 60, 60 s)
 # eight answers take about four minutes, enough to outlast a database restart.
@@ -252,7 +253,7 @@ class DeliveryResult:
     entry stays in the outbox and ``drain_outbox_once`` will retry.
     ``server_error`` tells the two apart (true for a 5xx other than 502/503/504).
     ``rejected``: the server answered with a 4xx; ``error`` is its ``detail``.
-    ``failed``: the server answered a 5xx ``MAX_SERVER_ERRORS`` times in a row
+    ``failed``: the server answered a 5xx ``MAX_SERVER_ERRORS`` times
     and the bot stopped trying. Only the replayer can see it: the first attempt
     is at most the first such answer.
     """
@@ -296,11 +297,11 @@ def attempt_delivery(entry: OutboxEntry) -> DeliveryResult:
         error = f"HTTP {resp.status_code}"
         server_errors = entry.server_errors + 1
         if server_errors >= MAX_SERVER_ERRORS:
-            outbox.mark_failed(entry.id, f"{error} {server_errors} times in a row")
-            logger.error("Outbox #%d got %s %d times in a row; giving up", entry.id, error, server_errors)
+            outbox.mark_failed(entry.id, f"{error}, {server_errors} server errors")
+            logger.error("Outbox #%d got %s (%d server errors); giving up", entry.id, error, server_errors)
             return DeliveryResult("failed", outbox.get(entry.id) or entry, error=error, server_error=True)
         outbox.mark_retry(entry.id, error, server_error=True)
-        logger.warning("Outbox #%d got %s (%d in a row); will retry", entry.id, error, server_errors)
+        logger.warning("Outbox #%d got %s (%d server errors); will retry", entry.id, error, server_errors)
         return DeliveryResult("queued", outbox.get(entry.id) or entry, error=error, server_error=True)
     try:
         _raise_for_status(resp)
@@ -343,12 +344,16 @@ def api_post_reliable(
 def queued_reply(outcome: DeliveryResult) -> str:
     """The reply a player sees when their write had to be queued."""
     entry = outcome.entry
-    reason = "had an error just now" if outcome.server_error else "is unreachable right now"
+    if outcome.server_error:
+        reason = "had an error just now"
+        when = "I will retry it for a few minutes"
+    else:
+        reason = "is unreachable right now"
+        when = "It will be delivered automatically, in order, as soon as the server is back"
     return (
         f"📮 The game server {reason}, so I have queued your "
         f"{entry.description}\n\n"
-        f"Sent at {entry.sent_at_label()}. It will be delivered automatically, in "
-        f"order, as soon as the server is back, and I will message you with the "
+        f"Sent at {entry.sent_at_label()}. {when}, and I will message you with the "
         f"result. /queue shows what is waiting."
     )
 
