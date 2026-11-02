@@ -111,7 +111,10 @@ are under `/examples`.
 - **Private messages:** game menu → **💬 Messages** → tap a power, then just type your
   message. Only that player sees it.
 - **To everyone:** **💬 Messages → 📣 Everyone**. It's also posted in the group.
-- Or by command: `/message FRANCE Shall we split the Low Countries?`, `/broadcast Peace in our time.`
+- **Anonymously:** **💬 Messages → 🕵️ Rumour (anonymous)** sends a message to everyone that names
+  nobody as its sender.
+- Or by command: `/message FRANCE Shall we split the Low Countries?`, `/broadcast Peace in our time.`,
+  `/rumour Italy is planning something.`
 
 Deals are not binding, and neither are promises. That's the game.
 
@@ -124,15 +127,18 @@ Deals are not binding, and neither are promises. That's the game.
   deadline, everyone gets a reminder. Units without orders hold.
 - **Draw:** `/draw` votes to end the game as a shared draw. It ends when every surviving
   power agrees. `/nodraw` takes your vote back.
-- **Leaving:** `/quit N`. Your power becomes free for someone else to take over; its units hold until then. `/concede N` gives up for good instead.
+- **Leaving:** `/quit N`. Your power becomes free for someone else to take over; its units hold until then. `/concede` (or **🏳️ Concede** in the game menu) gives up for good instead: your units are removed and your centres become neutral. A conceded or eliminated power can still read the game but no longer orders, votes or writes.
 
 ---
 
 ## 7. The website (optional)
 
 At **https://diplomacy.xn--jalluthti-02a.fi** you can see your games with a large,
-zoomable map, results of the last turn, messages, and order entry.
-A message to everyone can be sent as a **rumour**: tick *Send anonymously (rumour)* and
+zoomable map (the board, your pending orders, or the last resolution), what happened to
+every order last turn and in earlier turns, the deadline in your own time zone, messages,
+order entry, draw votes, and quit or concede. You can also create a game there, and try
+orders for all seven powers in the **Sandbox** without touching a real game. All of it is
+described in the [browser client guide](BROWSER_CLIENT.md). A message to everyone can be sent as a **rumour**: tick *Send anonymously (rumour)* and
 nobody is told who sent it. It shows as "🕵️ Rumour" in everyone's message list, and every
 player, you included, gets the same Telegram message about it.
 
