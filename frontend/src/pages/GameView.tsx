@@ -197,17 +197,21 @@ function ResultsSection({
   // has builds or disbands. The retreat's follow only when the viewer had retreat orders.
   const movement = resolution.movement?.results.length ? resolution.movement : null
   const hasOwnRetreat = !!myPower && resolution.results.some((r) => r.power === myPower)
-  const blocks: { title: string | null; results: OrderResultEntry[] }[] = movement
+  // The movement block of a post-retreat page is history: its dislodged units have
+  // already retreated (or not), so it must not say they "must retreat next phase".
+  const blocks: { title: string | null; results: OrderResultEntry[]; retreatPending: boolean }[] = movement
     ? [
-        { title: 'Movement', results: movement.results },
-        ...(hasOwnRetreat || !myPower ? [{ title: 'Retreats', results: resolution.results }] : []),
+        { title: 'Movement', results: movement.results, retreatPending: false },
+        ...(hasOwnRetreat || !myPower
+          ? [{ title: 'Retreats', results: resolution.results, retreatPending: true }]
+          : []),
       ]
-    : [{ title: null, results: resolution.results }]
+    : [{ title: null, results: resolution.results, retreatPending: true }]
 
   return (
     <section className="mb-6">
       <h2 className="text-lg font-medium mb-2">What happened last turn</h2>
-      {blocks.map(({ title, results }) => {
+      {blocks.map(({ title, results, retreatPending }) => {
         const mine = myPower ? results.filter((r) => r.power === myPower) : []
         const others = results.filter((r) => r.power !== myPower)
         return (
@@ -215,7 +219,7 @@ function ResultsSection({
             {title && <h3 className="text-sm font-medium mb-1">{title}</h3>}
             {myPower ? (
               mine.length > 0 ? (
-                <ResultList entries={mine} provinceNames={provinceNames} />
+                <ResultList entries={mine} provinceNames={provinceNames} retreatPending={retreatPending} />
               ) : (
                 <p className="text-sm text-muted-foreground mb-2">
                   {myPower} had no orders recorded for that turn.
@@ -232,7 +236,7 @@ function ResultsSection({
                   Other powers&apos; results ({others.length})
                 </summary>
                 <div className="mt-2">
-                  <ResultList entries={others} showPower provinceNames={provinceNames} />
+                  <ResultList entries={others} showPower provinceNames={provinceNames} retreatPending={retreatPending} />
                 </div>
               </details>
             )}
@@ -1011,13 +1015,16 @@ export default function GameView() {
               </p>
             )}
             {myPower && ordersStatus && (
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-sm font-medium">
+                  Auto-process: {ordersStatus.auto_process ? 'on' : 'off'}
+                </span>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => handleAutoProcess(!ordersStatus.auto_process)}
                 >
-                  {ordersStatus.auto_process ? 'Stop auto-processing' : 'Process as soon as all orders are in'}
+                  {ordersStatus.auto_process ? 'Turn off' : 'Turn on'}
                 </Button>
                 {ordersStatus.auto_process && (
                   <Button

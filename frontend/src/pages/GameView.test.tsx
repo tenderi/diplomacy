@@ -758,6 +758,8 @@ describe('GameView — auto-processing and wait flags (W10)', () => {
     )
 
     expect(await within(container).findByText(/GERMANY asked to wait/)).toBeInTheDocument()
+    expect(within(container).getByText('Auto-process: on')).toBeInTheDocument()
+    expect(within(container).getByRole('button', { name: 'Turn off' })).toBeInTheDocument()
     fireEvent.click(within(container).getByRole('button', { name: /still negotiating/i }))
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0].url).toContain('/games/10/wait')
@@ -1181,6 +1183,34 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).getByRole('heading', { name: 'Movement' })).toBeInTheDocument()
     expect(within(container).queryByRole('heading', { name: 'Retreats' })).toBeNull()
     expect(within(container).queryByText(/had no orders recorded/)).toBeNull()
+  })
+
+  it('does not tell a unit to retreat next phase once the retreat phase has been played', async () => {
+    const res = (power: string, order_str: string, result: string, dislodged: boolean) => ({
+      order: { type: 'MOVE', power, unit: 'BRE', dest: 'ENG' },
+      result,
+      dislodged,
+      retreat_options: dislodged ? ['BRE'] : [],
+      power,
+      order_str,
+    })
+    const lastResolution = {
+      results: [res('FRANCE', 'F ENG R BRE', 'OK', false)],
+      movement: { results: [res('FRANCE', 'F ENG - NTH', 'BOUNCE', true)] },
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { lastResolution }))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(await within(container).findByText('F ENG R BRE')).toBeInTheDocument()
+    expect(within(container).getByText('This unit was dislodged in that turn.')).toBeInTheDocument()
+    expect(within(container).queryByText(/must retreat or disband next phase/)).toBeNull()
   })
 
   it("leads with the viewer's own power in plain language, not raw result codes", async () => {
