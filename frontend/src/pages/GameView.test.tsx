@@ -528,6 +528,7 @@ function stubFetchActive(
     legalOrders?: Record<string, unknown>
     myGames?: Record<string, unknown>[]
     lastResolution?: Record<string, unknown>
+    resolutions?: Record<string, unknown>
     deadline?: Record<string, unknown>
   } = {}
 ) {
@@ -536,6 +537,7 @@ function stubFetchActive(
       opts.onProcessTurn?.()
       return opts.processTurnResponse ? opts.processTurnResponse() : jsonResponse({ status: 'ok' })
     }
+    if (url.includes('/resolutions')) return jsonResponse({ resolutions: opts.resolutions ?? {} })
     if (url.includes('/last_resolution')) return jsonResponse(opts.lastResolution ?? { results: [] })
     if (url.includes('/orders_status'))
       return jsonResponse(
@@ -1183,6 +1185,29 @@ describe('GameView — results panel (E4)', () => {
     expect(within(container).getByRole('heading', { name: 'Movement' })).toBeInTheDocument()
     expect(within(container).queryByRole('heading', { name: 'Retreats' })).toBeNull()
     expect(within(container).queryByText(/had no orders recorded/)).toBeNull()
+  })
+
+  it('offers earlier turns under Previous turns', async () => {
+    const res = (order_str: string, result: string) => ({
+      order: { type: 'HOLD', power: 'FRANCE', unit: 'PAR' }, result, dislodged: false, retreat_options: [], power: 'FRANCE', order_str,
+    })
+    const resolutions = {
+      '1': { phase: 'F1901M', results: [res('A PAR H', 'OK')] },
+      '0': { phase: 'S1901M', results: [res('A PAR H (old)', 'OK')] },
+    }
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers, { resolutions }))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/games/10']}>
+        <AuthContext.Provider value={mockAuth}>
+          <Routes>
+            <Route path="/games/:gameId" element={<GameView />} />
+          </Routes>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    )
+    expect(await within(container).findByRole('heading', { name: 'Previous turns' })).toBeInTheDocument()
+    expect(within(container).getByText('A PAR H (old)')).toBeInTheDocument()
+    expect(within(container).getByRole('option', { name: 'Spring 1901 movement' })).toBeInTheDocument()
   })
 
   it('does not tell a unit to retreat next phase once the retreat phase has been played', async () => {

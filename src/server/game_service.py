@@ -1342,6 +1342,15 @@ class GameService:
         """
         return self._repo.get_resolution_history(game_id)
 
+    def resolution_history_view(self, game_id: str) -> dict[str, dict[str, Any]]:
+        """``resolution_history`` with every result decorated like ``last_resolution_view``
+        (flattened ``power``, ``order_str``, ``reason``), so a client renders an earlier
+        turn exactly as it renders the last one. Each turn keeps its ``phase`` code."""
+        return {
+            turn: {**resolution, "results": _decorated_results(resolution)}
+            for turn, resolution in self.resolution_history(game_id).items()
+        }
+
     def civil_disorder_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
         """The units ``turn``'s adjustment removed by civil disorder (BD5), per power:
         ``{power: ["F KIE", "A MUN"]}``, in removal order. Empty when the turn had none
