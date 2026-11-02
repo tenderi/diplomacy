@@ -81,7 +81,7 @@ export default function MapViewer({ src, alt, className }: MapViewerProps) {
         <span
           aria-hidden="true"
           className={cn(
-            'pointer-events-none absolute bottom-2 right-2 rounded bg-black/70 px-2 py-1',
+            'pointer-events-none absolute right-2 top-2 rounded bg-black/70 px-2 py-1',
             // Visible by default: touch devices have no hover, so only hover-capable
             // pointers get the fade-in behaviour.
             'text-xs font-medium text-white opacity-100 transition-opacity',
