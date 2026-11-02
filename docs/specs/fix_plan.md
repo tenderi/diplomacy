@@ -10,7 +10,7 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CG**.
+>   history. Track letters run in sequence; the next free one is **CH**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
@@ -138,6 +138,24 @@ No automated test spans a real human playing a real game: it needs a live bot to
 human at a Telegram client, so this cannot be delegated to an agent. Every phase has
 automated coverage; what is unverified is whether the whole thing is *pleasant and
 coherent* to use.
+
+## CG — Findings from a spec-vs-code audit of `architecture.md`
+
+- [ ] **CG1** The bot's durable queue gives up on a queued order or message at the first
+  HTTP 500/501 (`api_client.TRANSIENT_STATUSES` is only 502/503/504). It marks the entry
+  `rejected` and DMs "The server refused it", although the idempotency contract says a 5xx
+  should be retried (a 5xx response is never stored under its key) and architecture.md
+  promises no player message is lost. Retry a 5xx with the existing backoff. Bound it
+  (attempts or age) so a route that always 500s can't block the queue forever, then
+  report the entry as not delivered.
+- [ ] **CG2** Make architecture.md match the code:
+  - the notification matrix (the waiting-list "game is now full" DM; admin rollback,
+    delete and mark-inactive; the dummy, auto-process and wait-flag toggles; replace and
+    quit recipients; a "no" deadline vote that sends nothing);
+  - the DAIDE command list (THX is outbound only; NOT and GOF are handled);
+  - the cached routes (`/observer_state`).
+
+  Also fix CLAUDE.md's `rendering/` module list, which names a nonexistent `icons`.
 
 ## F1 — End-to-end play-through, both clients
 
