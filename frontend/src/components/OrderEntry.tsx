@@ -55,6 +55,11 @@ export function describeAdjustmentOrder(order: string, names: ProvinceNames): st
   return `Disband ${kind.toUpperCase()} ${prov.toUpperCase()}${coast ? `/${coast.toUpperCase()}` : ''} – ${where}`
 }
 
+/** The empty-slot label: by what the power owes. */
+export function adjustmentSlotLabel(a?: AdjustmentInfo): string {
+  return a?.action === 'disband' ? 'Disband' : a?.action === 'build' ? 'Build' : 'Build / Disband'
+}
+
 function adjustmentSummary(a?: AdjustmentInfo): string {
   if (!a || a.action === 'none') return 'No builds or disbands this turn.'
   const noun = a.action === 'build' ? 'build' : 'disband'
@@ -365,7 +370,7 @@ export function BuildOrdersSection({
               disabled={loading}
             >
               <SelectTrigger className="w-full" aria-label={`Build or destroy order for slot ${i + 1}`}>
-                <SelectValue placeholder="Build / Destroy" />
+                <SelectValue placeholder={adjustmentSlotLabel(adjustment)} />
               </SelectTrigger>
               <SelectContent>
                 {options
@@ -399,7 +404,9 @@ export function ResultList({
   showPower = false,
   provinceNames = {},
   retreatPending = true,
+  allResults,
 }: {
+  allResults?: OrderResultEntry[]
   entries: OrderResultEntry[]
   showPower?: boolean
   provinceNames?: ProvinceNames
@@ -426,7 +433,7 @@ export function ResultList({
                   resultBadgeClass(r.result)
                 )}
               >
-                {describeResult(r)}
+                {describeResult(r, allResults ?? entries)}
               </span>
             </div>
             {gloss && <p className="text-xs text-muted-foreground">{gloss}</p>}

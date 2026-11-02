@@ -40,7 +40,7 @@ import {
   groupLegalOrdersByType,
   extractUnitFromOrderString,
 } from '@/lib/orderParsing'
-import { type OrderResultEntry } from '@/lib/resultText'
+import { type OrderResultEntry, noResultsText } from '@/lib/resultText'
 import {
   POWERS,
   PHASE_BADGE_CLASS,
@@ -219,10 +219,10 @@ function ResultsSection({
             {title && <h3 className="text-sm font-medium mb-1">{title}</h3>}
             {myPower ? (
               mine.length > 0 ? (
-                <ResultList entries={mine} provinceNames={provinceNames} retreatPending={retreatPending} />
+                <ResultList entries={mine} allResults={results} provinceNames={provinceNames} retreatPending={retreatPending} />
               ) : (
                 <p className="text-sm text-muted-foreground mb-2">
-                  {myPower} had no orders recorded for that turn.
+                  {noResultsText(myPower, results)}
                 </p>
               )
             ) : (
@@ -236,7 +236,7 @@ function ResultsSection({
                   Other powers&apos; results ({others.length})
                 </summary>
                 <div className="mt-2">
-                  <ResultList entries={others} showPower provinceNames={provinceNames} retreatPending={retreatPending} />
+                  <ResultList entries={others} allResults={results} showPower provinceNames={provinceNames} retreatPending={retreatPending} />
                 </div>
               </details>
             )}
