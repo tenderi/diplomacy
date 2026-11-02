@@ -422,9 +422,11 @@ docker compose up -d
   API to ack it, so the row came back on the next poll. At-least-once is the
   deliberate side of this trade.
 - **`/queue` shows attempts climbing but the server is reachable.** The entry
-  at the head of the queue is being refused with a *transient* status
-  (502/503/504) -- the API is up but unhealthy, most likely Postgres.
-  `docker compose logs diplomacy_api postgres`.
+  at the head of the queue is being answered with a 5xx -- the API is up but
+  unhealthy, most likely Postgres. `docker compose logs diplomacy_api postgres`.
+  A 502/503/504 is retried for as long as it lasts; any other 5xx (a 500) only
+  8 times, after which the entry is reported to its player as not
+  delivered ("The server kept failing") and the queue moves on.
 - **The deploy failed at "API not healthy after 90s".** Usually a migration
   error: `docker compose logs diplomacy_api` shows the Alembic traceback. The
   old containers were already replaced, so fix forward (or deploy an older

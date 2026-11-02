@@ -13,7 +13,7 @@ import requests
 from telegram.error import BadRequest, Forbidden, NetworkError
 
 from server.telegram_bot import api_client, game_context, notifications
-from server.telegram_bot.outbox import DELIVERED, PENDING, REJECTED, reset_outbox_for_tests
+from server.telegram_bot.outbox import DELIVERED, FAILED, PENDING, REJECTED, reset_outbox_for_tests
 
 pytestmark = pytest.mark.unit
 
@@ -183,6 +183,124 @@ def test_bad_request_is_permanent_too():
          patch.object(notifications, "api_post", side_effect=lambda ep, body: calls.append(body) or {}):
         asyncio.run(notifications.deliver_pending_notifications(bot))
     assert calls[0]["failed"] == {9: "BadRequest: chat not found"}
+
+
+# --- 5xx from the API itself: retried, but not forever ----------------------
+
+def _make_due(box) -> None:
+    box._conn.execute("UPDATE outbox SET next_attempt_at = NULL")
+
+
+def _replay(bot, answers):
+    with patch.object(api_client.requests, "post", side_effect=answers) as post:
+        finished = asyncio.run(notifications.replay_outbox(bot))
+    return finished, post.call_count
+
+
+@pytest.mark.parametrize("status", [500, 501])
+def test_server_error_is_queued_not_rejected(fresh_outbox, status):
+    with patch.object(api_client.requests, "post", return_value=_resp(status, {"detail": "Internal Server Error"})):
+        result = api_client.api_post_reliable("/games/set_orders", {}, chat_id=1, description="orders")
+    assert result.status == "queued" and result.server_error is True
+    entry = fresh_outbox.get(result.entry.id)
+    assert entry.state == PENDING and entry.server_errors == 1 and entry.last_error == f"HTTP {status}"
+    assert api_client.queued_reply(result) == (
+        "📮 The game server had an error just now, so I have queued your orders\n\n"
+        f"Sent at {result.entry.sent_at_label()}. I will retry it for a few minutes, and I will "
+        "message you with the result. /queue shows what is waiting."
+    )
+
+
+def test_server_error_then_success_is_delivered_with_one_dm(fresh_outbox):
+    with patch.object(api_client.requests, "post", return_value=_resp(500)):
+        entry = api_client.api_post_reliable(
+            "/games/set_orders", {"orders": ["A PAR H"]}, chat_id=11, description="orders for game 1 (FRANCE): A PAR H"
+        ).entry
+    _make_due(fresh_outbox)
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    finished, calls = _replay(bot, [_resp(200, {"results": [{"success": True, "order": "A PAR H"}]})])
+    assert [r.status for r in finished] == ["delivered"] and calls == 1
+    assert fresh_outbox.get(entry.id).state == DELIVERED
+    assert bot.send_message.await_count == 1
+    text = bot.send_message.await_args.kwargs["text"]
+    assert text.startswith("📬 Delivered (queued since") and "✅ A PAR H" in text
+
+
+def test_server_error_every_time_gives_up_after_the_cap_and_unblocks_the_queue(fresh_outbox):
+    with patch.object(api_client.requests, "post", side_effect=requests.ConnectionError("down")):
+        stuck = api_client.api_post_reliable("/games/1/message", {}, chat_id=11, description="message to GERMANY").entry
+        behind = api_client.api_post_reliable("/games/1/message", {}, chat_id=22, description="message to ITALY").entry
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    for n in range(1, api_client.MAX_SERVER_ERRORS):
+        _make_due(fresh_outbox)
+        finished, calls = _replay(bot, [_resp(500)])
+        # Still retried, and nothing overtakes it.
+        assert finished == [] and calls == 1
+        assert fresh_outbox.get(stuck.id).server_errors == n
+        assert fresh_outbox.get(behind.id).state == PENDING
+    assert bot.send_message.await_count == 0
+
+    _make_due(fresh_outbox)
+    finished, calls = _replay(bot, [_resp(500), _resp(200, {"status": "ok"})])
+    assert [r.status for r in finished] == ["failed", "delivered"] and calls == 2
+    assert fresh_outbox.get(stuck.id).state == FAILED
+    assert fresh_outbox.get(stuck.id).last_error == f"HTTP 500, {api_client.MAX_SERVER_ERRORS} server errors"
+    assert fresh_outbox.get(behind.id).state == DELIVERED
+    sent = {c.kwargs["chat_id"]: c.kwargs["text"] for c in bot.send_message.await_args_list}
+    assert sent[11].endswith(
+        "message to GERMANY\n"
+        f"The server kept failing (HTTP 500 on {api_client.MAX_SERVER_ERRORS} tries), so I stopped "
+        "trying. It did not refuse it: please send it again."
+    )
+    assert sent[11].startswith("❌ Not delivered (queued since ")
+    assert "refused" not in sent[11].replace("did not refuse", "")
+    # A failed entry is finished: it leaves the queue and shows in /queue history.
+    assert fresh_outbox.count_pending() == 0
+    assert [e.id for e in fresh_outbox.recent(11)] == [stuck.id]
+
+
+def test_outage_answers_neither_count_nor_reset_the_server_errors(fresh_outbox):
+    with patch.object(api_client.requests, "post", return_value=_resp(500)):
+        entry = api_client.api_post_reliable("/x", {}, chat_id=1, description="x").entry
+    for answer in (requests.ConnectionError("down"), _resp(503), requests.Timeout("slow"), _resp(502)):
+        _make_due(fresh_outbox)
+        with patch.object(api_client.requests, "post", side_effect=[answer]):
+            api_client.drain_outbox_once()
+    got = fresh_outbox.get(entry.id)
+    assert got.state == PENDING and got.server_errors == 1 and got.attempts == 5
+
+
+def test_a_flapping_gateway_cannot_defeat_the_cap(fresh_outbox):
+    """500 and 502 alternating at the head: the 500s still add up to the cap."""
+    with patch.object(api_client.requests, "post", return_value=_resp(500)):
+        entry = api_client.api_post_reliable("/x", {}, chat_id=1, description="x").entry
+    finished: list = []
+    for _ in range(api_client.MAX_SERVER_ERRORS - 1):
+        for answer in (_resp(502), _resp(500)):
+            _make_due(fresh_outbox)
+            with patch.object(api_client.requests, "post", side_effect=[answer]):
+                finished += api_client.drain_outbox_once()
+    assert [r.status for r in finished] == ["failed"]
+    got = fresh_outbox.get(entry.id)
+    assert got.state == FAILED and got.attempts == 2 * api_client.MAX_SERVER_ERRORS - 1
+
+
+def test_4xx_after_a_server_error_is_rejected_at_once(fresh_outbox):
+    """The stale-phase case: retried after the turn moved on, the order is a 409."""
+    with patch.object(api_client.requests, "post", return_value=_resp(500)):
+        entry = api_client.api_post_reliable("/games/set_orders", {}, chat_id=7, description="orders").entry
+    _make_due(fresh_outbox)
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    stale = _resp(409, {"detail": "These orders were sent before Fall 1901 movement (F1901M) began."})
+    finished, calls = _replay(bot, [stale])
+    assert [r.status for r in finished] == ["rejected"] and calls == 1
+    assert fresh_outbox.get(entry.id).state == REJECTED
+    assert bot.send_message.await_args.kwargs["text"].endswith(
+        "The server refused it: These orders were sent before Fall 1901 movement (F1901M) began."
+    )
 
 
 # --- replay loop -------------------------------------------------------------

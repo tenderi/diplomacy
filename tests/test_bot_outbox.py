@@ -134,3 +134,28 @@ def test_get_outbox_uses_data_dir_env(tmp_path, monkeypatch):
     box = ob.reset_outbox_for_tests()
     assert box.path == tmp_path / "data" / "outbox.sqlite3"
     assert box.path.exists()
+
+
+def test_a_file_from_before_server_errors_gains_the_column(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(
+        "CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE,"
+        " chat_id INTEGER NOT NULL, endpoint TEXT NOT NULL, payload TEXT NOT NULL,"
+        " description TEXT NOT NULL, created_at TEXT NOT NULL, state TEXT NOT NULL,"
+        " attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_attempt_at TEXT,"
+        " finished_at TEXT, response TEXT);"
+        "INSERT INTO outbox (key, chat_id, endpoint, payload, description, created_at, state)"
+        " VALUES ('k', 1, '/x', '{}', 'old entry', '2026-11-01T10:00:00+00:00', 'pending');"
+    )
+    conn.close()
+    box = ob.Outbox(path)
+    try:
+        [old] = box.pending()
+        assert old.description == "old entry" and old.server_errors == 0
+        box.mark_retry(old.id, "HTTP 500", server_error=True)
+        assert box.get(old.id).server_errors == 1
+    finally:
+        box.close()
