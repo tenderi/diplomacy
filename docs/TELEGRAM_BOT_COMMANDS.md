@@ -9,16 +9,17 @@ Most players never need to type a command after `/start`:
 - **🎮 My games** lists your games; tap one to open its **game menu**: the game's status
   (phase, deadline, who has ordered, wait flags, draw vote) and buttons for 📝 Order all
   units, 🎯 One unit, 📋 My orders (with 🗑 Clear and 📜 History), 🗺 Map, 💬 Messages,
-  ⏰ Deadline, ✋ Wait for me / ✅ I'm ready (when the game auto-processes), and — for the
-  game's creator only — ⚙️ Process turn now. With just one game, 🎮 My games opens its menu
-  straight away.
+  ⏰ Deadline, ✋ Wait for me / ✅ I'm ready (when the game auto-processes), 🏳️ Concede, and
+  — for the game's creator only — ⚙️ Process turn now. 🔄 Refresh redraws the status. Once a
+  game has ended its menu offers only 🗺 Final map, 📜 Order history and 💬 Messages. With
+  just one game, 🎮 My games opens its menu straight away.
 - **🎲 Find a game** lists open games you can join (🔒 = private; tap a power and the bot asks
   for the password, then deletes your message), the queue for the next new game, and a solo
   demo.
 - **Notifications** — "turn processed", "deadline in 10 minutes", "you joined", "game is
   full" — carry 📝 Enter orders, 🗺 Map and 🎮 Game menu buttons for that game.
-- **💬 Messages** in the game menu shows recent messages and a button per power (and
-  📣 Everyone): tap one, then just type your message. `/cancel` stops.
+- **💬 Messages** in the game menu shows recent messages and a button per power, 📣 Everyone
+  and 🕵️ Rumour (anonymous): tap one, then just type your message. `/cancel` stops.
 
 ## Your current game
 
@@ -83,7 +84,7 @@ the browser), as long as the web account has not joined a game yet.
 | `/autoprocess <game_id> on\|off` | Any player: process each turn the moment every power with something to order has sent an order **for every unit that must act** (to keep a unit still, order it to hold) (civil-disorder powers are never waited on), unless someone is `/notready`. A deadline still applies. Off by default. |
 | `/notready [game_id]` | Ask the table to wait before the turn auto-processes ("I'm still negotiating"). Lasts until `/ready` or the end of the phase. Never stops a deadline. |
 | `/ready [game_id]` | Lower your wait flag; if everything else is in, the turn is processed at once. |
-| `/dummy <game_id> <power> [off]` | Game creator only: leave an empty seat to civil disorder (it holds, disbands when it must, is never waited on and never votes), or add `off` to open it for a player again. For tables of 3–6. |
+| `/dummy <game_id> <power> [off]` | Game creator only: leave an empty seat to civil disorder (it holds, disbands when it must, is never waited on and never votes), or add `off` to open it for a player again. Only an empty seat can be left to civil disorder, and at least one seat stays for a player. |
 
 ### The solo demo
 
@@ -130,6 +131,7 @@ Parsing is case-insensitive and accepts the usual province abbreviations and ali
 |---|---|
 | `/message [game_id] <power> <text>` | Private message to one power. Or 💬 Messages in the game menu, tap the power, and type. |
 | `/broadcast [game_id] <text>` | Message all players. Also posted to the linked channel, if any. |
+| `/rumour [game_id] <text>` (or `/rumor`) | A broadcast that names nobody: every player and the game's group read it, and nobody is told who sent it. Your own rumours show as "🕵️ Rumour (you, FRANCE)" to you only. |
 | `/messages [game_id]` | Broadcasts plus private messages to and from you, each line showing when (in UTC, e.g. `5 Oct 14:03`) and which power sent it. |
 | `/queue` | Whether the game server is reachable, and your orders/messages still waiting to be delivered to it, with the time you sent each. |
 
@@ -217,8 +219,8 @@ without saying who did it. Only players of the game see either.
 |---|---|
 | "You are not in game X" | Join it first: 🎲 Find a game, or `/join`. |
 | "You're in N games" | Pick one with `/game <id>`, or open it from 🎮 My games; it stays picked. |
-| "Order failed" | Check the syntax and that the order type suits the current phase — the order buttons avoid both problems. |
-| "Channel not linked" | Send `/linkgroup <game_id>` in the group. |
+| "Order error: ..." or a ❌ line under "Orders received" | The reason is in the message. Check the syntax and that the order type suits the current phase — the order buttons avoid both problems. |
+| "Game N is not linked to a channel." | Send `/linkgroup <game_id>` in the group. |
 | Bot doesn't respond | Confirm the bot and API are running, then send `/start`. |
 
 More: [FAQ and setup](LOCAL_DEVELOPMENT.md#troubleshooting).
