@@ -214,7 +214,9 @@ function ResultsSection({
       <h2 className="text-lg font-medium mb-2">What happened last turn</h2>
       {blocks.map(({ title, results, retreatPending }) => {
         const mine = myPower ? results.filter((r) => r.power === myPower) : []
-        const others = results.filter((r) => r.power !== myPower)
+        const others = results
+          .filter((r) => r.power !== myPower)
+          .sort((a, b) => a.power.localeCompare(b.power) || a.order_str.localeCompare(b.order_str))
         return (
           <div key={title ?? 'last'} className="mb-3">
             {title && <h3 className="text-sm font-medium mb-1">{title}</h3>}
@@ -280,6 +282,11 @@ export default function GameView() {
   if (baseline.gameId !== gameId) setBaseline({ gameId, id: readSeenMessageId(gameId) })
   const seenBaseline = baseline.gameId === gameId ? baseline.id : 0
   const [mapUrl, setMapUrl] = useState<string | null>(null)
+  /** Which map mode `mapUrl` shows: the pending-orders image arrives later than the mode
+   * switch, and until then the old mode's image must not sit under the new title. */
+  const [mapUrlMode, setMapUrlMode] = useState<MapMode | null>(null)
+  /** The pending-orders map could not be fetched. */
+  const [mapFailed, setMapFailed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [joinPower, setJoinPower] = useState('')
@@ -469,9 +476,11 @@ export default function GameView() {
 
   useEffect(() => {
     if (!gameId) return
+    setMapFailed(false)
     if (mapMode !== 'orders') {
       const suffix = mapMode === 'board' ? '' : `/${mapMode}`
       setMapUrl(`${API_BASE}/games/${gameId}/map${suffix}?t=${Date.now()}`)
+      setMapUrlMode(mapMode)
       return
     }
     // Pending orders are secret: the server draws only the caller's own, so the
@@ -485,9 +494,10 @@ export default function GameView() {
         if (cancelled) return
         objectUrl = URL.createObjectURL(blob)
         setMapUrl(objectUrl)
+        setMapUrlMode('orders')
       })
       .catch(() => {
-        if (!cancelled) setMapMode('board')
+        if (!cancelled) setMapFailed(true)
       })
     return () => {
       cancelled = true
@@ -1078,7 +1088,15 @@ export default function GameView() {
               </Button>
             ))}
           </div>
-          <MapViewer src={mapUrl} alt={`${MAP_MODE_LABELS[mapMode]} — ${state.phase}`} />
+          {mapUrlMode !== mapMode ? (
+            <p className="text-sm text-muted-foreground py-8 text-center" role={mapFailed ? 'alert' : 'status'}>
+              {mapFailed
+                ? 'This map could not be loaded. Try again or pick another view.'
+                : 'Loading the map…'}
+            </p>
+          ) : (
+            <MapViewer src={mapUrl} alt={`${MAP_MODE_LABELS[mapMode]} — ${state.phase}`} />
+          )}
         </div>
       )}
 
