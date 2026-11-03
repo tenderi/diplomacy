@@ -181,6 +181,24 @@ def test_conceding_tells_the_remaining_players() -> None:
     assert all(POWERS[2] in m and "conceded" in m for m in messages), messages
 
 
+def test_a_concession_is_posted_to_the_linked_group() -> None:
+    """CL5: the group saw a power's units vanish with no word why."""
+    client = TestClient(app)
+    game_id, users = _seeded_game(client)
+    api_shared.db_service.link_game_to_channel(game_id, GROUP, any_displacer=True)
+    conceder_headers, _tg = users[2]
+    with OutboxProbe() as probe:
+        resp = client.post(f"/games/{game_id}/concede", json={"power": POWERS[2]}, headers=conceder_headers)
+    assert resp.status_code == 200, resp.text
+    assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
+        (
+            GROUP,
+            f"🏳️ {POWERS[2]} has conceded and left game {game_id}. Its units have been removed and its "
+            "supply centres are now neutral; the remaining powers play on.",
+        )
+    ]
+
+
 def test_withdrawing_a_draw_vote_is_announced_with_the_new_count() -> None:
     """BD1: a withdrawal reaches the people the vote did, or they keep believing
     the count they were last told."""

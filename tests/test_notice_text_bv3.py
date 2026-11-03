@@ -62,7 +62,13 @@ def test_the_proposal_passed_notice_shows_the_schedules_local_time() -> None:
             )
             assert r.status_code == 200, r.text
     text = notify.call_args[0][1]
-    assert re.fullmatch(re.escape(f"Game {game_id}'s deadline proposal passed: deadline now ") + HELSINKI + r"\.", text)
+    # CL4: a deadline covers one phase, as the notice of a hand-set one says.
+    assert re.fullmatch(
+        re.escape(f"Game {game_id}'s deadline proposal passed: deadline now ")
+        + HELSINKI
+        + r"\. This deadline covers the current phase only\.",
+        text,
+    )
 
 
 def test_a_deadline_turn_names_the_powers_that_had_not_ordered() -> None:
