@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from engine.serialization import state_to_dict
 from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
 from server.api import app
-from server.api.shared import db_service, game_service
+from server.api.shared import GroupPost, db_service, game_service
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
@@ -82,7 +82,7 @@ class TestAConcessionCompletesTheDraw:
             f"ITALY has conceded, and game {game_id} has ended in a draw shared by "
             "AUSTRIA, ENGLAND, FRANCE, GERMANY, RUSSIA and TURKEY."
         )
-        group.assert_called_once_with(game_id, f"🤝 Draw - Game {game_id}\n{text}")
+        group.assert_called_once_with(game_id, f"🤝 Draw - Game {game_id}\n{text}", GroupPost.IMPORTANT)
         assert players.call_args.args[1] == text
         assert players.call_args.kwargs["exclude_telegram_id"] == seats["ITALY"]
         play_on.assert_not_called()  # no "the remaining powers play on"
@@ -141,7 +141,7 @@ class TestADummyCompletesTheDraw:
             f"ITALY is now played by civil disorder, and game {game_id} has ended in a draw shared by "
             "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY."
         )
-        group.assert_called_once_with(game_id, f"🤝 Draw - Game {game_id}\n{text}")
+        group.assert_called_once_with(game_id, f"🤝 Draw - Game {game_id}\n{text}", GroupPost.IMPORTANT)
         assert players.call_args.args[1] == text
         plain.assert_not_called()
         daide.assert_called_once_with(game_id)
@@ -177,7 +177,7 @@ class TestOnlyDummiesLeft:
         }
         assert _status(client, game_id) == {"status": "COMPLETED", "winners": []}
         text = f"GERMANY has conceded, and game {game_id} has ended: only civil-disorder powers are left, so nobody wins."
-        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}")
+        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}", GroupPost.IMPORTANT)
         assert players.call_args.args[1] == text
         daide.assert_called_once_with(game_id)
         assert _listed_status(client, seats["GERMANY"], game_id) == ["completed"]
@@ -210,7 +210,7 @@ class TestOnlyDummiesLeft:
             f"GERMANY is now played by civil disorder, and game {game_id} has ended: "
             "only civil-disorder powers are left, so nobody wins."
         )
-        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}")
+        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}", GroupPost.IMPORTANT)
         assert players.call_args.args[1] == text
         plain.assert_not_called()
 

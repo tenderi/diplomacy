@@ -22,7 +22,7 @@ from .. import shared as api_shared
 from ..shared import (
     db_service, game_service, scheduler_logger, is_admin_token, is_bot_secret,
     notify_players, notify_user, get_process_turn_lock, game_buttons,
-    post_to_game_group, is_anonymous, player_rows, power_label, resolve_turn,
+    GroupPost, post_to_game_group, is_anonymous, player_rows, power_label, resolve_turn,
 )
 from ...deadline_schedule import ScheduleError, parse_schedule
 from engine.types import GameStatus
@@ -845,7 +845,7 @@ def concede_game(
             notify_players(int(row.id), text, exclude_telegram_id=caller)
             # CL5: the group sees the units vanish too. Only here: a concession
             # that ended the game returned above, and its ending post says why.
-            post_to_game_group(game_id, f"🏳️ {text}")
+            post_to_game_group(game_id, f"🏳️ {text}", GroupPost.IMPORTANT)
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify concession for game %s", game_id)
     # The leaver may have been the only power the phase needed (BX1), or the
@@ -1088,7 +1088,7 @@ def join_game(
         # A join is one line in the group, not a DM to every seated player (seven
         # joins sent 21). Players are DMed when the table fills, below.
         who = "A new player" if is_anonymous(game_id) else display_name(user, "A new player")
-        post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.")
+        post_to_game_group(game_id, f"{who} has joined game {game_id} as {power}.", GroupPost.ROUTINE)
         if taken is not None:
             # A vacated seat filled mid-game: the table is told by DM too, as a game
             # without a group would otherwise never hear of it.
@@ -1114,7 +1114,7 @@ def join_game(
                 else ""
             )
             notify_players(int(game.id), f"Game {game_id} is now full. The game has started! Good luck to all players.{due}", buttons=game_buttons(game_id))  # type: ignore
-            post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", dm_start=f"orders_{game_id}")
+            post_to_game_group(game_id, f"🎮 Game {game_id} is full -- the game has begun! Orders go to me in private.", GroupPost.ROUTINE, dm_start=f"orders_{game_id}")
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify game start")
     invalidate_cache(f"games/{str(game_id)}")
@@ -1496,7 +1496,7 @@ def set_deadline_schedule(
             else:
                 text += " The first deadline is set when the game fills."
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
-        post_to_game_group(game_id, f"⏰ {text}")
+        post_to_game_group(game_id, f"⏰ {text}", GroupPost.ROUTINE)
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify deadline schedule change for game %s", game_id)
     return {
@@ -1576,7 +1576,7 @@ def set_deadline(
         else:
             text = f"The deadline for game {game_id} has been removed; the turn will be processed by hand."
         notify_players(int(game.id), text, exclude_telegram_id=getattr(user, "telegram_id", None))
-        post_to_game_group(game_id, f"⏰ {text}")
+        post_to_game_group(game_id, f"⏰ {text}", GroupPost.ROUTINE)
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify deadline change for game %s", game_id)
     return {
