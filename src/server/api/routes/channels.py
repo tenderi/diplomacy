@@ -9,7 +9,7 @@ This module handles Telegram channel integration for games:
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -108,7 +108,7 @@ class ChannelSettingsRequest(BaseModel):
     auto_post_maps: Optional[bool] = None
     auto_post_broadcasts: Optional[bool] = None
     auto_post_notifications: Optional[bool] = None
-    notification_level: Optional[str] = None  # "all", "important", "none"
+    notification_level: Optional[Literal["all", "important", "none"]] = None
 
 
 class BroadcastMessageRequest(BaseModel):

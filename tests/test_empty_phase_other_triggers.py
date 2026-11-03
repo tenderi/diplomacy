@@ -171,7 +171,7 @@ def test_a_failure_processing_the_emptied_phase_leaves_the_change_standing(
     monkeypatch.setattr(game_service, "process_turn", boom)
     posted: list[str] = []
     monkeypatch.setattr(
-        api_shared, "post_to_game_group", lambda _g, text, **_k: posted.append(text)
+        api_shared, "post_to_game_group", lambda _g, text, _kind, **_k: posted.append(text)
     )
     with OutboxProbe() as probe:
         resp = client.post(f"/games/{game_id}/concede", json=_as(tgs["GERMANY"], power="GERMANY"))
@@ -216,7 +216,7 @@ def test_a_failed_deadline_read_drops_only_the_deadline_sentence(
     monkeypatch.setattr(game_service, "process_turn", boom)
     posted: list[str] = []
     monkeypatch.setattr(
-        api_shared, "post_to_game_group", lambda _g, text, **_k: posted.append(text)
+        api_shared, "post_to_game_group", lambda _g, text, _kind, **_k: posted.append(text)
     )
     resp = client.post(f"/games/{game_id}/concede", json=_as(tgs["GERMANY"], power="GERMANY"))
     # The concession is committed: a failed read must not turn it into a 500.

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from server.api import app, process_due_deadlines
 from server.api import shared
-from server.api.shared import db_service, game_buttons, game_service
+from server.api.shared import GroupPost, db_service, game_buttons, game_service
 from server.daide.server import DaideServer
 from tests.conftest import _get_db_url
 from tests.test_quit_and_replace import BOT_SECRET, _as, _telegram_user
@@ -128,7 +128,7 @@ def test_the_scheduler_skips_a_game_with_empty_seats_spends_the_deadline_and_say
         "Set a new deadline once the table is full."
     )
     players.assert_called_once_with(numeric, text, buttons=game_buttons(game_id))
-    group.assert_called_once_with(game_id, text)
+    group.assert_called_once_with(game_id, text, GroupPost.ROUTINE)
 
 
 def test_a_deadline_armed_after_the_schedulers_check_is_not_spent_or_announced(client: TestClient) -> None:
