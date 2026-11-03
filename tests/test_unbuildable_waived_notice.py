@@ -26,7 +26,9 @@ _HOME = {"FRANCE": "PAR", "GERMANY": "BER", "RUSSIA": "MOS", "TURKEY": "ANK", "A
 
 
 _RESULTS = "\nYour results for Fall 1901 movement:\nNo orders, so F NAP, A ROM and A VEN held."
-_NOT_ORDERED = "\nAUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
+# A DM leaves out its reader's own power: it is told "No orders, so ... held." already (CL2).
+_NOT_ORDERED = "\nAUSTRIA, ENGLAND, FRANCE, GERMANY, RUSSIA and TURKEY had not ordered: their units held."
+_NOT_ORDERED_ENGLAND = "\nAUSTRIA, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
 _TAIL = _RESULTS + _NOT_ORDERED
 
 
@@ -73,7 +75,7 @@ def test_an_unbuildable_power_is_told_while_another_power_still_owes_builds() ->
     ]
     assert dms[by_power["ENGLAND"]] == [
         f"{head} your orders are due.\nYou may build 1 unit (free home centres: LVP).\n"
-        "Your results for Fall 1901 movement:\nNo orders, so F EDI and A LON held." + _NOT_ORDERED
+        "Your results for Fall 1901 movement:\nNo orders, so F EDI and A LON held." + _NOT_ORDERED_ENGLAND
     ]
 
 
