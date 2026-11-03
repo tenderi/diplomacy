@@ -10,18 +10,50 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CO**.
+>   history. Track letters run in sequence; the next free one is **CP**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-03.
-- **Open tracks:** only Track F (a human playing the game end to end, and host chores),
-  which is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x`
-  commit messages carry what each one did.
+- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe), then
+  Track F (a human playing the game end to end, and host chores), which is the
+  maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
+  carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track CO — DAIDE server defects (from a client probe)
+
+A raw-TCP DAIDE client played S1901M to S1902M (movement, retreat, adjustment) against the
+local listener on :8432 with seven sessions. NOW, SCO, MIS, MDF, IAM, GOF, DRW and most THX
+notes were right; these were not.
+
+- [ ] **CO1 — a client can crash its session, or another's.** (a) An unknown token in a DM
+      (`0xFFFF`), an unknown frame type (9) or an unknown client error code (0x63) raise
+      `ValueError` out of `session.run` (it catches only `DaideWireError`): a traceback and
+      the socket closed with no ErrorMessage; expected the DCSP error (0x0E for a bad token).
+      (b) A second `NME` on one connection seats a second power (`_cmd_nme` never checks
+      `self.power`); the first stays registered to the session after it closes, and a later
+      `ADM` or press to it raises uvloop's `RuntimeError` (closed transport) in the
+      *sender's* session (`server.py` `broadcast_admin`, `relay_press`, and the same
+      `suppress(ConnectionError, OSError)` in `notify_game_processed`, where one dead peer
+      can cut the NOW/ORD fan-out). (c) No IM timeout: a connection that never sends IM, or
+      stalls mid-frame, stays open forever. (d) Wrong DCSP codes: a DM first gets 0x07
+      (expected 0x02), a second IM 0x08 (expected 0x06), a client RM 0x08 (expected 0x0D).
+- [ ] **CO2 — ORD and SUB misreport orders.** (a) ORD encodes fleets as `AMY`
+      (`((ITA AMY ION) HLD)`), supported and convoyed units' power as `UNO`, and a convoyed
+      move's route as `VIA ( )`: `build_ord_tokens` is not given `kind_by_province` /
+      `power_by_province` / the route. (b) Each `SUB` replaces all the power's pending
+      orders, where DAIDE replaces only the earlier order of the same unit (`SUB (TRI HLD)`
+      then `SUB (VIE HLD)` leaves TRI unordered). (c) THX notes: an order of the wrong
+      phase gets `NSP` (expected `NRS`), `RTO` for a unit owing no retreat `NSU` (expected
+      `NRN`), `FLT TRI MTO TRI` `NSP` (expected `FAR`), a bare `SUB` no reply.
+- [ ] **CO3 — the handshake.** `NME` is answered with `HLO` at once; a client following the
+      standard sequence (NME → YES(NME), MAP → MDF → YES(MAP) → HLO, then SCO and NOW) gets
+      `HUH (YES ERR (MAP))` for its `YES (MAP ...)` and may stall. Check the DAIDE spec,
+      then accept the standard sequence without breaking today's clients.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
