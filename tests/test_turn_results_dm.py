@@ -107,7 +107,7 @@ def test_movement_then_retreat_results(client: TestClient, monkeypatch: pytest.M
 
 def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """F1901M: France takes BEL and MUN, which Germany left; the winter after it
-    builds two and waives the third (its own choice, so not repeated back),
+    builds two and waives the third (told "1 build waived." in its own results, not the group),
     and Germany disbands one."""
     game_id, _row, users = _seeded_game(client)
     tg = dict(zip(REQUIRED_POWERS, (t for _h, t in users)))
@@ -142,7 +142,7 @@ def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: p
     messages, posted = _process(client, game_id, users, monkeypatch)
     head = f"The turn has been processed for game {game_id}. Orders are due for Spring 1902 movement."
     assert messages["FRANCE"] == [
-        f"{head}\nYour results for Winter 1901 builds:\nF BRE was built.\nA PAR was built."
+        f"{head}\nYour results for Winter 1901 builds:\nF BRE was built.\nA PAR was built.\n1 build waived."
     ]
     assert messages["GERMANY"] == [f"{head}\nYour results for Winter 1901 builds:\nA SIL was disbanded."]
     assert posted == ["The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private."]

@@ -145,7 +145,7 @@ def get_process_turn_lock(game_id: str) -> asyncio.Lock:
 
 
 
-def game_buttons(game_id: Any, *, ended: bool = False) -> list[list[dict[str, str]]]:
+def game_buttons(game_id: Any, *, ended: bool = False, orders: bool = True) -> list[list[dict[str, str]]]:
     """Inline buttons for a notification about ``game_id``.
 
     The bot routes ``g|{game_id}|{action}`` callbacks to its game hub
@@ -156,6 +156,11 @@ def game_buttons(game_id: Any, *, ended: bool = False) -> list[list[dict[str, st
     """
     if ended:
         return [[{"text": "🗺 Final map", "callback_data": f"g|{game_id}|map|n"}]]
+    if not orders:  # the reader has nothing to order (CL3)
+        return [
+            [{"text": "🗺 Map", "callback_data": f"g|{game_id}|map|n"}],
+            [{"text": "🎮 Game menu", "callback_data": f"g|{game_id}|hub|n"}],
+        ]
     return [
         [
             {"text": "📝 Enter orders", "callback_data": f"g|{game_id}|all|n"},
@@ -767,6 +772,7 @@ def notify_turn_processed(
     duties: dict[str, dict[str, Any]] = duties_view["duties"]
     # Units that held because a vacant seat's power ordered nothing (BL5).
     vacant_line = ""
+    unordered_line = ""  # the group's full list; each DM leaves out its reader's own powers (CL2)
     if processed_phase and processed_phase.endswith("M"):
         try:
             vacant_line = vacant_held_line(game_id, numeric_game_id, processed_turn)
@@ -774,8 +780,7 @@ def notify_turn_processed(
             scheduler_logger.error(f"Failed to read the vacant seats of game {game_id}: {e}")
         if trigger == "deadline":
             try:
-                unordered = unordered_held_line(game_id, numeric_game_id, processed_turn)
-                vacant_line = "\n".join(x for x in (vacant_line, unordered) if x)
+                unordered_line = unordered_held_line(game_id, numeric_game_id, processed_turn)
             except SQLAlchemyError as e:
                 scheduler_logger.error(f"Failed to read who had not ordered in game {game_id}: {e}")
     # Dislodged units with no retreat, of powers that owe nothing (BJ2).
@@ -792,8 +797,10 @@ def notify_turn_processed(
     disorder: dict[str, list[str]] = {}
     lost: dict[str, list[str]] = {}
     waived: dict[str, tuple[int, bool]] = {}
+    chosen: dict[str, int] = {}
     try:
         if processed_turn is not None:
+            chosen = game_service.chosen_waives(game_id, processed_turn)
             waived = game_service.waived_builds(game_id, processed_turn)
             disorder = game_service.civil_disorder_disbands(game_id, processed_turn)
             lost = game_service.retreat_disbands(game_id, processed_turn)
@@ -837,6 +844,10 @@ def notify_turn_processed(
             retreat_lost = {p: lost[p] for p in sorted(powers) if p in lost}
             trapped = {p: forced[p] for p in sorted(powers) if p in forced}
             my_waived = {p: waived[p] for p in sorted(powers) if p in waived}
+            my_vacant_line = vacant_line
+            if unordered_line:
+                mine_line = unordered_held_line(game_id, numeric_game_id, processed_turn, leave_out=powers)
+                my_vacant_line = "\n".join(x for x in (vacant_line, mine_line) if x)
             my_unbuildable = {p: unbuildable[p] for p in sorted(live) if p in unbuildable}
             # Automatic losses (civil disorder, a retreat that bounced or had no order) join
             # the power's own results block, so they carry its header too (CA3).
@@ -845,6 +856,9 @@ def notify_turn_processed(
                 block.setdefault(p, []).append(civil_disorder_line("You were", units))
             for p, lines in retreat_lost.items():
                 block.setdefault(p, []).extend(lines)
+            for p in sorted(live):
+                if p in chosen:  # a build the power waived itself (CL1)
+                    block.setdefault(p, []).append(chosen_waive_line(chosen[p]))
             results_lines = turn_results_lines(processed_label, dict(sorted(block.items())))
             # The caller already has the resolution in their HTTP response -- but
             # not their dislodged units' retreat options or their build count, so
@@ -877,7 +891,7 @@ def notify_turn_processed(
                     + unbuildable_lines(my_unbuildable, tagged=len(my_unbuildable) > 1)
                     + _turn_news_lines(my_waived)
                     + out_lines
-                    + ([vacant_line] if vacant_line else [])
+                    + ([my_vacant_line] if my_vacant_line else [])
                 )
                 if news:
                     folded[str(telegram_id)] = news
@@ -890,11 +904,11 @@ def notify_turn_processed(
                     + _turn_news_lines(my_waived)
                     + out_lines
                 )
-                + (f"\n{vacant_line}" if vacant_line else "")
+                + (f"\n{my_vacant_line}" if my_vacant_line else "")
             )
             # A deadline closes a one-line DM; after several lines it gets its own.
             tail = "\n" + due.removeprefix(" ") if due.startswith(" ") and "\n" in body else due
-            notify_user(telegram_id, body + tail, game_buttons(game_id))
+            notify_user(telegram_id, body + tail, game_buttons(game_id, orders=bool(mine)))
     except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
         scheduler_logger.exception("Failed to notify players for game %s", game_id)
 
@@ -911,8 +925,9 @@ def notify_turn_processed(
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
     group_lines += [f"{power_label(game_id, p)}: {waived_line(n, partial)}" for p, (n, partial) in sorted(waived.items())]
     group_lines += [elimination_line(game_id, p) for p in newly]
-    if vacant_line:
-        group_lines.append(vacant_line)
+    group_text = "\n".join(x for x in (vacant_line, unordered_line) if x)
+    if group_text:
+        group_lines.append(group_text)
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
     return folded
 
@@ -983,6 +998,12 @@ def waived_line(n: int, partial: bool = False) -> str:
     builds = "build was" if n == 1 else "builds were"
     why = "it was not ordered" if n == 1 and partial else "they were not ordered" if partial else "no orders came in"
     return f"{n} {builds} waived: {why}."
+
+
+def chosen_waive_line(n: int) -> str:
+    """A build the power waived itself, in its own results block (CL1): "1 build waived."
+    The group is not told: a waive the power chose is no one's news but its own."""
+    return f"{n} build waived." if n == 1 else f"{n} builds waived."
 
 
 def _units(n: int) -> str:
@@ -1188,11 +1209,14 @@ def vacant_held_line(game_id: str, numeric_game_id: int, processed_turn: Optiona
     return f"{_join_names([p.title() for p in powers])} have vacant seats: their units held."
 
 
-def unordered_held_line(game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None) -> str:
+def unordered_held_line(
+    game_id: str, numeric_game_id: int, processed_turn: Optional[int] = None, leave_out: Iterable[str] = ()
+) -> str:
     """For a movement turn processed because its deadline passed, "ITALY had not
     ordered: its units held." for each seated, non-dummy power with units and no
     orders in the processed turn's order history (BV3). Vacant seats have their
-    own line (``vacant_held_line``). ``""`` if none."""
+    own line (``vacant_held_line``). A player's DM leaves out their own powers
+    (``leave_out``: they are told "No orders, so ... held." already, CL2). ``""`` if none."""
     view = game_service.view(game_id)
     if view is None or processed_turn is None:
         return ""
@@ -1203,7 +1227,7 @@ def unordered_held_line(game_id: str, numeric_game_id: int, processed_turn: Opti
     seated = {
         str(p.power_name).upper() for p in db_service.get_players_by_game_id(numeric_game_id) if p.user_id is not None
     }
-    powers = sorted((seated & with_units) - dummies - ordered)
+    powers = sorted((seated & with_units) - dummies - ordered - {str(p).upper() for p in leave_out})
     if not powers:
         return ""
     names = [power_label(game_id, p) for p in powers]

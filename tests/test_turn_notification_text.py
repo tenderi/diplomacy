@@ -118,6 +118,16 @@ def test_a_retreat_phase_tells_the_dislodged_their_options_and_the_rest_to_wait(
     ]
     for power in ("ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
         assert messages[power][0].startswith(f"{head} you have nothing to order this phase; wait for the other powers.\n{results}\nNo orders, so ")
+    # CL3: a power with nothing to order is not offered "Enter orders"; one owing a retreat is.
+    buttons = {
+        power: [[b["text"] for b in row] for row in r["payload"]["buttons"]]
+        for power, (_h, tg) in zip(REQUIRED_POWERS, users)
+        for r in probe.rows()
+        if str(r["telegram_id"]) == tg
+    }
+    assert buttons["ENGLAND"] == [["📝 Enter orders", "🗺 Map"], ["🎮 Game menu"]]
+    for power in ("FRANCE", "ITALY", "AUSTRIA", "RUSSIA", "TURKEY"):
+        assert buttons[power] == [["🗺 Map"], ["🎮 Game menu"]]
     assert posted == [
         "The turn has been processed. Fall 1901 retreats: orders are due from ENGLAND, GERMANY"
         " -- send them to me in private."

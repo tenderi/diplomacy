@@ -1395,6 +1395,18 @@ class GameService:
                 out[power] = (unused, bool(ordered.get(power)))
         return out
 
+    def chosen_waives(self, game_id: str, turn: int) -> dict[str, int]:
+        """Builds each power waived itself in ``turn``'s adjustment, with explicit
+        ``WAIVE`` orders (CL1): ``{"FRANCE": 1}``. Builds waived without the power's
+        asking are ``waived_builds``. Empty for any other turn."""
+        ordered = self.order_history(game_id).get(str(turn), {})
+        out: dict[str, int] = {}
+        for power, orders in sorted(ordered.items()):
+            n = sum(1 for o in orders if o.strip().upper() == "WAIVE")
+            if n:
+                out[power] = n
+        return out
+
     def retreat_disbands(self, game_id: str, turn: int) -> dict[str, list[str]]:
         """Why ``turn``'s retreat phase removed units their power did not choose to
         disband (BJ1), one sentence per unit, per power::

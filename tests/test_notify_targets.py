@@ -66,7 +66,11 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
         f"The turn has been processed for game {game_id} because its deadline passed."
     )
     out = f"ITALY has been eliminated from game {game_id}: it has no units or supply centres left."
-    idle = "AUSTRIA, ENGLAND, GERMANY and RUSSIA had not ordered: their units held."
+    def idle_for(own: str) -> str:  # a DM leaves out its reader's own power (CL2)
+        names = [n for n in ("AUSTRIA", "ENGLAND", "GERMANY", "RUSSIA") if n != own]
+        return f"{', '.join(names[:-1])} and {names[-1]} had not ordered: their units held."
+
+    idle = idle_for("")  # the group, ITALY and TURKEY (out) and FRANCE (ordered) read the full list
     dms = _dms(probe)
     assert dms[by_power["ITALY"]] == [
         f"{head}\nYour power ITALY has been eliminated from game {game_id}: it has no units or supply centres left.\n{idle}"
@@ -80,7 +84,7 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
     ]
     for power, unit in (("ENGLAND", "A LON"), ("GERMANY", "A BER"), ("RUSSIA", "A MOS"), ("AUSTRIA", "A VIE")):
         assert dms[by_power[power]] == [
-            f"{head} Orders are due for Spring 1902 movement.\n{results}\n{unit} held (no order).\n{out}\n{idle}"
+            f"{head} Orders are due for Spring 1902 movement.\n{results}\n{unit} held (no order).\n{out}\n{idle_for(power)}"
         ]
     assert len(dms) == 7
     group = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
@@ -139,11 +143,14 @@ def test_a_failed_elimination_read_still_sends_every_turn_dm(monkeypatch: pytest
         "RUSSIA": "A MOS, F SEV, F STP/SC and A WAR",
         "TURKEY": "F ANK, A CON and A SMY",
     }
+    def _names_line(names: list[str]) -> str:  # each DM leaves out its reader's own power (CL2)
+        return f"{', '.join(names[:-1])} and {names[-1]} had not ordered: their units held."
+
     assert _dms(probe) == {
         tg: [
             f"{head} Orders are due for Fall 1901 movement.\n"
             f"Your results for Spring 1901 movement:\nNo orders, so {held[power]} held.\n"
-            "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
+            + _names_line([n for n in sorted(held) if n != power])
         ]
         for power, (_h, tg) in zip(POWERS, users)
     }
