@@ -408,3 +408,51 @@ class TestEndToEndOneFullTurnOverOneSocket:
                 writer.close()
         finally:
             await server.stop()
+
+
+# ---------------------------------------------------------------------------
+# ORD carries the true order (CO2a)
+# ---------------------------------------------------------------------------
+
+
+class TestOrdIsTrue:
+    async def test_ord_has_fleets_real_powers_and_the_convoy_route(self, service: GameService) -> None:
+        from engine.serialization import state_to_dict
+        from engine.types import GameState, Location, PhaseType, Season, Unit, UnitKind
+
+        gid = _new_game(service)
+        units = frozenset(
+            {
+                Unit(UnitKind.FLEET, "ITALY", Location("ION")),
+                Unit(UnitKind.ARMY, "FRANCE", Location("PAR")),
+                Unit(UnitKind.ARMY, "GERMANY", Location("BUR")),
+                Unit(UnitKind.ARMY, "ENGLAND", Location("LON")),
+                Unit(UnitKind.FLEET, "ENGLAND", Location("NTH")),
+            }
+        )
+        state = GameState(1901, Season.SPRING, PhaseType.MOVEMENT, units=units, ownership={})
+        service.restore_snapshot(gid, state_to_dict(state), phase_code=state.phase_name)
+        server = DaideServer(service, game_id=gid)
+        writer = FakeWriter()
+        sess = DaideSession(None, writer, server)
+        sess.power = "ITALY"
+        server.register(gid, "ITALY", sess)
+
+        service.submit_orders(gid, "ITALY", ["F ION H"])
+        service.submit_orders(gid, "FRANCE", ["A PAR H"])
+        service.submit_orders(gid, "GERMANY", ["A BUR S A PAR"])
+        service.submit_orders(gid, "ENGLAND", ["A LON - BEL VIA", "F NTH C A LON - BEL"])
+        service.process_turn(gid)
+        await server.notify_game_processed(gid, resolved_phase="S1901M")
+
+        turn = list(clauses.turn_clause(Season.SPRING, PhaseType.MOVEMENT, 1901))
+        O, C = t.OPEN_PAREN, t.CLOSE_PAREN
+
+        def ord_(*clause: Token) -> list[Token]:
+            return [t.ORD, *turn, O, *clause, C, O, t.SUC, C]
+
+        got = [f for f in (_decode_frame(x) for x in writer.sent) if f[0] == t.ORD]
+        assert ord_(O, t.ITA, t.FLT, t.ION, C, t.HLD) in got
+        assert ord_(O, t.GER, t.AMY, t.BUR, C, t.SUP, O, t.FRA, t.AMY, t.PAR, C) in got
+        assert ord_(O, t.ENG, t.AMY, t.LON, C, t.CTO, t.BEL, t.VIA, O, t.NTH, C) in got
+        assert ord_(O, t.ENG, t.FLT, t.NTH, C, t.CVY, O, t.ENG, t.AMY, t.LON, C, t.CTO, t.BEL) in got

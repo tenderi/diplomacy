@@ -42,14 +42,7 @@ notes were right; these were not.
       can cut the NOW/ORD fan-out). (c) No IM timeout: a connection that never sends IM, or
       stalls mid-frame, stays open forever. (d) Wrong DCSP codes: a DM first gets 0x07
       (expected 0x02), a second IM 0x08 (expected 0x06), a client RM 0x08 (expected 0x0D).
-- [ ] **CO2 — ORD and SUB misreport orders.** (a) ORD encodes fleets as `AMY`
-      (`((ITA AMY ION) HLD)`), supported and convoyed units' power as `UNO`, and a convoyed
-      move's route as `VIA ( )`: `build_ord_tokens` is not given `kind_by_province` /
-      `power_by_province` / the route. (b) Each `SUB` replaces all the power's pending
-      orders, where DAIDE replaces only the earlier order of the same unit (`SUB (TRI HLD)`
-      then `SUB (VIE HLD)` leaves TRI unordered). (c) THX notes: an order of the wrong
-      phase gets `NSP` (expected `NRS`), `RTO` for a unit owing no retreat `NSU` (expected
-      `NRN`), `FLT TRI MTO TRI` `NSP` (expected `FAR`), a bare `SUB` no reply.
+- [x] **CO2 — ORD and SUB misreport orders.** Done in v3.0.231; see the commit message.
 - [ ] **CO3 — the handshake.** `NME` is answered with `HLO` at once; a client following the
       standard sequence (NME → YES(NME), MAP → MDF → YES(MAP) → HLO, then SCO and NOW) gets
       `HUH (YES ERR (MAP))` for its `YES (MAP ...)` and may stall. Check the DAIDE spec,
