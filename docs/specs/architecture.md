@@ -187,7 +187,8 @@ There are three delivery surfaces, and they are not interchangeable:
   errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
   A DM may carry inline buttons (`buttons=` → `payload.buttons`): turn processed, the
   10-minute reminder, "you joined" and "game is full" carry `game_buttons(game_id)` —
-  📝 Enter orders / 🗺 Map / 🎮 Game menu, as `g|{game_id}|{action}|n` callbacks that the
+  📝 Enter orders / 🗺 Map / 🎮 Game menu (a turn DM to a player with nothing to order that
+  phase omits 📝 Enter orders), as `g|{game_id}|{action}|n` callbacks that the
   bot's game menu (`telegram_bot/hub.py`) answers in a new message.
 - **Linked group post** — also a `bot_outbox` row, addressed to the group's chat id, from
   `api/shared.py` (`post_to_game_group`, `_post_turn_to_channel`) and the
@@ -424,6 +425,12 @@ nothing, or "Your 1 build was waived: it was not ordered." ("they were not order
 several) when it ordered some builds (prefixed "As FRANCE, your " for a player holding more
 than one such power), and the channel post "FRANCE: 2 builds were waived: no orders came in."
 
+**A build the power waived itself is acknowledged to it alone.** `GameService.chosen_waives`
+counts the explicit `WAIVE` orders in the processed adjustment; the power's results block
+(so a power whose only adjustment was a waive still gets its block) ends "1 build waived."
+or "2 builds waived.". The group post does not mention it: unlike a waive for want of
+orders, nothing was missed.
+
 These lines come before "Next deadline: …", which still ends the DM and the post: on the
 first line's end when the DM is one line, on its own line otherwise.
 When a weekly schedule armed the new phase's deadline, the turn-processed DM and channel
@@ -433,7 +440,7 @@ When the phase just processed had a deadline and the new one has none, they end 
 adds "This deadline covers the current phase only." `POST /games/{id}/deadline` refuses a deadline at or
 before now (422, "That deadline has already passed. Choose a time in the future."). After a processed
 movement turn, a power whose seat is vacant (its player quit; not a dummy) and which still has units and ordered nothing that turn (orders it sent before quitting stand) adds
-"<Power>'s seat is vacant: its units held." to every DM and to the group post. A movement turn processed because its deadline passed also adds "<POWERS> had not ordered: their units held." (or "<POWER> had not ordered: its units held.") for each seated power with units and no orders. A disband DM ends "With no order, civil disorder picks which units are disbanded." A deadline announcement and a proposal-passed notice give the time as the weekly schedule reads it ("2026-09-28 13:00 UTC (Mon 16:00 Europe/Helsinki)").
+"<Power>'s seat is vacant: its units held." to every DM and to the group post. A movement turn processed because its deadline passed also adds "<POWERS> had not ordered: their units held." (or "<POWER> had not ordered: its units held.") for each seated power with units and no orders; a player's DM leaves out their own powers (their "No orders, so ... held." line says so already) and drops the sentence when none is left, while the group post keeps the full list. A disband DM ends "With no order, civil disorder picks which units are disbanded." A deadline announcement and a proposal-passed notice give the time as the weekly schedule reads it ("2026-09-28 13:00 UTC (Mon 16:00 Europe/Helsinki)").
 
 The draw-vote and withdrawal DMs and the deadline-proposal and vote DMs ("FRANCE proposes a 24h deadline for game N, counted from when the proposal passes. ...") go only to players with a power still in the game: `notify_players(..., skip_out=True)` leaves out a player whose every power is conceded or eliminated, as the turn DM does. The game-ended announcement still goes to everyone.
 

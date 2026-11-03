@@ -85,8 +85,24 @@ def test_a_deadline_turn_names_the_powers_that_had_not_ordered() -> None:
     by_tg = probe.by_recipient()
     france = by_tg[users[1][1]]
     assert len(france) == 1 and ("\n" + line + "\n") in france[0]  # FRANCE ordered: not named
+    # ITALY did not order either, and its DM already says "No orders, so ... held.": the list
+    # leaves ITALY out (CL2). The group post keeps the full list.
     italy = by_tg[users[REQUIRED_POWERS.index("ITALY")][1]]
-    assert len(italy) == 1 and ("\n" + line + "\n") in italy[0], italy[0]
+    assert len(italy) == 1 and "No orders, so F NAP, A ROM and A VEN held." in italy[0]
+    assert ("\n" + line.replace("GERMANY, ITALY,", "GERMANY,") + "\n") in italy[0], italy[0]
+    assert "ITALY" not in italy[0]
+
+
+def test_the_unordered_sentence_is_dropped_when_only_its_own_powers_are_left() -> None:
+    client = TestClient(app)
+    game_id, row_id, _users = _seeded_game(client)
+    everyone = sorted(REQUIRED_POWERS)
+    assert api_shared.unordered_held_line(game_id, row_id, 0) == (
+        "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
+    )
+    others = [p for p in everyone if p != "ITALY"]
+    assert api_shared.unordered_held_line(game_id, row_id, 0, leave_out=others) == "ITALY had not ordered: its units held."
+    assert api_shared.unordered_held_line(game_id, row_id, 0, leave_out=everyone) == ""
 
 
 def test_a_manual_turn_does_not_name_unordered_powers() -> None:

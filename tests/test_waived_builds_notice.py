@@ -78,6 +78,8 @@ def test_builds_waived_for_want_of_orders_are_announced() -> None:
     by_power = {power: tg for power, (_h, tg) in zip(POWERS, users)}
     expected = {tg: [head] for tg in by_power.values()}
     expected[by_power["FRANCE"]] = [head + "\nYour 2 builds were waived: no orders came in."]
+    # ENGLAND waived its build itself: told in its own results (CL1), unlike an unasked waive.
+    expected[by_power["ENGLAND"]] = [head + "\nYour results for Winter 1901 builds:\n1 build waived."]
     assert _dms(probe) == expected
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
         (
@@ -113,8 +115,21 @@ def test_a_partial_build_announces_the_builds_left_unused() -> None:
 
 def test_a_partial_build_with_an_explicit_waive_is_not_announced() -> None:
     dms, channel = _process_with({"FRANCE": ["BUILD A PAR", "WAIVE"], "ENGLAND": ["WAIVE"]})
-    assert "waived" not in dms[-1]
+    # FRANCE built one and waived one itself: its results say so (CL1), and nothing is "not ordered".
+    assert dms[-1].endswith("\nYour results for Winter 1901 builds:\nA PAR was built.\n1 build waived.")
+    assert "not ordered" not in dms[-1]
     assert all("waived" not in m for m in channel)
+
+
+def test_two_builds_the_power_waived_itself_are_told_in_its_results() -> None:
+    dms, channel = _process_with({"FRANCE": ["WAIVE", "WAIVE"], "ENGLAND": ["BUILD F EDI"]})
+    assert dms[-1].endswith("\nYour results for Winter 1901 builds:\n2 builds waived.")
+    assert all("waived" not in m for m in channel)
+
+
+def test_chosen_waive_line_counts_the_builds() -> None:
+    assert api_shared.chosen_waive_line(1) == "1 build waived."
+    assert api_shared.chosen_waive_line(2) == "2 builds waived."
 
 
 def test_waived_line_for_a_partial_build() -> None:

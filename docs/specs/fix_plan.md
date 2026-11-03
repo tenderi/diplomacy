@@ -29,15 +29,15 @@
 A 7-player API game, Spring 1901 to a draw in Spring 1903, reading every `bot_outbox` row.
 Adjudication and recipients were right; these are the texts a player would trip over.
 
-- [ ] **CL1.** A build the power waived itself is never acknowledged: England, owed one
+- [x] **CL1.** A build the power waived itself is never acknowledged: England, owed one
       build, waived it and its Winter turn DM had no results block at all; France, owed two,
       built one and waived one and read only "A PAR was built.". Its results should say so
       ("1 build waived."), as a build waived for want of orders already does.
-- [ ] **CL2.** A deadline-processed turn's DM tells a power twice that it did not order
+- [x] **CL2.** A deadline-processed turn's DM tells a power twice that it did not order
       ("No orders, so F EDI, ... held." and then its own name in "ENGLAND (...), FRANCE
       (...) ... had not ordered: their units held."); the DM's list should leave out the
       recipient's own powers (the group post keeps the full list).
-- [ ] **CL3.** A "you have nothing to order this phase" DM (a power owed no build or
+- [x] **CL3.** A "you have nothing to order this phase" DM (a power owed no build or
       disband) carries the "📝 Enter orders" button; it should not.
 - [ ] **CL4.** A deadline proposal that passes reads "deadline now 2026-11-04 04:49 UTC"
       and the next phase's DM then says "No deadline is set": the passed notice should say
