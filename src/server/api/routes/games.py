@@ -837,13 +837,15 @@ def concede_game(
     # rather than the `notify_turn_processed` fan-out.
     try:
         if row is not None:
-            notify_players(
-                int(row.id),
+            text = (
                 f"{label} has conceded and left game {game_id}. "
                 f"Its units have been removed and its supply centres are now neutral; "
-                f"the remaining powers play on.",
-                exclude_telegram_id=caller,
+                f"the remaining powers play on."
             )
+            notify_players(int(row.id), text, exclude_telegram_id=caller)
+            # CL5: the group sees the units vanish too. Only here: a concession
+            # that ended the game returned above, and its ending post says why.
+            post_to_game_group(game_id, f"🏳️ {text}")
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify concession for game %s", game_id)
     # The leaver may have been the only power the phase needed (BX1), or the
@@ -1396,7 +1398,8 @@ def vote_deadline_proposal(
             notify_players(
                 int(game.id),
                 f"Game {game_id}'s deadline proposal passed: deadline now "
-                f"{_deadline_text(result['deadline'], game_id)}.",
+                f"{_deadline_text(result['deadline'], game_id)}. "
+                f"This deadline covers the current phase only.",
                 exclude_telegram_id=exclude,
                 skip_out=True,
             )
