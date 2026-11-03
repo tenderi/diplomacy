@@ -90,7 +90,7 @@ def test_a_power_eliminated_by_the_turn_is_announced_once_and_a_conceded_one_get
     group = [r["message"] for r in probe.rows() if r["kind"] == "channel_text"]
     assert group == [
         f"🔔 Turn Processed - Game {game_id}\n"
-        "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
+        "The turn has been processed because its deadline passed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
         + out
         + f"\n{idle}"
     ]

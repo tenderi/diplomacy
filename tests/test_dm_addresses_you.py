@@ -52,12 +52,15 @@ def test_the_solo_winner_is_told_they_won() -> None:
     ended = f"Game {game_id} has ended: FRANCE has won with a solo victory."
     winner_tg = users[POWERS.index("FRANCE")][1]
     assert _dms(probe) == {
-        tg: [f"Game {game_id} has ended: you have won with a solo victory." if tg == winner_tg else ended]
+        tg: [
+            f"The turn has been processed for game {game_id} because its deadline passed.\n"
+            + (f"Game {game_id} has ended: you have won with a solo victory." if tg == winner_tg else f"{ended}")
+        ]
         for _h, tg in users
     }
     # The group still names the winner.
     assert [(r["telegram_id"], r["message"]) for r in probe.rows() if r["kind"] == "channel_text"] == [
-        (GROUP, f"🔔 Turn Processed - Game {game_id}\nThe turn has been processed. {ended}")
+        (GROUP, f"🔔 Turn Processed - Game {game_id}\nThe turn has been processed because its deadline passed.\n{ended}")
     ]
 
 
