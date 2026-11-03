@@ -10,18 +10,41 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CL**.
+>   history. Track letters run in sequence; the next free one is **CM**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-03.
-- **Open tracks:** only Track F (a human playing the game end to end, and host chores),
-  which is the maintainer's. Every other track is done and removed; `git log` and the
-  `v3.0.x` commit messages carry what each one did.
+- **Open tracks:** Track CL (notification-text findings from a 2026-11-03 play-through
+  of `bot_outbox`), then Track F (a human playing the game end to end, and host chores),
+  which is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x`
+  commit messages carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track CL — Notification texts (from a `bot_outbox` play-through)
+
+A 7-player API game, Spring 1901 to a draw in Spring 1903, reading every `bot_outbox` row.
+Adjudication and recipients were right; these are the texts a player would trip over.
+
+- [ ] **CL1.** A build the power waived itself is never acknowledged: England, owed one
+      build, waived it and its Winter turn DM had no results block at all; France, owed two,
+      built one and waived one and read only "A PAR was built.". Its results should say so
+      ("1 build waived."), as a build waived for want of orders already does.
+- [ ] **CL2.** A deadline-processed turn's DM tells a power twice that it did not order
+      ("No orders, so F EDI, ... held." and then its own name in "ENGLAND (...), FRANCE
+      (...) ... had not ordered: their units held."); the DM's list should leave out the
+      recipient's own powers (the group post keeps the full list).
+- [ ] **CL3.** A "you have nothing to order this phase" DM (a power owed no build or
+      disband) carries the "📝 Enter orders" button; it should not.
+- [ ] **CL4.** A deadline proposal that passes reads "deadline now 2026-11-04 04:49 UTC"
+      and the next phase's DM then says "No deadline is set": the passed notice should say
+      the deadline covers the current phase only, as a deadline set by hand does.
+- [ ] **CL5.** A concession is DMed to the other players but not posted to the game's
+      Telegram group, so the group sees a power's units vanish unexplained. Post it there
+      too (architecture.md's notification matrix changes with it).
 
 # Track F — Manual acceptance and host chores (maintainer)
 
