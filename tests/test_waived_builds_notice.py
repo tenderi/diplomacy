@@ -85,7 +85,7 @@ def test_builds_waived_for_want_of_orders_are_announced() -> None:
         (
             GROUP,
             f"🔔 Turn Processed - Game {game_id}\n"
-            "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
+            "The turn has been processed because its deadline passed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
             "FRANCE: 2 builds were waived: no orders came in.",
         )
     ]

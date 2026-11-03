@@ -88,7 +88,7 @@ def test_a_bounced_retreat_and_an_unordered_unit_are_announced() -> None:
         (
             GROUP,
             f"🔔 Turn Processed - Game {game_id}\n"
-            "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
+            "The turn has been processed because its deadline passed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
             "FRANCE: A MAR's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded.\n"
             "ITALY: A VEN's retreat to PIE bounced (FRANCE and ITALY both retreated there): it was disbanded.\n"
             "RUSSIA: A WAR had no valid retreat order and was disbanded.",

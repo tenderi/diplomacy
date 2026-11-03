@@ -172,7 +172,7 @@ def test_an_adjustment_phase_gives_each_power_its_count(client: TestClient, monk
     for power in ("ENGLAND", "GERMANY", "RUSSIA", "TURKEY"):
         assert messages[power] == [f"{head} you have nothing to order this phase; wait for the other powers.{due}"]
     assert posted == [
-        "The turn has been processed. Winter 1901 builds: orders are due from AUSTRIA, FRANCE"
+        "The turn has been processed because its deadline passed. Winter 1901 builds: orders are due from AUSTRIA, FRANCE"
         f" -- send them to me in private.{due}"
     ]
 
