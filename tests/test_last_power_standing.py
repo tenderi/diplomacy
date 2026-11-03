@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from engine.serialization import state_from_dict, state_to_dict
 from engine.types import GameState, GameStatus, Location, PhaseType, Season, Unit, UnitKind
 from server.api import app
-from server.api.shared import game_service
+from server.api.shared import GroupPost, game_service
 from server.game_service import GameService
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
@@ -170,7 +170,7 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
     (_numeric, sent), kwargs = players.call_args
     assert (players.call_count, sent) == (1, text)
     assert kwargs["own"](["GERMANY"]) is None
-    group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}")
+    group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{text}", GroupPost.IMPORTANT)
     # And it is over: nothing more can be played.
     r = client.post(f"/games/{game_id}/process_turn", headers=BOT)
     assert (r.status_code, r.json()["detail"]) == (

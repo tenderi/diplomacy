@@ -35,12 +35,13 @@ Commands: `/linkgroup`, `/unlinkgroup`, `/unlink_channel`, `/channel_info`, `/ch
 | Adjudication complete | Battle results: successful attacks, bounces, dislodgements, supply-center changes. |
 | Player broadcast | The message, attributed to its power. |
 | Deadline approaching | Reminder with the per-power order-submission status. |
-| Game end | Final map and result. |
+| Game end | The result as text (victory, draw, last power standing, nobody wins). A game-ending *turn* also posts its turn maps like any other; a draw or concession posts text only. |
 
 ## What stays private
 
-Individual orders, private diplomatic messages, and who has submitted what before the
-deadline. The channel sees the public board, not anyone's intentions.
+Individual orders and private diplomatic messages. The channel sees the public board, not
+anyone's intentions. The deadline reminder does name the powers still to come ("still to
+come: ..."), but not what anyone ordered.
 
 ## Settings
 
@@ -51,16 +52,34 @@ deadline. The channel sees the public board, not anyone's intentions.
 | `auto_post_notifications` | `true` / `false` | `true` |
 | `notification_level` | `all` / `important` / `none` | `all` |
 
+`notification_level` filters the automatic notification text (the API rejects any other value
+with a 422 naming the three):
+
+- `all`: every post.
+- `important`: only the turn-processed post, game endings (victory, draw, last power standing,
+  nobody wins), eliminations, concessions, and posts a player sent to the group themselves
+  (broadcasts). Joins, quits and takeovers, deadline set or proposal notices, deadline reminders
+  and stuck-phase notices are skipped.
+- `none`: no automatic notification text; posts a player sent themselves (broadcast) still go,
+  since the player asked for them.
+
+`auto_post_notifications: false` silences the automatic text at any level, and `auto_post_maps`
+alone governs the turn map rows, whatever the level.
+
 ## Implementation
 
 - **API** (`src/server/api/routes/channels.py`): link, unlink, get/update settings, and
-  posts queued for the group: the current map, a broadcast, the player
-  dashboard, the timeline, a discussion thread.
+  posts queued for the group: a broadcast, the player dashboard, the timeline, a map, a
+  discussion thread.
 - **Bot** (`src/server/telegram_bot/channels.py`, `channel_commands.py`): the commands above
   plus the formatting and posting helpers.
 - **Persistence**: channel link and settings hang off the game row (`channel_id`,
   `channel_settings`).
-- **Hooks**: the API queues everything for Telegram in the `bot_outbox` table, pulled and
+- **Hooks**: automatic group text goes through `post_to_game_group` (`api/shared.py`), gated
+  by `auto_post_notifications` and `notification_level`: each call site passes a `GroupPost`
+  (`ROUTINE`, `IMPORTANT` or `PLAYER_SENT`) saying which levels let it through; the turn-processed
+  post in `_post_turn_to_channel` is `IMPORTANT`. `auto_post_maps` gates only the turn map rows.
+  The API queues everything for Telegram in the `bot_outbox` table, pulled and
   sent by the bot: player DMs (`kind="dm"`) on turn processing, deadline reminders,
   broadcasts and game end, and group posts (`kind="channel_text"`,
   `"channel_create_thread"`) from the `/games/{id}/channel/*` routes. `telegram_bot/channels.py`
@@ -71,14 +90,6 @@ deadline. The channel sees the public board, not anyone's intentions.
   rows: the turn's orders on the board they were given on (`/games/{id}/map/turn/{k}/orders`)
   and the board they produced (`/games/{id}/map/history/{k+1}`), both fetched by turn number
   (`docs/specs/architecture.md` §Notifications has the details).
-
-### Proposals
-
-`POST /games/{id}/channel/proposal` posts arbitrary text as a reaction poll and
-`GET .../proposal/{message_id}` reads the tally. This is a **social feature only** — it never
-touches `GameStatus`, is not eliminated-power aware, and has no server-side quorum. The real
-game-ending mechanism is the draw vote (`POST /games/{id}/draw_vote`,
-`GET /games/{id}/draw_vote_status`) and `POST /games/{id}/concede`. Don't confuse the two.
 
 ## Out of scope
 

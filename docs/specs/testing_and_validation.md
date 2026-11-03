@@ -26,7 +26,7 @@ merges and still deploys. An unknown diff runs every job. `tests/test_ci_changes
 the classification.
 
 Coverage floors: **engine ≥95%** (`coverage report --include='src/engine/*'`), **overall
-≥80%**, and the frontend thresholds in `frontend/vite.config.ts` (90% of lines). Each sits
+≥80%**, and the frontend thresholds in `frontend/vite.config.ts` (lines 87%, statements 84%, functions 83%, branches 77%). Each sits
 two to three points under the measured number: room to delete covered dead code, not to
 stop testing.
 
