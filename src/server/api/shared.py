@@ -737,33 +737,27 @@ def notify_turn_processed(
     due = f" Next deadline: {next_deadline_text}." if next_deadline_text and not game_ended else ""
     carried = carried or {}
 
+    ending_sentence = ""  # the ending's line for everyone (no full stop)
+    own_ending = ""  # the sole winner's own line
+    winners: list[str] = []
     if game_ended:
         # An empty phase that ended the game (its disbands left one power or
         # none): what the turn before it did still reaches its players.
         send_carried(game_id, carried)
         # A processed turn ends a game by a solo victory, or by leaving one
         # power standing or none (BL6, ``GameService.ending``); a draw ends it
-        # without a turn and is announced by ``notify_game_drawn``.
+        # without a turn and is announced by ``notify_game_drawn``. The turn's
+        # own results go out first, then the ending (CM1).
         ending = game_service.ending(game_id) or {"winners": [], "how": ""}
-        ended, own_text = _turn_ending_texts(game_id, ending["winners"], ending["how"])
+        ending_sentence, own_ending = _turn_ending_texts(game_id, ending["winners"], ending["how"])
         winners = ending["winners"]
-        try:
-            notify_players(
-                numeric_game_id,
-                f"{ended}.",
-                exclude_telegram_id=exclude_telegram_id,
-                buttons=game_buttons(game_id, ended=True),
-                # The winner is told "you have won" (BD4).
-                own=lambda powers: own_text if len(winners) == 1 and winners[0] in powers else None,
-            )
-        except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
-            scheduler_logger.exception("Failed to notify players for game %s", game_id)
-        _post_turn_to_channel(game_id, f"The turn has been processed. {ended}.", processed_turn, processed_phase)
-        return {}
+        fold = False
 
     duties_view = game_service.phase_duties(game_id) or {"phase": "", "phase_type": "MOVEMENT", "duties": {}}
     label = phase_label(duties_view["phase"])
-    if deadline_cleared and not next_deadline_text:
+    if game_ended:
+        duties_view = {"phase": duties_view["phase"], "phase_type": "MOVEMENT", "duties": {}}
+    elif deadline_cleared and not next_deadline_text:
         due = (
             f"\n\nNo deadline is set for {label}. "
             f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
@@ -787,9 +781,8 @@ def notify_turn_processed(
     forced: dict[str, list[str]] = duties_view.get("forced_disbands") or {}
     # Builds owed to a power with no free home centre: waived, told in this phase's DM (CA2).
     unbuildable: dict[str, int] = duties_view.get("waived_builds") or {}
-    header = f"The turn has been processed for game {game_id}" + (
-        " because its deadline passed." if trigger == "deadline" else "."
-    )
+    because = " because its deadline passed." if trigger == "deadline" else "."
+    header = f"The turn has been processed for game {game_id}" + because
     # Units the adjustment just processed removed for a power that ordered too
     # few disbands (BD5): told to that power's player and to the group.
     # And units a retreat phase removed though their power never disbanded them
@@ -879,7 +872,7 @@ def notify_turn_processed(
                 and not earlier
             ):
                 continue
-            if not live and not (removed or retreat_lost or trapped or my_waived or out_lines or earlier):
+            if not live and not game_ended and not (removed or retreat_lost or trapped or my_waived or out_lines or earlier):
                 continue  # every power this player holds is out: nothing to order, nothing new
             if fold:
                 # Nothing is due from anyone in this phase (BV2): the lines go
@@ -895,6 +888,15 @@ def notify_turn_processed(
                 )
                 if news:
                     folded[str(telegram_id)] = news
+                continue
+            if game_ended:
+                sole = own_ending if len(winners) == 1 and winners[0] in powers else ""
+                body = "\n".join(
+                    [header, *earlier, *results_lines, *_turn_news_lines(my_waived), *out_lines]
+                    + ([my_vacant_line] if my_vacant_line else [])
+                    + [sole or f"{ending_sentence}."]
+                )
+                notify_user(telegram_id, body, game_buttons(game_id, ended=True))
                 continue
             body = (
                 "\n".join(
@@ -912,15 +914,18 @@ def notify_turn_processed(
     except Exception:  # noqa: BLE001 -- boundary: the turn is committed; a notification is not the contract
         scheduler_logger.exception("Failed to notify players for game %s", game_id)
 
-    if phase_type == "MOVEMENT":
-        channel_text = f"The turn has been processed. {label}: new orders are due -- send them to me in private."
+    processed = "The turn has been processed" + because
+    if game_ended:
+        channel_text = processed
+    elif phase_type == "MOVEMENT":
+        channel_text = f"{processed} {label}: new orders are due -- send them to me in private."
     elif duties:
         channel_text = (
-            f"The turn has been processed. {label}: orders are due from {', '.join(sorted(duties))}"
+            f"{processed} {label}: orders are due from {', '.join(sorted(duties))}"
             f" -- send them to me in private."
         )
     else:
-        channel_text = f"The turn has been processed. {label}: nobody has anything to order."
+        channel_text = f"{processed} {label}: nobody has anything to order."
     group_lines = [civil_disorder_line(f"{power_label(game_id, p)} was", units) for p, units in sorted(disorder.items())]
     group_lines += [f"{power_label(game_id, p)}: {line}" for p, lines in sorted(lost.items()) for line in lines]
     group_lines += [f"{power_label(game_id, p)}: {waived_line(n, partial)}" for p, (n, partial) in sorted(waived.items())]
@@ -928,6 +933,8 @@ def notify_turn_processed(
     group_text = "\n".join(x for x in (vacant_line, unordered_line) if x)
     if group_text:
         group_lines.append(group_text)
+    if game_ended:
+        group_lines.append(f"{ending_sentence}.")
     _post_turn_to_channel(game_id, "\n".join([channel_text, *group_lines]) + due, processed_turn, processed_phase)
     return folded
 

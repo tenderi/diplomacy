@@ -84,7 +84,7 @@ def _expected(game_id: str, users: list[tuple[dict, str]], due: str = "") -> tup
     ]
     group = (
         f"🔔 Turn Processed - Game {game_id}\n"
-        "The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
+        "The turn has been processed because its deadline passed. Spring 1902 movement: new orders are due -- send them to me in private.\n"
         "FRANCE was 2 disbands short, so F KIE and A MUN were disbanded (civil disorder).\n"
         "GERMANY was 1 disband short, so A SIL was disbanded (civil disorder)." + due
     )
