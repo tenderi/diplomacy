@@ -12,6 +12,7 @@ import os
 import pytz
 from datetime import datetime, timezone, timedelta
 import re
+from enum import Enum
 from fastapi import HTTPException
 from typing import Callable, Coroutine, Dict, Any, Iterable, Optional, TYPE_CHECKING
 
@@ -400,10 +401,34 @@ def _run_on_daide_loop(
         scheduler_logger.debug("DAIDE notify skipped for %s: no event loop available here", game_id)
 
 
-def post_to_game_group(game_id: Any, text: str, *, dm_start: Optional[str] = None) -> None:
-    """Queue an announcement for the Telegram group linked to ``game_id``, if any
-    (and its ``auto_post_notifications`` setting is on). Best-effort, like every
-    notification.
+class GroupPost(Enum):
+    """How much a group announcement matters, checked against the group's
+    ``notification_level`` setting. Every call site of ``post_to_game_group``
+    declares one.
+
+    ``ROUTINE`` goes out only at level ``all`` (joins, takeovers, deadline notices,
+    reminders, stuck-phase notices); ``IMPORTANT`` also at ``important`` (turn
+    processed, game endings, eliminations, concessions); ``PLAYER_SENT`` at every
+    level (a player asked for it to be posted).
+    """
+
+    ROUTINE = "routine"
+    IMPORTANT = "important"
+    PLAYER_SENT = "player_sent"
+
+
+def level_allows(settings: Dict[str, Any], kind: GroupPost) -> bool:
+    """Whether a group whose settings are ``settings`` takes a post of ``kind``."""
+    level = settings.get("notification_level", "all")
+    if kind is GroupPost.PLAYER_SENT or level not in ("important", "none"):
+        return True
+    return level == "important" and kind is GroupPost.IMPORTANT
+
+
+def post_to_game_group(game_id: Any, text: str, kind: GroupPost, *, dm_start: Optional[str] = None) -> None:
+    """Queue an announcement for the Telegram group linked to ``game_id``, if any,
+    its ``auto_post_notifications`` setting is on and its ``notification_level``
+    lets a post of this ``kind`` through. Best-effort, like every notification.
 
     ``dm_start`` adds a button that opens a *private* chat with the bot
     (``https://t.me/<bot>?start=<dm_start>``; the bot fills in its own name). A group must never get order buttons: whatever is pressed
@@ -411,7 +436,8 @@ def post_to_game_group(game_id: Any, text: str, *, dm_start: Optional[str] = Non
     """
     try:
         info = db_service.get_game_channel_info(str(game_id))
-        if not info or not (info.get("settings") or {}).get("auto_post_notifications", True):
+        settings = (info or {}).get("settings") or {}
+        if not info or not settings.get("auto_post_notifications", True) or not level_allows(settings, kind):
             return
         db_service.enqueue_bot_notification(
             info["channel_id"], text, kind="channel_text", payload={"dm_start": dm_start} if dm_start else None
@@ -466,7 +492,7 @@ def _post_turn_to_channel(
         channel_id = channel_info.get("channel_id")
         settings = channel_info.get("settings") or {}
 
-        if settings.get("auto_post_notifications", True):
+        if settings.get("auto_post_notifications", True) and level_allows(settings, GroupPost.IMPORTANT):
             db_service.enqueue_bot_notification(
                 channel_id,
                 f"🔔 Turn Processed - Game {game_id}\n{message}",
@@ -544,7 +570,7 @@ def notify_game_drawn(
         )
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify players of the draw in game {game_id}: {e}")
-    post_to_game_group(game_id, f"🤝 Draw - Game {game_id}\n{text}")
+    post_to_game_group(game_id, f"🤝 Draw - Game {game_id}\n{text}", GroupPost.IMPORTANT)
 
 
 def _settle_ended_game(game_id: str, numeric_game_id: int) -> None:
@@ -1339,7 +1365,7 @@ def notify_last_power_standing(
         )
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify the end of game {game_id}: {e}")
-    post_to_game_group(game_id, f"🏆 Game {game_id} has ended\n{text}")
+    post_to_game_group(game_id, f"🏆 Game {game_id} has ended\n{text}", GroupPost.IMPORTANT)
 
 
 def announce_game_left(
@@ -1865,7 +1891,7 @@ def empty_phase_failed(game_id: str, numeric_game_id: int, phase_code: Optional[
         notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
     except (SQLAlchemyError, OSError) as e:
         scheduler_logger.error(f"Failed to notify the stuck phase of game {game_id}: {e}")
-    post_to_game_group(game_id, text)
+    post_to_game_group(game_id, text, GroupPost.ROUTINE)
 
 
 # Cap on phases one auto-processing call may run back to back. A retreat or
@@ -1986,7 +2012,7 @@ def skip_deadline_for_empty_seats(
         f"{unseated_message(unseated)} {after}"
     )
     notify_players(numeric_game_id, text, buttons=game_buttons(game_id))
-    post_to_game_group(game_id, text)
+    post_to_game_group(game_id, text, GroupPost.ROUTINE)
 
 
 def _deadline_still_due(game_pk: int, seen_phase: str | None, now: datetime) -> bool:
@@ -2141,6 +2167,7 @@ def _send_deadline_reminder(game_id: str, numeric_game_id: int, left: timedelta)
         game_id,
         f"⏰ Game {game_id}: orders for {label} are due in {minutes} {unit}"
         f" (still to come: {', '.join(power_label(game_id, p) for p in sorted(missing))}). Orders go to me in private.",
+        GroupPost.ROUTINE,
         dm_start=f"orders_{game_id}",
     )
 

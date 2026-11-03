@@ -199,7 +199,7 @@ def test_a_failing_empty_phase_does_not_break_the_turn_before_it(
     _scheduled(monkeypatch)
     assert _fail_second_process(monkeypatch, {game_id}) == []
     posted: list[str] = []
-    monkeypatch.setattr(api_shared, "post_to_game_group", lambda _g, text, **_k: posted.append(text))
+    monkeypatch.setattr(api_shared, "post_to_game_group", lambda _g, text, _kind, **_k: posted.append(text))
     with OutboxProbe() as probe:
         resp = client.post(f"/games/{game_id}/process_turn", headers=BOT)
     # The movement is committed: the route reports it, not a 500.

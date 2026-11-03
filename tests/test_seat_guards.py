@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from engine.types import GameStatus
 from server.api import app
-from server.api.shared import db_service, game_service
+from server.api.shared import GroupPost, db_service, game_service
 from server.api.routes.auth import _create_access_token
 from server.game_service import GameService
 from tests.conftest import _get_db_url
@@ -288,7 +288,7 @@ class TestTheLastPowerStandingWins:
         assert kwargs["own"](["GERMANY"]) == f"{ended}: you are the last power standing and win."
         assert kwargs["own"](["FRANCE"]) is None
         assert kwargs["exclude_telegram_id"] == seats["FRANCE"]
-        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{ended}: GERMANY is the last power standing and wins.")
+        group.assert_called_once_with(game_id, f"🏆 Game {game_id} has ended\n{ended}: GERMANY is the last power standing and wins.", GroupPost.IMPORTANT)
         # The winner's cached game list shows the ended game.
         listed = client.get(f"/users/{seats['GERMANY']}/games", headers=BOT).json()
         assert [g["status"] for g in listed["games"] if str(g["game_id"]) == game_id] == ["completed"]
