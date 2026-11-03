@@ -143,7 +143,9 @@ JSON. Round-trips exactly (`state_from_dict(state_to_dict(s)) == s`, Hypothesis-
   (`count` is how many it owns after); and `unordered: true` on a result whose order the
   engine made up because the power sent none for that unit (an implicit hold, an
   unordered retreat or adjustment disband). `centres` and `unordered` are absent in rows
-  stored before v3.0.176.
+  stored before v3.0.176. `units` is the board the orders were given on (every unit, then the
+  dislodged ones, as `{kind, power, location}`): DAIDE's `ORD` needs each ordered or supported
+  unit's kind and power, which the moved board no longer shows; absent in older rows.
 
 `to_json()`/`state_from_json()`/`order_from_json()`/`resolution_from_json()` are thin
 `json.dumps`/`json.loads` wrappers around the dict functions.

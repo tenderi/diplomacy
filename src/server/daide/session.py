@@ -73,10 +73,13 @@ from typing import Any, Optional
 from engine.map_loader import MapData
 from engine.orders.parser import format_order
 from engine.types import (
+    Convoy,
     GameState,
     Location,
+    Move,
     Order,
     PhaseType,
+    Resolution,
     ResultCode,
     Season,
 )
@@ -94,6 +97,7 @@ __all__ = [
     "build_sco_tokens",
     "build_now_tokens",
     "build_mis_tokens",
+    "build_ord_messages",
     "build_ord_tokens",
     "parse_phase_code",
     "text_clause",
@@ -206,10 +210,20 @@ def parse_phase_code(code: str) -> tuple[Season, PhaseType, int]:
 # ---------------------------------------------------------------------------
 
 
-def _reason_to_note_token(reason: Optional[str]) -> Token:
+def _reason_to_note_token(reason: Optional[str], phase_type: Optional[PhaseType] = None) -> Token:
     if reason is None:
         return t.MBV
     r = reason.lower()
+
+    # -- an order of the wrong phase: "not the right season" ---------------------
+    if "is not accepted during the" in r:
+        return t.NRS
+    # -- a retreat/disband for a unit that owes no retreat: "no retreat needed" --
+    if "no dislodged unit at" in r or ("no unit to disband at" in r and phase_type is PhaseType.RETREAT):
+        return t.NRN
+    # -- a move to the unit's own province: not a move to an adjacent one -------
+    if "its own province" in r:
+        return t.FAR
 
     # -- engine.orders.validation._validate_build: exact-meaning matches -----
     if "is not a home supply center of" in r:
@@ -237,8 +251,6 @@ def _reason_to_note_token(reason: Optional[str]) -> Token:
     # -- retreats --------------------------------------------------------------
     if "is not a legal retreat for" in r:
         return t.NVR  # "not a valid retreat space"
-    if "no dislodged unit at" in r:
-        return t.NSU  # "no such unit" (nothing there to retreat)
 
     # -- movement / support / convoy -------------------------------------------
     if "is not adjacent to" in r:
@@ -301,14 +313,95 @@ def build_ord_tokens(
     phase_type: PhaseType,
     map: MapData,
     turn_tokens: Sequence[Token],
+    *,
+    kind_by_province: Optional[dict[str, str]] = None,
+    power_by_province: Optional[dict[str, str]] = None,
+    via_fleets: Sequence[Location] = (),
 ) -> list[Token]:
     """One ``ORD (turn) (order) (result [RET])`` message for a single `OrderResult`."""
-    clause = clauses.encode_order(order, phase_type=phase_type, map=map)
+    clause = clauses.encode_order(
+        order,
+        phase_type=phase_type,
+        map=map,
+        kind_by_province=kind_by_province,
+        power_by_province=power_by_province,
+        via_fleets=via_fleets,
+    )
     primary = _ORD_RESULT_TOKEN.get(result, t.NSO)
     notes = [primary]
     if dislodged and primary != t.RET:
         notes.append(t.RET)
     return [t.ORD, *turn_tokens, *clause, t.OPEN_PAREN, *notes, t.CLOSE_PAREN]
+
+
+def _convoy_route(move: Move, fleets: set[str], map: MapData) -> list[Location]:
+    """The convoying fleets' provinces in order from ``move.unit`` to ``move.dest``
+    (a path through ``fleets``); the fleets sorted by name when no path links them."""
+
+    def nb(province: str) -> set[str]:
+        return {loc.province for fl in map.fleet_locations(province) for loc in map.fleet_moves(fl)}
+
+    def adjacent(a: str, b: str) -> bool:
+        return b in nb(a) or a in nb(b)
+
+    def walk(at: str, left: frozenset[str]) -> Optional[list[str]]:
+        if not left:
+            return [] if adjacent(at, move.dest.province) else None
+        for nxt in sorted(left):
+            if adjacent(at, nxt):
+                rest = walk(nxt, left - {nxt})
+                if rest is not None:
+                    return [nxt, *rest]
+        return None
+
+    route = walk(move.unit.province, frozenset(fleets))
+    return [Location(p, None) for p in (route if route is not None else sorted(fleets))]
+
+
+def build_ord_messages(
+    resolution: Resolution,
+    board_units: Optional[Sequence[dict[str, Any]]],
+    phase_type: PhaseType,
+    map: MapData,
+    turn_tokens: Sequence[Token],
+) -> list[list[Token]]:
+    """Every ``ORD`` of one adjudicated phase.
+
+    ``board_units`` is the serialized board the orders were given on (the
+    resolution's ``units``): fleets are encoded ``FLT`` and a supported or
+    convoyed unit carries its real power. A convoyed move's ``VIA`` lists the
+    fleets that ordered the convoy. ``None`` (a resolution stored before the
+    board was kept) leaves the old, less exact encoding."""
+    kinds: Optional[dict[str, str]] = None
+    powers: Optional[dict[str, str]] = None
+    if board_units is not None:
+        kinds = {u["location"].split("/")[0]: u["kind"] for u in board_units}
+        powers = {u["location"].split("/")[0]: u["power"] for u in board_units}
+    convoys: dict[tuple[str, str], set[str]] = {}
+    for r in resolution.results:
+        o = r.order
+        if isinstance(o, Convoy) and r.result is not ResultCode.VOID:
+            convoys.setdefault((o.origin.province, o.dest.province), set()).add(o.unit.province)
+    messages: list[list[Token]] = []
+    for r in resolution.results:
+        via: Sequence[Location] = ()
+        if isinstance(r.order, Move) and r.order.via_convoy:
+            fleets = convoys.get((r.order.unit.province, r.order.dest.province), set())
+            via = _convoy_route(r.order, fleets, map)
+        messages.append(
+            build_ord_tokens(
+                r.order,
+                r.result,
+                r.dislodged,
+                phase_type,
+                map,
+                turn_tokens,
+                kind_by_province=kinds,
+                power_by_province=powers,
+                via_fleets=via,
+            )
+        )
+    return messages
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +792,10 @@ class DaideSession:
             await self._send(t.HUH, t.OPEN_PAREN, t.SUB, t.ERR, *args, t.CLOSE_PAREN)
             return
 
+        if not order_groups:
+            await self._send(t.HUH, t.OPEN_PAREN, t.SUB, t.ERR, t.CLOSE_PAREN)
+            return
+
         decoded: list[tuple[list[Token], Optional[str], Optional[str]]] = []
         for inner in order_groups:
             clause_tokens = [t.OPEN_PAREN, *inner, t.CLOSE_PAREN]
@@ -715,20 +812,22 @@ class DaideSession:
 
         to_submit = [os for (_, os, err) in decoded if err is None and os is not None]
         results = (
-            self.server.game_service.submit_orders(self.game_id, self.power, to_submit) if to_submit else []
+            self.server.game_service.submit_orders(self.game_id, self.power, to_submit, merge=True)
+            if to_submit
+            else []
         )
         if to_submit:
             self.server.orders_changed(self.game_id)
         result_iter = iter(results)
         for clause_tokens, order_str, decode_err in decoded:
             if decode_err is not None:
-                note = _reason_to_note_token(decode_err)
+                note = _reason_to_note_token(decode_err, game.state.phase_type)
             else:
                 r = next(result_iter, None)
                 if r is not None and r["ok"]:
                     note = t.MBV
                 else:
-                    note = _reason_to_note_token(r["reason"] if r else None)
+                    note = _reason_to_note_token(r["reason"] if r else None, game.state.phase_type)
             await self._send(t.THX, *clause_tokens, t.OPEN_PAREN, note, t.CLOSE_PAREN)
 
     async def _cmd_not(self, args: list[Token], raw: list[Token]) -> None:

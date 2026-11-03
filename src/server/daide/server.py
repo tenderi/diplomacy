@@ -344,12 +344,9 @@ class DaideServer:
                     season = phase_type = year = None  # type: ignore[assignment]
                 if phase_type is not None:
                     turn_tokens = list(clauses.turn_clause(season, phase_type, year))
-                    for r in resolution.results:
-                        ord_messages.append(
-                            session_mod.build_ord_tokens(
-                                r.order, r.result, r.dislodged, phase_type, self.map, turn_tokens
-                            )
-                        )
+                    ord_messages = session_mod.build_ord_messages(
+                        resolution, resolution_dict.get("units"), phase_type, self.map, turn_tokens
+                    )
 
         eliminated_now = game.eliminated_powers()
         eliminated_before = self._eliminated_seen.get(game_id, frozenset())
