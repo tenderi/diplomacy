@@ -39,10 +39,10 @@ Adjudication and recipients were right; these are the texts a player would trip 
       recipient's own powers (the group post keeps the full list).
 - [x] **CL3.** A "you have nothing to order this phase" DM (a power owed no build or
       disband) carries the "📝 Enter orders" button; it should not.
-- [ ] **CL4.** A deadline proposal that passes reads "deadline now 2026-11-04 04:49 UTC"
+- [x] **CL4.** A deadline proposal that passes reads "deadline now 2026-11-04 04:49 UTC"
       and the next phase's DM then says "No deadline is set": the passed notice should say
       the deadline covers the current phase only, as a deadline set by hand does.
-- [ ] **CL5.** A concession is DMed to the other players but not posted to the game's
+- [x] **CL5.** A concession is DMed to the other players but not posted to the game's
       Telegram group, so the group sees a power's units vanish unexplained. Post it there
       too (architecture.md's notification matrix changes with it).
 
