@@ -177,7 +177,7 @@ def test_without_a_schedule_a_processed_turn_still_leaves_no_deadline():
         f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."
     ]
     assert posted == [
-        "The turn has been processed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
+        "The turn has been processed because its deadline passed. Fall 1901 movement: new orders are due -- send them to me in private.\n"
         "AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA and TURKEY had not ordered: their units held."
         "\n\nNo deadline is set for Fall 1901 movement. "
         f"To set one, use /deadline {game_id} <hours> (or /deadline {game_id} schedule ...)."

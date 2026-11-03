@@ -70,7 +70,7 @@ def test_a_turn_that_wipes_out_the_last_opponent_ends_the_game(client: TestClien
         assert _listed_status(client, tg, game_id) == ["active"]
 
     with (
-        patch("server.api.shared.notify_players") as players,
+        patch("server.api.shared.notify_user") as dm,
         patch("server.api.shared._post_turn_to_channel") as channel,
     ):
         r = client.post(f"/games/{game_id}/process_turn", headers=BOT)
@@ -82,12 +82,20 @@ def test_a_turn_that_wipes_out_the_last_opponent_ends_the_game(client: TestClien
     assert game_service.ending(game_id) == {"winners": ["FRANCE"], "how": "last_standing"}
 
     ended = f"Game {game_id} has ended"
-    (_numeric, text), kwargs = players.call_args
-    assert players.call_count == 1  # one message: the turn result is the end
-    assert text == f"{ended}: FRANCE is the last power standing and wins."
-    assert kwargs["own"](["FRANCE"]) == f"{ended}: you are the last power standing and win."
-    assert kwargs["own"](["GERMANY"]) is None
-    assert channel.call_args.args[1] == f"The turn has been processed. {ended}: FRANCE is the last power standing and wins."
+    # The caller (no one here) is not excluded: every player gets one message.
+    sent = {str(c.args[0]): c.args[1] for c in dm.call_args_list}
+    header = f"The turn has been processed for game {game_id}."
+    assert len(dm.call_args_list) == len(seats) and set(sent) == set(seats.values())
+    assert sent[seats["GERMANY"]].endswith(f"\n{ended}: FRANCE is the last power standing and wins.")
+    assert sent[seats["FRANCE"]].endswith(f"\n{ended}: you are the last power standing and win.")
+    assert all(m.startswith(header + "\n") for m in sent.values())
+    assert channel.call_args.args[1] == (
+        "The turn has been processed.\n"
+        "GERMANY was 1 disband short, so A RUH was disbanded (civil disorder).\n"
+        "FRANCE: 1 build was waived: no orders came in.\n"
+        f"GERMANY has been eliminated from game {game_id}: it has no units or supply centres left.\n"
+        f"{ended}: FRANCE is the last power standing and wins."
+    )
     for tg in seats.values():
         assert _listed_status(client, tg, game_id) == ["completed"]
 
@@ -105,14 +113,14 @@ def test_a_solo_victory_refreshes_every_players_game_list(client: TestClient) ->
     for tg in seats.values():
         assert _listed_status(client, tg, game_id) == ["active"]
 
-    with patch("server.api.shared.notify_players") as players, patch("server.api.shared._post_turn_to_channel"):
+    with patch("server.api.shared.notify_user") as dm, patch("server.api.shared._post_turn_to_channel"):
         r = client.post(f"/games/{game_id}/process_turn", headers=BOT)
     assert r.status_code == 200, r.text
     assert r.json()["game_status"] == "COMPLETED"
     for tg in seats.values():
         assert _listed_status(client, tg, game_id) == ["completed"]
     assert game_service.ending(game_id) == {"winners": ["FRANCE"], "how": "solo"}
-    assert players.call_args.args[1] == f"Game {game_id} has ended: FRANCE has won with a solo victory."
+    assert dm.call_args_list[-1].args[1].endswith(f"\nGame {game_id} has ended: FRANCE has won with a solo victory.")
 
 
 def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: TestClient) -> None:
@@ -172,13 +180,48 @@ def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: T
 
 def test_a_turn_with_no_power_left_says_nobody_wins() -> None:
     """``notify_turn_processed`` for a game that ended with no winners."""
-    game_id, _seats = _game(TestClient(app), ["FRANCE"])
+    game_id, seats = _game(TestClient(app), ["FRANCE"])
     _put(game_id, GameState(
         1901, Season.SPRING, PhaseType.MOVEMENT, status=GameStatus.COMPLETED, winners=frozenset(),
     ))
     from server.api import shared
 
-    with patch("server.api.shared.notify_players") as players, patch("server.api.shared._post_turn_to_channel"):
-        shared.notify_turn_processed(game_id, 0, trigger="manual", game_ended=True)
-    assert players.call_args.args[1] == f"Game {game_id} has ended: no power is left, so nobody wins."
-    assert players.call_args.kwargs["own"](["FRANCE"]) is None
+    row_id = int(shared.db_service.get_game_by_game_id(game_id).id)
+    with patch("server.api.shared.notify_user") as dm, patch("server.api.shared._post_turn_to_channel"):
+        shared.notify_turn_processed(game_id, row_id, trigger="manual", game_ended=True)
+    assert [(str(c.args[0]), c.args[1]) for c in dm.call_args_list] == [
+        (seats["FRANCE"], f"The turn has been processed for game {game_id}.\nGame {game_id} has ended: no power is left, so nobody wins.")
+    ]
+
+def test_a_solo_victory_turn_carries_its_results_before_the_ending(client: TestClient) -> None:
+    """CM1: the DMs and the group post of the turn that ended the game used to be
+    the ending sentence alone, dropping the turn's own results."""
+    game_id, seats = _france_and_germany(client)
+    seventeen = "PAR MAR BRE SPA POR BEL HOL LON LVP EDI NWY SWE DEN ROM NAP VEN TUN".split()
+    _put(game_id, GameState(
+        1901, Season.FALL, PhaseType.MOVEMENT,
+        units=frozenset({_army("FRANCE", "BUR"), _army("GERMANY", "BER")}),
+        ownership={**{c: "FRANCE" for c in seventeen}, "BER": "GERMANY", "KIE": "GERMANY", "MUN": "GERMANY"},
+    ))
+    r = client.post("/games/set_orders", json=_as(seats["FRANCE"], game_id=game_id, power="FRANCE", orders=["A BUR - MUN"]))
+    assert r.status_code == 200, r.text
+    with patch("server.api.shared.notify_user") as dm, patch("server.api.shared._post_turn_to_channel") as channel:
+        r = client.post(f"/games/{game_id}/process_turn", headers=BOT)
+    assert r.json()["game_status"] == "COMPLETED", r.text
+    sent = {str(c.args[0]): c.args[1] for c in dm.call_args_list}
+    ended = f"Game {game_id} has ended: FRANCE has won with a solo victory."
+    assert sent[seats["FRANCE"]] == "\n".join([
+        f"The turn has been processed for game {game_id}.",
+        "Your results for Fall 1901 movement:",
+        "A BUR - MUN succeeded.",
+        "Centres: +MUN (now 18).",
+        f"Game {game_id} has ended: you have won with a solo victory.",
+    ])
+    assert sent[seats["GERMANY"]] == "\n".join([
+        f"The turn has been processed for game {game_id}.",
+        "Your results for Fall 1901 movement:",
+        "A BER held (no order).",
+        "Centres: -MUN (now 2).",
+        ended,
+    ])
+    assert channel.call_args.args[1] == f"The turn has been processed.\n{ended}"

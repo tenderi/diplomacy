@@ -259,10 +259,10 @@ def test_a_solo_victory_names_the_winner() -> None:
     ended = f"Game {game_id} has ended: FRANCE has won with a solo victory."
     rows = mock_post.rows()
     assert {str(r["telegram_id"]): [r["message"]] for r in rows if r["kind"] == "dm"} == {
-        tg: [ended] for _h, tg in users if tg != users[1][1]
+        tg: [f"The turn has been processed for game {game_id}.\n{ended}"] for _h, tg in users if tg != users[1][1]
     }
     assert [(r["telegram_id"], r["message"]) for r in rows if r["kind"] == "channel_text"] == [
-        (GROUP, f"🔔 Turn Processed - Game {game_id}\nThe turn has been processed. {ended}")
+        (GROUP, f"🔔 Turn Processed - Game {game_id}\nThe turn has been processed.\n{ended}")
     ]
 
 
