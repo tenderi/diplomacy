@@ -164,8 +164,9 @@ async def test_read_message_rejects_odd_length_diplomacy_body():
 
 async def test_read_message_rejects_unknown_message_type():
     data = bytes((99, 0, 0, 0))
-    with pytest.raises(ValueError):
+    with pytest.raises(DaideWireError) as exc_info:
         await read_message(_reader_for(data))
+    assert exc_info.value.code is ErrorCode.UNKNOWN_MESSAGE_TYPE
 
 
 async def test_read_message_raises_on_truncated_stream():
