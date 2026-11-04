@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 from collections.abc import AsyncIterator
 from typing import Optional
 
@@ -18,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from persistence.database import Base
 from persistence.game_repo import GameRepo
+from server.daide import server as server_mod
 from server.daide import session as session_mod
 from server.daide import tokens as t
 from server.daide import wire
@@ -317,3 +319,38 @@ class TestDeadPeer:
         assert (await _recv_tokens(live[0]))[0] == t.NOW
         assert list(server.sessions_for(server.game_id)) == ["ENGLAND"]
         live[1].close()
+
+
+# ---------------------------------------------------------------------------
+# CO4 (c) / (d): a handler's OSError is logged; accepted sockets keep alive
+# ---------------------------------------------------------------------------
+
+
+class TestHandlerOsErrorAndKeepalive:
+    async def test_an_oserror_from_a_handler_is_logged_before_the_session_ends(
+        self, server: DaideServer, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        async def broken(self: DaideSession, payload: bytes) -> None:
+            raise OSError("disk on fire")
+
+        caplog.set_level(logging.WARNING)
+        monkeypatch.setattr(DaideSession, "_handle_diplomacy", broken)
+        reader, writer = await _connect(server)
+        await _send(writer, t.MAP)
+        assert await asyncio.wait_for(reader.read(), timeout=5) == b""
+        assert [r.getMessage() for r in caplog.records if "disk on fire" in r.getMessage()] == [
+            f"DAIDE {writer.get_extra_info('sockname')} (no power): "
+            "session ended handling a message: OSError('disk on fire')"
+        ]
+        writer.close()
+
+    async def test_an_accepted_socket_has_tcp_keepalive_on(self, server: DaideServer) -> None:
+        conn = await _connect(server)
+        await _nme(conn)
+        sock = server.sessions_for(server.game_id)["AUSTRIA"].writer.get_extra_info("socket")
+        assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) == 1
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE) == server_mod.KEEPALIVE_IDLE_SECONDS
+            assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL) == server_mod.KEEPALIVE_INTERVAL_SECONDS
+            assert sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT) == server_mod.KEEPALIVE_PROBES
+        conn[1].close()

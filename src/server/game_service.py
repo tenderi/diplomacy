@@ -181,7 +181,13 @@ class GameService:
     # -- orders -----------------------------------------------------------
 
     def submit_orders(
-        self, game_id: str, power: str, order_strings: list[str], *, merge: bool = False
+        self,
+        game_id: str,
+        power: str,
+        order_strings: list[str],
+        *,
+        merge: bool = False,
+        keep_stored: bool = False,
     ) -> list[dict[str, Any]]:
         """Validate and store ``power``'s orders for the current phase.
 
@@ -192,6 +198,11 @@ class GameService:
         several ``/order`` messages), and until this each one silently wiped
         the ones before it -- a player ordered three units and only the last
         moved. An order that fails validation never displaces a good one.
+
+        In an adjustment phase a merged build or disband past the power's count
+        displaces its oldest stored one (``_make_room``), unless ``keep_stored``
+        (DAIDE, whose rules answer the surplus order ``NMB``/``NMR``): then the
+        stored orders stay and the new ones that do not fit are refused.
 
         Returns one result dict per order (``{order, ok, reason}``). Raises
         ``OrderError`` if the game does not exist and ``GameOverError`` if it
@@ -212,10 +223,14 @@ class GameService:
         dropped: list[str] = []
         # The stored orders a fully refused replacement left in place.
         kept_orders: list[str] = []
+        # With ``keep_stored``: how many of ``accepted`` fit beside the stored
+        # orders (the rest are refused), and how many stored orders stay.
+        fit: list[int] = []
 
         def store(pending: dict[str, list[str]]) -> dict[str, list[str]]:
             dropped.clear()
             kept_orders.clear()
+            fit.clear()
             new_orders = accepted
             if merge:
                 kept = []
@@ -229,6 +244,10 @@ class GameService:
                     key = _order_key(parsed)
                     if key is None or key not in accepted_keys:
                         kept.append(existing)
+                if adjusting and keep_stored:
+                    room = max(slots - len(kept), 0)
+                    fit.extend((room, len(kept)))
+                    return {**pending, power: kept + accepted[:room]}
                 if adjusting:
                     kept, pushed_out = self._make_room(kept, len(accepted), slots, power)
                     dropped.extend(pushed_out)
@@ -253,6 +272,8 @@ class GameService:
                 "none of these orders was accepted, so nothing was changed. "
                 f"Your earlier orders stand: {', '.join(kept_orders)}"
             )
+        elif merge and fit:
+            _refuse_surplus(results, len(accepted), fit[0], fit[1], state, power, slots)
         elif merge:
             _report_replaced(results, dropped, state, power, slots)
         return results
@@ -1664,6 +1685,34 @@ def _initial_state(map: MapData) -> GameState:
 
 def _plural(n: int, noun: str, nouns: Optional[str] = None) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {nouns or noun + 's'}"
+
+
+def _refuse_surplus(
+    results: list[dict[str, Any]],
+    n_accepted: int,
+    room: int,
+    n_stored: int,
+    state: GameState,
+    power: str,
+    slots: int,
+) -> None:
+    """Refuse the accepted adjustment orders past ``room`` (``keep_stored``).
+
+    The accepted orders and the accepted, not superseded, results are parallel.
+    Each refused result gets the count reason ``_check_orders`` gives one
+    over-long submission (``"AUSTRIA has 1 build; 2 builds/waives submitted"``),
+    the stored orders counted too.
+    """
+    if n_accepted <= room:
+        return
+    live = [i for i, r in enumerate(results) if r["ok"] and "superseded_by" not in r]
+    n = n_stored + n_accepted
+    if len(state.units_of(power)) > len(state.centers_of(power)):
+        reason = f"{power} has {_plural(slots, 'disband')}; {_plural(n, 'disband')} submitted"
+    else:
+        reason = f"{power} has {_plural(slots, 'build')}; {_plural(n, 'build/waive', 'builds/waives')} submitted"
+    for i in live[room:]:
+        results[i] = {"order": results[i]["order"], "ok": False, "reason": reason}
 
 
 def _report_replaced(

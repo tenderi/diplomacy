@@ -17,42 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-04.
-- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe; CO4 open), then
-  Track F (a human playing the game end to end, and host chores), which is the
-  maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
+- **Open tracks:** Track F (a human playing the game end to end, and host chores), which
+  is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track CO — DAIDE server defects (from a client probe)
-
-A raw-TCP DAIDE client played S1901M to S1902M (movement, retreat, adjustment) against the
-local listener on :8432 with seven sessions. NOW, SCO, MIS, MDF, IAM, GOF, DRW and most THX
-notes were right; these were not.
-
-- [x] **CO1 — a client can crash its session, or another's.** (a) An unknown token in a DM
-      (`0xFFFF`), an unknown frame type (9) or an unknown client error code (0x63) raise
-      `ValueError` out of `session.run` (it catches only `DaideWireError`): a traceback and
-      the socket closed with no ErrorMessage; expected the DCSP error (0x0E for a bad token).
-      (b) A second `NME` on one connection seats a second power (`_cmd_nme` never checks
-      `self.power`); the first stays registered to the session after it closes, and a later
-      `ADM` or press to it raises uvloop's `RuntimeError` (closed transport) in the
-      *sender's* session (`server.py` `broadcast_admin`, `relay_press`, and the same
-      `suppress(ConnectionError, OSError)` in `notify_game_processed`, where one dead peer
-      can cut the NOW/ORD fan-out). (c) No IM timeout: a connection that never sends IM, or
-      stalls mid-frame, stays open forever. (d) Wrong DCSP codes: a DM first gets 0x07
-      (expected 0x02), a second IM 0x08 (expected 0x06), a client RM 0x08 (expected 0x0D).
-- [x] **CO2 — ORD and SUB misreport orders.** Done in v3.0.231; see the commit message.
-- [x] **CO3 — the handshake.** Done in v3.0.233; see the commit message.
-- [ ] **CO4 — review follow-ups from CO1/CO2.** (a) Over-building across separate SUBs:
-      `SUB (BLD A VIE)` then `SUB (BLD A BUD)` with one build owed answers both with `MBV`,
-      and `_make_room` silently drops VIE; DAIDE says the second gets `NMB` and VIE stays.
-      (b) `RTO` from a province with no dislodged unit gets `NRN` where `NSU` fits
-      (session.py's "no dislodged unit at" note mapping). (c) `_dispatch_loop`'s
-      `except _TRANSPORT_ERRORS: return` also swallows an `OSError` raised by a handler
-      itself, with no log line. (d) No TCP keepalive on accepted sockets: a seated client
-      whose network vanishes without FIN/RST keeps its slot, and its `IAM` reclaim from a
-      new connection gets `REJ` for minutes.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
