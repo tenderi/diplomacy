@@ -1935,6 +1935,12 @@ def _resolution_dict(resolution: Any, board: GameState) -> dict[str, Any]:
     kind_by_province = kind_by_province_of(board)
     resolution_dict = resolution_to_dict(resolution)
     resolution_dict["phase"] = board.phase_name
+    # The board the orders were given on: units, then dislodged units (a retreat
+    # phase's orders name those). Who owned and what kind each ordered or
+    # supported unit is cannot be recovered once units have moved (DAIDE's ORD).
+    resolution_dict["units"] = [unit_to_dict(u) for u in board.units] + [
+        unit_to_dict(du.unit) for du in board.dislodged
+    ]
     resolution_dict["results"] = [
         {**r, "order_str": format_order(order_from_dict(r["order"]), kind_by_province)}
         for r in resolution_dict["results"]

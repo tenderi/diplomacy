@@ -336,7 +336,7 @@ before it stands: the route still answers 200 with that turn's resolution, and t
 goes on to the next game. `POST /games/{id}/process_turn` answers with the phase the game
 is in after all this. The DAIDE `ORD`s for each processed phase carry that phase's
 resolution, read when it was processed (not the stored `last_resolution`, which the empty
-phase after it has replaced by the time the broadcast runs).
+phase after it has replaced by the time the broadcast runs). An `ORD` names the true order: fleets as `FLT`, a supported or convoyed unit with its real power (both from the resolution's `units`, the pre-adjudication board), and a convoyed move's `VIA (...)` lists the fleets that ordered that convoy, in route order. `SUB` merges per unit (`submit_orders(merge=True)`): an order replaces only the earlier order for the same unit. A bare `SUB` is `HUH (SUB ERR)`. THX notes: an order of the wrong phase `NRS`, a retreat or disband for a unit owing none `NRN`, a move to the unit's own province `FAR`.
 
 A phase can also become empty while it stands (BX1): the creator makes the only power
 still owing a retreat, build or disband a dummy (`POST /games/{id}/dummies`), that power
