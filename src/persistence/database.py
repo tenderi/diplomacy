@@ -289,7 +289,11 @@ class IdempotencyKeyModel(Base):
     So the bot stamps each queued write with a UUID ``Idempotency-Key`` header,
     and ``server.api.idempotency.IdempotencyMiddleware`` stores the first
     response under that key and replays it verbatim to any later request
-    bearing the same key. Only honoured for callers presenting the bot secret
+    bearing the same key. The key is reserved (a row with ``status_code`` 0 and no
+    ``response_json``) before the route runs, so the primary key admits exactly
+    one of two concurrent same-key requests, across workers; the row is filled
+    with the reply, or deleted if the request stores none. Only honoured for
+    callers presenting the bot secret
     (``X-Bot-Secret``): the key space is otherwise a way for an anonymous
     client to fill this table or to read back a stored response.
 

@@ -8,10 +8,16 @@ the broadcast, the connection drops before the response gets back, the bot sees 
 timeout. Without this middleware the retry would post the broadcast again.
 
 So the bot stamps every queued write with a fresh UUID in an
-``Idempotency-Key`` header. The first time the API sees a key it runs the
-route normally and stores ``(status, JSON body)`` under it; every later request
-with the same key gets that stored response back verbatim, marked
-``Idempotent-Replayed: true``, and the route is not run. From the bot's side
+``Idempotency-Key`` header. The first time the API sees a key it reserves it
+(a pending row, inserted on the key's primary key, so of two concurrent
+requests exactly one wins), runs the route normally and stores
+``(status, JSON body)`` under it; every later request with the same key gets
+that stored response back verbatim, marked ``Idempotent-Replayed: true``, and
+the route is not run. A same-key request arriving while the first still runs
+(the bot timed out and replayed) gets a 503 with ``Retry-After`` and is
+retried. A request that stores nothing (a 5xx, a non-JSON body, an exception)
+releases its reservation, and one left by a worker that died is taken over
+after ``IDEMPOTENCY_STALE_AFTER``. From the bot's side
 the retry "succeeds" with the original result and it can report that result
 to the player.
 
@@ -25,6 +31,12 @@ Scope rules, each deliberate:
   being wrong; the bot should retry it and a fresh attempt may well succeed.
   4xx responses *are* stored: "Sender not in game" will not change on retry
   and the bot needs a definitive answer to relay to the player.
+- **An in-flight duplicate gets 503, not 409.** The bot treats 502/503/504
+  as "still unreachable" (``api_client.TRANSIENT_STATUSES``): the write stays
+  queued, no server error is counted, and the next replay gets the stored
+  response. A 409 is a definitive answer (a stale phase) that the bot reports
+  as rejected, which would tell the player their write failed when it is in
+  fact being applied.
 - **Keys expire.** ``DatabaseService.purge_idempotency_keys`` runs from the
   deadline scheduler; a queued request older than that has long since been
   either delivered or reported as failed.
@@ -52,6 +64,11 @@ HEADER = "Idempotency-Key"
 REPLAYED_HEADER = "Idempotent-Replayed"
 MAX_KEY_LENGTH = 128
 _MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# A same-key request while the first is still running: 503 is one of the bot's
+# transient statuses (``api_client.TRANSIENT_STATUSES``), so the write stays
+# queued and its retry gets the stored response.
+IN_FLIGHT_DETAIL = "A request with this Idempotency-Key is still being processed; retry later."
+IN_FLIGHT_RETRY_AFTER_SECONDS = 5
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -83,43 +100,65 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
 
         db = self._get_db()
         try:
-            stored = await run_in_threadpool(db.get_idempotent_response, key)
+            held = await run_in_threadpool(db.reserve_idempotency_key, key, request.url.path)
         except SQLAlchemyError as e:  # DB down: fall through and run the route; it will fail on its own
-            logger.error("Idempotency lookup failed for key %s: %s", key, e)
-            stored = None
-        if stored is not None:
-            logger.info("Replaying stored response for Idempotency-Key %s (%s)", key, stored["endpoint"])
+            logger.error("Idempotency reservation failed for key %s: %s", key, e)
+            return await call_next(request)
+        if held.get("pending"):
+            logger.info("Idempotency-Key %s is still being processed; asked the client to retry", key)
             return JSONResponse(
-                stored["response_json"],
-                status_code=stored["status_code"],
+                {"detail": IN_FLIGHT_DETAIL},
+                status_code=503,
+                headers={"Retry-After": str(IN_FLIGHT_RETRY_AFTER_SECONDS)},
+            )
+        if "reserved" not in held:
+            logger.info("Replaying stored response for Idempotency-Key %s (%s)", key, held["endpoint"])
+            return JSONResponse(
+                held["response_json"],
+                status_code=held["status_code"],
                 headers={REPLAYED_HEADER: "true"},
             )
 
-        response = await call_next(request)
-        if response.status_code >= 500:
-            return response
-        media_type = (response.headers.get("content-type") or "").split(";")[0].strip()
-        if media_type != "application/json":
-            return response
-
-        body = b"".join([chunk async for chunk in response.body_iterator])
+        # This request holds the key now, under ``token``. Every way out below
+        # either stores a response under it or releases it; a release that
+        # cannot run (the DB went away, the task was cancelled) leaves a
+        # reservation that goes stale after ``IDEMPOTENCY_STALE_AFTER``.
+        token = held["reserved"]
+        stored = False
         try:
-            parsed = json.loads(body) if body else None
-        except ValueError:
-            parsed = None
-        if parsed is not None:
+            response = await call_next(request)
+            media_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+            if response.status_code >= 500 or media_type != "application/json":
+                return response
+            body = b"".join([chunk async for chunk in response.body_iterator])
             try:
-                await run_in_threadpool(
-                    db.store_idempotent_response, key, request.url.path, response.status_code, parsed
-                )
-            except SQLAlchemyError as e:
-                logger.error("Failed to store idempotent response for key %s: %s", key, e)
+                parsed = json.loads(body) if body else None
+            except ValueError:
+                parsed = None
+            if parsed is not None:
+                try:
+                    await run_in_threadpool(
+                        db.store_idempotent_response, key, request.url.path, response.status_code, parsed, token
+                    )
+                    stored = True
+                except SQLAlchemyError as e:
+                    logger.error("Failed to store idempotent response for key %s: %s", key, e)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type,
+            )
+        finally:
+            if not stored:
+                await self._release(db, key, token)
 
-        headers = dict(response.headers)
-        headers.pop("content-length", None)
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=headers,
-            media_type=response.media_type,
-        )
+    @staticmethod
+    async def _release(db: Any, key: str, token: Any) -> None:
+        """Free this request's reservation of ``key`` so a retry runs the route."""
+        try:
+            await run_in_threadpool(db.release_idempotency_key, key, token)
+        except SQLAlchemyError as e:
+            logger.error("Failed to release Idempotency-Key %s: %s", key, e)

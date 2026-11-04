@@ -74,6 +74,30 @@ def test_gateway_errors_are_transient(fresh_outbox, status):
     assert fresh_outbox.get(result.entry.id).state == PENDING
 
 
+def test_a_replay_answered_still_in_flight_stays_queued_until_the_stored_reply(fresh_outbox):
+    """CP3: the API answers a replay of a write it is still applying with 503 +
+    Retry-After. That keeps the entry queued (not rejected, no server error
+    counted), and the next replay gets the stored response."""
+    in_flight = _resp(
+        503,
+        {"detail": "A request with this Idempotency-Key is still being processed; retry later."},
+        headers={"Retry-After": "5"},
+    )
+    with patch.object(api_client.requests, "post", side_effect=[requests.Timeout("slow"), in_flight]):
+        entry = api_client.api_post_reliable("/games/1/broadcast", {}, chat_id=1, description="b").entry
+        fresh_outbox._conn.execute("UPDATE outbox SET next_attempt_at = NULL")
+        assert api_client.drain_outbox_once() == []
+    pending = fresh_outbox.get(entry.id)
+    assert (pending.state, pending.server_errors, pending.last_error) == (PENDING, 0, "HTTP 503")
+
+    fresh_outbox._conn.execute("UPDATE outbox SET next_attempt_at = NULL")
+    replayed = _resp(200, {"status": "ok", "message_id": 7}, headers={"Idempotent-Replayed": "true"})
+    with patch.object(api_client.requests, "post", return_value=replayed):
+        finished = api_client.drain_outbox_once()
+    assert [(r.status, r.response) for r in finished] == [("delivered", {"status": "ok", "message_id": 7})]
+    assert fresh_outbox.get(entry.id).state == DELIVERED
+
+
 def test_rejected_on_4xx_with_server_detail(fresh_outbox):
     with patch.object(api_client.requests, "post", return_value=_resp(403, {"detail": "Sender not in game"})):
         result = api_client.api_post_reliable("/x", {}, chat_id=1, description="x")
