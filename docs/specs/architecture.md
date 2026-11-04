@@ -165,8 +165,7 @@ client may ask `MAP` and `MDF` (both served before `NME` too), then accepts the 
 `SCO` and `NOW` (a repeated `YES (MAP ...)` gets nothing). `REJ (MAP ...)` releases the
 power, gets `OFF`, and ends the session. A reconnecting client sends `IAM (power)
 (passcode)`, gets `YES (IAM ...)`, and asks for what it needs; a client `HLO` re-sends its
-`HLO` at any time. A client that waits for `HLO` straight after `NME` (this server's
-behaviour before v3.0.233) stalls: send `YES (MAP ...)` or `HLO`. `OBS` gets `REJ`:
+`HLO` at any time. `HLO` comes only after `YES (MAP ...)` (or a client `HLO`), never straight after `NME`. `OBS` gets `REJ`:
 observers are out of scope. Every other command before a power is held gets `REJ`.
 
 **No client input escapes its session.** `DaideSession.run` answers every framing
