@@ -178,7 +178,12 @@ no IM within `IM_TIMEOUT_SECONDS` (30 s) gets 0x01 and is closed; a frame whose 
 byte arrived but whose remainder did not within `FRAME_TIMEOUT_SECONDS` (30 s) gets 0x09
 and is closed; an idle connection *between* frames is left open. A connection holds at
 most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
-gets `REJ`, and a session that ends for any reason releases its power. Writes to *other*
+gets `REJ`, and a session that ends for any reason releases its power. Every accepted
+socket has TCP keepalive on (`SO_KEEPALIVE`, plus `TCP_KEEPIDLE` 60 s, `TCP_KEEPINTVL` 20 s
+and `TCP_KEEPCNT` 6 where the platform has them), so a seated client whose network vanishes
+without a FIN or RST is dropped within about three minutes and its power can be reclaimed
+by `IAM`. An `OSError` while a command is handled ends the session with a logged warning
+naming it. Writes to *other*
 sessions (`broadcast_admin`, `relay_press`, the `notify_game_processed` NOW/ORD fan-out)
 go through `DaideSession.deliver`, which treats a closed or closing transport (including
 uvloop's `RuntimeError`) as a dead peer: it is unregistered and closed, and delivery
@@ -366,7 +371,7 @@ before it stands: the route still answers 200 with that turn's resolution, and t
 goes on to the next game. `POST /games/{id}/process_turn` answers with the phase the game
 is in after all this. The DAIDE `ORD`s for each processed phase carry that phase's
 resolution, read when it was processed (not the stored `last_resolution`, which the empty
-phase after it has replaced by the time the broadcast runs). An `ORD` names the true order: fleets as `FLT`, a supported or convoyed unit with its real power (both from the resolution's `units`, the pre-adjudication board), and a convoyed move's `VIA (...)` lists the fleets that ordered that convoy, in route order. `SUB` merges per unit (`submit_orders(merge=True)`): an order replaces only the earlier order for the same unit. A bare `SUB` is `HUH (SUB ERR)`. THX notes: an order of the wrong phase `NRS`, a retreat or disband for a unit owing none `NRN`, a move to the unit's own province `FAR`.
+phase after it has replaced by the time the broadcast runs). An `ORD` names the true order: fleets as `FLT`, a supported or convoyed unit with its real power (both from the resolution's `units`, the pre-adjudication board), and a convoyed move's `VIA (...)` lists the fleets that ordered that convoy, in route order. `SUB` merges per unit (`submit_orders(merge=True)`): an order replaces only the earlier order for the same unit. A bare `SUB` is `HUH (SUB ERR)`. In an adjustment phase a build, waive or removal past the power's count is refused (`submit_orders(keep_stored=True)`) and the orders already submitted stand: `NMB` for a build or waive, `NMR` for a removal (the web and bot clients instead let the newest replace the oldest). THX notes: an order of the wrong phase `NRS`, a retreat or disband for a unit owing none `NRN` (`NSU` when the province has no unit at all), a move to the unit's own province `FAR`.
 
 A phase can also become empty while it stands (BX1): the creator makes the only power
 still owing a retreat, build or disband a dummy (`POST /games/{id}/dummies`), that power
