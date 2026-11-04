@@ -157,6 +157,25 @@ src/server/daide/
                #   games/{id} reads, as the HTTP order routes do)
 ```
 
+**No client input escapes its session.** `DaideSession.run` answers every framing
+violation with the DCSP `ErrorMessage` for it and then closes the connection, logging a
+warning, never a traceback: a token outside the DAIDE vocabulary gets 0x0E, an unknown
+frame type 0x08, a DM before the IM 0x02 (`IM_NOT_FIRST_MESSAGE`), a second IM 0x06, an
+RM from the client 0x0D. A client's own `ErrorMessage`, whatever its code, is logged and
+the connection closed without a reply (DCSP: its sender closes). A connection that sends
+no IM within `IM_TIMEOUT_SECONDS` (30 s) gets 0x01 and is closed; a frame whose first
+byte arrived but whose remainder did not within `FRAME_TIMEOUT_SECONDS` (30 s) gets 0x09
+and is closed; an idle connection *between* frames is left open. A connection holds at
+most one power: a second `NME`, or an `IAM` on a connection that already holds a power,
+gets `REJ`, and a session that ends for any reason releases its power. Writes to *other*
+sessions (`broadcast_admin`, `relay_press`, the `notify_game_processed` NOW/ORD fan-out)
+go through `DaideSession.deliver`, which treats a closed or closing transport (including
+uvloop's `RuntimeError`) as a dead peer: it is unregistered and closed, and delivery
+continues to the rest. `DaideServer.stop()` sends `OFF` to every seated session, then
+closes every open connection (`Server.close_clients`), seated or not, so shutdown never
+waits on a peer that does not hang up. `tests/test_daide_robustness.py` covers each case
+over a real socket.
+
 **Known, permanent limitation: press content is relayed opaquely, not parsed.** DAIDE's
 press negotiation grammar (`PRP`/`ALY`/`XDO`/... nested inside `SND`/`FRM`) is the
 deepest part of the spec and the least essential for interoperability. This codebase

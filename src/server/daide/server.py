@@ -15,7 +15,6 @@ mutation" -- which none of the mutating methods do.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import random
 from datetime import datetime, timezone
@@ -148,12 +147,21 @@ class DaideServer:
             self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:
-        """Notify every open session (`OFF`) before closing the listener."""
+        """Notify every open session (`OFF`), then close the listener and
+        every connection still open, power or not.
+
+        `Server.wait_closed` waits for every connection's handler to finish
+        (Python 3.12+), so a peer that never hangs up (one idling before its
+        `NME`, say) would block shutdown forever unless its transport is
+        closed here: `close_clients` does that, and each session then ends on
+        the resulting EOF.
+        """
         for sessions in list(self._sessions.values()):
             for daide_session in list(sessions.values()):
                 await daide_session.send_off()
         if self._server is not None:
             self._server.close()
+            self._server.close_clients()
             await self._server.wait_closed()
             self._server = None
 
@@ -253,8 +261,7 @@ class DaideServer:
             return
         self._completion_notified[game_id] = True
         for daide_session in self.sessions_for(game_id).values():
-            with contextlib.suppress(ConnectionError, OSError):
-                await daide_session._send(t.DRW)
+            await daide_session.deliver([t.DRW])
 
     async def broadcast_admin(
         self, game_id: str, from_name: str, message_tokens: list[Token], exclude: Optional[DaideSession] = None
@@ -265,8 +272,7 @@ class DaideServer:
         for daide_session in self.sessions_for(game_id).values():
             if daide_session is exclude:
                 continue
-            with contextlib.suppress(ConnectionError, OSError):
-                await daide_session._send(t.ADM, *name_clause, t.OPEN_PAREN, *message_tokens, t.CLOSE_PAREN)
+            await daide_session.deliver([t.ADM, *name_clause, t.OPEN_PAREN, *message_tokens, t.CLOSE_PAREN])
 
     async def relay_press(
         self, game_id: str, from_power: str, to_powers: list[str], message_tokens: list[Token]
@@ -281,8 +287,8 @@ class DaideServer:
             daide_session = sessions.get(power)
             if daide_session is None:
                 continue
-            with contextlib.suppress(ConnectionError, OSError):
-                await daide_session._send(
+            await daide_session.deliver(
+                [
                     t.FRM,
                     t.OPEN_PAREN,
                     from_token,
@@ -293,7 +299,8 @@ class DaideServer:
                     t.OPEN_PAREN,
                     *message_tokens,
                     t.CLOSE_PAREN,
-                )
+                ]
+            )
 
     async def notify_game_processed(
         self,
@@ -360,16 +367,14 @@ class DaideServer:
         # with nobody winning (BL6, or the last powers conceding together).
         no_winner = completed and not already_notified and winner is None
 
+        messages: list[list[Token]] = [now_tokens, *ord_messages]
+        for power in newly_eliminated:
+            messages.append([t.OUT, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[power], t.CLOSE_PAREN])
+        if winner is not None:
+            messages.append([t.SLO, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[winner], t.CLOSE_PAREN])
+        if no_winner:
+            messages.append([t.DRW])
         for daide_session in sessions.values():
-            with contextlib.suppress(ConnectionError, OSError):
-                await daide_session._send(*now_tokens)
-                for msg in ord_messages:
-                    await daide_session._send(*msg)
-                for power in newly_eliminated:
-                    await daide_session._send(t.OUT, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[power], t.CLOSE_PAREN)
-                if winner is not None:
-                    await daide_session._send(t.SLO, t.OPEN_PAREN, t.POWER_TOKEN_BY_ENGINE_NAME[winner], t.CLOSE_PAREN)
-                if no_winner:
-                    await daide_session._send(t.DRW)
+            await daide_session.deliver(*messages)
         if completed:
             self._completion_notified[game_id] = True
