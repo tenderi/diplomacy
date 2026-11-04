@@ -65,6 +65,7 @@ in THX's fixed vocabulary (there is no "invalid, unspecified" token).
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import Sequence
@@ -110,6 +111,20 @@ _logger = logging.getLogger("diplomacy.server.daide")
 # (the LVL 10 press-time-limit / partial-draw extensions) -- level 0 covers
 # the base gameplay message set this module actually speaks.
 DAIDE_LEVEL = 0
+
+# DCSP's IM timer: a connection must complete its InitialMessage within this
+# many seconds of being accepted, or it gets `IM_TIMER_EXPIRED` and is closed.
+IM_TIMEOUT_SECONDS: float = 30.0
+# Once a frame's first byte has arrived, the rest of it must follow within
+# this many seconds; a peer that stalls mid-frame is closed. Idling *between*
+# frames is never timed (a bot may wait a whole phase for the next NOW).
+FRAME_TIMEOUT_SECONDS: float = 30.0
+
+# What writing to a peer's dead transport raises: a reset/broken pipe, or
+# uvloop's `RuntimeError` ("unable to perform operation on <TCPTransport
+# closed=True>"). `_send` turns the latter into a ConnectionResetError, so
+# callers only ever need this tuple.
+_TRANSPORT_ERRORS = (ConnectionError, OSError)
 
 
 class SessionProtocolError(ValueError):
@@ -633,59 +648,131 @@ class DaideSession:
     # -- connection lifecycle ----------------------------------------------
 
     async def run(self) -> None:
-        """Handshake, then dispatch `DiplomacyMessage`s until the peer closes."""
-        try:
-            initial = await wire.read_message(self.reader)
-        except DaideWireError as exc:
-            await self._safe_send_error(exc.code)
-            return
-        except (ConnectionError, OSError, EOFError):
-            return
-        if not isinstance(initial, wire.InitialMessage):
-            await self._safe_send_error(wire.ErrorCode.IM_SENT_BY_SERVER)
-            return
-        try:
-            await wire.write_message(self.writer, wire.RepresentationMessage())
-        except (ConnectionError, OSError):
-            return
+        """Handshake, then dispatch `DiplomacyMessage`s until the peer closes.
 
+        Nothing a client sends can raise out of here: a framing violation
+        gets the matching DCSP `ErrorMessage` and a clean close, logged at
+        warning; a dead transport just ends the session. Whatever happens,
+        the session is unregistered and its socket closed on the way out.
+        """
         try:
-            while True:
-                try:
-                    msg = await wire.read_message(self.reader)
-                except DaideWireError as exc:
-                    await self._safe_send_error(exc.code)
-                    break
-                except (ConnectionError, OSError, EOFError):
-                    break
-                if isinstance(msg, wire.FinalMessage):
-                    break
-                if isinstance(msg, wire.DiplomacyMessage):
-                    await self._handle_diplomacy(msg.payload)
-                    continue
-                # A second InitialMessage/RepresentationMessage/ErrorMessage
-                # from a client mid-session is a protocol violation this
-                # session doesn't try to recover from.
-                await self._safe_send_error(wire.ErrorCode.UNKNOWN_MESSAGE_TYPE)
-                break
+            if await self._handshake():
+                await self._dispatch_loop()
         finally:
             self.server.unregister(self.game_id, self.power, self)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(*_TRANSPORT_ERRORS, RuntimeError):
                 self.writer.close()
 
+    def _peer(self) -> str:
+        get_extra = getattr(self.writer, "get_extra_info", None)
+        peer = get_extra("peername") if get_extra is not None else None
+        return f"{peer} ({self.power or 'no power'})"
+
+    async def _protocol_error(self, code: wire.ErrorCode, detail: str) -> None:
+        _logger.warning("DAIDE %s: closing on %s (0x%02X): %s", self._peer(), code.name, code.value, detail)
+        await self._safe_send_error(code)
+
+    async def _handshake(self) -> bool:
+        """Read the client's InitialMessage and answer the RepresentationMessage.
+        Returns whether the session may proceed to message dispatch."""
+        try:
+            async with asyncio.timeout(IM_TIMEOUT_SECONDS):
+                initial = await wire.read_message(self.reader, frame_timeout=FRAME_TIMEOUT_SECONDS)
+        except TimeoutError:
+            await self._protocol_error(wire.ErrorCode.IM_TIMER_EXPIRED, f"no IM within {IM_TIMEOUT_SECONDS} s")
+            return False
+        except DaideWireError as exc:
+            await self._protocol_error(exc.code, str(exc))
+            return False
+        except (*_TRANSPORT_ERRORS, EOFError):
+            return False
+        if isinstance(initial, wire.FinalMessage):
+            return False
+        if isinstance(initial, wire.ErrorMessage):
+            self._log_peer_error(initial)
+            return False
+        if not isinstance(initial, wire.InitialMessage):
+            await self._protocol_error(wire.ErrorCode.IM_NOT_FIRST_MESSAGE, f"first message was {type(initial).__name__}")
+            return False
+        try:
+            await wire.write_message(self.writer, wire.RepresentationMessage())
+        except _TRANSPORT_ERRORS:
+            return False
+        return True
+
+    def _log_peer_error(self, msg: wire.ErrorMessage) -> None:
+        # DCSP: the sender of an ErrorMessage closes the connection; answering
+        # it with another one would only be written to a closing socket.
+        code = msg.code.name if isinstance(msg.code, wire.ErrorCode) else "unknown code"
+        _logger.warning("DAIDE %s: client sent ErrorMessage %s (0x%02X)", self._peer(), code, int(msg.code))
+
+    async def _dispatch_loop(self) -> None:
+        while True:
+            try:
+                msg = await wire.read_message(self.reader, frame_timeout=FRAME_TIMEOUT_SECONDS)
+            except DaideWireError as exc:
+                await self._protocol_error(exc.code, str(exc))
+                return
+            except (*_TRANSPORT_ERRORS, EOFError):
+                return
+            if isinstance(msg, wire.FinalMessage):
+                return
+            if isinstance(msg, wire.ErrorMessage):
+                self._log_peer_error(msg)
+                return
+            if isinstance(msg, wire.InitialMessage):
+                await self._protocol_error(wire.ErrorCode.MULTIPLE_IM_SENT, "a second InitialMessage")
+                return
+            if isinstance(msg, wire.RepresentationMessage):
+                await self._protocol_error(wire.ErrorCode.RM_SENT_BY_CLIENT, "a RepresentationMessage from the client")
+                return
+            try:
+                await self._handle_diplomacy(msg.payload)
+            except _TRANSPORT_ERRORS:
+                return  # our own peer went away while we answered it
+
     async def _safe_send_error(self, code: wire.ErrorCode) -> None:
-        with contextlib.suppress(ConnectionError, OSError):
-            await wire.write_message(self.writer, wire.ErrorMessage(code))
+        with contextlib.suppress(*_TRANSPORT_ERRORS):
+            await self._write(wire.ErrorMessage(code))
 
     async def send_off(self) -> None:
         """Server-initiated shutdown notice (`DaideServer.stop()` calls this
         on every open session before closing sockets)."""
-        with contextlib.suppress(ConnectionError, OSError):
-            await self._send(t.OFF)
+        await self.deliver([t.OFF])
+
+    async def deliver(self, *messages: Sequence[Token]) -> bool:
+        """Send ``messages`` to this session on behalf of *another* one (a
+        broadcast, relayed press, a turn's NOW/ORD fan-out).
+
+        Never raises for a dead peer: if this session's transport is closed or
+        closing, it is unregistered and closed, and ``False`` returned, so the
+        caller goes on to the remaining sessions.
+        """
+        try:
+            for tokens_ in messages:
+                await self._send(*tokens_)
+        except _TRANSPORT_ERRORS as exc:
+            _logger.warning("DAIDE %s: dropping dead peer: %s", self._peer(), exc)
+            self.server.unregister(self.game_id, self.power, self)
+            with contextlib.suppress(*_TRANSPORT_ERRORS, RuntimeError):
+                self.writer.close()
+            return False
+        return True
 
     async def _send(self, *tokens_: Token) -> None:
         payload = b"".join(bytes(tok) for tok in tokens_)
-        await wire.write_message(self.writer, wire.DiplomacyMessage(payload=payload))
+        await self._write(wire.DiplomacyMessage(payload=payload))
+
+    async def _write(self, message: wire.Message) -> None:
+        """Write one frame; a closed transport raises `ConnectionResetError`
+        (never uvloop's `RuntimeError`)."""
+        is_closing = getattr(self.writer, "is_closing", None)
+        if is_closing is not None and is_closing():
+            raise ConnectionResetError("transport is closing")
+        try:
+            await wire.write_message(self.writer, message)
+        except RuntimeError as exc:
+            raise ConnectionResetError(str(exc)) from exc
 
     # -- dispatch -------------------------------------------------------------
 
@@ -720,6 +807,9 @@ class DaideSession:
     # -- command handlers -----------------------------------------------------
 
     async def _cmd_nme(self, args: list[Token], raw: list[Token]) -> None:
+        if self.power is not None:
+            await self._send(t.REJ, *_echo(raw))  # one connection holds at most one power
+            return
         groups = _top_level_groups(args)
         if len(groups) != 2:
             raise SessionProtocolError("NME needs (name) (version)")
@@ -742,6 +832,9 @@ class DaideSession:
         groups = _top_level_groups(args)
         if len(groups) != 2 or len(groups[0]) != 1 or not groups[1] or not groups[1][0].is_integer:
             raise SessionProtocolError("IAM needs (power) (passcode)")
+        if self.power is not None:
+            await self._send(t.REJ, *_echo(raw))  # one connection holds at most one power
+            return
         game_id = self.server.current_game_id
         if game_id is None:
             # No NME has ever succeeded on this listener -- no game, no

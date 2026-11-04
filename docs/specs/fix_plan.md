@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-11-03.
-- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe), then
+- **Last updated:** 2026-11-04.
+- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe; CO3 open), then
   Track F (a human playing the game end to end, and host chores), which is the
   maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -30,7 +30,7 @@ A raw-TCP DAIDE client played S1901M to S1902M (movement, retreat, adjustment) a
 local listener on :8432 with seven sessions. NOW, SCO, MIS, MDF, IAM, GOF, DRW and most THX
 notes were right; these were not.
 
-- [ ] **CO1 — a client can crash its session, or another's.** (a) An unknown token in a DM
+- [x] **CO1 — a client can crash its session, or another's.** (a) An unknown token in a DM
       (`0xFFFF`), an unknown frame type (9) or an unknown client error code (0x63) raise
       `ValueError` out of `session.run` (it catches only `DaideWireError`): a traceback and
       the socket closed with no ErrorMessage; expected the DCSP error (0x0E for a bad token).
