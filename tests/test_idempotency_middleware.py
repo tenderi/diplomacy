@@ -1,9 +1,10 @@
-"""What ``IdempotencyMiddleware`` refuses to store (BH3).
+"""What ``IdempotencyMiddleware`` refuses to store (BH3) and how it holds a key
+while its request runs (CP3).
 
 ``tests/test_idempotency.py`` drives the middleware through real routes against
-Postgres; a route that *returns* a 5xx or a non-JSON body is not something the
-real API offers on demand, so these run it over a three-route app and a fake
-store that records every call.
+Postgres; a route that *returns* a 5xx or a non-JSON body, or raises, is not
+something the real API offers on demand, so these run it over a small app and a
+fake store that records every call.
 """
 from __future__ import annotations
 
@@ -23,15 +24,34 @@ BOT = {"X-Bot-Secret": SECRET}
 
 
 class _Store:
+    """Mirrors ``DatabaseService``'s reserve / store / release contract."""
+
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
+        self.pending: dict[str, int] = {}  # key -> the holder's token
         self.lookups: list[str] = []
+        self.released: list[str] = []
+        self._tokens = 0
 
-    def get_idempotent_response(self, key: str) -> Optional[dict[str, Any]]:
+    def reserve_idempotency_key(self, key: str, endpoint: str) -> dict[str, Any]:
         self.lookups.append(key)
-        return self.rows.get(key)
+        if key in self.rows:
+            return self.rows[key]
+        if key in self.pending:
+            return {"pending": True}
+        self._tokens += 1
+        self.pending[key] = self._tokens
+        return {"reserved": self._tokens}
 
-    def store_idempotent_response(self, key: str, endpoint: str, status: int, body: Any) -> bool:
+    def release_idempotency_key(self, key: str, token: int) -> None:
+        assert self.pending.get(key) == token
+        self.released.append(key)
+        del self.pending[key]
+
+    def store_idempotent_response(
+        self, key: str, endpoint: str, status: int, body: Any, token: Optional[int] = None
+    ) -> bool:
+        assert self.pending.pop(key) == token
         self.rows[key] = {"status_code": status, "response_json": body, "endpoint": endpoint}
         return True
 
@@ -57,8 +77,13 @@ def setup() -> tuple[TestClient, _Store, dict[str, int]]:
         # A body that happens to parse as JSON: only the content type says no.
         return PlainTextResponse(str(runs["n"]))
 
+    @app.post("/boom")
+    def boom() -> dict[str, int]:
+        runs["n"] += 1
+        raise RuntimeError("route crashed")
+
     app.add_middleware(IdempotencyMiddleware, get_db=lambda: store, get_secret=lambda: SECRET)
-    return TestClient(app), store, runs
+    return TestClient(app, raise_server_exceptions=False), store, runs
 
 
 def test_a_json_success_is_stored_and_replayed(setup: tuple[TestClient, _Store, dict[str, int]]) -> None:
@@ -69,6 +94,7 @@ def test_a_json_success_is_stored_and_replayed(setup: tuple[TestClient, _Store, 
     assert second.headers.get(REPLAYED_HEADER) == "true"
     assert runs["n"] == 1
     assert store.rows == {"k-ok": {"status_code": 200, "response_json": {"run": 1}, "endpoint": "/ok"}}
+    assert store.pending == {} and store.released == []
 
 
 def test_a_5xx_response_is_not_stored(setup: tuple[TestClient, _Store, dict[str, int]]) -> None:
@@ -80,13 +106,43 @@ def test_a_5xx_response_is_not_stored(setup: tuple[TestClient, _Store, dict[str,
         assert resp.headers.get(REPLAYED_HEADER) is None
     assert runs["n"] == 2
     assert store.rows == {}
+    assert store.pending == {} and store.released == ["k-fail", "k-fail"]
+
+
+def test_a_route_that_raises_releases_its_reservation(setup: tuple[TestClient, _Store, dict[str, int]]) -> None:
+    """CP3: an exception in the route must not leave the key reserved, or the
+    bot's retry would get "still being processed" until the reservation went
+    stale."""
+    client, store, runs = setup
+    for _ in range(2):
+        resp = client.post("/boom", headers={**BOT, "Idempotency-Key": "k-boom"})
+        assert resp.status_code == 500
+    assert runs["n"] == 2
+    assert store.rows == {} and store.pending == {}
+    assert store.released == ["k-boom", "k-boom"]
+
+
+def test_a_request_whose_key_is_reserved_gets_a_retryable_503(
+    setup: tuple[TestClient, _Store, dict[str, int]],
+) -> None:
+    """CP3: while another request holds the key the route does not run; the
+    503 is one of the bot's transient statuses, so the write stays queued."""
+    client, store, runs = setup
+    store.pending["k-busy"] = 99
+    resp = client.post("/ok", headers={**BOT, "Idempotency-Key": "k-busy"})
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "A request with this Idempotency-Key is still being processed; retry later."}
+    assert resp.headers.get("Retry-After") == "5"
+    assert runs["n"] == 0
+    # The holder's reservation is untouched.
+    assert store.pending == {"k-busy": 99} and store.released == []
 
 
 def test_a_non_json_response_is_not_stored(setup: tuple[TestClient, _Store, dict[str, int]]) -> None:
     client, store, runs = setup
     texts = [client.post("/text", headers={**BOT, "Idempotency-Key": "k-text"}).text for _ in range(2)]
     assert texts == ["1", "2"]
-    assert store.rows == {}
+    assert store.rows == {} and store.pending == {}
 
 
 def test_an_over_long_key_bypasses_the_middleware(setup: tuple[TestClient, _Store, dict[str, int]]) -> None:

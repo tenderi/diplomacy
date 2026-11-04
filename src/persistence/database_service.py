@@ -25,6 +25,11 @@ from .database import (
 # long since been delivered or reported as failed to the player.
 IDEMPOTENCY_RETENTION_DAYS = 7
 OUTBOX_DELIVERED_RETENTION_DAYS = 7
+# ``idempotency_keys.status_code`` of a key reserved by a request still running
+# (no HTTP status is 0). A reservation older than ``IDEMPOTENCY_STALE_AFTER``
+# belongs to a worker that died mid-request, and the next request takes it over.
+IDEMPOTENCY_PENDING_STATUS = 0
+IDEMPOTENCY_STALE_AFTER = timedelta(minutes=5)
 
 # Called (no arguments) after every committed ``bot_outbox`` insert in this
 # process. The ``/bot/outbox`` long-poll registers one to wake its waiters;
@@ -1559,10 +1564,11 @@ class DatabaseService:
     # See ``IdempotencyKeyModel`` and ``server.api.idempotency``.
 
     def get_idempotent_response(self, key: str) -> Optional[Dict[str, Any]]:
-        """The stored ``{status_code, response_json, endpoint}`` for ``key``, or None."""
+        """The stored ``{status_code, response_json, endpoint}`` for ``key``, or
+        None (also while the key is only reserved)."""
         with self.session_factory() as session:
             row = session.get(IdempotencyKeyModel, key)
-            if row is None:
+            if row is None or int(row.status_code) == IDEMPOTENCY_PENDING_STATUS:
                 return None
             return {
                 "status_code": int(row.status_code),
@@ -1570,13 +1576,98 @@ class DatabaseService:
                 "endpoint": row.endpoint,
             }
 
+    def reserve_idempotency_key(self, key: str, endpoint: str) -> Optional[Dict[str, Any]]:
+        """Claim ``key`` for a request about to run its route.
+
+        Returns ``{"reserved": token}`` when this caller holds the key now: it
+        was free, or its reservation was stale (older than
+        ``IDEMPOTENCY_STALE_AFTER``) and this caller took it over. Otherwise
+        returns what holds it: ``{"pending": True}`` while another request runs,
+        or the stored response (``get_idempotent_response``'s shape). The insert
+        rests on the primary key, so of two concurrent callers exactly one wins.
+
+        ``token`` (the reservation's ``created_at``) names this caller's
+        reservation: ``release_idempotency_key`` and ``store_idempotent_response``
+        act only on a row still carrying it, so a request that ran past the
+        stale limit cannot delete or fill the reservation of the one that took
+        its key over.
+        """
+        from sqlalchemy.exc import IntegrityError
+        now = utcnow_naive()
+        with self.session_factory() as session:
+            session.add(
+                IdempotencyKeyModel(
+                    key=key, endpoint=endpoint[:255], status_code=IDEMPOTENCY_PENDING_STATUS, created_at=now
+                )
+            )
+            try:
+                session.commit()
+                return {"reserved": now}
+            except IntegrityError:
+                session.rollback()
+            taken_over = (
+                session.query(IdempotencyKeyModel)
+                .filter(
+                    IdempotencyKeyModel.key == key,
+                    IdempotencyKeyModel.status_code == IDEMPOTENCY_PENDING_STATUS,
+                    IdempotencyKeyModel.created_at < now - IDEMPOTENCY_STALE_AFTER,
+                )
+                .update({IdempotencyKeyModel.created_at: now}, synchronize_session=False)
+            )
+            session.commit()
+            if taken_over:
+                return {"reserved": now}
+        stored = self.get_idempotent_response(key)
+        return stored if stored is not None else {"pending": True}
+
+    def release_idempotency_key(self, key: str, token: datetime) -> None:
+        """Drop the reservation ``token`` names (its request stored nothing), so
+        a retry runs the route afresh. A stored response, or a reservation
+        another request has since taken over, is never removed."""
+        with self.session_factory() as session:
+            session.query(IdempotencyKeyModel).filter(
+                IdempotencyKeyModel.key == key,
+                IdempotencyKeyModel.status_code == IDEMPOTENCY_PENDING_STATUS,
+                IdempotencyKeyModel.created_at == token,
+            ).delete(synchronize_session=False)
+            session.commit()
+
     def store_idempotent_response(
-        self, key: str, endpoint: str, status_code: int, response_json: Any
+        self,
+        key: str,
+        endpoint: str,
+        status_code: int,
+        response_json: Any,
+        token: Optional[datetime] = None,
     ) -> bool:
-        """Store the first response for ``key``. Returns False if one already
-        exists (a concurrent duplicate won the race; the stored one stands)."""
+        """Store the first response for ``key``. With ``token`` (from
+        ``reserve_idempotency_key``) it fills that reservation and stores
+        nothing if the reservation is no longer this caller's; without one
+        (the reservation could not be made) it inserts. Returns False when
+        nothing was stored: a response is already there, or the key was taken
+        over."""
         from sqlalchemy.exc import IntegrityError
         with self.session_factory() as session:
+            if token is not None:
+                filled = (
+                    session.query(IdempotencyKeyModel)
+                    .filter(
+                        IdempotencyKeyModel.key == key,
+                        IdempotencyKeyModel.status_code == IDEMPOTENCY_PENDING_STATUS,
+                        IdempotencyKeyModel.created_at == token,
+                    )
+                    .update(
+                        {
+                            IdempotencyKeyModel.endpoint: endpoint[:255],
+                            IdempotencyKeyModel.status_code: int(status_code),
+                            IdempotencyKeyModel.response_json: response_json,
+                            IdempotencyKeyModel.created_at: utcnow_naive(),
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return bool(filled)
             session.add(
                 IdempotencyKeyModel(
                     key=key,
