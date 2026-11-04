@@ -157,6 +157,17 @@ src/server/daide/
                #   games/{id} reads, as the HTTP order routes do)
 ```
 
+**The handshake follows the DAIDE client-server sequence.** After IM/RM, a client's
+`NME ('name') ('version')` seats the next free power (or gets `REJ (NME ...)` when all
+seven are taken) and is answered `YES (NME ...)` followed by `MAP ('STANDARD')`. The
+client may ask `MAP` and `MDF` (both served before `NME` too), then accepts the map with
+`YES (MAP ('STANDARD'))`, which the server answers with `HLO (power) (passcode) (LVL 0)`,
+`SCO` and `NOW` (a repeated `YES (MAP ...)` gets nothing). `REJ (MAP ...)` releases the
+power, gets `OFF`, and ends the session. A reconnecting client sends `IAM (power)
+(passcode)`, gets `YES (IAM ...)`, and asks for what it needs; a client `HLO` re-sends its
+`HLO` at any time. `HLO` comes only after `YES (MAP ...)` (or a client `HLO`), never straight after `NME`. `OBS` gets `REJ`:
+observers are out of scope. Every other command before a power is held gets `REJ`.
+
 **No client input escapes its session.** `DaideSession.run` answers every framing
 violation with the DCSP `ErrorMessage` for it and then closes the connection, logging a
 warning, never a traceback: a token outside the DAIDE vocabulary gets 0x0E, an unknown
@@ -187,7 +198,7 @@ not a temporary gap to be closed later.
 End-to-end proof this composes correctly over a real socket (not just each layer's own
 unit tests) lives in `tests/test_daide_server.py`'s
 `TestEndToEndOneFullTurnOverOneSocket` — one continuous `asyncio` TCP connection drives
-IM→RM→NME→HLO→MAP→MDF→SCO→NOW→SUB→THX against a real `GameService`/Postgres-backed game,
+IM→RM→NME→YES/MAP→MDF→YES(MAP)→HLO/SCO/NOW→SCO→NOW→SUB→THX against a real `GameService`/Postgres-backed game,
 then `GameService.process_turn` + `DaideServer.notify_game_processed` (the same calls the
 HTTP route/deadline scheduler make) push a real `NOW`/`ORD` notification back over that
 same socket.

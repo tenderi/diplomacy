@@ -3,7 +3,8 @@
 Two things this file proves that `test_daide_session.py` can't (it dispatches
 directly against `DaideSession`, no socket, no listener):
 
-1. A real `asyncio` TCP client can complete the IM -> RM -> NME -> HLO
+1. A real `asyncio` TCP client can complete the IM -> RM -> NME -> YES/MAP ->
+   YES (MAP) -> HLO/SCO/NOW
    handshake against a running `DaideServer` -- proof the listener actually
    accepts connections end to end. Not the full multi-turn scenario (that's
    D5's byte-level e2e test); just proof the socket path works.
@@ -88,7 +89,9 @@ class FakeWriter:
 
 
 class TestRealSocketHandshake:
-    async def test_im_rm_nme_hlo_over_a_real_tcp_connection(self, service: GameService) -> None:
+    async def test_the_standard_handshake_over_a_real_tcp_connection(self, service: GameService) -> None:
+        """IM -> RM, NME -> YES (NME ...) + MAP, MAP -> MAP, MDF -> MDF,
+        YES (MAP ...) -> HLO + SCO + NOW: the DAIDE client-server sequence (CO3)."""
         gid = _new_game(service)
         server = DaideServer(service, host="127.0.0.1", port=0, game_id=gid)
         await server.start()
@@ -99,19 +102,27 @@ class TestRealSocketHandshake:
                 rm = await wire.read_message(reader)
                 assert isinstance(rm, wire.RepresentationMessage)
 
-                nme_payload = b"".join(
-                    bytes(tok) for tok in (t.NME, *text_clause("DumbBot"), *text_clause("1.0"))
-                )
-                await wire.write_message(writer, wire.DiplomacyMessage(payload=nme_payload))
+                nme = [t.NME, *text_clause("DumbBot"), *text_clause("1.0")]
+                await _send_command(writer, *nme)
+                map_msg = [t.MAP, *text_clause("STANDARD")]
+                assert _payload_tokens((await _recv(reader)).payload) == [t.YES, t.OPEN_PAREN, *nme, t.CLOSE_PAREN]
+                assert _payload_tokens((await _recv(reader)).payload) == map_msg
 
-                hlo = await wire.read_message(reader)
-                assert isinstance(hlo, wire.DiplomacyMessage)
-                tokens_ = [
-                    Token.from_bytes(hlo.payload[i : i + 2]) for i in range(0, len(hlo.payload), 2)
-                ]
-                assert tokens_[0] == t.HLO
-                assert t.AUS in tokens_
+                await _send_command(writer, t.MAP)
+                assert _payload_tokens((await _recv(reader)).payload) == map_msg
+                await _send_command(writer, t.MDF)
+                assert _payload_tokens((await _recv(reader)).payload)[0] == t.MDF
 
+                await _send_command(writer, t.YES, t.OPEN_PAREN, *map_msg, t.CLOSE_PAREN)
+                hlo = _payload_tokens((await _recv(reader)).payload)
+                passcode = server.sessions_for(gid)["AUSTRIA"].passcode
+                assert hlo == [
+                    t.HLO, t.OPEN_PAREN, t.AUS, t.CLOSE_PAREN,
+                    t.OPEN_PAREN, Token.from_int(passcode), t.CLOSE_PAREN,
+                    t.OPEN_PAREN, t.LVL, Token.from_int(0), t.CLOSE_PAREN,
+                ]  # fmt: skip
+                assert _payload_tokens((await _recv(reader)).payload)[0] == t.SCO
+                assert _payload_tokens((await _recv(reader)).payload)[0] == t.NOW
                 await wire.write_message(writer, wire.FinalMessage())
             finally:
                 writer.close()
@@ -302,28 +313,18 @@ class TestEndToEndOneFullTurnOverOneSocket:
                 rm = await asyncio.wait_for(wire.read_message(reader), timeout=5)
                 assert isinstance(rm, wire.RepresentationMessage)
 
-                # -- 2. NME (bot) (1.0) -> HLO -----------------------------------
+                # -- 2. NME (bot) (1.0) -> YES (NME ...), then MAP unprompted -----
                 await _send_command(writer, t.NME, *text_clause("e2e-bot"), *text_clause("1.0"))
-                hlo = await _recv(reader)
-                hlo_tokens = _payload_tokens(hlo.payload)
-                assert hlo_tokens[0] == t.HLO
-                assert hlo_tokens[1] == t.OPEN_PAREN
-                power = t.engine_power_name(hlo_tokens[2])
-                assert power in STANDARD_POWERS  # a real power was assigned, not garbage
-                assert hlo_tokens[3] == t.CLOSE_PAREN
+                assert _payload_tokens((await _recv(reader)).payload)[:3] == [t.YES, t.OPEN_PAREN, t.NME]
+                map_tokens = _payload_tokens((await _recv(reader)).payload)
+                assert map_tokens[0] == t.MAP
+                map_name = "".join(tok.text for tok in map_tokens[2:-1])
+                assert map_name == "STANDARD"
 
                 game_id = server.current_game_id
                 assert game_id is not None  # NME minted the game lazily, as designed
 
-                # -- 3. MAP -------------------------------------------------------
-                await _send_command(writer, t.MAP)
-                map_resp = await _recv(reader)
-                map_tokens = _payload_tokens(map_resp.payload)
-                assert map_tokens[0] == t.MAP
-                map_name = "".join(tok.text for tok in map_tokens[2:-1])
-                assert map_name == "standard"
-
-                # -- 4. MDF (coarse shape + non-trivial size only, per the task
+                # -- 3. MDF (coarse shape + non-trivial size only, per the task
                 #    brief -- full adjacency decoding is D1-D4's tested territory) --
                 await _send_command(writer, t.MDF)
                 mdf_resp = await _recv(reader)
@@ -331,6 +332,17 @@ class TestEndToEndOneFullTurnOverOneSocket:
                 assert mdf_tokens[0] == t.MDF
                 assert len(mdf_resp.payload) > 800  # a real map def, not an empty/error frame
                 assert len(mdf_tokens) > 400
+
+                # -- 4. YES (MAP ('STANDARD')) -> HLO, SCO, NOW ------------------
+                await _send_command(writer, t.YES, t.OPEN_PAREN, *map_tokens, t.CLOSE_PAREN)
+                hlo_tokens = _payload_tokens((await _recv(reader)).payload)
+                assert hlo_tokens[0] == t.HLO
+                assert hlo_tokens[1] == t.OPEN_PAREN
+                power = t.engine_power_name(hlo_tokens[2])
+                assert power in STANDARD_POWERS  # a real power was assigned, not garbage
+                assert hlo_tokens[3] == t.CLOSE_PAREN
+                assert _payload_tokens((await _recv(reader)).payload)[0] == t.SCO
+                assert _payload_tokens((await _recv(reader)).payload)[0] == t.NOW
 
                 # -- 5. SCO ---------------------------------------------------------
                 await _send_command(writer, t.SCO)
