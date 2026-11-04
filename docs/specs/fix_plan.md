@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-04.
-- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe; CO3 open), then
+- **Open tracks:** Track CO (DAIDE server defects from a 2026-11-03 client probe; CO4 open), then
   Track F (a human playing the game end to end, and host chores), which is the
   maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
@@ -43,10 +43,16 @@ notes were right; these were not.
       stalls mid-frame, stays open forever. (d) Wrong DCSP codes: a DM first gets 0x07
       (expected 0x02), a second IM 0x08 (expected 0x06), a client RM 0x08 (expected 0x0D).
 - [x] **CO2 — ORD and SUB misreport orders.** Done in v3.0.231; see the commit message.
-- [ ] **CO3 — the handshake.** `NME` is answered with `HLO` at once; a client following the
-      standard sequence (NME → YES(NME), MAP → MDF → YES(MAP) → HLO, then SCO and NOW) gets
-      `HUH (YES ERR (MAP))` for its `YES (MAP ...)` and may stall. Check the DAIDE spec,
-      then accept the standard sequence without breaking today's clients.
+- [x] **CO3 — the handshake.** Done in v3.0.233; see the commit message.
+- [ ] **CO4 — review follow-ups from CO1/CO2.** (a) Over-building across separate SUBs:
+      `SUB (BLD A VIE)` then `SUB (BLD A BUD)` with one build owed answers both with `MBV`,
+      and `_make_room` silently drops VIE; DAIDE says the second gets `NMB` and VIE stays.
+      (b) `RTO` from a province with no dislodged unit gets `NRN` where `NSU` fits
+      (session.py's "no dislodged unit at" note mapping). (c) `_dispatch_loop`'s
+      `except _TRANSPORT_ERRORS: return` also swallows an `OSError` raised by a handler
+      itself, with no log line. (d) No TCP keepalive on accepted sockets: a seated client
+      whose network vanishes without FIN/RST keeps its slot, and its `IAM` reclaim from a
+      new connection gets `REJ` for minutes.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

@@ -23,6 +23,10 @@ from server.daide.server import DaideServer
 from server.daide.session import (
     DaideSession,
     _reason_to_note_token,
+    build_hlo_tokens,
+    build_mdf_tokens,
+    build_now_tokens,
+    build_sco_tokens,
     build_mis_tokens,
     parse_phase_code,
     text_clause,
@@ -102,21 +106,86 @@ def _unit_order_clause(power: Token, kind: Token, province: Token, verb: Token, 
 
 
 class TestNmeHlo:
-    async def test_nme_assigns_next_power_and_replies_hlo(self, service: GameService) -> None:
+    async def test_nme_seats_a_power_and_replies_yes_then_map(self, service: GameService) -> None:
         gid = _new_game(service)
         server = DaideServer(service, game_id=gid)
         writer = FakeWriter()
         session = DaideSession(None, writer, server)
 
-        frames = await _dispatch(session, writer, t.NME, *text_clause("DumbBot"), *text_clause("1.0"))
+        nme = [t.NME, *text_clause("DumbBot"), *text_clause("1.0")]
+        frames = await _dispatch(session, writer, *nme)
 
         assert session.power == STANDARD_POWERS[0]  # AUSTRIA: first unclaimed
         assert session.client_name == "DumbBot"
-        assert len(frames) == 1
-        hlo = frames[0]
-        assert hlo[0] == t.HLO
-        assert t.AUS in hlo
-        assert t.LVL in hlo
+        assert frames == [[t.YES, t.OPEN_PAREN, *nme, t.CLOSE_PAREN], [t.MAP, *text_clause("STANDARD")]]
+
+    async def test_yes_map_completes_the_handshake_with_hlo_sco_now(self, service: GameService) -> None:
+        gid = _new_game(service)
+        server = DaideServer(service, game_id=gid)
+        writer = FakeWriter()
+        session = DaideSession(None, writer, server)
+        await _dispatch(session, writer, t.NME, *text_clause("DumbBot"), *text_clause("1.0"))
+        yes_map = [t.YES, t.OPEN_PAREN, t.MAP, *text_clause("STANDARD"), t.CLOSE_PAREN]
+
+        frames = await _dispatch(session, writer, *yes_map)
+
+        game = service.load(gid)
+        assert frames == [
+            build_hlo_tokens("AUSTRIA", session.passcode),
+            build_sco_tokens(service.view(gid)["ownership"], server.map),
+            build_now_tokens(game.state, server.map),
+        ]
+        assert await _dispatch(session, writer, *yes_map) == []  # a repeat needs no answer
+
+    async def test_map_and_mdf_are_served_before_nme(self, service: GameService) -> None:
+        gid = _new_game(service)
+        server = DaideServer(service, game_id=gid)
+        writer = FakeWriter()
+        session = DaideSession(None, writer, server)
+
+        assert await _dispatch(session, writer, t.MAP) == [[t.MAP, *text_clause("STANDARD")]]
+        assert await _dispatch(session, writer, t.MDF) == [build_mdf_tokens(server.map)]
+        assert session.power is None
+
+    async def test_rej_map_releases_the_power_and_ends_the_session(self, service: GameService) -> None:
+        gid = _new_game(service)
+        server = DaideServer(service, game_id=gid)
+        writer = FakeWriter()
+        session = DaideSession(None, writer, server)
+        await _dispatch(session, writer, t.NME, *text_clause("Bot"), *text_clause("1.0"))
+
+        frames = await _dispatch(session, writer, t.REJ, t.OPEN_PAREN, t.MAP, *text_clause("STANDARD"), t.CLOSE_PAREN)
+
+        assert frames == [[t.OFF]]
+        assert session.power is None
+        assert session.closing is True
+        assert server.sessions_for(gid) == {}
+
+    async def test_yes_or_rej_of_anything_but_map_is_huh(self, service: GameService) -> None:
+        session, writer, _server, _gid = _identified_session(service)
+        for verb in (t.YES, t.REJ):
+            frames = await _dispatch(session, writer, verb, t.OPEN_PAREN, t.DRW, t.CLOSE_PAREN)
+            assert frames == [[t.HUH, t.OPEN_PAREN, verb, t.ERR, t.OPEN_PAREN, t.DRW, t.CLOSE_PAREN, t.CLOSE_PAREN]]
+        assert session.power == "AUSTRIA"
+
+    async def test_obs_is_rejected(self, service: GameService) -> None:
+        gid = _new_game(service)
+        session = DaideSession(None, writer := FakeWriter(), DaideServer(service, game_id=gid))
+        assert await _dispatch(session, writer, t.OBS) == [[t.REJ, t.OPEN_PAREN, t.OBS, t.CLOSE_PAREN]]
+
+    async def test_client_hlo_resends_hlo_after_iam(self, service: GameService) -> None:
+        gid = _new_game(service)
+        server = DaideServer(service, game_id=gid)
+        w1 = FakeWriter()
+        s1 = DaideSession(None, w1, server)
+        await _dispatch(s1, w1, t.NME, *text_clause("Bot"), *text_clause("1.0"))
+        server.unregister(gid, s1.power, s1)
+        w2 = FakeWriter()
+        s2 = DaideSession(None, w2, server)
+        iam = [t.IAM, t.OPEN_PAREN, t.AUS, t.CLOSE_PAREN, t.OPEN_PAREN, Token.from_int(s1.passcode), t.CLOSE_PAREN]
+        assert await _dispatch(s2, w2, *iam) == [[t.YES, t.OPEN_PAREN, *iam, t.CLOSE_PAREN]]
+
+        assert await _dispatch(s2, w2, t.HLO) == [build_hlo_tokens("AUSTRIA", s1.passcode)]
 
     async def test_nme_rejected_once_every_power_is_claimed(self, service: GameService) -> None:
         gid = _new_game(service)
@@ -494,7 +563,7 @@ class TestErrors:
         server = DaideServer(service, game_id=gid)
         writer = FakeWriter()
         session = DaideSession(None, writer, server)
-        await session._handle_diplomacy(bytes(t.MAP))
+        await session._handle_diplomacy(bytes(t.NOW))
         frame = _decode_frame(writer.sent[-1])
         assert frame[0] == t.REJ
 

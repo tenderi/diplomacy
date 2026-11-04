@@ -197,7 +197,7 @@ bot ecosystem (DumbBot, Albert, …). Started as an `asyncio.start_server` liste
 | `tokens.py` | The DAIDE byte-level vocabulary as a bidirectional registry; province coverage is asserted against `engine.map_loader`, never a second hardcoded list. |
 | `wire.py` | DCSP framing: IM/RM/DM/FM/EM message types over asyncio streams. |
 | `clauses.py` | Encode/decode bridge between DAIDE token clauses and `engine.types`; decode reuses `engine.orders.parser`, not a second grammar. |
-| `session.py` | `DaideSession` — per-connection protocol state machine: the IM/RM handshake, then NME/IAM/HLO/MAP/MDF/SCO/NOW/SUB/THX/MIS/TME/HST/DRW/ADM/SND dispatch, all through `GameService`. |
+| `session.py` | `DaideSession` — per-connection protocol state machine: the IM/RM handshake, the standard NME → YES+MAP → YES (MAP) → HLO/SCO/NOW sequence, then IAM/HLO/MAP/MDF/SCO/NOW/SUB/THX/MIS/TME/HST/DRW/ADM/SND dispatch, all through `GameService`. |
 | `server.py` | `DaideServer` — the listening socket, lazy game creation on first successful NME, the power/passcode registry, the `notify_game_processed` broadcast (NOW/ORD/OUT/SLO), and the `on_draw_vote` hook through which a `DRW` reaches the Telegram notifications (`api.shared.after_draw_vote`). |
 
 **Known, permanent limitation:** press content (`PRP`/`ALY`/`XDO` inside `SND`/`FRM`) is

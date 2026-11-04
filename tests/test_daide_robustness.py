@@ -73,8 +73,18 @@ async def _assert_closed_after_error(reader: asyncio.StreamReader, code: ErrorCo
 
 
 async def _nme(conn: Conn, name: str = "Bot") -> list[Token]:
+    """The standard handshake: NME, then YES (MAP ...) once MAP arrives.
+    Returns HLO, or the first reply to NME when it is not YES."""
     await _send(conn[1], t.NME, *text_clause(name), *text_clause("1.0"))
-    return await _recv_tokens(conn[0])
+    reply = await _recv_tokens(conn[0])
+    if reply[0] != t.YES:
+        return reply
+    map_msg = await _recv_tokens(conn[0])
+    assert map_msg[0] == t.MAP
+    await _send(conn[1], t.YES, t.OPEN_PAREN, *map_msg, t.CLOSE_PAREN)
+    hlo = await _recv_tokens(conn[0])
+    assert [(await _recv_tokens(conn[0]))[0], (await _recv_tokens(conn[0]))[0]] == [t.SCO, t.NOW]
+    return hlo
 
 
 def _no_tracebacks(caplog: pytest.LogCaptureFixture) -> None:
@@ -219,6 +229,17 @@ class TestOnePowerPerConnection:
         assert (await _recv_tokens(second[0]))[0] == t.REJ
         assert list(server.sessions_for(server.game_id)) == ["ENGLAND"]
         second[1].close()
+
+    async def test_rej_map_gets_off_closes_the_connection_and_frees_the_power(self, server: DaideServer) -> None:
+        conn = await _connect(server)
+        await _send(conn[1], t.NME, *text_clause("Bot"), *text_clause("1.0"))
+        assert (await _recv_tokens(conn[0]))[0] == t.YES
+        map_msg = await _recv_tokens(conn[0])
+        await _send(conn[1], t.REJ, t.OPEN_PAREN, *map_msg, t.CLOSE_PAREN)
+        assert await _recv_tokens(conn[0]) == [t.OFF]
+        assert await asyncio.wait_for(conn[0].read(), timeout=5) == b""
+        assert server.sessions_for(server.game_id) == {}
+        conn[1].close()
 
 
 # ---------------------------------------------------------------------------
