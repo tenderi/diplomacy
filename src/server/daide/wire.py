@@ -34,6 +34,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import Optional
+
+from server.daide.tokens import Token
 
 PROTOCOL_VERSION = 1
 MAGIC_NUMBER = 0xDA10
@@ -138,12 +141,17 @@ class FinalMessage:
 
 @dataclass(frozen=True)
 class ErrorMessage:
-    """Reports a `DaideWireError`'s code to the peer. Always 2-byte body."""
+    """Reports a `DaideWireError`'s code to the peer. Always 2-byte body.
 
-    code: ErrorCode
+    ``code`` is a plain ``int`` only when a peer sent a code outside the
+    DCSP table: an incoming ErrorMessage means the peer is closing, so an
+    unknown code is something to log, not a reason to reject the frame.
+    """
+
+    code: ErrorCode | int
 
     def to_bytes(self) -> bytes:
-        return _pack_header(MessageType.ERROR, 2) + bytes((0, self.code.value))
+        return _pack_header(MessageType.ERROR, 2) + bytes((0, int(self.code) & 0xFF))
 
 
 Message = InitialMessage | RepresentationMessage | DiplomacyMessage | FinalMessage | ErrorMessage
@@ -172,6 +180,14 @@ def _decode_diplomacy(payload: bytes) -> DiplomacyMessage:
             ErrorCode.INVALID_TOKEN_IN_DM,
             f"diplomacy message body has odd length {len(payload)}",
         )
+    for i in range(0, len(payload), 2):
+        try:
+            Token.from_bytes(payload[i : i + 2])
+        except ValueError:
+            raise DaideWireError(
+                ErrorCode.INVALID_TOKEN_IN_DM,
+                f"diplomacy message has unknown token 0x{payload[i : i + 2].hex().upper()} at byte {i}",
+            ) from None
     return DiplomacyMessage(payload=payload)
 
 
@@ -181,26 +197,36 @@ def _decode_error(payload: bytes) -> ErrorMessage:
             ErrorCode.MESSAGE_SHORTER_THAN_DECLARED,
             f"error message body must be 2 bytes, got {len(payload)}",
         )
-    return ErrorMessage(code=ErrorCode(payload[1]))
+    code = payload[1]
+    return ErrorMessage(code=ErrorCode(code) if code in ErrorCode else code)
 
 
-async def read_message(reader: asyncio.StreamReader) -> Message:
+async def read_message(reader: asyncio.StreamReader, frame_timeout: Optional[float] = None) -> Message:
     """Read one complete DCSP frame off ``reader``.
 
-    Raises `DaideWireError` for a recognised message type whose body fails a
-    framing check (bad handshake, odd-length diplomacy payload, ...), and a
-    plain `ValueError` for a message type byte outside 0-4 (nothing in the
-    spec's error-code table covers a *type* the receiver has never heard of;
-    `UNKNOWN_MESSAGE_TYPE` in `ErrorCode` is reserved for the session layer to
-    raise once it decides a value it did understand was unexpected in
-    context). Propagates `asyncio.IncompleteReadError` unchanged if the
-    stream ends mid-frame.
+    Raises `DaideWireError` for any framing violation: a recognised message
+    type whose body fails a check (bad handshake, odd-length diplomacy
+    payload, a token outside the DAIDE vocabulary), a message type byte
+    outside 0-4 (`UNKNOWN_MESSAGE_TYPE`), or -- when ``frame_timeout`` is
+    given -- a frame whose first byte arrived but whose remainder did not
+    within ``frame_timeout`` seconds (`MESSAGE_SHORTER_THAN_DECLARED`: the
+    peer stalled mid-frame). Waiting for a frame's *first* byte is never
+    timed here; an idle connection is the caller's business. Propagates
+    `asyncio.IncompleteReadError` unchanged if the stream ends mid-frame.
     """
-    header = await reader.readexactly(_HEADER_LENGTH)
-    length = (header[2] << 8) | header[3]
-    payload = await reader.readexactly(length) if length else b""
+    first = await reader.readexactly(1)
+    try:
+        async with asyncio.timeout(frame_timeout):
+            rest = await reader.readexactly(_HEADER_LENGTH - 1)
+            length = (rest[1] << 8) | rest[2]
+            payload = await reader.readexactly(length) if length else b""
+    except TimeoutError:
+        raise DaideWireError(
+            ErrorCode.MESSAGE_SHORTER_THAN_DECLARED,
+            f"frame not completed within {frame_timeout} s",
+        ) from None
 
-    message_type = header[0]
+    message_type = first[0]
     if message_type == MessageType.INITIAL:
         return _decode_initial(payload)
     if message_type == MessageType.REPRESENTATION:
@@ -211,7 +237,7 @@ async def read_message(reader: asyncio.StreamReader) -> Message:
         return FinalMessage()
     if message_type == MessageType.ERROR:
         return _decode_error(payload)
-    raise ValueError(f"unknown DAIDE message type byte {message_type}")
+    raise DaideWireError(ErrorCode.UNKNOWN_MESSAGE_TYPE, f"unknown DAIDE message type byte {message_type}")
 
 
 async def write_message(writer: asyncio.StreamWriter, message: Message) -> None:

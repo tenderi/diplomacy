@@ -278,8 +278,9 @@ class _Session:
     def __init__(self) -> None:
         self.sent: list[tuple[Any, ...]] = []
 
-    async def _send(self, *tokens: Any) -> None:
-        self.sent.append(tokens)
+    async def deliver(self, *messages: Any) -> bool:
+        self.sent.extend(tuple(m) for m in messages)
+        return True
 
 
 def test_daide_ord_carries_the_movement_results_not_the_empty_retreat_s(
