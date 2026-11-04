@@ -22,7 +22,7 @@ from server.api.shared import db_service, game_service
 from server.daide import tokens as t
 from server.daide.clauses import turn_clause
 from server.daide.server import DaideServer
-from server.daide.session import build_ord_tokens
+from server.daide.session import build_ord_messages
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
 from tests.test_auto_process import BOT, _order, _phase, _table
@@ -300,11 +300,15 @@ def test_daide_ord_carries_the_movement_results_not_the_empty_retreat_s(
     assert retreat_dict is not None
     retreat = resolution_from_dict(retreat_dict)
 
-    def ords(phase_type: PhaseType, results: Any) -> list[list[Any]]:
+    def ords(phase_type: PhaseType, resolution: Any, as_dict: Any) -> list[list[Any]]:
         turn = list(turn_clause(Season.SPRING, phase_type, 1901))
-        return [list(build_ord_tokens(r.order, r.result, r.dislodged, phase_type, daide.map, turn)) for r in results]
+        return [
+            list(m) for m in build_ord_messages(resolution, as_dict["units"], phase_type, daide.map, turn)
+        ]
 
-    expected = ords(PhaseType.MOVEMENT, movement.results) + ords(PhaseType.RETREAT, retreat.results)
+    expected = ords(PhaseType.MOVEMENT, movement, resp.json()["resolution"]) + ords(
+        PhaseType.RETREAT, retreat, retreat_dict
+    )
     # Seven movement orders, then the trapped unit's disband in S1901R. Read
     # late, both batches were the retreat phase's.
     assert (len(movement.results), len(retreat.results)) == (7, 1)

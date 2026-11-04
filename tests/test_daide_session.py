@@ -557,10 +557,12 @@ class TestReasonToNoteToken:
             ("GERMANY has no unit to disband (4 supply centres, 2 units); it may build 2 units", t.NMR),
             ("GERMANY has 1 disband; 2 disbands submitted", t.NMR),
             ("BUR is not a legal retreat for A PAR", t.NVR),
-            ("no dislodged unit at BUR", t.NSU),
+            ("no dislodged unit at BUR", t.NRN),
             ("BUR is not adjacent to A PAR", t.FAR),
             ("F NTH cannot reach BUR to support", t.FAR),
             ("a unit cannot support itself", t.FAR),
+            ("A TRI cannot move to its own province", t.FAR),
+            ("a movement order is not accepted during the retreat phase (S1901R)", t.NRS),
             ("a convoying fleet must be in a sea space", t.NAS),
             ("only a fleet may convoy", t.NSF),
             ("only an army may move via convoy", t.NSA),
@@ -576,6 +578,49 @@ class TestReasonToNoteToken:
     )
     def test_reason_maps_to_expected_token(self, reason: str, expected) -> None:
         assert _reason_to_note_token(reason) == expected
+
+
+def _retreat_phase(service: GameService, gid: str) -> None:
+    st = GameState(
+        1901, Season.SPRING, PhaseType.RETREAT,
+        units=frozenset({Unit(UnitKind.ARMY, "AUSTRIA", Location("BUD"))}), ownership={},
+    )
+    service.restore_snapshot(gid, state_to_dict(st), phase_code=st.phase_name)
+
+
+class TestSubMergeAndNotes:
+    async def test_sub_replaces_only_the_same_units_order(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        await _dispatch(session, writer, t.SUB, *_unit_order_clause(t.AUS, t.FLT, t.TRI, t.HLD))
+        frames = await _dispatch(session, writer, t.SUB, *_unit_order_clause(t.AUS, t.AMY, t.VIE, t.HLD))
+        assert t.MBV in frames[0]
+        assert sorted(service.pending_orders_view(gid)["AUSTRIA"]) == ["A VIE H", "F TRI H"]
+        await _dispatch(session, writer, t.SUB, *_unit_order_clause(t.AUS, t.FLT, t.TRI, t.MTO, t.VEN))
+        assert sorted(service.pending_orders_view(gid)["AUSTRIA"]) == ["A VIE H", "F TRI - VEN"]
+
+    async def test_bare_sub_is_huh(self, service: GameService) -> None:
+        session, writer, _server, _gid = _identified_session(service)
+        frames = await _dispatch(session, writer, t.SUB)
+        assert frames == [[t.HUH, t.OPEN_PAREN, t.SUB, t.ERR, t.CLOSE_PAREN]]
+
+    async def test_order_of_the_wrong_phase_is_nrs(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _retreat_phase(service, gid)
+        frames = await _dispatch(session, writer, t.SUB, *_unit_order_clause(t.AUS, t.AMY, t.BUD, t.HLD))
+        assert frames[0][-2] == t.NRS
+
+    async def test_retreat_for_a_unit_owing_none_is_nrn(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _retreat_phase(service, gid)
+        rto = _unit_order_clause(t.AUS, t.AMY, t.BUD, t.RTO, t.SER)
+        dsb = _unit_order_clause(t.AUS, t.AMY, t.BUD, t.DSB)
+        assert (await _dispatch(session, writer, t.SUB, *rto))[0][-2] == t.NRN
+        assert (await _dispatch(session, writer, t.SUB, *dsb))[0][-2] == t.NRN
+
+    async def test_move_to_its_own_province_is_far(self, service: GameService) -> None:
+        session, writer, _server, _gid = _identified_session(service)
+        frames = await _dispatch(session, writer, t.SUB, *_unit_order_clause(t.AUS, t.AMY, t.TRI, t.MTO, t.TRI))
+        assert frames[0][-2] == t.FAR
 
 
 class TestParsePhaseCode:
