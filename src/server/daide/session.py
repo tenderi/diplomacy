@@ -19,6 +19,21 @@ equivalent of this but is not exported (it is a private module helper), so
 module's needs -- it repeatedly consumes one ``(...)`` group at a time from a
 flat token list, same nesting-aware technique.
 
+## The handshake
+
+The standard DAIDE client-server sequence, after the IM/RM exchange:
+
+    client NME ('name') ('version')  ->  server YES (NME ...), MAP ('STANDARD')
+    client MAP / MDF (optional)      ->  server MAP ('STANDARD') / MDF (...)
+    client YES (MAP ('STANDARD'))    ->  server HLO (power) (passcode) (LVL n), SCO, NOW
+    client REJ (MAP ('STANDARD'))    ->  server OFF, power released, session closed
+
+The power and passcode are assigned at NME (so a full game answers REJ (NME
+...) at once); HLO waits for YES (MAP), as the spec has it. A reconnecting
+client sends IAM (power) (passcode), gets YES (IAM ...) and then asks for
+what it needs (`HLO`, `SCO`, `NOW`, ...); a client `HLO` re-sends HLO at any
+time. `OBS` is REJ: observers are out of scope.
+
 ## THX order-note mapping
 
 `_reason_to_note_token` maps an `engine.orders.validation.ValidationResult.reason`
@@ -111,6 +126,12 @@ _logger = logging.getLogger("diplomacy.server.daide")
 # (the LVL 10 press-time-limit / partial-draw extensions) -- level 0 covers
 # the base gameplay message set this module actually speaks.
 DAIDE_LEVEL = 0
+# The name `MAP` announces; the DAIDE spec's own spelling of the standard map.
+MAP_NAME = "STANDARD"
+# Commands a connection may send before it holds a power. MAP and MDF are
+# static and harmless; everything else (OBS included: observers are out of
+# scope) is REJ until NME or IAM succeeds.
+_UNSEATED_COMMANDS = frozenset({"NME", "IAM", "MAP", "MDF"})
 
 # DCSP's IM timer: a connection must complete its InitialMessage within this
 # many seconds of being accepted, or it gets `IM_TIMER_EXPIRED` and is closed.
@@ -644,6 +665,13 @@ class DaideSession:
         self.client_name: str = ""
         self.client_version: str = ""
         self.passcode: Optional[int] = None
+        # The standard handshake (module docstring, "The handshake"): NME seats
+        # the power and answers YES (NME ...) + MAP; HLO/SCO/NOW wait for the
+        # client's YES (MAP ...). True once HLO has been pushed (or after IAM).
+        self.welcomed = False
+        # Set by a handler that ends the session (REJ (MAP ...)); the dispatch
+        # loop returns after that message.
+        self.closing = False
 
     # -- connection lifecycle ----------------------------------------------
 
@@ -730,6 +758,8 @@ class DaideSession:
                 await self._handle_diplomacy(msg.payload)
             except _TRANSPORT_ERRORS:
                 return  # our own peer went away while we answered it
+            if self.closing:
+                return
 
     async def _safe_send_error(self, code: wire.ErrorCode) -> None:
         with contextlib.suppress(*_TRANSPORT_ERRORS):
@@ -785,7 +815,7 @@ class DaideSession:
             return
 
         command, *args = tokens_
-        if command.text not in ("NME", "IAM") and self.power is None:
+        if command.text not in _UNSEATED_COMMANDS and self.power is None:
             await self._send(t.REJ, *_echo(tokens_))
             return
 
@@ -826,7 +856,8 @@ class DaideSession:
         self.game_id = game_id
         self.power = power
         self.passcode = self.server.register(game_id, power, self)
-        await self._send(*build_hlo_tokens(power, self.passcode))
+        await self._send(t.YES, *_echo(raw))
+        await self._send(t.MAP, *text_clause(MAP_NAME))
 
     async def _cmd_iam(self, args: list[Token], raw: list[Token]) -> None:
         groups = _top_level_groups(args)
@@ -852,12 +883,47 @@ class DaideSession:
             self.game_id = game_id
             self.power = power
             self.passcode = passcode
+            self.welcomed = True  # a reconnecting client asks for HLO/NOW/... itself
             await self._send(t.YES, *_echo(raw))
         else:
             await self._send(t.REJ, *_echo(raw))
 
     async def _cmd_map(self, args: list[Token], raw: list[Token]) -> None:
-        await self._send(t.MAP, *text_clause("standard"))
+        await self._send(t.MAP, *text_clause(MAP_NAME))
+
+    async def _cmd_hlo(self, args: list[Token], raw: list[Token]) -> None:
+        """A client's ``HLO`` asks for its HLO again (after `IAM`, typically)."""
+        if self.power is None or self.passcode is None:
+            raise SessionProtocolError("HLO before a power was assigned")
+        await self._send(*build_hlo_tokens(self.power, self.passcode))
+
+    async def _cmd_yes(self, args: list[Token], raw: list[Token]) -> None:
+        """``YES (MAP ('name'))`` accepts the map: push HLO, SCO and NOW, the
+        standard end of the NME handshake. A repeat is ignored (a YES needs no
+        answer). The client sends no other top-level YES."""
+        if not self._is_map_reply(args):
+            raise SessionProtocolError("the only YES a client sends is YES (MAP ('name'))")
+        if self.welcomed:
+            return
+        self.welcomed = True
+        await self._cmd_hlo([], raw)
+        await self._cmd_sco([], raw)
+        await self._cmd_now([], raw)
+
+    async def _cmd_rej(self, args: list[Token], raw: list[Token]) -> None:
+        """``REJ (MAP ('name'))``: the client cannot play this map. Release
+        its power, say ``OFF`` and end the session."""
+        if not self._is_map_reply(args):
+            raise SessionProtocolError("the only REJ a client sends is REJ (MAP ('name'))")
+        self.server.unregister(self.game_id, self.power, self)
+        self.power = None
+        self.closing = True
+        await self._send(t.OFF)
+
+    @staticmethod
+    def _is_map_reply(args: list[Token]) -> bool:
+        groups = _top_level_groups(args)
+        return len(groups) == 1 and bool(groups[0]) and groups[0][0] == t.MAP
 
     async def _cmd_mdf(self, args: list[Token], raw: list[Token]) -> None:
         await self._send(*build_mdf_tokens(self.server.map))
@@ -1016,6 +1082,9 @@ class DaideSession:
     _HANDLERS: dict[str, Any] = {
         "NME": _cmd_nme,
         "IAM": _cmd_iam,
+        "HLO": _cmd_hlo,
+        "YES": _cmd_yes,
+        "REJ": _cmd_rej,
         "MAP": _cmd_map,
         "MDF": _cmd_mdf,
         "SCO": _cmd_sco,
