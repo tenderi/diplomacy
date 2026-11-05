@@ -17,25 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-05.
-- **Open tracks:** Track CQ (order input defects), then Track F (a human playing the game end
-  to end, and host chores), which is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
+- **Open tracks:** only Track F (a human playing the game end to end, and host chores), which
+  is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track CQ — order input defects (2026-11-05 play-through)
-
-A play-through via the HTTP API found three order-input defects.
-
-- [ ] **CQ1 — 500 on a bad coast token.** `POST /games/set_orders` with `F MAO - SPA/XX`
-  (also `F STP/XX - BOT`, `F BRE - SPA/XX`) is an HTTP 500 (`ValueError: invalid coast 'XX'
-  for SPA` from `Location`). The parser must refuse it as an `OrderParseError` naming the
-  province's coasts, in every grammar (move, support, retreat, build, disband).
-- [ ] **CQ2 — a unit may support its own move.** `A WAR S A WAR - UKR` is accepted at
-  submission and adjudicated VOID. Refuse it like a self-support-hold (`a unit cannot
-  support itself`).
-- [ ] **CQ3 — `A WAR S A MOS H` is refused** as a malformed support order. Accept the
-  trailing hold word on a support-to-hold; it is the same order as `A WAR S A MOS`.
 
 # Track F — Manual acceptance and host chores (maintainer)
 

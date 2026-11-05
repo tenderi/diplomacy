@@ -60,7 +60,7 @@ retreat-phase: `Retreat`, `Disband`; adjustment-phase: `Build`, `Disband` (share
 |---|---|---|
 | `Hold` | `unit` | `A PAR H` |
 | `Move` | `unit`, `dest`, `via_convoy` | `A PAR - BUR`, `A LON - BEL VIA` |
-| `SupportHold` | `unit`, `target` | `F BRE S A PAR` |
+| `SupportHold` | `unit`, `target` | `F BRE S A PAR`, `F BRE S A PAR H` |
 | `SupportMove` | `unit`, `origin`, `dest` | `F BRE S A PIC - BEL` |
 | `Convoy` | `unit`, `origin`, `dest` | `F NTH C A LON - BEL` |
 | `Retreat` | `unit`, `dest` | `A PAR R BUR` |
@@ -69,7 +69,12 @@ retreat-phase: `Retreat`, `Disband`; adjustment-phase: `Build`, `Disband` (share
 | `Waive` | — | `WAIVE` |
 
 All `Location`-typed fields, not strings — there is no separate "target province name"
-field to keep in sync with a `Location`. Grammar/parsing lives in `orders/parser.py`;
+field to keep in sync with a `Location`. A support-to-hold may end in a hold word (`H`,
+`HOLD`, `HOLDS`); `F BRE S A PAR H` parses to the same order as `F BRE S A PAR`. A coast
+is written `PROV/XX` or `PROV(XX)`; on a fleet at or into a split-coast province it must
+be one of that province's coasts, or the order is a parse error (`parse error: XX is not a
+coast of SPA (SPA/NC or SPA/SC)`); an army's coast is ignored and a single-coast
+province's is dropped. Grammar/parsing lives in `orders/parser.py`;
 legality (not just grammar) in `orders/validation.py`; adjudication semantics for each
 type in `adjudication.md`.
 
@@ -490,7 +495,8 @@ move, written with or without `VIA` (the rulebook writes `A Lon-Bel`); it is acc
 non-adjacent move is refused (`BEL is not adjacent to MUN`), as is a move to the unit's own
 province (`LON cannot move to its own province`); a support of a move into the supporter's
 own province is refused as such (`VEN cannot support a move into its own province`), not as
-out of reach. A fleet moving to a split-coast province
+out of reach, and a unit supporting itself, to hold or to move (`A WAR S A WAR - UKR`), is
+refused (`a unit cannot support itself`). A fleet moving to a split-coast province
 (BUL, SPA, STP) without naming a coast is accepted when exactly one coast is reachable from
 where it stands (`F BLA - BUL` arrives on BUL/EC; the adjudicator infers it), refused as
 ambiguous when both are (`fleet move into split-coast BUL must name a coast (BUL/EC or

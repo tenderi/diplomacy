@@ -331,6 +331,8 @@ def _validate_support_hold(order: SupportHold, unit: Unit, map: MapData) -> Vali
 
 
 def _validate_support_move(order: SupportMove, unit: Unit, map: MapData) -> ValidationResult:
+    if order.origin.province == unit.location.province:
+        return ValidationResult(False, "a unit cannot support itself")
     if order.dest.province == unit.location.province:
         return ValidationResult(
             False, f"{unit.location} cannot support a move into its own province"
