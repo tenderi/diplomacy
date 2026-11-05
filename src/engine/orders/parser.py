@@ -16,7 +16,9 @@ Design notes:
   separate alias table in this module.
 - Coasts are recognised in both ``PROV/XX`` and ``PROV(XX)`` spellings. Armies
   ignore a coast qualifier (DATC 6.B.12), and a coast on a single-coast
-  province is dropped. A fleet order naming a split-coast province with no
+  province is dropped. A fleet coast the split-coast province does not have
+  (``SPA/XX``, ``SPA/EC``) is an ``OrderParseError``. A fleet order naming a
+  split-coast province with no
   coast parses; ``orders/validation.py`` infers the coast when only one is
   reachable and refuses the order as ambiguous when two are.
 - ``Order`` dataclasses (other than ``Build``) record the unit kind the text
@@ -159,10 +161,14 @@ def _parse_location(token: str, map: MapData, *, fleet: bool) -> Location:
         elif not map.is_split_coast(canonical):
             # A coast on a single-coast province is meaningless; drop it.
             coast = None
-        # Otherwise keep the coast as written. Whether it is actually a coast of
-        # the province, and whether it is reachable, is decided by the
-        # adjudicator/validation (one legality path) — a wrong or unspecified
-        # coast becomes a VOID move, not a parse error.
+        elif coast not in map.coasts_of(canonical):
+            # ``SPA/XX`` or ``SPA/EC`` names no coast the province has: a typo,
+            # refused here rather than handed to ``Location`` (which raises a
+            # bare ValueError on anything but NC/SC/EC/WC).
+            named = " or ".join(f"{canonical}/{c}" for c in map.coasts_of(canonical))
+            raise OrderParseError(f"{coast} is not a coast of {canonical} ({named})")
+        # Otherwise keep the coast as written. Whether it is reachable is decided
+        # by validation (one legality path).
     return Location(canonical, coast)
 
 
@@ -266,7 +272,8 @@ def parse_order(text: str, *, power: str, map: MapData) -> Order:
         sub_kind = UnitKind.ARMY if sub[0] == "A" else UnitKind.FLEET
         origin = _parse_location(sub[1], map, fleet=sub_kind is UnitKind.FLEET)
         sub_rest = sub[2:]
-        if not sub_rest:
+        if not sub_rest or (len(sub_rest) == 1 and sub_rest[0] in _HOLD_WORDS):
+            # ``A WAR S A MOS`` and ``A WAR S A MOS H`` are the same order.
             return SupportHold(power, unit=unit_loc, target=origin, written_kind=kind)
         if sub_rest[0] == "-" and len(sub_rest) == 2:
             dest = _parse_location(sub_rest[1], map, fleet=sub_kind is UnitKind.FLEET)
