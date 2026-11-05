@@ -8,6 +8,7 @@ from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
 import os
 
+from persistence.database import utcnow_naive
 from ..shared import db_service, server, logger, notify_players, is_admin_token
 from ...response_cache import get_cache_stats, clear_response_cache, invalidate_cache
 
@@ -90,7 +91,7 @@ def admin_get_users_count() -> Dict[str, Any]:
 @router.post("/admin/cleanup_old_maps", dependencies=[Depends(require_admin)])
 def cleanup_old_maps() -> Dict[str, Any]:
     """Clean up map images older than 24 hours (admin only)"""
-    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+    cutoff_time = utcnow_naive() - timedelta(hours=24)  # created_at is naive UTC
     old_snapshots = db_service.get_game_snapshots_with_old_map_images(cutoff_time)
         
     cleaned_count = 0

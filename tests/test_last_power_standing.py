@@ -120,7 +120,11 @@ def test_a_solo_victory_refreshes_every_players_game_list(client: TestClient) ->
     for tg in seats.values():
         assert _listed_status(client, tg, game_id) == ["completed"]
     assert game_service.ending(game_id) == {"winners": ["FRANCE"], "how": "solo"}
-    assert dm.call_args_list[-1].args[1].endswith(f"\nGame {game_id} has ended: FRANCE has won with a solo victory.")
+    # Each player's own DM, by recipient: the fan-out order is not under test.
+    ending = {str(c.args[0]): c.args[1] for c in dm.call_args_list if "has ended" in c.args[1]}
+    assert sorted(ending) == sorted(seats.values())
+    assert ending[seats["GERMANY"]].endswith(f"\nGame {game_id} has ended: FRANCE has won with a solo victory.")
+    assert ending[seats["FRANCE"]].endswith(f"\nGame {game_id} has ended: you have won with a solo victory.")
 
 
 def test_the_last_two_conceding_together_end_the_game_without_a_winner(client: TestClient) -> None:
