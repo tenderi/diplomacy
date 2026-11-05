@@ -17,27 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-05.
-- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP5 open), then Track F (a human playing the game end to end, and host chores), which
+- **Open tracks:** only Track F (a human playing the game end to end, and host chores), which
   is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track CP — code-health findings (2026-11-04 sweep)
-
-- [x] **CP1 — a flaky notification test.** Done in v3.0.235; see the commit message.
-- [x] **CP2 — tz-aware datetimes written to naive `TIMESTAMP` columns.** Done in
-      v3.0.235; see the commit message.
-- [ ] **CP5 — `server_default now()` on naive `TIMESTAMP` columns.** Several Alembic
-      revisions give naive columns (`games.created_at`/`updated_at`, `players.created_at`,
-      `password_reset_tokens.created_at`, ...) `DEFAULT now()`, which stores the session
-      timezone's wall time. The ORM always supplies `utcnow_naive()`, so only a raw-SQL
-      insert reaches the default; a revision changing them to `timezone('UTC', now())`
-      would close it.
-- [x] **CP3 — an idempotency key does not cover a request still in flight.** Done in
-      v3.0.236; see the commit message.
-- [x] **CP4 — an admin restore keeps the later phase's deadline.** Done in v3.0.237; see
-      the commit message.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
