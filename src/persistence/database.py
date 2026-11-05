@@ -513,18 +513,18 @@ def create_database_schema(database_url: str):
             if 'created_at' not in users_columns:
                 try:
                     conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP"))
-                    conn.execute(text("UPDATE users SET created_at = NOW() WHERE created_at IS NULL"))
+                    conn.execute(text("UPDATE users SET created_at = timezone('UTC', now()) WHERE created_at IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET NOT NULL"))
-                    conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW()"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT timezone('UTC', now())"))
                 except SQLAlchemyError:
                     pass
             
             if 'updated_at' not in users_columns:
                 try:
                     conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
-                    conn.execute(text("UPDATE users SET updated_at = NOW() WHERE updated_at IS NULL"))
+                    conn.execute(text("UPDATE users SET updated_at = timezone('UTC', now()) WHERE updated_at IS NULL"))
                     conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET NOT NULL"))
-                    conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET DEFAULT NOW()"))
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN updated_at SET DEFAULT timezone('UTC', now())"))
                 except SQLAlchemyError:
                     pass
         

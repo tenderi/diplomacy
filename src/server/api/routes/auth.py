@@ -593,7 +593,7 @@ def create_link_code(
     return {
         "code": code,
         "expires_in_seconds": ttl_minutes * 60,
-        "expires_at": expires_at.isoformat(),
+        "expires_at": expires_at.replace(tzinfo=timezone.utc).isoformat(),  # stored naive UTC
     }
 
 
