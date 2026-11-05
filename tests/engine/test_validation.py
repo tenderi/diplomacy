@@ -182,6 +182,19 @@ class TestSupport:
         result = validate(order, state, m)
         assert result.ok is False
 
+    @pytest.mark.parametrize(
+        ("text", "power", "unit"),
+        [
+            ("A WAR S A WAR - UKR", "RUSSIA", Unit(UnitKind.ARMY, "RUSSIA", Location("WAR"))),
+            ("F SEV S F SEV - BLA", "RUSSIA", Unit(UnitKind.FLEET, "RUSSIA", Location("SEV"))),
+        ],
+    )
+    def test_support_own_move_rejected(self, m, text, power, unit):
+        """CQ2: a unit supporting its own move was accepted, then adjudicated VOID."""
+        state = _state([unit])
+        result = validate(parse_order(text, power=power, map=m), state, m)
+        assert (result.ok, result.reason) == (False, "a unit cannot support itself")
+
     def test_support_move_in_range_ok(self, m):
         state = _state([Unit(UnitKind.FLEET, "ENGLAND", Location("NTH"))])
         order = SupportMove("ENGLAND", Location("NTH"), Location("PIC"), Location("BEL"))

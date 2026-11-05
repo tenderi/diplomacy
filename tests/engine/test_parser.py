@@ -139,6 +139,17 @@ class TestSupportHold:
         with pytest.raises(OrderParseError):
             parse_order("F BRE S", power="FRANCE", map=m)
 
+    @pytest.mark.parametrize("hold_word", ["H", "HOLD", "holds"])
+    def test_trailing_hold_word(self, m, hold_word):
+        """CQ3: ``A WAR S A MOS H`` was refused as a malformed support order."""
+        assert parse_order(f"A WAR S A MOS {hold_word}", power="RUSSIA", map=m) == SupportHold(
+            "RUSSIA", Location("WAR"), Location("MOS")
+        )
+
+    def test_trailing_hold_word_then_more_is_malformed(self, m):
+        with pytest.raises(OrderParseError, match="malformed support order"):
+            parse_order("A WAR S A MOS H H", power="RUSSIA", map=m)
+
 
 class TestSupportMove:
     def test_short(self, m):
@@ -437,3 +448,40 @@ def test_build_roundtrip_property(power, pair):
 def test_waive_roundtrip_property(power):
     order = Waive(power)
     assert parse_order(format_order(order), power=power, map=_MAP) == order
+
+
+class TestUnknownCoast:
+    """CQ1: a coast the split-coast province lacks raised a bare ValueError
+    from ``Location`` (an HTTP 500 at ``POST /games/set_orders``)."""
+
+    @pytest.mark.parametrize(
+        ("text", "power", "message"),
+        [
+            ("F MAO - SPA/XX", "FRANCE", "XX is not a coast of SPA (SPA/NC or SPA/SC)"),
+            ("F BRE - SPA(XX)", "FRANCE", "XX is not a coast of SPA (SPA/NC or SPA/SC)"),
+            ("F MAO - SPA/EC", "FRANCE", "EC is not a coast of SPA (SPA/NC or SPA/SC)"),
+            ("F STP/XX - BOT", "RUSSIA", "XX is not a coast of STP (STP/NC or STP/SC)"),
+            ("F STP/XX H", "RUSSIA", "XX is not a coast of STP (STP/NC or STP/SC)"),
+            ("BUILD F STP/XX", "RUSSIA", "XX is not a coast of STP (STP/NC or STP/SC)"),
+            ("F STP/XX B", "RUSSIA", "XX is not a coast of STP (STP/NC or STP/SC)"),
+            ("D F BUL/XX", "TURKEY", "XX is not a coast of BUL (BUL/EC or BUL/SC)"),
+            ("F BUL/XX R CON", "TURKEY", "XX is not a coast of BUL (BUL/EC or BUL/SC)"),
+            ("F AEG R BUL/XX", "TURKEY", "XX is not a coast of BUL (BUL/EC or BUL/SC)"),
+            ("F WES S F MAO - SPA/XX", "FRANCE", "XX is not a coast of SPA (SPA/NC or SPA/SC)"),
+            ("F LYO S F SPA/XX", "FRANCE", "XX is not a coast of SPA (SPA/NC or SPA/SC)"),
+        ],
+    )
+    def test_refused_with_the_coasts_it_has(self, m, text, power, message):
+        with pytest.raises(OrderParseError) as exc:
+            parse_order(text, power=power, map=m)
+        assert str(exc.value) == message
+
+    def test_army_still_ignores_any_coast(self, m):
+        assert parse_order("A GAS - SPA/XX", power="FRANCE", map=m) == Move(
+            "FRANCE", Location("GAS"), Location("SPA")
+        )
+
+    def test_single_coast_province_still_drops_it(self, m):
+        assert parse_order("F MAO - BRE/XX", power="FRANCE", map=m) == Move(
+            "FRANCE", Location("MAO"), Location("BRE")
+        )

@@ -114,6 +114,7 @@ A PAR - BUR            Army Paris moves to Burgundy
 F BRE H                Fleet Brest holds
 A MAR S A PAR - BUR    Marseilles supports Paris → Burgundy
 F BRE S A PAR          Brest supports Paris to hold
+F BRE S A PAR H        The same, with the hold written out
 F NTH C A LON - BEL    North Sea convoys London → Belgium
 A LON - BEL VIA        Move explicitly via convoy
 A MUN R TYR            Retreat (retreat phase)
