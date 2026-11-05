@@ -1858,6 +1858,7 @@ def _decorated_results(resolution: dict[str, Any]) -> list[dict[str, Any]]:
         reason = result_reason(r, results)
         if reason is not None:
             r["reason"] = reason
+        r.update(bounce_rivals(r, results))
     return results
 
 
@@ -1884,6 +1885,55 @@ def _dislodger(results: list[dict[str, Any]], province: str) -> str:
 
 def _province(loc: Any) -> str:
     return str(loc or "").split("/")[0]
+
+
+def bounce_rivals(r: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Who a bounced move ran into (CR1), read from the turn's other results:
+
+    - ``bounced_off``: ``"RUSSIA's A GAL"``, the unit that kept the destination
+      (it held, or its own move out failed, or it swapped places with the mover);
+    - ``bounced_with``: the other units that moved to the same province, as
+      ``["RUSSIA's A WAR"]`` -- those that bounced too, or won it.
+
+    Empty when ``r`` is not a bounced move or no rival is found (the stored
+    results of an older turn may be incomplete). A unit's power is the order's."""
+    order = r["order"]
+    if order["type"] != "MOVE" or r["result"] != "BOUNCE":
+        return {}
+    dest = _province(order["dest"])
+    origin = _province(order["unit"])
+    out: dict[str, Any] = {}
+    movers: list[str] = []
+    for o in results:
+        if o is r:
+            continue
+        oo = o["order"]
+        if oo["type"] in ("BUILD", "DISBAND", "WAIVE", "RETREAT"):
+            continue
+        unit = f"{oo['power']}'s {_unit_text(o)}"
+        here = _province(oo.get("unit"))
+        if here == dest:
+            # A holder that was dislodged this turn is not what the mover bounced
+            # off (the move that dislodged it is listed below); one whose support
+            # was merely cut, or whose move failed, still stands there.
+            if not (o.get("dislodged") or (oo["type"] == "MOVE" and o["result"] == "OK")):
+                out["bounced_off"] = unit
+        elif oo["type"] == "MOVE" and _province(oo["dest"]) == dest and here != origin:
+            movers.append(unit)
+    if movers:
+        out["bounced_with"] = movers
+    return out
+
+
+def _bounce_phrase(rivals: dict[str, Any]) -> str:
+    """" off RUSSIA's A GAL" / " (RUSSIA's A WAR also moved there)" for a ``bounce_rivals`` result."""
+    if "bounced_off" in rivals:
+        return f" off {rivals['bounced_off']}"
+    movers = rivals.get("bounced_with")
+    if not movers:
+        return ""
+    names = movers[0] if len(movers) == 1 else f"{', '.join(movers[:-1])} and {movers[-1]}"
+    return f" ({names} also moved there)"
 
 
 def _unit_text(r: dict[str, Any]) -> str:
@@ -1973,6 +2023,8 @@ def _outcome_line(r: dict[str, Any], results: list[dict[str, Any]]) -> Optional[
     reason = result_reason(r, results)
     if reason is not None:
         gloss = f"had no effect: {reason}" if code == "VOID" else f"failed: the convoy was broken when {reason}"
+    if code == "BOUNCE":
+        gloss += _bounce_phrase(bounce_rivals(r, results))
     if r.get("dislodged"):
         return f"{text} {gloss}; dislodged{_dislodger(results, province)}."
     return f"{text} {gloss}."
