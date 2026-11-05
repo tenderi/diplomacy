@@ -468,9 +468,11 @@ class GameRepo:
 
         An explicit, caller-decided rollback -- unlike ``save_state`` there is no
         staleness check; the caller has already chosen to discard whatever is
-        currently live. Also clears ``pending_orders``, ``draw_votes`` and ``wait_flags`` (all
-        were submitted against whatever phase was live before the restore, not
-        the restored one) and takes ``status`` from the state itself, so a
+        currently live. Also clears ``pending_orders``, ``draw_votes``, ``wait_flags``
+        and ``deadline`` (all belong to whatever phase was live before the restore,
+        not the restored one: a deadline armed for a later phase would otherwise
+        fire on the restored phase; the caller arms the restored phase's own, as
+        after a processed turn) and takes ``status`` from the state itself, so a
         finished game restored or imported is still listed as finished.
         """
         with self._session_factory() as session:
@@ -484,6 +486,7 @@ class GameRepo:
             row.pending_orders = {}
             row.draw_votes = {}
             row.wait_flags = {}
+            row.deadline = None
             row.updated_at = utcnow_naive()
             session.commit()
 

@@ -1738,6 +1738,9 @@ def restore_game_snapshot(
         game_service.restore_snapshot(game_id, snapshot_state_json, snapshot.phase_code)
     except ValueError as e:
         raise HTTPException(status_code=500, detail=f"Corrupt snapshot: {e}") from e
+    # The restore spent the discarded phase's deadline (CP4); the restored phase
+    # gets the one a freshly entered phase gets, as after a processed turn.
+    db_service.update_game_deadline(int(row.id), api_shared.scheduled_deadline(game_id))
     invalidate_cache(f"games/{game_id}")
     try:
         notify_players(

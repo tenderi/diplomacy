@@ -16,8 +16,8 @@
 
 ## Status
 
-- **Last updated:** 2026-11-04.
-- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP4 and CP5 open), then Track F (a human playing the game end to end, and host chores), which
+- **Last updated:** 2026-11-05.
+- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP5 open), then Track F (a human playing the game end to end, and host chores), which
   is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -36,11 +36,8 @@
       would close it.
 - [x] **CP3 — an idempotency key does not cover a request still in flight.** Done in
       v3.0.236; see the commit message.
-- [ ] **CP4 — an admin restore keeps the later phase's deadline.**
-      `game_repo.restore_state` and `restore_game_snapshot` (`routes/games.py`) clear
-      orders, votes and wait flags but not `games.deadline`, so a deadline armed for the
-      later phase may fire on the restored one. Verify how the scheduler
-      (`server/api/shared.py`) arms and uses deadlines first.
+- [x] **CP4 — an admin restore keeps the later phase's deadline.** Done in v3.0.237; see
+      the commit message.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
