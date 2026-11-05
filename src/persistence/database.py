@@ -29,6 +29,11 @@ def utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# Server-side default for the naive columns, matching the Alembic schema. Bare
+# ``now()`` would store the session timezone's wall time, not UTC.
+UTC_NOW = text("timezone('UTC', now())")
+
+
 class GameModel(Base):
     """Games table"""
     __tablename__ = 'games'
@@ -133,8 +138,8 @@ class GameModel(Base):
     # than applying last phase's orders to this phase's units. Nullable only for
     # rows created before the column existed; those games skip the check.
     phase_started_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive)
-    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
+    updated_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW, onupdate=utcnow_naive)
     
     # Relationships
     players = relationship("PlayerModel", back_populates="game", cascade="all, delete-orphan")
@@ -179,7 +184,7 @@ class LinkCodeModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     code = Column(String(32), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
     
     # Relationships
     user = relationship("UserModel", back_populates="link_codes")
@@ -322,7 +327,7 @@ class PasswordResetTokenModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     token = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
 
     # Relationships
     user = relationship("UserModel", backref="password_reset_tokens")
@@ -342,7 +347,7 @@ class PlayerModel(Base):
     controlled_supply_centers = Column(JSON, default=list)
     orders_submitted = Column(Boolean, default=False)
     last_order_time = Column(DateTime)
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
     
     # Constraints and indexes
     __table_args__ = (
@@ -366,7 +371,7 @@ class MapSnapshotModel(Base):
     units = Column(JSON, nullable=False)
     supply_centers = Column(JSON, nullable=False)
     map_image_path = Column(String(255))
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
     # The full serialized GameState (engine.serialization.state_to_dict) captured at
     # snapshot time, so /restore can rebuild an engine Game via state_from_dict.
     # Purely additive: nullable, so snapshots created before this column existed
@@ -423,8 +428,8 @@ class TournamentModel(Base):
     bracket_type = Column(String(50), nullable=True)  # 'single_elimination', 'double_elimination', 'round_robin'
     start_date = Column(DateTime, nullable=True)
     end_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive)
-    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
+    updated_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW, onupdate=utcnow_naive)
 
     # Relationships
     games = relationship("TournamentGameModel", back_populates="tournament", cascade="all, delete-orphan")
@@ -440,7 +445,7 @@ class TournamentGameModel(Base):
     game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
     round_number = Column(Integer, nullable=False, default=1)
     bracket_position = Column(String(50), nullable=True)  # e.g. '1', '2', 'semifinal_1'
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
 
     __table_args__ = (
         UniqueConstraint('tournament_id', 'game_id', name='uq_tournament_game'),
@@ -460,7 +465,7 @@ class TournamentPlayerModel(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True)
     seed = Column(Integer, nullable=True)
     final_rank = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive)
+    created_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW)
 
     __table_args__ = (
         UniqueConstraint('tournament_id', 'user_id', name='uq_tournament_user'),
@@ -478,7 +483,7 @@ class SpectatorModel(Base):
     id = Column(Integer, primary_key=True)
     game_id = Column(Integer, ForeignKey('games.id', ondelete='CASCADE'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    joined_at = Column(DateTime, default=utcnow_naive, nullable=False)
+    joined_at = Column(DateTime, default=utcnow_naive, server_default=UTC_NOW, nullable=False)
 
     __table_args__ = (
         UniqueConstraint('game_id', 'user_id', name='uq_spectator_game_user'),
