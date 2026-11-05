@@ -220,7 +220,7 @@ spectator tables — see `database.py` for the full model list. `DatabaseService
 |---|---|
 | `bot_outbox` | Everything waiting for the bot to send: `kind` (`dm`, `channel_text`, `channel_map`, `channel_create_thread`), `telegram_id` (a user or a group chat), `message`, `payload` (buttons, `parse_mode`, a map's `path`, …), `created_at`, `delivered_at` (NULL = pending), `attempts`, `last_error`. The bot pulls and acks; delivered rows are purged after 7 days. |
 | `feedback` | Player reports (`POST /feedback`, the bot's `/feedback`): `user_id` (FK `users`, `SET NULL`), `source` (`telegram`/`web`), `game_id` (the public id as given; not a FK, so a report outlives its game), `phase_code` (that game's phase when reported), `text` (≤ 2000 chars), `created_at`. At most 10 per player per hour. `GET /admin/feedback` lists them. |
-| `idempotency_keys` | First response stored per bot-supplied `Idempotency-Key`: `key`, `endpoint`, `status_code`, `response_json`, `created_at`. Purged after 7 days. |
+| `idempotency_keys` | First response stored per bot-supplied `Idempotency-Key`: `key`, `endpoint`, `status_code`, `response_json`, `created_at`. `status_code` 0 marks a key reserved by a request still running (no reply yet; `response_json` NULL); a reservation older than 5 minutes is taken over. Purged after 7 days. |
 | `messages.timestamp` | The time the message was *composed* when the client sends `client_timestamp`; otherwise now. |
 | `messages.anonymous` | A rumour: a broadcast (`recipient_power` NULL) sent with `anonymous: true`. `sender_user_id` is still stored, for the record and the admin export, but no player-facing read or notification names the sender. Default false. |
 

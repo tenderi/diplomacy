@@ -17,7 +17,7 @@
 ## Status
 
 - **Last updated:** 2026-11-04.
-- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP3-CP5 open), then Track F (a human playing the game end to end, and host chores), which
+- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP4 and CP5 open), then Track F (a human playing the game end to end, and host chores), which
   is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
@@ -34,12 +34,8 @@
       timezone's wall time. The ORM always supplies `utcnow_naive()`, so only a raw-SQL
       insert reaches the default; a revision changing them to `timezone('UTC', now())`
       would close it.
-- [ ] **CP3 — an idempotency key does not cover a request still in flight.**
-      `server/api/idempotency.py` `dispatch` looks the key up, runs the route, then stores
-      the reply: a same-key request arriving while the first runs (a bot replay of a slow
-      message post) runs the route twice. Verify, then reserve the key first (a pending row
-      on a unique key; the second request gets 409 or the stored reply). A schema change
-      needs an Alembic revision that round-trips.
+- [x] **CP3 — an idempotency key does not cover a request still in flight.** Done in
+      v3.0.236; see the commit message.
 - [ ] **CP4 — an admin restore keeps the later phase's deadline.**
       `game_repo.restore_state` and `restore_game_snapshot` (`routes/games.py`) clear
       orders, votes and wait flags but not `games.deadline`, so a deadline armed for the

@@ -764,7 +764,19 @@ with a 5xx is told "I will retry it for a few minutes". An order retried after i
   (status + JSON) and replays it, with `Idempotent-Replayed: true`, to any later request with
   the same key. Honoured only with `X-Bot-Secret`, only for mutating methods, only for
   responses below 500 (a 5xx should be retried, a 4xx is a definitive answer to relay).
-  Keys expire after 7 days (`run_housekeeping`).
+  The key is **reserved before the route runs**: `DatabaseService.reserve_idempotency_key`
+  inserts a pending row (`status_code` 0) on the key's primary key, so of two concurrent
+  same-key requests, in any worker, exactly one runs the route. The other — a replay of a
+  write the API is still applying — gets **503 with `Retry-After: 5`**, which the bot counts
+  as transient (`api_client.TRANSIENT_STATUSES`): the entry stays queued with no server error
+  counted, and the next replay gets the stored reply. (Not 409: the bot reports a 4xx as
+  rejected, which would tell the player a write had failed while it was being applied.) A
+  request that stores nothing (a 5xx, a non-JSON body, an exception) releases its
+  reservation so a retry runs the route afresh; a reservation left by a worker that died
+  mid-request is taken over once older than `IDEMPOTENCY_STALE_AFTER` (5 minutes, far past
+  any route's run time). The reservation's `created_at` is its owner token: the release and
+  the fill both match on it, so a request that ran past the limit can neither free nor fill
+  the reservation of the one that took its key over. Keys expire after 7 days (`run_housekeeping`).
 
 `game_context.fetch_user_games` caches each user's games/powers in the same SQLite file and
 falls back to the cache when the API is unreachable, which is what lets `/order A PAR - BUR`
