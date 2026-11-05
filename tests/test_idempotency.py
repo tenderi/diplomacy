@@ -7,6 +7,7 @@ row and one set of notifications", not "the middleware ran".
 from __future__ import annotations
 
 import itertools
+import threading
 import time
 import uuid
 from unittest.mock import patch
@@ -142,3 +143,129 @@ def test_expired_keys_are_purged_by_housekeeping():
     # Storing a duplicate key reports False and keeps the first response.
     assert api_shared.db_service.store_idempotent_response(fresh, "/y", 201, {"b": 3}) is False
     assert api_shared.db_service.get_idempotent_response(fresh)["response_json"] == {"a": 2}
+
+
+def test_a_replay_arriving_while_the_first_request_runs_does_not_run_the_route_again(client):
+    """CP3: the bot's request times out while the API is still applying it,
+    and its replay arrives before the first finishes. The key is reserved
+    before the route runs, so the replay gets a retryable 503 (the bot keeps
+    the write queued) instead of posting the broadcast a second time; once the
+    first finishes, a replay gets its stored response."""
+    game_id, sender, _other = _game_with_two_bot_players(client)
+    key = str(uuid.uuid4())
+    body = {"telegram_id": sender, "bot_secret": SECRET, "text": "only once"}
+    before = len(_messages(client, game_id, sender))
+    entered, release = threading.Event(), threading.Event()
+    original = api_shared.db_service.create_message
+
+    def slow_create_message(*args, **kwargs):
+        if not entered.is_set():  # only the first request is slow
+            entered.set()
+            assert release.wait(10)
+        return original(*args, **kwargs)
+
+    first = {}
+
+    def post_first() -> None:
+        first["r"] = client.post(f"/games/{game_id}/broadcast", json=body, headers={**BOT, "Idempotency-Key": key})
+
+    with patch.object(api_shared.db_service, "create_message", side_effect=slow_create_message):
+        worker = threading.Thread(target=post_first)
+        worker.start()
+        try:
+            assert entered.wait(10)
+            during = client.post(f"/games/{game_id}/broadcast", json=body, headers={**BOT, "Idempotency-Key": key})
+        finally:
+            release.set()
+            worker.join(10)
+
+    assert during.status_code == 503, during.text
+    assert during.json() == {"detail": "A request with this Idempotency-Key is still being processed; retry later."}
+    assert during.headers.get("Retry-After") == "5"
+    assert first["r"].status_code == 200, first["r"].text
+    after = client.post(f"/games/{game_id}/broadcast", json=body, headers={**BOT, "Idempotency-Key": key})
+    assert (after.status_code, after.json()) == (200, first["r"].json())
+    assert after.headers.get("Idempotent-Replayed") == "true"
+    assert len(_messages(client, game_id, sender)) == before + 1
+
+
+def test_concurrent_reservations_of_one_key_admit_exactly_one():
+    """CP3: the cross-process guard is the key's primary key, not a lock in
+    one worker: of N threads (each its own DB session) reserving the same key
+    at once, exactly one holds it and every other sees it pending."""
+    key = str(uuid.uuid4())
+    start = threading.Barrier(8)
+    results: list[dict] = []
+    lock = threading.Lock()
+
+    def reserve() -> None:
+        start.wait(10)
+        held = api_shared.db_service.reserve_idempotency_key(key, "/x")
+        with lock:
+            results.append(held)
+
+    threads = [threading.Thread(target=reserve) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert sorted("reserved" if "reserved" in r else repr(r) for r in results) == (
+        ["reserved"] + ["{'pending': True}"] * 7
+    )
+    assert api_shared.db_service.get_idempotent_response(key) is None
+
+
+def _age(key: str) -> None:
+    """Make ``key``'s reservation look like a crashed worker's."""
+    from datetime import timedelta
+    from persistence.database import IdempotencyKeyModel, utcnow_naive
+    from persistence.database_service import IDEMPOTENCY_STALE_AFTER
+    with api_shared.db_service.session_factory() as session:
+        session.get(IdempotencyKeyModel, key).created_at = (
+            utcnow_naive() - IDEMPOTENCY_STALE_AFTER - timedelta(seconds=1)
+        )
+        session.commit()
+
+
+def test_a_reservation_is_filled_released_or_taken_over_when_stale():
+    db = api_shared.db_service
+    filled, released, stale = (str(uuid.uuid4()) for _ in range(3))
+
+    # Filled: the reservation becomes the stored response, which a release never removes.
+    token = db.reserve_idempotency_key(filled, "/x")["reserved"]
+    assert db.store_idempotent_response(filled, "/x", 201, {"ok": 1}, token) is True
+    db.release_idempotency_key(filled, token)
+    stored = {"status_code": 201, "response_json": {"ok": 1}, "endpoint": "/x"}
+    assert db.reserve_idempotency_key(filled, "/x") == stored
+
+    # Released: the next request holds the key afresh.
+    token = db.reserve_idempotency_key(released, "/x")["reserved"]
+    db.release_idempotency_key(released, token)
+    assert "reserved" in db.reserve_idempotency_key(released, "/x")
+
+    # A crashed worker's reservation blocks the key only until it goes stale.
+    assert "reserved" in db.reserve_idempotency_key(stale, "/x")
+    assert db.reserve_idempotency_key(stale, "/x") == {"pending": True}
+    _age(stale)
+    assert "reserved" in db.reserve_idempotency_key(stale, "/x")
+    assert db.reserve_idempotency_key(stale, "/x") == {"pending": True}
+
+
+def test_a_request_whose_key_was_taken_over_cannot_touch_the_new_reservation():
+    """CP3: request A runs past the stale limit and B takes its key over. A's
+    release must not free B's reservation (a third replay could then run the
+    route alongside B), and A's reply must not fill it; B's reply is stored."""
+    db = api_shared.db_service
+    released, filled = str(uuid.uuid4()), str(uuid.uuid4())
+    for key in (released, filled):
+        a = db.reserve_idempotency_key(key, "/x")["reserved"]
+        _age(key)
+        b = db.reserve_idempotency_key(key, "/x")["reserved"]
+        assert b != a
+        if key == released:
+            db.release_idempotency_key(key, a)
+        else:
+            assert db.store_idempotent_response(key, "/x", 200, {"by": "A"}, a) is False
+        assert db.reserve_idempotency_key(key, "/x") == {"pending": True}
+        assert db.store_idempotent_response(key, "/x", 200, {"by": "B"}, b) is True
+        assert db.get_idempotent_response(key)["response_json"] == {"by": "B"}

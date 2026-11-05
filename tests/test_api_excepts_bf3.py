@@ -84,12 +84,33 @@ def test_a_failing_idempotency_store_does_not_break_the_request(
     def down(*_: Any, **__: Any) -> Any:
         raise OperationalError("SELECT 1", {}, Exception("db down"))
 
-    monkeypatch.setattr(api_shared.db_service, "get_idempotent_response", down)
     monkeypatch.setattr(api_shared.db_service, "store_idempotent_response", down)
+    key = str(uuid.uuid4())
     r = crash_client.post(
         "/users/persistent_register",
         json={"telegram_id": "424243", "bot_secret": SECRET},
-        headers={**BOT, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**BOT, "Idempotency-Key": key},
     )
     assert r.status_code == 200
     assert r.json()["telegram_id"] == "424243"
+    # Nothing was stored, so the reservation was released: the key is free again.
+    assert "reserved" in api_shared.db_service.reserve_idempotency_key(key, "/x")
+
+
+def test_a_failing_idempotency_reservation_still_runs_the_route(
+    crash_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def down(*_: Any, **__: Any) -> Any:
+        raise OperationalError("INSERT", {}, Exception("db down"))
+
+    monkeypatch.setattr(api_shared.db_service, "reserve_idempotency_key", down)
+    key = str(uuid.uuid4())
+    r = crash_client.post(
+        "/users/persistent_register",
+        json={"telegram_id": "424244", "bot_secret": SECRET},
+        headers={**BOT, "Idempotency-Key": key},
+    )
+    assert r.status_code == 200
+    assert r.json()["telegram_id"] == "424244"
+    # The route ran directly, without the middleware storing a reply.
+    assert api_shared.db_service.get_idempotent_response(key) is None

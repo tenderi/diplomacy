@@ -173,8 +173,9 @@ talks to Telegram), `power_label` / `player_rows` (how a player is named: the po
 anonymous game, `FRANCE (Anna)` in a public one), `finish_processed_turn` (everything after a turn, for every trigger),
 and the **deadline scheduler**: a background async task that processes
 turns whose deadline has passed, notifies players, and hourly purges delivered outbox rows
-and expired idempotency keys. `idempotency.py` is the middleware that replays a stored response for a repeated
-`Idempotency-Key`; `client_timestamp.py` normalises the composed-at time the bot sends.
+and expired idempotency keys. `idempotency.py` is the middleware that reserves an
+`Idempotency-Key` before the route runs and replays the stored response for a repeated one
+(503 + `Retry-After` while the first is still running); `client_timestamp.py` normalises the composed-at time the bot sends.
 
 ### Auth
 
