@@ -246,7 +246,12 @@ def parse_phase_code(code: str) -> tuple[Season, PhaseType, int]:
 # ---------------------------------------------------------------------------
 
 
-def _reason_to_note_token(reason: Optional[str], phase_type: Optional[PhaseType] = None) -> Token:
+def _reason_to_note_token(
+    reason: Optional[str], phase_type: Optional[PhaseType] = None, state: Optional[GameState] = None
+) -> Token:
+    """The THX note for a refused order's ``reason``. ``state`` (the board the
+    order was checked against) tells a retreat-phase order for a unit that owes
+    no retreat (``NRN``) from one for a province with no unit at all (``NSU``)."""
     if reason is None:
         return t.MBV
     r = reason.lower()
@@ -256,6 +261,9 @@ def _reason_to_note_token(reason: Optional[str], phase_type: Optional[PhaseType]
         return t.NRS
     # -- a retreat/disband for a unit that owes no retreat: "no retreat needed" --
     if "no dislodged unit at" in r or ("no unit to disband at" in r and phase_type is PhaseType.RETREAT):
+        province = r.rsplit(" at ", 1)[1].strip()
+        if state is not None and state.unit_at(province) is None:
+            return t.NSU  # no unit there at all, dislodged or not
         return t.NRN
     # -- a move to the unit's own province: not a move to an adjacent one -------
     if "its own province" in r:
@@ -756,8 +764,11 @@ class DaideSession:
                 return
             try:
                 await self._handle_diplomacy(msg.payload)
-            except _TRANSPORT_ERRORS:
-                return  # our own peer went away while we answered it
+            except _TRANSPORT_ERRORS as exc:
+                # Usually our own peer went away while we answered it, but an
+                # OSError from the handler itself lands here too: say which.
+                _logger.warning("DAIDE %s: session ended handling a message: %r", self._peer(), exc)
+                return
             if self.closing:
                 return
 
@@ -971,7 +982,7 @@ class DaideSession:
 
         to_submit = [os for (_, os, err) in decoded if err is None and os is not None]
         results = (
-            self.server.game_service.submit_orders(self.game_id, self.power, to_submit, merge=True)
+            self.server.game_service.submit_orders(self.game_id, self.power, to_submit, merge=True, keep_stored=True)
             if to_submit
             else []
         )
@@ -980,13 +991,13 @@ class DaideSession:
         result_iter = iter(results)
         for clause_tokens, order_str, decode_err in decoded:
             if decode_err is not None:
-                note = _reason_to_note_token(decode_err, game.state.phase_type)
+                note = _reason_to_note_token(decode_err, game.state.phase_type, game.state)
             else:
                 r = next(result_iter, None)
                 if r is not None and r["ok"]:
                     note = t.MBV
                 else:
-                    note = _reason_to_note_token(r["reason"] if r else None, game.state.phase_type)
+                    note = _reason_to_note_token(r["reason"] if r else None, game.state.phase_type, game.state)
             await self._send(t.THX, *clause_tokens, t.OPEN_PAREN, note, t.CLOSE_PAREN)
 
     async def _cmd_not(self, args: list[Token], raw: list[Token]) -> None:

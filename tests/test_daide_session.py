@@ -657,6 +657,20 @@ def _retreat_phase(service: GameService, gid: str) -> None:
     service.restore_snapshot(gid, state_to_dict(st), phase_code=st.phase_name)
 
 
+def _adjustment_phase(service: GameService, gid: str, centres: tuple[str, ...]) -> None:
+    """W1901A with AUSTRIA's F TRI, A SER and A GAL, and ``centres`` AUSTRIA's."""
+    units = {
+        Unit(UnitKind.FLEET, "AUSTRIA", Location("TRI")),
+        Unit(UnitKind.ARMY, "AUSTRIA", Location("SER")),
+        Unit(UnitKind.ARMY, "AUSTRIA", Location("GAL")),
+    }
+    st = GameState(
+        1901, Season.WINTER, PhaseType.ADJUSTMENT,
+        units=frozenset(units), ownership={c: "AUSTRIA" for c in centres},
+    )
+    service.restore_snapshot(gid, state_to_dict(st), phase_code=st.phase_name)
+
+
 class TestSubMergeAndNotes:
     async def test_sub_replaces_only_the_same_units_order(self, service: GameService) -> None:
         session, writer, _server, gid = _identified_session(service)
@@ -685,6 +699,36 @@ class TestSubMergeAndNotes:
         dsb = _unit_order_clause(t.AUS, t.AMY, t.BUD, t.DSB)
         assert (await _dispatch(session, writer, t.SUB, *rto))[0][-2] == t.NRN
         assert (await _dispatch(session, writer, t.SUB, *dsb))[0][-2] == t.NRN
+
+    async def test_retreat_from_a_province_with_no_unit_is_nsu(self, service: GameService) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _retreat_phase(service, gid)  # AUSTRIA's only unit is A BUD, not dislodged
+        rto = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.RTO, t.BOH)
+        dsb = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.DSB)
+        assert (await _dispatch(session, writer, t.SUB, *rto))[0][-2] == t.NSU
+        assert (await _dispatch(session, writer, t.SUB, *dsb))[0][-2] == t.NSU
+
+    async def test_a_build_past_the_count_in_a_later_sub_is_nmb_and_the_first_stands(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=("VIE", "BUD", "TRI", "SER"))  # 3 units: 1 build owed
+        vie = _unit_order_clause(t.AUS, t.AMY, t.VIE, t.BLD)
+        bud = _unit_order_clause(t.AUS, t.AMY, t.BUD, t.BLD)
+        assert (await _dispatch(session, writer, t.SUB, *vie))[0][-2] == t.MBV
+        assert (await _dispatch(session, writer, t.SUB, *bud))[0][-2] == t.NMB
+        assert service.pending_orders_view(gid)["AUSTRIA"] == ["BUILD A VIE"]
+
+    async def test_a_removal_past_the_count_in_a_later_sub_is_nmr_and_the_first_stands(
+        self, service: GameService
+    ) -> None:
+        session, writer, _server, gid = _identified_session(service)
+        _adjustment_phase(service, gid, centres=("VIE", "BUD"))  # 3 units: 1 disband owed
+        ser = _unit_order_clause(t.AUS, t.AMY, t.SER, t.REM)
+        gal = _unit_order_clause(t.AUS, t.AMY, t.GAL, t.REM)
+        assert (await _dispatch(session, writer, t.SUB, *ser))[0][-2] == t.MBV
+        assert (await _dispatch(session, writer, t.SUB, *gal))[0][-2] == t.NMR
+        assert service.pending_orders_view(gid)["AUSTRIA"] == ["D A SER"]
 
     async def test_move_to_its_own_province_is_far(self, service: GameService) -> None:
         session, writer, _server, _gid = _identified_session(service)
