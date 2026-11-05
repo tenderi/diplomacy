@@ -10,18 +10,41 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CP**.
+>   history. Track letters run in sequence; the next free one is **CQ**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-04.
-- **Open tracks:** Track F (a human playing the game end to end, and host chores), which
+- **Open tracks:** Track CP (code-health findings from a 2026-11-04 sweep; CP3-CP5 open), then Track F (a human playing the game end to end, and host chores), which
   is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track CP — code-health findings (2026-11-04 sweep)
+
+- [x] **CP1 — a flaky notification test.** Done in v3.0.235; see the commit message.
+- [x] **CP2 — tz-aware datetimes written to naive `TIMESTAMP` columns.** Done in
+      v3.0.235; see the commit message.
+- [ ] **CP5 — `server_default now()` on naive `TIMESTAMP` columns.** Several Alembic
+      revisions give naive columns (`games.created_at`/`updated_at`, `players.created_at`,
+      `password_reset_tokens.created_at`, ...) `DEFAULT now()`, which stores the session
+      timezone's wall time. The ORM always supplies `utcnow_naive()`, so only a raw-SQL
+      insert reaches the default; a revision changing them to `timezone('UTC', now())`
+      would close it.
+- [ ] **CP3 — an idempotency key does not cover a request still in flight.**
+      `server/api/idempotency.py` `dispatch` looks the key up, runs the route, then stores
+      the reply: a same-key request arriving while the first runs (a bot replay of a slow
+      message post) runs the route twice. Verify, then reserve the key first (a pending row
+      on a unique key; the second request gets 409 or the stored reply). A schema change
+      needs an Alembic revision that round-trips.
+- [ ] **CP4 — an admin restore keeps the later phase's deadline.**
+      `game_repo.restore_state` and `restore_game_snapshot` (`routes/games.py`) clear
+      orders, votes and wait flags but not `games.deadline`, so a deadline armed for the
+      later phase may fire on the restored one. Verify how the scheduler
+      (`server/api/shared.py`) arms and uses deadlines first.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
