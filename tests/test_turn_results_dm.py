@@ -76,10 +76,10 @@ def test_movement_then_retreat_results(client: TestClient, monkeypatch: pytest.M
     wait = f"{head} you have nothing to order this phase; wait for the other powers."
     results = "Your results for Spring 1901 movement:"
     assert messages["FRANCE"] == [
-        f"{wait}\n{results}\nF BRE - MAO succeeded.\nA MAR held (no order).\nA PAR - BUR bounced."
+        f"{wait}\n{results}\nF BRE - MAO succeeded.\nA MAR held (no order).\nA PAR - BUR bounced (GERMANY's A MUN also moved there)."
     ]
     assert messages["GERMANY"] == [
-        f"{wait}\n{results}\nA BER held.\nF KIE held.\nA MUN - BUR bounced."
+        f"{wait}\n{results}\nA BER held.\nF KIE held.\nA MUN - BUR bounced (FRANCE's A PAR also moved there)."
     ]
     assert messages["ITALY"] == [
         f"{wait}\n{results}\nF NAP held (no order).\nA ROM held (no order).\nA TYR - TRI succeeded.\nA VEN S A TYR - TRI succeeded."

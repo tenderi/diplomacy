@@ -48,6 +48,11 @@ export interface OrderResultEntry {
    * convoy broken by a dislodged fleet ("F NTH was dislodged"). Derived by the
    * server (`GameService.result_reason`), the same text the bot's DM uses. */
   reason?: string
+  /** On a bounced move: the unit that kept the destination ("RUSSIA's A GAL") ... */
+  bounced_off?: string
+  /** ... and/or the other units that moved there too (["RUSSIA's A WAR"]). Derived by
+   * the server (`bounce_rivals`), the same units the bot's DM names. */
+  bounced_with?: string[]
   power: string
   order_str: string
 }
@@ -75,6 +80,12 @@ export function describeResult(entry: OrderResultEntry, allResults: OrderResultE
     case 'BOUNCE':
       if (orderType === 'RETREAT') {
         return 'Retreat bounced: another unit retreated to the same province, and the unit was disbanded.'
+      }
+      if (entry.bounced_off) {
+        return `Move was blocked (bounced off ${entry.bounced_off}) — the unit stayed in place.`
+      }
+      if (entry.bounced_with?.length) {
+        return `Move was blocked (bounced; ${entry.bounced_with.join(' and ')} also moved there) — the unit stayed in place.`
       }
       return 'Move was blocked (bounced) — the unit stayed in place.'
     case 'CUT':
