@@ -7,11 +7,15 @@ votes all belong to the restored phase.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
 from server.api import ADMIN_TOKEN, app
+from server.api import shared as api_shared
 from server.api.shared import db_service, game_service
+from server.deadline_schedule import parse_schedule
 from server.response_cache import clear_response_cache
 from tests.conftest import _get_db_url
 from tests.table_helpers import fill_with_dummies
@@ -136,3 +140,45 @@ def test_a_restore_rolls_back_the_board_and_clears_the_phase_inputs(client: Test
     state = client.get(f"/games/{game_id}/state").json()
     assert state["phase"] == "S1901M"
     assert "A PAR" in [f"{u['kind']} {u['location']}" for u in state["units_by_power"]["FRANCE"]]
+
+
+def _deadline(game_id: str) -> datetime | None:
+    deadline = db_service.get_game_by_game_id(game_id).deadline
+    return None if deadline is None else deadline.replace(tzinfo=timezone.utc)
+
+
+def test_a_restore_drops_the_discarded_phases_deadline(client: TestClient) -> None:
+    """CP4: a deadline set for F1901M is that phase's; left in place it would make
+    the scheduler process the restored S1901M at F1901M's deadline -- here, at
+    once, with nobody's orders in."""
+    game_id, _tg = _game(client)
+    snap = _opening_snapshot_id(client, game_id)
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+    row = db_service.get_game_by_game_id(game_id)
+    db_service.update_game_deadline(int(row.id), datetime.now(timezone.utc) - timedelta(minutes=1))
+
+    assert client.post(f"/games/{game_id}/restore/{snap}", headers=ADMIN).status_code == 200
+
+    assert _deadline(game_id) is None
+    api_shared.process_due_deadlines(datetime.now(timezone.utc))
+    assert db_service.get_game_by_game_id(game_id).phase_code == "S1901M"
+
+
+def test_a_restore_arms_the_restored_phases_scheduled_deadline(client: TestClient) -> None:
+    """With a weekly schedule the restored phase gets the next slot, as a phase
+    entered by a processed turn does -- not the discarded phase's deadline."""
+    game_id, _tg = _game(client)
+    snap = _opening_snapshot_id(client, game_id)
+    row = db_service.get_game_by_game_id(game_id)
+    schedule = parse_schedule("mon,wed,fri 16:00", "UTC")
+    db_service.update_game_deadline_schedule(int(row.id), schedule.to_json())
+    assert client.post(f"/games/{game_id}/process_turn", headers=BOT).status_code == 200
+    db_service.update_game_deadline(int(row.id), datetime.now(timezone.utc) + timedelta(days=30))
+
+    before = datetime.now(timezone.utc)
+    assert client.post(f"/games/{game_id}/restore/{snap}", headers=ADMIN).status_code == 200
+    after = datetime.now(timezone.utc)
+
+    # The same slot unless the request straddled a slot's one-hour notice cut-off.
+    assert _deadline(game_id) in {schedule.next_deadline(before), schedule.next_deadline(after)}
+    assert _deadline(game_id) < datetime.now(timezone.utc) + timedelta(days=3)

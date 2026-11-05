@@ -590,7 +590,9 @@ is left to the service, which answers with how it ended.
 chose one: set explicitly via `POST /games/{id}/deadline` (the bot's `/deadline <game_id>
 <hours|clear>`, or a majority vote through `deadline/propose`), or armed from the game's
 **weekly schedule**. A deadline is scoped to its phase: every processing path spends it once
-the phase is adjudicated (`finish_processed_turn`). `games.deadline` is stored as naive UTC; every API field that
+the phase is adjudicated (`finish_processed_turn`), and an admin restore to a snapshot
+(`POST /games/{id}/restore/{snapshot_id}`) drops the discarded phase's deadline and gives the
+restored phase the one a newly entered phase gets. `games.deadline` is stored as naive UTC; every API field that
 carries a deadline (`GET`/`POST /deadline`, `POST /deadline/schedule`, an accepted proposal,
 the archive restore) returns it as aware UTC ISO (`2026-10-27T18:00:00+00:00`, via
 `shared.utc_iso`), so a browser does not read it as local time. The web client also parses a
@@ -602,8 +604,9 @@ standing choice such as "Mon, Wed, Fri at 16:00 (Europe/Helsinki)", set by any p
 16:00 [timezone]`) or at creation (`deadline_schedule`/`deadline_timezone`). While a game
 has one, each phase's deadline is armed to the next slot at least an hour away
 (`MIN_NOTICE`, so a turn processed at 15:55 is not given a five-minute phase): when the
-game fills, when the schedule is set on a started game, and after every processed turn, in
-`finish_processed_turn` (and after a failed deadline run, so it retries at the next slot).
+game fills, when the schedule is set on a started game, after every processed turn, in
+`finish_processed_turn` (and after a failed deadline run, so it retries at the next slot),
+and after an admin restore or an archive import.
 Slot times are wall-clock times in the schedule's timezone, so they hold across daylight
 saving. Every phase type gets the next slot, retreats and adjustments included. A one-off
 `POST /deadline` (or an accepted proposal) overrides only the current phase; removing the
