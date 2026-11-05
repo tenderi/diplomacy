@@ -14,6 +14,15 @@ function entry(overrides: Partial<OrderResultEntry> = {}): OrderResultEntry {
 }
 
 describe('describeResult', () => {
+  it('names who a bounced move ran into', () => {
+    expect(describeResult(entry({ result: 'BOUNCE', bounced_off: "RUSSIA's A BUR" }))).toBe(
+      "Move was blocked (bounced off RUSSIA's A BUR) — the unit stayed in place."
+    )
+    expect(describeResult(entry({ result: 'BOUNCE', bounced_with: ["RUSSIA's A WAR", "ITALY's A VEN"] }))).toBe(
+      "Move was blocked (bounced; RUSSIA's A WAR and ITALY's A VEN also moved there) — the unit stayed in place."
+    )
+  })
+
   it('never leaks a raw enum value for any of the nine engine result codes', () => {
     const codes = [
       'OK', 'BOUNCE', 'CUT', 'VOID', 'NO_CONVOY', 'DISLODGED', 'DISBAND', 'BUILD', 'WAIVE',

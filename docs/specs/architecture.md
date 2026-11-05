@@ -403,7 +403,10 @@ results list:
   supporter's own unit (DATC 6.D.10) "A VIE S A VEN - TRI had no effect: it would dislodge your
   own F TRI." (both from `GameService.result_reason`, which the web shows too), "A BER held.", "A MUN held (no order)."; a dislodged unit names its attacker,
   power only, never a nickname: "F TRI was dislodged by A TYR (ITALY).", "A VIE - TRI
-  bounced; dislodged by A BOH (RUSSIA)."; a power that ordered none of its several units
+  bounced; dislodged by A BOH (RUSSIA)."; a bounced move names who it met (`bounce_rivals`,
+  from the turn's other results; the web's entries carry `bounced_off` / `bounced_with`):
+  "A VIE - GAL bounced off RUSSIA's A GAL." (a unit that kept the province, or swapped with
+  the mover), "A VIE - GAL bounced (RUSSIA's A WAR also moved there)."; a power that ordered none of its several units
   gets one line: "No orders, so F BRE, A MAR and A PAR held.";
 - retreat — "F TRI retreated to ALB.", "A BUR was disbanded." (a disband it ordered);
 - adjustment — "A PAR was built.", "F KIE was disbanded." (a disband it ordered);
