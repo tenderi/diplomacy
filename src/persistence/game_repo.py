@@ -11,7 +11,6 @@ read here for convenience.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from persistence.database import GameModel, MapSnapshotModel, PlayerModel, utcnow_naive
@@ -106,7 +105,7 @@ def _write_state(
     row.current_year = state_json.get("year", row.current_year)
     row.current_season = str(state_json.get("season", "SPRING")).capitalize()
     row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = utcnow_naive()
 
 
 class GameRepo:
@@ -485,7 +484,7 @@ class GameRepo:
             row.pending_orders = {}
             row.draw_votes = {}
             row.wait_flags = {}
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = utcnow_naive()
             session.commit()
 
     def set_histories(
@@ -622,6 +621,6 @@ class GameRepo:
             _check_not_completed(row, game_id, refuse_completed)
             updated = change(dict(row.state_json or {}))
             row.state_json = updated
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = utcnow_naive()
             session.commit()
             return updated

@@ -241,7 +241,7 @@ class DatabaseService:
             if code is None:
                 # 6 bytes → 8 base64url chars (~48 bits entropy)
                 code = _secrets.token_urlsafe(6)
-            expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            expires_at = utcnow_naive() + timedelta(minutes=ttl_minutes)
             link_code = LinkCodeModel(
                 user_id=user_id,
                 code=code,
@@ -253,7 +253,7 @@ class DatabaseService:
 
     def consume_link_code(self, code: str) -> Optional[int]:
         with self.session_factory() as session:
-            now = datetime.now(timezone.utc)
+            now = utcnow_naive()
             link_code = (
                 session.query(LinkCodeModel)
                 .filter_by(code=code.strip())
@@ -272,7 +272,7 @@ class DatabaseService:
         import secrets
         with self.session_factory() as session:
             token = secrets.token_urlsafe(48)
-            expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+            expires_at = utcnow_naive() + timedelta(minutes=ttl_minutes)
             record = PasswordResetTokenModel(
                 user_id=user_id,
                 token=token,
@@ -285,7 +285,7 @@ class DatabaseService:
     def consume_password_reset_token(self, token: str) -> Optional[int]:
         """Validate token, delete it, return user_id or None."""
         with self.session_factory() as session:
-            now = datetime.now(timezone.utc)
+            now = utcnow_naive()
             record = (
                 session.query(PasswordResetTokenModel)
                 .filter_by(token=token.strip())
@@ -602,7 +602,8 @@ class DatabaseService:
         caller has to remember the join.
 
         Players with no linked user, or a user who has not linked Telegram, are
-        omitted rather than yielding ``None``.
+        omitted rather than yielding ``None``. The order is seat order
+        (``players.id``), so every fan-out goes out in the same order.
         """
         with self.session_factory() as session:
             rows = (
@@ -610,6 +611,7 @@ class DatabaseService:
                 .join(PlayerModel, PlayerModel.user_id == UserModel.id)
                 .filter(PlayerModel.game_id == game_id)
                 .filter(UserModel.telegram_id.isnot(None))
+                .order_by(PlayerModel.id)  # seat order: the fan-out must not follow the heap
                 .all()
             )
         return [str(r[0]) for r in rows if r[0] is not None and str(r[0]) != ""]
@@ -624,6 +626,7 @@ class DatabaseService:
                 .join(PlayerModel, PlayerModel.user_id == UserModel.id)
                 .filter(PlayerModel.game_id == game_id)
                 .filter(UserModel.telegram_id.isnot(None))
+                .order_by(PlayerModel.id)  # seat order: the fan-out must not follow the heap
                 .all()
             )
         out: Dict[str, List[str]] = {}

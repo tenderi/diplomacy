@@ -176,3 +176,30 @@ class TestCommitIsANoOp:
         refetched = db_service.get_game_by_id(numeric_id)
         assert refetched is not None
         assert refetched.status == original_status
+
+
+class TestPlayerTelegramFanOutOrder:
+    """CP1: the users-players join had no ORDER BY, so the notification
+    fan-out order followed the heap, and an UPDATE (which writes a new tuple at
+    the end of the table) reordered it between runs."""
+
+    def test_recipients_come_in_seat_order_after_rows_are_rewritten(
+        self, db_service: DatabaseService, game_ids: tuple[str, int]
+    ) -> None:
+        _, numeric_id = game_ids
+        stamp = datetime.datetime.now().strftime("%H%M%S%f")
+        tgs = [f"cp1{stamp}{i}" for i in range(3)]
+        seats = []
+        for tg, power in zip(tgs, ["AUSTRIA", "ENGLAND", "FRANCE"]):
+            user = db_service.create_user(tg)
+            seats.append(db_service.create_player(numeric_id, power, int(user.id)))
+        # Rewrite the first seat and its user: both move to the end of their heap.
+        first_user = db_service.get_user_by_telegram_id(tgs[0])
+        assert first_user is not None
+        assert db_service.assign_player_seat(int(seats[0].id), None, False)
+        assert db_service.assign_player_seat(int(seats[0].id), int(first_user.id), True)
+        db_service.set_user_telegram_id(int(first_user.id), tgs[0] + "x")
+        db_service.set_user_telegram_id(int(first_user.id), tgs[0])
+
+        assert db_service.get_player_telegram_ids(numeric_id) == tgs
+        assert list(db_service.get_player_powers_by_telegram_id(numeric_id)) == tgs
