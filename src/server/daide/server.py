@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import socket
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any, Optional
@@ -34,6 +35,27 @@ __all__ = ["DaideServer"]
 _logger = logging.getLogger("diplomacy.server.daide")
 
 DEFAULT_PORT = 8432
+
+# TCP keepalive on every accepted connection: a seated client whose network
+# vanishes without a FIN or RST is noticed after about KEEPIDLE + KEEPCNT *
+# KEEPINTVL seconds (three minutes), its session ends, and its power can be
+# reclaimed with `IAM` from a new connection.
+KEEPALIVE_IDLE_SECONDS = 60
+KEEPALIVE_INTERVAL_SECONDS = 20
+KEEPALIVE_PROBES = 6
+
+
+def enable_keepalive(sock: socket.socket) -> None:
+    """Turn on TCP keepalive for ``sock``, with the timings above where the
+    platform lets them be set (``TCP_KEEPIDLE`` and friends are not on every OS)."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    for name, value in (
+        ("TCP_KEEPIDLE", KEEPALIVE_IDLE_SECONDS),
+        ("TCP_KEEPINTVL", KEEPALIVE_INTERVAL_SECONDS),
+        ("TCP_KEEPCNT", KEEPALIVE_PROBES),
+    ):
+        if hasattr(socket, name):
+            sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
 
 
 class DaideServer:
@@ -170,6 +192,9 @@ class DaideServer:
         # a connection that never sends a successful `NME` never mints a
         # game; `DaideSession` tolerates `current_game_id` being `None` until
         # then.
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            enable_keepalive(sock)
         daide_session = DaideSession(reader, writer, self)
         await daide_session.run()
 
