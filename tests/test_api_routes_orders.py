@@ -131,6 +131,28 @@ class TestSetOrders:
         assert "results" in data
         assert any(r.get("success") is False for r in data["results"])
 
+    @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
+    def test_order_input_defects_from_the_play_through(self, client):
+        """CQ1-CQ3: ``F BRE - SPA/XX`` was an HTTP 500, ``A MAR S A MAR - SPA`` was
+        accepted (then VOID), and ``A PAR S F BRE H`` was refused as malformed."""
+        client.post("/users/persistent_register", json={"bot_secret": BOT_SECRET, "telegram_id": "test_user_cq"})
+        headers = _register_and_login(client, "ord_cq")
+        game_id = _create_game(client, headers)
+        client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "test_user_cq", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
+        fill_with_dummies(game_id)
+
+        resp = client.post("/games/set_orders", json={
+            "game_id": game_id, "power": "FRANCE",
+            "orders": ["F BRE - SPA/XX", "A MAR S A MAR - SPA", "A PAR S F BRE H"],
+            "telegram_id": "test_user_cq", "bot_secret": BOT_SECRET,
+        })
+        assert resp.status_code == 200, resp.text
+        assert [(r["order"], r["success"], r["error"]) for r in resp.json()["results"]] == [
+            ("F BRE - SPA/XX", False, "parse error: XX is not a coast of SPA (SPA/NC or SPA/SC)"),
+            ("A MAR S A MAR - SPA", False, "a unit cannot support itself"),
+            ("A PAR S F BRE H", True, None),
+        ]
+
 
 @pytest.mark.unit
 class TestGetOrders:
