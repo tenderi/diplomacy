@@ -1282,7 +1282,7 @@ export default function GameView() {
               onChange={(e) => setMessageRecipient(e.target.value)}
               aria-label="Message recipient power"
               className={cn(
-                "block h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
+                "block h-10 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               )}
             >
@@ -1304,6 +1304,11 @@ export default function GameView() {
           {messageText.length >= MESSAGE_COUNTER_FROM && (
             <p id="message-counter" className="text-xs text-muted-foreground" aria-live="polite">
               {MAX_MESSAGE_LENGTH - messageText.length} characters left
+            </p>
+          )}
+          {!!messageText.trim() && !broadcast && !messageRecipient && (
+            <p id="recipient-hint" className="text-xs text-muted-foreground">
+              Choose a recipient power or tick Broadcast to all before sending.
             </p>
           )}
           <Button
