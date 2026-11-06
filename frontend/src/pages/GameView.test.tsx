@@ -1681,6 +1681,21 @@ describe('GameView — player actions', () => {
     expect(posts[0]).toEqual({ url: '/api/games/10/message', body: { recipient_power: 'GERMANY', text: 'Ally?' } })
   })
 
+  it('says why Send is disabled when text is typed but nobody is chosen to receive it', async () => {
+    vi.stubGlobal('fetch', stubFetchActive(activeMovementState, francePlayers))
+    const { container } = renderGame10()
+    const c = within(container)
+    const box = await c.findByPlaceholderText('Type a message...')
+    const hint = /Choose a recipient power or tick Broadcast to all before sending/
+    expect(c.queryByText(hint)).toBeNull()
+    fireEvent.change(box, { target: { value: 'hello' } })
+    expect(c.getByText(hint)).toBeInTheDocument()
+    expect(c.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(c.getByLabelText('Message recipient power')).toHaveClass('h-10')
+    fireEvent.click(c.getByRole('checkbox', { name: 'Broadcast to all' }))
+    expect(c.queryByText(hint)).toBeNull()
+  })
+
   it('will not send a blank or whitespace-only message', async () => {
     const { posts, fetchMock } = recordingPosts(stubFetchActive(activeMovementState, francePlayers))
     vi.stubGlobal('fetch', fetchMock)
