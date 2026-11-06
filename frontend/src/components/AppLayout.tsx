@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -7,6 +8,7 @@ export const SOURCE_URL = 'https://github.com/tenderi/diplomacy'
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth()
+  const [menuOpen, setMenuOpen] = useState(false)
   // On a game page, feedback is about that game.
   const gameMatch = useLocation().pathname.match(/^\/games\/([^/]+)/)
   const feedbackTo = gameMatch ? `/feedback?game=${encodeURIComponent(gameMatch[1])}` : '/feedback'
@@ -23,23 +25,52 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <span className="text-muted-foreground text-sm">Loading...</span>
             ) : user ? (
               <>
-                <div data-testid="header-links" className="order-3 flex w-full flex-wrap items-center gap-1 sm:order-2 sm:w-auto sm:gap-2">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/games">Games</Link>
-                </Button>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/sandbox">Sandbox</Link>
-                </Button>
-                <Button variant="ghost" size="sm" asChild>
-                  {user.nickname ? (
-                    <Link to="/" title="Change your nickname" className="max-w-[10rem] truncate">{user.nickname}</Link>
-                  ) : (
-                    <Link to="/">Set a nickname</Link>
-                  )}
-                </Button>
-                <LinkTelegramButton variant="ghost" size="sm" />
+                <div data-testid="header-links" className="order-2 hidden items-center gap-2 sm:flex">
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/games">Games</Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/sandbox">Sandbox</Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    {user.nickname ? (
+                      <Link to="/" title="Change your nickname" className="max-w-[10rem] truncate">{user.nickname}</Link>
+                    ) : (
+                      <Link to="/">Set a nickname</Link>
+                    )}
+                  </Button>
+                  <LinkTelegramButton variant="ghost" size="sm" />
                 </div>
-                <Button variant="outline" size="sm" onClick={logout} className="order-2 sm:order-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="order-3 ml-auto sm:hidden"
+                  aria-label="Menu"
+                  aria-expanded={menuOpen}
+                  aria-controls="mobile-menu"
+                  onClick={() => setMenuOpen((o) => !o)}
+                >
+                  {menuOpen ? 'Close' : 'Menu'}
+                </Button>
+                {menuOpen && (
+                  <div id="mobile-menu" data-testid="mobile-menu" className="order-last flex w-full flex-col items-start gap-1 sm:hidden" onClick={() => setMenuOpen(false)}>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/games">Games</Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/sandbox">Sandbox</Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    {user.nickname ? (
+                      <Link to="/" title="Change your nickname" className="max-w-[10rem] truncate">{user.nickname}</Link>
+                    ) : (
+                      <Link to="/">Set a nickname</Link>
+                    )}
+                  </Button>
+                  <LinkTelegramButton variant="ghost" size="sm" />
+                  </div>
+                )}
+                <Button variant="outline" size="sm" onClick={logout} className="order-4">
                   Logout
                 </Button>
               </>

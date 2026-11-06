@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, within, waitFor } from '@testing-library/react'
+import { render, within, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { AuthContext, AuthProvider } from '@/contexts/AuthContext'
 import { AppLayout, SOURCE_URL } from './AppLayout'
@@ -73,7 +73,7 @@ describe('AppLayout', () => {
     expect(within(container).getByRole('button', { name: /logout/i })).toBeInTheDocument()
   })
 
-  it('keeps the phone header to two rows: Logout beside the logo, links on their own row', () => {
+  it('keeps the phone header to one row: links sit behind a Menu button', () => {
     const mockAuth = {
       user: { id: 1, email: 'a@b.com', nickname: 'Test', telegram_id: null, telegram_linked: false },
       loading: false,
@@ -91,12 +91,21 @@ describe('AppLayout', () => {
         </AuthContext.Provider>
       </MemoryRouter>
     )
-    const links = within(container).getByTestId('header-links')
-    expect(links).toHaveClass('w-full', 'order-3')
-    const logout = within(container).getByRole('button', { name: /logout/i })
-    expect(logout).toHaveClass('order-2')
-    expect(links).not.toContainElement(logout)
-    expect(within(container).getByRole('link', { name: /source code/i })).toBeInTheDocument()
+    const c = within(container)
+    expect(c.getByTestId('header-links')).toHaveClass('hidden', 'sm:flex')
+    expect(c.queryByTestId('mobile-menu')).toBeNull()
+    const menu = c.getByRole('button', { name: 'Menu' })
+    expect(menu).toHaveClass('sm:hidden')
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(menu)
+    expect(menu).toHaveAttribute('aria-expanded', 'true')
+    const panel = within(c.getByTestId('mobile-menu'))
+    expect(panel.getByRole('link', { name: 'Games' })).toHaveAttribute('href', '/games')
+    expect(panel.getByRole('link', { name: 'Sandbox' })).toHaveAttribute('href', '/sandbox')
+    expect(panel.getByRole('link', { name: 'Link Telegram' })).toHaveAttribute('href', '/link-telegram')
+    fireEvent.click(panel.getByRole('link', { name: 'Games' }))
+    expect(c.queryByTestId('mobile-menu')).toBeNull()
+    expect(c.getByRole('link', { name: /source code/i })).toHaveAttribute('href', SOURCE_URL)
   })
 
   it('shows Loading in nav when loading is true', () => {
