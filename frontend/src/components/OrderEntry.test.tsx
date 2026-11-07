@@ -214,6 +214,34 @@ describe('retreat phase', () => {
 })
 
 describe('BuildOrdersSection', () => {
+  it('warns that unfilled build slots are waived, and not when all are filled', () => {
+    const props = {
+      adjustment: { action: 'build', delta: 2, slots: 2 } as never,
+      orders: ['BUILD A MOS'],
+      setBuildOrderSlots: () => {},
+      loading: false,
+    }
+    const { rerender } = render(<BuildOrdersSection {...props} buildOrderSlots={['BUILD A MOS', '']} />)
+    expect(screen.getByTestId('unused-slots-note').textContent).toBe('1 build left unused \u2014 it will be waived.')
+    rerender(<BuildOrdersSection {...props} buildOrderSlots={['BUILD A MOS', 'WAIVE']} />)
+    expect(screen.queryByTestId('unused-slots-note')).toBeNull()
+  })
+
+  it('says civil disorder removes unchosen disbands', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'disband', delta: -2, slots: 2 } as never}
+        orders={['D A MUN']}
+        buildOrderSlots={['D A MUN', '']}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+      />
+    )
+    expect(screen.getByTestId('unused-slots-note').textContent).toBe(
+      '1 disband left unchosen \u2014 civil disorder will remove a unit for you.'
+    )
+  })
+
   it('does not offer a province already chosen in another slot, on any coast', async () => {
     const orders = ['BUILD F STP/SC', 'BUILD F STP/NC', 'BUILD A MOS']
     render(

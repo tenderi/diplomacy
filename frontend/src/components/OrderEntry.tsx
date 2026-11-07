@@ -343,6 +343,7 @@ export function BuildOrdersSection({
     if (!prov) return false
     return buildOrderSlots.some((o, j) => j !== slot && !!o && provinceOf(o) === prov)
   }
+  const unused = slots.filter((i) => !buildOrderSlots[i]).length
   return (
     <>
       <p className="text-sm text-muted-foreground mb-2">
@@ -385,6 +386,13 @@ export function BuildOrdersSection({
           </li>
         ))}
       </ul>
+      {unused > 0 && (
+        <p className="mb-2 text-sm text-amber-700 dark:text-amber-400" data-testid="unused-slots-note">
+          {adjustment?.action === 'disband'
+            ? `${unused} disband${unused === 1 ? '' : 's'} left unchosen \u2014 civil disorder will remove ${unused === 1 ? 'a unit' : 'units'} for you.`
+            : `${unused} build${unused === 1 ? '' : 's'} left unused \u2014 ${unused === 1 ? 'it' : 'they'} will be waived.`}
+        </p>
+      )}
       {onSubmit && (
         <Button onClick={onSubmit} disabled={submitting || slots.length === 0}>
           {submitting ? 'Submitting...' : 'Submit orders'}
