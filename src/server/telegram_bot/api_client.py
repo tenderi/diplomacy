@@ -148,23 +148,40 @@ class ApiError(requests.HTTPError):
     """
 
 
+def _error_message(resp: requests.Response) -> str:
+    """The player-facing text for an error response: never the URL.
+
+    ``requests.HTTPError``'s own text ends ``"... for url: <url>"``, and a URL
+    can carry query parameters that must not reach a chat. So the message is
+    built only from the response: a string ``detail`` as the server worded it,
+    a FastAPI validation error (``detail`` a list of ``{"msg": ...}``) as its
+    messages joined, otherwise a generic line naming the status code.
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, str) and detail.strip():
+        return detail
+    if isinstance(detail, list):
+        msgs = [str(item["msg"]) for item in detail if isinstance(item, dict) and item.get("msg")]
+        if msgs:
+            return "The request was not valid: " + "; ".join(msgs) + "."
+    code = resp.status_code
+    if code >= 500:
+        return f"The server had a problem (HTTP {code}). Please try again shortly."
+    return f"The server refused the request (HTTP {code})."
+
+
 def _raise_for_status(resp: requests.Response) -> None:
     """Like ``resp.raise_for_status()``, but raises :class:`ApiError` whose
-    message is the server's JSON ``detail`` field when present, falling back
-    to the normal ``HTTPError`` text otherwise (non-JSON body, or JSON
-    without a ``detail`` key)."""
+    message is :func:`_error_message`: the server's reason, never the request
+    URL that ``HTTPError``'s own text would include."""
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        detail: Optional[str] = None
-        try:
-            body = resp.json()
-        except ValueError:
-            body = None
-        if isinstance(body, dict) and isinstance(body.get("detail"), str):
-            detail = body["detail"]
-        message = detail if detail else str(exc)
-        raise ApiError(message, response=resp, request=resp.request) from exc
+        raise ApiError(_error_message(resp), response=resp, request=resp.request) from exc
 
 
 def api_post(endpoint: str, json_data: dict) -> dict:
@@ -200,19 +217,16 @@ def api_delete(endpoint: str) -> dict:
 def api_get(endpoint: str, telegram_id: Optional[str] = None, timeout: float = DEFAULT_API_TIMEOUT) -> dict:
     """Make a GET request to the API.
 
-    Mirrors ``api_post``'s ``bot_secret`` injection, but via the query string:
-    a GET has no body, so routes that need telegram-id auth on a GET (e.g.
-    ``GET /games/{id}/orders/{power}``) read ``telegram_id``/``bot_secret`` as
-    query params instead. Passing ``telegram_id`` here adds both to the
-    request under those exact names; omit it for endpoints that don't need
-    per-user auth (public reads, or ones using the ``X-Bot-Secret`` header
-    alone). ``timeout`` is for a long-poll, which must outlast its ``wait``.
+    A GET has no body, so routes that need telegram-id auth on a GET (e.g.
+    ``GET /games/{id}/orders/{power}``) take ``telegram_id`` as a query param;
+    passing it here adds it. The secret that vouches for it goes only in the
+    ``X-Bot-Secret`` header (``_bot_headers()``), never in the URL, which ends
+    up in access logs and error text. ``timeout`` is for a long-poll, which
+    must outlast its ``wait``.
     """
     params: dict = {}
     if telegram_id is not None:
         params["telegram_id"] = telegram_id
-        if BOT_SECRET:
-            params["bot_secret"] = BOT_SECRET
     try:
         resp = requests.get(
             f"{API_URL}{endpoint}", headers=_bot_headers(), params=params, timeout=timeout

@@ -558,12 +558,12 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
     try:
         result = api_post(f"/games/{game_id}/process_turn", {"telegram_id": telegram_id} if telegram_id else {})
     except requests.RequestException as e:
-        await send(f"❌ Process turn error: {e}")
+        await send(f"❌ Process turn error: {escape_markdown(str(e))}")
         return
 
     if result.get("status") != "ok":
         error_msg = result.get("detail", "Unknown error")
-        await send(f"❌ Failed to process turn: {error_msg}")
+        await send(f"❌ Failed to process turn: {escape_markdown(str(error_msg))}")
         return
 
     try:
@@ -685,13 +685,13 @@ async def show_unit_picker(
         await reply_or_edit(e.message)
         return
     except requests.RequestException as e:
-        await reply_or_edit(f"Select unit error: {e}")
+        await reply_or_edit(f"Select unit error: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await reply_or_edit(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
+        await reply_or_edit(f"❌ Could not retrieve legal orders for game {game_id}: {escape_markdown(str(e))}")
         return
 
     phase_type = data.get("phase_type", "MOVEMENT")
@@ -776,13 +776,13 @@ async def show_possible_moves(
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        await send(f"❌ Could not resolve your power in game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders: {e}")
+        await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
         return
 
     bucket = data.get("orders_by_unit", {}).get(unit_key, [])
@@ -862,7 +862,7 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders for game {game_id}: {e}")
+        await send(f"❌ Could not retrieve legal orders for game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
@@ -925,7 +925,7 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         try:
             data = api_get(f"/games/{game_id}/legal_orders/{walk['power']}")
         except requests.RequestException as e:
-            await send(f"❌ Could not retrieve legal orders: {e}")
+            await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
             return
         bucket = data.get("orders_by_unit", {}).get(step, [])
         keyboard = _unit_order_keyboard(context, game_id, step, bucket)
@@ -1124,13 +1124,13 @@ async def show_support_options(
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        await send(f"❌ Could not resolve your power in game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders: {e}")
+        await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
         return
 
     bucket = data.get("orders_by_unit", {}).get(unit_key, [])
@@ -1179,13 +1179,13 @@ async def show_support_choices(
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        await send(f"❌ Could not resolve your power in game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders: {e}")
+        await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
         return
 
     bucket = data.get("orders_by_unit", {}).get(unit_key, [])
@@ -1231,13 +1231,13 @@ async def show_convoy_options(
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        await send(f"❌ Could not resolve your power in game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders: {e}")
+        await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
         return
 
     bucket = data.get("orders_by_unit", {}).get(unit_key, [])
@@ -1277,13 +1277,13 @@ async def show_convoy_destinations(
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"❌ Could not resolve your power in game {game_id}: {e}")
+        await send(f"❌ Could not resolve your power in game {game_id}: {escape_markdown(str(e))}")
         return
 
     try:
         data = api_get(f"/games/{game_id}/legal_orders/{power}")
     except requests.RequestException as e:
-        await send(f"❌ Could not retrieve legal orders: {e}")
+        await send(f"❌ Could not retrieve legal orders: {escape_markdown(str(e))}")
         return
 
     bucket = data.get("orders_by_unit", {}).get(unit_key, [])

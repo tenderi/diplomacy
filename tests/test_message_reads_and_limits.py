@@ -71,6 +71,39 @@ class TestReadingMessages:
         r = client.get(f"/games/{game_id}/messages", params={"telegram_id": anna})
         assert (r.status_code, r.json()["detail"]) == (401, "Not authenticated: bot_secret required for telegram_id auth")
 
+    def test_a_telegram_id_is_vouched_for_by_the_bot_secret_header(self, client: TestClient) -> None:
+        # CT1: the bot sends the secret only in X-Bot-Secret, never in the URL.
+        game_id, anna, _, _ = _game(client, anonymous=True)
+        client.post(f"/games/{game_id}/message", json=_as(anna, recipient_power="GERMANY", text="private"))
+        r = client.get(
+            f"/games/{game_id}/messages", params={"telegram_id": anna}, headers={"X-Bot-Secret": BOT_SECRET}
+        )
+        assert r.status_code == 200, r.text
+        assert [m["text"] for m in r.json()["messages"]] == ["private"]
+
+    def test_a_wrong_bot_secret_header_is_401(self, client: TestClient) -> None:
+        game_id, anna, _, _ = _game(client, anonymous=True)
+        r = client.get(f"/games/{game_id}/messages", params={"telegram_id": anna}, headers={"X-Bot-Secret": "wrong"})
+        assert (r.status_code, r.json()["detail"]) == (401, "Not authenticated: bot_secret required for telegram_id auth")
+
+    def test_pending_orders_read_with_the_header_only_for_the_own_power(self, client: TestClient) -> None:
+        game_id, anna, _, _ = _game(client, anonymous=True)
+        good, bad = {"X-Bot-Secret": BOT_SECRET}, {"X-Bot-Secret": "wrong"}
+        own = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": anna}, headers=good)
+        assert (own.status_code, own.json()) == (200, {"power": "FRANCE", "orders": []})
+        other = client.get(f"/games/{game_id}/orders/GERMANY", params={"telegram_id": anna}, headers=good)
+        assert (other.status_code, other.json()["detail"]) == (
+            403, "You are not authorized to view orders for this power."
+        )
+        forged = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": anna}, headers=bad)
+        assert (forged.status_code, forged.json()["detail"]) == (
+            403, "You are not authorized to view orders for this power."
+        )
+        anon = client.get(f"/games/{game_id}/map/orders", params={"telegram_id": anna}, headers=bad)
+        assert (anon.status_code, anon.json()["detail"]) == (
+            403, "Only a player in this game can see their pending orders on the map."
+        )
+
     def test_no_credentials_reads_the_broadcasts_only(self, client: TestClient) -> None:
         game_id, anna, _, _ = _game(client, anonymous=True)
         client.post(f"/games/{game_id}/message", json=_as(anna, recipient_power="GERMANY", text="private"))
