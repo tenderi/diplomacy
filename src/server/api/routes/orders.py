@@ -4,7 +4,7 @@ Orders are validated by the engine and stored per power in ``games.pending_order
 via ``GameService``; they are consumed and cleared when the turn is processed.
 """
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Body, Depends
+from fastapi import APIRouter, HTTPException, Body, Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
@@ -155,18 +155,19 @@ def get_orders(
     telegram_id: Optional[str] = None,
     bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> List[Dict[str, Any]]:
     """Current-turn pending orders; authenticated users see only their own power.
 
-    Accepts a Bearer token (browser) or ``telegram_id``+``bot_secret`` query params
-    (Telegram bot; GET has no body to carry them in) — same fallback pattern as
-    ``GET /games/{game_id}/messages``.
+    Accepts a Bearer token (browser) or a ``telegram_id`` query param with the bot
+    secret in the ``X-Bot-Secret`` header (Telegram bot; a ``bot_secret`` query
+    param is still accepted) — same fallback pattern as ``GET /games/{game_id}/messages``.
     """
     pending = game_service.pending_orders_view(game_id)
     if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and is_bot_secret(bot_secret):
+    if user is None and telegram_id and is_bot_secret(bot_secret or x_bot_secret):
         user = db_service.get_user_by_telegram_id(telegram_id)
     if user is None:
         return []
@@ -211,18 +212,19 @@ def get_orders_for_power(
     telegram_id: Optional[str] = None,
     bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Current pending orders for a power. Only the assigned user may view them.
 
-    Accepts a Bearer token (browser) or ``telegram_id``+``bot_secret`` query params
-    (Telegram bot; GET has no body to carry them in) — same fallback pattern as
-    ``GET /games/{game_id}/messages``.
+    Accepts a Bearer token (browser) or a ``telegram_id`` query param with the bot
+    secret in the ``X-Bot-Secret`` header (Telegram bot; a ``bot_secret`` query
+    param is still accepted) — same fallback pattern as ``GET /games/{game_id}/messages``.
     """
     pending = game_service.pending_orders_view(game_id)
     if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and is_bot_secret(bot_secret):
+    if user is None and telegram_id and is_bot_secret(bot_secret or x_bot_secret):
         user = db_service.get_user_by_telegram_id(telegram_id)
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:

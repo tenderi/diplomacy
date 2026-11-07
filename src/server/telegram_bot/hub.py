@@ -167,7 +167,7 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
         await send(e.message)
         return
     except requests.RequestException as e:
-        await send(f"Could not load game {game_id}: {e}")
+        await send(f"Could not load game {game_id}: {e}", parse_mode=None)
         return
     try:
         orders_status = api_get(f"/games/{game_id}/orders_status", telegram_id=user_id)
