@@ -2281,3 +2281,46 @@ describe('GameView — polish (CH4)', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order)
   })
 })
+
+describe('GameView — phone phases (CU1)', () => {
+  it('keeps the page rendered while a refresh after Submit is in flight', async () => {
+    const base = stubFetchActive(activeMovementState, francePlayers)
+    let stateCalls = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const { posts, fetchMock } = recordingPosts(
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.includes('/legal_orders/')) return jsonResponse({ detail: 'Not Found' }, 404)
+        if (/\/games\/10\/state/.test(url) && ++stateCalls > 1) {
+          return gate.then(() => base(url, init))
+        }
+        return base(url, init)
+      }) as unknown as ReturnType<typeof stubFetchActive>,
+      () => ({ results: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const box = await within(container).findByPlaceholderText(/A PAR - BUR/)
+    fireEvent.change(box, { target: { value: 'A PAR - BUR' } })
+    fireEvent.click(within(container).getByRole('button', { name: 'Submit orders' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    await waitFor(() => expect(stateCalls).toBeGreaterThan(1))
+    expect(within(container).queryByText('Loading...')).toBeNull()
+    expect(within(container).getByRole('button', { name: 'Submit orders' })).toBeInTheDocument()
+    release()
+  })
+
+  it('opens a retreat phase on the board, not the last resolution', async () => {
+    const lastResolution = {
+      results: [{ order: { type: 'MOVE', power: 'GERMANY', unit: 'MUN' }, result: 'OK', dislodged: false, retreat_options: [], power: 'GERMANY', order_str: 'A MUN - BUR' }],
+    }
+    const state = { ...activeMovementState, phase: 'S1901R', phase_type: 'RETREAT' }
+    vi.stubGlobal('fetch', stubFetchActive(state, francePlayers, { lastResolution }))
+    const { container } = renderGame10()
+    await within(container).findByRole('button', { name: 'Last resolution' })
+    await waitFor(() => expect(container.querySelector('[data-testid="map-inline"]')).not.toBeNull())
+    const img = container.querySelector('[data-testid="map-inline"]') as HTMLImageElement
+    expect(img.src).not.toContain('/map/resolution')
+    expect(within(container).getByRole('button', { name: 'Board' }).className).toContain('bg-primary')
+  })
+})

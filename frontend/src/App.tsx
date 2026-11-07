@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router'
+import { Routes, Route, Navigate, useParams } from 'react-router'
 import { useAuth } from './contexts/AuthContext'
 import { AppLayout } from './components/AppLayout'
 import { Toaster } from './components/ui/sonner'
@@ -12,6 +12,13 @@ import GameList from './pages/GameList'
 import GameView from './pages/GameView'
 import Feedback from './pages/Feedback'
 import Sandbox from './pages/Sandbox'
+
+// Remount per game: GameView keeps the previous board on screen during a refresh, which
+// must not carry over to a different game reached by an in-app link.
+function GameViewForRoute() {
+  const { gameId } = useParams()
+  return <GameView key={gameId} />
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -50,7 +57,7 @@ export default function App() {
         path="/games/:gameId"
         element={
           <ProtectedRoute>
-            <GameView />
+            <GameViewForRoute />
           </ProtectedRoute>
         }
       />
