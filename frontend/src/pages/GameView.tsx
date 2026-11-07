@@ -348,6 +348,8 @@ export default function GameView() {
 
   const load = useCallback(() => {
     if (!gameId) return
+    // The full-page spinner is for the first load only; a refresh after a submit or poll
+    // keeps the page (and the scroll position) in place.
     setLoading(true)
     setError('')
     Promise.all([
@@ -539,10 +541,17 @@ export default function GameView() {
   // map to the resolution overlay -- "what happened" is the more useful first view than a
   // bare board -- unless the viewer already picked a mode themselves this phase.
   useEffect(() => {
-    if (!mapModeTouched && resolution && resolution.results.length > 0) {
+    // Retreat and adjustment phases need the current board (dislodged units, owned
+    // centres), not the previous turn's arrows.
+    if (
+      !mapModeTouched &&
+      state?.phase_type === 'MOVEMENT' &&
+      resolution &&
+      resolution.results.length > 0
+    ) {
       setMapMode('resolution')
     }
-  }, [resolution, mapModeTouched])
+  }, [resolution, mapModeTouched, state?.phase_type])
 
   useEffect(() => {
     if (!gameId || !user) return
@@ -914,7 +923,7 @@ export default function GameView() {
     }
   }
 
-  if (loading && !error) return <div className="p-5">Loading...</div>
+  if (loading && !error && !state) return <div className="p-5">Loading...</div>
   if (error && !state) {
     return (
       <div className="max-w-xl mx-auto">
