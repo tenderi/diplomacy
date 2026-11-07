@@ -422,7 +422,8 @@ from a browser; both routes are kept for existing server-side callers):
 
 - `GET /games/{id}/map/orders` — the board plus arrows for the **caller's own**
   pending orders (plain board if none submitted yet). Players in the game only (Bearer,
-  or `telegram_id` + `bot_secret` query parameters); anyone else gets 403, since pending
+  or a `telegram_id` query parameter with the bot secret in the `X-Bot-Secret` header);
+  anyone else gets 403, since pending
   orders are secret. The web client fetches it with its token and shows it from a blob
   URL, as an `<img src>` sends no credentials. `POST .../generate_map/orders` draws every
   power's pending orders and so takes the bot secret only; `POST .../generate_map` and

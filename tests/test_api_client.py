@@ -53,10 +53,11 @@ class TestUrlAndHealth:
 
 
 class TestRequests:
-    def test_get_as_a_player_adds_the_id_and_the_secret_as_query_params(self, secret: str) -> None:
+    def test_get_as_a_player_sends_the_secret_in_the_header_not_the_url(self, secret: str) -> None:
         with patch.object(api_client.requests, "get", return_value=_ok({"orders": []})) as get:
             assert api_client.api_get("/games/1/orders/FRANCE", telegram_id="555") == {"orders": []}
-        assert get.call_args.kwargs["params"] == {"telegram_id": "555", "bot_secret": secret}
+        assert get.call_args.kwargs["params"] == {"telegram_id": "555"}
+        assert get.call_args.kwargs["headers"] == {"X-Bot-Secret": secret}
         assert get.call_args.kwargs["headers"] == {"X-Bot-Secret": secret}
 
     def test_a_public_get_sends_no_player_params(self, secret: str) -> None:
@@ -98,3 +99,42 @@ class TestBytes:
         with patch.object(api_client.requests, "get", return_value=resp):
             with pytest.raises(requests.HTTPError, match="Game not found"):
                 api_client.api_get_bytes("/games/1/map")
+
+
+def _error(status: int, body: bytes, url: str) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = body
+    resp.url = url
+    resp.reason = "Server Error"
+    return resp
+
+
+class TestErrorText:
+    """CT1: an error's text reaches a chat, so it must never carry the URL."""
+
+    URL = "http://diplomacy_api:8000/games/1/messages?telegram_id=5&bot_secret=SEKRET"
+
+    def test_a_plain_text_500_names_the_status_not_the_url(self) -> None:
+        with pytest.raises(api_client.ApiError) as err:
+            api_client._raise_for_status(_error(500, b"Internal Server Error", self.URL))
+        assert str(err.value) == "The server had a problem (HTTP 500). Please try again shortly."
+        assert "SEKRET" not in str(err.value) and "bot_secret" not in str(err.value)
+        assert err.value.response.status_code == 500  # link_account.py reads it
+
+    def test_a_4xx_without_detail_is_a_refusal(self) -> None:
+        with pytest.raises(api_client.ApiError, match=r"^The server refused the request \(HTTP 404\)\.$"):
+            api_client._raise_for_status(_error(404, b"{}", self.URL))
+
+    def test_a_validation_error_joins_its_messages(self) -> None:
+        body = (
+            b'{"detail": [{"loc": ["query", "wait"], "msg": "Input should be a valid integer"},'
+            b' {"loc": ["body", "text"], "msg": "Field required"}]}'
+        )
+        with pytest.raises(api_client.ApiError) as err:
+            api_client._raise_for_status(_error(422, body, self.URL))
+        assert str(err.value) == "The request was not valid: Input should be a valid integer; Field required."
+
+    def test_a_string_detail_is_kept(self) -> None:
+        with pytest.raises(api_client.ApiError, match=r"^Power already taken$"):
+            api_client._raise_for_status(_error(400, b'{"detail": "Power already taken"}', self.URL))
