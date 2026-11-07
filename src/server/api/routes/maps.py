@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import SQLAlchemyError
@@ -168,8 +168,8 @@ def _own_pending_orders(
 
     Pending orders are secret until the turn is processed, so an orders map
     shows only the caller's: a Bearer user, or the bot passing ``telegram_id``
-    and ``bot_secret`` as query parameters (GET has no body), seated in the
-    game. Anyone else gets 403.
+    as a query parameter with the bot secret in ``X-Bot-Secret`` (or the legacy
+    ``bot_secret`` query parameter), seated in the game. Anyone else gets 403.
     """
     user = get_current_user_optional(credentials)
     if user is None and telegram_id and is_bot_secret(bot_secret):
@@ -195,6 +195,7 @@ def get_game_orders_map_png(
     telegram_id: Optional[str] = None,
     bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Response:
     """Stream the orders-overlay PNG (board + arrows for the caller's own pending
     orders) as bytes. Players in the game only -- see ``_own_pending_orders``.
@@ -213,7 +214,7 @@ def get_game_orders_map_png(
         raise HTTPException(status_code=404, detail="Game not found")
     svg_path = svg_path_for_map_name(view["map_name"])
     order_viz = orders_by_power_to_viz(
-        _own_pending_orders(game_id, credentials, telegram_id, bot_secret), _kind_by_province(view)
+        _own_pending_orders(game_id, credentials, telegram_id, bot_secret or x_bot_secret), _kind_by_province(view)
     )
     img_bytes = Map.render_board_png_orders(
         svg_path,

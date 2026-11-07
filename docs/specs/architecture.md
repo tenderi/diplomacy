@@ -519,7 +519,9 @@ bot shows the 400's reason to the sender; the web composer has `maxLength` 3500 
 string length counts the same units), shows the characters left from 3000 on, and won't
 send blank text. **Reading** (`GET /games/{id}/messages`): no credentials reads the
 broadcasts only; a valid Bearer token, or `telegram_id` with the bot secret, adds the
-caller's own private messages; credentials that are present but don't check out (an
+caller's own private messages. On this and every other GET the bot sends the secret in the
+`X-Bot-Secret` header, never in the URL, where it would end up in access logs and in error
+text (a `bot_secret` query parameter is still accepted from older callers); credentials that are present but don't check out (an
 invalid or expired token, a `telegram_id` without the secret) are a 401, never a silent
 fall-back to the broadcasts-only view.
 

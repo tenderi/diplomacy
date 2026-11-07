@@ -12,6 +12,7 @@ from .api_client import api_post
 from .game_context import set_current_game
 from .games import ensure_registered
 from .help_text import DEMO_EXAMPLE_ORDERS, ORDER_FORMAT_NOTES
+from .utils import escape_markdown
 
 logger = logging.getLogger("diplomacy.telegram_bot.admin")
 
@@ -50,7 +51,7 @@ async def start_demo_game(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         })["game_id"])
         api_post(f"/games/{game_id}/join", {"telegram_id": user_id, "game_id": int(game_id), "power": DEMO_POWER})
     except requests.RequestException as e:
-        await send(f"❌ Could not start a demo game: {e}")
+        await send(f"❌ Could not start a demo game: {escape_markdown(str(e))}")
         return
     set_current_game(user_id, game_id)
 
