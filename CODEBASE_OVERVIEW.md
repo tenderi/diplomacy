@@ -183,7 +183,10 @@ Two modes coexist: **JWT Bearer** (browser) and **`telegram_id` plus the bot sec
 (Telegram bot). `resolve_user_or_telegram` turns either into a user; `require_bot_or_user`,
 `require_bot_secret` and `require_bot_or_game_member` (the bot, or a user seated in or
 creator of the path's game: `POST .../snapshot`, `.../generate_map`) are the dependencies; per-power authorization is enforced in route
-handlers.
+handlers. The bot sends its secret only in the `X-Bot-Secret` header, on every method; a
+write route taking a `telegram_id` reads it with `supplied_bot_secret(x_bot_secret,
+req.bot_secret)`, which prefers the header and falls back to the legacy `bot_secret` body
+field.
 
 ---
 

@@ -187,16 +187,13 @@ def _raise_for_status(resp: requests.Response) -> None:
 def api_post(endpoint: str, json_data: dict) -> dict:
     """Make a POST request to the API.
 
-    Sends X-Bot-Secret header for server-side auth on management endpoints.
-    If the payload includes a ``telegram_id`` field, ``bot_secret`` is also
-    injected into the body for telegram_id-based auth flows.
+    The bot secret travels only in the ``X-Bot-Secret`` header
+    (``_bot_headers()``), which also vouches for a ``telegram_id`` in the
+    body; it is never put in the body.
     """
-    payload = dict(json_data)
-    if "telegram_id" in payload and BOT_SECRET:
-        payload.setdefault("bot_secret", BOT_SECRET)
     try:
         resp = requests.post(
-            f"{API_URL}{endpoint}", json=payload, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
+            f"{API_URL}{endpoint}", json=json_data, headers=_bot_headers(), timeout=DEFAULT_API_TIMEOUT
         )
     except (requests.ConnectionError, requests.Timeout) as e:
         raise ApiUnreachableError(e) from e
@@ -283,15 +280,15 @@ def attempt_delivery(entry: OutboxEntry) -> DeliveryResult:
 
     Adds the two fields that make a replay safe: ``client_timestamp`` (when the
     player composed it -- the entry's ``created_at``, *not* now) in the body,
-    and ``Idempotency-Key`` in the headers. ``bot_secret`` is injected exactly
-    as ``api_post`` does.
+    and ``Idempotency-Key`` in the headers. The bot secret goes only in the
+    ``X-Bot-Secret`` header, read at send time, so the stored entry never holds
+    it and a write queued before a secret rotation replays with the current
+    one. A ``bot_secret`` in the stored payload is dropped.
     """
     outbox = get_outbox()
     outbox.mark_inflight(entry.id)
-    payload = dict(entry.payload)
+    payload = {k: v for k, v in entry.payload.items() if k != "bot_secret"}
     payload.setdefault("client_timestamp", entry.created_at.isoformat())
-    if "telegram_id" in payload and BOT_SECRET:
-        payload.setdefault("bot_secret", BOT_SECRET)
     headers = {**_bot_headers(), "Idempotency-Key": entry.key}
     try:
         resp = requests.post(

@@ -519,9 +519,12 @@ bot shows the 400's reason to the sender; the web composer has `maxLength` 3500 
 string length counts the same units), shows the characters left from 3000 on, and won't
 send blank text. **Reading** (`GET /games/{id}/messages`): no credentials reads the
 broadcasts only; a valid Bearer token, or `telegram_id` with the bot secret, adds the
-caller's own private messages. On this and every other GET the bot sends the secret in the
-`X-Bot-Secret` header, never in the URL, where it would end up in access logs and in error
-text (a `bot_secret` query parameter is still accepted from older callers); credentials that are present but don't check out (an
+caller's own private messages. On this and every other request, GET or write, the bot sends
+the secret only in the `X-Bot-Secret` header: never in the URL, where it would end up in
+access logs and in error text, and never in a JSON body, which its offline queue stores on
+disk. A `bot_secret` query parameter or body field is still accepted from older callers
+(writes read it through `auth.supplied_bot_secret`, and the header wins when both are sent);
+credentials that are present but don't check out (an
 invalid or expired token, a `telegram_id` without the secret) are a 401, never a silent
 fall-back to the broadcasts-only view.
 
@@ -768,6 +771,10 @@ with a 5xx is told "I will retry it for a few minutes". An order retried after i
   `FUTURE_TOLERANCE` (5 minutes) ahead of the server clock is refused with 422 on the same
   routes (the clamp above would otherwise turn it into "now" and let it pass as fresh). `phase_started_at` is stamped by `GameRepo`
   on every write that changes `phase_code`.
+- **`X-Bot-Secret`** — the bot secret, added at send time and only in this header: the
+  stored entry never holds it (it would be on disk, and a write queued before a secret
+  rotation would replay with the old one), and a `bot_secret` left in a stored payload is
+  dropped before sending.
 - **`Idempotency-Key`** — a UUID per entry. `api/idempotency.py` stores the first response
   (status + JSON) and replays it, with `Idempotent-Replayed: true`, to any later request with
   the same key. Honoured only with `X-Bot-Secret`, only for mutating methods, only for
