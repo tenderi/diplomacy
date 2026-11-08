@@ -25,7 +25,7 @@ describe('ResultList', () => {
     const items = within(container).getAllByRole('listitem')
     expect(items).toHaveLength(2)
     expect(items[0].textContent).toBe(
-      'GERMANY: D A MUNDisbanded by civil disorder: too few disbands were ordered.'
+      'GERMANY: D A MUNDisbanded by civil disorder: too few disbands were ordered, so the unit farthest from its home centres was removed.'
     )
     expect(items[1].textContent).toBe('GERMANY: D A BERUnit was disbanded.')
   })
@@ -225,6 +225,21 @@ describe('BuildOrdersSection', () => {
     expect(screen.getByTestId('unused-slots-note').textContent).toBe('1 build left unused \u2014 it will be waived.')
     rerender(<BuildOrdersSection {...props} buildOrderSlots={['BUILD A MOS', 'WAIVE']} />)
     expect(screen.queryByTestId('unused-slots-note')).toBeNull()
+  })
+
+  it('offers no submit button when the power owes nothing', () => {
+    render(
+      <BuildOrdersSection
+        adjustment={{ action: 'none', delta: 0, slots: 0 } as never}
+        orders={[]}
+        buildOrderSlots={[]}
+        setBuildOrderSlots={() => {}}
+        loading={false}
+        onSubmit={() => {}}
+      />
+    )
+    expect(screen.getByText('No builds or disbands this turn.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Submit orders' })).toBeNull()
   })
 
   it('says civil disorder removes unchosen disbands', () => {

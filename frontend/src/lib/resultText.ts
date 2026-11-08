@@ -102,7 +102,7 @@ export function describeResult(entry: OrderResultEntry, allResults: OrderResultE
       if (entry.civil_disorder) {
         return entry.retreat_options.length > 0
           ? 'Disbanded by civil disorder: no retreat was ordered.'
-          : 'Disbanded by civil disorder: too few disbands were ordered.'
+          : 'Disbanded by civil disorder: too few disbands were ordered, so the unit farthest from its home centres was removed.'
       }
       return orderType === 'RETREAT'
         ? 'The retreat was not legal — the unit was disbanded.'

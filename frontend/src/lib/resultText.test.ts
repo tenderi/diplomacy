@@ -103,7 +103,7 @@ describe('describeResult', () => {
           order_str: 'D A MUN',
         })
       )
-    ).toBe('Disbanded by civil disorder: too few disbands were ordered.')
+    ).toBe('Disbanded by civil disorder: too few disbands were ordered, so the unit farthest from its home centres was removed.')
   })
 
   it('keeps an ordered disband as a plain disband', () => {

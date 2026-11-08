@@ -1021,7 +1021,19 @@ export default function GameView() {
                   ? `${myPower} has nothing to order this phase.`
                   : iHaveSubmitted
                     ? `Your orders are in for ${myPower}.`
-                    : `You still need to submit orders for ${myPower}.`}
+                    : (
+                      <button
+                        type="button"
+                        className="underline underline-offset-2 text-left"
+                        onClick={() =>
+                          document
+                            .getElementById('orders-panel')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                      >
+                        {`You still need to submit orders for ${myPower}.`}
+                      </button>
+                    )}
               </p>
             )}
             {ordersStatus && (
@@ -1181,7 +1193,7 @@ export default function GameView() {
       {myPower && !iAmOut && (
         <>
           <p className="font-medium mb-4">Your power: {myPower}</p>
-          <section className="mb-6">
+          <section id="orders-panel" className="mb-6 scroll-mt-4">
             <h2 className="text-lg font-medium mb-2">Orders</h2>
             {useOrdersFallback ? (
               <>

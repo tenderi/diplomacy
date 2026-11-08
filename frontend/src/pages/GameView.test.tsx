@@ -2031,6 +2031,19 @@ describe('GameView — turn status stays current (BQ3)', () => {
     setVisibility('visible')
   })
 
+  it('scrolls to the Orders panel when the status line is clicked', async () => {
+    const { fetchMock } = mutableStub(pending)
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderGame10()
+    const status = await within(container).findByText(/You still need to submit orders for FRANCE/)
+    const panel = container.querySelector('#orders-panel') as HTMLElement
+    expect(panel).not.toBeNull()
+    const spy = vi.fn()
+    panel.scrollIntoView = spy
+    fireEvent.click(status)
+    expect(spy).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+  })
+
   it('refreshes the status card right after a submission', async () => {
     const { box, fetchMock } = mutableStub(pending)
     vi.stubGlobal('fetch', fetchMock)
