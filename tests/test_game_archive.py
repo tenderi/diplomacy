@@ -245,7 +245,7 @@ def test_a_rumour_round_trips_still_anonymous(client: TestClient, played_game: t
         (fr, False, "Belgium is yours"), (fr, True, "Russia is lying"),
     ]
     new_id = client.post("/games/import", json=doc, headers=ADMIN).json()["game_id"]
-    logged = client.get(f"/games/{new_id}/messages", params=_as(de)).json()["messages"]
+    logged = client.get(f"/games/{new_id}/messages", params={"telegram_id": de}, headers={"X-Bot-Secret": BOT_SECRET}).json()["messages"]
     assert [(m["sender_power"], m["anonymous"], m["text"]) for m in logged] == [
         ("FRANCE", False, "Belgium is yours"), (None, True, "Russia is lying"),
     ]

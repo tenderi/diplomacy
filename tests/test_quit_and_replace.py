@@ -101,7 +101,7 @@ class TestQuit:
         client.post(f"/games/{game_id}/quit", json=_as(a))
         b = _telegram_user(client, "inheritor")
         assert client.post(f"/games/{game_id}/replace", json=_as(b, power="FRANCE")).status_code == 200
-        inherited = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": b, "bot_secret": BOT_SECRET})
+        inherited = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": b}, headers={"X-Bot-Secret": BOT_SECRET})
         assert inherited.json()["orders"] == ["A PAR - BUR"]
 
 

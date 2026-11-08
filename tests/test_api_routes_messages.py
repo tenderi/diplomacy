@@ -111,7 +111,7 @@ class TestSendPrivateMessage:
         assert (resp.status_code, resp.json()["detail"]) == (
             400, "You play FRANCE: a private message goes to another power.",
         )
-        listed = client.get(f"/games/{game_id}/messages", params={"telegram_id": "selfmsg1", "bot_secret": BOT_SECRET})
+        listed = client.get(f"/games/{game_id}/messages", params={"telegram_id": "selfmsg1"}, headers={"X-Bot-Secret": BOT_SECRET})
         assert listed.json()["messages"] == []
 
     @pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")
@@ -174,7 +174,7 @@ class TestGetGameMessages:
         game_id = _create_game(client, headers)
         client.post(f"/games/{game_id}/join", json={"telegram_id": "msg_user", "bot_secret": BOT_SECRET, "game_id": game_id, "power": "FRANCE"})
 
-        resp = client.get(f"/games/{game_id}/messages", params={"telegram_id": "msg_user", "bot_secret": BOT_SECRET})
+        resp = client.get(f"/games/{game_id}/messages", params={"telegram_id": "msg_user"}, headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 200, resp.text
         if resp.status_code == 200:
             data = resp.json()

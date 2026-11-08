@@ -238,7 +238,7 @@ class TestGetOrdersTelegramAuth:
             "telegram_id": "tg_orders1", "bot_secret": BOT_SECRET,
         })
 
-        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders1", "bot_secret": BOT_SECRET})
+        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders1"}, headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -252,7 +252,7 @@ class TestGetOrdersTelegramAuth:
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders2", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
 
-        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders2", "bot_secret": "wrong"})
+        resp = client.get(f"/games/{game_id}/orders", params={"telegram_id": "tg_orders2"}, headers={"X-Bot-Secret": "wrong"})
         assert resp.status_code == 200
         assert resp.json() == []
 
@@ -264,7 +264,7 @@ class TestGetOrdersTelegramAuth:
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders3", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
 
-        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders3", "bot_secret": BOT_SECRET})
+        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders3"}, headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 200
         data = resp.json()
         assert data["power"] == "FRANCE"
@@ -279,7 +279,7 @@ class TestGetOrdersTelegramAuth:
         game_id = _create_game(client, headers)
         client.post(f"/games/{int(game_id)}/join", json={"telegram_id": "tg_orders4a", "bot_secret": BOT_SECRET, "game_id": int(game_id), "power": "FRANCE"})
 
-        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders4b", "bot_secret": BOT_SECRET})
+        resp = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": "tg_orders4b"}, headers={"X-Bot-Secret": BOT_SECRET})
         assert resp.status_code == 403
 
 
