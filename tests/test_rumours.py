@@ -15,7 +15,7 @@ from server.api import ADMIN_TOKEN, app
 from server.api.shared import db_service
 from tests.conftest import _get_db_url
 from tests.reliability_helpers import OutboxProbe
-from tests.test_anonymous_games import _BOT, _as, _game
+from tests.test_anonymous_games import _BOT, BOT_SECRET, _as, _game
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(not _get_db_url(), reason="Database URL not configured")]
 
@@ -108,8 +108,9 @@ class TestRumours:
         client.post(f"/games/{game_id}/broadcast", json=_as(bert, text="Peace"))
         client.post(f"/games/{game_id}/broadcast", json=_as(bert, text="Italy will stab", anonymous=True))
 
-        def log(params: dict) -> list[tuple]:
-            r = client.get(f"/games/{game_id}/messages", params=params)
+        def log(tg: str | None) -> list[tuple]:
+            params, headers = ({"telegram_id": tg}, {"X-Bot-Secret": BOT_SECRET}) if tg else ({}, {})
+            r = client.get(f"/games/{game_id}/messages", params=params, headers=headers)
             assert r.status_code == 200, r.text
             return [
                 (m["sender_power"], m["sender_name"], m["sender_user_id"] is not None, m["anonymous"], m["text"])
@@ -118,9 +119,9 @@ class TestRumours:
 
         signed = ("GERMANY", bert_nick, True, False, "Peace")
         rumour_hidden = (None, None, False, True, "Italy will stab")
-        assert log(_as(anna)) == [signed, rumour_hidden]
-        assert log({}) == [signed, rumour_hidden]
-        assert log(_as(bert)) == [signed, ("GERMANY", bert_nick, True, True, "Italy will stab")]
+        assert log(anna) == [signed, rumour_hidden]
+        assert log(None) == [signed, rumour_hidden]
+        assert log(bert) == [signed, ("GERMANY", bert_nick, True, True, "Italy will stab")]
 
     def test_a_broadcast_to_an_unknown_game_is_404(self, client: TestClient) -> None:
         _, _, bert, _ = _game(client, anonymous=False)

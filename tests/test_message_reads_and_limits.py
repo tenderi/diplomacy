@@ -115,7 +115,7 @@ class TestReadingMessages:
 
 def _only_timestamp(client: TestClient, game_id: str, reader: str) -> str:
     """The one message's time as the bot shows it: ``5 Oct 14:03`` (UTC)."""
-    (m,) = client.get(f"/games/{game_id}/messages", params=_as(reader)).json()["messages"]
+    (m,) = client.get(f"/games/{game_id}/messages", params={"telegram_id": reader}, headers={"X-Bot-Secret": BOT_SECRET}).json()["messages"]
     sent = datetime.fromisoformat(m["timestamp"])
     return f"{sent.day} {sent:%b %H:%M}"
 
@@ -136,7 +136,7 @@ class TestMessageText:
             r = client.post(f"/games/{game_id}/{endpoint}", json=_as(anna, text=text, **extra))
         assert (r.status_code, r.json()["detail"]) == (400, "A message cannot be empty.")
         assert probe.rows() == []
-        assert client.get(f"/games/{game_id}/messages", params=_as(anna)).json()["messages"] == []
+        assert client.get(f"/games/{game_id}/messages", params={"telegram_id": anna}, headers={"X-Bot-Secret": BOT_SECRET}).json()["messages"] == []
 
     @pytest.mark.parametrize("endpoint,extra", SENDS)
     def test_a_message_over_the_limit_is_refused_with_the_limit(self, client: TestClient, endpoint: str, extra: dict) -> None:

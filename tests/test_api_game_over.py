@@ -78,7 +78,7 @@ class TestWritesRefusedOnCompletedGame:
         resp = client.post("/games/set_orders", json=_as_france(tg, game_id=game_id, orders=["A PAR H"]))
         assert resp.status_code == 409, resp.text
         assert "drawn between FRANCE, GERMANY; no further orders are accepted" in resp.json()["detail"]
-        stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": tg, "bot_secret": BOT_SECRET})
+        stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": tg}, headers={"X-Bot-Secret": BOT_SECRET})
         assert stored.json()["orders"] == []
 
     def test_process_turn_is_409_and_the_board_is_untouched(self, client):
