@@ -312,7 +312,8 @@ def resolve_user_or_telegram(
 ) -> Any:
     """Resolve to user from Bearer token or from telegram_id+bot_secret.
 
-    Route handlers pass ``supplied_bot_secret(x_bot_secret, req.bot_secret)``.
+    Write routes pass ``supplied_bot_secret(x_bot_secret, req.bot_secret)``;
+    GET routes pass the ``X-Bot-Secret`` header alone.
 
     The telegram_id fallback requires a valid BOT_SECRET to prevent impersonation.
     Raises 401 if neither Bearer token nor authenticated telegram_id resolves to a user.
