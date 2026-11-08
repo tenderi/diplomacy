@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from .auth import resolve_user_or_telegram, get_current_user, http_bearer
+from .auth import resolve_user_or_telegram, get_current_user, http_bearer, supplied_bot_secret
 from ..client_timestamp import normalize_client_timestamp, sent_at_suffix
 from ..shared import (
     db_service, game_service, scheduler_logger, logger, notify_players, notify_user,
@@ -96,8 +96,9 @@ def send_private_message(
     game_id: str,
     req: SendMessageRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
     check_message_text(req.text)
     # Get game model to get numeric ID for database operations
     game_model = db_service.get_game_by_game_id(str(game_id))
@@ -165,6 +166,7 @@ def send_broadcast_message(
     game_id: str,
     req: SendBroadcastRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """A message to every player in the game, and to its linked group.
 
@@ -172,7 +174,7 @@ def send_broadcast_message(
     the game's numeric primary key. With ``anonymous`` it is a rumour: the DMs
     and the group post name no power and no player.
     """
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
     check_message_text(req.text)
     game_model = db_service.get_game_by_game_id(str(game_id))
     if not game_model:

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import IntegrityError
 from .admin import require_admin
-from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer
+from .auth import require_bot_or_game_member, require_bot_or_user, resolve_user_or_telegram, get_current_user_optional, http_bearer, supplied_bot_secret
 from .channels import link_or_409
 from .auth import _check_rate_limit, _hash_password, _record_attempt, _verify_password
 from .orders import _authorize_power
@@ -107,7 +107,7 @@ class SetDeadlineRequest(BaseModel):
     # Omitted leaves it as it is. A bare phase-length change with no explicit
     # deadline arms one from the new length immediately.
     phase_length_seconds: Optional[int] = None
-    # The bot sends the caller's id (+ bot_secret, injected by api_post) so the
+    # The bot sends the caller's id (vouched for by its X-Bot-Secret header) so the
     # route can check they are in the game and leave them out of the
     # "deadline set" fan-out (they get the reply). A browser caller is the
     # Bearer user.
@@ -300,7 +300,7 @@ def create_game(
     than left unlinked in the public list. ``replaced_game_id`` names the game
     that lost the group.
     """
-    if req.channel_id is not None and not (is_bot_secret(x_bot_secret) or is_bot_secret(req.bot_secret)):
+    if req.channel_id is not None and not (is_bot_secret(supplied_bot_secret(x_bot_secret, req.bot_secret))):
         raise HTTPException(status_code=403, detail="Only the bot creates a game for a Telegram group.")
     if req.phase_length_seconds is not None and req.phase_length_seconds < 0:
         raise HTTPException(
@@ -317,7 +317,7 @@ def create_game(
     # telegram_id. A bare X-Bot-Secret (the demo seeder) creates an ownerless game.
     creator_id: Optional[int] = None
     if credentials is not None or req.telegram_id:
-        creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        creator = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         creator_id = int(creator.id)
     try:
         game_id = game_service.create_game(
@@ -349,6 +349,7 @@ def set_join_password(
     req: JoinPasswordRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_admin_token: Optional[str] = Header(None),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Set, change, or (with ``null``) remove a game's join password (W8).
 
@@ -359,7 +360,7 @@ def set_join_password(
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its join password.")
     game_service.set_join_password_hash(game_id, _checked_join_password(req.join_password))
@@ -373,6 +374,7 @@ def set_auto_process(
     req: AutoProcessRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_admin_token: Optional[str] = Header(None),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Switch W10's "process as soon as all orders are in" on or off.
 
@@ -386,7 +388,7 @@ def set_auto_process(
         raise HTTPException(status_code=404, detail="Game not found")
     caller_telegram_id = None
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
             raise HTTPException(status_code=403, detail="You are not a player in this game.")
         caller_telegram_id = getattr(user, "telegram_id", None)
@@ -414,6 +416,7 @@ def set_wait_flag(
     game_id: str,
     req: WaitFlagRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Raise (``waiting: true``) or lower this power's wait flag (W10).
 
@@ -422,7 +425,7 @@ def set_wait_flag(
     deadline, or a player pressing /processturn. Lowering the last flag
     processes the turn at once if everything else is ready.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -450,6 +453,7 @@ def set_dummy_power(
     req: SetDummyRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_admin_token: Optional[str] = Header(None),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Leave ``power`` to civil disorder (``dummy: true``) or open it for a
     player again (``dummy: false``). W9.
@@ -462,7 +466,7 @@ def set_dummy_power(
     if meta is None:
         raise HTTPException(status_code=404, detail="Game not found")
     if not is_admin_token(x_admin_token):
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         if meta.get("created_by_user_id") is None or int(user.id) != int(meta["created_by_user_id"]):
             raise HTTPException(status_code=403, detail="Only the game's creator can change its dummy powers.")
     try:
@@ -746,6 +750,7 @@ def submit_draw_vote(
     game_id: str,
     req: DrawVoteRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Cast this power's yes/no draw vote for the current phase.
 
@@ -754,7 +759,7 @@ def submit_draw_vote(
     still has a unit has now voted yes -- the game is finalized as a draw
     immediately; the response's ``quorum_reached``/``game_status`` reflect that.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -796,13 +801,14 @@ def concede_game(
     game_id: str,
     req: ConcedeRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """A single power voluntarily leaves the game. Only the assigned user for
     ``power`` may concede it. Unlike a draw vote, this does not end the game --
     the remaining powers play on; the conceding power's units are removed and
     it is picked up by the normal elimination check once it also holds no
     supply centers."""
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not game_service.exists(game_id):
         raise HTTPException(status_code=404, detail="Game not found")
     api_shared.require_started(game_id)
@@ -922,10 +928,11 @@ def spectate_join(
     game_id: str,
     req: SpectateRequest = Body(default_factory=SpectateRequest),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Join a game as spectator (non-player observer). Requires auth (Bearer or telegram_id)."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         db_service.add_spectator(game_id=game_id, user_id=int(user.id))
         return {"status": "ok", "message": f"Now spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
@@ -937,10 +944,11 @@ def spectate_leave(
     game_id: str,
     req: SpectateRequest = Body(default_factory=SpectateRequest),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Stop spectating a game."""
     try:
-        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+        user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
         db_service.remove_spectator(game_id=game_id, user_id=int(user.id))
         return {"status": "ok", "message": f"Stopped spectating game {game_id}", "game_id": game_id}
     except ValueError as e:
@@ -1033,6 +1041,7 @@ def join_game(
     game_id: int,
     req: JoinGameRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     # The path is the single source of truth for which game this is. A body
     # `game_id` that disagrees with it is rejected rather than ignored: silently
@@ -1046,8 +1055,8 @@ def join_game(
                 f"The body field is optional -- omit it and the path is used."
             ),
         )
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-    _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _require_group_join_via_bot(str(game_id), user, supplied_bot_secret(x_bot_secret, req.bot_secret))
     view = game_service.view(str(game_id))
     random_powers = bool(view and view.get("random_powers"))
     if random_powers:
@@ -1144,8 +1153,9 @@ def quit_game(
     game_id: int,
     req: QuitGameRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
     # If power is specified, check that user owns that power
     if req.power:
         player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=req.power)
@@ -1211,10 +1221,11 @@ def replace_player(
     game_id: int,
     req: ReplacePlayerRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Replace a vacated power in a game."""
-    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=req.bot_secret)
-    _require_group_join_via_bot(str(game_id), user, req.bot_secret)
+    user = resolve_user_or_telegram(credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret))
+    _require_group_join_via_bot(str(game_id), user, supplied_bot_secret(x_bot_secret, req.bot_secret))
     view = game_service.view(str(game_id))
     _refuse_if_ended(view, game_id)
     _refuse_if_dummy(view, req.power, game_id)
@@ -1323,6 +1334,7 @@ def propose_deadline(
     game_id: str,
     req: ProposeDeadlineRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Start a majority vote to change (``hours``) or clear (omit ``hours``)
     the deadline. Only the assigned user for ``power`` may propose for it.
@@ -1332,7 +1344,7 @@ def propose_deadline(
     ``POST .../deadline/vote`` reaches one, its own ``vote_hours`` expires, or
     the proposer withdraws it via ``POST .../deadline/withdraw``.
     """
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1379,10 +1391,11 @@ def vote_deadline_proposal(
     game_id: str,
     req: DeadlineProposalVoteRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Cast (or change) this power's yes/no vote on the pending deadline
     proposal. Only the assigned user for ``power`` may vote it."""
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     game = db_service.get_game_by_game_id(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1437,10 +1450,11 @@ def withdraw_deadline_proposal(
     game_id: str,
     req: WithdrawDeadlineProposalRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Cancel the pending deadline proposal. Only its original proposer may."""
     # ``_authorize_power`` answers a missing game with 404.
-    _authorize_power(credentials, game_id, req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, game_id, req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     _refuse_deadline_change_if_over(db_service.get_game_by_game_id(game_id))
     try:
         result = api_shared.withdraw_deadline_proposal(game_id, req.power)
@@ -1468,7 +1482,7 @@ def set_deadline_schedule(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=req.bot_secret or x_bot_secret
+        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, supplied_bot_secret(x_bot_secret, req.bot_secret))
     )
     if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
         raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -1535,7 +1549,7 @@ def set_deadline(
     # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
     # could omit telegram_id and set any game's deadline unchecked.
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=req.bot_secret or x_bot_secret
+        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, supplied_bot_secret(x_bot_secret, req.bot_secret))
     )
     member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
     if member is None:

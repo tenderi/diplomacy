@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
-from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer
+from .auth import get_current_user_optional, resolve_user_or_telegram, http_bearer, supplied_bot_secret
 from ..client_timestamp import FUTURE_TOLERANCE, normalize_client_timestamp
 from .. import shared as api_shared
 from ...response_cache import invalidate_cache
@@ -106,6 +106,7 @@ def _authorize_power(credentials, game_id: str, power: str, telegram_id, bot_sec
 def set_orders(
     req: SetOrdersRequest,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     """Submit orders for a power. Only the assigned user may submit.
 
@@ -115,7 +116,7 @@ def set_orders(
     ``note`` says so in a sentence (``"replaced BUILD F BRE (you may build
     1)"``) or is ``null``.
     """
-    _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, str(req.game_id), req.power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     if not any(o.strip() for o in req.orders):
         raise HTTPException(status_code=400, detail="No orders given: send at least one order.")
     api_shared.require_started(str(req.game_id))
@@ -248,9 +249,10 @@ def clear_orders_for_power(
     power: str,
     req: ClearOrdersRequest = Body(...),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, str]:
     """Clear a power's pending orders. Only the assigned user may clear them."""
-    _authorize_power(credentials, str(game_id), power, req.telegram_id, req.bot_secret)
+    _authorize_power(credentials, str(game_id), power, req.telegram_id, supplied_bot_secret(x_bot_secret, req.bot_secret))
     # A queued "clear" that arrives after the phase moved on would wipe orders
     # the player entered for the *new* phase (e.g. from the browser).
     _refuse_if_stale(str(game_id), req.client_timestamp)
