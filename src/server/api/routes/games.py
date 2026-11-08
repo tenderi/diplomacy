@@ -1482,7 +1482,7 @@ def set_deadline_schedule(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, supplied_bot_secret(x_bot_secret, req.bot_secret))
+        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret)
     )
     if db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id)) is None:
         raise HTTPException(status_code=403, detail="You are not a player in this game.")
@@ -1549,7 +1549,7 @@ def set_deadline(
     # must hold a power in this game. Until v2.7.79 (Track T) a Bearer caller
     # could omit telegram_id and set any game's deadline unchecked.
     user = resolve_user_or_telegram(
-        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, supplied_bot_secret(x_bot_secret, req.bot_secret))
+        credentials, req.telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, req.bot_secret)
     )
     member = db_service.get_player_by_game_id_and_user_id(game_id=int(game.id), user_id=int(user.id))
     if member is None:

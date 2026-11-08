@@ -122,6 +122,19 @@ class TestHeaderOnly:
         })
         assert r.status_code == 200, r.text
 
+    def test_on_a_get_the_header_wins_over_a_stale_query_secret(
+        self, client: TestClient, seated: tuple[str, str, str]
+    ) -> None:
+        game_id, fr, _ = seated
+        r = client.get(
+            f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": "old"}, headers=HEADER
+        )
+        assert r.status_code == 200, r.text
+        r = client.get(
+            f"/games/{game_id}/messages", params={"telegram_id": fr, "bot_secret": "old"}, headers=HEADER
+        )
+        assert r.status_code == 200, r.text
+
     def test_the_legacy_body_field_alone_still_works(self, client: TestClient, seated: tuple[str, str, str]) -> None:
         game_id, fr, _ = seated
         r = client.post(f"/games/{game_id}/broadcast", json={"telegram_id": fr, "text": "x", "bot_secret": BOT_SECRET})

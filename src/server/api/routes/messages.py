@@ -258,7 +258,7 @@ def get_game_messages(
     if credentials:
         user = get_current_user(credentials)  # 401 unless valid
     elif telegram_id:
-        user = resolve_user_or_telegram(None, telegram_id, bot_secret=bot_secret or x_bot_secret)
+        user = resolve_user_or_telegram(None, telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, bot_secret))
     # Get game model to get numeric ID
     game_model = db_service.get_game_by_game_id(str(game_id))
     if not game_model:
