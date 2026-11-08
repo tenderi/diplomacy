@@ -299,6 +299,8 @@ def get_channel_game(channel_id: str) -> Dict[str, Any]:
 @router.post("/games/{game_id}/channel/settings", dependencies=[Depends(require_game_player_or_bot)])
 def update_channel_settings(game_id: str, req: ChannelSettingsRequest) -> Dict[str, Any]:
     """Update channel settings for a game."""
+    if not game_service.exists(game_id):
+        raise HTTPException(status_code=404, detail=f"Game {game_id} not found")
     # Build settings dict from request
     settings = {}
     if req.auto_post_maps is not None:
