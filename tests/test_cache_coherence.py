@@ -68,13 +68,13 @@ def test_pending_orders_stay_out_of_the_public_state(client: TestClient) -> None
     game_id, tg = _game(client)
     client.post(f"/games/{game_id}/join", json=_as(tg, power="FRANCE"))
     fill_with_dummies(game_id)
-    own = {"telegram_id": tg, "bot_secret": BOT_SECRET}
+    own, bot = {"telegram_id": tg}, {"X-Bot-Secret": BOT_SECRET}
     assert "orders" not in _state(client, game_id)  # warm
     assert client.post("/games/set_orders", json=_as(tg, game_id=game_id, power="FRANCE", orders=["A PAR - BUR"])).status_code == 200
     assert "orders" not in _state(client, game_id)
-    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own).json()["orders"] == ["A PAR - BUR"]
+    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own, headers=bot).json()["orders"] == ["A PAR - BUR"]
     assert client.post(f"/games/{game_id}/orders/FRANCE/clear", json=_as(tg)).status_code == 200
-    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own).json()["orders"] == []
+    assert client.get(f"/games/{game_id}/orders/FRANCE", params=own, headers=bot).json()["orders"] == []
 
 
 def test_a_processed_turn_shows_the_new_phase(client: TestClient) -> None:

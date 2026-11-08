@@ -3,7 +3,8 @@
 The bot never puts the secret in a request body (its queued writes are stored
 on disk). Every write route that takes a ``telegram_id`` reads the header
 through ``supplied_bot_secret``; the legacy ``bot_secret`` body field is still
-accepted when no header is sent.
+accepted when no header is sent. GET routes read the header only: a
+``bot_secret`` query parameter would land in access logs, so it is ignored.
 """
 from __future__ import annotations
 
@@ -122,17 +123,33 @@ class TestHeaderOnly:
         })
         assert r.status_code == 200, r.text
 
-    def test_on_a_get_the_header_wins_over_a_stale_query_secret(
-        self, client: TestClient, seated: tuple[str, str, str]
+    @pytest.mark.parametrize(("path", "status", "body"), [
+        ("/messages", 401, {"detail": "Not authenticated: bot_secret required for telegram_id auth"}),
+        ("/orders/FRANCE", 403, {"detail": "You are not authorized to view orders for this power."}),
+        ("/orders", 200, []),
+        ("/map/orders", 403, {"detail": "Only a player in this game can see their pending orders on the map."}),
+    ])
+    def test_a_get_ignores_a_query_parameter_secret(
+        self, client: TestClient, seated: tuple[str, str, str], path: str, status: int, body: object
     ) -> None:
+        """A secret in the URL lands in access logs, so it authenticates nothing:
+        the request is answered exactly as one with no secret at all."""
         game_id, fr, _ = seated
-        r = client.get(
-            f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": "old"}, headers=HEADER
-        )
-        assert r.status_code == 200, r.text
-        r = client.get(
-            f"/games/{game_id}/messages", params={"telegram_id": fr, "bot_secret": "old"}, headers=HEADER
-        )
+        r = client.post("/games/set_orders", headers=HEADER, json={
+            "game_id": game_id, "power": "FRANCE", "orders": ["A PAR - BUR"], "telegram_id": fr,
+        })
+        assert r.status_code == 200, r.text  # a pending order a leaked read would show
+        url = f"/games/{game_id}{path}"
+        in_query = client.get(url, params={"telegram_id": fr, "bot_secret": BOT_SECRET})
+        no_secret = client.get(url, params={"telegram_id": fr})
+        assert (in_query.status_code, in_query.json()) == (status, body)
+        assert (no_secret.status_code, no_secret.json()) == (status, body)
+
+    def test_on_a_get_the_header_still_authenticates(self, client: TestClient, seated: tuple[str, str, str]) -> None:
+        game_id, fr, _ = seated
+        r = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr}, headers=HEADER)
+        assert (r.status_code, r.json()["power"]) == (200, "FRANCE")
+        r = client.get(f"/games/{game_id}/messages", params={"telegram_id": fr}, headers=HEADER)
         assert r.status_code == 200, r.text
 
     def test_the_legacy_body_field_alone_still_works(self, client: TestClient, seated: tuple[str, str, str]) -> None:
