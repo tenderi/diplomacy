@@ -120,7 +120,7 @@ class TestNothingHappensBeforeTheGameStarts:
         assert r.json()["detail"] == (
             f"Game {game_id} hasn't started: 1 power is unseated (Russia): seat players or mark them as dummies."
         )
-        stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": seats["FRANCE"], "bot_secret": BOT_SECRET})
+        stored = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": seats["FRANCE"]}, headers={"X-Bot-Secret": BOT_SECRET})
         assert stored.json()["orders"] == ["A PAR - BUR"]
         assert client.get(f"/games/{game_id}/state").json()["phase"] == "S1901M"
         russia = _telegram_user(client)

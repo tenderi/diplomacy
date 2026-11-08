@@ -159,7 +159,7 @@ class TestAnnouncements:
 
     def test_my_orders_name_my_power_in_upper_case(self, client):
         game_id, anna, *_ = _game(client, anonymous=False)
-        r = client.get(f"/games/{game_id}/orders/france", params={"telegram_id": anna, "bot_secret": BOT_SECRET})
+        r = client.get(f"/games/{game_id}/orders/france", params={"telegram_id": anna}, headers={"X-Bot-Secret": BOT_SECRET})
         assert (r.status_code, r.json()) == (200, {"power": "FRANCE", "orders": []})
 
     @pytest.mark.parametrize("anonymous", [True, False])
@@ -202,7 +202,7 @@ class TestRelayedMessages:
     def test_the_message_log_of_an_anonymous_game_names_powers_only(self, client):
         game_id, anna, bert, _ = _game(client, anonymous=True)
         client.post(f"/games/{game_id}/message", json=_as(bert, recipient_power="FRANCE", text="Ally?"))
-        logged = client.get(f"/games/{game_id}/messages", params=_as(anna)).json()["messages"]
+        logged = client.get(f"/games/{game_id}/messages", params={"telegram_id": anna}, headers={"X-Bot-Secret": BOT_SECRET}).json()["messages"]
         assert [(m["sender_user_id"], m["sender_power"], m["sender_name"], m["text"]) for m in logged] == [
             (None, "GERMANY", None, "Ally?"),
         ]
@@ -210,6 +210,6 @@ class TestRelayedMessages:
     def test_the_message_log_of_a_public_game_names_the_sender(self, client):
         game_id, anna, bert, bert_nick = _game(client, anonymous=False)
         client.post(f"/games/{game_id}/message", json=_as(bert, recipient_power="FRANCE", text="Ally?"))
-        logged = client.get(f"/games/{game_id}/messages", params=_as(anna)).json()["messages"]
+        logged = client.get(f"/games/{game_id}/messages", params={"telegram_id": anna}, headers={"X-Bot-Secret": BOT_SECRET}).json()["messages"]
         assert [(m["sender_power"], m["sender_name"], m["text"]) for m in logged] == [("GERMANY", bert_nick, "Ally?")]
         assert isinstance(logged[0]["sender_user_id"], int)

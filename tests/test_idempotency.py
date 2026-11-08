@@ -54,7 +54,7 @@ def _game_with_two_bot_players(client):
 
 
 def _messages(client, game_id, telegram_id):
-    r = client.get(f"/games/{game_id}/messages", params={"telegram_id": telegram_id, "bot_secret": SECRET})
+    r = client.get(f"/games/{game_id}/messages", params={"telegram_id": telegram_id}, headers={"X-Bot-Secret": SECRET})
     return r.json()["messages"]
 
 

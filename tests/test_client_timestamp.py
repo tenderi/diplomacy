@@ -96,7 +96,7 @@ class TestMessages:
                               "text": "late", "client_timestamp": composed.isoformat()})
         assert r.status_code == 200, r.text
         assert r.json()["timestamp"] == composed.isoformat()
-        msgs = client.get(f"/games/{game_id}/messages", params={"telegram_id": de, "bot_secret": SECRET}).json()["messages"]
+        msgs = client.get(f"/games/{game_id}/messages", params={"telegram_id": de}, headers={"X-Bot-Secret": SECRET}).json()["messages"]
         assert [m["timestamp"] for m in msgs if m["text"] == "late"] == [composed.isoformat()]
 
     def test_recipient_notification_mentions_the_original_time(self):
@@ -151,7 +151,7 @@ class TestStaleOrders:
         assert r.status_code == 409, r.text
         assert "NOT applied" in r.json()["detail"]
         assert "game " + game_id + " is now in Fall 1901 movement (F1901M). They were NOT applied" in r.json()["detail"].replace("\n", " ")
-        pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": SECRET}).json()
+        pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr}, headers={"X-Bot-Secret": SECRET}).json()
         assert pending["orders"] == []
 
         fresh = (started + timedelta(seconds=1)).isoformat()
@@ -164,7 +164,7 @@ class TestStaleOrders:
         r = client.post(f"/games/{game_id}/orders/FRANCE/clear",
                         json={"telegram_id": fr, "bot_secret": SECRET, "client_timestamp": stale})
         assert r.status_code == 409
-        pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr, "bot_secret": SECRET}).json()
+        pending = client.get(f"/games/{game_id}/orders/FRANCE", params={"telegram_id": fr}, headers={"X-Bot-Secret": SECRET}).json()
         assert pending["orders"] == ["A PAR H"]
 
     def test_orders_with_a_future_timestamp_are_refused(self):

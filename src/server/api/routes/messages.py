@@ -240,7 +240,6 @@ def send_broadcast_message(
 def get_game_messages(
     game_id: str,
     telegram_id: Optional[str] = None,
-    bot_secret: Optional[str] = None,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     x_bot_secret: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
@@ -249,8 +248,8 @@ def get_game_messages(
 
     No credentials at all is an anonymous reader, who sees broadcasts only.
     Credentials that are present but don't check out -- an invalid or expired
-    Bearer token, or a ``telegram_id`` without the bot secret (the ``X-Bot-Secret``
-    header, or the legacy ``bot_secret`` query parameter) -- are a 401, not
+    Bearer token, or a ``telegram_id`` without the bot secret in the ``X-Bot-Secret``
+    header (a ``bot_secret`` query parameter is ignored) -- are a 401, not
     a silent fallback to the anonymous view: that fallback is how the bot once
     showed every player a log with their private messages missing.
     """
@@ -258,7 +257,7 @@ def get_game_messages(
     if credentials:
         user = get_current_user(credentials)  # 401 unless valid
     elif telegram_id:
-        user = resolve_user_or_telegram(None, telegram_id, bot_secret=supplied_bot_secret(x_bot_secret, bot_secret))
+        user = resolve_user_or_telegram(None, telegram_id, bot_secret=x_bot_secret)
     # Get game model to get numeric ID
     game_model = db_service.get_game_by_game_id(str(game_id))
     if not game_model:
