@@ -18,7 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..shared import db_service, game_service, is_bot_secret, resolve_turn
-from .auth import get_current_user_optional, http_bearer, require_bot_or_game_member, require_bot_secret
+from .auth import get_current_user_optional, http_bearer, require_bot_or_game_member, require_bot_secret, supplied_bot_secret
 from rendering.map import Map
 from rendering.order_overlay import orders_by_power_to_viz, resolution_dict_to_viz, standoff_provinces
 from rendering.view_adapter import phase_info, retreat_options_for_render, svg_path_for_map_name, units_for_render
@@ -214,7 +214,7 @@ def get_game_orders_map_png(
         raise HTTPException(status_code=404, detail="Game not found")
     svg_path = svg_path_for_map_name(view["map_name"])
     order_viz = orders_by_power_to_viz(
-        _own_pending_orders(game_id, credentials, telegram_id, bot_secret or x_bot_secret), _kind_by_province(view)
+        _own_pending_orders(game_id, credentials, telegram_id, supplied_bot_secret(x_bot_secret, bot_secret)), _kind_by_province(view)
     )
     img_bytes = Map.render_board_png_orders(
         svg_path,

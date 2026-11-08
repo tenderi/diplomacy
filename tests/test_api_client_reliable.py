@@ -50,9 +50,39 @@ def test_delivered_on_2xx_with_idempotency_key_and_client_timestamp(fresh_outbox
     assert kwargs["headers"]["Idempotency-Key"] == result.entry.key
     assert kwargs["headers"]["X-Bot-Secret"] == "s3cret"
     body = kwargs["json"]
-    assert body["bot_secret"] == "s3cret"
+    assert "bot_secret" not in body
     # The composed-at time is the entry's creation time, not "now at send".
     assert datetime.fromisoformat(body["client_timestamp"]) == result.entry.created_at
+
+
+def test_the_secret_is_never_stored_and_replays_with_the_current_one(fresh_outbox, monkeypatch):
+    """The outbox row holds no secret, so a write queued before a secret
+    rotation replays with the new secret, in the header only."""
+    monkeypatch.setattr(api_client, "BOT_SECRET", "old-secret")
+    with patch.object(api_client.requests, "post", side_effect=requests.ConnectionError("refused")):
+        result = api_client.api_post_reliable(
+            "/games/set_orders", {"telegram_id": "5", "orders": ["A PAR H"]}, chat_id=5, description="orders"
+        )
+    assert result.status == "queued"
+    row = fresh_outbox._conn.execute("SELECT payload FROM outbox WHERE id = ?", (result.entry.id,)).fetchone()
+    assert "old-secret" not in row[0] and "bot_secret" not in row[0]
+
+    monkeypatch.setattr(api_client, "BOT_SECRET", "new-secret")
+    fresh_outbox._conn.execute("UPDATE outbox SET next_attempt_at = NULL")
+    with patch.object(api_client.requests, "post", return_value=_resp(200, {"status": "ok"})) as post:
+        assert [r.status for r in api_client.drain_outbox_once()] == ["delivered"]
+    kwargs = post.call_args.kwargs
+    assert kwargs["headers"]["X-Bot-Secret"] == "new-secret"
+    assert "bot_secret" not in kwargs["json"]
+
+
+def test_a_legacy_stored_body_secret_is_not_sent(fresh_outbox, monkeypatch):
+    monkeypatch.setattr(api_client, "BOT_SECRET", "new-secret")
+    entry = fresh_outbox.enqueue(5, "/games/set_orders", {"telegram_id": "5", "bot_secret": "old"}, "orders")
+    with patch.object(api_client.requests, "post", return_value=_resp(200, {"status": "ok"})) as post:
+        api_client.attempt_delivery(entry)
+    assert post.call_args.kwargs["json"] == {"telegram_id": "5", "client_timestamp": entry.created_at.isoformat()}
+    assert post.call_args.kwargs["headers"]["X-Bot-Secret"] == "new-secret"
 
 
 def test_queued_on_connection_error_and_entry_stays_pending(fresh_outbox):

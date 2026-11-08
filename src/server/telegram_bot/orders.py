@@ -394,9 +394,9 @@ async def clearorders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Error clearing orders: {e}")
         return
 
-    # telegram_id must be present so the client injects bot_secret into the
-    # body -- the clear route requires it for auth. Without this the
-    # request 401s (the bug this rewrite fixes).
+    # telegram_id must be present: the clear route authenticates the caller
+    # by it (vouched for by the X-Bot-Secret header). Without it the request
+    # 401s.
     outcome = api_post_reliable(
         f"/games/{game_id}/orders/{power}/clear",
         {"telegram_id": user_id},
