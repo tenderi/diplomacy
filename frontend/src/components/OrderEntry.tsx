@@ -393,8 +393,8 @@ export function BuildOrdersSection({
             : `${unused} build${unused === 1 ? '' : 's'} left unused \u2014 ${unused === 1 ? 'it' : 'they'} will be waived.`}
         </p>
       )}
-      {onSubmit && (
-        <Button onClick={onSubmit} disabled={submitting || slots.length === 0}>
+      {onSubmit && slots.length > 0 && (
+        <Button onClick={onSubmit} disabled={submitting}>
           {submitting ? 'Submitting...' : 'Submit orders'}
         </Button>
       )}
