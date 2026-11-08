@@ -312,6 +312,8 @@ def resolve_user_or_telegram(
 ) -> Any:
     """Resolve to user from Bearer token or from telegram_id+bot_secret.
 
+    Route handlers pass ``supplied_bot_secret(x_bot_secret, req.bot_secret)``.
+
     The telegram_id fallback requires a valid BOT_SECRET to prevent impersonation.
     Raises 401 if neither Bearer token nor authenticated telegram_id resolves to a user.
     """
@@ -330,6 +332,18 @@ def resolve_user_or_telegram(
     if user is None or not getattr(user, "is_active", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
+
+
+def supplied_bot_secret(x_bot_secret: Optional[str], body_secret: Optional[str]) -> Optional[str]:
+    """The bot secret a write presents: the ``X-Bot-Secret`` header, else the body field.
+
+    The header is how the bot authenticates (it never puts the secret in a
+    body: its queued writes are stored on disk). The legacy ``bot_secret``
+    body field is still read when no header is sent. The header wins when
+    both are present, so a write queued before a secret rotation, whose body
+    holds the old secret, authenticates with the current header.
+    """
+    return x_bot_secret or body_secret
 
 
 def require_bot_secret(x_bot_secret: Optional[str] = Header(None)) -> None:

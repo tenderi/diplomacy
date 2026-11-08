@@ -70,6 +70,12 @@ class TestRequests:
             assert api_client.api_post("/games/1/join", {"telegram_id": "555"}) == {"status": "ok"}
         assert post.call_args.args[0] == f"{api_client.API_URL}/games/1/join"
 
+    def test_post_sends_the_secret_in_the_header_not_the_body(self, secret: str) -> None:
+        with patch.object(api_client.requests, "post", return_value=_ok({"status": "ok"})) as post:
+            api_client.api_post("/games/1/join", {"telegram_id": "555"})
+        assert post.call_args.kwargs["headers"] == {"X-Bot-Secret": secret}
+        assert post.call_args.kwargs["json"] == {"telegram_id": "555"}
+
     def test_delete_carries_the_bot_secret(self, secret: str) -> None:
         with patch.object(api_client.requests, "delete", return_value=_ok({"status": "ok"})) as delete:
             assert api_client.api_delete("/games/1/channel/unlink") == {"status": "ok"}
