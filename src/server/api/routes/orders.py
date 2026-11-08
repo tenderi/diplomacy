@@ -168,7 +168,7 @@ def get_orders(
     if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and is_bot_secret(bot_secret or x_bot_secret):
+    if user is None and telegram_id and is_bot_secret(supplied_bot_secret(x_bot_secret, bot_secret)):
         user = db_service.get_user_by_telegram_id(telegram_id)
     if user is None:
         return []
@@ -225,7 +225,7 @@ def get_orders_for_power(
     if pending is None:
         raise HTTPException(status_code=404, detail="Game not found")
     user = get_current_user_optional(credentials)
-    if user is None and telegram_id and is_bot_secret(bot_secret or x_bot_secret):
+    if user is None and telegram_id and is_bot_secret(supplied_bot_secret(x_bot_secret, bot_secret)):
         user = db_service.get_user_by_telegram_id(telegram_id)
     player = db_service.get_player_by_game_id_and_power(game_id=game_id, power=power)
     if player is None:
