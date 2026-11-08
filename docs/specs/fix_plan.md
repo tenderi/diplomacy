@@ -10,24 +10,18 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **CW**.
+>   history. Track letters run in sequence; the next free one is **CX**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
-- **Last updated:** 2026-11-07.
+- **Last updated:** 2026-11-08.
 - **Open tracks:** only Track F (a human playing the game end to end, and host chores), which
   is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track CV — The bot's secret travels only in the `X-Bot-Secret` header
-
-- [x] CV1: the bot stops putting `bot_secret` in POST bodies (and so in its on-disk outbox);
-      every `telegram_id` write route reads the header via `auth.supplied_bot_secret`, still
-      accepting the legacy body field.
 
 # Track F — Manual acceptance and host chores (maintainer)
 
