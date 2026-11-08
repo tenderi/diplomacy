@@ -404,7 +404,7 @@ was dislodged, `"F NTH was dislodged"` (`GameService.last_resolution_view`). Thi
 client uses to answer "what happened to my orders?" without re-deriving adjudication itself. The web results
 list (`OrderEntry.tsx` `ResultList`, text from `lib/resultText.ts` `describeResult`) shows
 an adjustment's `civil_disorder` result as "Disbanded by civil disorder: too few disbands
-were ordered.", a retreat phase's (one with `retreat_options`) as "Disbanded by civil
+were ordered, so the unit farthest from its home centres was removed.", a retreat phase's (one with `retreat_options`) as "Disbanded by civil
 disorder: no retreat was ordered.", a bounced retreat as "Retreat bounced: another unit
 retreated to the same province, and the unit was disbanded.", a `DISBAND` on a `Retreat`
 order as "The retreat was not legal — the unit was disbanded." and an ordered disband
