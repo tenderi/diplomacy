@@ -186,10 +186,10 @@ def test_a_build_takes_its_province_for_the_later_slots(api) -> None:
     api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else two_at_kie
     chat = Chat()
     chat.command([])
-    chat.press("BUILD A KIE")
+    chat.press("Build army KIE")
     assert "Build 2 of 2" in chat.text
     assert not any("KIE" in t for t, _ in chat.buttons)
-    assert any("BUILD A MUN" in t for t, _ in chat.buttons)
+    assert any("Build army MUN" in t for t, _ in chat.buttons)
 
 
 def test_selectunit_still_sends_one_order_at_once(api) -> None:

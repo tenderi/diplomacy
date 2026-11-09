@@ -43,7 +43,7 @@ from .games import (
 from .messages import recent_messages_text, send_diplomatic_message
 from .utils import ending_outcome, game_end_line, game_over_note
 from .orders import (
-    Sender, my_orders_text, orderhistory_text, run_process_turn, show_unit_picker, start_order_walk,
+    Sender, adjustment_duty, my_orders_text, orderhistory_text, run_process_turn, show_unit_picker, start_order_walk,
 )
 
 logger = logging.getLogger("diplomacy.telegram_bot.hub")
@@ -132,15 +132,32 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 # -- the game menu --------------------------------------------------------------
 
-def _hub_keyboard(game_id: str, power: str, state: dict, orders_status: Optional[dict], is_creator: bool) -> InlineKeyboardMarkup:
+def _order_row(game_id: str, legal: Optional[dict]) -> list[InlineKeyboardButton]:
+    """The game menu's order buttons. In an adjustment phase they say what is owed
+    (builds or disbands) and a power owing nothing gets none: both led to dead ends."""
+    if legal and legal.get("phase_type") == "ADJUSTMENT":
+        action = (legal.get("adjustment") or {}).get("action")
+        if action == "build":
+            return [_btn("🏗️ Builds", game_id, "all")]
+        if action == "disband":
+            return [_btn("✂️ Disbands", game_id, "all")]
+        return []
+    return [_btn("📝 Order all units", game_id, "all"), _btn("🎯 One unit", game_id, "one")]
+
+
+def _hub_keyboard(
+    game_id: str, power: str, state: dict, orders_status: Optional[dict], is_creator: bool,
+    legal: Optional[dict] = None,
+) -> InlineKeyboardMarkup:
     if str(state.get("status", "")).upper() in ("COMPLETED", "FINISHED", "DRAWN", "ENDED"):
         return InlineKeyboardMarkup([
             [_btn("🗺 Final map", game_id, "map"), _btn("📜 Order history", game_id, "hist")],
             [_btn("💬 Messages", game_id, "msgs")],
             [InlineKeyboardButton("⬅️ All games", callback_data="my_games")],
         ])
+    order_row = _order_row(game_id, legal)
     rows = [
-        [_btn("📝 Order all units", game_id, "all"), _btn("🎯 One unit", game_id, "one")],
+        *([order_row] if order_row else []),
         [_btn("📋 My orders", game_id, "view"), _btn("🗺 Map", game_id, "map")],
         [_btn("💬 Messages", game_id, "msgs"), _btn("⏰ Deadline", game_id, "dl")],
     ]
@@ -174,7 +191,15 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
     except requests.RequestException:
         orders_status = None
     is_creator = any(str(g["game_id"]) == game_id and g.get("is_creator") for g in games_list)
-    await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator))
+    legal: Optional[dict] = None
+    if str(state.get("phase_type", "")).upper() == "ADJUSTMENT":
+        try:
+            legal = api_get(f"/games/{game_id}/legal_orders/{power}")
+        except requests.RequestException:
+            legal = None
+        if legal and legal.get("phase_type") == "ADJUSTMENT":
+            text += f"\n{adjustment_duty(legal)}"
+    await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal))
 
 
 # -- the g| callback router -------------------------------------------------------

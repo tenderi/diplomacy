@@ -665,6 +665,7 @@ async def process_turn(
     lock = get_process_turn_lock(game_id)
     if lock.locked():
         raise HTTPException(status_code=409, detail="Turn processing already in progress for this game")
+    own_results: list[str] = []
     async with lock:
         try:
             turn_result = game_service.process_turn(game_id)
@@ -686,6 +687,7 @@ async def process_turn(
             prev_phase_code=prev_phase_code,
             trigger="manual",
             exclude_telegram_id=caller_telegram_id,
+            caller_lines=own_results,
         )
         # A next phase with nothing for a human to order runs now under
         # auto-process (W10) -- nothing else would trigger it.
@@ -698,6 +700,7 @@ async def process_turn(
         "phase": now_view["phase"] if now_view else turn_result["phase"],
         "game_status": now_view["status"] if now_view else turn_result["status"],
         "resolution": turn_result["resolution"],
+        "results": own_results,
     }
 
 

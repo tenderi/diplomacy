@@ -8,7 +8,8 @@ Most players never need to type a command after `/start`:
 
 - **🎮 My games** lists your games; tap one to open its **game menu**: the game's status
   (phase, deadline, who has ordered, wait flags, draw vote) and buttons for 📝 Order all
-  units, 🎯 One unit, 📋 My orders (with 🗑 Clear and 📜 History), 🗺 Map, 💬 Messages,
+  units, 🎯 One unit (in a winter adjustment phase 🏗️ Builds or ✂️ Disbands, with what you owe
+  shown under the status, and neither when you owe nothing), 📋 My orders (with 🗑 Clear and 📜 History), 🗺 Map, 💬 Messages,
   ⏰ Deadline, ✋ Wait for me / ✅ I'm ready (when the game auto-processes), 🏳️ Concede, and
   — for the game's creator only — ⚙️ Process turn now. 🔄 Refresh redraws the status. Once a
   game has ended its menu offers only 🗺 Final map, 📜 Order history and 💬 Messages. With
@@ -96,7 +97,7 @@ your units have orders.
 
 | Command | Description |
 |---|---|
-| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back and ⏭ Skip on every step; a skipped unit keeps any earlier order, or holds. Same as 📝 Order all units / 📝 Enter orders. |
+| `/orderall [game_id]` | **Order all your units** — the bot shows each unit that must act this phase in turn (or each build/disband slot), you pick from its legal orders, then review the list and submit it in one go. ⬅️ Back on every step, and ⏭ Skip on every step but a build (there, ⏭️ Waive build is the skip); a skipped unit keeps any earlier order, or holds. Same as 📝 Order all units / 📝 Enter orders. |
 | `/selectunit [game_id]` | **Order a single unit** — pick a unit, then pick from its legal orders; it is sent at once. |
 | `/orders [game_id] <order>; <order>; …` | Type orders. They are **added** to the orders you already sent this phase; a new order for a unit replaces that unit's earlier one. `/order` is the same command. |
 | `/myorders [game_id]` | Show your submitted orders for the current phase. |
