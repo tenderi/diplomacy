@@ -712,6 +712,7 @@ def notify_turn_processed(
     deadline_cleared: bool = False,
     fold: bool = False,
     carried: Optional[dict[str, list[str]]] = None,
+    caller_lines: Optional[list[str]] = None,
 ) -> dict[str, list[str]]:
     """The single fan-out for "a turn was processed". Used by **both** trigger paths.
 
@@ -897,6 +898,10 @@ def notify_turn_processed(
                 and not out_lines
                 and not earlier
             ):
+                # Left out of the DM, so the lines it would have carried go back to the
+                # route, which puts them in the caller's own response.
+                if caller_lines is not None:
+                    caller_lines.extend(results_lines)
                 continue
             if not live and not game_ended and not (removed or retreat_lost or trapped or my_waived or out_lines or earlier):
                 continue  # every power this player holds is out: nothing to order, nothing new
@@ -1709,6 +1714,7 @@ def finish_processed_turn(
     exclude_telegram_id: Optional[str] = None,
     fold: bool = False,
     carried: Optional[dict[str, list[str]]] = None,
+    caller_lines: Optional[list[str]] = None,
 ) -> dict[str, list[str]]:
     """Everything that follows a successful ``GameService.process_turn``, for
     **every** trigger: the manual route, the deadline scheduler, and W10's
@@ -1779,6 +1785,7 @@ def finish_processed_turn(
         processed_phase=prev_phase_code,
         fold=fold,
         carried=carried,
+        caller_lines=caller_lines,
     )
 
 
@@ -1789,6 +1796,7 @@ def after_turn_processed(
     prev_phase_code: Optional[str],
     trigger: str,
     exclude_telegram_id: Optional[str] = None,
+    caller_lines: Optional[list[str]] = None,
 ) -> int:
     """Finish a turn ``GameService.process_turn`` just processed
     (``finish_processed_turn``), then process at once every phase after it that
@@ -1806,7 +1814,10 @@ def after_turn_processed(
     The deadline is armed or cleared once, for that last phase.
 
     The one helper the manual route, the deadline scheduler and auto-processing
-    all finish a turn through."""
+    all finish a turn through.
+
+    ``caller_lines``, if given, collects the results lines of the caller
+    (``exclude_telegram_id``), who gets no DM: the manual route returns them."""
     carried: dict[str, list[str]] = {}
     processed = 0
     while True:
@@ -1827,6 +1838,7 @@ def after_turn_processed(
             exclude_telegram_id=exclude_telegram_id,
             fold=empty,
             carried=carried,
+            caller_lines=caller_lines,
         )
         if not empty:
             return processed

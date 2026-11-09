@@ -64,7 +64,7 @@ def test_confirmation_is_titled_orders_received() -> None:
         )
 
 
-def _summary(phase: str, adjust: bool) -> str:
+def _summary(phase: str, adjust: bool, action: str | None = None) -> str:
     sent: list[str] = []
 
     async def send(text: str, reply_markup=None) -> None:
@@ -72,7 +72,7 @@ def _summary(phase: str, adjust: bool) -> str:
 
     context = Mock()
     context.user_data = {bot_orders._WALK: {"1": {
-        "power": "ENGLAND", "phase": phase, "adjust": adjust, "steps": ["A PAR"], "chosen": {},
+        "power": "ENGLAND", "phase": phase, "adjust": adjust, "action": action, "steps": ["A PAR"], "chosen": {},
     }}}
     asyncio.run(bot_orders._show_walk_summary(send, context, "1"))
     return sent[0]
@@ -85,7 +85,8 @@ def test_walk_summary_notes_per_phase() -> None:
     assert _summary("F1901R", False).endswith(
         "Skipped: 1. A skipped unit keeps any order you sent earlier; with none, it is disbanded."
     )
-    assert _summary("W1901A", True).endswith(
-        "Skipped: 1. A skipped build is waived; if you owe disbands and order too few, "
-        "the server chooses the rest by the civil-disorder rule (farthest from home first)."
+    assert _summary("W1901A", True, "build").endswith("Skipped: 1. A skipped build is waived.")
+    assert _summary("W1901A", True, "disband").endswith(
+        "Skipped: 1. If you order too few disbands, the server chooses the rest by the "
+        "civil-disorder rule (farthest from home first)."
     )
