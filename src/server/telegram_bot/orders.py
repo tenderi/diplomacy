@@ -31,7 +31,7 @@ Sender = Callable[..., Awaitable[None]]
 # order-string helpers (shared by the interactive selection flow)
 # ---------------------------------------------------------------------------
 
-_VERB_EMOJI = {"H": "🛑", "-": "➡️", "S": "🤝", "C": "🚢", "R": "↩️", "D": "❌"}
+_VERB_EMOJI = {"H": "🛑", "-": "➡️", "S": "🤝", "C": "🚢", "R": "↩️", "D": "✂️"}
 
 # Province code -> full name, fetched once from `GET /maps/standard/provinces` and
 # cached for the process. Empty until the first successful fetch; every consumer
@@ -108,10 +108,29 @@ def _order_verb(order_str: str) -> str:
     return parts[2] if len(parts) > 2 else ""
 
 
+_COAST_NAMES = {"NC": "north coast", "SC": "south coast", "EC": "east coast"}
+_KIND_NAMES = {"A": "army", "F": "fleet"}
+
+
+def _site_label(kind: str, location: str) -> str:
+    """``("F", "STP/NC")`` -> ``"fleet St Petersburg north coast (STP/NC)"``."""
+    province, _, coast = location.partition("/")
+    kind_name = _KIND_NAMES.get(kind, kind)
+    name = province_names().get(province)
+    if not name:
+        return f"{kind_name} {location}"
+    return f"{kind_name} {name}{' ' + _COAST_NAMES[coast] if coast in _COAST_NAMES else ''} ({location})"
+
+
 def _order_label(order_str: str) -> str:
     """A short, emoji-prefixed button label for a canonical order string."""
+    parts = order_str.split()
     if order_str == "WAIVE":
         label = "⏭️ Waive build"
+    elif len(parts) == 3 and parts[0] == "BUILD":
+        label = f"🏗️ Build {_site_label(parts[1], parts[2])}"
+    elif len(parts) == 3 and parts[0] == "D":
+        label = f"{_VERB_EMOJI['D']} Disband {_site_label(parts[1], parts[2])}"
     elif order_str.startswith("BUILD "):
         label = f"🏗️ {order_str}"
     else:
@@ -516,6 +535,20 @@ async def processturn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await run_process_turn(update.message.reply_text, game_id, user_id)
 
 
+def adjustment_duty(data: dict[str, Any]) -> str:
+    """What a power owes in an adjustment phase, from its ``legal_orders`` payload:
+    "You may build 2 units (free home centres: BRE, MAR)" -- the wording of the turn DM."""
+    adj = data.get("adjustment") or {}
+    slots = int(adj.get("slots") or 0)
+    if adj.get("action") in (None, "none") or slots <= 0:
+        return "You have nothing to order this phase; wait for the other powers."
+    units = f"{slots} unit{'' if slots == 1 else 's'}"
+    if adj.get("action") == "disband":
+        return f"You must disband {units}. With no order, civil disorder picks which."
+    sites = list(dict.fromkeys(o.split()[-1].split("/")[0] for o in data.get("orders", []) if o.startswith("BUILD ")))
+    return f"You may build {units}" + (f" (free home centres: {', '.join(sites)})" if sites else "") + "."
+
+
 def _owed_text(game_id: str, telegram_id: Optional[str]) -> str:
     """What the caller's power owes in the phase now current, from its legal orders."""
     try:
@@ -581,6 +614,11 @@ async def run_process_turn(send: Sender, game_id: str, telegram_id: Optional[str
     contested = game_state.get("contested", [])
 
     lines = ["✅ *Turn Processed!*", f"📊 Now: {phase_text(phase)}"]
+
+    # The caller gets no DM, so their own results come back in this response.
+    own = result.get("results") or []
+    if own:
+        lines.append("\n" + "\n".join(escape_markdown(str(line)) for line in own))
 
     if dislodged:
         lines.append("\n💥 *Dislodged:*")
@@ -708,7 +746,7 @@ async def show_unit_picker(
         header = (
             f"🏗️ *Adjustment for {power}* (Game {game_id})\n\n"
             f"Delta: {adjustment.get('delta')} | Action: {adjustment.get('action')} "
-            f"| Slots: {adjustment.get('slots')}\n\nChoose an order:"
+            f"| Slots: {adjustment.get('slots')}\n{adjustment_duty(data)}\n\nChoose an order:"
         )
         await _present_order_choices(reply_or_edit, context, game_id, header, flat_orders)
         return
@@ -892,6 +930,8 @@ async def start_order_walk(send: Sender, context: ContextTypes.DEFAULT_TYPE, use
         "power": power,
         "phase": data.get("phase"),
         "adjust": phase_type == "ADJUSTMENT",
+        "action": (data.get("adjustment") or {}).get("action"),
+        "duty": adjustment_duty(data) if phase_type == "ADJUSTMENT" else "",
         "steps": steps,
         "flat": list(data.get("orders", [])),
         "i": 0,
@@ -920,7 +960,7 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
         taken = {_adjustment_site(o) for s, o in walk["chosen"].items() if s != step and o != "WAIVE"}
         options = [o for o in walk["flat"] if o == "WAIVE" or _adjustment_site(o) not in taken]
         keyboard = order_buttons(context, game_id, options)
-        title = f"🏗️ *{step}*"
+        title = f"{'✂️' if walk.get('action') == 'disband' else '🏗️'} *{step}*\n{walk.get('duty', '')}"
     else:
         try:
             data = api_get(f"/games/{game_id}/legal_orders/{walk['power']}")
@@ -934,7 +974,9 @@ async def show_walk_step(send: Sender, context: ContextTypes.DEFAULT_TYPE, game_
     nav = []
     if walk["i"] > 0:
         nav.append(InlineKeyboardButton("⬅️ Back", callback_data=f"wlk|{game_id}|back"))
-    nav.append(InlineKeyboardButton("⏭ Skip", callback_data=f"wlk|{game_id}|skip"))
+    # "Waive build" is a build step's skip; a disband step keeps Skip (civil disorder applies).
+    if not (walk["adjust"] and walk.get("action") == "build"):
+        nav.append(InlineKeyboardButton("⏭ Skip", callback_data=f"wlk|{game_id}|skip"))
     keyboard.append(nav)
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"wlk|{game_id}|cancel")])
     chosen = [f"• `{walk['chosen'][s]}`" for s in walk["steps"][: walk["i"]] if s in walk["chosen"]]
@@ -964,10 +1006,13 @@ async def _show_walk_summary(send: Sender, context: ContextTypes.DEFAULT_TYPE, g
     skipped = sum(1 for s in walk["steps"] if s not in walk["chosen"])
     note = ""
     if skipped and walk["adjust"]:
-        note = (
-            f"\n\nSkipped: {skipped}. A skipped build is waived; if you owe disbands and order too few, "
-            "the server chooses the rest by the civil-disorder rule (farthest from home first)."
+        what = (
+            "A skipped build is waived."
+            if walk.get("action") == "build"
+            else "If you order too few disbands, the server chooses the rest by the civil-disorder rule "
+            "(farthest from home first)."
         )
+        note = f"\n\nSkipped: {skipped}. {what}"
     elif skipped:
         fate = "it is disbanded" if str(walk["phase"]).endswith("R") else "it holds"
         note = f"\n\nSkipped: {skipped}. A skipped unit keeps any order you sent earlier; with none, {fate}."

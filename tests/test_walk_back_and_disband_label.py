@@ -18,13 +18,13 @@ def test_back_keeps_the_current_steps_own_build_pickable(api) -> None:  # noqa: 
     api.get.side_effect = lambda path, **_kw: {"phase": "W1901A"} if path.endswith("/state") else three
     chat = Chat()
     chat.command([])
-    chat.press("BUILD F STP/SC")
+    chat.press("Build fleet STP/SC")
     assert not any("STP" in t for t, _ in chat.buttons)  # later step: site taken
     chat.press("Back")
     assert "Build 1 of 3" in chat.text
-    assert any("BUILD F STP/NC" in t for t, _ in chat.buttons)
-    chat.press("BUILD F STP/NC")
-    chat.press("BUILD A SEV")
+    assert any("Build fleet STP/NC" in t for t, _ in chat.buttons)
+    chat.press("Build fleet STP/NC")
+    chat.press("Build army SEV")
     chat.press("Waive")
     chat.press("Submit 3 orders")
     assert api.post.call_args[0][1]["orders"] == ["BUILD F STP/NC", "BUILD A SEV", "WAIVE"]
@@ -32,7 +32,7 @@ def test_back_keeps_the_current_steps_own_build_pickable(api) -> None:  # noqa: 
 
 def test_disband_buttons_get_their_emoji() -> None:
     assert _order_verb("D F STP/SC") == "D"
-    assert _order_label("D F STP/SC") == "❌ D F STP/SC"
-    assert _order_label("D A MUN") == "❌ D A MUN"
+    assert _order_label("D F STP/SC") == "✂️ Disband fleet STP/SC"
+    assert _order_label("D A MUN") == "✂️ Disband army MUN"
     assert _order_label("A MUN - RUH") == "➡️ A MUN - RUH"
-    assert _order_label("BUILD A BER") == "🏗️ BUILD A BER"
+    assert _order_label("BUILD A BER") == "🏗️ Build army BER"
