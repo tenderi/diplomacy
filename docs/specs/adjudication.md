@@ -382,6 +382,16 @@ order, reversed and in seeded shuffles (every permutation up to five orders);
 `tests/datc/test_szykman_boards.py` pins twenty fuzz-found convoy paradoxes with their
 Szykman results.
 
+**Convoy paradoxes follow the Szykman rule, not the rulebook's.** The rulebook settles a
+paradox with a narrower rule (`diplomacy_rules.md`, "A convoyed attack does not cut
+certain supports"): a convoyed army attacking a fleet that supports an action in a body of
+water holding a convoying fleet does not cut that support. Szykman (§3) instead disrupts
+the cycle's convoys. On the rulebook's own example both give the same result, but they
+differ where the rulebook's rule does not reach the support that causes the paradox. In
+DATC 6.F.20 and 6.F.21 the engine cuts a support the literal rulebook text would leave
+standing, so in 6.F.21 `F NAO` is dislodged. This follows DATC's preferred option, and
+the DATC tests pin it.
+
 ## 12. Where to look
 
 - `src/engine/adjudicator/movement.py` — the resolver (§2–7).
