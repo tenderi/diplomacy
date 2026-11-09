@@ -219,11 +219,20 @@ class ResetPasswordRequest(BaseModel):
 
 
 # --- Helpers ---
+# bcrypt reads only the first 72 bytes of a password. bcrypt 5 raises ValueError
+# on a longer one instead of truncating it, so hashing and checking must both
+# truncate, the same way, or a long password could never log in.
+_BCRYPT_MAX_BYTES = 72
+
+
+def _password_bytes(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+
+
 def _hash_password(password: str) -> str:
     if not _bcrypt_available:
         raise HTTPException(status_code=500, detail="Password hashing not available (install bcrypt)")
-    raw = password.encode("utf-8")[:72]
-    hashed = bcrypt.hashpw(raw, bcrypt.gensalt())
+    hashed = bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt())
     return hashed.decode("ascii")
 
 
@@ -231,7 +240,7 @@ def _verify_password(plain: str, hashed: str) -> bool:
     if not _bcrypt_available:
         return False
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("ascii"))
+        return bcrypt.checkpw(_password_bytes(plain), hashed.encode("ascii"))
     except ValueError:  # bcrypt rejects a malformed stored hash
         return False
 

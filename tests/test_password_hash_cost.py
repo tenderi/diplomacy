@@ -18,3 +18,13 @@ def test_production_hashes_at_bcrypts_default_cost(monkeypatch: pytest.MonkeyPat
     hashed = auth_routes._hash_password("correct horse")
     assert hashed.startswith("$2b$12$")
     assert auth_routes._verify_password("correct horse", hashed) is True
+
+
+def test_a_password_longer_than_72_bytes_still_verifies() -> None:
+    """bcrypt 5 raises on more than 72 bytes; both sides truncate identically."""
+    long_password = "pässwörd-" * 12  # 132 bytes in UTF-8
+    assert len(long_password.encode("utf-8")) > 72
+    hashed = auth_routes._hash_password(long_password)
+    assert auth_routes._verify_password(long_password, hashed) is True
+    assert auth_routes._verify_password(long_password[:-1] + "X", hashed) is True  # beyond byte 72
+    assert auth_routes._verify_password("X" + long_password[1:], hashed) is False
