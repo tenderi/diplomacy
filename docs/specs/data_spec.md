@@ -342,7 +342,11 @@ pre-existing `status: "ok"` key is unchanged so existing clients keep working):
     "eliminated": [],          // powers this turn put out (not an earlier concession), sorted
     "centres": {"FRANCE": {"gained": ["BEL"], "lost": [], "count": 6}},  // per power whose centres changed (Fall only)
     "results": [ ... ]         // per-result shape below, without `power` or `reason`
-  }
+  },
+  "results": ["Your results for Winter 1901 builds:", "F MAR was built."]
+                                // the caller's own turn-DM results lines, only when the caller was
+                                // left out of the DMs (they get none) and the DM would have carried
+                                // them; otherwise []. The bot shows them in its reply.
 }
 ```
 

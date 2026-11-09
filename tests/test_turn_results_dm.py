@@ -146,3 +146,15 @@ def test_fall_centres_then_adjustment_results(client: TestClient, monkeypatch: p
     ]
     assert messages["GERMANY"] == [f"{head}\nYour results for Winter 1901 builds:\nA SIL was disbanded."]
     assert posted == ["The turn has been processed. Spring 1902 movement: new orders are due -- send them to me in private."]
+
+
+def test_the_caller_who_gets_no_dm_has_their_results_in_the_response(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The creator processing the turn is left out of the DMs; their own results come back
+    in the process_turn response instead, for the bot to show."""
+    game_id, _row, users = _seeded_game(client)
+    monkeypatch.setattr(api_shared, "_post_turn_to_channel", lambda *_a: None)
+    with OutboxProbe() as probe:
+        resp = client.post(f"/games/{game_id}/process_turn", headers=users[0][0])
+    assert resp.status_code == 200, resp.text
+    assert probe.by_recipient().get(users[0][1], []) == []  # no DM for the caller
+    assert resp.json()["results"] == ["Your results for Spring 1901 movement:", "No orders, so F EDI, F LON and A LVP held."]
