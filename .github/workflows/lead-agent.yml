@@ -183,12 +183,17 @@ jobs:
         run: .github/scripts/lead-usage-probe.sh
 
       # The tests wipe the database they run against, so parallel workers each get one.
+      # Migrate each one, as test.yml does: a schema the tests create themselves
+      # lacks the migrations' server defaults, and a raw-SQL test then fails
+      # locally while passing in CI.
       - name: Create per-worker test databases
         if: steps.recheck.outputs.available == 'true'
         run: |
           for db in w1 w2 w3 w4 review; do
             psql "postgresql://diplomacy_user:password@localhost:5432/diplomacy_db" \
               -c "CREATE DATABASE diplomacy_$db"
+            SQLALCHEMY_DATABASE_URL="postgresql+psycopg2://diplomacy_user:password@localhost:5432/diplomacy_$db" \
+              alembic upgrade head
           done
 
       - name: Set up SSH to the VPS
