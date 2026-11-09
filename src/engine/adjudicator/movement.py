@@ -596,17 +596,12 @@ class _Resolver:
         # The supporter must be able to move into the supported province.
         if supporter.kind is UnitKind.ARMY:
             return target_prov in self.map.army_moves(s.unit.province)
-        # Fleet: some fleet node of the supporter must be adjacent to target_prov.
-        for floc in self.map.fleet_locations(s.unit.province):
-            if floc != s.unit and floc.province != s.unit.province:
-                continue
-            for dest in self.map.fleet_moves(s.unit):
-                if dest.province == target_prov:
-                    return True
-        for dest in self.map.fleet_moves(s.unit):
-            if dest.province == target_prov:
-                return True
-        return False
+        # Fleet: reach is from the coast the fleet actually stands on (the board
+        # unit's), not the order's location, which may omit the coast.
+        return any(
+            dest.province == target_prov
+            for dest in self.map.fleet_moves(supporter.location)
+        )
 
     # ------------------------------------------------------------------
     # Convoys
