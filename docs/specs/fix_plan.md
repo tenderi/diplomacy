@@ -10,18 +10,40 @@
 >   silently.
 > - **When a track completes, delete its section.** The commit message and the pull request
 >   carry the write-up (what was wrong, what changed, the evidence); `git log` is the
->   history. Track letters run in sequence; the next free one is **DC**.
+>   history. Track letters run in sequence; the next free one is **DD**.
 > - Other sessions may be working in parallel: fetch and rebase on `origin/main` before
 >   opening a PR, and take the next free version tag and track letter from `origin/main`.
 
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** only Track F (a human playing the game end to end, and host chores), which
-  is the maintainer's. Finished tracks are removed; `git log` and the `v3.0.x` commit messages
+- **Open tracks:** DC (bot retreat-phase UX) and F (a human playing the game end to end, and
+  host chores, which are the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
+
+# Track DC — Bot retreat-phase UX
+
+Found by a play-through of the Telegram bot through S1901R and F1901R.
+
+- [x] **DC1** A disband counts as an order for its unit (`order_is_for_unit`: unit-first and
+      verb-first, coast-insensitive), so the confirmation no longer says "No order yet
+      (disbanded)" after one; a dislodged unit whose only option is disband is left out of
+      the walk, the unit picker and the hub's order buttons (`orderable_units`), with "has
+      nowhere to retreat and is disbanded automatically". The server's `orders_status`
+      already lists such a power under `nothing_to_do`, not `submitted`; the bot now agrees.
+- [ ] **DC2** Readable retreat buttons: `↩️ F SPA/SC R MAO` becomes e.g.
+      `↩️ Retreat to Mid-Atlantic Ocean (MAO)`, the disband listed after the retreats
+      (`_order_label` in `orders.py` only expands D and BUILD).
+- [ ] **DC3** Retreat context in the walk step and the unit picker (who dislodged the unit,
+      its options, "no order = disbanded"), and a retreat duty line in the hub menu like
+      the adjustment phase's `adjustment_duty` (`hub.py`).
+- [ ] **DC4** Nits: an army retreating to a sea says "not adjacent" instead of "an army
+      cannot enter a sea" (`engine/adjudicator/retreats.py:93`, `orders/validation.py:319`);
+      the `/order` echo is not coast-canonical (`F SPA R POR` echoes without `/SC`); the map
+      caption is a bare "🗺 Game 3" and the map offers `📝 Enter orders` to a power with
+      nothing to order (`hub.py` ~371).
 
 # Track F — Manual acceptance and host chores (maintainer)
 
