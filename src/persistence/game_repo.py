@@ -65,6 +65,13 @@ class PhaseInputsChangedError(StaleGameError):
     adjudicate again rather than drop the change."""
 
 
+def _turns_before(history: Optional[dict[str, Any]], turn: int) -> dict[str, Any]:
+    """The entries of a ``{turn_number_str: ...}`` history for turns before
+    ``turn`` (a key that is not a turn number, only possible in a hand-edited
+    import, is dropped with the rewound turns)."""
+    return {k: v for k, v in (history or {}).items() if str(k).isdigit() and int(k) < turn}
+
+
 def _write_state(
     row: GameModel,
     state_json: dict[str, Any],
@@ -74,10 +81,16 @@ def _write_state(
     last_resolution: Optional[dict[str, Any]] = None,
     order_history_entry: Optional[dict[str, list[str]]] = None,
     resolution_history_entry: Optional[dict[str, Any]] = None,
+    turn_processed: bool = True,
 ) -> None:
     """``save_state``'s write, on a row the caller has locked and checked: the
     next board, its phase and status, the counters, and the per-phase columns
-    cleared (a phase transition, or the game ending, ends them all)."""
+    cleared (a phase transition, or the game ending, ends them all).
+
+    ``turn_processed=False`` (a game ended by a draw, a concession or a seat
+    made a dummy -- ``end_game_if``) leaves ``current_turn`` alone: no turn was
+    adjudicated, so no history entry or ``map_snapshots`` row exists for a next
+    number, and game lists would show a turn ``/history/{n}`` cannot find."""
     row.pending_orders = {}
     row.draw_votes = {}
     row.wait_flags = {}
@@ -101,7 +114,8 @@ def _write_state(
         resolutions = dict(row.resolution_history or {})
         resolutions[turn_key] = resolution_history_entry
         row.resolution_history = resolutions
-    row.current_turn = int(row.current_turn or 0) + 1
+    if turn_processed:
+        row.current_turn = int(row.current_turn or 0) + 1
     row.current_year = state_json.get("year", row.current_year)
     row.current_season = str(state_json.get("season", "SPRING")).capitalize()
     row.current_phase = str(state_json.get("phase_type", "MOVEMENT")).capitalize()
@@ -457,26 +471,47 @@ class GameRepo:
             if decided is None:
                 return False
             state_json, phase_code, status = decided
-            _write_state(row, state_json, phase_code=phase_code, status=status)
+            _write_state(row, state_json, phase_code=phase_code, status=status, turn_processed=False)
             session.commit()
             return True
 
     def restore_state(
-        self, game_id: str, state_json: dict[str, Any], *, phase_code: str
+        self,
+        game_id: str,
+        state_json: dict[str, Any],
+        *,
+        phase_code: str,
+        turn: Optional[int] = None,
     ) -> None:
         """Overwrite the live ``state_json``/``phase_code`` from a snapshot.
 
         An explicit, caller-decided rollback -- unlike ``save_state`` there is no
         staleness check; the caller has already chosen to discard whatever is
-        currently live. Also clears ``pending_orders``, ``draw_votes``, ``wait_flags``
-        and ``deadline`` (all belong to whatever phase was live before the restore,
-        not the restored one: a deadline armed for a later phase would otherwise
-        fire on the restored phase; the caller arms the restored phase's own, as
-        after a processed turn) and takes ``status`` from the state itself, so a
-        finished game restored or imported is still listed as finished.
+        currently live (the row is still taken ``FOR UPDATE``, so a turn being
+        processed concurrently either commits first and is rewound, or waits and
+        then fails its own phase check). Also clears ``pending_orders``,
+        ``draw_votes``, ``wait_flags`` and ``deadline`` with its
+        ``reminded_deadline`` (all belong to whatever phase was live before the
+        restore, not the restored one: a deadline armed for a later phase would
+        otherwise fire on the restored phase; the caller arms the restored
+        phase's own, as after a processed turn) and takes ``status`` from the
+        state itself, so a finished game restored or imported is still listed as
+        finished.
+
+        ``turn``, the restored snapshot's ``map_snapshots.turn_number`` (the
+        board turn ``turn`` began on), rewinds the turn record with the board:
+        ``current_turn`` becomes ``turn``; ``order_history`` and
+        ``resolution_history`` lose every key ``>= turn`` (turn ``turn``'s orders
+        were adjudicated from this board and are about to be replayed);
+        ``last_resolution`` becomes ``resolution_history[turn - 1]``, the turn
+        that produced this board, or null; and the ``map_snapshots`` rows of
+        turns after ``turn`` are deleted, since those boards were never reached
+        from the restored one and the replayed turns write their own rows under
+        the same numbers. ``None`` (a test or tool setting up a board, not a
+        rollback) leaves the turn record alone.
         """
         with self._session_factory() as session:
-            row = self._row(session, game_id)
+            row = self._row(session, game_id, lock=True)
             if row is None:
                 raise ValueError(f"game {game_id} not found")
             row.state_json = state_json
@@ -487,6 +522,17 @@ class GameRepo:
             row.draw_votes = {}
             row.wait_flags = {}
             row.deadline = None
+            row.reminded_deadline = None
+            if turn is not None:
+                turn = int(turn)
+                row.current_turn = turn
+                row.order_history = _turns_before(row.order_history, turn)
+                resolutions = _turns_before(row.resolution_history, turn)
+                row.resolution_history = resolutions
+                row.last_resolution = resolutions.get(str(turn - 1))
+                session.query(MapSnapshotModel).filter(
+                    MapSnapshotModel.game_id == row.id, MapSnapshotModel.turn_number > turn
+                ).delete(synchronize_session=False)
             row.updated_at = utcnow_naive()
             session.commit()
 
