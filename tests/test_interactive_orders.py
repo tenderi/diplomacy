@@ -285,3 +285,15 @@ class TestInteractiveOrderIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_interactive_success_echoes_the_stored_order() -> None:
+    query = Mock()
+    query.from_user.id = 12345
+    query.edit_message_text = AsyncMock()
+    games = {"games": [{"game_id": 1, "power": "FRANCE"}]}
+    with patch("server.telegram_bot.game_context.api_get", return_value=games), \
+         patch("server.telegram_bot.orders.api_post_reliable",
+               return_value=delivered({"results": [{"success": True, "order": "F MAO - SPA", "stored": "F MAO - SPA/SC"}]})):
+        asyncio.run(submit_interactive_order(query, "1", "F MAO - SPA"))
+    assert "`F MAO - SPA/SC`" in query.edit_message_text.call_args[0][0]

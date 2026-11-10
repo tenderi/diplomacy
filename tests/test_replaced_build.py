@@ -107,11 +107,11 @@ class TestTheApiNamesTheReplacedBuild:
         first = client.post("/games/set_orders", json={**body, "orders": ["BUILD F BRE"]})
         assert first.json()["results"] == [
             {"order": "BUILD F BRE", "success": True, "error": None, "replaced": [], "note": None,
-             "superseded_by": None}
+             "superseded_by": None, "stored": "BUILD F BRE"}
         ]
         second = client.post("/games/set_orders", json={**body, "orders": ["BUILD A PAR"]})
         assert second.json()["results"] == [{
-            "order": "BUILD A PAR", "success": True, "error": None,
+            "order": "BUILD A PAR", "success": True, "error": None, "stored": "BUILD A PAR",
             "replaced": ["BUILD F BRE"], "superseded_by": None, "note": "replaced BUILD F BRE (you may build 1)",
         }]
         assert game_service.pending_orders_view(game_id)["FRANCE"] == ["BUILD A PAR"]
@@ -126,7 +126,7 @@ class TestTheApiNamesTheReplacedBuild:
         client.post("/games/set_orders", json={**body, "orders": ["D A MAR"]})
         resp = client.post("/games/set_orders", json={**body, "orders": ["D A PAR"]})
         assert resp.json()["results"] == [{
-            "order": "D A PAR", "success": True, "error": None,
+            "order": "D A PAR", "success": True, "error": None, "stored": "D A PAR",
             "replaced": ["D A MAR"], "superseded_by": None, "note": "replaced D A MAR (you must disband 1)",
         }]
 
@@ -202,3 +202,12 @@ def test_superseded_order_is_shown_as_replaced_not_as_an_error() -> None:
         {"order": "A PAR H", "success": True, "error": None, "note": None},
     ])
     assert text == "✅ A PAR - BUR replaced by a later order in this submission: A PAR H\n✅ A PAR H"
+
+
+def test_accepted_order_is_echoed_in_its_stored_coast_form() -> None:
+    from server.telegram_bot.orders import format_order_results
+
+    assert format_order_results([
+        {"order": "F SPA R POR", "success": True, "error": None, "note": None, "stored": "F SPA/SC R POR"},
+        {"order": "A PAR-BUR", "success": True, "error": None, "note": None},
+    ]) == "✅ F SPA/SC R POR\n✅ A PAR-BUR"

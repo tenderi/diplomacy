@@ -313,7 +313,8 @@ def format_order_results(results: list[dict[str, Any]]) -> str:
     for r in results:
         if r.get("success"):
             note = f" {r['note']}" if r.get("note") else ""
-            lines.append(f"✅ {r['order']}{note}")
+            # The server's canonical form (coast filled in) when it sent one.
+            lines.append(f"✅ {r.get('stored') or r['order']}{note}")
         else:
             lines.append(f"❌ {r['order']}\n   Error: {r.get('error')}")
     return "\n".join(lines)
@@ -1465,7 +1466,7 @@ async def submit_interactive_order(query: Any, game_id: str, order_text: str) ->
         if (outcome.response or {}).get("auto_processed"):
             extra += "\n\n⚡ That completed the turn -- it has been processed."
         await query.edit_message_text(
-            f"✅ *Order submitted:* `{order_text}`\n🎮 Game {game_id} · {power}{extra}",
+            f"✅ *Order submitted:* `{results[0].get('stored') or order_text}`\n🎮 Game {game_id} · {power}{extra}",
             reply_markup=next_steps,
             parse_mode='Markdown'
         )

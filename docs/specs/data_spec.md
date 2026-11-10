@@ -542,7 +542,9 @@ are refused (`ENGLAND has 1 build; 2 builds/waives submitted`). When orders are 
 stored waives first, then the oldest — so the stored list never exceeds the count: a
 `WAIVE` sent after `BUILD F KIE` replaces it, as a build sent after a waive does. The
 player is told (`POST /games/set_orders` with no order in it is a 400; `GET /games/{id}/legal_orders/{power}` for a name that is not a power is a 400 naming the powers): each `POST /games/set_orders` result is
-`{order, success, error, replaced, note, superseded_by}`, where `replaced` lists the stored orders that
+`{order, success, error, replaced, note, superseded_by, stored}`, where `stored` is the canonical
+form kept for an accepted order (`F SPA R POR` -> `F SPA/SC R POR`; `null` when refused or superseded) and the
+bot echoes it in place of the typed text, and `replaced` lists the stored orders that
 accepted order pushed out (stored form, oldest first; `[]` when none) and `note` says so
 (`replaced BUILD F BRE (you may build 1)`, or `you must disband N` for disbands; `null`
 when nothing was replaced). The pushed-out orders go to the submission's accepted orders
