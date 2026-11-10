@@ -17,38 +17,11 @@
 ## Status
 
 - **Last updated:** 2026-11-10.
-- **Open tracks:** DD (architecture.md audit) and F (a human playing the game end to end, and
+- **Open tracks:** F (a human playing the game end to end, and
   host chores, which are the maintainer's). Finished tracks are removed; `git log` and the `v3.0.x` commit messages
   carry what each one did.
 - Keep this block to the current state: what is open and what to pick next. A finished
   task's write-up goes in its commit message, not here.
-
-# Track DD — architecture.md audit
-
-Found by a spec-vs-code audit of `docs/specs/architecture.md`.
-
-- [x] **DD1** A web user could suppress another player's DM: the caller left out of the
-      fan-out on `/wait`, `/draw_vote`, `/concede`, `/deadline/propose` and `/deadline/vote`
-      was the request body's `telegram_id`, even under a Bearer token (which
-      `resolve_user_or_telegram` ignores it for). It is now the authenticated user's linked
-      `telegram_id` (`_own_telegram_id`).
-- [x] **DD2** The creator's `POST /games/{id}/process_turn` pins the phase it read
-      (`expected_phase_code`), and takes the phase the client saw in the body; the web and the
-      bot's "Process anyway" button (`ptforce|{game}|{phase}`) send it. A phase processed
-      meanwhile is a 409 `phase_moved`, never an adjudication of the next phase.
-- [x] **DD3** Cache invalidation gaps closed: `users/{tg}` is dropped in `mark_player_inactive`,
-      `restore_game_snapshot`, `import_game` and after every processed turn
-      (`finish_processed_turn`; the game list carries `current_turn` and `status`);
-      `games/{id}` in admin `add_player`, and the whole cache in `admin_delete_all_games`.
-      `tests/test_cache_coherence.py` covers each.
-- [x] **DD4** The `/feedback` DM labels the sender by nickname, else `user N`, never the email.
-- [x] **DD5** Docs and dead code: the outbox long-poll's timeout shape, `WEB_BIND`/`DAIDE_BIND`
-      and what is public, the idempotency key not being scoped to `endpoint` (documented), the
-      dead `record_bot_notification_attempt` removed, a stale comment in `routes/orders.py`.
-- [ ] **DD6** The bot's `/processturn` and the hub's "Process turn now" send no phase when no
-      orders are missing (or the `orders_status` fetch fails), so the DD2 client-side pin
-      covers only "Process anyway": send the phase the bot last saw on every process call
-      (`telegram_bot/orders.py` `run_process_turn`, `hub.py`).
 
 # Track F — Manual acceptance and host chores (maintainer)
 

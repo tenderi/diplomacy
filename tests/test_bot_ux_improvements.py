@@ -493,6 +493,30 @@ class TestProcessTurnConfirmation:
             "🎮 France owes orders for 1 unit: /orderall 1. Game menu: /game 1."
         )
 
+    @patch("server.telegram_bot.orders.api_post")
+    @patch("server.telegram_bot.orders.api_get")
+    @patch("server.telegram_bot.game_context.api_get")
+    def test_processturn_sends_the_phase_it_read(self, mock_ctx_get, mock_get, mock_post):
+        """DD6: with nothing missing the command still pins the status' phase."""
+        mock_ctx_get.return_value = {"games": [{"game_id": "1", "power": "FRANCE"}]}
+        mock_get.return_value = {"missing": [], "phase": "S1901M"}
+        mock_post.return_value = {"status": "ok"}
+        update, context, _message = _make_update_and_context(args=["1"])
+        asyncio.run(processturn(update, context))
+        assert mock_post.call_args[0] == (
+            "/games/1/process_turn", {"telegram_id": "12345", "expected_phase_code": "S1901M"}
+        )
+
+    def test_phase_moved_409_shows_the_message_and_game_menu(self):
+        resp = Mock(status_code=409, headers={"X-Error-Code": "phase_moved"})
+        err = ApiError("Phase S1901M has already been processed: the game is now in F1901M.", response=resp)
+        send = AsyncMock()
+        with patch("server.telegram_bot.orders.api_post", side_effect=err):
+            asyncio.run(run_process_turn(send, "1", "12345", "S1901M"))
+        assert send.call_args[0][0] == "⚠️ Phase S1901M has already been processed: the game is now in F1901M."
+        button = send.call_args[1]["reply_markup"].inline_keyboard[0][0]
+        assert (button.text, button.callback_data) == ("⬅️ Game menu", "g|1|hub")
+
     def test_button_callback_ptforce_runs_process_turn(self):
         query = Mock()
         query.answer = AsyncMock()
