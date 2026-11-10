@@ -431,18 +431,19 @@ def set_wait_flag(
         raise HTTPException(status_code=404, detail="Game not found")
     power = req.power.upper()
     try:
-        waiting = game_service.set_wait(game_id, power, req.waiting)
+        waiting, changed = game_service.set_wait(game_id, power, req.waiting)
     except (GameOverError, StaleGameError) as e:  # stale: the phase was processed meanwhile
         raise HTTPException(status_code=409, detail=str(e)) from e
     invalidate_cache(f"games/{game_id}")
-    label = power_label(game_id, power)
-    notify_players(
-        int(game.id),
-        f"{label} asks game {game_id} to wait before the turn is processed."
-        if req.waiting
-        else f"{label} is ready in game {game_id}.",
-        exclude_telegram_id=_own_telegram_id(caller_user),
-    )
+    if changed:  # setting a flag that is already set (or clearing one that is not) tells nobody
+        label = power_label(game_id, power)
+        notify_players(
+            int(game.id),
+            f"{label} asks game {game_id} to wait before the turn is processed."
+            if req.waiting
+            else f"{label} is ready in game {game_id}.",
+            exclude_telegram_id=_own_telegram_id(caller_user),
+        )
     processed = 0 if req.waiting else api_shared.maybe_auto_process(game_id)
     return {"status": "ok", "waiting": waiting, "auto_processed": processed}
 
@@ -1173,11 +1174,6 @@ def join_game(
             api_shared.process_if_phase_needs_nobody(str(game_id), int(filled.id))
     return {"status": "ok", "player_id": player_id, "power": power}
 
-def _title_power(label: str, power: str) -> str:
-    """``label`` (``power_label``) with the power written ``Germany``, not ``GERMANY``."""
-    return label.replace(power.upper(), power.title(), 1)
-
-
 def _hours_text(hours: float) -> str:
     """``48.0`` as ``48h``, ``1.5`` as ``1.5h``."""
     return f"{hours:g}h"
@@ -1217,12 +1213,17 @@ def quit_game(
         notify_user(telegram_id_val, f"You have quit game {game_id}.")
     try:
         power_name = getattr(player, "power_name", None) or getattr(player, "power", None)
-        notify_players(
-            game_id,
-            f"{_title_power(power_label(game_id, str(power_name), user), str(power_name))} has left game {game_id}. "
-            f"{api_shared.vacant_seat_hint(str(game_id), [str(power_name)])} "
-            "Until then its draw vote is still needed.",
-        )
+        label = power_label(game_id, str(power_name), user)
+        if game_service.is_eliminated(str(game_id), str(power_name)):
+            # Nothing to fill, and no draw vote to wait for: say only who left.
+            text = f"{label} (eliminated) has left game {game_id}."
+        else:
+            text = (
+                f"{label} has left game {game_id}. "
+                f"{api_shared.vacant_seat_hint(str(game_id), [str(power_name)])} "
+                "Until then its draw vote is still needed."
+            )
+        notify_players(game_id, text)
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
         scheduler_logger.exception("Failed to notify players of quit event")
     return {"status": "ok"}
@@ -1302,7 +1303,7 @@ def replace_player(
         notify_players(
             game_id,
             f"{who} has taken over "
-            f"{req.power.title()} in game {game_id}.",
+            f"{req.power.upper()} in game {game_id}.",
             exclude_telegram_id=telegram_id_val,
         )
     except Exception:  # noqa: BLE001 -- boundary: the write is committed; a notification is a side effect
@@ -1324,7 +1325,10 @@ def mark_player_inactive(game_id: int, power: str, req: MarkInactiveRequest) -> 
     if vacated_user is not None and vacated_user.telegram_id:
         invalidate_cache(f"users/{vacated_user.telegram_id}")  # the seat left their game list
     invalidate_cache(f"games/{game_id}")
-    notify_players(game_id, f"Player {power.title()} has been marked inactive by admin and is eligible for replacement.")
+    if game_service.is_eliminated(str(game_id), power):
+        notify_players(game_id, f"{power.upper()} (eliminated) has been marked inactive by admin.")
+    else:
+        notify_players(game_id, f"{power.upper()} has been marked inactive by admin and is eligible for replacement.")
     return {"status": "ok", "game_id": game_id, "power": power}
 
 def _refuse_deadline_change_if_over(game: Any) -> None:
