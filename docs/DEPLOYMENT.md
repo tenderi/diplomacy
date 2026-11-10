@@ -20,10 +20,14 @@ also runs p2p's bot, which this stack does not touch.
                                   └────────────────────────────────────────────────┘
 ```
 
-Only Caddy (ports 80/443) is reachable from the internet. nginx and the API are
-published on loopback only (for `upgrade.sh` and debugging); the bot and nginx
-reach the API by its compose service name. Postgres is not published at all.
-Without a `DOMAIN`, Caddy does not run and nginx serves plain HTTP on `WEB_BIND`.
+With a `DOMAIN`, only Caddy (ports 80/443) is reachable from the internet:
+`ensure_env.sh` then sets `WEB_BIND=127.0.0.1` and `WEB_PORT=8080`, so nginx is on
+loopback. The API is published on loopback only (for `upgrade.sh` and debugging); the
+bot and nginx reach the API by its compose service name. DAIDE is published on
+`${DAIDE_BIND:-127.0.0.1}:8432` -- loopback unless you set `DAIDE_BIND` in `.env`
+(`ensure_env.sh` never does). Postgres is not published at all.
+Without a `DOMAIN`, Caddy does not run and nginx serves plain HTTP on
+`${WEB_BIND:-0.0.0.0}`, i.e. publicly unless you set `WEB_BIND`.
 
 ## Secrets
 
