@@ -44,7 +44,7 @@ from .messages import recent_messages_text, send_diplomatic_message
 from .utils import ending_outcome, game_end_line, game_over_note, phase_label
 from .orders import (
     orderable_units,
-    Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, run_process_turn, show_unit_picker, start_order_walk,
+    Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, process_anyway_data, run_process_turn, show_unit_picker, start_order_walk,
 )
 
 logger = logging.getLogger("diplomacy.telegram_bot.hub")
@@ -455,7 +455,7 @@ async def _process_turn(send: Sender, user_id: str, game_id: str) -> None:
         await send(
             f"⚠️ Still waiting on: {', '.join(missing)}. Their units will hold if you process now.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Process anyway", callback_data=f"ptforce|{game_id}")],
+                [InlineKeyboardButton("✅ Process anyway", callback_data=process_anyway_data(game_id, status))],
                 _back(game_id),
             ]),
             parse_mode=None,

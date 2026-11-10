@@ -130,7 +130,16 @@ def test_process_turn_confirmation_runs_it_as_the_presser() -> None:
     update, _query, context = _press("ptforce|7")
     with patch.object(bot_app, "run_process_turn", new=AsyncMock()) as run:
         asyncio.run(bot_app.button_callback(update, context))
-    assert run.call_args[0][1:] == ("7", "555")
+    assert run.call_args[0][1:] == ("7", "555", None)
+
+
+def test_process_turn_confirmation_pins_the_phase_it_warned_about() -> None:
+    """DD2: the button carries the phase; pressing it after the deadline
+    processed that phase must not process the next one."""
+    update, _query, context = _press("ptforce|7|S1901M")
+    with patch.object(bot_app, "run_process_turn", new=AsyncMock()) as run:
+        asyncio.run(bot_app.button_callback(update, context))
+    assert run.call_args[0][1:] == ("7", "555", "S1901M")
 
 
 def test_a_button_forwarded_into_a_group_does_nothing() -> None:

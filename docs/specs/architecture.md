@@ -25,7 +25,12 @@ A tick reads every active game once and then works through them, each taking sec
 before processing a due game it re-reads it and skips it unless it is still in the phase it
 saw with a deadline still due; it passes that phase to `GameService.process_turn` as
 `expected_phase_code`, which raises `StaleGameError` if the stored phase has moved on. A
-game another path processed meanwhile is never adjudicated again with no orders.
+game another path processed meanwhile is never adjudicated again with no orders. The
+creator's `POST /games/{id}/process_turn` pins the same way: it passes the phase it read as
+`expected_phase_code`, and a client may send the phase it saw in the body
+(`{"expected_phase_code": "S1901M"}`; the web and the bot's confirm button do). A phase that
+has moved on is a 409 with `X-Error-Code: phase_moved` ("Phase S1901M has already been
+processed: the game is now in F1901M. …"), and nothing is processed.
 
 ## Package boundaries
 
@@ -219,7 +224,9 @@ There are three delivery surfaces, and they are not interchangeable:
   Telegram has accepted the message. Server code never talks to Telegram and never pushes
   at the bot (see *Deployment and message reliability* below).
   Players with a non-numeric `telegram_id` (test fixtures like `"u1"`) are skipped, not
-  errored. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
+  errored. "Except the caller" below means the authenticated user's linked `telegram_id`
+  (the one `resolve_user_or_telegram` returned), never a `telegram_id` in the request body:
+  a Bearer caller could put anyone's id there. Tests observe notifications through `tests/reliability_helpers.OutboxProbe`.
   A DM may carry inline buttons (`buttons=` → `payload.buttons`): turn processed, the
   10-minute reminder, "you joined" and "game is full" carry `game_buttons(game_id)` —
   📝 Enter orders / 🗺 Map / 🎮 Game menu (a turn DM to a player with nothing to order that
