@@ -142,6 +142,8 @@ def _order_row(game_id: str, legal: Optional[dict]) -> list[InlineKeyboardButton
         if action == "disband":
             return [_btn("✂️ Disbands", game_id, "all")]
         return []
+    if legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not legal.get("units"):
+        return []
     return [_btn("📝 Order all units", game_id, "all"), _btn("🎯 One unit", game_id, "one")]
 
 
@@ -192,13 +194,15 @@ async def show_hub(send: Sender, user_id: str, game_id: str) -> None:
         orders_status = None
     is_creator = any(str(g["game_id"]) == game_id and g.get("is_creator") for g in games_list)
     legal: Optional[dict] = None
-    if str(state.get("phase_type", "")).upper() == "ADJUSTMENT":
+    if str(state.get("phase_type", "")).upper() in ("ADJUSTMENT", "MOVEMENT", "RETREAT"):
         try:
             legal = api_get(f"/games/{game_id}/legal_orders/{power}")
         except requests.RequestException:
             legal = None
         if legal and legal.get("phase_type") == "ADJUSTMENT":
             text += f"\n{adjustment_duty(legal)}"
+        elif legal and legal.get("phase_type") in ("MOVEMENT", "RETREAT") and not legal.get("units"):
+            text += "\nYou have nothing to order this phase; wait for the other powers."
     await send(text, reply_markup=_hub_keyboard(game_id, power, state, orders_status, is_creator, legal))
 
 
