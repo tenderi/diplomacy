@@ -629,6 +629,8 @@ class TestReasonToNoteToken:
             ("no dislodged unit at BUR", t.NRN),
             ("BUR is not adjacent to A PAR", t.FAR),
             ("F NTH cannot reach BUR to support", t.FAR),
+            ("A MAR cannot reach LYO: an army cannot enter a sea", t.FAR),
+            ("LYO is not a legal retreat for A MAR: an army cannot enter a sea", t.NVR),
             ("a unit cannot support itself", t.FAR),
             ("A TRI cannot move to its own province", t.FAR),
             ("a movement order is not accepted during the retreat phase (S1901R)", t.NRS),
