@@ -85,7 +85,8 @@ calls `adjudicate()`, or reaches into `orders/parser.py` and `orders/validation.
 
 ## Engine design decisions (see `adjudication.md` for the algorithm)
 
-- **Immutability.** Every engine type is a frozen, hashable dataclass. Adjudication is a
+- **Immutability.** Every engine type is a frozen dataclass, hashable except `GameState` (its
+  `ownership` is a `dict`). Adjudication is a
   pure function `(map, state, orders) -> (Resolution, new_state)`. `Game` wraps the
   current state plus a tuple of past snapshots (`history`); nothing mutates in place.
 - **`Location = (province, coast|None)` everywhere.** A fleet in Spain is *at*
