@@ -146,7 +146,7 @@ def set_orders(
         }
         for r in raw
     ]
-    invalidate_cache(f"games/{req.game_id}")  # GET /state shows pending orders
+    invalidate_cache(f"games/{req.game_id}")  # harmless: /state carries no pending orders; drops the games/{id} entries
     # W10: these may have been the last orders the turn was waiting for.
     processed = api_shared.maybe_auto_process(str(req.game_id))
     return {"results": results, "auto_processed": processed}

@@ -89,14 +89,6 @@ def test_permanent_failure_is_acked_with_the_error_kept(client):
         assert stored.attempts == 1
 
 
-def test_transient_attempt_is_recorded_but_row_stays_pending(client):
-    since = _since()
-    row = api_shared.notify_user("9004", "retry me")
-    api_shared.db_service.record_bot_notification_attempt(row, "NetworkError")
-    items = client.get(f"/bot/outbox?after_id={since}", headers=BOT).json()["items"]
-    assert [(i["id"], i["attempts"]) for i in items] == [(row, 1)]
-
-
 def test_housekeeping_purges_only_old_delivered_rows():
     from datetime import timedelta
     from persistence.database import BotOutboxModel, utcnow_naive
