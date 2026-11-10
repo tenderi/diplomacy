@@ -41,7 +41,7 @@ from .games import (
     vote_deadline, withdraw_deadline, _format_proposal,
 )
 from .messages import recent_messages_text, send_diplomatic_message
-from .utils import ending_outcome, game_end_line, game_over_note
+from .utils import ending_outcome, game_end_line, game_over_note, phase_label
 from .orders import (
     orderable_units,
     Sender, adjustment_duty, my_orders_text, orderhistory_text, retreat_duty, run_process_turn, show_unit_picker, start_order_walk,
@@ -268,7 +268,7 @@ async def handle_game_callback(query: Any, context: ContextTypes.DEFAULT_TYPE, d
     elif action == "hist":
         await send(orderhistory_text(game_id), reply_markup=InlineKeyboardMarkup([_back(game_id)]), parse_mode=None)
     elif action == "map":
-        await _send_map(query, game_id)
+        await _send_map(query, game_id, power)
     elif action == "msgs":
         await _show_messages(send, user_id, game_id, power)
     elif action == "msg":
@@ -368,18 +368,25 @@ def _clear_orders(chat_id: int, user_id: str, game_id: str, power: str) -> str:
     return f"🗑 Your orders in game {game_id} for this turn have been cleared."
 
 
-async def _send_map(query: Any, game_id: str) -> None:
-    """The board as a new photo message, with buttons to act on it."""
+async def _send_map(query: Any, game_id: str, power: str) -> None:
+    """The board as a new photo message, captioned with the phase, with buttons to
+    act on it: ``📝 Enter orders`` only when ``power`` has something to order."""
     try:
         img = api_get_bytes(f"/games/{game_id}/map")
     except requests.RequestException as e:
         await query.message.reply_text(f"❌ Could not draw the map for game {game_id}: {e}")
         return
-    await query.message.reply_photo(
-        photo=BytesIO(img),
-        caption=f"🗺 Game {game_id}",
-        reply_markup=InlineKeyboardMarkup([[_btn("📝 Enter orders", game_id, "all"), _btn("🎮 Game menu", game_id, "hub")]]),
-    )
+    try:
+        legal: Optional[dict] = api_get(f"/games/{game_id}/legal_orders/{power}")
+    except requests.RequestException:
+        legal = None  # no phase to name; keep the order button, as the API may be back by the tap
+    caption = f"🗺 Game {game_id}"
+    if legal and legal.get("phase"):
+        caption += f" — {phase_label(legal['phase'])}"
+    row = [_btn("🎮 Game menu", game_id, "hub")]
+    if not legal or _order_row(game_id, legal):
+        row.insert(0, _btn("📝 Enter orders", game_id, "all"))
+    await query.message.reply_photo(photo=BytesIO(img), caption=caption, reply_markup=InlineKeyboardMarkup([row]))
 
 
 async def _show_messages(send: Sender, user_id: str, game_id: str, power: str) -> None:
